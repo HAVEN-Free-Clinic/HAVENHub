@@ -29,10 +29,18 @@ vi.mock("@/platform/posthog/capture", () => ({ captureEvent: vi.fn() }));
 vi.mock("@/platform/posthog/groups", () => ({
   activeTermGroup: vi.fn(async () => ({ term: "term-1" })),
 }));
+// Spies on the real buildOnboardingNextSteps by default (so the first two
+// tests exercise the actual content builder), overridden per-call in the
+// "content builder itself throws" test below.
+vi.mock("@/modules/recruitment/onboarding-next-steps", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/modules/recruitment/onboarding-next-steps")>();
+  return { ...actual, buildOnboardingNextSteps: vi.fn(actual.buildOnboardingNextSteps) };
+});
 
 import { submitOnboarding } from "./actions";
 import { captureEvent } from "@/platform/posthog/capture";
 import { prisma } from "@/platform/db";
+import { buildOnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -73,6 +81,32 @@ describe("submitOnboarding PostHog event", () => {
   // has already gone through.
   it("still returns ok with generic completion content when the post-submit next-steps lookup fails", async () => {
     vi.mocked(prisma.acceptance.findUnique).mockRejectedValueOnce(new Error("boom"));
+
+    const fd = new FormData();
+    fd.set("firstName", "Ada");
+    fd.set("lastName", "Lovelace");
+    fd.set("email", "ada@yale.edu");
+
+    const res = await submitOnboarding("tok", fd);
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.nextSteps.training).toBe("Plan to attend in-person training on the scheduled training date.");
+      expect(res.nextSteps.signIn.method).toBe("sso");
+    }
+  });
+
+  // Regression test for the gap a reviewer caught: an earlier version of
+  // resolveNextSteps (actions.ts) only wrapped the three lookups in a try,
+  // leaving the buildOnboardingNextSteps call itself outside it. That was
+  // harmless only because every field it reads happens to be non-optional
+  // today; this proves a throw from the content builder -- not just a DB
+  // lookup -- is caught too, rather than escaping as a false "submission
+  // failed" on a contract that already committed.
+  it("still returns ok with generic completion content when the content builder itself throws", async () => {
+    vi.mocked(buildOnboardingNextSteps).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
 
     const fd = new FormData();
     fd.set("firstName", "Ada");

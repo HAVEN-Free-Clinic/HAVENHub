@@ -25,18 +25,28 @@ export type SubmitResult =
  * between page render and this submit.
  *
  * By the time this runs, submitContract has already durably flipped the
- * contract to SUBMITTED, so a failure in these extra lookups must never
+ * contract to SUBMITTED, so a failure anywhere in this function -- the three
+ * lookups below OR building the content from their results -- must never
  * surface as a failed submission (same isolation saveCertificate uses for its
- * manager alerts: catch, log, continue). Falling back to the same "nothing
- * resolved" defaults formatTrainingDate/lookupStoredEpicId use on their own
- * null inputs keeps the completion screen truthful rather than losing it.
+ * manager alerts: catch, log, continue). The try therefore encloses the
+ * buildOnboardingNextSteps call too, not just the lookups: an earlier version
+ * left that call outside the try, which was harmless only because every
+ * field it touches happens to be non-optional today (contract.email is a
+ * required column; trainingDate/trainingLocation/storedEpicId all had
+ * defaults assigned before the call) -- a future nullable field or a throwing
+ * change to buildOnboardingNextSteps would otherwise have escaped uncaught,
+ * re-thrown past the ContractError/ContractValidationError checks in
+ * submitOnboarding, and turned an already-successful submission into
+ * "Something went wrong, please try again" on the client, with a resubmit
+ * then hitting "already submitted" -- the exact dead end this task exists to
+ * remove. The catch falls back to the same "nothing resolved" defaults
+ * formatTrainingDate/lookupStoredEpicId use on their own null inputs, so the
+ * completion screen degrades to generic-but-truthful content instead of
+ * being lost.
  */
 async function resolveNextSteps(
   contract: { acceptanceId: string; email: string; netId: string | null; epicNeeded: boolean; hasEpic: boolean },
 ): Promise<OnboardingNextSteps> {
-  let trainingDate = "the scheduled training date";
-  let trainingLocation = "";
-  let storedEpicId: string | null = null;
   try {
     const [acceptance, zone, epicId] = await Promise.all([
       prisma.acceptance.findUnique({
@@ -47,20 +57,25 @@ async function resolveNextSteps(
       lookupStoredEpicId(contract.netId, contract.email),
     ]);
     const cycle = acceptance?.application?.cycle ?? null;
-    trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
-    trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
-    storedEpicId = epicId;
+    return buildOnboardingNextSteps({
+      email: contract.email,
+      trainingDate: formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone),
+      trainingLocation: formatTrainingLocation(cycle?.trainingLocation ?? null),
+      epicNeeded: contract.epicNeeded,
+      storedEpicId: epicId,
+      hasEpic: contract.hasEpic,
+    });
   } catch (err) {
     log.error("[onboarding] failed to resolve next-steps detail; showing generic completion content", errorAttrs(err));
+    return buildOnboardingNextSteps({
+      email: contract.email,
+      trainingDate: "the scheduled training date",
+      trainingLocation: "",
+      epicNeeded: contract.epicNeeded,
+      storedEpicId: null,
+      hasEpic: contract.hasEpic,
+    });
   }
-  return buildOnboardingNextSteps({
-    email: contract.email,
-    trainingDate,
-    trainingLocation,
-    epicNeeded: contract.epicNeeded,
-    storedEpicId,
-    hasEpic: contract.hasEpic,
-  });
 }
 
 export async function submitOnboarding(token: string, formData: FormData): Promise<SubmitResult> {

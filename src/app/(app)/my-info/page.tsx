@@ -68,10 +68,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     redirect("/my-info?saved=1");
   }
 
-  async function withdrawAction() {
+  async function withdrawAction(formData: FormData) {
     "use server";
     const session = await requireModuleAccess("my-info");
-    const count = await withdrawFromTerm(session.personId);
+    const reason = (formData.get("reason") as string | null) ?? null;
+    const count = await withdrawFromTerm(session.personId, reason);
     redirect(`/my-info?withdrawn=${count}`);
   }
 

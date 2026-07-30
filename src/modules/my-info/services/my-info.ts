@@ -32,6 +32,7 @@ import { putObject } from "@/platform/storage";
 import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
 import { notifyDatelessCertReview, notifyCertNeedsVerification } from "@/platform/compliance/review-notifications";
+import { recordSelfWithdrawal } from "@/platform/offboarding/self-withdrawal";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -166,14 +167,38 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
 }
 
 /**
+ * Trim, blank-to-null, and cap a self-reported withdrawal reason.
+ *
+ * Normalized here rather than in the page action so it cannot be bypassed by a
+ * direct service call, matching how updateMyInfo whitelists fields at the service
+ * level rather than trusting the form.
+ */
+const MAX_REASON_LENGTH = 300;
+
+function normalizeReason(reason: string | null | undefined): string | null {
+  if (!reason || typeof reason !== "string") return null;
+  const trimmed = reason.trim();
+  if (trimmed === "") return null;
+  return trimmed.slice(0, MAX_REASON_LENGTH);
+}
+
+/**
  * Set the person's own ACTIVE VOLUNTEER memberships in the active term to
  * REMOVED. Returns the count of memberships withdrawn. When there are none,
  * returns 0 and does NOT write an audit row.
  *
  * DIRECTOR memberships are deliberately untouched: stepping down as a director
  * is a decision that goes through the executive directors.
+ *
+ * Removing the memberships is only half an offboard (Person.status stays ACTIVE,
+ * so Epic access and compliance reminders continue), and it makes the person
+ * disappear from the department cards on /volunteers/offboarding. So after the
+ * removal commits, recordSelfWithdrawal puts them in the offboarding queue and
+ * alerts the people who can process it. That call is best-effort: the withdrawal
+ * is already committed and audited, so a notification failure must not surface to
+ * the member as a failed action (same treatment as saveCertificate's alerts).
  */
-export async function withdrawFromTerm(personId: string): Promise<number> {
+export async function withdrawFromTerm(personId: string, reason?: string | null): Promise<number> {
   const activeTerm = await getActiveTerm();
 
   if (!activeTerm) return 0;
@@ -184,6 +209,16 @@ export async function withdrawFromTerm(personId: string): Promise<number> {
     kind: "VOLUNTEER" as const,
     status: "ACTIVE" as const,
   };
+
+  // Read the departments BEFORE the update: the offboarding alert names them, and
+  // once the rows are REMOVED there is no way to tell which ones they were.
+  const leaving = await prisma.termMembership.findMany({
+    where,
+    select: { department: { select: { code: true } } },
+  });
+  const departmentCodes = [...new Set(leaving.map((m) => m.department.code))].sort();
+
+  const cleanReason = normalizeReason(reason);
 
   // Last-admin guard (#97): dept/kind-scoped admin grants resolve through ACTIVE
   // memberships, so a self-leave can strip the last admin path exactly like an
@@ -214,8 +249,25 @@ export async function withdrawFromTerm(personId: string): Promise<number> {
     action: "my-info.withdraw",
     entityType: "Person",
     entityId: personId,
-    after: { termId: activeTerm.id, count },
+    after: { termId: activeTerm.id, count, reason: cleanReason },
   });
+
+  try {
+    const me = await prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true },
+    });
+    await recordSelfWithdrawal(
+      prisma,
+      { id: personId, name: me?.name ?? "A volunteer" },
+      { departmentCodes, reason: cleanReason },
+    );
+  } catch (err) {
+    log.error(
+      "[my-info] failed to flag and alert on self-withdrawal",
+      errorAttrs(err, { personId, termId: activeTerm.id }),
+    );
+  }
 
   return count;
 }

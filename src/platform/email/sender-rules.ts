@@ -34,6 +34,7 @@ export const SENDER_CATEGORIES: { group: TemplateGroup; label: string }[] = [
   { group: "shift", label: "Shift reminders" },
   { group: "support", label: "IT Support" },
   { group: "incidents", label: "Incident Reports" },
+  { group: "volunteers", label: "Volunteers" },
   { group: "campaign", label: "Campaigns" },
   { group: "auth", label: "Authentication" },
 ];

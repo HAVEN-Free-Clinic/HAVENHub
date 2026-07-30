@@ -176,7 +176,7 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
 const MAX_REASON_LENGTH = 300;
 
 function normalizeReason(reason: string | null | undefined): string | null {
-  if (!reason) return null;
+  if (!reason || typeof reason !== "string") return null;
   const trimmed = reason.trim();
   if (trimmed === "") return null;
   return trimmed.slice(0, MAX_REASON_LENGTH);

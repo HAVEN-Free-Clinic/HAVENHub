@@ -65,13 +65,13 @@ export function MembershipsCard({
       {/* Volunteer withdraw button, with an optional reason for the offboarding alert */}
       {hasVolunteer && (
         <form action={withdrawAction} className="mt-4">
-          <FormActions>
+          <FormActions className="flex-wrap">
             <Input
               name="reason"
               placeholder="Reason (optional)"
               aria-label="Reason for not volunteering (optional)"
               maxLength={300}
-              className="w-56"
+              className="max-w-56"
             />
             <ConfirmButton
               label="I am not volunteering this term"

@@ -27,6 +27,7 @@ import { recordAudit } from "@/platform/audit";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { selfWithdrawalContext } from "@/platform/email/templates/volunteers";
 import { log } from "@/platform/logging";
+import { OFFBOARDABLE_TERM } from "@/platform/people";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -63,16 +64,33 @@ export async function recordSelfWithdrawal(
 
   // Director guard: executeOffboard strips EVERY membership and sets
   // Person.status to OFFBOARDED, so flagging someone who still holds another role
-  // this term (typically a director who also took clinic shifts) puts a one-click
-  // path to revoking that role in front of ops. The queue means "should be fully
-  // offboarded", and they should not be. They still get the alert, worded as FYI.
+  // puts a one-click path to revoking that role in front of ops. The queue means
+  // "should be fully offboarded", and they should not be. They still get the alert,
+  // worded as FYI.
+  //
+  // The scope here must match OFFBOARDABLE_TERM (src/platform/people.ts) exactly,
+  // NOT just the active term -- do not simplify this back. executeOffboard removes
+  // ACTIVE memberships across every NON-ARCHIVED term, and this clinic runs the
+  // next term ahead of the flip, so a member can genuinely hold a PLANNING-term
+  // membership (e.g. an incoming director) before activation. Scoping this count
+  // to termId: activeTerm.id alone would miss that population: they'd read as
+  // remaining === 0, get flagged, and one ops click on the resulting row would wipe
+  // their real next-term membership and flip Person.status to OFFBOARDED -- exactly
+  // the hazard this guard exists to prevent.
   const remaining = await db.termMembership.count({
-    where: { personId: member.id, termId: activeTerm.id, status: "ACTIVE" },
+    where: { personId: member.id, status: "ACTIVE", ...OFFBOARDABLE_TERM },
   });
   const stillActive = remaining > 0;
 
   const departments = detail.departmentCodes.join(", ");
 
+  // Edge case, accepted: when a director already flagged this person before this
+  // self-withdrawal call, and they are stillActive (keeping another role), we skip
+  // ensureSelfFlag here -- but the earlier flag is already sitting in the queue. The
+  // email below still says "have not been added to the offboarding queue" in that
+  // case, which is then inaccurate. Fixing it needs a new template variable (e.g.
+  // "alreadyFlagged") threaded through selfWithdrawalContext, which is more blast
+  // radius than this rare double-flag scenario is worth.
   if (!stillActive) {
     await ensureSelfFlag(db, member.id, activeTerm.id, departments, detail.reason);
   }
@@ -99,9 +117,17 @@ export async function recordSelfWithdrawal(
     }),
   );
 
-  const summary = stillActive
-    ? `${member.name} withdrew from ${departments} but still holds another active role, so they were not added to the offboarding queue.`
-    : `${member.name} withdrew from ${departments} and is now flagged in the offboarding queue.`;
+  // The reason must reach this summary, not just the email HTML and the flag note:
+  // summary drives both the Teams card and the in-app inbox body (notify() passes
+  // teams.summary into createNotification), and an admin can route this
+  // notification type to "teams" alone with one setting -- if the reason lived only
+  // in the email, it would never reach that reader.
+  const reasonSuffix = detail.reason ? ` Reason: "${detail.reason}"` : "";
+  const summary =
+    (stillActive
+      ? `${member.name} withdrew from ${departments} but still holds another active role, so they were not added to the offboarding queue.`
+      : `${member.name} withdrew from ${departments} and is now flagged in the offboarding queue.`) +
+    reasonSuffix;
 
   for (const recipient of recipients) {
     await notify(db, {

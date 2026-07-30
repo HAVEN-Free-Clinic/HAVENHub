@@ -84,7 +84,22 @@ describe("recordSelfWithdrawal", () => {
     expect(notes.map((n) => n.personId).sort()).toEqual([m1.id, m2.id].sort());
     for (const note of notes) {
       expect(note.body).toContain("Jane Doe");
+      // The reason must reach the Teams/inbox summary, not just the email HTML and
+      // the flag note: an admin can route this notification type to "teams" alone,
+      // and the in-app inbox body is this same summary (finding 3).
+      expect(note.body).toContain('Reason: "Graduating in May."');
       expect(note.link).toMatch(/\/volunteers\/offboarding$/);
+    }
+
+    // The queued email is pinned too (finding 6): template key and a subject that
+    // names the withdrawing member, so an admin routing this to "email" gets a
+    // recognizable message.
+    const emailLogs = await prisma.emailLog.findMany({
+      where: { template: "volunteers.self_withdrawal" },
+    });
+    expect(emailLogs.length).toBe(2);
+    for (const emailLog of emailLogs) {
+      expect(emailLog.subject).toContain("Jane Doe");
     }
   });
 
@@ -153,6 +168,58 @@ describe("recordSelfWithdrawal", () => {
     });
     expect(flag!.flaggedById).toBe(director.id);
     expect(flag!.note).toBe("Raised by their director.");
+
+    // Not just the row: ensureSelfFlag must return before create() when a flag
+    // already exists, so no second "offboard.flag" audit row is written either
+    // (finding 7).
+    const auditRows = await prisma.auditLog.findMany({ where: { action: "offboard.flag" } });
+    expect(auditRows).toHaveLength(0);
+  });
+
+  it("does NOT flag a member whose only surviving ACTIVE membership is in a PLANNING term, but still notifies", async () => {
+    // executeOffboard strips ACTIVE memberships across every NON-ARCHIVED term
+    // (OFFBOARDABLE_TERM in platform/people.ts), not just the active one, because
+    // this clinic runs the next term ahead of the flip. A member can hold a genuine
+    // PLANNING-term role before activation; scoping the director guard to the
+    // active term alone would miss them and let ops wipe that role with one click.
+    const activeTerm = await createActiveTerm();
+    const planningTerm = await prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        startDate: new Date("2026-09-01"),
+        endDate: new Date("2026-12-31"),
+        status: "PLANNING",
+      },
+    });
+    const dept = await createDepartment("SRR");
+    await createOffboardingManager("Olive Ops", "olive@x.org");
+    const member = await prisma.person.create({ data: { name: "Dana Director" } });
+    // A next-term directorship that genuinely exists before the flip.
+    await prisma.termMembership.create({
+      data: {
+        personId: member.id,
+        termId: planningTerm.id,
+        departmentId: dept.id,
+        kind: "DIRECTOR",
+        status: "ACTIVE",
+      },
+    });
+
+    const count = await recordSelfWithdrawal(
+      prisma,
+      { id: member.id, name: member.name! },
+      { departmentCodes: ["MED"], reason: null },
+    );
+
+    expect(count).toBe(1);
+    const flag = await prisma.offboardFlag.findUnique({
+      where: { personId_termId: { personId: member.id, termId: activeTerm.id } },
+    });
+    expect(flag).toBeNull();
+
+    const note = await prisma.notification.findFirst({ where: { type: "volunteers.self_withdrawal" } });
+    expect(note!.body).toContain("still");
   });
 
   it("returns 0 and writes nothing when there is no active term", async () => {

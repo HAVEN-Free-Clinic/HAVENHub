@@ -6,13 +6,14 @@
  * handles this at process.env level before any module is loaded.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { config } from "@/platform/config";
 import { LastAdminError } from "@/platform/rbac/last-admin";
+import { recordSelfWithdrawal } from "@/platform/offboarding/self-withdrawal";
 import {
   getMyInfo,
   updateMyInfo,
@@ -22,6 +23,14 @@ import {
   parseCertificateUpload,
   CertificateValidationError,
 } from "./my-info";
+
+// Partial mock: keeps the real recordSelfWithdrawal by default (other tests below
+// assert real flag/notification rows) but lets a single test force it to reject,
+// to exercise withdrawFromTerm's best-effort try/catch (finding 2).
+vi.mock("@/platform/offboarding/self-withdrawal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/offboarding/self-withdrawal")>();
+  return { ...actual, recordSelfWithdrawal: vi.fn(actual.recordSelfWithdrawal) };
+});
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -412,6 +421,31 @@ describe("withdrawFromTerm", () => {
     expect(count).toBe(1);
     expect((await prisma.termMembership.findUnique({ where: { id: volunteerRow.id } }))?.status).toBe("REMOVED");
     expect(await prisma.offboardFlag.findMany()).toEqual([]);
+  });
+
+  it("does not fail the withdrawal, and the removal stays committed, when recordSelfWithdrawal throws", async () => {
+    const person = await createPerson({ name: "Jane Doe" });
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("MED");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    vi.mocked(recordSelfWithdrawal).mockRejectedValueOnce(new Error("Graph is down"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let count: number;
+    try {
+      count = await withdrawFromTerm(person.id, "Graduating in May.");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+
+    // The withdrawal itself must succeed: it already committed and was audited
+    // before the best-effort notification step ran.
+    expect(count).toBe(1);
+    const memberships = await prisma.termMembership.findMany({
+      where: { personId: person.id, termId: term.id },
+    });
+    expect(memberships.every((m) => m.status === "REMOVED")).toBe(true);
   });
 });
 

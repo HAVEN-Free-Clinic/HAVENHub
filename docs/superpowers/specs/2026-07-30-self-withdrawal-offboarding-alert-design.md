@@ -142,11 +142,18 @@ The settings registry derives a channel-picker setting per notification type fro
 `NOTIFICATION_TYPES`, so the admin toggle at `/admin/notifications` appears without
 further work.
 
-Template context variables: `recipientName`, `memberName`, `departments` (a
-precomputed comma-joined string, since the render engine has no `{{#each}}`),
-`reason`, `hasReason`, `stillActive`, `reviewLink`. Body copy branches on
-`stillActive`: either "they are flagged for offboarding, review the queue" or "they
-remain active in another role, no offboarding needed".
+Template context variables: `memberName`, `departments` (a precomputed
+comma-joined string, since the render engine has no `{{#each}}`), `reason`,
+`hasReason`, `stillActive`, `reviewLink`. Body copy branches on `stillActive`:
+either "they are flagged for offboarding, review the queue" or "they remain
+active in another role, no offboarding needed".
+
+Deliberately no `recipientName`: the email is rendered once with `renderEmail`
+outside the per-recipient `notify()` loop and the same rendered subject/html is
+reused for every recipient. Rendering per recipient to greet each one by name
+would cost N template renders plus N extra DB round trips (the template
+override lookup and the brand color setting) for a notification whose audience
+is a handful of offboarding managers, not worth it for a greeting line.
 
 ## Testing
 

@@ -1,5 +1,5 @@
 import type { AirtableRecord } from "../client";
-import { ALL_PEOPLE_FIELDS, SU26_ROSTER_FIELDS } from "../fields";
+import { ALL_PEOPLE_FIELDS, SU26_ROSTER_FIELDS, type RosterFieldIds } from "../fields";
 
 export type PersonImport = {
   airtableRecordId: string;
@@ -48,19 +48,27 @@ export function transformPeople(records: AirtableRecord[]): PersonImport[] {
   return out;
 }
 
-export function transformRoster(records: AirtableRecord[]): RosterImport {
+/**
+ * Roster rows -> departments + membership links. `fields` defaults to the SU 26
+ * roster's ids so existing callers are unchanged; the historical-term import
+ * passes the ids of whichever term's roster table it is reading.
+ */
+export function transformRoster(
+  records: AirtableRecord[],
+  fields: RosterFieldIds = SU26_ROSTER_FIELDS,
+): RosterImport {
   const departments: RosterImport["departments"] = [];
   const memberships: RosterImport["memberships"] = [];
   for (const record of records) {
-    const code = str(record.fields[SU26_ROSTER_FIELDS.departmentName]);
+    const code = str(record.fields[fields.departmentName]);
     if (!code) continue;
     departments.push({ code, name: code });
     const links = (key: string): string[] =>
       Array.isArray(record.fields[key]) ? (record.fields[key] as string[]) : [];
-    for (const personRecordId of links(SU26_ROSTER_FIELDS.directors)) {
+    for (const personRecordId of links(fields.directors)) {
       memberships.push({ departmentCode: code, personRecordId, kind: "DIRECTOR" });
     }
-    for (const personRecordId of links(SU26_ROSTER_FIELDS.volunteers)) {
+    for (const personRecordId of links(fields.volunteers)) {
       memberships.push({ departmentCode: code, personRecordId, kind: "VOLUNTEER" });
     }
   }

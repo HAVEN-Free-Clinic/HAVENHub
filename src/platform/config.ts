@@ -23,6 +23,7 @@ const schema = z
     HAVEN_MGMT_BASE_ID: z.string().default("appkxTQ19GmaHgW1O"),
     ALL_PEOPLE_TABLE_ID: z.string().default("tblnHgBpknuqWvx9c"),
     SU26_ROSTER_TABLE_ID: z.string().default("tbl2VrP1uqwFt7QNQ"),
+    SP26_ROSTER_TABLE_ID: z.string().default("tblv6XWgQNJ46cf6N"),
     SU26_SCHEDULE_TABLE_ID: z.string().default("tblqJlM85Em0AA767"),
     RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
     RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),

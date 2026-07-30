@@ -120,6 +120,26 @@ describe("buildOnboardingNextSteps", () => {
     expect(steps.review).toBe("A recruitment lead will review your submission and add you to the roster.");
   });
 
+  it("defaults the review line to future tense when reviewed is omitted", () => {
+    const steps = buildOnboardingNextSteps(BASE);
+    expect(steps.review).toBe("A recruitment lead will review your submission and add you to the roster.");
+  });
+
+  it("keeps the review line in future tense when reviewed is explicitly false", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, reviewed: false });
+    expect(steps.review).toBe("A recruitment lead will review your submission and add you to the roster.");
+  });
+
+  // PROMOTED contracts pass reviewed: true (onboard/[token]/page.tsx), because
+  // promoteContracts IS the review-and-roster-add action (promotion.ts:191-213).
+  // Telling an already-accepted, already-scheduled volunteer that a lead
+  // "will" still review them is the exact confusion this content module
+  // exists to remove, so the past-tense variant must be a real, distinct string.
+  it("switches the review line to past tense when reviewed is true", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, reviewed: true });
+    expect(steps.review).toBe("A recruitment lead has reviewed your submission and added you to the roster.");
+  });
+
   it("always returns the sign-in path", () => {
     const steps = buildOnboardingNextSteps(BASE);
     expect(steps.loginPath).toBe("/login");

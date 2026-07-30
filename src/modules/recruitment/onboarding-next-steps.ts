@@ -46,6 +46,8 @@ export type OnboardingNextSteps = {
    *  needing it, or (see hasEpic below) their existing account already
    *  covers it. */
   epic: string | null;
+  /** Future tense ("will review... and add") unless the input's `reviewed`
+   *  flag is set, in which case past tense ("has reviewed... and added"). */
   review: string;
 };
 
@@ -88,6 +90,20 @@ export type OnboardingNextStepsInput = {
    * shows the checkbox).
    */
   hasEpic: boolean;
+  /**
+   * Whether a recruitment lead has already reviewed this submission and added
+   * the volunteer to the roster -- i.e. OnboardingContract.status ===
+   * "PROMOTED". promoteContracts IS that review-and-roster-add action (it
+   * requires recruitment.review_all and does the TermMembership work at
+   * promotion.ts:191-213), so once a contract is PROMOTED the review line
+   * must read in the past tense: telling an already-accepted, already-
+   * scheduled volunteer that a lead "will" still review them is the same
+   * confusion this content module exists to remove. Optional and defaulting
+   * to false so existing callers (the completion screen and the submit-time
+   * email, both of which only ever see a freshly-SUBMITTED contract that
+   * cannot yet be PROMOTED) do not need to pass it.
+   */
+  reviewed?: boolean;
 };
 
 function isYaleEmail(email: string): boolean {
@@ -115,7 +131,13 @@ export function buildOnboardingNextSteps(input: OnboardingNextStepsInput): Onboa
     epic = "The IT team will set up your Epic account and email you sign-in instructions once it is ready.";
   }
 
-  const review = "A recruitment lead will review your submission and add you to the roster.";
+  // Same fact, conjugated for whether it has already happened (PROMOTED) or
+  // is still pending (SUBMITTED). Not a new claim: promoteContracts is the
+  // review-and-roster-add, so "reviewed" states only what the system already
+  // did.
+  const review = input.reviewed
+    ? "A recruitment lead has reviewed your submission and added you to the roster."
+    : "A recruitment lead will review your submission and add you to the roster.";
 
   return { loginPath: "/login", signIn, training, epic, review };
 }

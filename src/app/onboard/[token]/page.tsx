@@ -46,15 +46,19 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // next-steps content the completion screen shows (onboard-form.tsx), resolved
   // fresh from the live row rather than anything cached from submit time.
   //
-  // No PROMOTED-specific copy: the sign-in line stays true either way (SSO is
-  // unconditional; the non-Yale magic-link line describes the only sign-in
-  // mechanism that exists, and is if anything MORE reliably true once promoted,
-  // since promotion guarantees a Person row for lookupStoredEpicId/requestMemberLoginLink
+  // Sign-in and Epic need no PROMOTED-specific copy: the sign-in line stays
+  // true either way (SSO is unconditional; the non-Yale magic-link line
+  // describes the only sign-in mechanism that exists, and is if anything MORE
+  // reliably true once promoted, since promotion guarantees a Person row for
+  // lookupStoredEpicId/requestMemberLoginLink (member-magic-link.ts:153-156)
   // to match against). The Epic line self-corrects because storedEpicId is
   // looked up live here: if promotion adopted a self-reported existingEpicId
   // onto the new Person (promotion.ts's effectiveEpicId), lookupStoredEpicId
   // now finds it and buildOnboardingNextSteps switches to the "already on file"
-  // branch on its own, with no extra branching needed.
+  // branch on its own, with no extra branching needed. The review line DOES
+  // need PROMOTED-specific copy: promoteContracts is the review-and-roster-add
+  // action, so it must read in the past tense once that has happened (the
+  // `reviewed` input below).
   if (contract.status !== "PENDING") {
     const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
     const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
@@ -66,6 +70,10 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       epicNeeded: contract.epicNeeded,
       storedEpicId,
       hasEpic: contract.hasEpic,
+      // PROMOTED means promoteContracts already did the review and the
+      // roster add; the review line must say so in the past tense rather
+      // than promise it as still pending.
+      reviewed: contract.status === "PROMOTED",
     });
     return (
       <main className="mx-auto max-w-2xl px-6 py-10">

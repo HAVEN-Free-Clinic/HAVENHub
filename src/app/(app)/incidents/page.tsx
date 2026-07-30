@@ -144,12 +144,20 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
             <Textarea name="patientImpactDetail" rows={2} />
           </Field>
 
-          {/* Section 6: immediate risk */}
+          {/* Section 6: immediate risk. Neither option is pre-checked: this flag
+              chooses between "flagged as an immediate risk" and plain "submitted"
+              in the reviewer email and Teams card (report.ts), so a reporter who
+              never reaches this below-the-fold question must answer it rather
+              than silently submitting the de-escalating default. `required` on
+              the radios (native HTML: any radio in a named group carrying it
+              makes the whole group required) blocks the submit and moves focus
+              here in-browser, so a report with several paragraphs already
+              written is never discarded by a validation round-trip. */}
           <fieldset>
             <legend className="mb-2 text-sm font-medium">6. Does this present an ongoing risk right now?</legend>
             <RadioGroup>
-              <Radio name="immediateRisk" value="yes" label="Yes - needs urgent attention" />
-              <Radio name="immediateRisk" value="no" defaultChecked label="No - resolved or not time-sensitive" />
+              <Radio name="immediateRisk" value="yes" label="Yes - needs urgent attention" required />
+              <Radio name="immediateRisk" value="no" label="No - resolved or not time-sensitive" required />
             </RadioGroup>
           </fieldset>
 

@@ -199,6 +199,34 @@ function setVectorCheckOnWidget(pdfDoc: PDFDocument, widget: PDFDict) {
   widget.set(PDFName.of("V"), onValue);
 }
 
+/**
+ * The "Role" / "Job Title/ Position" cell for a person's row in the bulk Epic
+ * spreadsheet.
+ *
+ * The bulk XLSX is the multi-person sibling of the single-person PDF, so this
+ * mirrors that form's Section IV split, branch for branch: both YSM tracks are
+ * YNHH's own "Med Student"; any other Yale school is a student of that school;
+ * staff, other-Yale, and non-affiliates are written as a plain job title with
+ * no student marker.
+ *
+ * The stored value is normalized first, so a legacy string routes the same as a
+ * canonical key and this stays correct whether or not the affiliation backfill
+ * has run. An unrecognized value is still labeled a student, matching
+ * isStudentAffiliation's fail-open default.
+ *
+ * A blank or unknown affiliation yields "", deliberately: the PDF checks no
+ * affiliation row at all in that case, and a blank cell is honest where the
+ * previous hardcoded "Yale College (Student)" asserted something false about
+ * every person in the batch.
+ */
+export function epicPositionLabel(yaleAffiliation: string | null | undefined): string {
+  const affiliation = normalizeAffiliation(yaleAffiliation) ?? "";
+  if (!affiliation) return "";
+  if (isMedicalSchoolAffiliation(affiliation)) return "Med Student";
+  const label = affiliationLabel(affiliation);
+  return isStudentAffiliation(affiliation) ? `${label} (Student)` : label;
+}
+
 export async function generatePdf(args: {
   requestType: RequestType;
   authorizer: Authorizer;
@@ -262,6 +290,8 @@ export async function generatePdf(args: {
   checkBox(form, "Check Box40");
 
   if (!isBulk) {
+    // Bulk requests carry no single person: their per-row equivalent of this
+    // block is epicPositionLabel below, written into the spreadsheet.
     // Routed off the canonical vocabulary rather than by matching label text.
     // The stored value is normalized first because the backfill that would
     // convert existing rows to canonical keys is not part of this change, so

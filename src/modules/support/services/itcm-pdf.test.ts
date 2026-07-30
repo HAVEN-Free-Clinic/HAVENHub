@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { decodePDFRawStream, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { generatePdf } from "./itcm-pdf";
+import { epicPositionLabel, generatePdf } from "./itcm-pdf";
 
 const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
 const templateBytes = new Uint8Array(fs.readFileSync(templatePath));
@@ -267,5 +267,47 @@ describe("Section IV affiliation routing", () => {
     for (const box of ["Check Box45", "Check Box48", "Check Box21"]) {
       expect(form.getCheckBox(box).isChecked(), box).toBe(false);
     }
+  });
+});
+
+describe("epicPositionLabel (bulk spreadsheet Role / Job Title cell)", () => {
+  it("labels both YSM tracks with YNHH's own Med Student wording", () => {
+    expect(epicPositionLabel("ysm_md")).toBe("Med Student");
+    expect(epicPositionLabel("ysm_pa")).toBe("Med Student");
+  });
+
+  it("labels every other Yale school as a student of that school", () => {
+    expect(epicPositionLabel("ysn")).toBe("Yale School of Nursing (YSN) (Student)");
+    expect(epicPositionLabel("yale_college")).toBe("Yale College (Student)");
+    expect(epicPositionLabel("ysph")).toBe("Yale School of Public Health (YSPH) (Student)");
+  });
+
+  it("writes a non-student affiliation as a plain job title, with no student marker", () => {
+    expect(epicPositionLabel("staff")).toBe("Yale Staff");
+    expect(epicPositionLabel("other_yale")).toBe("Other Yale Affiliation");
+    expect(epicPositionLabel("non_yale")).toBe("I am NOT a Yale Affiliate");
+  });
+
+  it("normalizes a legacy stored value so it routes like a canonical key", () => {
+    // The backfill has not run, so most rows still hold one of these.
+    expect(epicPositionLabel("Yale School of Medicine")).toBe("Med Student");
+    expect(epicPositionLabel("Physician Associate Program")).toBe("Med Student");
+    expect(epicPositionLabel("Yale Staff")).toBe("Yale Staff");
+    expect(epicPositionLabel("  graduate school  ")).toBe(
+      "Yale Graduate School of Arts and Sciences (GSAS) (Student)"
+    );
+  });
+
+  it("passes an unrecognized affiliation through as a student rather than dropping it", () => {
+    expect(epicPositionLabel("Visiting Scholar")).toBe("Visiting Scholar (Student)");
+  });
+
+  it("returns an empty cell for a blank or missing affiliation, never a fabricated one", () => {
+    // The previous hardcoded "Yale College (Student)" asserted this about
+    // everyone in the batch; a blank cell is honest where the data is absent.
+    expect(epicPositionLabel(null)).toBe("");
+    expect(epicPositionLabel(undefined)).toBe("");
+    expect(epicPositionLabel("")).toBe("");
+    expect(epicPositionLabel("   ")).toBe("");
   });
 });

@@ -13,8 +13,7 @@ import type { RhdClinic, Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
-import { formatForDateInput } from "@/platform/dates/format";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { displayTodayKey } from "@/platform/dates/today";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -758,10 +757,10 @@ export async function builderView(
   // The current week's clinic Saturday: the first clinic date on or after today
   // (clinic dates are weekly Saturdays). Used as a fixed wayfinding highlight in
   // the grid view, independent of which date is selected for editing.
-  // "Today" is the display-zone (ET) calendar day: a raw isoDateKey(new Date())
-  // is a UTC day key that rolls over at ~8pm ET, so for the last few hours of a
-  // clinic day it would highlight next week instead of today.
-  const nowKey = formatForDateInput(now, await getDisplayTimeZone());
+  // displayTodayKey resolves "today" as the display-zone (ET) calendar day; a
+  // raw isoDateKey(new Date()) would roll over at ~8pm ET and, for the last few
+  // hours of a clinic day, highlight next week instead of today.
+  const nowKey = await displayTodayKey(now);
   const currentClinicDate =
     clinicDates.find((d) => isoDateKey(d) >= nowKey) ?? null;
   const currentClinicDateKey = currentClinicDate ? isoDateKey(currentClinicDate) : null;

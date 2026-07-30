@@ -25,6 +25,13 @@ type PendingRequestsProps = {
   rows: RequestRow[];
   approveAction: (fd: FormData) => Promise<void>;
   denyAction: (fd: FormData) => Promise<void>;
+  /**
+   * The display-zone "today" key (YYYY-MM-DD), used to mark requests whose
+   * clinic date has already passed. displayTodayKey() is async and reads the
+   * settings-resolved timezone (Prisma), so it can't be called from here --
+   * the caller resolves it once and passes it down.
+   */
+  todayKey: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -35,6 +42,7 @@ export function PendingRequests({
   rows,
   approveAction,
   denyAction,
+  todayKey,
 }: PendingRequestsProps) {
   const pendingRows = rows.filter((r) => r.request.status === "PENDING");
   const decidedRows = rows.filter((r) => r.request.status !== "PENDING");
@@ -65,13 +73,23 @@ export function PendingRequests({
 
       {/* Pending rows with approve/deny actions */}
       {pendingRows.map(({ request, requesterName, targetName }) => {
-        const requesterDateLabel = displayDate(isoDateKey(request.requesterDate));
+        const requesterDateKey = isoDateKey(request.requesterDate);
+        const targetDateKey = request.targetDate ? isoDateKey(request.targetDate) : undefined;
+        const requesterDateLabel = displayDate(requesterDateKey);
+
+        // Mirrors approveRequest's own guard (requests.ts): >= today, so a
+        // same-day request is still approvable. A stale request would be
+        // refused server-side, so Approve is disabled here rather than left
+        // to error; Deny is the only disposition left for it.
+        const isStale =
+          requesterDateKey < todayKey ||
+          (targetDateKey !== undefined && targetDateKey < todayKey);
 
         const typeLabel =
           request.targetId == null
             ? "Drop"
             : `Swap with ${targetName ?? "unknown"} on ${
-                request.targetDate ? displayDate(isoDateKey(request.targetDate)) : "?"
+                request.targetDate ? displayDate(targetDateKey!) : "?"
               }`;
 
         return (
@@ -91,16 +109,24 @@ export function PendingRequests({
                   <span className="text-xs text-muted-foreground italic">{request.note}</span>
                 )}
               </div>
+              {isStale && <Badge tone="critical">Date passed</Badge>}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Approve */}
+              {/* Approve -- disabled once the clinic date has passed; the
+                  server refuses it anyway (approveRequest's past-date guard). */}
               <form action={approveAction}>
                 <input type="hidden" name="requestId" value={request.id} />
-                <ConfirmButton label="Approve" confirmLabel="Approve this request?" />
+                <ConfirmButton
+                  label="Approve"
+                  confirmLabel="Approve this request?"
+                  disabled={isStale}
+                  title={isStale ? "This clinic date has passed. Deny instead." : undefined}
+                />
               </form>
 
-              {/* Deny (with optional note) */}
+              {/* Deny (with optional note) -- always available; it's the only
+                  disposition left once a request has gone stale. */}
               <form action={denyAction} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="requestId" value={request.id} />
                 <Input

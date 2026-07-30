@@ -14,7 +14,7 @@
 - Source findings: PR #474, items **R5** (F-06-11), **R6** (F-06-1), **R20** (F-06-2), **R62** (F-09-2).
 - **No em-dashes anywhere, in prose or code.** CI enforces this via the `local/no-em-dash` eslint rule.
 - **`correctValue` must never reach the client.** It is the answer key. Count it, compare against it, derive verdicts from it, but never put it in a prop, a server-action return value, or a serialized payload.
-- **Tasks 1 and 2 are one shippable unit and Task 2 must not be skipped or deferred.** Task 1 removes `correctByKey`; Task 2 is the only consumer that stops reading it. Splitting them across a merge boundary reintroduces the leak.
+- **The payload change and the review-screen change are one task on purpose.** Removing `correctByKey` and rewriting its only consumer cannot be reviewed apart: a reviewer cannot approve half of it, and the intermediate state does not typecheck. Do not split them.
 - Lint with `npx eslint src e2e`. Plain `npm run lint` walks a gitignored design-system directory and produces noise. Run `npm run typecheck` before each commit.
 - Tests need a database. `TEST_DATABASE_URL` points at a throwaway Postgres on :5434, never Neon. If Prisma reports drift or a stale client, that is an environment problem, not your change.
 - `main` carries pre-existing storage and blob-cleanup test flakes. They are not yours. A failure in a file you touched **is** yours, even if it looks unrelated.
@@ -31,15 +31,18 @@
 
 ---
 
-### Task 1: The verdict payload replaces the answer key
+### Task 1: Stop revealing the answer key, and keep what the learner got right
 
 **Files:**
 - Modify: `src/modules/recruitment/services/training.ts:20-30` (the `QuizSubmission` type) and `:339-342` (the return)
 - Modify: `src/app/(app)/training/actions.ts:12-22` and `:41-48`
+- Modify: `src/app/(app)/training/training-quiz.tsx`
 - Test: `src/modules/recruitment/services/training.test.ts`
 
 **Interfaces:**
-- Produces: `QuizSubmission.verdictByKey: Record<string, "correct" | "wrong">`, replacing `correctByKey: Record<string, string>`. Task 2 is its only consumer. `QuizActionResult`'s `graded` variant carries the same field with the same name and type.
+- Produces: `QuizSubmission.verdictByKey: Record<string, "correct" | "wrong">`, replacing `correctByKey: Record<string, string>`. `QuizActionResult`'s `graded` variant carries the same field with the same name and type.
+
+R5 and R20 both land here. The server stops returning the answer key, and the review screen and retry path are its only consumers, so all three move together. Commit in two steps if you like, but **the task is complete only when typecheck passes**; the intermediate state after the payload change alone does not compile.
 
 - [ ] **Step 1: Change the type and the return**
 
@@ -71,7 +74,7 @@ Note `input.answers[q.key] === q.correctValue` mirrors `gradeQuiz`'s own compari
 
 In `actions.ts`, replace `correctByKey` on the `"graded"` variant of `QuizActionResult` with the same `verdictByKey` field and type, and update the return at `:47`. Update the field's doc comment.
 
-**Do not add a compatibility shim.** No `correctByKey` alongside the new field, no optional field. A type error in Task 2's file is the desired outcome of this step.
+**Do not add a compatibility shim.** No `correctByKey` alongside the new field, no optional field. After this step typecheck fails at exactly one site, `training-quiz.tsx:186`, which Step 5 rewrites. If it fails anywhere else, stop and report that instead of fixing it silently.
 
 - [ ] **Step 3: Update the existing test and add the ungraded case**
 
@@ -101,33 +104,7 @@ Add a test that the returned object carries no correct-answer values at all:
 
 Assert on the serialized shape (`JSON.stringify` the result and check the known correct values do not appear), not just on the absence of a property name. A future field could reintroduce the leak under a different name, and a property-name check would not catch it.
 
-- [ ] **Step 5: Run and commit**
-
-```bash
-npx vitest run src/modules/recruitment/services/training.test.ts
-npx eslint src && npm run typecheck
-```
-
-`npm run typecheck` **will fail** at `training-quiz.tsx:186`, which still reads `correctByKey`. That is expected and Task 2 fixes it. Commit anyway so the payload change is its own reviewable commit, and say in your report that typecheck fails at exactly that one site and nowhere else. **If it fails anywhere else, report that instead of fixing it silently.**
-
-```bash
-git add -A src
-git commit -m "fix(training): return per-question verdicts instead of the quiz answer key"
-```
-
----
-
-### Task 2: The review screen stops revealing answers, and retry keeps what was right
-
-**Files:**
-- Modify: `src/app/(app)/training/training-quiz.tsx`
-
-**Interfaces:**
-- Consumes: `QuizActionResult`'s `verdictByKey: Record<string, "correct" | "wrong">` from Task 1.
-
-This task closes the leak Task 1 opened a hole for. Both R5 and R20 land here.
-
-- [ ] **Step 1: Mark only the learner's own selection**
+- [ ] **Step 5: Mark only the learner's own selection**
 
 At `:184-205`, the current logic is:
 
@@ -150,7 +127,7 @@ An option the learner did not pick is now never marked, and a question with no v
 
 Change the wrong-answer label at `:202` from `Your answer` to `Not correct`. Leave the correct label as `Correct`. `optionClass`, `dotClass`, and `dotFillClass` keep their signatures; only the meaning of `isCorrect` changes, from "this is the key" to "your pick was right".
 
-- [ ] **Step 2: Keep the correct answers on retry**
+- [ ] **Step 6: Keep the correct answers on retry**
 
 `tryAgain` at `:89-93` calls `setAnswers({})`. Replace it so it clears only the wrong ones:
 
@@ -172,7 +149,7 @@ function tryAgain() {
 
 `answeredCount` at `:50` is derived from `answers`, so the progress bar, the "N of N answered" counter, and Submit's disabled state all follow with no further change. Confirm that when you verify.
 
-- [ ] **Step 3: Land focus on the first question they have to redo**
+- [ ] **Step 7: Land focus on the first question they have to redo**
 
 Today the same click leaves the window near the bottom of a long page with focus on `<body>`. Add:
 
@@ -196,7 +173,7 @@ Give the `<fieldset>` at `:176` `ref={(el) => { fieldsetRefs.current[q.key] = el
 
 Handle `retryFocusKey === null` cleanly: it means nothing was wrong, which the pass path already covers, so simply do nothing.
 
-- [ ] **Step 4: Verify in a browser**
+- [ ] **Step 8: Verify in a browser**
 
 Environment: `.env.local` does not exist in this worktree. Copy it from `/Users/jcarney/Documents/Code-Projects/HAVENHub/.claude/worktrees/fix+hipaa-verification-wait/.env.local`, which was confirmed present when this plan was written. It is gitignored; never commit it.
 
@@ -206,22 +183,23 @@ Reaching this screen needs a member with a required track, a designated training
 
 What to confirm if you get there: a failed attempt marks only your own selections, a question you got right stays filled in after Try again, and Try again lands you on the first question you have to redo.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Run, verify green, and commit**
 
 ```bash
+npx vitest run src/modules/recruitment/services/training.test.ts
 npx eslint src && npm run typecheck
 ```
 
-Typecheck must now pass. If it does not, Task 1 and Task 2 together are incomplete; do not commit a half-migrated payload.
+**Typecheck must pass before you commit.** If it does not, the payload migration is half done; finish it rather than committing a broken tree.
 
 ```bash
 git add -A src
-git commit -m "fix(training): stop showing the answer key on a failed attempt and keep correct answers on retry"
+git commit -m "fix(training): stop revealing the quiz answer key and keep correct answers on retry"
 ```
 
 ---
 
-### Task 3: A quiz with no answer keys never reaches a volunteer
+### Task 2: A quiz with no answer keys never reaches a volunteer
 
 **Files:**
 - Create: `src/platform/quiz/graded.ts`
@@ -369,7 +347,7 @@ git commit -m "fix(training): refuse to run a quiz with no answer keys"
 
 ---
 
-### Task 4: Tell the director where the quiz questions live
+### Task 3: Tell the director where the quiz questions live
 
 **Files:**
 - Modify: `src/app/(app)/recruitment/cycles/[id]/page.tsx:204-249`
@@ -408,7 +386,7 @@ git commit -m "feat(recruitment): show the keyed question count on the cycle tra
 
 ---
 
-### Task 5: Whole-branch check
+### Task 4: Whole-branch check
 
 **Files:** none, unless something is found.
 
@@ -440,14 +418,14 @@ npx eslint src e2e && npm run typecheck
 
 ## Self-review notes
 
-**Spec coverage.** Spec section 1 (never return the answer key) is Task 1 plus Task 2 Step 1. Section 2 (keep correct answers on retry) is Task 2 Steps 2 and 3. Section 3 (refuse an unpassable quiz, both sides) is Task 3. Section 4 (tell the director where questions live) is Task 4. The spec's testing list is distributed across Tasks 1, 3, and 5, with the "`correctValue` never reaches the client" requirement appearing twice on purpose: as an assertion in Task 1 Step 4 and as a tree-wide grep in Task 5 Step 1.
+**Spec coverage.** Spec section 1 (never return the answer key) is Task 1 Steps 1 to 5. Section 2 (keep correct answers on retry) is Task 1 Steps 6 and 7. Section 3 (refuse an unpassable quiz, both sides) is Task 2. Section 4 (tell the director where questions live) is Task 3. The spec's testing list is distributed across Tasks 1, 2, and 4, with the "`correctValue` never reaches the client" requirement appearing twice on purpose: as an assertion in Task 1 Step 4 and as a tree-wide grep in Task 4 Step 1.
 
-**Ordering.** Tasks 1 and 2 are a unit and are ordered first, since Task 1 deliberately leaves typecheck broken at one known site. Task 3 is independent of both. Task 4 depends on Task 3 only for the shared predicate. Task 5 is the sweep.
+**Ordering.** Task 1 is first because it is the security-relevant change. Task 2 is independent of it. Task 3 depends on Task 2 only for the shared predicate. Task 4 is the sweep.
 
-**The known-broken intermediate state is deliberate and bounded.** Task 1 Step 5 names the exact file and line where typecheck will fail and instructs the implementer to report any other failure rather than fix it. The alternative, one giant task, would have put the payload change and the UI rewrite behind a single review gate.
+**Task 1 is deliberately nine steps rather than two tasks.** Removing `correctByKey` and rewriting its only consumer cannot be reviewed apart: after the payload change alone the tree does not typecheck, and a reviewer approving that half would be approving a broken build. The task boundary follows what a reviewer can meaningfully accept or reject, so both live in one task with one gate.
 
-**Two steps hand a judgment call to the implementer with the information to settle it:** Task 2 Step 4 (whether the browser state is reachable in reasonable time, with explicit permission to fall back to unit tests and say so) and Task 4 Step 2 (the copy, with the zero case's intent stated and two shape examples rather than mandated strings).
+**Two steps hand a judgment call to the implementer with the information to settle it:** Task 1 Step 8 (whether the browser state is reachable in reasonable time, with explicit permission to fall back to unit tests and say so) and Task 3 Step 2 (the copy, with the zero case's intent stated and two shape examples rather than mandated strings).
 
-**The fixture ripple is called out with exact file and line numbers** in Task 3 Step 9, along with the rule that the fixtures move and the guard does not. Four call sites break, three of them in one file, and one of them (`seedMember`) is depended on by most of that file's later tests.
+**The fixture ripple is called out with exact file and line numbers** in Task 2 Step 9, along with the rule that the fixtures move and the guard does not. Four call sites break, three of them in one file, and one of them (`seedMember`) is depended on by most of that file's later tests.
 
 **Not covered: B1**, the separate finding that a course completed once satisfies the learning gate in every later term. The spec scopes it out; it needs a decision from Jack, not an implementation.

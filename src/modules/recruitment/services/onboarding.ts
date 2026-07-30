@@ -256,6 +256,35 @@ export async function lookupStoredEpicId(
   return matched?.epicId ?? null;
 }
 
+/**
+ * Whether an ACTIVE Person already exists for this applicant, matched the same
+ * way lookupStoredEpicId matches: by netId (case-insensitive), else by
+ * contactEmail. Deliberately filters to status "ACTIVE" (lookupStoredEpicId
+ * does not), because this answers a different question: not "is there an
+ * Epic ID on file" but "can this person actually sign in right now" -- the
+ * same ACTIVE check requestMemberLoginLink (member-magic-link.ts) and
+ * getActivePerson (session.ts) apply at sign-in time. A brand-new applicant
+ * has no Person at all (false); an offboarded former member also can't sign
+ * in (false) even though a stale Person row exists. Used by
+ * buildOnboardingNextSteps's `hasAccount` input to decide whether the
+ * "sign in" instruction is actually true for this volunteer yet: signing in
+ * only works once a Person row exists, and promoteContracts (promotion.ts) is
+ * the only production path that creates one.
+ */
+export async function lookupHasAccount(
+  netId: string | null,
+  email: string | null,
+): Promise<boolean> {
+  const byNetId = netId
+    ? await prisma.person.findFirst({ where: { netId: { equals: netId, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
+    : null;
+  if (byNetId) return true;
+  const byEmail = email
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: email, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
+    : null;
+  return Boolean(byEmail);
+}
+
 export type ContractSubmission = {
   firstName: string;
   lastName: string;
@@ -615,6 +644,20 @@ export async function submitContract(
   // acceptance/application chain no longer resolves) is folded into the same
   // catch rather than a separate guard, since there is no meaningful email to
   // send without a cycle to attribute it to or a title to put in the subject.
+  //
+  // One field intentionally is NOT shared verbatim with the two screens: the
+  // sign-in line. The screens re-derive `hasAccount` live on every render, so
+  // they can correctly show/hide the sign-in bullet as the volunteer's actual
+  // ability to sign in changes over time. This email is rendered once, here,
+  // and then sits as static HTML in an inbox for however long the volunteer
+  // takes to open it -- it cannot re-check anything. Passing a live
+  // `hasAccount` snapshot in would let `signIn.text` freeze in whichever state
+  // was true at send time (almost always "no account yet" for a new
+  // volunteer) even after promotion later makes it true. So the email always
+  // uses `signIn.emailText` instead, which is phrased to stay true regardless
+  // of when it is read (see its doc comment in onboarding-next-steps.ts).
+  // hasAccount itself is passed false here because nothing in this email
+  // reads `signIn.text`; a real lookup would just be a wasted query.
   try {
     if (!cycle) throw new Error("cycle could not be resolved for the onboarding confirmation email");
     const [zone, baseUrl] = await Promise.all([
@@ -625,16 +668,17 @@ export async function submitContract(
     // and cannot be PROMOTED yet, same as actions.ts's completion-screen call.
     const steps = buildOnboardingNextSteps({
       email: finalEmail,
-      trainingDate: formatTrainingDate(cycle.inPersonTrainingDate ?? null, zone),
+      trainingDate: cycle.inPersonTrainingDate ? formatTrainingDate(cycle.inPersonTrainingDate, zone) : null,
       trainingLocation: formatTrainingLocation(cycle.trainingLocation ?? null),
       epicNeeded,
       storedEpicId,
       hasEpic: input.hasEpic,
+      hasAccount: false,
     });
     const confirmation = await renderCycleEmail(cycle.id, "recruitment.onboarding_confirmation", {
       firstName: input.firstName.trim(),
       cycleTitle: cycle.title,
-      signInText: steps.signIn.text,
+      signInText: steps.signIn.emailText,
       training: steps.training,
       epic: steps.epic,
       review: steps.review,

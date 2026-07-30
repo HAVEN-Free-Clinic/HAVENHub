@@ -10,6 +10,11 @@ import type { OnboardingNextSteps } from "@/modules/recruitment/onboarding-next-
  * verbatim (buildOnboardingNextSteps) so this screen, the revisit page, and
  * the confirmation email never drift from one another -- no copy is authored
  * here beyond section structure.
+ *
+ * signIn.text (and the button below it) are null/omitted when the volunteer
+ * has no Person to sign in as yet (hasAccount false in the input): there is
+ * nothing true to tell them about signing in, and nothing to click through
+ * to, so the review bullet alone carries the sequencing instead.
  */
 export function NextStepsScreen({ steps }: { steps: OnboardingNextSteps }) {
   return (
@@ -18,14 +23,16 @@ export function NextStepsScreen({ steps }: { steps: OnboardingNextSteps }) {
       <Card className="space-y-4">
         <h2 className="text-lg font-semibold text-foreground">What happens next</h2>
         <ul className="list-disc space-y-2 pl-5 text-sm text-foreground-soft">
-          <li>{steps.signIn.text}</li>
-          <li>{steps.training}</li>
+          {steps.signIn.text && <li>{steps.signIn.text}</li>}
+          {steps.training && <li>{steps.training}</li>}
           {steps.epic && <li>{steps.epic}</li>}
           <li>{steps.review}</li>
         </ul>
-        <Link href={steps.loginPath} className={buttonClasses("primary", "lg", "w-full sm:w-auto")}>
-          Sign in to HAVEN Hub
-        </Link>
+        {steps.signIn.text && (
+          <Link href={steps.loginPath} className={buttonClasses("primary", "lg", "w-full sm:w-auto")}>
+            Sign in to HAVEN Hub
+          </Link>
+        )}
       </Card>
     </div>
   );

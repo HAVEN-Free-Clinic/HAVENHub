@@ -9,6 +9,10 @@ vi.mock("@/modules/recruitment/services/onboarding", () => ({
     hasEpic: false,
   })),
   lookupStoredEpicId: vi.fn(async () => null),
+  // A contract this fresh (just flipped PENDING -> SUBMITTED) has not been
+  // through promoteContracts, so no Person exists yet for a brand-new
+  // volunteer; false is the realistic default here.
+  lookupHasAccount: vi.fn(async () => false),
   ContractError: class ContractError extends Error {},
   ContractValidationError: class ContractValidationError extends Error {},
 }));
@@ -39,6 +43,7 @@ vi.mock("@/modules/recruitment/onboarding-next-steps", async (importOriginal) =>
 
 import { submitOnboarding } from "./actions";
 import { captureEvent } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 import { prisma } from "@/platform/db";
 import { buildOnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 
@@ -55,13 +60,19 @@ describe("submitOnboarding PostHog event", () => {
 
     expect(res.ok).toBe(true);
     if (res.ok) {
-      // A yale.edu address gets the SSO line; no cycle resolved -> the
-      // "scheduled training date" fallback; epicNeeded false + no stored ID
-      // + hasEpic false -> no Epic line at all (see onboarding-next-steps.ts).
+      // A yale.edu address gets the SSO method; hasAccount false (mocked
+      // above) suppresses the present-tense `text`, so only the roster-add-
+      // phrased `emailText` is non-null; no cycle resolved -> training null;
+      // epicNeeded false + no stored ID + hasEpic false -> no Epic line at
+      // all (see onboarding-next-steps.ts).
       expect(res.nextSteps).toEqual({
         loginPath: "/login",
-        signIn: { method: "sso", text: "Sign in with your Yale NetID." },
-        training: "Plan to attend in-person training on the scheduled training date.",
+        signIn: {
+          method: "sso",
+          text: null,
+          emailText: "Once a recruitment lead adds you to the roster, sign in with your Yale NetID.",
+        },
+        training: null,
         epic: null,
         review: "A recruitment lead will review your submission and add you to the roster.",
       });
@@ -91,8 +102,9 @@ describe("submitOnboarding PostHog event", () => {
 
     expect(res.ok).toBe(true);
     if (res.ok) {
-      expect(res.nextSteps.training).toBe("Plan to attend in-person training on the scheduled training date.");
+      expect(res.nextSteps.training).toBeNull();
       expect(res.nextSteps.signIn.method).toBe("sso");
+      expect(res.nextSteps.signIn.text).toBeNull();
     }
   });
 
@@ -117,8 +129,36 @@ describe("submitOnboarding PostHog event", () => {
 
     expect(res.ok).toBe(true);
     if (res.ok) {
-      expect(res.nextSteps.training).toBe("Plan to attend in-person training on the scheduled training date.");
+      expect(res.nextSteps.training).toBeNull();
       expect(res.nextSteps.signIn.method).toBe("sso");
     }
+  });
+
+  // Minor fix verification: activeTermGroup runs its own unguarded
+  // prisma.term.findFirst (platform/posthog/groups.ts) in the `groups`
+  // argument position of captureEvent. captureEvent itself never throws, but
+  // a rejection from activeTermGroup would previously escape past it, out of
+  // this try, and turn an already-committed submission into "Something went
+  // wrong" for the volunteer. The fix falls back to `undefined` (a no-op for
+  // analytics grouping, not a broken capture) so the submission still
+  // succeeds.
+  it("still completes the submission when activeTermGroup rejects (e.g. a DB blip)", async () => {
+    vi.mocked(activeTermGroup).mockRejectedValueOnce(new Error("db blip"));
+
+    const fd = new FormData();
+    fd.set("firstName", "Ada");
+    fd.set("lastName", "Lovelace");
+    fd.set("email", "ada@yale.edu");
+
+    const res = await submitOnboarding("tok", fd);
+
+    expect(res.ok).toBe(true);
+    expect(vi.mocked(captureEvent)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "onboarding_contract_submitted",
+        distinctId: "ada@yale.edu",
+        groups: undefined,
+      }),
+    );
   });
 });

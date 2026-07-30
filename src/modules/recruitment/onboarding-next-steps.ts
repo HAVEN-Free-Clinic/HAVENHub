@@ -33,14 +33,40 @@ export type OnboardingNextSteps = {
   // engine (platform/email/render/render.ts) does flat context[key] lookup
   // only, with no dot-path support, so a raw "{{signIn.text}}" token silently
   // renders empty rather than erroring. Flatten this into its own top-level
-  // context key (e.g. signInText: steps.signIn.text) before templating,
+  // context key (e.g. signInText: steps.signIn.emailText) before templating,
   // matching the flat-context convention epic.ts's *Context builders already
   // use (epicActivationContext, etc.).
-  signIn: { method: SignInMethod; text: string };
-  /** Always non-empty: formatTrainingDate/formatTrainingLocation already
-   *  degrade to sensible defaults when the cycle has no training date or
-   *  location set (see training-date.ts). */
-  training: string;
+  signIn: {
+    method: SignInMethod;
+    /**
+     * Null when this volunteer has no Person to sign in as yet (see
+     * `hasAccount` on the input below): telling them to sign in when there is
+     * nothing behind that door is exactly the false promise this field exists
+     * to prevent. The completion screen and the revisit page suppress both the
+     * bullet and the "Sign in to HAVEN Hub" button when this is null. Non-null
+     * (and unconditionally true) whenever `hasAccount` is true.
+     */
+    text: string | null;
+    /**
+     * Always non-null, and deliberately NOT gated on `hasAccount`: the
+     * confirmation email is a durable record queued once at submit time and
+     * opened at some unknown later point, so it can never know whether an
+     * account exists by the time a human reads it (it usually does not exist
+     * yet, and may or may not exist by the time the volunteer opens the
+     * email). Phrasing it against the (future) roster-add rather than the
+     * volunteer's state at send time keeps it true no matter when it is read,
+     * mirroring how `review` is already phrased for the same reason. Only the
+     * email uses this; the completion screen and revisit page use `text`.
+     */
+    emailText: string;
+  };
+  /** Null when the cycle has no in-person training date scheduled
+   *  (RecruitmentCycle.inPersonTrainingDate is nullable). Asserting "plan to
+   *  attend training on the scheduled training date" when nothing is actually
+   *  scheduled asserts a session that may not exist; suppress the bullet
+   *  instead, the same way `epic` is suppressed when there is nothing true to
+   *  tell this volunteer. */
+  training: string | null;
   /** Null when there is nothing to tell this volunteer about Epic: either
    *  their department has no Epic requirement and they self-reported not
    *  needing it, or (see hasEpic below) their existing account already
@@ -54,12 +80,34 @@ export type OnboardingNextSteps = {
 export type OnboardingNextStepsInput = {
   /** OnboardingContract.email. Decides the sign-in method. */
   email: string;
-  /** Pre-formatted via formatTrainingDate (training-date.ts). */
-  trainingDate: string;
+  /** Pre-formatted via formatTrainingDate (training-date.ts), or null when the
+   *  cycle has no in-person training date scheduled. Callers must check the
+   *  raw date themselves (e.g. `cycle?.inPersonTrainingDate ? formatTrainingDate(...) : null`)
+   *  rather than let formatTrainingDate's own "the scheduled training date"
+   *  fallback paper over a null date: that fallback exists for prose contexts
+   *  (contract preview) that always need some words, not for this module,
+   *  which models "nothing true to say" as null throughout. */
+  trainingDate: string | null;
   /** Pre-formatted via formatTrainingLocation (training-date.ts): "" when the
    *  cycle has no location, and carries its own leading space otherwise, so
-   *  it concatenates directly after trainingDate. */
+   *  it concatenates directly after trainingDate. Ignored when trainingDate
+   *  is null. */
   trainingLocation: string;
+  /**
+   * Whether an ACTIVE Person already exists for this applicant (see
+   * lookupHasAccount in services/onboarding.ts), matched the same way
+   * lookupStoredEpicId matches: by netId, else by contactEmail. Signing in
+   * (SSO or the magic link) only works once a Person row exists, and
+   * promoteContracts -- a separate, later, permissioned action -- is the only
+   * production path that creates one (services/promotion.ts). A contract
+   * fresh off SUBMITTED has not been through it, so this is false for every
+   * brand-new volunteer at submit time and at first revisit; it is true for a
+   * returning member whose existing membership already lets them sign in.
+   * Gates `signIn.text` only; `signIn.emailText` is unconditional (see its
+   * doc comment above) because the email cannot know whether this will still
+   * be accurate by the time it is opened.
+   */
+  hasAccount: boolean;
   /**
    * OnboardingContract.epicNeeded -- NOT the raw department/track
    * epicRequirement. epicRequirement collapses to the same answer for ALL
@@ -111,14 +159,31 @@ function isYaleEmail(email: string): boolean {
 }
 
 export function buildOnboardingNextSteps(input: OnboardingNextStepsInput): OnboardingNextSteps {
-  const signIn: OnboardingNextSteps["signIn"] = isYaleEmail(input.email)
-    ? { method: "sso", text: "Sign in with your Yale NetID." }
-    : {
-        method: "magic-link",
-        text: "Enter your email on the sign-in page and we will email you a one-time sign-in link.",
-      };
+  const isYale = isYaleEmail(input.email);
+  const method: SignInMethod = isYale ? "sso" : "magic-link";
+  // The present-tense line is only true once a Person exists to sign in as
+  // (hasAccount); otherwise it is the exact false promise this fix removes,
+  // so suppress it entirely rather than tell a brand-new volunteer to sign in
+  // to nothing.
+  const text = input.hasAccount
+    ? (isYale
+        ? "Sign in with your Yale NetID."
+        : "Enter your email on the sign-in page and we will email you a one-time sign-in link.")
+    : null;
+  // Phrased against the future roster-add (not the current hasAccount state)
+  // because the confirmation email is a durable record read at an unknown
+  // later time; see the doc comment on OnboardingNextSteps.signIn.emailText.
+  const emailText = isYale
+    ? "Once a recruitment lead adds you to the roster, sign in with your Yale NetID."
+    : "Once a recruitment lead adds you to the roster, enter your email on the sign-in page and we will email you a one-time sign-in link.";
+  const signIn: OnboardingNextSteps["signIn"] = { method, text, emailText };
 
-  const training = `Plan to attend in-person training on ${input.trainingDate}${input.trainingLocation}.`;
+  // Null (not a degraded-but-truthy fallback string) when the cycle has no
+  // in-person training date: there is nothing true to promise about a session
+  // that has not been scheduled.
+  const training = input.trainingDate
+    ? `Plan to attend in-person training on ${input.trainingDate}${input.trainingLocation}.`
+    : null;
 
   let epic: string | null = null;
   if (input.storedEpicId) {

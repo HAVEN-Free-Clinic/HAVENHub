@@ -1,5 +1,5 @@
 "use server";
-import { submitContract, lookupStoredEpicId, ContractError, ContractValidationError, type ContractSubmission } from "@/modules/recruitment/services/onboarding";
+import { submitContract, lookupStoredEpicId, lookupHasAccount, ContractError, ContractValidationError, type ContractSubmission } from "@/modules/recruitment/services/onboarding";
 import { collectSignatureInputs } from "@/modules/recruitment/contract/signatures";
 import { buildOnboardingNextSteps, type OnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
@@ -17,15 +17,20 @@ export type SubmitResult =
  * Resolve the "what happens next" content for a contract that just submitted.
  * epicNeeded/hasEpic come straight off the row submitContract just persisted
  * (resolveEpicNeeded already ran server-side there, so this never re-derives
- * it from the client's answers), and storedEpicId is looked up fresh the same
- * way the onboarding page and submitContract itself do. trainingDate/Location
- * are not columns on the contract (they live on the cycle), so they're
- * re-resolved here from the same acceptance -> application -> cycle chain the
- * page walks at render time; that chain cannot have changed in the moments
- * between page render and this submit.
+ * it from the client's answers), and storedEpicId/hasAccount are looked up
+ * fresh the same way the onboarding page and submitContract itself do.
+ * hasAccount specifically decides whether the sign-in bullet/button can be
+ * shown at all: a contract this fresh (just flipped PENDING -> SUBMITTED) has
+ * not been through promoteContracts, so a brand-new volunteer has no Person
+ * yet and hasAccount is false -- telling them to sign in would be the false
+ * promise this lookup exists to prevent (see onboarding-next-steps.ts).
+ * trainingDate/Location are not columns on the contract (they live on the
+ * cycle), so they're re-resolved here from the same acceptance -> application
+ * -> cycle chain the page walks at render time; that chain cannot have
+ * changed in the moments between page render and this submit.
  *
  * By the time this runs, submitContract has already durably flipped the
- * contract to SUBMITTED, so a failure anywhere in this function -- the three
+ * contract to SUBMITTED, so a failure anywhere in this function -- the four
  * lookups below OR building the content from their results -- must never
  * surface as a failed submission (same isolation saveCertificate uses for its
  * manager alerts: catch, log, continue). The try therefore encloses the
@@ -39,41 +44,45 @@ export type SubmitResult =
  * submitOnboarding, and turned an already-successful submission into
  * "Something went wrong, please try again" on the client, with a resubmit
  * then hitting "already submitted" -- the exact dead end this task exists to
- * remove. The catch falls back to the same "nothing resolved" defaults
- * formatTrainingDate/lookupStoredEpicId use on their own null inputs, so the
- * completion screen degrades to generic-but-truthful content instead of
- * being lost.
+ * remove. The catch falls back to null trainingDate (nothing verified, so
+ * nothing claimed -- same as a cycle with no date scheduled) and hasAccount:
+ * false (the safe direction: suppress the sign-in bullet rather than assert
+ * an unverified one), so the completion screen degrades to
+ * generic-but-truthful content instead of being lost.
  */
 async function resolveNextSteps(
   contract: { acceptanceId: string; email: string; netId: string | null; epicNeeded: boolean; hasEpic: boolean },
 ): Promise<OnboardingNextSteps> {
   try {
-    const [acceptance, zone, epicId] = await Promise.all([
+    const [acceptance, zone, epicId, hasAccount] = await Promise.all([
       prisma.acceptance.findUnique({
         where: { id: contract.acceptanceId },
         select: { application: { select: { cycle: { select: { inPersonTrainingDate: true, trainingLocation: true } } } } },
       }),
       getDisplayTimeZone(),
       lookupStoredEpicId(contract.netId, contract.email),
+      lookupHasAccount(contract.netId, contract.email),
     ]);
     const cycle = acceptance?.application?.cycle ?? null;
     return buildOnboardingNextSteps({
       email: contract.email,
-      trainingDate: formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone),
+      trainingDate: cycle?.inPersonTrainingDate ? formatTrainingDate(cycle.inPersonTrainingDate, zone) : null,
       trainingLocation: formatTrainingLocation(cycle?.trainingLocation ?? null),
       epicNeeded: contract.epicNeeded,
       storedEpicId: epicId,
       hasEpic: contract.hasEpic,
+      hasAccount,
     });
   } catch (err) {
     log.error("[onboarding] failed to resolve next-steps detail; showing generic completion content", errorAttrs(err));
     return buildOnboardingNextSteps({
       email: contract.email,
-      trainingDate: "the scheduled training date",
+      trainingDate: null,
       trainingLocation: "",
       epicNeeded: contract.epicNeeded,
       storedEpicId: null,
       hasEpic: contract.hasEpic,
+      hasAccount: false,
     });
   }
 }
@@ -128,7 +137,15 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     await captureEvent({
       event: "onboarding_contract_submitted",
       distinctId: contract.email,
-      groups: await activeTermGroup(),
+      // captureEvent itself never throws (platform/posthog/capture.ts), but
+      // activeTermGroup runs its own prisma.term.findFirst in this argument
+      // position (platform/posthog/groups.ts), unguarded. A DB blip there
+      // would throw past captureEvent entirely, out of this try, and turn an
+      // already-committed submission into "Something went wrong" for the
+      // volunteer -- the exact dead end this branch removes. groups is
+      // optional on CaptureEventInput, so falling back to undefined is a
+      // no-op for analytics, not a broken capture.
+      groups: await activeTermGroup().catch(() => undefined),
     });
     const nextSteps = await resolveNextSteps(contract);
     return { ok: true, nextSteps };

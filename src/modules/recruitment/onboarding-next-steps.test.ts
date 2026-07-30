@@ -8,6 +8,7 @@ const BASE = {
   epicNeeded: false,
   storedEpicId: null,
   hasEpic: false,
+  hasAccount: true,
 };
 
 describe("buildOnboardingNextSteps", () => {
@@ -35,13 +36,59 @@ describe("buildOnboardingNextSteps", () => {
     expect(steps.signIn.method).toBe("magic-link");
   });
 
-  it("produces sensible content for a cycle with no training date and no location", () => {
+  // The Critical fix: a volunteer with no Person yet cannot actually sign in
+  // (see hasAccount's doc comment), so the present-tense instruction and the
+  // button/anchor that point at it must both disappear rather than send a
+  // brand-new volunteer to a dead end (a silent no-op magic link, or SSO
+  // landing on "we couldn't find you").
+  it("suppresses the sign-in text when the volunteer has no account yet", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, hasAccount: false });
+    expect(steps.signIn.text).toBeNull();
+  });
+
+  it("gives the sign-in text when the volunteer already has an active account", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, email: "j.doe@yale.edu", hasAccount: true });
+    expect(steps.signIn.text).toBe("Sign in with your Yale NetID.");
+  });
+
+  it("gives the magic-link sign-in text for a non-Yale address with an account", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, email: "volunteer@gmail.com", hasAccount: true });
+    expect(steps.signIn.text).toBe(
+      "Enter your email on the sign-in page and we will email you a one-time sign-in link.",
+    );
+  });
+
+  // The email special case: it is a durable record read at an unknown later
+  // time, so it can never know whether hasAccount will still hold by the time
+  // a human opens it. emailText is phrased against the future roster-add
+  // instead, and must stay identical regardless of hasAccount.
+  it("always gives the same roster-add-phrased email text, regardless of hasAccount", () => {
+    const withAccount = buildOnboardingNextSteps({ ...BASE, email: "j.doe@yale.edu", hasAccount: true });
+    const withoutAccount = buildOnboardingNextSteps({ ...BASE, email: "j.doe@yale.edu", hasAccount: false });
+    expect(withAccount.signIn.emailText).toBe(
+      "Once a recruitment lead adds you to the roster, sign in with your Yale NetID.",
+    );
+    expect(withoutAccount.signIn.emailText).toBe(withAccount.signIn.emailText);
+  });
+
+  it("gives the magic-link email text for a non-Yale address", () => {
+    const steps = buildOnboardingNextSteps({ ...BASE, email: "volunteer@gmail.com", hasAccount: false });
+    expect(steps.signIn.emailText).toBe(
+      "Once a recruitment lead adds you to the roster, enter your email on the sign-in page and we will email you a one-time sign-in link.",
+    );
+  });
+
+  // The exact bug a reviewer caught: a cycle with no scheduled in-person
+  // training date used to degrade to "on the scheduled training date", which
+  // asserts a session that may not exist. Nothing true to say -> null, the
+  // same way `epic` models "nothing to tell this volunteer".
+  it("says nothing about training when the cycle has no scheduled date", () => {
     const steps = buildOnboardingNextSteps({
       ...BASE,
-      trainingDate: "the scheduled training date",
+      trainingDate: null,
       trainingLocation: "",
     });
-    expect(steps.training).toBe("Plan to attend in-person training on the scheduled training date.");
+    expect(steps.training).toBeNull();
   });
 
   it("includes the location when one is set", () => {

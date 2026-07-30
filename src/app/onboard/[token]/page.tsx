@@ -1,4 +1,4 @@
-import { getContractByToken, lookupStoredEpicId } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId, lookupHasAccount } from "@/modules/recruitment/services/onboarding";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
@@ -49,23 +49,28 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // next-steps content the completion screen shows (onboard-form.tsx), resolved
   // fresh from the live row rather than anything cached from submit time.
   //
-  // Sign-in and Epic need no PROMOTED-specific copy: the sign-in line stays
-  // true either way (SSO is unconditional; the non-Yale magic-link line
-  // describes the only sign-in mechanism that exists, and is if anything MORE
-  // reliably true once promoted, since promotion guarantees a Person row for
-  // lookupStoredEpicId/requestMemberLoginLink (member-magic-link.ts:153-156)
-  // to match against). The Epic line self-corrects because storedEpicId is
-  // looked up live here: if promotion adopted a self-reported existingEpicId
-  // onto the new Person (promotion.ts's effectiveEpicId), lookupStoredEpicId
-  // now finds it and buildOnboardingNextSteps switches to the "already on file"
-  // branch on its own, with no extra branching needed. The review line DOES
-  // need PROMOTED-specific copy: promoteContracts is the review-and-roster-add
-  // action, so it must read in the past tense once that has happened (the
-  // `reviewed` input below).
+  // Epic and sign-in both self-correct live here rather than needing
+  // PROMOTED-specific copy: storedEpicId and hasAccount are looked up fresh on
+  // every render, not carried over from submit time. If promotion adopted a
+  // self-reported existingEpicId onto the new Person (promotion.ts's
+  // effectiveEpicId), lookupStoredEpicId now finds it and
+  // buildOnboardingNextSteps switches to the "already on file" branch on its
+  // own. Sign-in works the same way: promoteContracts is the only production
+  // path that creates a Person for a brand-new volunteer (services/
+  // promotion.ts), so a SUBMITTED-but-not-yet-PROMOTED contract has
+  // hasAccount false here and the sign-in bullet/button stay suppressed; once
+  // promoted, lookupHasAccount finds the new ACTIVE Person and they reappear
+  // with no extra branching needed. The review line DOES need PROMOTED-
+  // specific copy: promoteContracts is the review-and-roster-add action, so
+  // it must read in the past tense once that has happened (the `reviewed`
+  // input below).
   if (contract.status !== "PENDING") {
-    const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
+    const trainingDate = cycle?.inPersonTrainingDate
+      ? formatTrainingDate(cycle.inPersonTrainingDate, zone)
+      : null;
     const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
     const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+    const hasAccount = await lookupHasAccount(contract.netId, contract.email);
     const steps = buildOnboardingNextSteps({
       email: contract.email,
       trainingDate,
@@ -73,6 +78,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       epicNeeded: contract.epicNeeded,
       storedEpicId,
       hasEpic: contract.hasEpic,
+      hasAccount,
       // PROMOTED means promoteContracts already did the review and the
       // roster add; the review line must say so in the past tense rather
       // than promise it as still pending.
@@ -81,9 +87,11 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     return (
       <main className="mx-auto max-w-2xl px-6 py-10">
         <h1 className="text-2xl font-bold tracking-tight">{orgName} onboarding</h1>
-        <p className="mt-2 text-muted-foreground">
-          You completed this on {formatDateOnly(contract.submittedAt, zone)}.
-        </p>
+        {contract.submittedAt && (
+          <p className="mt-2 text-muted-foreground">
+            You completed this on {formatDateOnly(contract.submittedAt, zone)}.
+          </p>
+        )}
         <NextStepsScreen steps={steps} />
       </main>
     );

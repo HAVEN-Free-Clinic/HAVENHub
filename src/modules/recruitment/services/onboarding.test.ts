@@ -300,6 +300,44 @@ describe("submitContract onboarding confirmation email", () => {
     expect(mail.html).toContain('href="http://localhost:3000/login"');
   });
 
+  // Guards the exact class of bug a reviewer already caught once on this
+  // branch: the email context is built by hand-mapping each OnboardingNextSteps
+  // field to a flat template key (services/onboarding.ts), and that mapping
+  // silently dropped loginPath before. Rather than trust the mapping, exercise
+  // a scenario where every bullet is non-null (a scheduled training date, an
+  // Epic follow-up owed) and assert each one's actual text reaches the
+  // rendered HTML, not just that the email was queued.
+  it("carries every next-steps bullet -- sign-in, training, epic, review -- into the rendered email", async () => {
+    const { srr, acceptance, cycle } = await seed();
+    await prisma.recruitmentCycle.update({
+      where: { id: cycle.id },
+      data: { inPersonTrainingDate: new Date("2026-09-12T12:00:00Z"), trainingLocation: "55 Church Street" },
+    });
+    const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    await submitContract(c.token, {
+      ...submitBase,
+      // SRHD is requiresEpicVolunteer: SOME; answering "yes" here (instead of
+      // submitBase's "no") makes epicNeeded true with no stored/self-reported
+      // ID, so the Epic bullet is populated too.
+      customAnswers: { epic_needed_self: "yes" },
+      hipaaFile: { fileName: "c.pdf", mimeType: "application/pdf", bytes: Buffer.from("x") },
+    });
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "recruitment.onboarding_confirmation" },
+    });
+    // signIn.emailText (Yale/SSO), phrased against the roster-add rather than
+    // present tense (the Critical fix: this email cannot know hasAccount by
+    // the time it's opened).
+    expect(mail.html).toContain("Once a recruitment lead adds you to the roster, sign in with your Yale NetID.");
+    // training, built from the cycle date/location just set.
+    expect(mail.html).toContain("Plan to attend in-person training on");
+    expect(mail.html).toContain("55 Church Street");
+    // epic, since epic_needed_self is "yes" and nothing suppresses it.
+    expect(mail.html).toContain("The IT team will set up your Epic account and email you sign-in instructions once it is ready.");
+    // review, always present in future tense for a fresh SUBMITTED contract.
+    expect(mail.html).toContain("A recruitment lead will review your submission and add you to the roster.");
+  });
+
   it("a second submit queues none", async () => {
     const { srr, acceptance } = await seed();
     const c = await createOrResendContract(acceptance.id, srr.id, "http://test");

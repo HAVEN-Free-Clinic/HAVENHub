@@ -4,6 +4,7 @@ import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { loadEhsItemsMap } from "@/platform/ehs/services/status";
 import {
   coursesForMember,
+  splitByRecurrence,
   type AssignableCourse,
   type MemberMembership,
 } from "@/modules/learning/engine/assignment";
@@ -86,6 +87,7 @@ export async function loadClearanceMap(
           assignToAll: true,
           audience: true,
           scormEntryHref: true,
+          recurrence: true,
           departments: { select: { departmentId: true } },
         },
       }),
@@ -125,9 +127,22 @@ export async function loadClearanceMap(
     audience: c.audience,
   }));
   const activeCourseIds = assignable.map((c) => c.id);
+
+  // Scope the progress lookup by term for PER_TERM courses only, exactly like
+  // getMyCourses; ONCE stays unscoped (today's behavior, unchanged). This must not
+  // diverge from getMyCourses/getOnboardingStatus: this map feeds the schedule
+  // builder's clearance banner, and the whole reason learning carries a termId at
+  // all is so that banner and a member's own checklist agree for a given term.
+  const { onceIds, perTermIds } = splitByRecurrence(activeCourses);
   const progressRows = activeCourseIds.length
     ? await prisma.courseProgress.findMany({
-        where: { personId: { in: personIds }, courseId: { in: activeCourseIds } },
+        where: {
+          personId: { in: personIds },
+          OR: [
+            ...(onceIds.length ? [{ courseId: { in: onceIds } }] : []),
+            ...(perTermIds.length ? [{ courseId: { in: perTermIds }, termId }] : []),
+          ],
+        },
         select: { personId: true, courseId: true, lessonStatus: true },
       })
     : [];

@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import type { CourseAudience } from "@prisma/client";
+import type { CourseAudience, CourseRecurrence } from "@prisma/client";
 import { requirePermission } from "@/platform/auth/session";
 import { createCourse, updateCourse, setCourseAssignment } from "@/modules/learning/services/courses";
 import { ingestScormPackage } from "@/modules/learning/services/packages";
@@ -37,6 +37,8 @@ export async function createCourseAction(formData: FormData): Promise<void> {
 export async function updateCourseAction(formData: FormData): Promise<void> {
   const person = await requirePermission("learning.manage_courses");
   const id = String(formData.get("courseId"));
+  const rawRecurrence = String(formData.get("recurrence") ?? "ONCE");
+  const recurrence: CourseRecurrence = rawRecurrence === "PER_TERM" ? "PER_TERM" : "ONCE";
   // A blank/whitespace title throws LearningValidationError from updateCourse. Route
   // it back to the edit page as ?error= (inline Alert) rather than crashing the page
   // to the (app) error boundary, which discarded the manager's other edits (#85).
@@ -48,6 +50,7 @@ export async function updateCourseAction(formData: FormData): Promise<void> {
           title: String(formData.get("title") ?? ""),
           description: String(formData.get("description") ?? ""),
           isActive: formData.get("isActive") === "on",
+          recurrence,
         },
         person.personId
       ),

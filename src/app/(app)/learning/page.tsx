@@ -4,12 +4,14 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
+import { getCourseRecurrenceById } from "@/modules/learning/services/courses";
 
 const LABEL = { COMPLETE: "Complete", IN_PROGRESS: "In progress", NOT_STARTED: "Not started" } as const;
 
 export default async function LearningPage() {
   const person = await requireModuleAccess("learning");
   const courses = await getMyCourses(person.personId);
+  const recurrenceById = await getCourseRecurrenceById(courses.map((c) => c.id));
 
   return (
     <>
@@ -23,7 +25,10 @@ export default async function LearningPage() {
             <Card interactive>
               <div className="flex items-center justify-between">
                 <span className="font-medium">{c.title}</span>
-                <Badge tone={c.status === "COMPLETE" ? "success" : "default"}>{LABEL[c.status]}</Badge>
+                <div className="flex items-center gap-2">
+                  {recurrenceById[c.id] === "PER_TERM" && <Badge>Retake each term</Badge>}
+                  <Badge tone={c.status === "COMPLETE" ? "success" : "default"}>{LABEL[c.status]}</Badge>
+                </div>
               </div>
               {c.description && <p className="mt-1 text-sm text-muted-foreground">{c.description}</p>}
             </Card>

@@ -430,4 +430,92 @@ describe("classifyFlashParams", () => {
     ]);
     expect(result.stripParams.sort()).toEqual(["sent", "skipped"]);
   });
+
+  // ---------------------------------------------------------------------------
+  // Suppression: precise (pathname, param) pairs from the inventory's INLINE
+  // rulings. A suppressed pair fires no toast and strips nothing, so the
+  // page's own inline Alert stays the only thing the user sees. The same
+  // param on a pathname that is NOT suppressed must still work normally --
+  // the failure mode to guard against is an over-broad suppression quietly
+  // swallowing real feedback elsewhere in the app.
+  // ---------------------------------------------------------------------------
+
+  it("suppresses error on the login page, ruled INLINE for NextAuth's own vocabulary", () => {
+    const result = classifyFlashParams(paramsOf({ error: "CredentialsSignin" }), "/login");
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("does not suppress error on a page that is not login", () => {
+    const result = classifyFlashParams(paramsOf({ error: "CredentialsSignin" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([{ tone: "error", message: "CredentialsSignin" }]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("suppresses error and message together on incidents/page.tsx, ruled INLINE for mixed vocabulary", () => {
+    const result = classifyFlashParams(
+      paramsOf({ error: "subject-not-found" }),
+      "/incidents",
+    );
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("leaves message alone too when error is suppressed, since it rides along with error", () => {
+    const result = classifyFlashParams(
+      paramsOf({ error: "validation", message: "Pick a department first." }),
+      "/incidents",
+    );
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("suppresses error on incidents/strikes/page.tsx even for a code that IS in the shared table", () => {
+    // This is the case that matters most: `not-found` has a correctly-scoped, correctly-worded
+    // entry for this exact pathname in the shared code table (see below), and suppression must
+    // still win outright -- a page ruled INLINE keeps its inline Alert as the ONLY renderer for
+    // its error param, never a toast alongside it, regardless of whether the toast's text would
+    // have been right.
+    const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/strikes");
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("suppresses error on incidents/strikes/page.tsx for its own page-owned codes too", () => {
+    const result = classifyFlashParams(paramsOf({ error: "bad-category" }), "/incidents/strikes");
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("does not suppress error on incidents/[id]/page.tsx, ruled TOAST (SHARED CODES)", () => {
+    const result = classifyFlashParams(paramsOf({ error: "forbidden" }), "/incidents/abc123");
+    expect(result.toasts).toEqual([
+      { tone: "error", message: "You do not have permission for that action." },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The not-found conflict, and the pathname matcher fix that makes it
+  // registerable: a static segment (a known sibling route) beats a wildcard.
+  // ---------------------------------------------------------------------------
+
+  it("resolves error=not-found on incidents/[id]/page.tsx to its own text", () => {
+    const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/abc123");
+    expect(result.toasts).toEqual([
+      { tone: "error", message: "The incident report could not be found." },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("does not leak incidents/[id]'s not-found text onto the sibling static route /incidents/review", () => {
+    // /incidents/review is NOT suppressed (only /incidents, /incidents/strikes, and /login are),
+    // so this specifically proves the `except` exclusion on the /incidents/* wildcard works, not
+    // just that suppression happens to also cover this case. With no scoped match and no unscoped
+    // default for "not-found", the value falls through to "the value IS the message" -- the raw
+    // code, not a wrongly-borrowed sentence from a different page.
+    const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/review");
+    expect(result.toasts).toEqual([{ tone: "error", message: "not-found" }]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
 });

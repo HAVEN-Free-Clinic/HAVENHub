@@ -27,9 +27,9 @@
  *    the 85 raw-text sites and is the deliberate reading of "if a value is not a known code, it
  *    IS the message." Only genuinely page-owned vocabulary (`login/page.tsx`'s NextAuth codes,
  *    `incidents/page.tsx`'s `subject-not-found`, `incidents/strikes/page.tsx`'s `bad-category` /
- *    `blank-description` / `future-date` / `person-not-found` / its own `not-found` text) is
- *    deliberately excluded from the shared table; those pages are ruled INLINE and keep their own
- *    rendering.
+ *    `blank-description` / `future-date` / `person-not-found`) is deliberately excluded from the
+ *    shared table; those pages are ruled INLINE and keep their own rendering, and (see
+ *    "Suppression" below) never reach this table at all for their `error` param.
  * 2. Registry: an explicit table for everything the convention cannot express -- a flag param
  *    whose text the page hardcodes (`saved` -> "Saved."), or a group of params a page composes
  *    into one sentence (`sent` + `skipped` -> one release summary). A registry entry only fires
@@ -47,24 +47,41 @@
  * app (the seeded `saved -> "Saved."` entry is right for only about five call sites); `sent` means
  * three different things on three different pages; `?error=not-found` means "The incident report
  * could not be found." on one page and "The disciplinary action could not be found." on another.
- * A registry entry may therefore carry an optional `pathnames` scope: a list of path patterns
- * (`*` matches exactly one path segment, e.g. a dynamic route id) that restricts where the entry
- * applies. Entries sharing the same param set (and, where present, the same `matchValues`) form a
- * group; within a group, a scoped entry wins on a matching pathname, and the group's one unscoped
- * entry (if any) is the default everywhere else. A group with no unscoped entry and no matching
- * scoped entry simply does not fire -- there is nothing to fall back to, which is correct: a param
- * this page-specific should never guess.
+ * A registry entry -- and a code-table entry, below -- may therefore carry an optional
+ * `pathnames` scope: a list of `PathnameScope`s (a path pattern where `*` matches exactly one
+ * segment, optionally paired with literal pathnames to exclude from it) that restrict where the
+ * entry applies. Entries sharing the same key (a param set + `matchValues` for the registry, an
+ * error code for the table) form a group, resolved by the shared `resolveScoped` helper: within a
+ * group, a scoped entry wins on a matching pathname, and the group's one unscoped entry (if any)
+ * is the default everywhere else. A group with no unscoped entry and no matching scoped entry
+ * simply does not fire -- there is nothing to fall back to, which is correct: a param this
+ * page-specific should never guess.
  *
  * `not-found` is a confirmed real conflict between `incidents/[id]/page.tsx` ("The incident report
  * could not be found.") and `incidents/strikes/page.tsx` ("The disciplinary action could not be
- * found.") but is deliberately NOT in the shared code table below. `incidents/strikes/page.tsx` is
- * ruled INLINE as a whole page (it owns other, genuinely page-specific codes), so only
- * `incidents/[id]/page.tsx` would ever contribute `not-found` to the shared table. Scoping it
- * there needs a pathname pattern that matches `/incidents/[id]` but not the sibling static routes
- * `/incidents/mine`, `/incidents/review`, and `/incidents/strikes`, which the segment-wildcard
- * matcher below cannot express (a `*` in that position matches all four equally). Left for
- * whoever migrates `incidents/[id]/page.tsx` in a later task, once the matcher can be extended or
- * a narrower pattern is confirmed against the live route.
+ * found."). Registered as two pathname-scoped code-table entries below, using a scope that
+ * excludes the known static siblings under `/incidents/` (see `PathnameScope`'s `except`) so the
+ * dynamic-segment pattern cannot leak onto them.
+ *
+ * ---
+ *
+ * **Suppression, keyed by (pathname, param) (added after Task 4's mounting plan surfaced a real
+ * double-report).** The base `error`/`*Error` convention is otherwise pathname-blind: any page
+ * whose URL carries `error` gets it classified, whether or not that page still renders its own
+ * inline `<Alert>` for it. Three pages are ruled INLINE in the page inventory because they own
+ * error-code vocabulary this module cannot safely resolve (a mix of shared and page-specific
+ * codes it cannot split by value): `login/page.tsx` (NextAuth's own codes), `incidents/page.tsx`,
+ * and `incidents/strikes/page.tsx`. Once a global reader mounts in the root layout, it would
+ * otherwise pop a second, often wrongly-worded toast right alongside each of those pages' correct
+ * inline renders -- the exact double-report the design spec's migration rule forbids.
+ *
+ * `SUPPRESSED_ERROR_PARAMS` lists the precise (pathname, param) pairs from the inventory's INLINE
+ * rulings, not whole pages: `incidents/page.tsx` is INLINE only for its `error`/`message` pair,
+ * and if it ever gains another flash param later, a whole-page opt-out would have silently
+ * swallowed that too. A suppressed pair is left completely alone -- not claimed, not stripped, not
+ * toasted -- exactly like a param nobody registered at all. `message` needs no separate
+ * suppression entry: it is only ever claimed as `error`'s companion inside the same loop
+ * iteration, so skipping `error` already leaves `message` untouched.
  */
 
 /** Mirrors the tone vocabulary already established by `src/platform/ui/alert.tsx`. */
@@ -91,17 +108,67 @@ function isErrorConventionParam(name: string): boolean {
 }
 
 /**
- * The bare `error` param's shared code vocabulary: codes whose text is identical everywhere they
- * are confirmed to appear. Confirmed against `incidents/[id]/page.tsx`, `admin/notifications/page.tsx`,
- * `admin/email/page.tsx`, `schedule/page.tsx`, and `schedule/builder/page.tsx`.
+ * A pathname scope: either a plain pattern string (`*` matches exactly one path segment), or a
+ * pattern paired with an explicit list of literal pathnames to exclude from it.
  *
- * Deliberately excluded: `not-found` (see the module doc comment -- a real conflict, not yet
- * scopable), and every page-owned code (`subject-not-found`, `bad-category`, `blank-description`,
- * `future-date`, `person-not-found`, NextAuth's `CredentialsSignin` / `MemberLinkExpired`). Do not
- * add `lastError` here or anywhere in this module: it is a `TeamsMessage` / `EmailLog` database
- * column (`row.lastError`), never a URL param. It reached the design spec's own suffixed-error
- * list by mistake; the `/Error$/` convention would still (harmlessly, since nothing ever sets it
- * on a URL) claim it as raw text if it ever showed up there, exactly like the other 85 sites.
+ * `except` exists because a bare `*` cannot, on its own, distinguish a Next.js dynamic route
+ * segment (e.g. `/incidents/[id]`) from a static sibling route at the same position (e.g.
+ * `/incidents/strikes`) -- a wildcard in that position matches both equally. Next.js itself
+ * resolves this by giving the static route precedence over the dynamic one; `except` is this
+ * module's equivalent, spelled out explicitly rather than inferred, since this module has no
+ * access to the app's actual route table.
+ */
+type PathnameScope = string | { readonly pattern: string; readonly except: readonly string[] };
+
+function scopePattern(scope: PathnameScope): string {
+  return typeof scope === "string" ? scope : scope.pattern;
+}
+
+/** `*` matches exactly one path segment (e.g. a dynamic route id); every other segment is literal. */
+function matchesPathname(pattern: string, pathname: string): boolean {
+  const patternSegments = pattern.split("/");
+  const pathSegments = pathname.split("/");
+  if (patternSegments.length !== pathSegments.length) return false;
+  return patternSegments.every((segment, i) => segment === "*" || segment === pathSegments[i]);
+}
+
+function matchesScope(scope: PathnameScope, pathname: string): boolean {
+  if (typeof scope !== "string" && scope.except.includes(pathname)) return false;
+  return matchesPathname(scopePattern(scope), pathname);
+}
+
+/**
+ * Resolves which of a group of pathname-scoped candidates (sharing whatever key the caller
+ * already filtered on -- a param set for the registry, an error code for the table below) applies
+ * on the given pathname: a matching scoped candidate wins; otherwise the group's one unscoped
+ * candidate (if any) is the default; otherwise nothing applies.
+ */
+function resolveScoped<T extends { pathnames?: readonly PathnameScope[] }>(
+  candidates: readonly T[],
+  pathname: string,
+): T | null {
+  const scoped = candidates.find((c) => c.pathnames?.some((scope) => matchesScope(scope, pathname)));
+  if (scoped) return scoped;
+  return candidates.find((c) => c.pathnames === undefined) ?? null;
+}
+
+type ErrorCodeEntry = {
+  code: string;
+  text: string;
+  pathnames?: readonly PathnameScope[];
+};
+
+/**
+ * The bare `error` param's shared code vocabulary: codes whose text is identical everywhere they
+ * are confirmed to appear, plus the one confirmed real conflict (`not-found`), pathname-scoped.
+ *
+ * Deliberately excluded: every page-owned code (`subject-not-found`, `bad-category`,
+ * `blank-description`, `future-date`, `person-not-found`, NextAuth's `CredentialsSignin` /
+ * `MemberLinkExpired`). Do not add `lastError` here or anywhere in this module: it is a
+ * `TeamsMessage` / `EmailLog` database column (`row.lastError`), never a URL param. It reached the
+ * design spec's own suffixed-error list by mistake; the `/Error$/` convention would still
+ * (harmlessly, since nothing ever sets it on a URL) claim it as raw text if it ever showed up
+ * there, exactly like the other 85 sites.
  *
  * `validation`'s text is copied from the three incidents pages' `ERROR_MESSAGES["validation"]`
  * rather than `admin/notifications` / `admin/email`'s generic "An unexpected error occurred.".
@@ -109,14 +176,60 @@ function isErrorConventionParam(name: string): boolean {
  * also sets `message` (confirmed by grep), so this table is only ever consulted for `validation`
  * on the one page that reaches it message-less (`incidents/strikes/page.tsx:223`, which is
  * INLINE-ruled but happens to carry byte-identical text to this entry regardless).
+ *
+ * `not-found`'s `incidents/[id]/page.tsx` entry excludes the three known static siblings under
+ * `/incidents/` so the wildcard cannot leak onto them. Its `incidents/strikes/page.tsx` entry is
+ * registered for completeness and correctness of this table -- both real texts documented in one
+ * place -- but is unreachable through this classifier today, because `SUPPRESSED_ERROR_PARAMS`
+ * below suppresses the whole `error` param on that pathname before any code lookup happens.
  */
-const ERROR_CODE_TABLE: Readonly<Record<string, string>> = {
-  forbidden: "You do not have permission for that action.",
-  validation: "Please check your input and try again.",
-};
+const ERROR_CODE_TABLE: readonly ErrorCodeEntry[] = [
+  { code: "forbidden", text: "You do not have permission for that action." },
+  { code: "validation", text: "Please check your input and try again." },
+  {
+    code: "not-found",
+    text: "The incident report could not be found.",
+    pathnames: [
+      {
+        pattern: "/incidents/*",
+        except: ["/incidents/mine", "/incidents/review", "/incidents/strikes"],
+      },
+    ],
+  },
+  {
+    code: "not-found",
+    text: "The disciplinary action could not be found.",
+    pathnames: ["/incidents/strikes"],
+  },
+];
 
-function resolveErrorValue(rawValue: string): string {
-  return ERROR_CODE_TABLE[rawValue] ?? rawValue;
+function resolveErrorValue(rawValue: string, pathname: string): string {
+  const candidates = ERROR_CODE_TABLE.filter((entry) => entry.code === rawValue);
+  const resolved = resolveScoped(candidates, pathname);
+  return resolved ? resolved.text : rawValue;
+}
+
+/**
+ * Precise (pathname, param) pairs where the `error`/`*Error` convention must not fire at all,
+ * because the page is ruled INLINE in the page inventory. See the module doc comment.
+ *
+ * Do NOT add `incidents/[id]/page.tsx` here: it is ruled TOAST (SHARED CODES), not INLINE -- every
+ * one of its codes (`forbidden`, `not-found`, `validation`) is in the shared vocabulary above.
+ */
+const SUPPRESSED_ERROR_PARAMS: ReadonlySet<string> = new Set(
+  ([
+    ["/login", "error"],
+    ["/incidents", "error"],
+    ["/incidents/strikes", "error"],
+  ] as const).map(([pathname, name]) => suppressionKey(pathname, name)),
+);
+
+function suppressionKey(pathname: string, name: string): string {
+  return `${pathname} ${name}`;
+}
+
+function isSuppressedErrorParam(pathname: string, name: string): boolean {
+  return SUPPRESSED_ERROR_PARAMS.has(suppressionKey(pathname, name));
 }
 
 type FlashRegistryEntry = {
@@ -132,12 +245,11 @@ type FlashRegistryEntry = {
   /** Builds the toast text from the raw (still-encoded-by-nothing, already-decoded) values. */
   message: (values: ReadonlyMap<string, string>) => string;
   /**
-   * Optional pathname scope: a list of path patterns (`*` matches exactly one path segment) this
-   * entry applies to. Omitted means unscoped -- the default for its param group, used wherever no
-   * scoped sibling in the same group matches. See the module doc comment for the full resolution
-   * rule.
+   * Optional pathname scope: a list of `PathnameScope`s this entry applies to. Omitted means
+   * unscoped -- the default for its param group, used wherever no scoped sibling in the same
+   * group matches. See the module doc comment for the full resolution rule.
    */
-  pathnames?: readonly string[];
+  pathnames?: readonly PathnameScope[];
 };
 
 /**
@@ -248,18 +360,6 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   },
 ];
 
-/** `*` matches exactly one path segment (e.g. a dynamic route id); every other segment is literal. */
-function matchesPathname(pattern: string, pathname: string): boolean {
-  const patternSegments = pattern.split("/");
-  const pathSegments = pathname.split("/");
-  if (patternSegments.length !== pathSegments.length) return false;
-  return patternSegments.every((segment, i) => segment === "*" || segment === pathSegments[i]);
-}
-
-function entryMatchesPathname(entry: FlashRegistryEntry, pathname: string): boolean {
-  return entry.pathnames !== undefined && entry.pathnames.some((p) => matchesPathname(p, pathname));
-}
-
 /** A stable key for the param set + literal-value requirement a set of entries share. */
 function groupKey(entry: FlashRegistryEntry): string {
   const params = [...entry.params].sort().join(",");
@@ -293,16 +393,6 @@ function groupRegistry(
 
 const FLASH_REGISTRY_GROUPS = groupRegistry(FLASH_REGISTRY);
 
-/** Within a group, a matching scoped entry wins; otherwise the group's unscoped entry (if any). */
-function resolveGroupEntry(
-  group: readonly FlashRegistryEntry[],
-  pathname: string,
-): FlashRegistryEntry | null {
-  const scoped = group.find((entry) => entryMatchesPathname(entry, pathname));
-  if (scoped) return scoped;
-  return group.find((entry) => entry.pathnames === undefined) ?? null;
-}
-
 /**
  * Classifies the params on a URL into the toasts they should pop and the param names to strip.
  *
@@ -328,10 +418,11 @@ export function classifyFlashParams(params: URLSearchParams, pathname: string): 
   // 1. Convention: `error` and the `*Error` suffix family.
   for (const name of names) {
     if (claimed.has(name) || !isErrorConventionParam(name)) continue;
+    if (isSuppressedErrorParam(pathname, name)) continue;
 
     const ownValue = params.get(name) ?? "";
     const detail = name === ERROR_PARAM ? params.get(MESSAGE_PARAM) : null;
-    const message = detail ?? (name === ERROR_PARAM ? resolveErrorValue(ownValue) : ownValue);
+    const message = detail ?? (name === ERROR_PARAM ? resolveErrorValue(ownValue, pathname) : ownValue);
 
     toasts.push({ tone: "error", message });
     stripParams.push(name);
@@ -355,7 +446,7 @@ export function classifyFlashParams(params: URLSearchParams, pathname: string): 
       continue;
     }
 
-    const winner = resolveGroupEntry(group, pathname);
+    const winner = resolveScoped(group, pathname);
     if (!winner) continue;
 
     const values = new Map(representative.params.map((p) => [p, params.get(p) ?? ""]));

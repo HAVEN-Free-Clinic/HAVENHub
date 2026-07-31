@@ -28,7 +28,6 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -37,14 +36,12 @@ type Props = {
   personId: string;
   canManage: boolean;
   baseHref: string;
-  rosterError?: string;
 };
 
 export async function PersonMembershipsPanel({
   personId,
   canManage,
   baseHref,
-  rosterError,
 }: Props): Promise<ReactNode> {
   const [activeTerm, memberships, departments, subject] = await Promise.all([
     getActiveTerm(),
@@ -148,7 +145,6 @@ export async function PersonMembershipsPanel({
   return (
     <section className="space-y-6">
       <SectionHeader>Memberships</SectionHeader>
-      {rosterError && <Alert tone="error">{rosterError}</Alert>}
 
       {activeTerm ? (
         <Card className="space-y-4">

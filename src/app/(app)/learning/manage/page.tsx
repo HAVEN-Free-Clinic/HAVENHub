@@ -4,24 +4,17 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Input } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
-import { Alert } from "@/platform/ui/alert";
 import { listCourses } from "@/modules/learning/services/courses";
 import { createCourseAction } from "./actions";
 
-export default async function ManageCoursesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
+export default async function ManageCoursesPage() {
   await requirePermission("learning.manage_courses");
-  const { error } = await searchParams;
   const courses = await listCourses();
 
   return (
     <>
       <PageHeader title="Manage courses" description="Create courses and upload their SCORM packages." />
       <div className="mt-6 max-w-2xl space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         <Card>
           <form action={createCourseAction} className="flex gap-2">
             <Input name="title" placeholder="New course title" required className="flex-1" />

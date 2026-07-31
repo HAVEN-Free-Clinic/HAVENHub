@@ -38,7 +38,6 @@ import { TimingActions } from "./timing-actions";
 type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
-    error?: string;
     saved?: string;
     tested?: string;
     sent?: string;
@@ -290,8 +289,6 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     redirect(`/admin/email/campaigns/${id}?cancelled=1`);
   }
 
-  const errorMessage = sp.error ?? null;
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -310,19 +307,18 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       />
 
       {/* Flash banners: saved / sent / scheduled / cancelled only */}
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
-      {sp.saved === "1" && !errorMessage && (
+      {sp.saved === "1" && (
         <Alert tone="success">Campaign saved.</Alert>
       )}
-      {sp.sent && !errorMessage && (
+      {sp.sent && (
         <Alert tone="success">
           Campaign sent to {sp.sent} {sp.sent === "1" ? "recipient" : "recipients"}.
         </Alert>
       )}
-      {sp.scheduled === "1" && !errorMessage && (
+      {sp.scheduled === "1" && (
         <Alert tone="success">Campaign scheduled.</Alert>
       )}
-      {sp.cancelled === "1" && !errorMessage && (
+      {sp.cancelled === "1" && (
         <Alert tone="info">Schedule cancelled.</Alert>
       )}
 
@@ -405,7 +401,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           />
 
           {/* Inline audience preview result */}
-          {sp.preview === "1" && !errorMessage && (
+          {sp.preview === "1" && (
             <Alert tone="info">
               <strong>Audience preview:</strong> {sp.count ?? "0"} recipient
               {sp.count !== "1" ? "s" : ""}
@@ -417,7 +413,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           )}
 
           {/* Inline test-send confirmation */}
-          {sp.tested === "1" && !errorMessage && (
+          {sp.tested === "1" && (
             <Alert tone="success">Test email sent to your address.</Alert>
           )}
         </div>

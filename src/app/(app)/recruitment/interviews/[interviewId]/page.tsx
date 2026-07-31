@@ -36,9 +36,9 @@ const savedMessage: Record<string, string> = {
   rescind: "Acceptance rescinded.",
 };
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
+export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ saved?: string }> }) {
   const { interviewId } = await params;
-  const { error, saved } = await searchParams;
+  const { saved } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
@@ -87,7 +87,6 @@ export default async function InterviewDetail({ params, searchParams }: { params
         description={`${iv.departmentCode} director interview`}
         action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
-      {error && <Alert tone="error">{error}</Alert>}
       {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
 
       {canManage && (

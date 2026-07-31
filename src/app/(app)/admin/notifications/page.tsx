@@ -60,8 +60,6 @@ type PageProps = {
     type?: string;
     q?: string;
     page?: string;
-    error?: string;
-    message?: string;
     retried?: string;
   }>;
 };
@@ -90,13 +88,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : "An unexpected error occurred."
-    : null;
 
   const retriedSuccess = sp.retried === "1";
 
@@ -177,8 +168,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       </p>
 
       {/* Banners */}
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
-      {retriedSuccess && !errorMessage && (
+      {retriedSuccess && (
         <Alert tone="success">Teams message re-queued.</Alert>
       )}
 

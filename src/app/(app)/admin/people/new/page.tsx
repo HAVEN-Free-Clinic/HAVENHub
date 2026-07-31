@@ -5,13 +5,8 @@ import { createPerson, PersonConflictError } from "@/modules/admin/services/peop
 import { PersonForm } from "@/modules/admin/components/person-form";
 import { PageHeader } from "@/platform/ui/page-header";
 
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
-
-export default async function NewPersonPage({ searchParams }: PageProps) {
+export default async function NewPersonPage() {
   await requirePermission("admin.manage_people");
-  const { error } = await searchParams;
   const appName = await getSetting<string>("branding.appName");
 
   async function createAction(formData: FormData) {
@@ -48,7 +43,7 @@ export default async function NewPersonPage({ searchParams }: PageProps) {
         title="Add person"
         description={`Create a new person in ${appName}.`}
       />
-      <PersonForm action={createAction} error={error} />
+      <PersonForm action={createAction} />
     </div>
   );
 }

@@ -9,11 +9,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
 import { optionalInt, epicRequirement } from "@/modules/admin/form-coerce";
 
-type PageProps = { searchParams: Promise<{ error?: string }> };
-
-export default async function NewDepartmentPage({ searchParams }: PageProps) {
+export default async function NewDepartmentPage() {
   await requirePermission("admin.manage_departments");
-  const { error } = await searchParams;
 
   async function createAction(formData: FormData) {
     "use server";
@@ -40,7 +37,7 @@ export default async function NewDepartmentPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader title="Create department" description="Code is permanent once set; the name can change later." />
-      <DepartmentForm action={createAction} mode="create" error={error} />
+      <DepartmentForm action={createAction} mode="create" />
     </div>
   );
 }

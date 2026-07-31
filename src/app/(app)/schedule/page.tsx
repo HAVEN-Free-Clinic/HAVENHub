@@ -34,7 +34,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
 type PageProps = {
-  searchParams: Promise<{ error?: string; message?: string; saved?: string; requested?: string }>;
+  searchParams: Promise<{ message?: string; saved?: string; requested?: string }>;
 };
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
@@ -49,15 +49,6 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
   // "has this passed" check compares against this same key.
   const todayKey = await displayTodayKey(now);
   const sp = await searchParams;
-
-  // searchParams arrive already URL-decoded in the App Router; do not decode again
-  // (a second decode of a message containing a literal "%" throws URIError -> 500).
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : errorCode
-    : null;
 
   const saved = sp.saved === "1";
   const requested = sp.requested === "1";
@@ -211,11 +202,6 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
         )}
       </div>
 
-      {errorMessage && (
-        <Alert tone="error" className="mb-6">
-          {errorMessage}
-        </Alert>
-      )}
       {saved && (
         <Alert tone="success" className="mb-6 font-medium">
           Availability saved successfully.

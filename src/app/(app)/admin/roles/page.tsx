@@ -23,7 +23,6 @@ const PAGE_HREF = "/admin/roles";
 
 type PageProps = {
   searchParams: Promise<{
-    rbacError?: string;
     saved?: string;
     assignq?: string;
   }>;
@@ -32,7 +31,7 @@ type PageProps = {
 export default async function RolesPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_roles");
 
-  const { rbacError, saved, assignq } = await searchParams;
+  const { saved, assignq } = await searchParams;
 
   // Fetch all data in parallel.
   const [roles, assignments, terms, departments] = await Promise.all([
@@ -50,7 +49,6 @@ export default async function RolesPage({ searchParams }: PageProps) {
       <PageHeader title="Roles" description="Manage roles, permission grants, and assignments." />
 
       {/* Status messages */}
-      {rbacError && <Alert tone="error">{rbacError}</Alert>}
       {saved === "1" && <Alert tone="success">Saved.</Alert>}
 
       {/* Roles section */}

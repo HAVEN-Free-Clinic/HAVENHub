@@ -14,7 +14,6 @@ type DepartmentFormProps = {
     Department,
     "code" | "name" | "isActive" | "idealHeadcount" | "patientCapacityPerProvider" | "requiresEpicDirector" | "requiresEpicVolunteer"
   >;
-  error?: string;
   saved?: string;
 };
 
@@ -26,11 +25,10 @@ const EPIC_OPTIONS: { value: EpicRequirement; label: string }[] = [
 ];
 
 /** Create/edit form for a Department. Code is editable on create, read-only on edit. */
-export function DepartmentForm({ action, mode, department, error, saved }: DepartmentFormProps) {
+export function DepartmentForm({ action, mode, department, saved }: DepartmentFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         {saved && <Alert tone="success">Changes saved.</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">

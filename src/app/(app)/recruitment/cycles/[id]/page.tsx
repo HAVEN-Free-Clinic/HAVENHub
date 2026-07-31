@@ -26,12 +26,12 @@ const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHI
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; deptsaved?: string; deptwarn?: string; windowsaved?: string }>;
+  searchParams: Promise<{ deptsaved?: string; deptwarn?: string; windowsaved?: string }>;
 };
 
 export default async function CycleOverviewPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { error, deptsaved, deptwarn, windowsaved } = await searchParams;
+  const { deptsaved, deptwarn, windowsaved } = await searchParams;
   await requirePermission("recruitment.access");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
@@ -81,7 +81,6 @@ export default async function CycleOverviewPage({ params, searchParams }: PagePr
         title={cycle.title}
         action={<Badge tone={statusTone[cycle.status as keyof typeof statusTone] ?? "default"}>{cycle.status}</Badge>}
       />
-      {error && <Alert tone="error">{error}</Alert>}
 
       <Card>
         <SectionHeader>Public link</SectionHeader>

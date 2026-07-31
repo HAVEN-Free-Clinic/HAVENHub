@@ -13,12 +13,12 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; promoted?: string; sent?: string }>;
+  searchParams: Promise<{ promoted?: string; sent?: string }>;
 };
 
 export default async function WaitlistPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { error, promoted, sent } = await searchParams;
+  const { promoted, sent } = await searchParams;
   await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
@@ -34,7 +34,6 @@ export default async function WaitlistPage({ params, searchParams }: PageProps) 
         })}
       />
       <PageHeader title="Waitlist" description={cycle.title} />
-      {error && <Alert tone="error">{error}</Alert>}
       {promoted && (sent === "conflicted" ? (
         <Alert tone="warning">
           Promoted {promoted} to accepted, but they now hold offers from more than one department. Resolve the

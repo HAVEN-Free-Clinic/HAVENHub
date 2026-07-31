@@ -42,7 +42,6 @@ function formatSize(bytes: number): string {
 type HipaaPanelProps = {
   certificates: HipaaCertificate[];
   uploadAction: (formData: FormData) => Promise<void>;
-  error?: string;
   certSaved?: boolean;
   status: ComplianceStatus;
 };
@@ -74,7 +73,6 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
 export async function HipaaPanel({
   certificates,
   uploadAction,
-  error,
   certSaved,
   status,
 }: HipaaPanelProps) {
@@ -183,7 +181,6 @@ export async function HipaaPanel({
           the disclosure re-renders collapsed on that redirect, and an alert
           nested inside it would be invisible at the exact moment it matters
           most (issue: silent failed re-upload). */}
-      {error && <Alert tone="error">{error}</Alert>}
       {certSaved && <Alert tone="success">Certificate uploaded successfully.</Alert>}
 
       {/* Upload form: collapsed behind a disclosure while a certificate is

@@ -15,7 +15,7 @@ import { OnboardingStepShell } from "../onboarding-step-shell";
 export default async function OnboardingHipaaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ certError?: string; certSaved?: string }>;
+  searchParams: Promise<{ certSaved?: string }>;
 }) {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
@@ -61,7 +61,6 @@ export default async function OnboardingHipaaPage({
         certificates={certificates}
         uploadAction={uploadAction}
         status={certStatus}
-        error={sp.certError}
         certSaved={sp.certSaved === "1"}
       />
     </OnboardingStepShell>

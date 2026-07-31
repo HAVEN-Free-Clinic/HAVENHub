@@ -36,19 +36,16 @@ type PersonFormProps = {
     | "spanishVerifiedAt"
     | "licensedRN"
   >;
-  /** Error string to display (e.g. "netId already belongs to another person"). */
-  error?: string;
   /** Shown when the save was successful. */
   saved?: string;
   /** Extra content to render after the submit button (e.g. status actions). */
   children?: ReactNode;
 };
 
-export function PersonForm({ action, person, error, saved, children }: PersonFormProps) {
+export function PersonForm({ action, person, saved, children }: PersonFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         {saved && <Alert tone="success">{saved}</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">

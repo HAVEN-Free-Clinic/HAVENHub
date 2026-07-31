@@ -15,12 +15,12 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{ saved?: string }>;
 };
 
 export default async function AssignSubcommitteesPage({ params, searchParams }: PageProps) {
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { saved } = await searchParams;
   await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
@@ -44,7 +44,6 @@ export default async function AssignSubcommitteesPage({ params, searchParams }: 
         })}
       />
       <PageHeader title="Assign subcommittees" description={`${cycle.title}: accepted applicants and their ranked preferences.`} />
-      {error && <Alert tone="error">{error}</Alert>}
       {saved && <Alert tone="success">Assignment saved.</Alert>}
 
       <Table>

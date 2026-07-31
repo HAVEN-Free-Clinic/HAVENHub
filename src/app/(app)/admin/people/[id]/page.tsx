@@ -18,13 +18,13 @@ import { SectionHeader } from "@/platform/ui/section-header";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string; rosterError?: string }>;
+  searchParams: Promise<{ saved?: string }>;
 };
 
 export default async function PersonDetailPage({ params, searchParams }: PageProps) {
   const session = await requirePermission("admin.manage_people");
   const { id } = await params;
-  const { error, saved, rosterError } = await searchParams;
+  const { saved } = await searchParams;
 
   const person = await getPerson(id);
   if (!person) notFound();
@@ -116,7 +116,6 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         <PersonForm
           action={updateAction}
           person={person}
-          error={error}
           saved={saved === "1" ? "Saved." : undefined}
         />
       </section>
@@ -125,7 +124,6 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         personId={id}
         canManage={canManageRoster}
         baseHref={`/admin/people/${id}`}
-        rosterError={rosterError}
       />
 
       {/* Status section */}

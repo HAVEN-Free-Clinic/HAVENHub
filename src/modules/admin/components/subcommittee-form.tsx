@@ -10,16 +10,14 @@ type SubcommitteeFormProps = {
   action: (formData: FormData) => Promise<void>;
   mode: "create" | "edit";
   subcommittee?: Pick<Subcommittee, "name" | "isActive" | "order">;
-  error?: string;
   saved?: string;
 };
 
 /** Create/edit form for a Subcommittee. Soft-delete via the Active toggle. */
-export function SubcommitteeForm({ action, mode, subcommittee, error, saved }: SubcommitteeFormProps) {
+export function SubcommitteeForm({ action, mode, subcommittee, saved }: SubcommitteeFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         {saved && <Alert tone="success">Changes saved.</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">

@@ -22,17 +22,14 @@ type TermFormProps = {
   action: (formData: FormData) => Promise<void>;
   /** Existing term values (for edit mode). Omit for create mode. */
   term?: Pick<Term, "code" | "name" | "startDate" | "endDate">;
-  /** Error string to display (e.g. conflict message). */
-  error?: string;
   /** Shown when the save was successful. */
   saved?: string;
 };
 
-export function TermForm({ action, term, error, saved }: TermFormProps) {
+export function TermForm({ action, term, saved }: TermFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         {saved && <Alert tone="success">{saved}</Alert>}
 
         <div className="grid gap-4 sm:grid-cols-2">

@@ -10,13 +10,13 @@ import { optionalInt } from "@/modules/admin/form-coerce";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{ saved?: string }>;
 };
 
 export default async function EditSubcommitteePage({ params, searchParams }: PageProps) {
   await requirePermission("admin.manage_subcommittees");
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { saved } = await searchParams;
 
   const subcommittee = await getSubcommittee(id);
   if (!subcommittee) notFound();
@@ -42,7 +42,7 @@ export default async function EditSubcommitteePage({ params, searchParams }: Pag
   return (
     <div className="space-y-8">
       <PageHeader title={`Edit ${subcommittee.name}`} description="Toggle Active to deactivate (soft remove)." />
-      <SubcommitteeForm action={updateAction} mode="edit" subcommittee={subcommittee} error={error} saved={saved} />
+      <SubcommitteeForm action={updateAction} mode="edit" subcommittee={subcommittee} saved={saved} />
     </div>
   );
 }

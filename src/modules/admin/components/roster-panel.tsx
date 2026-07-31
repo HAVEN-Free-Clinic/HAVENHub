@@ -47,8 +47,6 @@ type RosterPanelProps = {
   /** Pre-fetched roster copy counts from ?copied= and ?skipped= params. */
   copiedCount?: number;
   skippedCount?: number;
-  /** Error string from ?rosterError= redirect. */
-  rosterError?: string;
   /** When false, the add/remove/copy editing controls are hidden (view-only). The
    *  page admits admin.manage_terms OR admin.manage_roster, but the roster mutations
    *  require admin.manage_roster; without this a manage_terms-only admin sees forms
@@ -101,7 +99,6 @@ export async function RosterPanel({
   termDetailHref,
   copiedCount,
   skippedCount,
-  rosterError,
   canManage,
 }: RosterPanelProps): Promise<ReactNode> {
   // Fetch roster groups and all active departments in parallel.
@@ -284,8 +281,7 @@ export async function RosterPanel({
     <section className="space-y-8">
       <SectionHeader className="mb-4">Roster</SectionHeader>
 
-      {/* Error and status messages */}
-      {rosterError && <Alert tone="error">{rosterError}</Alert>}
+      {/* Status messages */}
       {copiedCount !== undefined && skippedCount !== undefined && (
         <Alert tone="success">
           Copied {copiedCount} membership(s); {skippedCount} already existed and were skipped.

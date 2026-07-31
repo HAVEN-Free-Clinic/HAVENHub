@@ -36,11 +36,11 @@ function coerce(input: ResolvedSetting["input"], raw: FormDataEntryValue | null)
   }
 }
 
-type PageProps = { searchParams: Promise<{ error?: string; saved?: string }> };
+type PageProps = { searchParams: Promise<{ saved?: string }> };
 
 export default async function SettingsPage({ searchParams }: PageProps) {
   await requirePermission(PERMISSION);
-  const { error, saved } = await searchParams;
+  const { saved } = await searchParams;
 
   async function updateAction(formData: FormData) {
     "use server";
@@ -136,8 +136,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         description="Configure app behavior without redeploying. Changes are audited."
       />
 
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && !error && <Alert tone="success">Saved.</Alert>}
+      {saved && <Alert tone="success">Saved.</Alert>}
 
       {groups.map(({ category, settings }) => (
         <section key={category} className="space-y-4">

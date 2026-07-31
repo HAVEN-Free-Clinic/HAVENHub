@@ -23,11 +23,9 @@ import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 
 type PageProps = {
   searchParams: Promise<{
-    error?: string;
     saved?: string;
     withdrawn?: string;
     certSaved?: string;
-    certError?: string;
   }>;
 };
 
@@ -134,7 +132,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <MyInfoForm
             action={updateAction}
             person={myInfo.person}
-            error={sp.error || undefined}
             saved={sp.saved === "1" ? "Saved." : undefined}
           />
         </section>
@@ -155,7 +152,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
-            error={sp.certError || undefined}
             certSaved={sp.certSaved === "1"}
             status={status}
           />

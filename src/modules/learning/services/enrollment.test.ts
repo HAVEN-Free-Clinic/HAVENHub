@@ -34,6 +34,55 @@ async function seed() {
   return { learner, dept, course, unassigned };
 }
 
+/**
+ * A learner with a completed course in a PRIOR term (termA), now assigned in a NEW
+ * active term (termB). Used to test that per-term recurrence actually reopens a
+ * course rather than latching onto the prior term's rows forever.
+ */
+async function seedAcrossTerms(recurrence: "ONCE" | "PER_TERM") {
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const learner = await prisma.person.create({ data: { name: "Lee", status: "ACTIVE" } });
+  const termA = await prisma.term.create({
+    data: { code: "SU25", name: "Prior", status: "ARCHIVED", startDate: new Date("2025-01-01"), endDate: new Date("2025-06-30") },
+  });
+  const termB = await prisma.term.create({
+    data: { code: "SU26", name: "Current", status: "ACTIVE", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31") },
+  });
+  await prisma.termMembership.create({
+    data: { personId: learner.id, termId: termB.id, departmentId: dept.id, status: "ACTIVE", kind: "VOLUNTEER" },
+  });
+  const course = await prisma.course.create({
+    data: {
+      title: "Intro",
+      description: "d",
+      scormEntryHref: "index.html",
+      scormVersion: "1.2",
+      recurrence,
+      scormScos: [
+        { id: "ITEM-A", title: "hb", href: "index.html" },
+        { id: "ITEM-B", title: "ytf", href: "html/ytf.html" },
+      ],
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+  return { learner, dept, course, termA, termB };
+}
+
+/** Directly seeds a fully-completed CourseProgress + ScoProgress record for a term,
+ *  bypassing persistScoCmi, to simulate "this course was already finished back then." */
+async function seedPriorTermCompletion(personId: string, courseId: string, termId: string) {
+  const completedAt = new Date("2025-03-01");
+  await prisma.scoProgress.create({
+    data: { personId, courseId, scoId: "ITEM-A", termId, lessonStatus: "completed", completedAt },
+  });
+  await prisma.scoProgress.create({
+    data: { personId, courseId, scoId: "ITEM-B", termId, lessonStatus: "completed", completedAt },
+  });
+  await prisma.courseProgress.create({
+    data: { personId, courseId, termId, status: "COMPLETE", lessonStatus: "completed", completedAt },
+  });
+}
+
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
@@ -283,4 +332,95 @@ it("includes a DIRECTORS course for a director in the department, alongside EVER
   const ids = (await getMyCourses(director.id)).map((r) => r.id);
   expect(ids).toContain(dirCourse.id);
   expect(ids).toContain(course.id);
+});
+
+// --- Per-term recurrence: the write path (Task 2) ---
+//
+// These assert against CourseProgress/ScoProgress directly, scoped by termId,
+// rather than through getMyCourses or getCourseForLearner. Those readers still do an
+// unscoped (personId, courseId) lookup -- making them recurrence-aware for PER_TERM
+// is the next task's job, alongside clearance.ts and dashboard.ts, so every reader
+// ends up agreeing with each other. Querying CourseProgress/ScoProgress directly
+// checks exactly what persistScoCmi (this task's file) actually wrote, independent of
+// which readers have caught up.
+
+it("a PER_TERM course whose ScoProgress rows are all complete from a prior term does not auto-complete in the new term", async () => {
+  const { learner, course, termA, termB } = await seedAcrossTerms("PER_TERM");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  // The learner starts the course over this term and finishes only the first SCO.
+  // If the rollup here pulled in the prior term's stale "completed" ITEM-B row (the
+  // ScoProgress trap), this would wrongly roll up COMPLETE on the very first commit.
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+
+  const thisTerm = await prisma.courseProgress.findUnique({
+    where: { personId_courseId_termId: { personId: learner.id, courseId: course.id, termId: termB.id } },
+  });
+  expect(thisTerm?.status).toBe("IN_PROGRESS");
+  expect(thisTerm?.completedAt).toBeNull();
+
+  // The prior term's completed record is untouched, not overwritten or deleted.
+  const priorTerm = await prisma.courseProgress.findUniqueOrThrow({
+    where: { personId_courseId_termId: { personId: learner.id, courseId: course.id, termId: termA.id } },
+  });
+  expect(priorTerm.status).toBe("COMPLETE");
+});
+
+it("a PER_TERM course completed in a prior term reads NOT COMPLETE in the new term", async () => {
+  const { learner, course, termA, termB } = await seedAcrossTerms("PER_TERM");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  // Nothing has been committed yet this term: there is no row scoped to termB at all,
+  // so this term's status is NOT_STARTED/NOT COMPLETE, regardless of the prior term's
+  // COMPLETE record.
+  const thisTerm = await prisma.courseProgress.findUnique({
+    where: { personId_courseId_termId: { personId: learner.id, courseId: course.id, termId: termB.id } },
+  });
+  expect(thisTerm).toBeNull();
+});
+
+it("a ONCE course completed in a prior term still reads COMPLETE (today's behavior)", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("ONCE");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  // getCourseForLearner's rollup lookup is a single unscoped row match today (see its
+  // comment); with exactly one CourseProgress row in existence (ONCE never creates a
+  // second), it deterministically finds the prior term's COMPLETE record.
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.status).toBe("COMPLETE");
+});
+
+it("a ONCE course's later-term commit reuses the original row instead of fragmenting across terms", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("ONCE");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  // The 30s autocommit (or a stray re-open) fires again next term. Because the
+  // course is ONCE, the write path must keep updating the SAME row it already has,
+  // not start a second one keyed to the new active term.
+  await persistScoCmi(learner.id, course.id, "ITEM-B", {
+    lessonStatus: "completed", scoreRaw: 88, suspendData: null, lessonLocation: null,
+  });
+
+  const rows = await prisma.courseProgress.findMany({ where: { personId: learner.id, courseId: course.id } });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].termId).toBe(termA.id);
+  expect(rows[0].status).toBe("COMPLETE");
+});
+
+it("committing an attempt writes rows carrying the current term", async () => {
+  const { learner, course } = await seed();
+  const term = await prisma.term.findFirstOrThrow();
+
+  await persistScoCmi(learner.id, course.id, "ITEM-A", {
+    lessonStatus: "completed", scoreRaw: null, suspendData: null, lessonLocation: null,
+  });
+
+  const cp = await prisma.courseProgress.findFirstOrThrow({ where: { personId: learner.id, courseId: course.id } });
+  expect(cp.termId).toBe(term.id);
+  const sp = await prisma.scoProgress.findFirstOrThrow({
+    where: { personId: learner.id, courseId: course.id, scoId: "ITEM-A" },
+  });
+  expect(sp.termId).toBe(term.id);
 });

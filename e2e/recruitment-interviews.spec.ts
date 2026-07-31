@@ -96,8 +96,8 @@ test("director interview: schedule, decide accept, release", async ({
   await page.click('button:has-text("Release decisions")');
   await page.click('button:has-text("Send acceptance emails?")');
 
-  await page.waitForURL((url) =>
-    url.pathname.includes("/decisions") && url.searchParams.has("sent")
-  );
+  // The toast reader strips ?sent and ?skipped, so wait on the destination alone; the
+  // toast text below is the real assertion.
+  await page.waitForURL((url) => url.pathname.includes("/decisions"));
   await expect(page.getByText(/Released 1 acceptance email\(s\)/)).toBeVisible();
 });

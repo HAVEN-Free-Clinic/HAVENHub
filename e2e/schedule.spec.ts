@@ -147,10 +147,12 @@ test("dev.volunteer availability round trip: toggle first checkbox, save, reload
   // Save
   await page.getByRole("button", { name: "Save availability" }).click();
 
-  // After save the server redirects to /schedule?saved=1
-  await page.waitForURL((url) => url.pathname === "/schedule" && url.searchParams.get("saved") === "1");
+  // The server redirects to /schedule?saved=1, but the toast reader consumes that param
+  // and strips it with router.replace, so waiting on it being present is a race. Wait on
+  // the destination; the confirmation below is the real assertion either way.
+  await page.waitForURL((url) => url.pathname === "/schedule");
 
-  // Success indicator must be visible
+  // Success indicator must be visible (now a toast rather than an inline alert)
   await expect(page.getByText("Availability saved successfully.")).toBeVisible();
 
   // Reload to confirm persistence (a fresh server render reads from the DB)
@@ -173,7 +175,9 @@ test("dev.volunteer availability round trip: toggle first checkbox, save, reload
   }
 
   await page.getByRole("button", { name: "Save availability" }).click();
-  await page.waitForURL((url) => url.pathname === "/schedule" && url.searchParams.get("saved") === "1");
+  // The toast reader strips ?saved=1, so wait on the destination and the confirmation.
+  await page.waitForURL((url) => url.pathname === "/schedule");
+  await expect(page.getByText("Availability saved successfully.")).toBeVisible();
 
   // Confirm restored
   await page.goto("/schedule");
@@ -383,8 +387,9 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await expect(requestDropConfirmBtn).toBeVisible({ timeout: 5_000 });
   await requestDropConfirmBtn.click();
 
-  // Redirect to /schedule?requested=1.
-  await page.waitForURL((url) => url.pathname === "/schedule" && url.searchParams.get("requested") === "1", { timeout: 15_000 });
+  // Redirects to /schedule?requested=1, but the toast reader strips that param, so wait
+  // on the destination and let the confirmation text be the assertion.
+  await page.waitForURL((url) => url.pathname === "/schedule", { timeout: 15_000 });
   await expect(page.getByText(/Change request submitted\./)).toBeVisible();
 
   // Step 3: Jack opens the builder, finds the pending request, approves it.

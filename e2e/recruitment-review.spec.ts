@@ -101,10 +101,10 @@ test("review: accept via department decision, release with no conflicts", async 
   await page.click('button:has-text("Release decisions")');
   await page.click('button:has-text("Send acceptance emails?")');
 
-  // The action redirects back with ?sent=N&skipped=M query params; wait for the banner.
-  await page.waitForURL((url) =>
-    url.pathname.includes("/decisions") && url.searchParams.has("sent")
-  );
+  // The action redirects back with ?sent=N&skipped=M, but the toast reader consumes both
+  // and strips them with router.replace, so waiting on them being present is a race. Wait
+  // on the destination; the toast text below is the real assertion.
+  await page.waitForURL((url) => url.pathname.includes("/decisions"));
   // With a single routed applicant there is no possible conflict, so skipped is 0.
   await expect(
     page.getByText(/Released 1 acceptance email\(s\); skipped 0 conflicted applicant\(s\)\./)

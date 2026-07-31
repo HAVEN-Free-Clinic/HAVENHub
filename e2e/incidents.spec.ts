@@ -77,10 +77,15 @@ async function submitReport(
 
   await page.getByRole("button", { name: "Submit report" }).click();
 
-  // submitReportAction redirects to /incidents/mine?submitted=<number>.
-  await page.waitForURL((url) => url.pathname === "/incidents/mine" && url.searchParams.has("submitted"));
-  const number = new URL(page.url()).searchParams.get("submitted");
-  if (!number) throw new Error("submitReportAction did not redirect with a submitted report number");
+  // submitReportAction redirects to /incidents/mine?submitted=<number>, but the toast
+  // reader consumes that param and strips it with router.replace, so waiting on the
+  // param being present is a race the test loses. Wait on the destination, then read
+  // the number out of the toast, which renders "Report #<number> submitted."
+  await page.waitForURL((url) => url.pathname === "/incidents/mine");
+  const toast = page.getByText(/^Report #\d+ submitted\.$/);
+  await expect(toast).toBeVisible();
+  const number = ((await toast.textContent()) ?? "").match(/#(\d+)/)?.[1];
+  if (!number) throw new Error("submitReportAction did not report a submitted report number");
   return number;
 }
 

@@ -53,10 +53,11 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await page.getByLabel("Description").fill("My laptop cannot reach the clinic wifi.");
   await page.getByRole("button", { name: "Submit request" }).click();
 
-  // Server action redirects to /support/<id>?submitted=1.
-  await page.waitForURL(
-    (url) => /^\/support\/[^/]+$/.test(url.pathname) && url.searchParams.get("submitted") === "1"
-  );
+  // Server action redirects to /support/<id>?submitted=1, but the toast reader consumes
+  // that param and strips it with router.replace, so waiting on it being present is a
+  // race. Wait on the destination pathname alone; the heading assertion below confirms
+  // the ticket actually rendered.
+  await page.waitForURL((url) => /^\/support\/[^/]+$/.test(url.pathname));
   await page.waitForLoadState("networkidle");
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
@@ -173,9 +174,8 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   await page.getByLabel("Subject").fill(subject);
   await page.getByLabel("Description").fill("New Epic account for a new clinic volunteer.");
   await page.getByRole("button", { name: "Submit request" }).click();
-  await page.waitForURL(
-    (url) => /^\/support\/[^/]+$/.test(url.pathname) && url.searchParams.get("submitted") === "1"
-  );
+  // The toast reader strips ?submitted=1, so wait on the destination pathname alone.
+  await page.waitForURL((url) => /^\/support\/[^/]+$/.test(url.pathname));
   await page.waitForLoadState("networkidle");
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();

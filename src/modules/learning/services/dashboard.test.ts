@@ -25,7 +25,7 @@ async function seed() {
   const course = await prisma.course.create({
     data: { title: "Intro", scormEntryHref: "index.html", departments: { create: [{ departmentId: dept.id }] } },
   });
-  return { viewer, learner, dept, course };
+  return { viewer, learner, dept, course, term };
 }
 
 beforeEach(async () => { await resetDb(); });
@@ -39,9 +39,9 @@ it("lists assigned members as NOT_STARTED with no progress", async () => {
 });
 
 it("derives COMPLETE + score from a passed CourseProgress", async () => {
-  const { viewer, learner, course } = await seed();
+  const { viewer, learner, course, term } = await seed();
   await prisma.courseProgress.create({
-    data: { personId: learner.id, courseId: course.id, status: "COMPLETE", lessonStatus: "passed", scoreRaw: 88, completedAt: new Date() },
+    data: { personId: learner.id, courseId: course.id, termId: term.id, status: "COMPLETE", lessonStatus: "passed", scoreRaw: 88, completedAt: new Date() },
   });
   const rows = await getCourseCompletion(course.id, viewer.id);
   expect(rows[0]).toMatchObject({ status: "COMPLETE", scoreRaw: 88 });
@@ -49,9 +49,9 @@ it("derives COMPLETE + score from a passed CourseProgress", async () => {
 });
 
 it("resetCourseProgress clears a learner's row", async () => {
-  const { viewer, learner, course } = await seed();
+  const { viewer, learner, course, term } = await seed();
   await prisma.courseProgress.create({
-    data: { personId: learner.id, courseId: course.id, status: "COMPLETE", lessonStatus: "passed", completedAt: new Date() },
+    data: { personId: learner.id, courseId: course.id, termId: term.id, status: "COMPLETE", lessonStatus: "passed", completedAt: new Date() },
   });
   await resetCourseProgress(learner.id, course.id, viewer.id);
   const rows = await getCourseCompletion(course.id, viewer.id);

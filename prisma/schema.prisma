@@ -1646,14 +1646,22 @@ model CourseProgress {
   id             String               @id @default(cuid())
   personId       String
   courseId       String
-  /// The term this progress row belongs to. Null on rows backfilled from
-  /// before per-term recurrence existed that had no completedAt to locate a
-  /// term by -- an incomplete attempt with no knowable term. ONCE-course
-  /// reads stay unscoped by term and see these rows regardless (unchanged
-  /// behavior); a PER_TERM lookup scoped to a specific term never matches a
-  /// null-termId row, so a legacy incomplete attempt does not count toward
-  /// any term's recurrence and a fresh attempt starts clean.
-  termId         String?
+  /// The term this progress row belongs to. Never null: the migration gives
+  /// every row a term, falling back to the active one for an attempt with no
+  /// completedAt to locate a term by.
+  ///
+  /// NOT NULL is load-bearing, not tidiness. A nullable termId does not
+  /// deduplicate in the unique index below (Postgres treats NULLs as
+  /// distinct), resolveProgressTermId cannot see a null row so it forks a
+  /// second one, and the unscoped ONCE readers collapse duplicates last-wins
+  /// with NULLs sorting last. The stale row wins and the learner is blocked
+  /// permanently. The FK is ON DELETE RESTRICT for the same reason: SET NULL
+  /// would reintroduce exactly those rows.
+  ///
+  /// ONCE-course reads stay unscoped by term (unchanged behavior); a PER_TERM
+  /// lookup scoped to a term only matches that term's row, so a prior term's
+  /// completion does not count and a fresh attempt starts clean.
+  termId         String
   status         CourseProgressStatus @default(IN_PROGRESS)
   completedAt    DateTime?
   /// Raw cmi.core.lesson_status reported by the package.
@@ -1666,7 +1674,7 @@ model CourseProgress {
   lessonLocation String?
   person         Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
   course         Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  term           Term?                @relation(fields: [termId], references: [id], onDelete: SetNull)
+  term           Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
 
   @@unique([personId, courseId, termId])
   @@index([courseId])
@@ -1679,11 +1687,13 @@ model ScoProgress {
   courseId       String
   /// Manifest <item> identifier (matches Course.scormScos[].id).
   scoId          String
-  /// Same meaning and same backfill rule as CourseProgress.termId: null means
-  /// a legacy incomplete attempt with no knowable term. Kept in lockstep with
-  /// CourseProgress.termId so a PER_TERM course's per-SCO latch cannot
-  /// auto-complete a fresh term from a prior term's finished SCOs.
-  termId         String?
+  /// Same meaning and same NOT NULL reasoning as CourseProgress.termId. Kept
+  /// in lockstep with it so a PER_TERM course's per-SCO latch cannot
+  /// auto-complete a fresh term from a prior term's finished SCOs, and so a
+  /// course's SCO rows and its rollup row never land on different terms: if
+  /// they diverged, the next ONCE commit would scope the SCO read to the
+  /// rollup's term, miss the rest, and overwrite the director-visible score.
+  termId         String
   completedAt    DateTime?
   /// Raw cmi.core.lesson_status reported by this SCO.
   lessonStatus   String?
@@ -1695,7 +1705,7 @@ model ScoProgress {
   lessonLocation String?
   person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
   course         Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  term           Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
+  term           Term      @relation(fields: [termId], references: [id], onDelete: Restrict)
 
   @@unique([personId, courseId, scoId, termId])
   @@index([courseId])

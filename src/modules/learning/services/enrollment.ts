@@ -136,8 +136,18 @@ async function resolveProgressTermId(
   activeTerm: string
 ): Promise<string> {
   if (recurrence === "PER_TERM") return activeTerm;
+  // A ONCE course keeps writing whichever row already exists, so its single
+  // pre-migration row never fragments across terms. There is at most one, and
+  // the unique index guarantees it now that termId is NOT NULL.
+  //
+  // An earlier version filtered `termId: { not: null }` here to skip legacy
+  // rows the backfill had left null. That filter is what made a null row
+  // invisible to the resolver, so the next commit forked a second row and the
+  // unscoped ONCE readers then collapsed to the stale one, blocking the
+  // learner permanently. The migration now leaves no null rows and the column
+  // is NOT NULL, so the filter is both unnecessary and no longer expressible.
   const existing = await client.courseProgress.findFirst({
-    where: { personId, courseId, termId: { not: null } },
+    where: { personId, courseId },
     select: { termId: true },
   });
   return existing?.termId ?? activeTerm;

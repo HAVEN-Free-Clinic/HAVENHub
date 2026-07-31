@@ -13,14 +13,15 @@
  *
  * The server action receives the formData, reads the File, converts to Buffer,
  * and calls saveCertificate. CertificateValidationError is redirected back
- * with ?error=...; success is redirected with ?certSaved=1.
+ * with ?error=...; success is redirected with ?certSaved=1, which pops a toast
+ * via the flash classifier's `certSaved` registry entry rather than this
+ * component rendering its own inline confirmation.
  */
 
 import type { HipaaCertificate } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
 import { Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { FormActions } from "@/platform/ui/form";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
@@ -42,8 +43,6 @@ function formatSize(bytes: number): string {
 type HipaaPanelProps = {
   certificates: HipaaCertificate[];
   uploadAction: (formData: FormData) => Promise<void>;
-  error?: string;
-  certSaved?: boolean;
   status: ComplianceStatus;
 };
 
@@ -74,8 +73,6 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
 export async function HipaaPanel({
   certificates,
   uploadAction,
-  error,
-  certSaved,
   status,
 }: HipaaPanelProps) {
   const [zone, support] = await Promise.all([getDisplayTimeZone(), getSupportContact()]);
@@ -175,16 +172,6 @@ export async function HipaaPanel({
           <p className="text-sm text-subtle-foreground">No certificate on file.</p>
         )}
       </div>
-
-      {/* Upload feedback: rendered here, outside the collapsible upload
-          section below, so it is never hidden behind a collapsed disclosure.
-          A member replacing a pending certificate expands "Replace this
-          certificate", submits, and gets redirected back with ?certError=...;
-          the disclosure re-renders collapsed on that redirect, and an alert
-          nested inside it would be invisible at the exact moment it matters
-          most (issue: silent failed re-upload). */}
-      {error && <Alert tone="error">{error}</Alert>}
-      {certSaved && <Alert tone="success">Certificate uploaded successfully.</Alert>}
 
       {/* Upload form: collapsed behind a disclosure while a certificate is
           under review (PENDING_VERIFICATION/UNKNOWN_DATE), since it is not the

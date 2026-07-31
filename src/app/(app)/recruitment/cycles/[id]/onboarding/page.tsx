@@ -12,7 +12,6 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 
@@ -25,9 +24,8 @@ function statusLabel(c: { status: string } | null): { label: string; tone: Tone 
   return { label: "Promoted", tone: "success" };
 }
 
-export default async function OnboardingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
+export default async function OnboardingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { msg, err } = await searchParams;
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
@@ -48,8 +46,6 @@ export default async function OnboardingPage({ params, searchParams }: { params:
         })}
       />
       <PageHeader title="Onboarding" description={cycle.title} />
-      {err && <Alert tone="error">{err}</Alert>}
-      {msg && <Alert tone="success">{msg}</Alert>}
 
       <form action={sendLinksAction.bind(null, id)} className="space-y-3">
         <Table>

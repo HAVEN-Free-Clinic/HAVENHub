@@ -1,5 +1,4 @@
 import { requireModuleAccess } from "@/platform/auth/session";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -33,13 +32,9 @@ import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 
-type PageProps = {
-  searchParams: Promise<{ error?: string; message?: string; saved?: string; requested?: string }>;
-};
-
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
-export default async function MySchedulePage({ searchParams }: PageProps) {
+export default async function MySchedulePage() {
   const session = await requireModuleAccess("schedule");
   // Evaluated per request (not at module load) so the "pending N days" gate
   // below stays accurate across warm server instances. `new Date()` (not
@@ -48,19 +43,6 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
   // Resolved once for the whole page (not per shift card) -- every shift's
   // "has this passed" check compares against this same key.
   const todayKey = await displayTodayKey(now);
-  const sp = await searchParams;
-
-  // searchParams arrive already URL-decoded in the App Router; do not decode again
-  // (a second decode of a message containing a literal "%" throws URIError -> 500).
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : errorCode
-    : null;
-
-  const saved = sp.saved === "1";
-  const requested = sp.requested === "1";
 
   // mySchedule spans every term the member currently belongs to: their live
   // term plus any next term they are already an active roster member of. The
@@ -210,32 +192,6 @@ export default async function MySchedulePage({ searchParams }: PageProps) {
           <p className="mt-1 text-sm text-white/70">No shifts assigned yet</p>
         )}
       </div>
-
-      {errorMessage && (
-        <Alert tone="error" className="mb-6">
-          {errorMessage}
-        </Alert>
-      )}
-      {saved && (
-        <Alert tone="success" className="mb-6 font-medium">
-          Availability saved successfully.
-        </Alert>
-      )}
-      {requested && (
-        <Alert tone="success" className="mb-6 font-medium">
-          Change request submitted. Your director will review it.
-        </Alert>
-      )}
-      {sp.message === "reminded" && (
-        <Alert tone="success" className="mb-6 font-medium">
-          Reminder sent to your department directors.
-        </Alert>
-      )}
-      {sp.message === "already_reminded" && (
-        <Alert tone="info" className="mb-6 font-medium">
-          Your department directors were already reminded recently, so no new email was sent.
-        </Alert>
-      )}
 
       {termSections.length === 0 ? (
         <p className="text-sm text-subtle-foreground">No active term.</p>

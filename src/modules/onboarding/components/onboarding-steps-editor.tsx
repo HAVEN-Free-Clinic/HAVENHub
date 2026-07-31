@@ -13,11 +13,9 @@ import { STEP_DEFAULTS, type EffectiveStep } from "@/modules/onboarding/services
 export function OnboardingStepsEditor({
   steps,
   saveAction,
-  saved,
 }: {
   steps: EffectiveStep[];
   saveAction: (formData: FormData) => Promise<void>;
-  saved?: boolean;
 }) {
   return (
     <form action={saveAction} className="space-y-3">
@@ -71,7 +69,6 @@ export function OnboardingStepsEditor({
           </tbody>
         </Table>
       </div>
-      {saved && <p className="text-sm text-success-foreground">Onboarding steps saved.</p>}
       <Button type="submit" variant="primary" size="sm">
         Save onboarding steps
       </Button>

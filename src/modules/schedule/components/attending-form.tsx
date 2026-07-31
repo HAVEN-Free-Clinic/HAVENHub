@@ -4,7 +4,6 @@
  */
 
 import type { RhdAttending } from "@prisma/client";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { FormActions } from "@/platform/ui/form";
@@ -16,14 +15,12 @@ import { CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/
 type AttendingFormProps = {
   action: (formData: FormData) => Promise<void>;
   attending?: RhdAttending;
-  error?: string;
 };
 
-export function AttendingForm({ action, attending, error }: AttendingFormProps) {
+export function AttendingForm({ action, attending }: AttendingFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Schedule name">
             <Input name="scheduleName" defaultValue={attending?.scheduleName ?? ""} required placeholder="Rivera" />

@@ -24,7 +24,6 @@ import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
-import { Alert } from "@/platform/ui/alert";
 import { NavForm } from "@/platform/ui/nav-form";
 import {
   masterCompliance,
@@ -48,7 +47,6 @@ type PageProps = {
     departmentId?: string;
     status?: string;
     page?: string;
-    error?: string;
   }>;
 };
 
@@ -126,9 +124,6 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       ? (rawStatus as ComplianceStatus)
       : undefined;
 
-  // searchParams arrive already URL-decoded in the App Router; do not decode again.
-  const errorMessage = sp.error || null;
-
   // Fetch master compliance data
   const result = await masterCompliance({
     q,
@@ -205,12 +200,6 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
         title="Master compliance view"
         description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
       />
-
-      {errorMessage && (
-        <Alert tone="error" className="mt-4">
-          {errorMessage}
-        </Alert>
-      )}
 
       {/* Summary stat cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

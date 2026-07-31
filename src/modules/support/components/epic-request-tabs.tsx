@@ -35,7 +35,6 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { TabRow, type TabItem } from "@/platform/ui/tab-row";
 import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
 import type { EpicRequestStatus } from "@prisma/client";
-import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
@@ -75,10 +74,6 @@ type Props = {
    * (see router-hook-crash.ts for why that is worth avoiding here).
    */
   nowIso: string;
-  /** Tracker/Pending row-action failures (complete, link, cancel, resolve, ...). */
-  error?: string;
-  /** Failures from the "Log a YNHH incident" form only (#115). */
-  incidentError?: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
@@ -135,11 +130,9 @@ function TabNav({ activeTab }: { activeTab: Tab }) {
 function LogIncidentForm({
   incidentPeople,
   logIncidentAction,
-  error,
 }: {
   incidentPeople: IncidentPerson[];
   logIncidentAction: (formData: FormData) => Promise<void>;
-  error?: string;
 }) {
   return (
     <form action={logIncidentAction}>
@@ -149,8 +142,6 @@ function LogIncidentForm({
           For a one-off email or ticket sent to YNHH IT that isn&apos;t an Epic access request, e.g. a general
           outage report or a one-off account question.
         </p>
-
-        {error && <Alert tone="error">{error}</Alert>}
 
         <Field label="Subject" required>
           <Input name="subject" placeholder="Short summary of the incident" required maxLength={200} />
@@ -539,12 +530,10 @@ function PendingTab({
   pending,
   action,
   cancelAction,
-  error,
 }: {
   pending: PendingEpicRequestRow[];
   action: (formData: FormData) => Promise<void>;
   cancelAction: (formData: FormData) => Promise<void>;
-  error?: string;
 }) {
   if (pending.length === 0) {
     return (
@@ -560,8 +549,6 @@ function PendingTab({
         <p className="text-xs text-subtle-foreground">
           Select requests and open one YNHH ticket for them. They then appear under Tracker.
         </p>
-
-        {error && <Alert tone="error">{error}</Alert>}
 
         {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
             (formAction below) redirects back to this tab. */}
@@ -629,8 +616,6 @@ export function EpicRequestTabs({
   termOptions,
   liveTermId,
   nowIso,
-  error,
-  incidentError,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
@@ -667,13 +652,10 @@ export function EpicRequestTabs({
           </p>
         )
       ) : activeTab === "pending" ? (
-        <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} error={error} />
+        <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
-          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} error={incidentError} />
-          {/* Tracker ROW-action errors (complete, link, cancel, resolve, SR number)
-              belong with the table, not inside the incident form above (#115). */}
-          {error && <Alert tone="error">{error}</Alert>}
+          <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} />
           <TrackerTable
             history={history}
             nowIso={nowIso}

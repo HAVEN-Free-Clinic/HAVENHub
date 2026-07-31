@@ -6,14 +6,12 @@ import { PageHeader } from "@/platform/ui/page-header";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
 };
 
-export default async function EditAttendingPage({ params, searchParams }: PageProps) {
+export default async function EditAttendingPage({ params }: PageProps) {
   const session = await requireModuleAccess("schedule");
   if (!(await canManageAnyRhdDept(session.personId))) redirect("/no-access");
   const { id } = await params;
-  const { error } = await searchParams;
   const attending = await getAttending(id);
   if (!attending) notFound();
 
@@ -43,7 +41,7 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
   return (
     <div className="space-y-6">
       <PageHeader title={`Edit ${attending.scheduleName}`} />
-      <AttendingForm action={updateAction} attending={attending} error={error} />
+      <AttendingForm action={updateAction} attending={attending} />
     </div>
   );
 }

@@ -11,13 +11,8 @@ import { activeTermGroup } from "@/platform/posthog/groups";
 import { ALL_CATEGORIES } from "@/modules/support/filter-options";
 import type { TechRequestCategory } from "@prisma/client";
 
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
-
-export default async function SubmitPage({ searchParams }: PageProps) {
+export default async function SubmitPage() {
   await requireModuleAccess("support");
-  const sp = await searchParams;
 
   async function submitAction(formData: FormData) {
     "use server";
@@ -87,7 +82,7 @@ export default async function SubmitPage({ searchParams }: PageProps) {
         description="Tell IT what you need. You can track it under My requests."
       />
       <div className="mt-8">
-        <SubmitForm action={submitAction} error={sp.error ?? undefined} />
+        <SubmitForm action={submitAction} />
       </div>
     </>
   );

@@ -5,11 +5,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SubcommitteeForm } from "@/modules/admin/components/subcommittee-form";
 import { optionalInt } from "@/modules/admin/form-coerce";
 
-type PageProps = { searchParams: Promise<{ error?: string }> };
-
-export default async function NewSubcommitteePage({ searchParams }: PageProps) {
+export default async function NewSubcommitteePage() {
   await requirePermission("admin.manage_subcommittees");
-  const { error } = await searchParams;
 
   async function createAction(formData: FormData) {
     "use server";
@@ -32,7 +29,7 @@ export default async function NewSubcommitteePage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader title="Create subcommittee" description="Applicants will be able to rank active subcommittees." />
-      <SubcommitteeForm action={createAction} mode="create" error={error} />
+      <SubcommitteeForm action={createAction} mode="create" />
     </div>
   );
 }

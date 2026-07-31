@@ -14,7 +14,6 @@
  */
 
 import { requireModuleAccess } from "@/platform/auth/session";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -101,8 +100,6 @@ type PageProps = {
     mode?: string;
     gmode?: string;
     term?: string;
-    error?: string;
-    message?: string;
   }>;
 };
 
@@ -153,13 +150,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const view = sp.view === "grid" ? "grid" : "saturday";
   const mode = sp.mode === "availability" ? "availability" : "assign";
   const gmode = sp.gmode === "shadow" ? "shadow" : "assign";
-
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : errorCode
-    : null;
 
   const [workingTermOrNull, liveTerm] = await Promise.all([getWorkingTerm(sp.term), getActiveTerm()]);
   if (!workingTermOrNull) {
@@ -695,13 +685,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         <div className="mb-4 rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground-soft">
           Viewing <span className="font-semibold text-foreground">{workingTerm.name}</span>, archived and read-only.
         </div>
-      )}
-
-      {/* Error banner */}
-      {errorMessage && (
-        <Alert tone="error" className="mb-6">
-          {errorMessage}
-        </Alert>
       )}
 
       {/* Date strip -- hidden in Grid view (dates are already columns there) and in

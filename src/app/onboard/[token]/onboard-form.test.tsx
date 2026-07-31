@@ -42,4 +42,41 @@ describe("OnboardForm", () => {
     );
     expect(html).not.toContain('name="staffTitle"');
   });
+
+  // The contract has no draft save, so a reload loses everything typed,
+  // including every signature. Until draft save exists the only mitigation is
+  // to say so before someone starts. See the audit's B2.
+  const basePrefill = {
+    firstName: "Ada", lastName: "L", email: "ada@example.com",
+    netId: "abl2", phone: "203-555-0100", yaleAffiliation: "undergrad", gradYear: "2026",
+  };
+
+  it("warns that nothing is saved until submit", () => {
+    const html = renderToStaticMarkup(
+      <OnboardForm token="tok" prefill={basePrefill} layout={DIRECTOR_LAYOUT} ctx={ctx} />,
+    );
+    expect(html).toContain("Nothing is saved until you submit this form.");
+  });
+
+  it("tells the volunteer to have the HIPAA PDF ready when the layout asks for one", () => {
+    const html = renderToStaticMarkup(
+      <OnboardForm token="tok" prefill={basePrefill} layout={DIRECTOR_LAYOUT} ctx={ctx} />,
+    );
+    expect(html).toContain("Have your HIPAA certificate PDF ready");
+  });
+
+  it("omits the certificate sentence when the layout has no HIPAA block", () => {
+    // A director can remove the HIPAA block. Telling someone to go fetch a
+    // document this form never asks for would be worse than saying nothing.
+    const noHipaa = {
+      blocks: DIRECTOR_LAYOUT.blocks.filter(
+        (b) => !(b.kind === "system_field" && b.systemKey === "hipaa"),
+      ),
+    };
+    const html = renderToStaticMarkup(
+      <OnboardForm token="tok" prefill={basePrefill} layout={noHipaa} ctx={ctx} />,
+    );
+    expect(html).toContain("Nothing is saved until you submit this form.");
+    expect(html).not.toContain("HIPAA certificate PDF");
+  });
 });

@@ -102,8 +102,17 @@ missed it. There are **two** error conventions in the codebase:
 
 A classifier that always treats the value as the message would show a user the raw string
 "forbidden". So the module also needs a code table: if a value matches a known code, the toast shows
-that code's text; otherwise the value is the message. The fallback for an unrecognised code is the
-generic "An unexpected error occurred.", matching what those pages already do.
+that code's text; otherwise the value is the message.
+
+**Corrected 2026-07-31, after the whole-branch review.** This section first said an unrecognised
+code should fall back to a generic "An unexpected error occurred.", matching what those pages do.
+That is wrong as a module-level rule and was **not** implemented. The classifier cannot tell an
+unrecognised *code* from a *message*, and the overwhelming majority of values are messages: 85 sites
+send `encodeURIComponent(err.message)`. A generic fallback would replace every one of those with
+"An unexpected error occurred.", destroying far more information than it saves. So an unrecognised
+value is treated as the message, which is exactly right for the 85 and merely imperfect for a
+handful of unregistered slugs. The per-page generic fallback still exists on the pages that own
+their own vocabulary, which are ruled INLINE and keep their `Alert`.
 
 The eight tables do **not** share one vocabulary, so this is not a mechanical merge.
 `incidents/page.tsx:44-48` maps `forbidden` / `subject-not-found` / `validation`, while

@@ -118,10 +118,10 @@ test("anyone can file a report: dev.volunteer submits one and sees it in My repo
   await devLogin(page, "dev.volunteer@yale.edu");
 
   const description = `E2E incident ${tag()}`;
+  // submitReport already asserts the confirmation toast and reads the number out of it.
+  // Do not re-assert it here: it is a success toast, so it auto-dismisses about four
+  // seconds after it appeared, and this assertion would be racing that timer.
   const number = await submitReport(page, description);
-
-  // Success banner on /incidents/mine.
-  await expect(page.getByText(`Report #${number} submitted.`)).toBeVisible();
 
   // The new report's row is visible, linking to its detail page. exact: true
   // guards against a substring match on another row (e.g. "#7" inside "#71").

@@ -148,12 +148,12 @@ test("dev.volunteer availability round trip: toggle first checkbox, save, reload
   await page.getByRole("button", { name: "Save availability" }).click();
 
   // The server redirects to /schedule?saved=1, but the toast reader consumes that param
-  // and strips it with router.replace, so waiting on it being present is a race. Wait on
-  // the destination; the confirmation below is the real assertion either way.
-  await page.waitForURL((url) => url.pathname === "/schedule");
-
-  // Success indicator must be visible (now a toast rather than an inline alert)
-  await expect(page.getByText("Availability saved successfully.")).toBeVisible();
+  // and strips it, so waiting on it being present is a race. There is no useful URL
+  // predicate either: this page redirects to itself, so any pathname check is already
+  // true at click time and Playwright returns immediately without waiting. The toast is
+  // the only real post-navigation signal, so assert it directly with a budget that
+  // covers a cold server round trip plus hydration.
+  await expect(page.getByText("Availability saved successfully.")).toBeVisible({ timeout: 30_000 });
 
   // Reload to confirm persistence (a fresh server render reads from the DB)
   await page.goto("/schedule");
@@ -175,9 +175,8 @@ test("dev.volunteer availability round trip: toggle first checkbox, save, reload
   }
 
   await page.getByRole("button", { name: "Save availability" }).click();
-  // The toast reader strips ?saved=1, so wait on the destination and the confirmation.
-  await page.waitForURL((url) => url.pathname === "/schedule");
-  await expect(page.getByText("Availability saved successfully.")).toBeVisible();
+  // Same self-redirect as above: no URL predicate can wait here, so the toast is the signal.
+  await expect(page.getByText("Availability saved successfully.")).toBeVisible({ timeout: 30_000 });
 
   // Confirm restored
   await page.goto("/schedule");
@@ -387,10 +386,9 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await expect(requestDropConfirmBtn).toBeVisible({ timeout: 5_000 });
   await requestDropConfirmBtn.click();
 
-  // Redirects to /schedule?requested=1, but the toast reader strips that param, so wait
-  // on the destination and let the confirmation text be the assertion.
-  await page.waitForURL((url) => url.pathname === "/schedule", { timeout: 15_000 });
-  await expect(page.getByText(/Change request submitted\./)).toBeVisible();
+  // Redirects to /schedule?requested=1, which the toast reader strips. This page is
+  // already /schedule, so a pathname predicate would not wait at all; assert the toast.
+  await expect(page.getByText(/Change request submitted\./)).toBeVisible({ timeout: 30_000 });
 
   // Step 3: Jack opens the builder, finds the pending request, approves it.
   await page.context().clearCookies();

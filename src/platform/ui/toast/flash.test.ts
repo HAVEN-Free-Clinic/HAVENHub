@@ -78,6 +78,31 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual([]);
   });
 
+  it("does not let message ride along with a suffixed *Error param, only with bare error", () => {
+    // The module doc states this explicitly ("never pairs with a suffixed `*Error`
+    // param"). Unreachable today because no redirect emits the pair, but a mutation
+    // that widened the pairing to any error-convention param survived the suite, so
+    // pin it: rosterError must carry its own value and leave message untouched.
+    const result = classifyFlashParams(
+      paramsOf({ rosterError: "Row 4 is malformed.", message: "should not be consumed" }),
+      NEUTRAL_PATHNAME,
+    );
+    expect(result.toasts).toEqual([{ tone: "error", message: "Row 4 is malformed." }]);
+    expect(result.stripParams).toEqual(["rosterError"]);
+  });
+
+  it("matches the error suffix at the end only, so a param merely containing Error is untouched", () => {
+    // /Error$/ is deliberately anchored. A mutation to name.includes("Error") survived
+    // the suite, and the permissive direction is the dangerous one: it would claim and
+    // strip any future filter whose name happens to contain the substring.
+    const result = classifyFlashParams(
+      paramsOf({ ErrorLog: "x", errorsOnly: "1", showErrorDetail: "yes" }),
+      NEUTRAL_PATHNAME,
+    );
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
   it("resolves error=validation with no message to the shared code table's text", () => {
     const result = classifyFlashParams(paramsOf({ error: "validation" }), NEUTRAL_PATHNAME);
     expect(result.toasts).toEqual([

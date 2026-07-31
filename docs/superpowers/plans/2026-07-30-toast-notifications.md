@@ -179,9 +179,13 @@ scoping, the migration silently rewrites user-facing copy.
 
 - [ ] **Step 2: Add the error-code table**
 
-Codes to human text, with the generic fallback "An unexpected error occurred." for an unrecognised
-code, matching what those pages already do. If a value is not a known code, it IS the message; that
-is the 85 `encodeURIComponent` sites.
+Codes to human text. **If a value is not a known code, it IS the message**; that is the 85
+`encodeURIComponent` sites.
+
+**Corrected 2026-07-31.** This step first also asked for a generic "An unexpected error occurred."
+fallback for an unrecognised code, which contradicts the sentence above it and was not implemented.
+The classifier cannot distinguish an unrecognised code from a message, and a generic fallback would
+replace all 85 real messages. See the spec's correction of the same date.
 
 `login/page.tsx` is ruled INLINE and its NextAuth codes do NOT go in the table.
 
@@ -351,7 +355,9 @@ These are the shape-2 and shape-3 params: the page currently hardcodes or compos
 
 **Copy the existing strings verbatim.** Do not reword them while migrating. A migration that also rewrites copy is two changes wearing one coat, and the reviewer cannot tell which was intended.
 
-Where a message genuinely depends on page-local data that the URL does not carry, do NOT force it into the registry: leave the page composing it and have it call `useToast()` directly. Say which pages you did this for and why.
+**Corrected 2026-07-31.** This step originally said that where a message depends on page-local data, you could "leave the page composing it and have it call `useToast()` directly". **That is not possible for a redirect-driven param.** The reader mounts in the root layout and classifies every URL, so once the registry claims a param it fires and strips before the page can act; a page cannot opt out of a param the classifier claims. Only a scoped registry entry or an exclusion changes the outcome.
+
+`useToast()` applies to client-side actions that never touch the URL. If a param's message genuinely cannot be expressed as a registry entry, the page needs a small client component that pushes the toast itself **and** the param must be left unclaimed by the registry, which is how `my-info`'s `withdrawn` is handled. Say which pages you did this for and why.
 
 - [ ] **Step 2: Re-run the double-report check from Task 5 Step 2**
 

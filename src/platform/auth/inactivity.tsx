@@ -61,15 +61,21 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
     // src/platform/ui/toast/toast.tsx) instead of its old bottom-4 right-4
     // corner, which collided with HelpLauncher's bubble there (R12). Both
     // mount as independent `fixed` elements in the root layout, so "share a
-    // lane" here means matching its horizontal centering and sitting well
-    // clear of it vertically, not a literal shared flex parent: bottom-48
-    // (12rem) clears ToastViewport's tallest possible stack -- 3 toasts
-    // (MAX_VISIBLE) at roughly 44px each plus two 8px gaps, atop its own
-    // bottom-4 offset, is about 176px -- with margin to spare, so the two can
-    // never overlap even when both are visible at once.
+    // lane" here means matching its horizontal centering and sitting clear of
+    // it vertically, not a literal shared flex parent.
+    //
+    // The offset is sized against the tallest stack the viewport can actually
+    // produce, not against a single-line pill: the longest registered flash
+    // messages run past 150 characters, which wrap to three lines in the pill's
+    // own max-w-sm, so a pill is up to about 84px rather than 44px. Three of
+    // those (MAX_VISIBLE) plus two 8px gaps, atop the viewport's own bottom-4,
+    // is about 284px, which bottom-72 (18rem, 288px) clears.
+    //
+    // That bound is a function of the longest message in the flash registry. If
+    // a much longer one is ever added, re-check it here rather than assuming.
     <div
       role="alert"
-      className="fixed inset-x-0 bottom-48 z-50 mx-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
+      className="fixed inset-x-0 bottom-72 z-50 mx-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
     >
       <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
       <p className="text-sm text-foreground-soft mb-3">

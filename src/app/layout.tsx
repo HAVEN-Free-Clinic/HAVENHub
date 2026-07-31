@@ -13,6 +13,7 @@ import { EnvBanner } from "@/platform/ui/env-banner";
 import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
+import { RouterCrashRecovery } from "@/platform/posthog/router-crash-recovery";
 import {
   resolvePreference,
   buildNoFlashScript,
@@ -64,6 +65,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
         <EnvBanner label={config.ENV_BANNER_LABEL} />
         <ThemeListener />
+        <RouterCrashRecovery />
         <TopProgressBar>
           <InactivityTracker authenticated={!!session?.user} />
           {children}

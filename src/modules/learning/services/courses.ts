@@ -1,4 +1,4 @@
-import type { Course, CourseAudience } from "@prisma/client";
+import type { Course, CourseAudience, CourseRecurrence } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -15,6 +15,8 @@ export type CourseInput = {
   title: string;
   description?: string | null;
   isActive?: boolean;
+  /** Omitted leaves the existing value alone, same convention as isActive below. */
+  recurrence?: CourseRecurrence;
 };
 
 export async function createCourse(input: CourseInput, actorId: string): Promise<Course> {
@@ -52,6 +54,7 @@ export async function updateCourse(id: string, input: CourseInput, actorId: stri
       title,
       description: input.description?.trim() || null,
       isActive: input.isActive ?? undefined,
+      recurrence: input.recurrence ?? undefined,
     },
   });
   await recordAudit({
@@ -59,7 +62,7 @@ export async function updateCourse(id: string, input: CourseInput, actorId: stri
     action: "learning.course_update",
     entityType: "Course",
     entityId: id,
-    after: { title, isActive: course.isActive },
+    after: { title, isActive: course.isActive, recurrence: course.recurrence },
   });
   return course;
 }
@@ -110,4 +113,17 @@ export async function listCourses(): Promise<CourseListRow[]> {
 
 export async function getCourseForEdit(id: string) {
   return prisma.course.findUnique({ where: { id }, include: { departments: true } });
+}
+
+/**
+ * Recurrence per course id, for annotating a learner-facing course list with
+ * "Retake each term" without touching enrollment.ts's assignment/progress reads.
+ */
+export async function getCourseRecurrenceById(courseIds: string[]): Promise<Record<string, CourseRecurrence>> {
+  if (courseIds.length === 0) return {};
+  const rows = await prisma.course.findMany({
+    where: { id: { in: courseIds } },
+    select: { id: true, recurrence: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.id, r.recurrence]));
 }

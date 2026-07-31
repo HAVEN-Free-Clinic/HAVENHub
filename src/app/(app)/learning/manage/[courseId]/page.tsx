@@ -58,6 +58,15 @@ export default async function EditCoursePage({
               <Field label="Description">
                 <Textarea name="description" defaultValue={course.description ?? ""} placeholder="Description" />
               </Field>
+              <Field
+                label="Recurrence"
+                hint="Takes effect next term, not immediately. Volunteers already complete this term keep their status; the retake starts next term."
+              >
+                <Select name="recurrence" defaultValue={course.recurrence} className="max-w-xs">
+                  <option value="ONCE">Complete once, cleared forever</option>
+                  <option value="PER_TERM">Retake each term</option>
+                </Select>
+              </Field>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox name="isActive" defaultChecked={course.isActive} /> Active
               </label>

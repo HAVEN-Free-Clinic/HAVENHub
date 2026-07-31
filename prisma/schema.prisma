@@ -268,6 +268,8 @@ model Term {
   recruitmentCycles    RecruitmentCycle[]
   trainings            Training[]
   onboardingSteps      TermOnboardingStep[]
+  courseProgress       CourseProgress[]
+  scoProgress          ScoProgress[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -1591,6 +1593,12 @@ model Course {
   assignToAll     Boolean            @default(false)
   /// Who the course targets, composed with department / assignToAll scoping.
   audience        CourseAudience     @default(EVERYONE)
+  /// ONCE (default): a completion clears the learning gate forever, matching
+  /// today's behavior. PER_TERM: a completion only counts for the term it
+  /// happened in, so the course must be retaken each term. Flipping a live
+  /// course to PER_TERM takes effect from the next term; current-term
+  /// clearances stand.
+  recurrence      CourseRecurrence   @default(ONCE)
   /// Ordering in the catalog / management list.
   position        Int                @default(0)
   /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
@@ -1618,6 +1626,11 @@ enum CourseAudience {
   VOLUNTEERS
 }
 
+enum CourseRecurrence {
+  ONCE
+  PER_TERM
+}
+
 model CourseDepartment {
   id           String     @id @default(cuid())
   courseId     String
@@ -1633,6 +1646,14 @@ model CourseProgress {
   id             String               @id @default(cuid())
   personId       String
   courseId       String
+  /// The term this progress row belongs to. Null on rows backfilled from
+  /// before per-term recurrence existed that had no completedAt to locate a
+  /// term by -- an incomplete attempt with no knowable term. ONCE-course
+  /// reads stay unscoped by term and see these rows regardless (unchanged
+  /// behavior); a PER_TERM lookup scoped to a specific term never matches a
+  /// null-termId row, so a legacy incomplete attempt does not count toward
+  /// any term's recurrence and a fresh attempt starts clean.
+  termId         String?
   status         CourseProgressStatus @default(IN_PROGRESS)
   completedAt    DateTime?
   /// Raw cmi.core.lesson_status reported by the package.
@@ -1645,9 +1666,11 @@ model CourseProgress {
   lessonLocation String?
   person         Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
   course         Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  term           Term?                @relation(fields: [termId], references: [id], onDelete: SetNull)
 
-  @@unique([personId, courseId])
+  @@unique([personId, courseId, termId])
   @@index([courseId])
+  @@index([termId])
 }
 
 model ScoProgress {
@@ -1656,6 +1679,11 @@ model ScoProgress {
   courseId       String
   /// Manifest <item> identifier (matches Course.scormScos[].id).
   scoId          String
+  /// Same meaning and same backfill rule as CourseProgress.termId: null means
+  /// a legacy incomplete attempt with no knowable term. Kept in lockstep with
+  /// CourseProgress.termId so a PER_TERM course's per-SCO latch cannot
+  /// auto-complete a fresh term from a prior term's finished SCOs.
+  termId         String?
   completedAt    DateTime?
   /// Raw cmi.core.lesson_status reported by this SCO.
   lessonStatus   String?
@@ -1667,9 +1695,11 @@ model ScoProgress {
   lessonLocation String?
   person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
   course         Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  term           Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
 
-  @@unique([personId, courseId, scoId])
+  @@unique([personId, courseId, scoId, termId])
   @@index([courseId])
+  @@index([termId])
 }
 
 enum EhsCompletionSource {

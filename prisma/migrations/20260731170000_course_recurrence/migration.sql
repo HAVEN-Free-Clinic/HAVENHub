@@ -73,13 +73,30 @@ SET "termId" = COALESCE(
 
 -- ScoProgress carries its own completedAt (a SCO can finish on a different
 -- day than the course-level rollup). It is backfilled by the same rule, but
--- falls back to its PARENT CourseProgress row's term before the active term,
--- so a course's SCO rows and its rollup row cannot land on different terms.
--- If they diverged, the next ONCE commit would scope the SCO read to the
--- rollup's term, miss the rest, and overwrite the director-visible score
--- while stranding partial SCO progress.
+-- takes its PARENT CourseProgress row's term FIRST, ahead of its own date
+-- match, so a course's SCO rows and its rollup row cannot land on different
+-- terms.
+--
+-- Parent-first is the point, not a fallback. An earlier draft tried the SCO's
+-- own completedAt first and only used the parent when that missed. But a
+-- multi-SCO course can legitimately span a term boundary: an early SCO's own
+-- date matches the outgoing term while the rollup's completedAt (stamped from
+-- the LAST sco to finish) matches the incoming one. Backfill then split them
+-- across terms, which is exactly the divergence this is meant to prevent.
+--
+-- It matters because enrollment.ts's rollup read is scoped to the resolved
+-- term for every course, ONCE included. A split row drops out of that read on
+-- the next commit, and while the course-level latch protects status and
+-- completedAt, `scoreRaw` is rewritten unconditionally from a max over only
+-- the SCOs still in scope. The director-visible score would silently drop.
+--
+-- A SCO with no parent row falls back to its own date match, then the active
+-- term. CourseProgress is backfilled above, so the parent's term is already
+-- final and non-null when this reads it.
 UPDATE "ScoProgress" sp
 SET "termId" = COALESCE(
+  (SELECT cp."termId" FROM "CourseProgress" cp
+    WHERE cp."personId" = sp."personId" AND cp."courseId" = sp."courseId" LIMIT 1),
   (
     SELECT t.id
     FROM "Term" t
@@ -88,8 +105,6 @@ SET "termId" = COALESCE(
     ORDER BY t."startDate" ASC
     LIMIT 1
   ),
-  (SELECT cp."termId" FROM "CourseProgress" cp
-    WHERE cp."personId" = sp."personId" AND cp."courseId" = sp."courseId" LIMIT 1),
   (SELECT t.id FROM "Term" t WHERE t.status = 'ACTIVE' ORDER BY t."startDate" DESC LIMIT 1),
   (SELECT t.id FROM "Term" t ORDER BY t."startDate" DESC LIMIT 1)
 );

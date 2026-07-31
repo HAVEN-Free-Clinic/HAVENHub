@@ -113,14 +113,16 @@ type ProgressClient = typeof prisma | Prisma.TransactionClient;
  * stop. A prior term's rows are never resolved here, so their completion latch cannot
  * leak forward and auto-complete a fresh term from stale data.
  *
- * ONCE: reuse whichever real (non-null) term an existing row already carries, so a
- * course that never reopens keeps writing through the SAME row for its whole life,
- * exactly like the single pre-migration row did (today's behavior, preserved). A
- * legacy row backfilled with a null termId (an old attempt with no completedAt to
- * locate a term by, per Task 1) is deliberately excluded from this lookup: it can
- * never be COMPLETE, so skipping it loses no completion record, and it means a stale
- * in-progress attempt does not get resumed into forever -- the next commit lands on
- * the real active term instead of extending a null-term row.
+ * ONCE: reuse whichever term an existing row already carries, so a course that never
+ * reopens keeps writing through the SAME row for its whole life, exactly like the
+ * single pre-migration row did (today's behavior, preserved).
+ *
+ * An earlier version of this filtered `termId: { not: null }` here, to skip legacy
+ * rows the backfill had left null. Do NOT re-add that. It is what made a null row
+ * invisible to this resolver, so the next commit forked a SECOND row, and the
+ * unscoped ONCE readers then collapsed last-wins onto the stale one and blocked the
+ * learner permanently. The migration now gives every row a term and the column is
+ * NOT NULL, so there is nothing to skip and the filter is no longer expressible.
  *
  * Falls back to the active term when no matching row exists yet (the first-ever
  * commit, either recurrence). Never returns null: the caller has already confirmed an
@@ -149,6 +151,10 @@ async function resolveProgressTermId(
   const existing = await client.courseProgress.findFirst({
     where: { personId, courseId },
     select: { termId: true },
+    // Deterministic for the same reason the readers are: after a PER_TERM
+    // round trip a ONCE course can have a row per term, and the commit should
+    // keep extending the completed one.
+    orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }],
   });
   return existing?.termId ?? activeTerm;
 }
@@ -189,6 +195,12 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
       ],
     },
     select: { courseId: true, lessonStatus: true },
+    // A ONCE course is read unscoped, so it can see more than one row: a course
+    // toggled to PER_TERM, run for a term or two, then toggled back leaves a row
+    // per term behind. The Map below is last-wins, so without a deterministic
+    // order an unrelated in-progress row could beat a real completion and block
+    // the learner. Completed rows sort last and therefore win.
+    orderBy: [{ completedAt: { sort: "asc", nulls: "first" } }],
   });
   const byCourse = new Map(progress.map((p) => [p.courseId, p]));
   return courses.map((c) => {
@@ -246,6 +258,10 @@ export async function getCourseForLearner(personId: string, courseId: string): P
   const rollup = await prisma.courseProgress.findFirst({
     where: { personId, courseId, ...termFilter },
     select: { status: true },
+    // Unscoped for ONCE, so more than one row can match after a PER_TERM
+    // round trip. Prefer the completed one rather than whichever the planner
+    // happens to return.
+    orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }],
   });
   const status: LearnerStatus = !rollup ? "NOT_STARTED" : (rollup.status as LearnerStatus);
 

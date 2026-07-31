@@ -16,6 +16,7 @@ import { ThemeListener } from "@/platform/ui/theme-listener";
 import { ToastProvider, ToastViewport } from "@/platform/ui/toast/toast";
 import { FlashReader } from "@/platform/ui/toast/flash-reader";
 import { hostFromUrl } from "@/modules/recruitment/services/portal-routing";
+import { RouterCrashRecovery } from "@/platform/posthog/router-crash-recovery";
 import {
   resolvePreference,
   buildNoFlashScript,
@@ -78,6 +79,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
         <EnvBanner label={config.ENV_BANNER_LABEL} />
         <ThemeListener />
+        <RouterCrashRecovery />
         {/* ToastProvider wraps the whole tree (not just the viewport) so any
             page can call useToast() directly. Mounted here in the ROOT
             layout, not AppShell: flash params exist on /login, /apply, and

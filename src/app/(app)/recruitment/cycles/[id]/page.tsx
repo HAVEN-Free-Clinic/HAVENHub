@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
@@ -10,6 +11,7 @@ import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { countGradedQuestions } from "@/platform/quiz/graded";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
@@ -71,6 +73,22 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const beforeOpen = cycle.status === "OPEN" && cycle.opensAt !== null && cycle.opensAt > now;
   const afterClose = cycle.status === "OPEN" && cycle.closesAt !== null && cycle.closesAt < now;
   const liveByWindow = cycle.status === "OPEN" && !beforeOpen && !afterClose;
+  const isTrainingTrack = cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR";
+  // Same filter as `quizQuestions` in the training service: SINGLE_SELECT fields
+  // in a QUIZ-purpose section, scoped to this cycle. Surfaced here so a director
+  // filling in the settings below can see the questions were never keyed, instead
+  // of discovering it only when designation is blocked. Keep the rows (not just
+  // the keyed count) so the render below can show keyed-against-total, not just
+  // the keyed count on its own: 1 keyed question out of 15 reads as fine, and R62
+  // exists precisely to stop a director believing that.
+  const quizFields = canManage && isTrainingTrack
+    ? await prisma.formField.findMany({
+        where: { cycleId: id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
+        select: { correctValue: true },
+      })
+    : [];
+  const gradedQuestionCount = countGradedQuestions(quizFields);
+  const totalQuestionCount = quizFields.length;
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
@@ -194,7 +212,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
       </div>
       )}
 
-      {(cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR") && (
+      {isTrainingTrack && (
         <Card className="space-y-4">
           <SectionHeader>{cycle.track === "DIRECTOR" ? "Director training" : "Training"}</SectionHeader>
           {canManage && (
@@ -204,6 +222,22 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
                 </SubmitButton>
               </form>
+              {gradedQuestionCount === 0 ? (
+                <p className="text-sm text-warning-foreground">
+                  No quiz questions with an answer key yet. Nobody can pass this quiz until you add some.{" "}
+                  <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium text-brand-fg hover:text-brand-hover">
+                    Add quiz questions
+                  </Link>
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {gradedQuestionCount} of {totalQuestionCount} question{totalQuestionCount === 1 ? "" : "s"}{" "}
+                  {totalQuestionCount === 1 ? "has" : "have"} an answer key.{" "}
+                  <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium text-brand-fg hover:text-brand-hover">
+                    Edit quiz questions
+                  </Link>
+                </p>
+              )}
               <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">
                 <div className="w-28">
                   <Field label="Pass %">

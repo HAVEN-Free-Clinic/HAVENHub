@@ -16,8 +16,9 @@ export type QuizActionResult =
       percent: number;
       attemptsUsed: number;
       locked: boolean;
-      /** Graded question key -> correct option value, for review highlighting. */
-      correctByKey: Record<string, string>;
+      /** Graded question key -> whether the learner's answer was right, for
+       *  review highlighting. Never carries the correct value itself. */
+      verdictByKey: Record<string, "correct" | "wrong">;
     }
   | { status: "error"; message: string };
 
@@ -44,7 +45,7 @@ export async function gradeQuizAction(input: {
       percent: result.percent,
       attemptsUsed: result.attemptsUsed,
       locked: result.locked,
-      correctByKey: result.correctByKey,
+      verdictByKey: result.verdictByKey,
     };
   } catch (err) {
     if (err instanceof QuizLockedError || err instanceof TrainingStateError) {

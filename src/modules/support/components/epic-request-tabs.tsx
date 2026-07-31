@@ -66,6 +66,14 @@ type Props = {
   rollup: EpicRollup | null;
   termOptions: TermOption[];
   liveTermId: string | null;
+  /**
+   * "Now", stamped once on the server, for the Tracker's business-days-open
+   * count. A render-body `new Date()` would be read once during SSR and again
+   * at hydration, so a render straddling a clinic-local midnight would produce
+   * a different count on each side and force React into a recovery re-render
+   * (see router-hook-crash.ts for why that is worth avoiding here).
+   */
+  nowIso: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
@@ -258,6 +266,7 @@ function IncidentBody({ row }: { row: EpicRequestHistoryRow }) {
 
 function TrackerTable({
   history,
+  nowIso,
   closeTicketAction,
   updateServiceRequestNumberAction,
   resolveIncidentAction,
@@ -267,6 +276,7 @@ function TrackerTable({
   cancelEpicRequestAction,
 }: {
   history: EpicRequestHistoryRow[];
+  nowIso: string;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
@@ -276,6 +286,7 @@ function TrackerTable({
   cancelEpicRequestAction: (formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
+  const now = new Date(nowIso);
   const openTickets = history.filter((h) => h.ticket.status === "OPEN");
 
   if (openTickets.length === 0) {
@@ -291,7 +302,7 @@ function TrackerTable({
       {openTickets.map((row) => {
         const { ticket, requests } = row;
         const isIncident = Boolean(ticket.subject);
-        const days = businessDaysSince(new Date(ticket.submittedAt), new Date(), zone);
+        const days = businessDaysSince(new Date(ticket.submittedAt), now, zone);
         return (
           <Card key={ticket.id} className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -604,6 +615,7 @@ export function EpicRequestTabs({
   rollup,
   termOptions,
   liveTermId,
+  nowIso,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
@@ -646,6 +658,7 @@ export function EpicRequestTabs({
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} />
           <TrackerTable
             history={history}
+            nowIso={nowIso}
             closeTicketAction={closeTicketAction}
             updateServiceRequestNumberAction={updateServiceRequestNumberAction}
             resolveIncidentAction={resolveIncidentAction}

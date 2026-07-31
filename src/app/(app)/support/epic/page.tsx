@@ -309,6 +309,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         rollup={rollup}
         termOptions={termOptions}
         liveTermId={liveTerm?.id ?? null}
+        nowIso={new Date().toISOString()}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

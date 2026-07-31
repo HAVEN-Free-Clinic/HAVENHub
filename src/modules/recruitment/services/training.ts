@@ -7,6 +7,7 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
+import { countGradedQuestions } from "@/platform/quiz/graded";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { makeupIsOpen } from "./makeup-window";
 
@@ -20,13 +21,16 @@ export class QuizLockedError extends Error {
 export type QuizResultPublic = { score: number; total: number; percent: number; passed: boolean };
 
 /** What submitQuiz returns: the score plus everything the page needs to render
- *  in-place review (which option was correct), the live attempt count, and
- *  whether this attempt tripped the lockout. */
+ *  in-place review (whether each answer was right, never the answer itself), the
+ *  live attempt count, and whether this attempt tripped the lockout. */
 export type QuizSubmission = QuizResultPublic & {
   attemptsUsed: number;
   locked: boolean;
-  /** Graded question key -> correct option value, for correct/wrong highlighting. */
-  correctByKey: Record<string, string>;
+  /** Graded question key -> whether the learner's answer was right. Ungraded
+   *  questions (correctValue == null) are absent, so the review screen leaves
+   *  them unmarked rather than implying they were scored. Never carries the
+   *  correct value itself: a failed attempt precedes a retry. */
+  verdictByKey: Record<string, "correct" | "wrong">;
 };
 
 /** The term's designated training cycle for a track, or null. */
@@ -43,6 +47,11 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
   }
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new TrainingStateError("Cycle not found.");
+  if (value && countGradedQuestions(await quizQuestions(cycleId)) === 0) {
+    throw new TrainingStateError(
+      "This cycle's quiz has no answer keys, so nobody could pass it. Add questions with a correct answer on the cycle's Quiz tab first."
+    );
+  }
   await prisma.$transaction(async (tx) => {
     if (value) {
       await tx.recruitmentCycle.updateMany({ where: { termId: cycle.termId, track: cycle.track, isTermTraining: true, NOT: { id: cycleId } }, data: { isTermTraining: false } });
@@ -220,6 +229,10 @@ export type MyTraining = {
   inPersonTrainingDate: Date | null;
   makeupOpen: boolean;
   questions: { key: string; label: string; options: { value: string; label: string }[] }[];
+  /** How many of the cycle's quiz questions carry an answer key (see
+   *  countGradedQuestions). Zero means the quiz cannot be passed no matter how
+   *  many questions render, so the page must treat it the same as "no quiz". */
+  gradedQuestionCount: number;
   intake: TrainingIntake;
 };
 
@@ -244,12 +257,16 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
       const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
 
       let questions: MyTraining["questions"] = [];
+      let gradedQuestionCount = 0;
       if (cycle) {
         const fields = await prisma.formField.findMany({
           where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
           orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
-          select: { key: true, label: true, options: true },
+          select: { key: true, label: true, options: true, correctValue: true },
         });
+        gradedQuestionCount = countGradedQuestions(fields);
+        // Build questions without correctValue: this array is passed straight to a
+        // client component, so the answer key must never ride along.
         questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
       }
 
@@ -264,6 +281,7 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
         makeupOpen: makeupIsOpen(cycle?.inPersonTrainingDate ?? null, now, zone),
         questions,
+        gradedQuestionCount,
         intake: {
           additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
           minShiftsWanted: row?.minShiftsWanted ?? null,
@@ -303,7 +321,9 @@ export async function submitQuiz(
   }
 
   const questions = await quizQuestions(cycle.id);
-  if (questions.length === 0) throw new TrainingStateError("This training has no quiz questions yet.");
+  if (countGradedQuestions(questions) === 0) {
+    throw new TrainingStateError("This training's quiz is not ready yet. Contact your coordinator.");
+  }
 
   return prisma.$transaction(async (tx) => {
     const row = await tx.training.upsert({
@@ -336,10 +356,12 @@ export async function submitQuiz(
       locked = true;
     }
 
-    const correctByKey = Object.fromEntries(
-      questions.filter((q) => q.correctValue !== null).map((q) => [q.key, q.correctValue as string])
+    const verdictByKey = Object.fromEntries(
+      questions
+        .filter((q) => q.correctValue !== null)
+        .map((q) => [q.key, input.answers[q.key] === q.correctValue ? "correct" : "wrong"] as const)
     );
-    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, correctByKey };
+    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, verdictByKey };
   });
 }
 

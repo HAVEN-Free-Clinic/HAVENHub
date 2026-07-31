@@ -52,6 +52,31 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // (it's an uncontrolled input, so the value is not in the DOM as visible text).
   await questionInput.fill("What does HIPAA protect?");
   await questionInput.blur();
+  // Verify the fill took, which the comment above asks for. This does NOT settle the
+  // blur's updateFieldAction + refresh(): the input is uncontrolled and fill() already
+  // set its value, so this matches on the first poll while the refresh is still in
+  // flight. There is no DOM signal for that refresh landing (quiz-builder.tsx discards
+  // useTransition's isPending, and the label input is uncontrolled), so the ordering
+  // against the "Add option" refresh below rests on the generous toBeVisible and
+  // toBeChecked timeouts plus CI's retries: 1.
+  await expect(questionInput).toHaveValue("What does HIPAA protect?");
+
+  // A newly added question has zero options and no answer key. The designation
+  // guard (setTrainingCycle -> countGradedQuestions) refuses to designate a
+  // cycle whose quiz has no keyed question, so give this one an option and
+  // mark it correct before designating below, or the "Use as this term's
+  // training" click further down throws TrainingStateError and the button
+  // never flips.
+  await quizSection.getByRole("button", { name: "Add option" }).click();
+  // Wait for the option's radio to appear after startTransition + refresh,
+  // same convention as the question card wait above, so it exists before we
+  // try to check it.
+  const correctAnswerRadio = quizSection.getByRole("radio", { name: "Correct answer" });
+  await expect(correctAnswerRadio).toBeVisible({ timeout: 15000 });
+  await correctAnswerRadio.click();
+  // The radio is server-controlled (checked={markCorrect.value === item.value}),
+  // so it only reads as checked once correctValue is saved and the refresh lands.
+  await expect(correctAnswerRadio).toBeChecked({ timeout: 15000 });
 
   // --- Overview: save quiz settings, then designate as this term's training ---
   await page.goto(`/recruitment/cycles/${cycleId}`);

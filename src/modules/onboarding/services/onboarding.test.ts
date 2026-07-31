@@ -7,9 +7,20 @@ import { getOnboardingStatus, getMyOnboarding } from "./onboarding";
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
+/** Seed one keyed quiz question on a cycle so setTrainingCycle's designation
+ *  guard (at least one answer key) is satisfied. These onboarding tests never
+ *  submit the quiz itself, so a single graded question is enough. */
+async function addKeyedQuestion(cycleId: string) {
+  const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.create({
+    data: { sectionId: section.id, cycleId, key: "q1", label: "Q1", type: "SINGLE_SELECT", order: 0, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" },
+  });
+}
+
 async function seedTermWithTraining(code: string, name: string, status: "ACTIVE" | "PLANNING", srrId: string) {
   const term = await prisma.term.create({ data: { code, name, startDate: new Date(code === "FA26" ? "2026-09-01" : "2026-05-30"), endDate: new Date(code === "FA26" ? "2027-01-01" : "2026-09-26"), status } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: `${code} vol`, publicSlug: `${code}-vol`, departments: ["SRHD"], createdById: srrId, status: "OPEN" } });
+  await addKeyedQuestion(cycle.id);
   await setTrainingCycle(cycle.id, true, srrId);
   return term;
 }

@@ -156,6 +156,61 @@ git commit -m "docs: inventory the flash-alert pages for the toast migration"
 
 ---
 
+### Task 2b: Extend the classifier for what the inventory found
+
+**Files:**
+- Modify: `src/platform/ui/toast/flash.ts`, `src/platform/ui/toast/flash.test.ts`
+
+**Interfaces:**
+- Consumes: Task 2's inventory (`docs/superpowers/plans/2026-07-30-toast-notifications-inventory.md`).
+- Produces: the final classifier shape Tasks 4, 5, and 6 depend on.
+
+Task 1 shipped a classifier that assumed a param name means one thing app-wide. Task 2's inventory
+disproved that. Read the spec's amendment dated 2026-07-30 about pathname scoping before starting.
+
+- [ ] **Step 1: Make registry and code-table entries pathname-scoped**
+
+An entry may carry an optional pathname scope. Unscoped is the default for that param; a scoped
+entry wins where it matches. `classifyFlashParams` takes the pathname as a new argument.
+
+This exists because `saved` renders at least eight different sentences across the app, `sent` means
+three different things, and `?error=not-found` means different things on two incidents pages. Without
+scoping, the migration silently rewrites user-facing copy.
+
+- [ ] **Step 2: Add the error-code table**
+
+Codes to human text, with the generic fallback "An unexpected error occurred." for an unrecognised
+code, matching what those pages already do. If a value is not a known code, it IS the message; that
+is the 85 `encodeURIComponent` sites.
+
+`login/page.tsx` is ruled INLINE and its NextAuth codes do NOT go in the table.
+
+- [ ] **Step 3: Cover the four gaps the inventory named**
+
+- `message=reminded` and `message=already_reminded` on `schedule/page.tsx`, which arrive with **no
+  `error`** and would otherwise silently vanish.
+- `err` and `msg` on `recruitment/cycles/[id]/onboarding` and `.../training`, firing as **two
+  independent toasts**, not one composed group.
+- `sent` on the waitlist page (paired with `promoted`) and on the campaign page (standalone).
+- Do **not** register `lastError`. It is a database column, not a URL param, and it reached the
+  spec's suffixed-error list by mistake.
+
+- [ ] **Step 4: Test each addition, and keep the filter assertions individual**
+
+The existing tests name each filter param on its own line rather than looping an array. Keep that
+property. Add a test that a scoped entry wins over an unscoped one, and that an unscoped entry still
+applies on a pathname with no scoped override.
+
+- [ ] **Step 5: Commit**
+
+```bash
+npx eslint src && npm run typecheck
+git add -A src
+git commit -m "feat(ui): scope flash registry entries by pathname and resolve error codes"
+```
+
+---
+
 ### Task 3: The toast primitive and viewport
 
 **Files:**

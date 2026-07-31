@@ -124,6 +124,39 @@ one message could not express that and would fire two half-sentences.
 **A param not matching the error convention and not in the registry is left completely alone**,
 which is what protects `status`, `page`, `q`, and the rest of the filter vocabulary.
 
+**Amended 2026-07-30, after the Task 2 inventory. Registry entries are pathname-scoped.** This spec
+assumed a param name meant one thing app-wide. The inventory disproved that:
+
+- **`saved` is not one message.** The seeded `saved` to "Saved." entry is correct for about five
+  sites. At least six more pages render their own text ("Changes saved.", "Assignment saved.",
+  "Campaign saved.", "Availability saved successfully."), and two map `saved` through a per-page
+  whitelist to entirely different sentences.
+- **`sent` means three different things**: a count paired with `skipped` on the decisions page, a
+  flag paired with `promoted` on the waitlist page, and a standalone recipient count on the campaign
+  page.
+- **`?error=not-found` conflicts outright**: "The incident report could not be found." on
+  `incidents/[id]` versus "The disciplinary action could not be found." on `incidents/strikes`.
+
+So a registry entry, and an entry in the error-code table, may carry an optional pathname scope. An
+unscoped entry is the default for that param; a scoped entry wins where it matches. Without this the
+migration would silently rewrite user-facing copy on a dozen pages, which is the kind of change
+nobody asks for and nobody notices until it is wrong.
+
+**Three more corrections from the same inventory:**
+
+- `schedule/page.tsx` sets `message=reminded` and `message=already_reminded` **with no `error`
+  present**. The shipped classifier claims `message` only alongside `error`, so these would silently
+  vanish. They need their own registry entries.
+- Two pages use **`err` and `msg`**, not `error` and `message`
+  (`recruitment/cycles/[id]/onboarding`, `.../training`). The convention does not claim them, and
+  they must fire as two independent toasts rather than one composed group.
+- **`lastError` is not a URL param at all**, it is a database column. It appeared in this spec's own
+  suffixed-error list by mistake. Do not register it.
+
+And one pre-existing bug the inventory surfaced, **not caused by this branch and not fixed by it**:
+on `admin/people/[id]`, a roster edit pops "Saved." on the unrelated profile form, because both
+share the `saved` param. Worth a follow-up.
+
 The registry lives in one module so that adding a flash param is one edit in one reviewable place,
 and so the reader and the pages cannot drift apart about who owns a param.
 

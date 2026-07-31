@@ -3,7 +3,7 @@ import { prisma, runSerializable } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
+import { coursesForMember, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -158,10 +158,26 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
   const courses = await prisma.course.findMany({
     where: { id: { in: ids } },
     orderBy: { position: "asc" },
-    select: { id: true, title: true, description: true },
+    select: { id: true, title: true, description: true, recurrence: true },
   });
+
+  // Scope the progress lookup by term for PER_TERM courses only; ONCE courses stay
+  // unscoped so a prior-term completion still counts (today's behavior, unchanged --
+  // this is the regression bar for the whole branch). The term is whichever one
+  // assignedCourseIds just resolved above (the passed override, or else the active
+  // term), so a PER_TERM course's status agrees with which term this call is
+  // actually answering assignment for -- including a next-term checklist call, not
+  // just the live term.
+  const resolvedTermId = termId ?? (await activeTermId());
+  const { onceIds, perTermIds } = splitByRecurrence(courses);
   const progress = await prisma.courseProgress.findMany({
-    where: { personId, courseId: { in: ids } },
+    where: {
+      personId,
+      OR: [
+        ...(onceIds.length ? [{ courseId: { in: onceIds } }] : []),
+        ...(perTermIds.length && resolvedTermId ? [{ courseId: { in: perTermIds }, termId: resolvedTermId }] : []),
+      ],
+    },
     select: { courseId: true, lessonStatus: true },
   });
   const byCourse = new Map(progress.map((p) => [p.courseId, p]));
@@ -195,21 +211,30 @@ export async function getCourseForLearner(personId: string, courseId: string): P
   }
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
-    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true },
+    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true, recurrence: true },
   });
   const scos = courseScos(course);
 
-  const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId } });
+  // Scope both the per-SCO cmi (the player's resume state) and the course rollup by
+  // term for PER_TERM courses only, mirroring getMyCourses; ONCE stays unscoped so a
+  // prior-term completion still reads COMPLETE (today's behavior).
+  //
+  // Scoping scoRows too, not just the rollup, matters here specifically: ScormPlayer
+  // seeds its SCORM API directly from each SCO's cmi.lessonStatus/suspendData on
+  // mount (ScormPlayer.tsx's installApi). An unscoped read would hand a reopened
+  // PER_TERM course's player a prior term's "completed" cmi the moment it loads,
+  // showing the completion banner and re-latching on the very next autocommit before
+  // the learner does anything this term -- the same ships-inert trap Task 2 closed
+  // on the write-side rollup (persistScoCmi's SCO findMany), reopened here on the
+  // read side that feeds the player instead of the gate.
+  const activeTerm = await activeTermId();
+  const termFilter = course.recurrence === "PER_TERM" && activeTerm ? { termId: activeTerm } : {};
+
+  const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId, ...termFilter } });
   const byId = new Map(scoRows.map((r) => [r.scoId, r]));
 
-  // Unscoped by term for now, matching today's single-row-per-course lookup: the
-  // per-recurrence read scoping that getMyCourses needs (PER_TERM scoped to the
-  // current term, ONCE unscoped) is the next task's job, alongside clearance.ts and
-  // dashboard.ts, so every reader ends up agreeing. This still compiles against the
-  // widened compound key by dropping to a plain field filter instead of the exact
-  // key, which is why it is findFirst rather than findUnique.
   const rollup = await prisma.courseProgress.findFirst({
-    where: { personId, courseId },
+    where: { personId, courseId, ...termFilter },
     select: { status: true },
   });
   const status: LearnerStatus = !rollup ? "NOT_STARTED" : (rollup.status as LearnerStatus);

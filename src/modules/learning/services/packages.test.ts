@@ -91,6 +91,22 @@ it("re-ingesting with resetProgress clears prior course and per-SCO progress", a
   expect(await prisma.scoProgress.count({ where: { courseId: course.id } })).toBe(0);
 });
 
+it("re-ingesting with resetProgress clears progress across every term, not just the active one (the content itself changed, so no term's row is a valid completion of it)", async () => {
+  const { manager, plain, course } = await seed();
+  await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+
+  const termA = await prisma.term.create({
+    data: { code: "SU25", name: "Prior", status: "ARCHIVED", startDate: new Date("2025-01-01"), endDate: new Date("2025-06-30") },
+  });
+  await prisma.courseProgress.create({
+    data: { personId: plain.id, courseId: course.id, termId: termA.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+  });
+
+  await ingestScormPackage(course.id, makeScormZip(), manager.id, { resetProgress: true });
+
+  expect(await prisma.courseProgress.count({ where: { courseId: course.id } })).toBe(0);
+});
+
 it("re-ingesting without resetProgress preserves prior progress", async () => {
   const { manager, plain, course } = await seed();
   await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);

@@ -337,12 +337,11 @@ it("includes a DIRECTORS course for a director in the department, alongside EVER
 // --- Per-term recurrence: the write path (Task 2) ---
 //
 // These assert against CourseProgress/ScoProgress directly, scoped by termId,
-// rather than through getMyCourses or getCourseForLearner. Those readers still do an
-// unscoped (personId, courseId) lookup -- making them recurrence-aware for PER_TERM
-// is the next task's job, alongside clearance.ts and dashboard.ts, so every reader
-// ends up agreeing with each other. Querying CourseProgress/ScoProgress directly
-// checks exactly what persistScoCmi (this task's file) actually wrote, independent of
-// which readers have caught up.
+// rather than through getMyCourses or getCourseForLearner, so they check exactly
+// what persistScoCmi actually wrote, independent of the readers. getMyCourses and
+// getCourseForLearner are now recurrence-aware too (Task 3, see the reader tests
+// further below), but these write-path tests are left querying the tables directly
+// on purpose: they must not be "fixed" by loosening them to go through a reader.
 
 it("a PER_TERM course whose ScoProgress rows are all complete from a prior term does not auto-complete in the new term", async () => {
   const { learner, course, termA, termB } = await seedAcrossTerms("PER_TERM");
@@ -423,4 +422,48 @@ it("committing an attempt writes rows carrying the current term", async () => {
     where: { personId: learner.id, courseId: course.id, scoId: "ITEM-A" },
   });
   expect(sp.termId).toBe(term.id);
+});
+
+// --- Per-term recurrence: the readers (Task 3) ---
+//
+// Unlike the write-path tests above, these go THROUGH getMyCourses/getCourseForLearner,
+// because the point of this task is that the readers themselves now apply the
+// PER_TERM-scoped / ONCE-unscoped rule, not just the tables underneath them.
+
+it("getMyCourses reads NOT_STARTED for a PER_TERM course completed only in a prior term", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("PER_TERM");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  const rows = await getMyCourses(learner.id);
+  expect(rows.find((r) => r.id === course.id)?.status).toBe("NOT_STARTED");
+});
+
+it("getMyCourses still reads COMPLETE for a ONCE course completed in a prior term (regression bar)", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("ONCE");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  const rows = await getMyCourses(learner.id);
+  expect(rows.find((r) => r.id === course.id)?.status).toBe("COMPLETE");
+});
+
+it("getCourseForLearner's rollup reads NOT_STARTED for a PER_TERM course completed only in a prior term", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("PER_TERM");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  const row = await getCourseForLearner(learner.id, course.id);
+  expect(row.status).toBe("NOT_STARTED");
+});
+
+it("getCourseForLearner does not resurface a prior term's completed SCO cmi for a reopened PER_TERM course", async () => {
+  const { learner, course, termA } = await seedAcrossTerms("PER_TERM");
+  await seedPriorTermCompletion(learner.id, course.id, termA.id);
+
+  // If this leaked the prior term's ScoProgress rows, the player would seed its
+  // SCORM API as already "completed" the instant it mounts, showing the completion
+  // banner and re-latching on the next autocommit before the learner does anything.
+  const row = await getCourseForLearner(learner.id, course.id);
+  for (const sco of row.scos) {
+    expect(sco.cmi.lessonStatus).toBeNull();
+    expect(sco.cmi.suspendData).toBeNull();
+  }
 });

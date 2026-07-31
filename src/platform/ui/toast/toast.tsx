@@ -17,7 +17,8 @@ import type { FlashToast, ToastTone } from "./flash";
 /**
  * The toast primitive: `ToastProvider` (holds the live queue), `ToastViewport`
  * (renders it), and `useToast()` (the hook client code calls to push one).
- * Nothing in this module mounts anywhere yet; that is a later task's job.
+ * Mounted in the root layout (`src/app/layout.tsx`); see `flash-reader.tsx`
+ * for the URL-driven caller.
  *
  * Design spec sections 5 and 6
  * (docs/superpowers/specs/2026-07-30-toast-notifications-design.md):
@@ -211,15 +212,35 @@ function ToastItem({
  * Portalled to `document.body`, the same fix `HelpLauncher` already applies
  * to its panel: a `fixed` descendant of a `.glass-bar`/`.glass-panel`
  * ancestor loses its viewport anchor because `backdrop-filter` creates a
- * containing block. Nothing mounts this component yet, so there is no
- * ancestor to worry about today, but the portal costs nothing and keeps this
- * safe regardless of where it ends up being mounted.
+ * containing block.
+ *
+ * Gating the portal on a `mounted` flag flipped after the first paint,
+ * rather than on `typeof document === "undefined"` directly, is load-bearing,
+ * not stylistic: found via the root layout's own hydration once this
+ * component was actually mounted there (Task 4). `document` is undefined
+ * during SSR but defined the instant client code runs, including React's
+ * hydration pass -- checking it directly is React's own textbook hydration-
+ * mismatch anti-pattern ("a server/client branch `if (typeof window !==
+ * 'undefined')`"), since the server emits nothing for this component while
+ * the client's first render already sees `document` and emits the portal.
+ * `mounted` starts `false` on both the server and the client's initial
+ * (hydration) render, so they agree; only a post-mount effect flips it,
+ * strictly after hydration has already reconciled. The setter runs from a
+ * zero-delay timeout rather than the effect body itself, the same dodge
+ * `ToastItem`'s own `entered` state below uses, since `react-hooks/set-state-
+ * in-effect` is an error in this repo.
  */
 export function ToastViewport() {
   const { toasts, dismiss } = useToastContext();
+  const [mounted, setMounted] = useState(false);
   const visible = toasts.slice(0, MAX_VISIBLE);
 
-  if (typeof document === "undefined") return null;
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!mounted) return null;
 
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4">

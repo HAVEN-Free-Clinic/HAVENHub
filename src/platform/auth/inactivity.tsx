@@ -57,9 +57,19 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
   if (!authenticated || !showWarning) return null;
 
   return (
+    // Shares the toast viewport's bottom-center lane (ToastViewport,
+    // src/platform/ui/toast/toast.tsx) instead of its old bottom-4 right-4
+    // corner, which collided with HelpLauncher's bubble there (R12). Both
+    // mount as independent `fixed` elements in the root layout, so "share a
+    // lane" here means matching its horizontal centering and sitting well
+    // clear of it vertically, not a literal shared flex parent: bottom-48
+    // (12rem) clears ToastViewport's tallest possible stack -- 3 toasts
+    // (MAX_VISIBLE) at roughly 44px each plus two 8px gaps, atop its own
+    // bottom-4 offset, is about 176px -- with margin to spare, so the two can
+    // never overlap even when both are visible at once.
     <div
       role="alert"
-      className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
+      className="fixed inset-x-0 bottom-48 z-50 mx-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
     >
       <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
       <p className="text-sm text-foreground-soft mb-3">

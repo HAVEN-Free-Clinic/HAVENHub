@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Hanken_Grotesk } from "next/font/google";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { auth } from "@/platform/auth/auth";
 import { InactivityTracker } from "@/platform/auth/inactivity";
 import { getSetting } from "@/platform/settings/service";
@@ -13,6 +13,9 @@ import { EnvBanner } from "@/platform/ui/env-banner";
 import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
+import { ToastProvider, ToastViewport } from "@/platform/ui/toast/toast";
+import { FlashReader } from "@/platform/ui/toast/flash-reader";
+import { hostFromUrl } from "@/modules/recruitment/services/portal-routing";
 import {
   resolvePreference,
   buildNoFlashScript,
@@ -31,11 +34,22 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const [session, brandColor, adminDefault] = await Promise.all([
+  const [session, brandColor, adminDefault, requestHeaders] = await Promise.all([
     auth(),
     getSetting<string>("branding.brandColor"),
     getSetting<string>("ui.defaultTheme"),
+    headers(),
   ]);
+
+  // Resolved once, server-side, exactly like src/proxy.ts's own portal-host
+  // check: the applicant portal (apply.havenfreeclinic.org) rewrites its
+  // clean URLs onto /apply/* without ever changing the browser's URL, so
+  // FlashReader's usePathname() can't see the rewrite on its own. Threading
+  // just this boolean down (not the host string, not config.PORTAL_BASE_URL
+  // itself) keeps every other env var config.ts validates out of the client
+  // bundle. See flash.ts's "applicant portal host" doc section.
+  const portalHost = hostFromUrl(config.PORTAL_BASE_URL);
+  const isPortalHost = portalHost !== null && requestHeaders.get("host") === portalHost;
 
   // Person preference wins; cookie is a fast hint when there is no session. The
   // lookup runs before the page's own requirePersonSession so the <html> class
@@ -64,10 +78,25 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
         <EnvBanner label={config.ENV_BANNER_LABEL} />
         <ThemeListener />
-        <TopProgressBar>
-          <InactivityTracker authenticated={!!session?.user} />
-          {children}
-        </TopProgressBar>
+        {/* ToastProvider wraps the whole tree (not just the viewport) so any
+            page can call useToast() directly. Mounted here in the ROOT
+            layout, not AppShell: flash params exist on /login, /apply, and
+            /get-started, none of which AppShell wraps. FlashReader and
+            ToastViewport are siblings of TopProgressBar/children, and
+            InactivityTracker's warning shares their bottom-center lane (see
+            inactivity.tsx) -- all three float independently of whatever the
+            current page renders, exactly like HelpLauncher already does
+            outside app-shell.tsx's glass-bar toolbar (backdrop-filter breaks
+            `fixed` descendants; the root layout sits outside every glass
+            container by construction). */}
+        <ToastProvider>
+          <TopProgressBar>
+            <InactivityTracker authenticated={!!session?.user} />
+            {children}
+          </TopProgressBar>
+          <FlashReader isPortalHost={isPortalHost} />
+          <ToastViewport />
+        </ToastProvider>
       </body>
     </html>
   );

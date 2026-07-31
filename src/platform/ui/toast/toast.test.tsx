@@ -63,6 +63,15 @@ function mount() {
       </ToastProvider>,
     );
   });
+  // ToastViewport defers its first portal render by one tick past mount
+  // (a zero-delay setTimeout, so it stays hydration-safe: `mounted` starts
+  // false on both the server and the client's initial render, only flipping
+  // true in a post-mount effect). Flush that tick so the assertions below
+  // see the viewport immediately, the same way the auto-dismiss timers are
+  // advanced explicitly rather than relying on real time.
+  act(() => {
+    vi.advanceTimersByTime(0);
+  });
   mounted = { container, root };
   return container;
 }

@@ -57,25 +57,23 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
   if (!authenticated || !showWarning) return null;
 
   return (
-    // Shares the toast viewport's bottom-center lane (ToastViewport,
-    // src/platform/ui/toast/toast.tsx) instead of its old bottom-4 right-4
-    // corner, which collided with HelpLauncher's bubble there (R12). Both
-    // mount as independent `fixed` elements in the root layout, so "share a
-    // lane" here means matching its horizontal centering and sitting clear of
-    // it vertically, not a literal shared flex parent.
+    // Rendered into ToastViewport's bottom-center lane as a flex child directly
+    // above the toast stack, replacing the old `bottom-4 right-4` corner that
+    // collided with HelpLauncher's bubble (R12).
     //
-    // The offset is sized against the tallest stack the viewport can actually
-    // produce, not against a single-line pill: the longest registered flash
-    // messages run past 150 characters, which wrap to three lines in the pill's
-    // own max-w-sm, so a pill is up to about 84px rather than 44px. Three of
-    // those (MAX_VISIBLE) plus two 8px gaps, atop the viewport's own bottom-4,
-    // is about 284px, which bottom-72 (18rem, 288px) clears.
+    // Not positioned: no `fixed`, no offset. Two earlier versions kept this
+    // clear of the toasts with a hand-computed `bottom-*` sized against the
+    // tallest stack the viewport could produce, and the arithmetic was wrong
+    // both times (it assumed single-line pills; the registry's longest messages
+    // wrap to four or five). Any fixed offset is a guess about content height.
+    // Sharing the viewport's flex column makes overlap structurally impossible
+    // instead, so there is nothing left to compute or to get wrong.
     //
-    // That bound is a function of the longest message in the flash registry. If
-    // a much longer one is ever added, re-check it here rather than assuming.
+    // pointer-events-auto because the lane itself is pointer-events-none, and
+    // this card has a button.
     <div
       role="alert"
-      className="fixed inset-x-0 bottom-72 z-50 mx-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
+      className="pointer-events-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
     >
       <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
       <p className="text-sm text-foreground-soft mb-3">

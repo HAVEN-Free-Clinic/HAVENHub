@@ -82,20 +82,23 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             page can call useToast() directly. Mounted here in the ROOT
             layout, not AppShell: flash params exist on /login, /apply, and
             /get-started, none of which AppShell wraps. FlashReader and
-            ToastViewport are siblings of TopProgressBar/children, and
-            InactivityTracker's warning shares their bottom-center lane (see
-            inactivity.tsx) -- all three float independently of whatever the
-            current page renders, exactly like HelpLauncher already does
-            outside app-shell.tsx's glass-bar toolbar (backdrop-filter breaks
-            `fixed` descendants; the root layout sits outside every glass
-            container by construction). */}
+            ToastViewport are siblings of TopProgressBar/children, floating
+            independently of whatever the current page renders, exactly like
+            HelpLauncher already does outside app-shell.tsx's glass-bar toolbar
+            (backdrop-filter breaks `fixed` descendants; the root layout sits
+            outside every glass container by construction).
+
+            InactivityTracker renders INSIDE ToastViewport rather than beside
+            it, so its warning is a flex child directly above the toast stack.
+            That is what makes the R12 fix hold: the two cannot overlap because
+            they are in one flow, not because an offset was computed to keep
+            them apart. */}
         <ToastProvider>
-          <TopProgressBar>
-            <InactivityTracker authenticated={!!session?.user} />
-            {children}
-          </TopProgressBar>
+          <TopProgressBar>{children}</TopProgressBar>
           <FlashReader isPortalHost={isPortalHost} />
-          <ToastViewport />
+          <ToastViewport>
+            <InactivityTracker authenticated={!!session?.user} />
+          </ToastViewport>
         </ToastProvider>
       </body>
     </html>

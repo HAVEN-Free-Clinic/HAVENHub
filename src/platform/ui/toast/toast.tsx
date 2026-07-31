@@ -178,26 +178,47 @@ function ToastItem({
       role={toast.tone === "error" ? "alert" : "status"}
       onClick={() => onDismiss(toast.id)}
       className={cx(
-        "pointer-events-auto flex w-fit max-w-sm cursor-pointer items-start gap-2.5 rounded-full",
+        // rounded-3xl, not rounded-full. CSS clamps a corner radius to half the
+        // box height, so on a single-line pill (about 44px) 24px still renders a
+        // full stadium and looks identical to rounded-full, which is the shape
+        // the design calls for. On a message that wraps, rounded-full would give
+        // a radius of half the pill's height (52px on a four-line toast), curving
+        // the left and right edges so far inward that the leading icon and the
+        // close button read as spilling outside the pill. Capping the radius
+        // keeps the pill shape where it matters and a rounded card where it does not.
+        "pointer-events-auto flex w-fit max-w-sm cursor-pointer items-start gap-2.5 rounded-3xl",
         "bg-brand-deep px-4 py-3 text-sm text-white shadow-lg",
         "transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       )}
     >
-      <Icon className={cx("mt-px h-4 w-4 shrink-0", toneIconColor[toast.tone])} aria-hidden />
+      {/* The icon and the close button each sit in their own 20px box (h-5), which is
+          the text's line-height, so all three glyphs share one optical centre line.
+          Without it the row is `items-start` against a 20px line box holding 16px
+          glyphs, and both the icon and the X ride 1 to 2px high: visibly off on a
+          single-line pill. `items-start` on the row is still right, so on a message
+          that wraps these align to its first line rather than to the pill's middle. */}
+      <span className="flex h-5 shrink-0 items-center">
+        <Icon className={cx("h-4 w-4", toneIconColor[toast.tone])} aria-hidden />
+      </span>
       <span className="flex-1">{toast.message}</span>
       {hasCloseButton && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(toast.id);
-          }}
-          aria-label="Dismiss notification"
-          className="-m-1 shrink-0 rounded-full p-1 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
+        <span className="flex h-5 shrink-0 items-center">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismiss(toast.id);
+            }}
+            aria-label="Dismiss notification"
+            // Negative margin keeps the comfortable 24px hit area while letting the
+            // wrapper above own the alignment; it overflows symmetrically and is
+            // transparent until hover, so it costs nothing visually.
+            className="-m-1 rounded-full p-1 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <X aria-hidden className="h-4 w-4" />
+          </button>
+        </span>
       )}
     </div>
   );
@@ -230,7 +251,20 @@ function ToastItem({
  * `ToastItem`'s own `entered` state below uses, since `react-hooks/set-state-
  * in-effect` is an error in this repo.
  */
-export function ToastViewport() {
+/**
+ * The bottom-center lane. Anything passed as `children` renders in the same flex
+ * column, directly above the toast stack.
+ *
+ * That slot exists for the inactivity warning (R12). Both it and the toasts are
+ * bottom-center fixed elements, and an earlier version kept them apart by giving
+ * the warning a hand-computed `bottom-*` offset sized against the tallest stack
+ * the viewport could produce. That arithmetic was wrong twice: it assumed
+ * single-line pills, and the registry's longest messages actually wrap to four
+ * or five lines. Any fixed offset is a guess about content height. Sharing one
+ * flex column removes the guess: flow layout cannot overlap, whatever the
+ * messages say and however tall they get.
+ */
+export function ToastViewport({ children }: { children?: ReactNode }) {
   const { toasts, dismiss } = useToastContext();
   const [mounted, setMounted] = useState(false);
   const visible = toasts.slice(0, MAX_VISIBLE);
@@ -244,6 +278,7 @@ export function ToastViewport() {
 
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4">
+      {children}
       {visible.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
       ))}

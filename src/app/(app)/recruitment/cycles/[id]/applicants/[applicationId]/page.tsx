@@ -15,7 +15,6 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
@@ -25,9 +24,8 @@ import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescin
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
-export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ saved?: string }> }) {
+export default async function ApplicationDetailPage({ params }: { params: Promise<{ id: string; applicationId: string }> }) {
   const { id, applicationId } = await params;
-  const { saved } = await searchParams;
   const app = await getApplication(applicationId);
   if (!app) notFound();
   const person = await requirePersonSession();
@@ -258,9 +256,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       ) : (
         <Card>
           <SectionHeader>Department decision</SectionHeader>
-          {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
-          {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
-          {saved === "rescind" && <Alert tone="success" className="mt-3">Acceptance rescinded.</Alert>}
           {!app.routedDepartmentCode ? (
             app.decision !== "PENDING" ? (
               <div className="mt-3 space-y-2">

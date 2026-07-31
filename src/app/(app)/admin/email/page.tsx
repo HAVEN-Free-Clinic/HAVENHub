@@ -71,11 +71,6 @@ type PageProps = {
     template?: string;
     q?: string;
     page?: string;
-    retried?: string;
-    retriedAll?: string;
-    connected?: string;
-    senderSaved?: string;
-    senderTested?: string;
   }>;
 };
 
@@ -113,14 +108,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-
-  const retriedSuccess = sp.retried === "1";
-  const retriedAllCount = sp.retriedAll ? parseInt(sp.retriedAll, 10) : 0;
-  const retriedAllSuccess = retriedAllCount > 0;
-  const connectedSuccess = sp.connected === "1";
-
-  const senderSavedSuccess = sp.senderSaved === "1";
-  const senderTestedSuccess = sp.senderTested === "1";
 
   const [
     { rows, total, counts },
@@ -299,25 +286,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
           ) : undefined
         }
       />
-
-      {/* Banners */}
-      {retriedSuccess && (
-        <Alert tone="success">Email re-queued.</Alert>
-      )}
-      {retriedAllSuccess && (
-        <Alert tone="success">
-          {retriedAllCount} failed {retriedAllCount === 1 ? "email" : "emails"} re-queued.
-        </Alert>
-      )}
-      {connectedSuccess && (
-        <Alert tone="success">Mailbox connected.</Alert>
-      )}
-      {senderSavedSuccess && (
-        <Alert tone="success">Sender address saved.</Alert>
-      )}
-      {senderTestedSuccess && (
-        <Alert tone="success">Test message sent. Check the inbox to confirm.</Alert>
-      )}
 
       {/* Mailer connection panel */}
       <Card className="flex flex-wrap items-center justify-between gap-3">

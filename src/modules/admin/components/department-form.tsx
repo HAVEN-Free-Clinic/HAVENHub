@@ -3,7 +3,6 @@ import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
@@ -14,7 +13,6 @@ type DepartmentFormProps = {
     Department,
     "code" | "name" | "isActive" | "idealHeadcount" | "patientCapacityPerProvider" | "requiresEpicDirector" | "requiresEpicVolunteer"
   >;
-  saved?: string;
 };
 
 /** Ordered least → most access; the value is the stored EpicRequirement enum. */
@@ -25,12 +23,10 @@ const EPIC_OPTIONS: { value: EpicRequirement; label: string }[] = [
 ];
 
 /** Create/edit form for a Department. Code is editable on create, read-only on edit. */
-export function DepartmentForm({ action, mode, department, saved }: DepartmentFormProps) {
+export function DepartmentForm({ action, mode, department }: DepartmentFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {saved && <Alert tone="success">Changes saved.</Alert>}
-
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Code"

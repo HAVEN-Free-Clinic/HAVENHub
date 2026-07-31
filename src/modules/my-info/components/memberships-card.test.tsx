@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Department, Term, TermMembership } from "@prisma/client";
+import { ToastProvider } from "@/platform/ui/toast/toast";
 
 // ConfirmButton is a client component that reads useFormStatus(); stub it so the
 // card can render through renderToStaticMarkup in the node test environment.
@@ -21,8 +22,13 @@ const noop = async () => {};
 
 describe("MembershipsCard", () => {
   it("offers an optional reason field beside the withdraw button", () => {
+    // Wrapped in ToastProvider: the card renders WithdrawnToast, which calls
+    // useToast() unconditionally at render time (not just when it actually
+    // fires), and useToast() throws outside a provider.
     const html = renderToStaticMarkup(
-      <MembershipsCard memberships={[membership("VOLUNTEER")]} withdrawAction={noop} />,
+      <ToastProvider>
+        <MembershipsCard memberships={[membership("VOLUNTEER")]} withdrawAction={noop} />
+      </ToastProvider>,
     );
 
     expect(html).toContain('name="reason"');
@@ -31,7 +37,9 @@ describe("MembershipsCard", () => {
 
   it("shows no reason field when the member has no volunteer assignment", () => {
     const html = renderToStaticMarkup(
-      <MembershipsCard memberships={[membership("DIRECTOR")]} withdrawAction={noop} />,
+      <ToastProvider>
+        <MembershipsCard memberships={[membership("DIRECTOR")]} withdrawAction={noop} />
+      </ToastProvider>,
     );
 
     expect(html).not.toContain('name="reason"');

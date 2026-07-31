@@ -60,7 +60,6 @@ type PageProps = {
     type?: string;
     q?: string;
     page?: string;
-    retried?: string;
   }>;
 };
 
@@ -88,8 +87,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-
-  const retriedSuccess = sp.retried === "1";
 
   const [{ rows, total }, counts] = await Promise.all([
     listTeamsMessages({
@@ -166,11 +163,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         </Link>
         .
       </p>
-
-      {/* Banners */}
-      {retriedSuccess && (
-        <Alert tone="success">Teams message re-queued.</Alert>
-      )}
 
       {/* Log-mode warning: rows were recorded but never actually sent. */}
       {counts.logged > 0 && (

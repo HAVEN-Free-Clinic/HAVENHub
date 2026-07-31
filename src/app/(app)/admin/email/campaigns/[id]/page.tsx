@@ -37,16 +37,6 @@ import { TimingActions } from "./timing-actions";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{
-    saved?: string;
-    tested?: string;
-    sent?: string;
-    preview?: string;
-    count?: string;
-    excluded?: string;
-    scheduled?: string;
-    cancelled?: string;
-  }>;
 };
 
 const EMPTY_AUDIENCE: Audience = {
@@ -55,10 +45,9 @@ const EMPTY_AUDIENCE: Audience = {
   conditions: [],
 };
 
-export default async function CampaignEditorPage({ params, searchParams }: Props) {
+export default async function CampaignEditorPage({ params }: Props) {
   await requirePermission("admin.send_email_campaign");
   const { id } = await params;
-  const sp = await searchParams;
 
   const campaign = await getCampaign(id);
   if (!campaign) redirect("/admin/email/campaigns");
@@ -306,22 +295,6 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
         }
       />
 
-      {/* Flash banners: saved / sent / scheduled / cancelled only */}
-      {sp.saved === "1" && (
-        <Alert tone="success">Campaign saved.</Alert>
-      )}
-      {sp.sent && (
-        <Alert tone="success">
-          Campaign sent to {sp.sent} {sp.sent === "1" ? "recipient" : "recipients"}.
-        </Alert>
-      )}
-      {sp.scheduled === "1" && (
-        <Alert tone="success">Campaign scheduled.</Alert>
-      )}
-      {sp.cancelled === "1" && (
-        <Alert tone="info">Schedule cancelled.</Alert>
-      )}
-
       {/* Main save form: editable only while a draft */}
       {isDraft && (
         <form id="campaign-compose" action={saveAction} className="space-y-8">
@@ -400,22 +373,6 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             sendAction={sendAction}
           />
 
-          {/* Inline audience preview result */}
-          {sp.preview === "1" && (
-            <Alert tone="info">
-              <strong>Audience preview:</strong> {sp.count ?? "0"} recipient
-              {sp.count !== "1" ? "s" : ""}
-              {Number(sp.excluded ?? "0") > 0
-                ? `, ${sp.excluded} excluded (no email address on file)`
-                : ""}
-              .
-            </Alert>
-          )}
-
-          {/* Inline test-send confirmation */}
-          {sp.tested === "1" && (
-            <Alert tone="success">Test email sent to your address.</Alert>
-          )}
         </div>
       )}
 

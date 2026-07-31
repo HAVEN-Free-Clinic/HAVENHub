@@ -2,8 +2,6 @@
  * PersonForm: server component rendering fields for creating/editing a Person.
  *
  * Accepts a server action prop so it can be reused for both create and update.
- * Error and saved strings come from searchParams so the server can redirect
- * back with inline feedback.
  */
 
 import type { Person } from "@prisma/client";
@@ -11,7 +9,6 @@ import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { DateOnly } from "@/platform/dates/display";
@@ -36,18 +33,14 @@ type PersonFormProps = {
     | "spanishVerifiedAt"
     | "licensedRN"
   >;
-  /** Shown when the save was successful. */
-  saved?: string;
   /** Extra content to render after the submit button (e.g. status actions). */
   children?: ReactNode;
 };
 
-export function PersonForm({ action, person, saved, children }: PersonFormProps) {
+export function PersonForm({ action, person, children }: PersonFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {saved && <Alert tone="success">{saved}</Alert>}
-
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Full Name" required>
             <Input

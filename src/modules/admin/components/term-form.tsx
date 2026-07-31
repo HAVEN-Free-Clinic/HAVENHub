@@ -8,7 +8,6 @@
 import type { Term } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 
@@ -22,16 +21,12 @@ type TermFormProps = {
   action: (formData: FormData) => Promise<void>;
   /** Existing term values (for edit mode). Omit for create mode. */
   term?: Pick<Term, "code" | "name" | "startDate" | "endDate">;
-  /** Shown when the save was successful. */
-  saved?: string;
 };
 
-export function TermForm({ action, term, saved }: TermFormProps) {
+export function TermForm({ action, term }: TermFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {saved && <Alert tone="success">{saved}</Alert>}
-
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Code" required hint="E.g. FA26. Will be uppercased automatically.">
             <Input

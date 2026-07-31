@@ -30,7 +30,6 @@ import { Card } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 
@@ -44,9 +43,6 @@ type RosterPanelProps = {
   addq?: string;
   /** Redirect base URL (without query params) for actions. */
   termDetailHref: string;
-  /** Pre-fetched roster copy counts from ?copied= and ?skipped= params. */
-  copiedCount?: number;
-  skippedCount?: number;
   /** When false, the add/remove/copy editing controls are hidden (view-only). The
    *  page admits admin.manage_terms OR admin.manage_roster, but the roster mutations
    *  require admin.manage_roster; without this a manage_terms-only admin sees forms
@@ -97,8 +93,6 @@ export async function RosterPanel({
   term,
   addq,
   termDetailHref,
-  copiedCount,
-  skippedCount,
   canManage,
 }: RosterPanelProps): Promise<ReactNode> {
   // Fetch roster groups and all active departments in parallel.
@@ -280,13 +274,6 @@ export async function RosterPanel({
   return (
     <section className="space-y-8">
       <SectionHeader className="mb-4">Roster</SectionHeader>
-
-      {/* Status messages */}
-      {copiedCount !== undefined && skippedCount !== undefined && (
-        <Alert tone="success">
-          Copied {copiedCount} membership(s); {skippedCount} already existed and were skipped.
-        </Alert>
-      )}
 
       {/* Add-member search + results: editing controls, admin.manage_roster only. */}
       {canManage && (

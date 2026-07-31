@@ -27,23 +27,18 @@ import { listDepartmentsWithMembers } from "@/modules/support/services/itcm";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
 import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/filter-options";
-import { Alert } from "@/platform/ui/alert";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{
-    submitted?: string;
-  }>;
 };
 
 function pick<T extends string>(value: string, allowed: readonly T[]): T | undefined {
   return (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
 }
 
-export default async function TicketPage({ params, searchParams }: PageProps) {
+export default async function TicketPage({ params }: PageProps) {
   const session = await requireModuleAccess("support");
   const { id } = await params;
-  const { submitted } = await searchParams;
 
   let detail: TechRequestDetail;
   try {
@@ -270,9 +265,6 @@ export default async function TicketPage({ params, searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      {submitted === "1" && (
-        <Alert tone="success">Request submitted. We will keep you posted here.</Alert>
-      )}
       <TicketDetail
         detail={detail}
         canManage={canManage}

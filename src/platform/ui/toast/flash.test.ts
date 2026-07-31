@@ -624,4 +624,359 @@ describe("classifyFlashParams", () => {
     expect(result.toasts).toEqual([{ tone: "success", message: "Availability saved successfully." }]);
     expect(result.stripParams).toEqual(["saved"]);
   });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: the success-family pages. saved=<value> literal-value groups on the
+  // applicants and interviews detail pages -- these must be declared before the
+  // plain `saved` group (see the registry's own doc comment), so every one of
+  // these also proves that ordering: a wrong order would show "Saved." instead.
+  // ---------------------------------------------------------------------------
+
+  it("claims saved=decision on the applicants detail page", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "decision" }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Decision recorded." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=decision on the interviews detail page too", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "decision" }),
+      "/recruitment/interviews/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Decision recorded." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("falls through to the generic Saved. text for saved=decision off either detail page", () => {
+    // Unlike `message` (which has no unscoped fallback at all), `saved` does: a
+    // literal-value group that does not match this pathname simply does not fire,
+    // and the plain, value-agnostic `saved` group below it has no `matchValues`
+    // restriction, so it claims `saved` regardless of its value. This mirrors the
+    // pre-migration behavior exactly -- the original inline checks were all bare
+    // truthiness (`{saved && ...}`), not a `=== "decision"` comparison.
+    const result = classifyFlashParams(paramsOf({ saved: "decision" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=reopened on the applicants detail page only", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "reopened" }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Decision reopened." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("falls through to the generic Saved. text for saved=reopened on the interviews detail page", () => {
+    // Confirms the applicants-only scope doesn't leak onto interviews just because
+    // both pages share the "decision"/"rescind" values -- and, same as above, the
+    // plain `saved` group is still the fallback once the reopened-specific one
+    // declines to fire here.
+    const result = classifyFlashParams(paramsOf({ saved: "reopened" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=rescind on the applicants detail page", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "rescind" }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Acceptance rescinded." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=rescind on the interviews detail page too", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "rescind" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Acceptance rescinded." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=schedule on the interviews detail page only", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "schedule" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Schedule saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=panelist on the interviews detail page only", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "panelist" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Panel updated." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=invite on the interviews detail page only", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "invite" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Invite sent." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=evaluation on the interviews detail page only", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "evaluation" }), "/recruitment/interviews/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Evaluation saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: more scoped siblings of the plain `saved` group. "saved" does not
+  // mean one thing -- see the page inventory's finding 1.
+  // ---------------------------------------------------------------------------
+
+  it("claims saved=1 on a department edit page as Changes saved.", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/departments/abc123");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Changes saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=1 on a subcommittee edit page as Changes saved. too", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/subcommittees/abc123");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Changes saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=1 on the cycle subcommittee assignment page as Assignment saved.", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "1" }),
+      "/recruitment/cycles/abc123/subcommittees",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Assignment saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=1 on the campaign editor as Campaign saved.", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/email/campaigns/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Campaign saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: the campaign editor's other flags (tested, preview+count+excluded,
+  // scheduled, cancelled). All scoped to the campaigns pathname.
+  // ---------------------------------------------------------------------------
+
+  it("claims tested=1 on the campaign editor", () => {
+    const result = classifyFlashParams(paramsOf({ tested: "1" }), "/admin/email/campaigns/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Test email sent to your address." }]);
+    expect(result.stripParams).toEqual(["tested"]);
+  });
+
+  it("claims preview+count+excluded, plural recipients, no exclusions", () => {
+    const result = classifyFlashParams(
+      paramsOf({ preview: "1", count: "5", excluded: "0" }),
+      "/admin/email/campaigns/xyz789",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "info", message: "Audience preview: 5 recipients." },
+    ]);
+    expect(result.stripParams.sort()).toEqual(["count", "excluded", "preview"]);
+  });
+
+  it("claims preview+count+excluded, singular recipient", () => {
+    const result = classifyFlashParams(
+      paramsOf({ preview: "1", count: "1", excluded: "0" }),
+      "/admin/email/campaigns/xyz789",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "info", message: "Audience preview: 1 recipient." },
+    ]);
+    expect(result.stripParams.sort()).toEqual(["count", "excluded", "preview"]);
+  });
+
+  it("claims preview+count+excluded with exclusions appended", () => {
+    const result = classifyFlashParams(
+      paramsOf({ preview: "1", count: "5", excluded: "2" }),
+      "/admin/email/campaigns/xyz789",
+    );
+    expect(result.toasts).toEqual([
+      {
+        tone: "info",
+        message: "Audience preview: 5 recipients, 2 excluded (no email address on file).",
+      },
+    ]);
+    expect(result.stripParams.sort()).toEqual(["count", "excluded", "preview"]);
+  });
+
+  it("claims scheduled=1 on the campaign editor", () => {
+    const result = classifyFlashParams(paramsOf({ scheduled: "1" }), "/admin/email/campaigns/xyz789");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Campaign scheduled." }]);
+    expect(result.stripParams).toEqual(["scheduled"]);
+  });
+
+  it("claims cancelled=1 on the campaign editor, info tone", () => {
+    const result = classifyFlashParams(paramsOf({ cancelled: "1" }), "/admin/email/campaigns/xyz789");
+    expect(result.toasts).toEqual([{ tone: "info", message: "Schedule cancelled." }]);
+    expect(result.stripParams).toEqual(["cancelled"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: /admin/email and /admin/notifications. `retried` means different
+  // things on each -- no unscoped default, matching the `sent` disambiguation
+  // pattern above.
+  // ---------------------------------------------------------------------------
+
+  it("claims retried=1 on /admin/email as Email re-queued.", () => {
+    const result = classifyFlashParams(paramsOf({ retried: "1" }), "/admin/email");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Email re-queued." }]);
+    expect(result.stripParams).toEqual(["retried"]);
+  });
+
+  it("claims retried=1 on /admin/notifications as Teams message re-queued.", () => {
+    const result = classifyFlashParams(paramsOf({ retried: "1" }), "/admin/notifications");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Teams message re-queued." }]);
+    expect(result.stripParams).toEqual(["retried"]);
+  });
+
+  it("does not claim retried off either admin monitoring page", () => {
+    const result = classifyFlashParams(paramsOf({ retried: "1" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("claims retriedAll on /admin/email, plural", () => {
+    const result = classifyFlashParams(paramsOf({ retriedAll: "3" }), "/admin/email");
+    expect(result.toasts).toEqual([{ tone: "success", message: "3 failed emails re-queued." }]);
+    expect(result.stripParams).toEqual(["retriedAll"]);
+  });
+
+  it("claims retriedAll on /admin/email, singular", () => {
+    const result = classifyFlashParams(paramsOf({ retriedAll: "1" }), "/admin/email");
+    expect(result.toasts).toEqual([{ tone: "success", message: "1 failed email re-queued." }]);
+    expect(result.stripParams).toEqual(["retriedAll"]);
+  });
+
+  it("claims connected=1 on /admin/email", () => {
+    const result = classifyFlashParams(paramsOf({ connected: "1" }), "/admin/email");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Mailbox connected." }]);
+    expect(result.stripParams).toEqual(["connected"]);
+  });
+
+  it("claims senderSaved=1 on /admin/email", () => {
+    const result = classifyFlashParams(paramsOf({ senderSaved: "1" }), "/admin/email");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Sender address saved." }]);
+    expect(result.stripParams).toEqual(["senderSaved"]);
+  });
+
+  it("claims senderTested=1 on /admin/email", () => {
+    const result = classifyFlashParams(paramsOf({ senderTested: "1" }), "/admin/email");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Test message sent. Check the inbox to confirm." },
+    ]);
+    expect(result.stripParams).toEqual(["senderTested"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: /admin/terms/[id]'s roster-copy summary and onboarding-steps flag.
+  // ---------------------------------------------------------------------------
+
+  it("claims copied+skipped on a term detail page", () => {
+    const result = classifyFlashParams(
+      paramsOf({ copied: "4", skipped: "1" }),
+      "/admin/terms/abc123",
+    );
+    expect(result.toasts).toEqual([
+      {
+        tone: "success",
+        message: "Copied 4 membership(s); 1 already existed and were skipped.",
+      },
+    ]);
+    expect(result.stripParams.sort()).toEqual(["copied", "skipped"]);
+  });
+
+  it("claims stepsSaved=1 on a term detail page", () => {
+    const result = classifyFlashParams(paramsOf({ stepsSaved: "1" }), "/admin/terms/abc123");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Onboarding steps saved." }]);
+    expect(result.stripParams).toEqual(["stepsSaved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: certSaved, shared byte-identical text across /my-info and
+  // /get-started/hipaa (both render it via the same HipaaPanel component).
+  // ---------------------------------------------------------------------------
+
+  it("claims certSaved=1 on /my-info", () => {
+    const result = classifyFlashParams(paramsOf({ certSaved: "1" }), "/my-info");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Certificate uploaded successfully." },
+    ]);
+    expect(result.stripParams).toEqual(["certSaved"]);
+  });
+
+  it("claims certSaved=1 on /get-started/hipaa too", () => {
+    const result = classifyFlashParams(paramsOf({ certSaved: "1" }), "/get-started/hipaa");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Certificate uploaded successfully." },
+    ]);
+    expect(result.stripParams).toEqual(["certSaved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: the cycle overview page's department/window flags.
+  // ---------------------------------------------------------------------------
+
+  it("claims deptsaved=1 on a cycle overview page", () => {
+    const result = classifyFlashParams(paramsOf({ deptsaved: "1" }), "/recruitment/cycles/abc123");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Departments updated." }]);
+    expect(result.stripParams).toEqual(["deptsaved"]);
+  });
+
+  it("claims deptwarn with the removed department codes interpolated in, warning tone", () => {
+    const result = classifyFlashParams(
+      paramsOf({ deptwarn: "SCTS, PCAR" }),
+      "/recruitment/cycles/abc123",
+    );
+    expect(result.toasts).toEqual([
+      {
+        tone: "warning",
+        message:
+          "Saved. These removed departments still have applicants: SCTS, PCAR. Existing applications keep their choices, but you can no longer accept into a removed department.",
+      },
+    ]);
+    expect(result.stripParams).toEqual(["deptwarn"]);
+  });
+
+  it("claims windowsaved=1 on a cycle overview page", () => {
+    const result = classifyFlashParams(paramsOf({ windowsaved: "1" }), "/recruitment/cycles/abc123");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Application window updated." }]);
+    expect(result.stripParams).toEqual(["windowsaved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: schedule's change-request flag.
+  // ---------------------------------------------------------------------------
+
+  it("claims requested=1 on /schedule", () => {
+    const result = classifyFlashParams(paramsOf({ requested: "1" }), "/schedule");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Change request submitted. Your director will review it." },
+    ]);
+    expect(result.stripParams).toEqual(["requested"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task 6: `submitted` means different things on /incidents/mine and
+  // /support/[id] -- no unscoped default, same disambiguation shape as `retried`.
+  // ---------------------------------------------------------------------------
+
+  it("claims submitted on /incidents/mine with the report number interpolated in", () => {
+    const result = classifyFlashParams(paramsOf({ submitted: "42" }), "/incidents/mine");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Report #42 submitted." }]);
+    expect(result.stripParams).toEqual(["submitted"]);
+  });
+
+  it("claims submitted=1 on a support ticket page", () => {
+    const result = classifyFlashParams(paramsOf({ submitted: "1" }), "/support/abc123");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Request submitted. We will keep you posted here." },
+    ]);
+    expect(result.stripParams).toEqual(["submitted"]);
+  });
+
+  it("does not claim submitted off /incidents/mine or /support/*", () => {
+    const result = classifyFlashParams(paramsOf({ submitted: "1" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
 });

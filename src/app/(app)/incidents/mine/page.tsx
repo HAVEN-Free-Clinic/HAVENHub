@@ -8,7 +8,8 @@
  * Lists the actor's own reports via listMyReports, newest first (the
  * service's order). Each row links to /incidents/[id] for the read-only
  * detail view. A ?submitted=<number> query param (set by submitReportAction's
- * post-submit redirect) shows a one-time success banner.
+ * post-submit redirect) pops a one-time success toast via the flash
+ * classifier's `submitted` registry entry, scoped to this pathname.
  */
 
 import Link from "next/link";
@@ -19,7 +20,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
-import { Alert } from "@/platform/ui/alert";
 import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames, aggregateStrikeLabel } from "@/app/(app)/incidents/subject-display";
 
@@ -48,32 +48,17 @@ const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
-// Page props
-// ---------------------------------------------------------------------------
-
-type PageProps = {
-  searchParams: Promise<{ submitted?: string }>;
-};
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function MyReportsPage({ searchParams }: PageProps) {
+export default async function MyReportsPage() {
   const actor = await requirePersonSession();
-  const sp = await searchParams;
 
   const rows = await listMyReports(actor.personId);
 
   return (
     <div>
       <PageHeader title="My reports" description="Incident reports you have filed." />
-
-      {sp.submitted && (
-        <Alert tone="success" className="mt-4">
-          Report #{sp.submitted} submitted.
-        </Alert>
-      )}
 
       {rows.length === 0 ? (
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">

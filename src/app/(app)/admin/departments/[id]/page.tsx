@@ -15,13 +15,11 @@ import { optionalInt, epicRequirement } from "@/modules/admin/form-coerce";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string }>;
 };
 
-export default async function EditDepartmentPage({ params, searchParams }: PageProps) {
+export default async function EditDepartmentPage({ params }: PageProps) {
   await requirePermission("admin.manage_departments");
   const { id } = await params;
-  const { saved } = await searchParams;
 
   const department = await prisma.department.findUnique({
     where: { id },
@@ -78,7 +76,7 @@ export default async function EditDepartmentPage({ params, searchParams }: PageP
   return (
     <div className="space-y-8">
       <PageHeader title={`Edit ${department.code}`} description="Code is permanent. Toggle Active to deactivate (soft remove)." />
-      <DepartmentForm action={updateAction} mode="edit" department={department} saved={saved} />
+      <DepartmentForm action={updateAction} mode="edit" department={department} />
 
       <section className="space-y-3">
         <SectionHeader level="title">Delegations</SectionHeader>

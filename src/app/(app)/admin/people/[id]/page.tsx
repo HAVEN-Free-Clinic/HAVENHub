@@ -18,13 +18,11 @@ import { SectionHeader } from "@/platform/ui/section-header";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string }>;
 };
 
-export default async function PersonDetailPage({ params, searchParams }: PageProps) {
+export default async function PersonDetailPage({ params }: PageProps) {
   const session = await requirePermission("admin.manage_people");
   const { id } = await params;
-  const { saved } = await searchParams;
 
   const person = await getPerson(id);
   if (!person) notFound();
@@ -116,7 +114,6 @@ export default async function PersonDetailPage({ params, searchParams }: PagePro
         <PersonForm
           action={updateAction}
           person={person}
-          saved={saved === "1" ? "Saved." : undefined}
         />
       </section>
 

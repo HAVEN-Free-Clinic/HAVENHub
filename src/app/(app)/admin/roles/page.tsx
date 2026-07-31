@@ -15,7 +15,6 @@ import { listRoles, listAssignments } from "@/modules/admin/services/rbac";
 import { listTerms } from "@/modules/admin/services/terms";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Alert } from "@/platform/ui/alert";
 import { RolesPanel } from "@/modules/admin/components/roles-panel";
 import { AssignmentForm } from "@/modules/admin/components/assignment-form";
 
@@ -23,7 +22,6 @@ const PAGE_HREF = "/admin/roles";
 
 type PageProps = {
   searchParams: Promise<{
-    saved?: string;
     assignq?: string;
   }>;
 };
@@ -31,7 +29,7 @@ type PageProps = {
 export default async function RolesPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_roles");
 
-  const { saved, assignq } = await searchParams;
+  const { assignq } = await searchParams;
 
   // Fetch all data in parallel.
   const [roles, assignments, terms, departments] = await Promise.all([
@@ -47,9 +45,6 @@ export default async function RolesPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-10">
       <PageHeader title="Roles" description="Manage roles, permission grants, and assignments." />
-
-      {/* Status messages */}
-      {saved === "1" && <Alert tone="success">Saved.</Alert>}
 
       {/* Roles section */}
       <RolesPanel roles={roles} pageHref={PAGE_HREF} />

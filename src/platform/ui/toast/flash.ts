@@ -320,6 +320,11 @@ type FlashRegistryEntry = {
   pathnames?: readonly PathnameScope[];
 };
 
+/** recruitment/cycles/[id]/applicants/[applicationId]/page.tsx's own route. */
+const APPLICANT_DETAIL_PATHNAME = "/recruitment/cycles/*/applicants/*";
+/** recruitment/interviews/[interviewId]/page.tsx's own route. */
+const INTERVIEW_DETAIL_PATHNAME = "/recruitment/interviews/*";
+
 /**
  * Explicit entries for flash shapes the `error`/`*Error` convention cannot express: a flag
  * param whose text the page hardcodes, or a group of params a page composes into one sentence.
@@ -335,8 +340,100 @@ type FlashRegistryEntry = {
  * groups are declared first so a URL carrying `sent` alongside `skipped` or `promoted` is always
  * claimed by the right group. The lone `sent` entry is also pathname-scoped to the campaigns page
  * as a second, independent guard against ever mis-firing on the other two pages.
+ *
+ * The same rule is why every `saved`-with-a-literal-value entry below (`saved=decision`,
+ * `saved=reopened`, ...) is declared BEFORE the plain, value-agnostic `saved` group further down:
+ * the plain group's `matchValues` is undefined, so it satisfies "no literal-value requirement" for
+ * ANY value of `saved`, including "decision" -- if it ran first on the applicants/interviews pages
+ * it would claim `saved` with the generic "Saved." text before the matchValues-specific groups
+ * ever got a look, and per-param claiming (`claimed.add`) would then block them from ever firing.
+ *
+ * **`my-info/page.tsx`'s `withdrawn` is deliberately absent from this table.**
+ * `MembershipsCard` only shows its banner when `withdrawn > 0` (withdrawFromTerm returns 0 when
+ * the member has no active-term volunteer membership to withdraw, e.g. no active term at all);
+ * the registry's `hasValue()` gate treats `withdrawn=0` as present just like any other value, so
+ * a plain entry here would show "Withdrawn from 0 volunteer assignment(s) this term." in a case
+ * the page always meant to stay silent. That render-or-not decision is not something a `message()`
+ * builder can express, so `withdrawn` keeps composing its own text and calls `useToast()` directly
+ * from a small client component (`modules/my-info/components/withdrawn-toast.tsx`), exactly the
+ * carve-out the design spec's own amendment describes. Since this classifier never claims
+ * `withdrawn`, it is never stripped from the URL either -- the same as it was never stripped
+ * before this migration, when the page rendered its own inline `<Alert>` straight off
+ * `searchParams`.
  */
 const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
+  // ---------------------------------------------------------------------------
+  // saved=<value> literal-value groups, applicants/interviews detail pages. Each
+  // is its own group (a non-empty `matchValues` makes its groupKey distinct from
+  // the plain `saved` group below) and must be declared first -- see the doc
+  // comment above.
+  // ---------------------------------------------------------------------------
+  {
+    // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:261 and
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.decision). Byte-identical
+    // text on both pages, so one entry covers both.
+    params: ["saved"],
+    matchValues: { saved: "decision" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME, INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Decision recorded.",
+  },
+  {
+    // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:262 (reopenDecisionAction).
+    // Only the applicants page ever reaches this value.
+    params: ["saved"],
+    matchValues: { saved: "reopened" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Decision reopened.",
+  },
+  {
+    // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:263 and
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.rescind). Byte-identical
+    // text on both pages.
+    params: ["saved"],
+    matchValues: { saved: "rescind" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME, INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Acceptance rescinded.",
+  },
+  {
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.schedule).
+    params: ["saved"],
+    matchValues: { saved: "schedule" },
+    pathnames: [INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Schedule saved.",
+  },
+  {
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.panelist).
+    params: ["saved"],
+    matchValues: { saved: "panelist" },
+    pathnames: [INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Panel updated.",
+  },
+  {
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.invite).
+    params: ["saved"],
+    matchValues: { saved: "invite" },
+    pathnames: [INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Invite sent.",
+  },
+  {
+    // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.evaluation).
+    params: ["saved"],
+    matchValues: { saved: "evaluation" },
+    pathnames: [INTERVIEW_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Evaluation saved.",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Plain, value-agnostic `saved` group: one flag, whatever text the owning
+  // page hardcodes. Must come after the literal-value groups above.
+  // ---------------------------------------------------------------------------
   {
     // Seen across ~15 pages, e.g. admin/settings/page.tsx:68,140. This is the right text for
     // roughly five of them; every page with its own wording needs a scoped sibling entry below
@@ -357,6 +454,29 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     tone: "success",
     message: () => "Availability saved successfully.",
   },
+  {
+    // admin/departments/[id]/page.tsx (via department-form.tsx:32) and
+    // admin/subcommittees/[id]/page.tsx (via subcommittee-form.tsx:21). Byte-identical text.
+    params: ["saved"],
+    pathnames: ["/admin/departments/*", "/admin/subcommittees/*"],
+    tone: "success",
+    message: () => "Changes saved.",
+  },
+  {
+    // recruitment/cycles/[id]/subcommittees/page.tsx:47.
+    params: ["saved"],
+    pathnames: ["/recruitment/cycles/*/subcommittees"],
+    tone: "success",
+    message: () => "Assignment saved.",
+  },
+  {
+    // admin/email/campaigns/[id]/page.tsx:310-312.
+    params: ["saved"],
+    pathnames: ["/admin/email/campaigns/*"],
+    tone: "success",
+    message: () => "Campaign saved.",
+  },
+
   {
     // recruitment/cycles/[id]/decisions/page.tsx:36-40 and actions.ts:28.
     params: ["sent", "skipped"],
@@ -392,6 +512,167 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
       const sent = values.get("sent") ?? "";
       return `Campaign sent to ${sent} ${sent === "1" ? "recipient" : "recipients"}.`;
     },
+  },
+  {
+    // admin/email/campaigns/[id]/page.tsx:416-418 (testAction).
+    params: ["tested"],
+    pathnames: ["/admin/email/campaigns/*"],
+    tone: "success",
+    message: () => "Test email sent to your address.",
+  },
+  {
+    // admin/email/campaigns/[id]/page.tsx:404-413 (previewAction). All three params always
+    // arrive together -- the redirect sets count and excluded every time, even at 0 -- so
+    // requiring all three is not an artificial restriction, just what the producer always sends.
+    params: ["preview", "count", "excluded"],
+    pathnames: ["/admin/email/campaigns/*"],
+    tone: "info",
+    message: (values) => {
+      const count = values.get("count") ?? "0";
+      const excluded = values.get("excluded") ?? "0";
+      const excludedCount = Number(excluded);
+      return `Audience preview: ${count} recipient${count !== "1" ? "s" : ""}${
+        excludedCount > 0 ? `, ${excluded} excluded (no email address on file)` : ""
+      }.`;
+    },
+  },
+  {
+    // admin/email/campaigns/[id]/page.tsx:318-320 (scheduleLaterAction/scheduleRecurringAction).
+    params: ["scheduled"],
+    pathnames: ["/admin/email/campaigns/*"],
+    tone: "success",
+    message: () => "Campaign scheduled.",
+  },
+  {
+    // admin/email/campaigns/[id]/page.tsx:321-323 (cancelAction).
+    params: ["cancelled"],
+    pathnames: ["/admin/email/campaigns/*"],
+    tone: "info",
+    message: () => "Schedule cancelled.",
+  },
+  {
+    // admin/email/page.tsx:304-306 (retryAction). "Email re-queued.", distinct from
+    // admin/notifications' own `retried` text below -- same param name, two owning pages, no
+    // unscoped default, so it does nothing if it ever showed up somewhere else.
+    params: ["retried"],
+    pathnames: ["/admin/email"],
+    tone: "success",
+    message: () => "Email re-queued.",
+  },
+  {
+    // admin/notifications/page.tsx:171-173 (retryAction).
+    params: ["retried"],
+    pathnames: ["/admin/notifications"],
+    tone: "success",
+    message: () => "Teams message re-queued.",
+  },
+  {
+    // admin/email/page.tsx:117-119,307-311 (retryAllAction). retryAllAction always redirects
+    // with whatever count retryAllFailedEmails returns, which could in theory be 0 if another
+    // admin's retry already cleared the queue between page render and submit -- but the only
+    // button that reaches this action is hidden unless counts.retryableFailed > 0, so unlike
+    // my-info's `withdrawn` (see the doc comment above), this is not treated as a genuine
+    // zero-suppression case worth a useToast() escape hatch.
+    params: ["retriedAll"],
+    pathnames: ["/admin/email"],
+    tone: "success",
+    message: (values) => {
+      const count = parseInt(values.get("retriedAll") ?? "0", 10) || 0;
+      return `${count} failed ${count === 1 ? "email" : "emails"} re-queued.`;
+    },
+  },
+  {
+    // admin/email/page.tsx:312-314 and oauth/callback/route.ts:74.
+    params: ["connected"],
+    pathnames: ["/admin/email"],
+    tone: "success",
+    message: () => "Mailbox connected.",
+  },
+  {
+    // admin/email/page.tsx:315-317 (saveSenderAction).
+    params: ["senderSaved"],
+    pathnames: ["/admin/email"],
+    tone: "success",
+    message: () => "Sender address saved.",
+  },
+  {
+    // admin/email/page.tsx:318-320 (testSenderAction).
+    params: ["senderTested"],
+    pathnames: ["/admin/email"],
+    tone: "success",
+    message: () => "Test message sent. Check the inbox to confirm.",
+  },
+  {
+    // admin/terms/[id]/page.tsx, rendered by roster-panel.tsx:285-288. `skipped` here is a
+    // different shape from the sent+skipped group above (a roster-copy skip count, not a
+    // conflicted-applicant count) -- disambiguated by its partner param, not its own name.
+    params: ["copied", "skipped"],
+    pathnames: ["/admin/terms/*"],
+    tone: "success",
+    message: (values) =>
+      `Copied ${values.get("copied")} membership(s); ${values.get("skipped")} already existed and were skipped.`,
+  },
+  {
+    // admin/terms/[id]/page.tsx:172, rendered by onboarding-steps-editor.tsx:74 as a plain
+    // <p>, not an <Alert> -- see the module doc comment's "shape any tooling could miss" risk.
+    params: ["stepsSaved"],
+    pathnames: ["/admin/terms/*"],
+    tone: "success",
+    message: () => "Onboarding steps saved.",
+  },
+  {
+    // my-info/page.tsx:100 and get-started/hipaa/page.tsx:50, both via hipaa-panel.tsx:184.
+    // Byte-identical text on both call sites, so one entry covers both.
+    params: ["certSaved"],
+    pathnames: ["/my-info", "/get-started/hipaa"],
+    tone: "success",
+    message: () => "Certificate uploaded successfully.",
+  },
+  {
+    // recruitment/cycles/[id]/page.tsx:113 and actions.ts:134 (setCycleDepartmentsAction).
+    params: ["deptsaved"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Departments updated.",
+  },
+  {
+    // recruitment/cycles/[id]/page.tsx:114 and actions.ts:134. Mutually exclusive with
+    // deptsaved above -- the action redirects with exactly one of the two, never both.
+    params: ["deptwarn"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "warning",
+    message: (values) =>
+      `Saved. These removed departments still have applicants: ${values.get("deptwarn")}. Existing applications keep their choices, but you can no longer accept into a removed department.`,
+  },
+  {
+    // recruitment/cycles/[id]/page.tsx:148 and actions.ts:155 (setApplicationWindowAction).
+    params: ["windowsaved"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Application window updated.",
+  },
+  {
+    // schedule/page.tsx:210-214 (createRequestAction, line 145).
+    params: ["requested"],
+    pathnames: ["/schedule"],
+    tone: "success",
+    message: () => "Change request submitted. Your director will review it.",
+  },
+  {
+    // incidents/mine/page.tsx:72-76 and incidents/actions.ts:95. "Report #{N} submitted.",
+    // distinct from support's own `submitted` text below -- same param name, two owning
+    // pages, no unscoped default.
+    params: ["submitted"],
+    pathnames: ["/incidents/mine"],
+    tone: "success",
+    message: (values) => `Report #${values.get("submitted")} submitted.`,
+  },
+  {
+    // support/[id]/page.tsx:273-275, reached via support/new/page.tsx:75's redirect too.
+    params: ["submitted"],
+    pathnames: ["/support/*"],
+    tone: "success",
+    message: () => "Request submitted. We will keep you posted here.",
   },
   {
     // schedule/page.tsx:179-196,229-233. remindDirectorsAction redirects to `/schedule?message=reminded`

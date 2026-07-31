@@ -47,7 +47,6 @@ import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
-import { Alert } from "@/platform/ui/alert";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
@@ -105,31 +104,19 @@ const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
-// Error codes
-// ---------------------------------------------------------------------------
-
-const ERROR_MESSAGES: Record<string, string> = {
-  forbidden: "You do not have permission for that action.",
-  "not-found": "The incident report could not be found.",
-  validation: "Please check your input and try again.",
-};
-
-// ---------------------------------------------------------------------------
 // Page props
 // ---------------------------------------------------------------------------
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function IncidentReportDetailPage({ params, searchParams }: PageProps) {
+export default async function IncidentReportDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const sp = await searchParams;
   const actor = await requirePersonSession();
 
   // getReport and the reviewer count are independent reads (the count doesn't
@@ -156,24 +143,12 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
   }
   const { report, canManage } = result;
 
-  const errorCode = sp.error ?? null;
-  // When error=validation the action encodes the raw message in ?message=.
-  // All other unknown codes fall back to a generic string (never expose raw
-  // encoded content that could confuse users or leak internals).
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
-    : null;
-
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeader
         title={`Report #${report.number}`}
         action={<Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>}
       />
-
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
 
       <Card>
         <SectionHeader>Concern</SectionHeader>

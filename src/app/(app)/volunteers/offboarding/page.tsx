@@ -7,7 +7,6 @@ import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
-import { Alert } from "@/platform/ui/alert";
 import {
   offboardingView,
   flagForOffboarding,
@@ -25,20 +24,12 @@ import { redirect } from "next/navigation";
 // volunteers.view for the page render and use volunteers.manage_offboarding
 // defense-in-depth in the execute action, matching /volunteers/page.tsx pattern.
 
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
-
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function OffboardingPage({ searchParams }: PageProps) {
+export default async function OffboardingPage() {
   const viewer = await requirePermission("volunteers.view");
-  const sp = await searchParams;
-  // searchParams arrive already URL-decoded in the App Router; do not decode again
-  // (a second decode of a "%"-containing message throws URIError). Matches master.
-  const errorMessage = sp.error || null;
 
   const { departments, flagged } = await offboardingView(viewer.personId);
 
@@ -114,12 +105,6 @@ export default async function OffboardingPage({ searchParams }: PageProps) {
         title="Offboarding"
         description="Flag and process volunteer offboarding."
       />
-
-      {errorMessage && (
-        <Alert tone="error" className="mt-4">
-          {errorMessage}
-        </Alert>
-      )}
 
       {/* Director section: one card per manageable department */}
       {departments.length === 0 ? (

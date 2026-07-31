@@ -101,12 +101,11 @@ test("review: accept via department decision, release with no conflicts", async 
   await page.click('button:has-text("Release decisions")');
   await page.click('button:has-text("Send acceptance emails?")');
 
-  // The action redirects back with ?sent=N&skipped=M query params; wait for the banner.
-  await page.waitForURL((url) =>
-    url.pathname.includes("/decisions") && url.searchParams.has("sent")
-  );
+  // The action redirects back with ?sent=N&skipped=M, which the toast reader strips. The
+  // page redirects to itself, so a pathname predicate is already true at click time and
+  // would not wait at all; the toast is the only real post-navigation signal.
   // With a single routed applicant there is no possible conflict, so skipped is 0.
   await expect(
     page.getByText(/Released 1 acceptance email\(s\); skipped 0 conflicted applicant\(s\)\./)
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 30_000 });
 });

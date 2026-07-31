@@ -5,7 +5,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Alert } from "@/platform/ui/alert";
 import { Select } from "@/platform/ui/select";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { FormActions } from "@/platform/ui/form";
@@ -36,11 +35,8 @@ function coerce(input: ResolvedSetting["input"], raw: FormDataEntryValue | null)
   }
 }
 
-type PageProps = { searchParams: Promise<{ error?: string; saved?: string }> };
-
-export default async function SettingsPage({ searchParams }: PageProps) {
+export default async function SettingsPage() {
   await requirePermission(PERMISSION);
-  const { error, saved } = await searchParams;
 
   async function updateAction(formData: FormData) {
     "use server";
@@ -135,9 +131,6 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         title="Settings"
         description="Configure app behavior without redeploying. Changes are audited."
       />
-
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && !error && <Alert tone="success">Saved.</Alert>}
 
       {groups.map(({ category, settings }) => (
         <section key={category} className="space-y-4">

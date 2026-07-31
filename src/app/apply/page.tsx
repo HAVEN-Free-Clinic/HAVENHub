@@ -22,8 +22,8 @@ import { cx } from "@/platform/ui/cx";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalHome({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
-  const { error, next } = await searchParams;
+export default async function PortalHome({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams;
   const identity = await getApplicantIdentity();
 
   if (!identity) {
@@ -50,12 +50,6 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
           <p className="mt-2 text-center text-sm text-foreground-soft">
             Sign in to start a new application, pick up where you left off, or check your status.
           </p>
-
-          {error === "link" && (
-            <div className="mt-5">
-              <Alert tone="error">That link has expired or was already used. Request a new one below.</Alert>
-            </div>
-          )}
 
           <a
             href={`/login?callbackUrl=${encodeURIComponent(safeNext)}`}

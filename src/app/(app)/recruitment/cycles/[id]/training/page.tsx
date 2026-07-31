@@ -11,9 +11,8 @@ import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
-export default async function TrainingRosterPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
+export default async function TrainingRosterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { msg, err } = await searchParams;
   await requirePermission("recruitment.access");
   const viewer = await requirePersonSession();
   const cycle = await getCycle(id);
@@ -42,8 +41,6 @@ export default async function TrainingRosterPage({ params, searchParams }: { par
     <div className="max-w-3xl space-y-6">
       <SetBreadcrumb trail={trail} />
       <PageHeader title="Training" description={cycle.title} />
-      {err && <Alert tone="error">{err}</Alert>}
-      {msg && <Alert tone="success">{msg}</Alert>}
       <Table>
         <THead>
           <tr>

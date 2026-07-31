@@ -16,7 +16,6 @@ import { Textarea } from "@/platform/ui/input";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { DateTime } from "@/platform/dates/display";
 import type { CommentRow } from "../services/comments";
@@ -28,7 +27,6 @@ type CommentThreadProps = {
   /** True when the caller holds support.manage_requests. */
   canManage: boolean;
   action: (formData: FormData) => Promise<void>;
-  error?: string;
 };
 
 function CommentCard({ comment, internal }: { comment: CommentRow; internal?: boolean }) {
@@ -47,7 +45,7 @@ function CommentCard({ comment, internal }: { comment: CommentRow; internal?: bo
   );
 }
 
-export function CommentThread({ comments, canManage, action, error }: CommentThreadProps) {
+export function CommentThread({ comments, canManage, action }: CommentThreadProps) {
   const publicComments = comments.filter((c) => c.visibility === "PUBLIC");
   const internalComments = comments.filter((c) => c.visibility === "INTERNAL");
 
@@ -83,7 +81,6 @@ export function CommentThread({ comments, canManage, action, error }: CommentThr
         <SectionHeader className="mb-2">Reply</SectionHeader>
         <form action={action}>
           <Card className="space-y-4">
-            {error && <Alert tone="error">{error}</Alert>}
             <Textarea
               name="body"
               rows={3}

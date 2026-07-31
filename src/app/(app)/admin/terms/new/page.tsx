@@ -4,13 +4,8 @@ import { createTerm, TermConflictError, TermDateError } from "@/modules/admin/se
 import { PageHeader } from "@/platform/ui/page-header";
 import { TermForm } from "@/modules/admin/components/term-form";
 
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
-
-export default async function NewTermPage({ searchParams }: PageProps) {
+export default async function NewTermPage() {
   await requirePermission("admin.manage_terms");
-  const { error } = await searchParams;
 
   async function createAction(formData: FormData) {
     "use server";
@@ -54,7 +49,7 @@ export default async function NewTermPage({ searchParams }: PageProps) {
         title="Create term"
         description="A new term starts in PLANNING status. Clinic dates are auto-populated from Saturdays between the start and end dates."
       />
-      <TermForm action={createAction} error={error} />
+      <TermForm action={createAction} />
     </div>
   );
 }

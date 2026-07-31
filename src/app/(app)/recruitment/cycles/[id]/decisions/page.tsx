@@ -8,14 +8,12 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { StatCard } from "@/platform/ui/stat-card";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { cardClasses } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 
-export default async function DecisionsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sent?: string; skipped?: string; error?: string }> }) {
+export default async function DecisionsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const sp = await searchParams;
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
@@ -32,12 +30,6 @@ export default async function DecisionsPage({ params, searchParams }: { params: 
         })}
       />
       <PageHeader title="Decisions" description={cycle.title} />
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
-      {sp.sent !== undefined && (
-        <Alert tone="success">
-          Released {sp.sent} acceptance email(s); skipped {sp.skipped} conflicted applicant(s).
-        </Alert>
-      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Accepted" value={summary.acceptedApplications} />

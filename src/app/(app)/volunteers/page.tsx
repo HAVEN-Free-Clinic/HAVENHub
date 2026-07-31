@@ -5,7 +5,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { Alert } from "@/platform/ui/alert";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   departmentCompliance,
@@ -23,10 +22,6 @@ import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboardin
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
-
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
 
 // ---------------------------------------------------------------------------
 // Status badge helper
@@ -92,7 +87,7 @@ function CountChip({ label, count, tone }: CountChipProps) {
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function VolunteersPage({ searchParams }: PageProps) {
+export default async function VolunteersPage() {
   // The volunteers layout admits Spanish-review reviewers via the module's
   // additionalAccessPermissions (volunteers.verify_spanish), so the nav tile
   // routes them to /volunteers -- this compliance page. But it requires
@@ -108,10 +103,6 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
   }
 
   const viewer = await requirePermission("volunteers.view");
-  const sp = await searchParams;
-  // searchParams arrive already URL-decoded in the App Router; do not decode again
-  // (a second decode of a "%"-containing message throws URIError). Matches master.
-  const errorMessage = sp.error || null;
 
   const departments = await departmentCompliance(viewer.personId);
 
@@ -178,12 +169,6 @@ export default async function VolunteersPage({ searchParams }: PageProps) {
         title="Compliance"
         description="Clearance status for your departments: HIPAA, training, learning, and EHS."
       />
-
-      {errorMessage && (
-        <Alert tone="error" className="mt-4">
-          {errorMessage}
-        </Alert>
-      )}
 
       <div className="mt-8 flex flex-col gap-10">
         {departments.map(({ department, members, counts }) => {

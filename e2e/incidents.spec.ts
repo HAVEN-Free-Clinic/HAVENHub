@@ -77,10 +77,15 @@ async function submitReport(
 
   await page.getByRole("button", { name: "Submit report" }).click();
 
-  // submitReportAction redirects to /incidents/mine?submitted=<number>.
-  await page.waitForURL((url) => url.pathname === "/incidents/mine" && url.searchParams.has("submitted"));
-  const number = new URL(page.url()).searchParams.get("submitted");
-  if (!number) throw new Error("submitReportAction did not redirect with a submitted report number");
+  // submitReportAction redirects to /incidents/mine?submitted=<number>, but the toast
+  // reader consumes that param and strips it with router.replace, so waiting on the
+  // param being present is a race the test loses. Wait on the destination, then read
+  // the number out of the toast, which renders "Report #<number> submitted."
+  await page.waitForURL((url) => url.pathname === "/incidents/mine");
+  const toast = page.getByText(/^Report #\d+ submitted\.$/);
+  await expect(toast).toBeVisible();
+  const number = ((await toast.textContent()) ?? "").match(/#(\d+)/)?.[1];
+  if (!number) throw new Error("submitReportAction did not report a submitted report number");
   return number;
 }
 
@@ -113,10 +118,10 @@ test("anyone can file a report: dev.volunteer submits one and sees it in My repo
   await devLogin(page, "dev.volunteer@yale.edu");
 
   const description = `E2E incident ${tag()}`;
+  // submitReport already asserts the confirmation toast and reads the number out of it.
+  // Do not re-assert it here: it is a success toast, so it auto-dismisses about four
+  // seconds after it appeared, and this assertion would be racing that timer.
   const number = await submitReport(page, description);
-
-  // Success banner on /incidents/mine.
-  await expect(page.getByText(`Report #${number} submitted.`)).toBeVisible();
 
   // The new report's row is visible, linking to its detail page. exact: true
   // guards against a substring match on another row (e.g. "#7" inside "#71").

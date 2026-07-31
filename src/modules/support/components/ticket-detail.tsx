@@ -35,7 +35,6 @@ import { Field, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -91,21 +90,16 @@ type TicketDetailProps = {
   cancelAction?: (formData: FormData) => Promise<void>;
   /** Server action wired to cancelOwnRequest (requester self-service cancel). */
   cancelOwnAction?: (formData: FormData) => Promise<void>;
-  /** Error from the most recent manager-panel action, if any. */
-  manageError?: string;
   /** The ticket's comments, already visibility-filtered by listComments. */
   comments?: CommentRow[];
   /** Server action that posts a reply/note via addComment + notifyCommentAdded. */
   commentAction?: (formData: FormData) => Promise<void>;
-  commentError?: string;
   /** Server action wired to attachEpicRequests. Reads "epicKind" + repeated "personIds". */
   attachEpicAction?: (formData: FormData) => Promise<void>;
   /** Server action wired to cancelEpicRequest. Reads hidden "epicRequestId". */
   cancelEpicAction?: (formData: FormData) => Promise<void>;
   /** Active departments+members for the attach picker. Only needed when canManage. */
   departments?: DepartmentWithMembers[];
-  /** Error from the most recent Epic-section action, if any. */
-  epicError?: string;
 };
 
 export async function TicketDetail({
@@ -119,14 +113,11 @@ export async function TicketDetail({
   resolveAction,
   cancelAction,
   cancelOwnAction,
-  manageError,
   comments,
   commentAction,
-  commentError,
   attachEpicAction,
   cancelEpicAction,
   departments = [],
-  epicError,
 }: TicketDetailProps) {
   const isOpen = !TERMINAL_STATUSES.includes(detail.status);
   const zone = await getDisplayTimeZone();
@@ -182,8 +173,6 @@ export async function TicketDetail({
             <SectionHeader className="mb-2">Manager controls</SectionHeader>
             {isOpen ? (
               <Card className="space-y-6">
-                {manageError && <Alert tone="error">{manageError}</Alert>}
-
                 <div className="grid gap-4 sm:grid-cols-3">
                   <form action={assignAction} className="space-y-2">
                     <Field label="Assignee">
@@ -257,7 +246,6 @@ export async function TicketDetail({
               </Card>
             ) : (
               <Card>
-                {manageError && <Alert tone="error">{manageError}</Alert>}
                 <p className="text-sm text-muted-foreground">
                   This ticket is {STATUS_LABELS[detail.status].toLowerCase()} and can no longer be
                   edited.
@@ -271,8 +259,6 @@ export async function TicketDetail({
         <section>
           <SectionHeader className="mb-2">Epic access</SectionHeader>
           <Card className="space-y-4">
-            {epicError && <Alert tone="error">{epicError}</Alert>}
-
             {detail.epicRequests.length > 0 ? (
               <ul className="space-y-2">
                 {detail.epicRequests.map((r) => (
@@ -341,7 +327,6 @@ export async function TicketDetail({
           comments={comments}
           canManage={canManage}
           action={commentAction}
-          error={commentError}
         />
       )}
     </div>

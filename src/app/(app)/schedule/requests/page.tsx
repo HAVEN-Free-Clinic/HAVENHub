@@ -29,16 +29,12 @@ import { PendingRequests } from "@/modules/schedule/components/pending-requests"
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 
-type PageProps = { searchParams: Promise<{ error?: string; message?: string }> };
-
-export default async function ScheduleRequestsPage({ searchParams }: PageProps) {
+export default async function ScheduleRequestsPage() {
   const session = await requirePersonSession();
   const deptIds = await manageableRequestDepartmentIds(session.personId);
   if (deptIds.length === 0) redirect("/no-access");
-  const sp = await searchParams;
   // Resolved once for the page; PendingRequests uses it to mark stale
   // (past-date) rows across every department section below.
   const todayKey = await displayTodayKey();
@@ -102,12 +98,9 @@ export default async function ScheduleRequestsPage({ searchParams }: PageProps) 
     });
   }
 
-  const errorMessage = sp.error ? (sp.error === "validation" && sp.message ? sp.message : sp.error) : null;
-
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader title="Shift request approvals" description="Approve or deny drop and swap requests for your departments." />
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
       {groups.length === 0 ? (
         <Card>
           <p className="text-sm text-muted-foreground">No shift requests right now.</p>

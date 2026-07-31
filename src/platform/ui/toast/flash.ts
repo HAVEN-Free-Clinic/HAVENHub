@@ -288,8 +288,12 @@ const SUPPRESSED_ERROR_PARAMS: ReadonlySet<string> = new Set(
   ] as const).map(([pathname, name]) => suppressionKey(pathname, name)),
 );
 
+/** Composite Set key. A space is a safe delimiter because neither a URL pathname nor a param
+ *  name can contain a literal one (a space arrives percent-encoded). Do not "harden" this to
+ *  a NUL byte: a single \0 anywhere makes grep, ripgrep, and most editors treat this entire
+ *  file as binary, so it silently disappears from every repo-wide search. */
 function suppressionKey(pathname: string, name: string): string {
-  return `${pathname} ${name}`;
+  return `${pathname} ${name}`;
 }
 
 function isSuppressedErrorParam(pathname: string, name: string): boolean {

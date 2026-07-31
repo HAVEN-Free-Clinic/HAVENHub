@@ -470,12 +470,12 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual([]);
   });
 
-  it("suppresses error on incidents/strikes/page.tsx even for a code that IS in the shared table", () => {
-    // This is the case that matters most: `not-found` has a correctly-scoped, correctly-worded
-    // entry for this exact pathname in the shared code table (see below), and suppression must
-    // still win outright -- a page ruled INLINE keeps its inline Alert as the ONLY renderer for
-    // its error param, never a toast alongside it, regardless of whether the toast's text would
-    // have been right.
+  it("suppresses error on incidents/strikes/page.tsx even for a code the shared table also knows", () => {
+    // This is the case that matters most: `not-found` has a scoped, correctly-worded entry for
+    // /incidents/review in the shared code table (see below), and incidents/strikes is deliberately
+    // excluded from that entry's wildcard too -- but suppression is what actually matters here: a
+    // page ruled INLINE keeps its inline Alert as the ONLY renderer for its error param, never a
+    // toast alongside it, regardless of what the code table would or would not have resolved.
     const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/strikes");
     expect(result.toasts).toEqual([]);
     expect(result.stripParams).toEqual([]);
@@ -508,14 +508,120 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual(["error"]);
   });
 
-  it("does not leak incidents/[id]'s not-found text onto the sibling static route /incidents/review", () => {
-    // /incidents/review is NOT suppressed (only /incidents, /incidents/strikes, and /login are),
-    // so this specifically proves the `except` exclusion on the /incidents/* wildcard works, not
-    // just that suppression happens to also cover this case. With no scoped match and no unscoped
-    // default for "not-found", the value falls through to "the value IS the message" -- the raw
-    // code, not a wrongly-borrowed sentence from a different page.
+  it("resolves error=not-found on /incidents/review to the same text, since that is where it actually lands", () => {
+    // Every live `?error=not-found` redirect goes to /incidents/review or /incidents/strikes,
+    // never to /incidents/[id] -- incidents/actions.ts's own comment says a missing report
+    // "bounces to the review queue instead", so /incidents/review is deliberately INCLUDED under
+    // the /incidents/* wildcard, not excluded. Before this fix the entry excluded this pathname
+    // and the one real destination got a raw "not-found" slug instead of real text.
     const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/review");
+    expect(result.toasts).toEqual([
+      { tone: "error", message: "The incident report could not be found." },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("does not leak the not-found text onto /incidents/mine, a sibling the except list still excludes", () => {
+    // /incidents/mine is NOT suppressed (only /incidents, /incidents/strikes, and /login are) and
+    // never actually receives this code, so this specifically proves the `except` exclusion on the
+    // /incidents/* wildcard still works for a real sibling, not just that suppression happens to
+    // also cover the case. With no scoped match and no unscoped default for "not-found", the value
+    // falls through to "the value IS the message" -- the raw code, not a borrowed sentence.
+    const result = classifyFlashParams(paramsOf({ error: "not-found" }), "/incidents/mine");
     expect(result.toasts).toEqual([{ tone: "error", message: "not-found" }]);
     expect(result.stripParams).toEqual(["error"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // /apply's one slug code: the public, unauthenticated first-touch surface.
+  // apply/verify/page.tsx:44 redirects to /apply?error=link; apply/page.tsx:54-56
+  // renders this exact text. Before this entry existed, the toast read "link".
+  // ---------------------------------------------------------------------------
+
+  it("resolves error=link on /apply to its real text", () => {
+    const result = classifyFlashParams(paramsOf({ error: "link" }), "/apply");
+    expect(result.toasts).toEqual([
+      {
+        tone: "error",
+        message: "That link has expired or was already used. Request a new one below.",
+      },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("does not resolve error=link off the /apply pathname", () => {
+    // "link" is /apply's own vocabulary; off that pathname it is just an unrecognized code, so the
+    // value IS the message, per the 85-site convention.
+    const result = classifyFlashParams(paramsOf({ error: "link" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([{ tone: "error", message: "link" }]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The segment-count guard: `*` matches exactly one path segment, not a
+  // prefix. Every other scoping test above uses a pathname the same depth as
+  // its pattern; this one is deliberately deeper.
+  // ---------------------------------------------------------------------------
+
+  it("does not let the /schedule scope match a deeper real route like /schedule/requests", () => {
+    // If `*` (or a missing segment-count check) ever matched a prefix instead of exactly one
+    // segment, /schedule/requests and /schedule/builder would both incorrectly pick up the
+    // /schedule-scoped "Availability saved successfully." text meant only for /schedule itself.
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/schedule/requests");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("does not let the /schedule scope match a deeper real route like /schedule/builder", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/schedule/builder");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Empty values are treated as absent, not as a real (blank) flash.
+  // ---------------------------------------------------------------------------
+
+  it("does not toast an empty error value", () => {
+    const result = classifyFlashParams(paramsOf({ error: "" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("does not let an empty message beat the code table's real text for validation", () => {
+    // Previously: params.get("message") returned "", which is non-null, so the (empty) detail won
+    // over resolveErrorValue and both params were stripped while showing nothing.
+    const result = classifyFlashParams(
+      paramsOf({ error: "validation", message: "" }),
+      NEUTRAL_PATHNAME,
+    );
+    expect(result.toasts).toEqual([
+      { tone: "error", message: "Please check your input and try again." },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("does not fire a registry entry for an empty saved value", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The pathname is normalized once, so a trailing slash cannot defeat scoping
+  // or suppression (matters most for suppression: failing open there is a
+  // spec violation, not a cosmetic miss).
+  // ---------------------------------------------------------------------------
+
+  it("still suppresses error on /login/ with a trailing slash", () => {
+    const result = classifyFlashParams(paramsOf({ error: "CredentialsSignin" }), "/login/");
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
+
+  it("still resolves the /schedule scope for saved with a trailing slash", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/schedule/");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Availability saved successfully." }]);
+    expect(result.stripParams).toEqual(["saved"]);
   });
 });

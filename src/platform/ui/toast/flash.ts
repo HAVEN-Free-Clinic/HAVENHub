@@ -59,9 +59,38 @@
  *
  * `not-found` is a confirmed real conflict between `incidents/[id]/page.tsx` ("The incident report
  * could not be found.") and `incidents/strikes/page.tsx` ("The disciplinary action could not be
- * found."). Registered as two pathname-scoped code-table entries below, using a scope that
- * excludes the known static siblings under `/incidents/` (see `PathnameScope`'s `except`) so the
- * dynamic-segment pattern cannot leak onto them.
+ * found."). Registered as a pathname-scoped code-table entry below, using a scope that excludes
+ * the known static siblings under `/incidents/` (see `PathnameScope`'s `except`) so the
+ * dynamic-segment pattern cannot leak onto the wrong one. See the `ERROR_CODE_TABLE` doc comment
+ * for exactly which pathname it actually needs to include.
+ *
+ * ---
+ *
+ * **The applicant portal host needs a caller-side fix, not a wider scope.**
+ * `apply.havenfreeclinic.org` (`PORTAL_BASE_URL`) is served by `src/proxy.ts` rewriting a clean
+ * portal URL -- `/some-slug`, or bare `/` for the portal home -- onto the existing `/apply` route
+ * tree (`/apply/some-slug`, `/apply`) via `NextResponse.rewrite`. A rewrite never changes the
+ * browser's URL, so on that host `usePathname()` reports the PRE-rewrite path (`/`, `/some-slug`),
+ * not the effective route (`/apply`, `/apply/some-slug`) that this module's `/apply`-scoped
+ * entries (like `link`, in the code table) are written against. The proxy's `x-pathname` request
+ * header (`proxy.ts:19`) captures that same pre-rewrite path, not the rewritten one, so reading
+ * the pathname from that header instead of `usePathname()` alone does not fix this either -- both
+ * report `/`.
+ *
+ * Deliberately NOT fixed by also scoping `/apply` entries onto `/`: `/` is the signed-in app's own
+ * dashboard (`(app)/page.tsx`), the single busiest page in the product, reads no `searchParams` at
+ * all today, and would still be a live target for the pathname-blind `error` convention above --
+ * scoping `link`'s very specific applicant-facing text onto `/` risks a wrong toast on the app's
+ * main page the moment anything ever puts a stray `?error=link` there, which is a worse trade than
+ * leaving this unresolved for one release.
+ *
+ * **So this is left as a caller-side requirement, not solved in this module:** whoever wires up
+ * the reader (the mounting task) must resolve the EFFECTIVE route pathname before calling
+ * `classifyFlashParams`, not pass `usePathname()`'s raw value straight through. On the portal host
+ * (request host equals `PORTAL_BASE_URL`), apply the same mapping the proxy itself uses --
+ * `rewriteToApply` from `@/modules/recruitment/services/portal-routing` (`/` -> `/apply`, `/x` ->
+ * `/apply/x`) -- to the pre-rewrite path before passing it in. Everywhere else, `usePathname()` is
+ * already correct and needs no translation.
  *
  * ---
  *
@@ -105,6 +134,26 @@ const ERROR_SUFFIX = /Error$/;
 
 function isErrorConventionParam(name: string): boolean {
   return name === ERROR_PARAM || ERROR_SUFFIX.test(name);
+}
+
+/**
+ * Treats an empty string value the same as an absent param: `?error=` must not toast an empty
+ * message, and `?error=validation&message=` must not let an empty `message` beat the code table's
+ * real text for `validation` (`params.get` returns `""`, which is non-null, so a plain `?? ""`
+ * fallback was letting it through).
+ */
+function hasValue(params: URLSearchParams, name: string): boolean {
+  const value = params.get(name);
+  return value !== null && value !== "";
+}
+
+/** Strips one trailing slash (but never reduces a bare "/" to ""), so `/login/` still suppresses
+ * exactly like `/login`. `next.config.ts` sets neither `trailingSlash` nor `basePath`, so this
+ * cannot happen from this app's own routing today, but scope/suppression matching is exact-string,
+ * and suppression failing open is a spec violation, not a cosmetic miss, so it costs one line to
+ * close off regardless. */
+function normalizePathname(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }
 
 /**
@@ -177,29 +226,44 @@ type ErrorCodeEntry = {
  * on the one page that reaches it message-less (`incidents/strikes/page.tsx:223`, which is
  * INLINE-ruled but happens to carry byte-identical text to this entry regardless).
  *
- * `not-found`'s `incidents/[id]/page.tsx` entry excludes the three known static siblings under
- * `/incidents/` so the wildcard cannot leak onto them. Its `incidents/strikes/page.tsx` entry is
- * registered for completeness and correctness of this table -- both real texts documented in one
- * place -- but is unreachable through this classifier today, because `SUPPRESSED_ERROR_PARAMS`
- * below suppresses the whole `error` param on that pathname before any code lookup happens.
+ * `not-found`'s only live producers redirect to `/incidents/review` (`incidents/actions.ts:134,162`)
+ * or `/incidents/strikes` (`incidents/strikes/page.tsx:282,306`); nothing redirects to
+ * `/incidents/[id]?error=not-found` today (confirmed by grep). `incidents/actions.ts:102`'s own
+ * comment says why: "a missing report bounces to the review queue instead", so `/incidents/review`
+ * is exactly where "The incident report could not be found." belongs, and it is deliberately
+ * INCLUDED under the `/incidents/*` wildcard rather than excluded (an earlier version of this
+ * table excluded it, which meant the one live site that receives this code got the raw slug
+ * "not-found" instead of real text). `/incidents/mine` stays excluded (it never receives this
+ * code). `/incidents/strikes` stays excluded too, but has no dedicated table entry of its own for
+ * its different text ("The disciplinary action could not be found.") -- `SUPPRESSED_ERROR_PARAMS`
+ * below suppresses the whole `error` param on that pathname before any code lookup ever runs, so a
+ * separate entry would be permanently unreachable and therefore untestable: a wrong edit to its
+ * string would fail nothing, and it would silently activate only if someone removed the
+ * suppression entry without checking here too. The conflict stays documented here and in the
+ * inventory instead.
+ *
+ * `link` is `/apply`'s one slug code (`apply/verify/page.tsx:44` -> `apply/page.tsx:54-56`), the
+ * public, unauthenticated first-touch surface of the app. See the module doc comment's
+ * "applicant portal host" paragraph before assuming a plain `/apply` scope is sufficient at the
+ * call site.
  */
 const ERROR_CODE_TABLE: readonly ErrorCodeEntry[] = [
   { code: "forbidden", text: "You do not have permission for that action." },
   { code: "validation", text: "Please check your input and try again." },
+  {
+    code: "link",
+    text: "That link has expired or was already used. Request a new one below.",
+    pathnames: ["/apply"],
+  },
   {
     code: "not-found",
     text: "The incident report could not be found.",
     pathnames: [
       {
         pattern: "/incidents/*",
-        except: ["/incidents/mine", "/incidents/review", "/incidents/strikes"],
+        except: ["/incidents/mine", "/incidents/strikes"],
       },
     ],
-  },
-  {
-    code: "not-found",
-    text: "The disciplinary action could not be found.",
-    pathnames: ["/incidents/strikes"],
   },
 ];
 
@@ -271,9 +335,12 @@ type FlashRegistryEntry = {
 const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   {
     // Seen across ~15 pages, e.g. admin/settings/page.tsx:68,140. This is the right text for
-    // roughly five of them; every page with its own wording gets a scoped sibling entry below,
-    // or (per the design spec's carve-out for page-local copy) composes its own text via
-    // useToast() directly and never reaches this entry at all.
+    // roughly five of them; every page with its own wording needs a scoped sibling entry below
+    // (or, for a param this classifier does not claim at all, an exclusion), NOT a useToast()
+    // escape hatch: the reader mounts in the root layout and claims a redirect-driven `saved`
+    // unconditionally the moment it is present on the URL, before the page itself ever runs, so
+    // there is no way for a page to "opt out" of a param this classifier already claims.
+    // useToast() only helps a client-side action that never touches the URL in the first place.
     params: ["saved"],
     tone: "success",
     message: () => "Saved.",
@@ -401,15 +468,18 @@ const FLASH_REGISTRY_GROUPS = groupRegistry(FLASH_REGISTRY);
  * the current URL, popping the returned toasts, and stripping the returned param names with
  * `router.replace` so a refresh does not re-fire them.
  *
- * `pathname` should be a clean path with no query string and no trailing slash, matching
- * `usePathname()` -- e.g. `/schedule`, `/recruitment/cycles/abc123/waitlist`. It decides which
- * pathname-scoped registry entry (if any) wins for a given param group; see the module doc
- * comment for the full resolution rule.
+ * `pathname` should be a clean path with no query string, matching `usePathname()` -- e.g.
+ * `/schedule`, `/recruitment/cycles/abc123/waitlist`. (A trailing slash is normalized away, but
+ * that is a defensive fallback, not a license to pass one on purpose.) It decides which
+ * pathname-scoped registry or code-table entry (if any) wins for a given param group; see the
+ * module doc comment for the full resolution rule, and for why `usePathname()`'s raw value is
+ * NOT always the right thing to pass on the applicant portal host.
  *
  * `URLSearchParams` is also satisfied by Next.js's `ReadonlyURLSearchParams` (it extends the
  * platform type), so `useSearchParams()` can be passed straight through.
  */
-export function classifyFlashParams(params: URLSearchParams, pathname: string): FlashClassification {
+export function classifyFlashParams(params: URLSearchParams, rawPathname: string): FlashClassification {
+  const pathname = normalizePathname(rawPathname);
   const toasts: FlashToast[] = [];
   const stripParams: string[] = [];
   const claimed = new Set<string>();
@@ -418,10 +488,11 @@ export function classifyFlashParams(params: URLSearchParams, pathname: string): 
   // 1. Convention: `error` and the `*Error` suffix family.
   for (const name of names) {
     if (claimed.has(name) || !isErrorConventionParam(name)) continue;
+    if (!hasValue(params, name)) continue;
     if (isSuppressedErrorParam(pathname, name)) continue;
 
     const ownValue = params.get(name) ?? "";
-    const detail = name === ERROR_PARAM ? params.get(MESSAGE_PARAM) : null;
+    const detail = name === ERROR_PARAM && hasValue(params, MESSAGE_PARAM) ? params.get(MESSAGE_PARAM) : null;
     const message = detail ?? (name === ERROR_PARAM ? resolveErrorValue(ownValue, pathname) : ownValue);
 
     toasts.push({ tone: "error", message });
@@ -438,7 +509,7 @@ export function classifyFlashParams(params: URLSearchParams, pathname: string): 
   for (const group of FLASH_REGISTRY_GROUPS) {
     const representative = group[0];
     if (representative.params.some((p) => claimed.has(p))) continue;
-    if (!representative.params.every((p) => params.has(p))) continue;
+    if (!representative.params.every((p) => hasValue(params, p))) continue;
     if (
       representative.matchValues &&
       !Object.entries(representative.matchValues).every(([k, v]) => params.get(k) === v)

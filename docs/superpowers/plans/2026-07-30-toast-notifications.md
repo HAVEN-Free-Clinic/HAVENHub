@@ -113,6 +113,24 @@ grep -rl "searchParams" src/app --include='page.tsx'
 grep -rln "<Alert" src/app src/modules
 ```
 
+- [ ] **Step 1b: Inventory the error CODES too**
+
+Read the spec's amendment dated 2026-07-30 first. Eight pages map `?error=` slugs through their own
+`ERROR_MESSAGES` table rather than treating the value as text: `schedule/page.tsx`,
+`schedule/builder/page.tsx`, `admin/notifications/page.tsx`, `admin/email/page.tsx`,
+`incidents/page.tsx`, `incidents/strikes/page.tsx`, `incidents/[id]/page.tsx`, `login/page.tsx`.
+
+For each, record every code and its exact text, then rule the page:
+
+- **SHARED CODES**: its vocabulary is generic (`validation`, `forbidden`, `not-found`, ...). Its
+  codes go in the classifier's shared code table.
+- **OWN VOCABULARY**: its codes mean something only there. `login/page.tsx` maps NextAuth's
+  `CredentialsSignin` and `MemberLinkExpired`; that is not shared vocabulary.
+
+**Report any code whose text differs between two pages.** That is a genuine conflict and it needs a
+ruling before the shared table can exist, because one of the two pages will otherwise silently
+change wording.
+
 - [ ] **Step 2: Rule on each**
 
 For every param on every page, record one of three rulings:

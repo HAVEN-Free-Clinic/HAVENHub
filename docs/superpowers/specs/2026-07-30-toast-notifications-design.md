@@ -89,11 +89,40 @@ So:
 `error` sites and the entire suffixed-error family with no per-param registration, and it is why the
 migration is tractable at 57 pages.
 
-**An explicit registry handles shapes 2 and 3**, and nothing else. Each entry declares the param
-name, the tone, and a function from the param value to the message. `saved` maps to "Saved.";
-`sent` maps a count to its sentence. **A param not matching the error convention and not in the
-registry is left completely alone**, which is what protects `status`, `page`, `q`, and the rest of
-the filter vocabulary.
+**Amended 2026-07-30, after Task 1 shipped.** Shape 1 is not uniform, and this spec originally
+missed it. There are **two** error conventions in the codebase:
+
+- **85 sites encode a human message**: `?error=${encodeURIComponent(err.message)}`, which is what
+  `runAction`'s `errorRedirect` produces. The value is the text. The convention above is correct
+  for these.
+- **Roughly 36 sites send a slug**: `?error=validation` (18), `?error=forbidden` (7),
+  `?error=not-found` (4), plus `person-not-found`, `subject-not-found`, `link`, `future-date`,
+  `blank-description`, `bad-category`. The value is a *code*, and the page owns an `ERROR_MESSAGES`
+  lookup that turns it into text with a generic fallback. **Eight pages** do this.
+
+A classifier that always treats the value as the message would show a user the raw string
+"forbidden". So the module also needs a code table: if a value matches a known code, the toast shows
+that code's text; otherwise the value is the message. The fallback for an unrecognised code is the
+generic "An unexpected error occurred.", matching what those pages already do.
+
+The eight tables do **not** share one vocabulary, so this is not a mechanical merge.
+`incidents/page.tsx:44-48` maps `forbidden` / `subject-not-found` / `validation`, while
+`login/page.tsx:17-23` maps NextAuth's `CredentialsSignin` and `MemberLinkExpired`. Only the
+genuinely generic codes belong in the shared table. **A page whose codes are its own vocabulary is
+ruled INLINE**, and `login` is the clearest case: an authentication failure belongs next to the
+sign-in form, not floating at the bottom of the screen. That is the migration rule below doing its
+job, not an exception to it.
+
+**An explicit registry handles shapes 2 and 3**, and nothing else. Each entry declares the param or
+params it owns, the tone, and a function from their values to the message. `saved` maps to "Saved."
+
+**An entry can own more than one param.** `recruitment/cycles/[id]/decisions/page.tsx:36-40` renders
+a single Alert from `sent` *and* `skipped`: "Released N acceptance email(s); skipped M conflicted
+applicant(s)." One toast, two params, both stripped together. A registry keyed strictly one param to
+one message could not express that and would fire two half-sentences.
+
+**A param not matching the error convention and not in the registry is left completely alone**,
+which is what protects `status`, `page`, `q`, and the rest of the filter vocabulary.
 
 The registry lives in one module so that adding a flash param is one edit in one reviewable place,
 and so the reader and the pages cannot drift apart about who owns a param.
@@ -185,8 +214,9 @@ it stays forever, but it is not the same as never putting it there.
 - **57 pages is a lot of individually small judgment calls.** The registry is what keeps the
   judgment in one reviewable file instead of spread across the diff, but each page still needs
   someone to decide whether its alert is page-level flash or form-bound validation.
-- **Some params in the inventory may not be flashes at all.** The inventory was built by pattern
-  matching, so names like `count`, `preview`, and `excluded` need checking before they are assumed
-  to be flash params; `count` in particular looks like a companion value, and `preview` like a mode.
+- **The inventory was built by pattern matching and over-matches.** `count` in
+  `incidents/page.tsx`, for one, is a word in a code comment rather than a param at all. Every
+  candidate must be confirmed against its actual read site before it goes in the registry, and the
+  cost of guessing wrong in the permissive direction is eating a filter.
 - **The audit's own scale estimate was wrong by roughly half**, which is worth remembering when its
   size estimates are used to sequence anything else in the backlog.

@@ -17,6 +17,51 @@ describe("recruitmentTrail", () => {
   });
 });
 
+describe("cycleTrail overview link", () => {
+  // The cycle SUBTREE gate admits committee scorers and department-scoped
+  // reviewers who lack recruitment.access, but the overview enforces it. Three
+  // pages inside a cycle are reachable without it (Applicants, an applicant
+  // detail, Speed route), so on those the cycle crumb must not link there.
+  it("links the cycle crumb to the overview by default", () => {
+    const trail = cycleTrail({ cycleId: "c1", cycleTitle: "Fall 2026" });
+    expect(trail.at(-1)).toEqual({ label: "Fall 2026", href: "/recruitment/cycles/c1" });
+  });
+
+  it("drops the overview link for a viewer who cannot open it", () => {
+    const trail = cycleTrail({ cycleId: "c1", cycleTitle: "Fall 2026", canOpenOverview: false });
+    expect(trail.at(-1)).toEqual({ label: "Fall 2026" });
+  });
+
+  it("keeps the section crumb navigable when the overview link is dropped", () => {
+    // Losing the overview link must not strand the viewer: the section crumb
+    // below it is their step back up.
+    const trail = cycleTrail({
+      cycleId: "c1",
+      cycleTitle: "Fall 2026",
+      section: { label: "Applicants", slug: "applicants" },
+      leaf: "Dee Volunteer",
+      canOpenOverview: false,
+    });
+    expect(trail).toEqual([
+      HUB,
+      REC,
+      { label: "Fall 2026" },
+      { label: "Applicants", href: "/recruitment/cycles/c1/applicants" },
+      { label: "Dee Volunteer" },
+    ]);
+  });
+
+  it("never emits an overview href anywhere in the trail when the viewer lacks access", () => {
+    const trail = cycleTrail({
+      cycleId: "c1",
+      cycleTitle: "Fall 2026",
+      section: { label: "Speed route", slug: "speed-route" },
+      canOpenOverview: false,
+    });
+    expect(trail.some((c) => c.href === "/recruitment/cycles/c1")).toBe(false);
+  });
+});
+
 describe("cycleTrail", () => {
   it("cycle overview: Hub > Recruitment > {title}", () => {
     expect(cycleTrail({ cycleId: "c1", cycleTitle: "Fall 2026" })).toEqual([

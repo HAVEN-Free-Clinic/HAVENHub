@@ -52,6 +52,11 @@ export function cycleNavItems(opts: {
   if (opts.canAccess && opts.track === "VOLUNTEER" && (opts.canReviewAll || opts.canManage)) {
     items.push({ label: "Subcommittees", href: `${base}/subcommittees` });
   }
+  // DIRECTOR-only is correct, not an oversight: scheduleInterview rejects any
+  // other track outright ("Interviews apply to director cycles.", see
+  // services/interviews.ts), so a VOLUNTEER cycle can never have an interview to
+  // show. Volunteer applications are reviewed by committee scoring and
+  // department routing instead. Do not widen this to make the tab "available".
   if (opts.canAccess && opts.track === "DIRECTOR") items.push({ label: "Interviews", href: `${base}/interviews` });
   if (opts.canAccess && opts.canReviewAll) items.push({ label: "Onboarding", href: `${base}/onboarding` });
   if (opts.canAccess && opts.canManage) items.push({ label: "Emails", href: `${base}/emails` });

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { loadSpeedRouteBoard } from "@/modules/recruitment/services/speed-route";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { RoutingError } from "@/modules/recruitment/services/routing";
@@ -30,11 +31,15 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError) notFound();
     throw err;
   }
+  // loadSpeedRouteBoard gates on recruitment.review_all, NOT recruitment.access,
+  // so a review_all holder without access can reach this page while the cycle
+  // overview would bounce them. The breadcrumb must not link there for them.
+  const canOpenOverview = await can(person.personId, "recruitment.access");
   const middlePercent = Math.max(0, 100 - board.topPercent - board.bottomPercent);
   return (
     <div className="space-y-6">
       <SetBreadcrumb
-        trail={cycleTrail({ cycleId: id, cycleTitle: board.title, section: { label: "Speed route", slug: "speed-route" } })}
+        trail={cycleTrail({ canOpenOverview, cycleId: id, cycleTitle: board.title, section: { label: "Speed route", slug: "speed-route" } })}
       />
       <PageHeader title="Speed route" description={board.title} />
 

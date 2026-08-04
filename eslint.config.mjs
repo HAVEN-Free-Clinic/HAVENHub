@@ -36,7 +36,22 @@ const MODULE_IDS = [
 const eslintConfig = [
   ...coreWebVitals,
   ...nextTypescript,
-  { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**", ".claude/**"] },
+  {
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "playwright-report/**",
+      "test-results/**",
+      ".claude/**",
+      // Gitignored local design-system scratch. It is not part of the app and
+      // does not exist in a CI checkout, but `eslint .` walks it anyway (flat
+      // config does not read .gitignore), reporting ~20 errors that can never
+      // be fixed by this repo. That noise makes the whole-repo `npm run lint`
+      // in pre-push easy to ignore, which is the opposite of what it is for.
+      "HAVEN Free Clinic Design System/**",
+      ".superpowers/**",
+    ],
+  },
   {
     rules: {
       "@typescript-eslint/no-unused-vars": [

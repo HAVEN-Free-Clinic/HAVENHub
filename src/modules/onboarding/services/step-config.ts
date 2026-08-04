@@ -19,10 +19,21 @@ export type StepDefault = {
   blocking: boolean;
   href?: string;
   ctaLabel?: string;
+  /** The step's page stays useful after completion, so the checklist offers a
+   *  "Review" link once it is done. Only learning: the profile and HIPAA pages
+   *  redirect away when their step is complete, so a link there would dead-end. */
+  reviewable?: boolean;
+  /** Copy shown while the step is IN_PROGRESS, when the generic description
+   *  would misdescribe the state. Applied in buildTask AFTER term overrides
+   *  resolve, because an override describes the step and this describes what
+   *  the system is currently doing. Only hipaa needs it today. */
+  inProgressDescription?: string;
+  inProgressCtaLabel?: string;
 };
 
 /** Built-in defaults for each onboarding step (HAVEN voice; sentence case; no
- *  em-dashes). href/ctaLabel are app-routing and are NOT term-configurable. */
+ *  em-dashes). href/ctaLabel/reviewable are app-routing and are NOT
+ *  term-configurable. */
 export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
   profile: {
     label: "Profile & agreements",
@@ -39,6 +50,8 @@ export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
     blocking: true,
     href: "/get-started/hipaa",
     ctaLabel: "Upload certificate",
+    inProgressDescription: "We have your certificate. A compliance manager is reviewing it.",
+    inProgressCtaLabel: "View certificate",
   },
   training: {
     label: "Volunteer training",
@@ -63,6 +76,7 @@ export const STEP_DEFAULTS: Record<OnboardingTaskKey, StepDefault> = {
     blocking: true,
     href: "/get-started/learning",
     ctaLabel: "Open courses",
+    reviewable: true,
   },
   ehs: {
     label: "EHS training",
@@ -83,6 +97,9 @@ export type EffectiveStep = {
   order: number;
   href?: string;
   ctaLabel?: string;
+  reviewable?: boolean;
+  inProgressDescription?: string;
+  inProgressCtaLabel?: string;
   /** True when a per-term override row exists for this kind. */
   hasOverride: boolean;
 };
@@ -106,6 +123,9 @@ function effective(kind: OnboardingTaskKey, row: OverrideRow | undefined): Effec
     order: row?.order ?? d.order,
     href: d.href,
     ctaLabel: d.ctaLabel,
+    reviewable: d.reviewable,
+    inProgressDescription: d.inProgressDescription,
+    inProgressCtaLabel: d.inProgressCtaLabel,
     hasOverride: row !== undefined,
   };
 }

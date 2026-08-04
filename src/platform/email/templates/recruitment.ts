@@ -87,6 +87,55 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       '<p>Congratulations {{ firstName }},</p><p>To finish joining HAVEN for {{ cycleTitle }}, please complete your onboarding contract here: <a href="{{ contractUrl }}">{{ contractUrl }}</a></p><p>It collects your signatures, Epic access details, and HIPAA certificate.</p>',
   },
   {
+    key: "recruitment.onboarding_confirmation",
+    name: "Recruitment: onboarding confirmation",
+    category: "transactional",
+    group: "recruitment",
+    // Every value here is passed pre-computed from the shared next-steps
+    // content module (src/modules/recruitment/onboarding-next-steps.ts) so
+    // this email, the completion screen, and the revisit page never drift
+    // from one another. signInText is signIn.emailText (NOT signIn.text)
+    // flattened to a top-level key: the render engine does flat context[key]
+    // lookup only, so a raw "{{ signIn.emailText }}" would silently render
+    // empty. emailText, not text, because this email is a durable record
+    // rendered once at submit time and opened at some unknown later point --
+    // it cannot know whether the volunteer has a Person to sign in as by the
+    // time they read it (see the doc comment on signIn.emailText), so it is
+    // always phrased against the future roster-add rather than the send-time
+    // state. training is likewise nullable (empty when the cycle has no
+    // in-person training date scheduled) and wrapped in {{#if}} the same way
+    // epic already is. loginUrl is the one field OnboardingNextSteps carries
+    // that is not a bullet (loginPath), resolved to an absolute URL the same
+    // way shift-reminders.ts and reminders.ts do (getSetting("app.baseUrl") +
+    // the path) since this is the one surface of the three with no
+    // surrounding app to navigate from: without it, the signInText bullet
+    // names an action with no way to take it.
+    //
+    // The anchor text is deliberately "HAVEN Hub sign-in page", not a
+    // "Sign in to HAVEN Hub" call to action: the two screens gate that exact
+    // button on hasAccount (see next-steps-screen.tsx), but this email cannot,
+    // since hasAccount can flip between send time and whenever it is opened.
+    // A brand-new volunteer who is SUBMITTED but not yet PROMOTED could click
+    // an imperative "sign in" button, complete SSO, and land on /welcome's
+    // "we couldn't find you" dead end -- the exact failure this fix removes,
+    // reappearing one bullet down from the corrected copy. Naming the
+    // destination rather than commanding the action keeps the link (genuinely
+    // useful later, and this durable record is the right place to keep it)
+    // without asserting it will succeed right now.
+    variables: [
+      { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
+      { name: "signInText", label: "How to sign in once added to the roster (SSO or magic link), phrased for a durable email read at an unknown later time", sampleValue: "Once a recruitment lead adds you to the roster, sign in with your Yale NetID." },
+      { name: "training", label: "Training date and location, empty when the cycle has no scheduled date", sampleValue: "Plan to attend in-person training on Saturday, August 15 in the HAVEN clinic." },
+      { name: "epic", label: "Epic follow-up, empty when there is nothing to tell this volunteer about Epic", sampleValue: "The IT team will set up your Epic account and email you sign-in instructions once it is ready." },
+      { name: "review", label: "Review status", sampleValue: "A recruitment lead will review your submission and add you to the roster." },
+      { name: "loginUrl", label: "Sign-in page URL", sampleValue: "https://hub.havenfreeclinic.com/login" },
+    ],
+    defaultSubject: "Your HAVEN {{ cycleTitle }} onboarding is complete",
+    defaultBody:
+      '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li>{{#if training}}<li>{{ training }}</li>{{/if}}{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">HAVEN Hub sign-in page</a></p>',
+  },
+  {
     key: "recruitment.application_received",
     name: "Recruitment: application received",
     category: "transactional",

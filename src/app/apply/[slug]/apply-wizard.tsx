@@ -13,7 +13,7 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Field, ReadonlyField } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
-import { FormSection } from "@/platform/ui/form";
+import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { prefillString } from "@/modules/recruitment/components/field-prefill";
@@ -40,6 +40,13 @@ export type ApplyWizardProps = {
   isReturning?: boolean;
   prefill?: Prefill;
   currentDepartments?: string[];
+  // The same code -> name options page.tsx already resolves for the
+  // DEPARTMENT_CHOICE field's own options. Reused here so the renewal-
+  // department picker, its review-step row, and the transfer-blocked alert
+  // show the department name instead of the raw code, matching the
+  // new-applicant path. A code with no matching option falls back to the
+  // code itself, same as departmentChoiceOptions does.
+  departmentOptions?: { value: string; label: string }[];
   initialApplicantType?: ApplicantType;
   initialAnswers?: Record<string, unknown>;
   initialApplicantTypeFromDraft?: ApplicantType;
@@ -54,6 +61,7 @@ export function ApplyWizard({
   isReturning = false,
   prefill,
   currentDepartments = [],
+  departmentOptions = [],
   initialApplicantType = "NEW",
   initialAnswers = {},
   initialApplicantTypeFromDraft,
@@ -169,6 +177,14 @@ export function ApplyWizard({
   const loginHref = `/login?callbackUrl=${encodeURIComponent(`/apply/${def.slug}?type=renewal`)}`;
   const renewalGate = applicantType === "RENEWAL" && !signedIn;
   const roleNoun = def.track === "DIRECTOR" ? "director" : "volunteer";
+  // Resolves a department code to its display name through the same
+  // code -> name options the DEPARTMENT_CHOICE field itself renders
+  // (departmentOptions, injected by page.tsx). Falls back to the code when no
+  // option matches, mirroring departmentChoiceOptions' own fallback -- so a
+  // renewal/transfer department stays legible everywhere a NEW applicant's
+  // department choice already is: the renewal picker, its review row, and the
+  // transfer-blocked alert.
+  const departmentLabel = (code: string) => departmentOptions.find((o) => o.value === code)?.label ?? code;
 
   const applicantOptions = [
     { value: "NEW" as const, label: "New applicant", desc: "First time applying", show: true },
@@ -347,7 +363,7 @@ export function ApplyWizard({
           title: "Getting started",
           rows: [
             { label: "Applying as", value: applicantTypeLabel(applicantType) },
-            ...(applicantType === "RENEWAL" ? [{ label: "Department", value: renewalDept }] : []),
+            ...(applicantType === "RENEWAL" ? [{ label: "Department", value: departmentLabel(renewalDept) }] : []),
           ],
         });
       } else if (st.kind === "section") {
@@ -511,11 +527,11 @@ export function ApplyWizard({
                   currentDepartments.length > 1 ? (
                     <Field label="Current department">
                       <Select value={renewalDept} onChange={(e) => handleRenewalDeptChange(e.target.value)} className="sm:max-w-xs">
-                        {currentDepartments.map((d) => <option key={d} value={d}>{d}</option>)}
+                        {currentDepartments.map((d) => <option key={d} value={d}>{departmentLabel(d)}</option>)}
                       </Select>
                     </Field>
                   ) : (
-                    <ReadonlyField label="Current department" value={renewalDept} hint="You are renewing in your current department. Contact us if this needs to change." />
+                    <ReadonlyField label="Current department" value={departmentLabel(renewalDept)} hint="You are renewing in your current department. Contact us if this needs to change." />
                   )
                 )}
               </FormSection>
@@ -542,7 +558,7 @@ export function ApplyWizard({
           st.kind === "section" ? (
             <div key={st.id} className={cx("space-y-4", i === stepIndex ? "block" : "hidden")}>
               <Card className="space-y-4">
-                <FormSection description={st.section.description ?? undefined}>
+                <FormSection description={st.section.description ? linkifyUrls(st.section.description) : undefined}>
                   {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
                     f.type === "SIGNATURE" ? (
                       <SignaturePad
@@ -591,7 +607,7 @@ export function ApplyWizard({
 
         {current.kind === "section" && transferIntoCurrent && (
           <Alert tone="warning">
-            You are already a {roleNoun} in {deptChoice}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
+            You are already a {roleNoun} in {departmentLabel(deptChoice)}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
           </Alert>
         )}
 

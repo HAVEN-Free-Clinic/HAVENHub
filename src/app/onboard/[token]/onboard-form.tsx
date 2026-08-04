@@ -1,8 +1,9 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
+import { NextStepsScreen } from "./next-steps-screen";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
@@ -68,6 +69,30 @@ export function OnboardForm({
     setAnswers((prev) => ({ ...prev, [name]: value }));
   }, []);
 
+  // This contract has no draft save: nothing the volunteer types is persisted
+  // until they submit, and a reload loses all of it including every signature.
+  // The form also asks for a HIPAA certificate PDF that a new volunteer has to
+  // leave the page to fetch from Yale, so leaving mid-form is the ordinary path
+  // through it rather than an edge case. Until draft save exists, warn on the
+  // way out.
+  //
+  // Tracked from the form's own change/input events rather than from `answers`,
+  // because several fields never route through onAnswer: uncontrolled
+  // defaultValue inputs, the file input, and the signature pads. React's
+  // synthetic events bubble, so one handler on the <form> catches all of them.
+  const [dirty, setDirty] = useState(false);
+  const markDirty = useCallback(() => setDirty(true), []);
+
+  useEffect(() => {
+    // Not while submitting (the navigation is ours), and not once the
+    // submission succeeded (the work is safe, and the success screen renders
+    // from this same component).
+    if (!dirty || submitting || result?.ok) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, submitting, result?.ok]);
+
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
@@ -85,7 +110,7 @@ export function OnboardForm({
   }
 
   if (result?.ok) {
-    return <Alert tone="success" className="mt-8">Thanks, your onboarding is complete. We will be in touch with next steps.</Alert>;
+    return <NextStepsScreen steps={result.nextSteps} />;
   }
 
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
@@ -101,8 +126,20 @@ export function OnboardForm({
   });
 
   return (
-    <form onSubmit={onSubmit} className="mt-6">
+    <form onSubmit={onSubmit} onChange={markDirty} onInput={markDirty} className="mt-6">
       <Card className="space-y-6">
+        {/* Sits above the first field, not beside the submit button: it is only
+            useful before someone starts typing. The certificate sentence is
+            conditional because a director can remove the HIPAA block from the
+            layout, and telling a volunteer to go fetch a document this form
+            never asks for would be worse than saying nothing. */}
+        <Alert tone="info">
+          Nothing is saved until you submit this form.
+          {shown.some((b) => b.kind === "system_field" && b.systemKey === "hipaa")
+            ? " Have your HIPAA certificate PDF ready before you start, and set aside a few minutes to finish in one sitting."
+            : " Set aside a few minutes to finish in one sitting."}
+        </Alert>
+
         {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
 
         {shown.map((b) => (

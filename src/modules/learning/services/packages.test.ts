@@ -14,7 +14,13 @@ async function seed() {
   await prisma.roleAssignment.create({ data: { personId: manager.id, roleId: role.id } });
   const plain = await prisma.person.create({ data: { name: "Plain", status: "ACTIVE" } });
   const course = await prisma.course.create({ data: { title: "Intro" } });
-  return { manager, plain, course };
+  const term = await prisma.term.create({
+    data: {
+      code: "SU26", name: "Summer 2026", status: "ACTIVE",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"),
+    },
+  });
+  return { manager, plain, course, term };
 }
 
 beforeEach(async () => { await resetDb(); });
@@ -70,17 +76,17 @@ it("rejects a package with too many files (the decompression-guard filter counts
 });
 
 it("re-ingesting with resetProgress clears prior course and per-SCO progress", async () => {
-  const { manager, plain, course } = await seed();
+  const { manager, plain, course, term } = await seed();
   await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
 
   // A learner completed the OLD package.
   await prisma.courseProgress.create({
-    data: { personId: plain.id, courseId: course.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+    data: { personId: plain.id, courseId: course.id, termId: term.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
   });
   await prisma.scoProgress.createMany({
     data: [
-      { personId: plain.id, courseId: course.id, scoId: "ITEM-A", lessonStatus: "completed" },
-      { personId: plain.id, courseId: course.id, scoId: "ITEM-B", lessonStatus: "completed" },
+      { personId: plain.id, courseId: course.id, termId: term.id, scoId: "ITEM-A", lessonStatus: "completed" },
+      { personId: plain.id, courseId: course.id, termId: term.id, scoId: "ITEM-B", lessonStatus: "completed" },
     ],
   });
 
@@ -91,14 +97,30 @@ it("re-ingesting with resetProgress clears prior course and per-SCO progress", a
   expect(await prisma.scoProgress.count({ where: { courseId: course.id } })).toBe(0);
 });
 
-it("re-ingesting without resetProgress preserves prior progress", async () => {
+it("re-ingesting with resetProgress clears progress across every term, not just the active one (the content itself changed, so no term's row is a valid completion of it)", async () => {
   const { manager, plain, course } = await seed();
   await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+
+  const termA = await prisma.term.create({
+    data: { code: "SU25", name: "Prior", status: "ARCHIVED", startDate: new Date("2025-01-01"), endDate: new Date("2025-06-30") },
+  });
   await prisma.courseProgress.create({
-    data: { personId: plain.id, courseId: course.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+    data: { personId: plain.id, courseId: course.id, termId: termA.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
+  });
+
+  await ingestScormPackage(course.id, makeScormZip(), manager.id, { resetProgress: true });
+
+  expect(await prisma.courseProgress.count({ where: { courseId: course.id } })).toBe(0);
+});
+
+it("re-ingesting without resetProgress preserves prior progress", async () => {
+  const { manager, plain, course, term } = await seed();
+  await ingestScormPackage(course.id, makeMultiScoZip(), manager.id);
+  await prisma.courseProgress.create({
+    data: { personId: plain.id, courseId: course.id, termId: term.id, status: "COMPLETE", lessonStatus: "completed", completedAt: new Date() },
   });
   await prisma.scoProgress.create({
-    data: { personId: plain.id, courseId: course.id, scoId: "ITEM-A", lessonStatus: "completed" },
+    data: { personId: plain.id, courseId: course.id, termId: term.id, scoId: "ITEM-A", lessonStatus: "completed" },
   });
 
   await ingestScormPackage(course.id, makeScormZip(), manager.id);

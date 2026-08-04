@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { coursesForMember, kindMatchesAudience, type AssignableCourse, type MemberMembership } from "./assignment";
+import { coursesForMember, kindMatchesAudience, splitByRecurrence, type AssignableCourse, type MemberMembership } from "./assignment";
 
 const course = (over: Partial<AssignableCourse> & { id: string }): AssignableCourse => ({
   isActive: true,
@@ -95,6 +95,19 @@ it("excludes an assignToAll course from a person with no active membership", () 
   // only ever lists people who hold a TermMembership.
   const list = [course({ id: "all", assignToAll: true, audience: "EVERYONE" })];
   expect(coursesForMember({ courses: list, memberships: [] })).toEqual([]);
+});
+
+it("splitByRecurrence buckets PER_TERM and ONCE ids separately, defaulting anything else to unscoped", () => {
+  const list = [
+    { id: "a", recurrence: "ONCE" as const },
+    { id: "b", recurrence: "PER_TERM" as const },
+    { id: "c", recurrence: "PER_TERM" as const },
+  ];
+  expect(splitByRecurrence(list)).toEqual({ onceIds: ["a"], perTermIds: ["b", "c"] });
+});
+
+it("splitByRecurrence returns empty buckets for an empty course list", () => {
+  expect(splitByRecurrence([])).toEqual({ onceIds: [], perTermIds: [] });
 });
 
 it("kindMatchesAudience maps plural audiences to singular kinds", () => {

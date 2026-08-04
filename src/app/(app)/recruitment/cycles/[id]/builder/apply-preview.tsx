@@ -5,10 +5,11 @@ import { Modal } from "@/platform/ui/modal";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { FormSection } from "@/platform/ui/form";
+import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { visibleFields } from "@/modules/recruitment/engine/field-visibility";
 import { visibleSections, applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
+import { departmentChoiceOptions, resolveSectionTitle, type DepartmentNameRow } from "@/modules/recruitment/templates/department-options";
 import type { BuilderSection } from "./section-card";
 
 /**
@@ -19,12 +20,22 @@ import type { BuilderSection } from "./section-card";
  * sections appear, and can fill fields locally so conditional (visibleWhen)
  * questions reveal exactly as an applicant would experience them. Nothing is
  * saved; closing the modal discards everything.
+ *
+ * Department names and generated section titles are resolved through the same
+ * departmentChoiceOptions / resolveSectionTitle functions apply/[slug]/page.tsx
+ * uses for the live wizard (not a second, parallel mechanism), so this preview
+ * cannot disagree with what an applicant actually sees on the two things this
+ * matters for: the DEPARTMENT_CHOICE dropdown's labels and a supplement
+ * section's generated title. Resolved only here, at render time -- `sections`
+ * itself (and its stored `title`) is untouched, since SectionCard's own title
+ * editor needs the raw stored value, not the resolved display name.
  */
 export function ApplyPreview({
   open,
   onClose,
   sections,
   departments,
+  departmentNames,
   subcommittees,
   acceptsRenewals,
   cycleTitle,
@@ -33,6 +44,7 @@ export function ApplyPreview({
   onClose: () => void;
   sections: BuilderSection[];
   departments: string[];
+  departmentNames: DepartmentNameRow[];
   subcommittees: { id: string; name: string }[];
   acceptsRenewals: boolean;
   cycleTitle: string;
@@ -44,6 +56,11 @@ export function ApplyPreview({
   const shownSections = useMemo(
     () => visibleSections(sections, { applicantType, selectedDepartmentCodes: selectedDepartments }),
     [sections, applicantType, selectedDepartments],
+  );
+
+  const departmentOptions = useMemo(
+    () => departmentChoiceOptions(departments, departmentNames),
+    [departments, departmentNames],
   );
 
   function handleValueChange(key: string, value: string | string[]) {
@@ -123,14 +140,14 @@ export function ApplyPreview({
             const fields = visibleFields(section.fields, answers);
             return (
               <Card key={section.id} className="space-y-4">
-                <FormSection title={section.title} description={section.description ?? undefined}>
+                <FormSection title={resolveSectionTitle(section, departmentNames)} description={section.description ? linkifyUrls(section.description) : undefined}>
                   {fields.length === 0 ? (
                     <p className="text-sm text-subtle-foreground">No questions are shown here yet.</p>
                   ) : (
                     fields.map((f) => (
                       <FieldPreview
                         key={f.key}
-                        f={f}
+                        f={f.type === "DEPARTMENT_CHOICE" ? { ...f, options: departmentOptions } : f}
                         departments={departments}
                         subcommittees={subcommittees}
                         onValueChange={handleValueChange}

@@ -9,6 +9,7 @@ describe("notification registry", () => {
       [
         "compliance-date-review",
         "compliance-verification-review",
+        "compliance-cert-verified",
         "compliance-escalation",
         "compliance-reminder",
         "epic-activation",
@@ -29,6 +30,7 @@ describe("notification registry", () => {
         "support.comment_added",
         "support.request_resolved",
         "shift-reminder",
+        "volunteers.self_withdrawal",
       ].sort()
     );
     for (const t of NOTIFICATION_TYPES) {

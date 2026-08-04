@@ -1,19 +1,29 @@
-import { getContractByToken, lookupStoredEpicId } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId, lookupHasAccount } from "@/modules/recruitment/services/onboarding";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
+import { buildOnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateOnly } from "@/platform/dates";
 import { prisma } from "@/platform/db";
 import { OnboardForm } from "./onboard-form";
-import { formatTrainingDate, formatTrainingLocation } from "./training-date";
+import { NextStepsScreen } from "./next-steps-screen";
+import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  // getContractByToken folds an expired PENDING link into null (services/
+  // onboarding.ts), so an expired PENDING token (still needs a new link) and
+  // an unknown token land here identically. That is correct: this branch
+  // cannot tell the two apart, and both genuinely are errors. A SUBMITTED/
+  // PROMOTED contract past its expiresAt still resolves here (expiry only
+  // ever gated the fill-out window), so revisiting a completed link still
+  // reaches the confirmation branch below.
   const contract = await getContractByToken(token);
-  if (!contract || contract.status !== "PENDING") {
+  if (!contract) {
     const support = await getSupportContact();
     return (
       <main className="mx-auto max-w-2xl px-6 py-16 text-center">
@@ -27,6 +37,66 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
       </main>
     );
   }
+
+  const orgName = await getSetting<string>("branding.orgName");
+  const zone = await getDisplayTimeZone();
+  const cycle = contract.acceptance?.application?.cycle ?? null;
+
+  // SUBMITTED (awaiting promotion) and PROMOTED (converted into a Person and
+  // membership) both mean the volunteer already completed this form. Reopening
+  // the link at either point -- a bookmark, or checking what they signed -- is
+  // a success, not the "link may be invalid" failure above. Render the same
+  // next-steps content the completion screen shows (onboard-form.tsx), resolved
+  // fresh from the live row rather than anything cached from submit time.
+  //
+  // Epic and sign-in both self-correct live here rather than needing
+  // PROMOTED-specific copy: storedEpicId and hasAccount are looked up fresh on
+  // every render, not carried over from submit time. If promotion adopted a
+  // self-reported existingEpicId onto the new Person (promotion.ts's
+  // effectiveEpicId), lookupStoredEpicId now finds it and
+  // buildOnboardingNextSteps switches to the "already on file" branch on its
+  // own. Sign-in works the same way: promoteContracts is the only production
+  // path that creates a Person for a brand-new volunteer (services/
+  // promotion.ts), so a SUBMITTED-but-not-yet-PROMOTED contract has
+  // hasAccount false here and the sign-in bullet/button stay suppressed; once
+  // promoted, lookupHasAccount finds the new ACTIVE Person and they reappear
+  // with no extra branching needed. The review line DOES need PROMOTED-
+  // specific copy: promoteContracts is the review-and-roster-add action, so
+  // it must read in the past tense once that has happened (the `reviewed`
+  // input below).
+  if (contract.status !== "PENDING") {
+    const trainingDate = cycle?.inPersonTrainingDate
+      ? formatTrainingDate(cycle.inPersonTrainingDate, zone)
+      : null;
+    const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
+    const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+    const hasAccount = await lookupHasAccount(contract.netId, contract.email);
+    const steps = buildOnboardingNextSteps({
+      email: contract.email,
+      trainingDate,
+      trainingLocation,
+      epicNeeded: contract.epicNeeded,
+      storedEpicId,
+      hasEpic: contract.hasEpic,
+      hasAccount,
+      // PROMOTED means promoteContracts already did the review and the
+      // roster add; the review line must say so in the past tense rather
+      // than promise it as still pending.
+      reviewed: contract.status === "PROMOTED",
+    });
+    return (
+      <main className="mx-auto max-w-2xl px-6 py-10">
+        <h1 className="text-2xl font-bold tracking-tight">{orgName} onboarding</h1>
+        {contract.submittedAt && (
+          <p className="mt-2 text-muted-foreground">
+            You completed this on {formatDateOnly(contract.submittedAt, zone)}.
+          </p>
+        )}
+        <NextStepsScreen steps={steps} />
+      </main>
+    );
+  }
+
   const prefill = {
     firstName: contract.firstName,
     lastName: contract.lastName,
@@ -42,7 +112,6 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   } catch {
     /* invalid snapshot -> fall back to the code default */
   }
-  const orgName = await getSetting<string>("branding.orgName");
 
   // department/track drive which contract blocks are shown (department
   // responsibility agreements, the Epic self-report, staff-title, etc.), so
@@ -53,7 +122,6 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // branch to NONE, matching its documented "no basis to provision Epic"
   // contract.
   const departmentCode = contract.acceptance?.departmentCode ?? null;
-  const cycle = contract.acceptance?.application?.cycle ?? null;
   const track = cycle?.track ?? "VOLUNTEER";
   const dept = departmentCode
     ? await prisma.department.findUnique({
@@ -85,7 +153,6 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   });
   const departments = departmentRows.map((d) => d.code);
 
-  const zone = await getDisplayTimeZone();
   const trainingDate = formatTrainingDate(cycle?.inPersonTrainingDate ?? null, zone);
   const trainingLocation = formatTrainingLocation(cycle?.trainingLocation ?? null);
 

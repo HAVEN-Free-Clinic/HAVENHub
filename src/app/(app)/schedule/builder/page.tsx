@@ -14,7 +14,6 @@
  */
 
 import { requireModuleAccess } from "@/platform/auth/session";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -63,6 +62,7 @@ import { PendingRequests } from "@/modules/schedule/components/pending-requests"
 import { displayDate } from "@/modules/schedule/engine/display";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { NavForm } from "@/platform/ui/nav-form";
 import Link from "next/link";
@@ -100,8 +100,6 @@ type PageProps = {
     mode?: string;
     gmode?: string;
     term?: string;
-    error?: string;
-    message?: string;
   }>;
 };
 
@@ -152,13 +150,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const view = sp.view === "grid" ? "grid" : "saturday";
   const mode = sp.mode === "availability" ? "availability" : "assign";
   const gmode = sp.gmode === "shadow" ? "shadow" : "assign";
-
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : errorCode
-    : null;
 
   const [workingTermOrNull, liveTerm] = await Promise.all([getWorkingTerm(sp.term), getActiveTerm()]);
   if (!workingTermOrNull) {
@@ -213,6 +204,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const requestRows = canManageRequests
     ? await listDepartmentRequests(session.personId, dept.id, workingTerm.id)
     : [];
+  // PendingRequests needs this to mark stale (past-date) rows; resolved once
+  // here rather than inside that component, since displayTodayKey is async
+  // and settings-backed (Prisma) and the panel just renders props. Cheap
+  // (request-cached) to resolve unconditionally, which keeps the type a
+  // plain string for the prop below rather than string | null.
+  const requestsTodayKey = await displayTodayKey();
 
   const showPublishControl = workingTerm.status === "PLANNING";
   const deptPublished = showPublishControl ? await isPublished(workingTerm.id, dept.id) : false;
@@ -690,13 +687,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {/* Error banner */}
-      {errorMessage && (
-        <Alert tone="error" className="mb-6">
-          {errorMessage}
-        </Alert>
-      )}
-
       {/* Date strip -- hidden in Grid view (dates are already columns there) and in
           edit-availability mode (availability is edited per member across all dates, so the
           per-date picker is just noise). */}
@@ -993,6 +983,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   rows={requestRows}
                   approveAction={approveRequestAction}
                   denyAction={denyRequestAction}
+                  todayKey={requestsTodayKey}
                 />
               )}
             </div>

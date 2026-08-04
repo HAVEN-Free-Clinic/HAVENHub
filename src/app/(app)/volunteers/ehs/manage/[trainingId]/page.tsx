@@ -5,7 +5,6 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
@@ -14,14 +13,11 @@ import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
 
 export default async function EditEhsTrainingPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ trainingId: string }>;
-  searchParams: Promise<{ error?: string }>;
 }) {
   await requirePermission("volunteers.manage_compliance");
   const { trainingId } = await params;
-  const sp = await searchParams;
   const training = await getTrainingForEdit(trainingId);
   if (!training) notFound();
   const assigned = new Set(training.departments.map((d: { departmentId: string }) => d.departmentId));
@@ -33,9 +29,6 @@ export default async function EditEhsTrainingPage({
     <>
       <PageHeader title={`Edit: ${training.name}`} description="Edit this EHS training requirement." />
       <div className="mt-6 grid max-w-3xl gap-8">
-        {sp.error && (
-          <Alert tone="error">{sp.error}</Alert>
-        )}
         <Card>
           <form action={updateTrainingAction}>
             <input type="hidden" name="trainingId" value={training.id} />

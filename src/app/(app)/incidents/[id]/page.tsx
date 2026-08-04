@@ -28,6 +28,8 @@ import {
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
 import { reviewReportAction, decideStrikeAction } from "../actions";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { detailReviewerDisclosure } from "../disclosure";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -45,7 +47,6 @@ import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
-import { Alert } from "@/platform/ui/alert";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 
 // ---------------------------------------------------------------------------
@@ -103,36 +104,37 @@ const CONCERN_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
-// Error codes
-// ---------------------------------------------------------------------------
-
-const ERROR_MESSAGES: Record<string, string> = {
-  forbidden: "You do not have permission for that action.",
-  "not-found": "The incident report could not be found.",
-  validation: "Please check your input and try again.",
-};
-
-// ---------------------------------------------------------------------------
 // Page props
 // ---------------------------------------------------------------------------
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function IncidentReportDetailPage({ params, searchParams }: PageProps) {
+export default async function IncidentReportDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const sp = await searchParams;
   const actor = await requirePersonSession();
 
+  // getReport and the reviewer count are independent reads (the count doesn't
+  // depend on the report, and getReport's own permission check doesn't depend
+  // on it either), so they run in parallel. Both settle inside the same try:
+  // an unrelated failure from either one still falls through to the same
+  // rethrow below, and getReport's own NotFound/Forbidden still resolve to
+  // notFound() exactly as before.
   let result: Awaited<ReturnType<typeof getReport>>;
+  let reviewers: Awaited<ReturnType<typeof peopleWithAnyPermission>>;
   try {
-    result = await getReport(actor.personId, id);
+    [result, reviewers] = await Promise.all([
+      getReport(actor.personId, id),
+      // Same query notifyReviewersOfSubmission runs when a report is filed
+      // (report.ts), read live so the count reflects who currently holds
+      // incidents.manage rather than a value frozen at submission time.
+      peopleWithAnyPermission(["incidents.manage"]),
+    ]);
   } catch (err) {
     if (err instanceof IncidentNotFoundError || err instanceof IncidentForbiddenError) {
       notFound();
@@ -141,24 +143,12 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
   }
   const { report, canManage } = result;
 
-  const errorCode = sp.error ?? null;
-  // When error=validation the action encodes the raw message in ?message=.
-  // All other unknown codes fall back to a generic string (never expose raw
-  // encoded content that could confuse users or leak internals).
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred.")
-    : null;
-
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeader
         title={`Report #${report.number}`}
         action={<Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>}
       />
-
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
 
       <Card>
         <SectionHeader>Concern</SectionHeader>
@@ -270,6 +260,7 @@ export default async function IncidentReportDetailPage({ params, searchParams }:
             <dt className="text-xs text-subtle-foreground">Anonymity</dt>
             <dd className="mt-0.5 text-sm text-foreground">
               {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
+              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure(reviewers.length)}</p>
             </dd>
           </div>
           <div>

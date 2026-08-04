@@ -1,8 +1,9 @@
+import type { CourseRecurrence, Prisma } from "@prisma/client";
 import { prisma, runSerializable } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import { coursesForMember, type AssignableCourse, type MemberMembership } from "../engine/assignment";
+import { coursesForMember, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -98,6 +99,66 @@ function courseScos(course: { scormScos: unknown; scormEntryHref: string | null;
   return [];
 }
 
+/** Either the singleton client or an open transaction: whichever the caller has in hand. */
+type ProgressClient = typeof prisma | Prisma.TransactionClient;
+
+/**
+ * Resolve which term's CourseProgress/ScoProgress row a SCORM commit belongs to, given
+ * the course's recurrence. This is the fix for the ScoProgress trap (see persistScoCmi):
+ * both tables are keyed per term now, but that only reopens a recurring course if the
+ * write path actually resolves a *different* term's row once the term changes, instead
+ * of always continuing to write the same one.
+ *
+ * PER_TERM: always the current active term. Each term's attempt is its own row, full
+ * stop. A prior term's rows are never resolved here, so their completion latch cannot
+ * leak forward and auto-complete a fresh term from stale data.
+ *
+ * ONCE: reuse whichever term an existing row already carries, so a course that never
+ * reopens keeps writing through the SAME row for its whole life, exactly like the
+ * single pre-migration row did (today's behavior, preserved).
+ *
+ * An earlier version of this filtered `termId: { not: null }` here, to skip legacy
+ * rows the backfill had left null. Do NOT re-add that. It is what made a null row
+ * invisible to this resolver, so the next commit forked a SECOND row, and the
+ * unscoped ONCE readers then collapsed last-wins onto the stale one and blocked the
+ * learner permanently. The migration now gives every row a term and the column is
+ * NOT NULL, so there is nothing to skip and the filter is no longer expressible.
+ *
+ * Falls back to the active term when no matching row exists yet (the first-ever
+ * commit, either recurrence). Never returns null: the caller has already confirmed an
+ * active term exists (isCourseAssignedTo requires one to authorize), so this never
+ * hands back a term-less key, which would stop protecting the per-term unique
+ * constraint the moment it was used to write a row (see schema notes on termId).
+ */
+async function resolveProgressTermId(
+  client: ProgressClient,
+  personId: string,
+  courseId: string,
+  recurrence: CourseRecurrence,
+  activeTerm: string
+): Promise<string> {
+  if (recurrence === "PER_TERM") return activeTerm;
+  // A ONCE course keeps writing whichever row already exists, so its single
+  // pre-migration row never fragments across terms. There is at most one, and
+  // the unique index guarantees it now that termId is NOT NULL.
+  //
+  // An earlier version filtered `termId: { not: null }` here to skip legacy
+  // rows the backfill had left null. That filter is what made a null row
+  // invisible to the resolver, so the next commit forked a second row and the
+  // unscoped ONCE readers then collapsed to the stale one, blocking the
+  // learner permanently. The migration now leaves no null rows and the column
+  // is NOT NULL, so the filter is both unnecessary and no longer expressible.
+  const existing = await client.courseProgress.findFirst({
+    where: { personId, courseId },
+    select: { termId: true },
+    // Deterministic for the same reason the readers are: after a PER_TERM
+    // round trip a ONCE course can have a row per term, and the commit should
+    // keep extending the completed one.
+    orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }],
+  });
+  return existing?.termId ?? activeTerm;
+}
+
 export type LearnerStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETE";
 
 export type MyCourseRow = {
@@ -113,11 +174,33 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
   const courses = await prisma.course.findMany({
     where: { id: { in: ids } },
     orderBy: { position: "asc" },
-    select: { id: true, title: true, description: true },
+    select: { id: true, title: true, description: true, recurrence: true },
   });
+
+  // Scope the progress lookup by term for PER_TERM courses only; ONCE courses stay
+  // unscoped so a prior-term completion still counts (today's behavior, unchanged --
+  // this is the regression bar for the whole branch). The term is whichever one
+  // assignedCourseIds just resolved above (the passed override, or else the active
+  // term), so a PER_TERM course's status agrees with which term this call is
+  // actually answering assignment for -- including a next-term checklist call, not
+  // just the live term.
+  const resolvedTermId = termId ?? (await activeTermId());
+  const { onceIds, perTermIds } = splitByRecurrence(courses);
   const progress = await prisma.courseProgress.findMany({
-    where: { personId, courseId: { in: ids } },
+    where: {
+      personId,
+      OR: [
+        ...(onceIds.length ? [{ courseId: { in: onceIds } }] : []),
+        ...(perTermIds.length && resolvedTermId ? [{ courseId: { in: perTermIds }, termId: resolvedTermId }] : []),
+      ],
+    },
     select: { courseId: true, lessonStatus: true },
+    // A ONCE course is read unscoped, so it can see more than one row: a course
+    // toggled to PER_TERM, run for a term or two, then toggled back leaves a row
+    // per term behind. The Map below is last-wins, so without a deterministic
+    // order an unrelated in-progress row could beat a real completion and block
+    // the learner. Completed rows sort last and therefore win.
+    orderBy: [{ completedAt: { sort: "asc", nulls: "first" } }],
   });
   const byCourse = new Map(progress.map((p) => [p.courseId, p]));
   return courses.map((c) => {
@@ -150,16 +233,35 @@ export async function getCourseForLearner(personId: string, courseId: string): P
   }
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
-    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true },
+    select: { id: true, title: true, description: true, scormScos: true, scormEntryHref: true, recurrence: true },
   });
   const scos = courseScos(course);
 
-  const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId } });
+  // Scope both the per-SCO cmi (the player's resume state) and the course rollup by
+  // term for PER_TERM courses only, mirroring getMyCourses; ONCE stays unscoped so a
+  // prior-term completion still reads COMPLETE (today's behavior).
+  //
+  // Scoping scoRows too, not just the rollup, matters here specifically: ScormPlayer
+  // seeds its SCORM API directly from each SCO's cmi.lessonStatus/suspendData on
+  // mount (ScormPlayer.tsx's installApi). An unscoped read would hand a reopened
+  // PER_TERM course's player a prior term's "completed" cmi the moment it loads,
+  // showing the completion banner and re-latching on the very next autocommit before
+  // the learner does anything this term -- the same ships-inert trap Task 2 closed
+  // on the write-side rollup (persistScoCmi's SCO findMany), reopened here on the
+  // read side that feeds the player instead of the gate.
+  const activeTerm = await activeTermId();
+  const termFilter = course.recurrence === "PER_TERM" && activeTerm ? { termId: activeTerm } : {};
+
+  const scoRows = await prisma.scoProgress.findMany({ where: { personId, courseId, ...termFilter } });
   const byId = new Map(scoRows.map((r) => [r.scoId, r]));
 
-  const rollup = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId, courseId } },
+  const rollup = await prisma.courseProgress.findFirst({
+    where: { personId, courseId, ...termFilter },
     select: { status: true },
+    // Unscoped for ONCE, so more than one row can match after a PER_TERM
+    // round trip. Prefer the completed one rather than whichever the planner
+    // happens to return.
+    orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }],
   });
   const status: LearnerStatus = !rollup ? "NOT_STARTED" : (rollup.status as LearnerStatus);
 
@@ -246,10 +348,11 @@ export async function persistScoCmi(
   }
 
   // Load the course's manifest once: it both validates the incoming scoId and drives
-  // the rollup in step 2 (no second query).
+  // the rollup in step 2 (no second query). recurrence drives which term this commit
+  // is recorded against, below.
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
-    select: { scormScos: true, scormEntryHref: true, title: true },
+    select: { scormScos: true, scormEntryHref: true, title: true, recurrence: true },
   });
   const scos = courseScos(course);
 
@@ -264,6 +367,24 @@ export async function persistScoCmi(
 
   const sco = deriveStatus(cmi.lessonStatus);
 
+  // Which term this attempt is recorded against comes from the SAME source that just
+  // authorized the commit: isCourseAssignedTo (above) resolves the current active
+  // term to decide whether this course is assigned right now, so re-deriving it here
+  // is the active term at the moment of this exact commit, not a caller-supplied value
+  // that could be stale or spoofed, and not something read off a SCORM "session" --
+  // the runtime has no session object of its own, it is a bare CMI snapshot POST.
+  // Using anything else (e.g. trusting a term id from the request body) would let a
+  // commit land against a term the person never worked in, which the brief calls out
+  // as worse than the bug this task fixes.
+  const activeTerm = await activeTermId();
+  if (!activeTerm) {
+    // Should be unreachable: isCourseAssignedTo above already required a non-null
+    // active term to authorize this call. Guarded explicitly rather than ever falling
+    // through to a null termId, which would stop being protected by the per-term
+    // unique constraint the moment a row was written without one.
+    throw new LearningValidationError("No active term to record this attempt against.");
+  }
+
   // Steps 1+2 (upsert this SCO, then recompute the course rollup from ALL SCOs) run
   // in one Serializable transaction. Without it, two concurrent commits for
   // different SCOs of the same (person, course) -- e.g. the course open in two tabs
@@ -273,9 +394,16 @@ export async function persistScoCmi(
   // loser of a conflicting pair; runSerializable retries it, and the retry reads the
   // winner's committed SCO and rolls up correctly.
   const transitions = await runSerializable(async (tx) => {
+    // Resolve the term this whole commit (both tables) writes through. See
+    // resolveProgressTermId for the PER_TERM vs ONCE distinction; the key point is
+    // that a PER_TERM course's queries below are scoped to termId = activeTerm and
+    // never touch a prior term's rows, which is what lets it reopen instead of
+    // auto-completing from stale ScoProgress rows the moment it recurs.
+    const termId = await resolveProgressTermId(tx, personId, courseId, course.recurrence, activeTerm);
+
     // 1. Upsert this SCO's state (untrusted TEXT fields bounded before they hit the row).
     const existingSco = await tx.scoProgress.findUnique({
-      where: { personId_courseId_scoId: { personId, courseId, scoId } },
+      where: { personId_courseId_scoId_termId: { personId, courseId, scoId, termId } },
       select: { completedAt: true, scoreRaw: true, suspendData: true, lessonLocation: true },
     });
     // Latch completion: once a SCO has completed (completedAt set), a later commit --
@@ -302,14 +430,19 @@ export async function persistScoCmi(
       lessonLocation: capText(cmi.lessonLocation, MAX_LESSON_LOCATION) ?? existingSco?.lessonLocation ?? null,
     };
     await tx.scoProgress.upsert({
-      where: { personId_courseId_scoId: { personId, courseId, scoId } },
-      create: { personId, courseId, scoId, ...scoData },
+      where: { personId_courseId_scoId_termId: { personId, courseId, scoId, termId } },
+      create: { personId, courseId, scoId, termId, ...scoData },
       update: scoData,
     });
 
-    // 2. Recompute the course rollup over every SCO in the manifest.
+    // 2. Recompute the course rollup over every SCO in the manifest, scoped to THIS
+    // term. This termId filter is the fix for the ScoProgress trap: without it, a
+    // PER_TERM course reopening in a new term would pull in the prior term's
+    // "completed" SCO rows here, roll up complete, and hand the fresh CourseProgress
+    // row below a completedAt it never earned this term -- shipping the whole
+    // feature inert while every course-level-only test kept passing.
     const rows = await tx.scoProgress.findMany({
-      where: { personId, courseId },
+      where: { personId, courseId, termId },
       select: { scoId: true, lessonStatus: true, scoreRaw: true },
     });
     const statusById = new Map(rows.map((r) => [r.scoId, r.lessonStatus]));
@@ -325,11 +458,14 @@ export async function persistScoCmi(
     const rolledScore = scoScores.length ? sanitizeScore(Math.max(...scoScores)) : null;
 
     const existingCourse = await tx.courseProgress.findUnique({
-      where: { personId_courseId: { personId, courseId } },
+      where: { personId_courseId_termId: { personId, courseId, termId } },
       select: { completedAt: true },
     });
     // Latch course completion too (defense in depth alongside the per-SCO latch):
-    // a completed course never reverts on a later commit.
+    // a completed course never reverts on a later commit. Scoped to termId along
+    // with everything else above, so this latch follows THIS term's row -- a prior
+    // term's completedAt is never read here, which is what lets a PER_TERM course's
+    // fresh term start uncompleted instead of latching onto an old completion.
     const courseComplete = roll.completed || existingCourse?.completedAt != null;
     const completedAt = courseComplete ? (existingCourse?.completedAt ?? new Date()) : null;
 
@@ -344,8 +480,8 @@ export async function persistScoCmi(
       lessonLocation: null,
     };
     await tx.courseProgress.upsert({
-      where: { personId_courseId: { personId, courseId } },
-      create: { personId, courseId, ...courseData },
+      where: { personId_courseId_termId: { personId, courseId, termId } },
+      create: { personId, courseId, termId, ...courseData },
       update: courseData,
     });
 

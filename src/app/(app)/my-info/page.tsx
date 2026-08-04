@@ -23,11 +23,7 @@ import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 
 type PageProps = {
   searchParams: Promise<{
-    error?: string;
-    saved?: string;
     withdrawn?: string;
-    certSaved?: string;
-    certError?: string;
   }>;
 };
 
@@ -68,10 +64,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     redirect("/my-info?saved=1");
   }
 
-  async function withdrawAction() {
+  async function withdrawAction(formData: FormData) {
     "use server";
     const session = await requireModuleAccess("my-info");
-    const count = await withdrawFromTerm(session.personId);
+    const reason = (formData.get("reason") as string | null) ?? null;
+    const count = await withdrawFromTerm(session.personId, reason);
     redirect(`/my-info?withdrawn=${count}`);
   }
 
@@ -133,8 +130,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <MyInfoForm
             action={updateAction}
             person={myInfo.person}
-            error={sp.error || undefined}
-            saved={sp.saved === "1" ? "Saved." : undefined}
           />
         </section>
 
@@ -154,8 +149,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
-            error={sp.certError || undefined}
-            certSaved={sp.certSaved === "1"}
             status={status}
           />
         </section>

@@ -26,10 +26,20 @@ describe("deriveHipaaTaskState", () => {
     expect(deriveHipaaTaskState("COMPLIANT")).toBe("COMPLETE");
     expect(deriveHipaaTaskState("EXPIRING_SOON")).toBe("COMPLETE");
   });
-  it("is INCOMPLETE otherwise", () => {
+  it("is IN_PROGRESS when a certificate is on file but a manager has not confirmed it", () => {
+    expect(deriveHipaaTaskState("PENDING_VERIFICATION")).toBe("IN_PROGRESS");
+    expect(deriveHipaaTaskState("UNKNOWN_DATE")).toBe("IN_PROGRESS");
+  });
+  it("is INCOMPLETE when there is nothing usable on file", () => {
     expect(deriveHipaaTaskState("EXPIRED")).toBe("INCOMPLETE");
-    expect(deriveHipaaTaskState("UNKNOWN_DATE")).toBe("INCOMPLETE");
     expect(deriveHipaaTaskState("NO_CERTIFICATE")).toBe("INCOMPLETE");
+  });
+  // The point of IN_PROGRESS is to change what the member is TOLD, not who is
+  // blocked. If this ever passes, the fix has silently cleared people who are
+  // still waiting on a manager.
+  it("does not satisfy the gate, so the same people stay blocked", () => {
+    expect(isSatisfied(deriveHipaaTaskState("PENDING_VERIFICATION"))).toBe(false);
+    expect(isSatisfied(deriveHipaaTaskState("UNKNOWN_DATE"))).toBe(false);
   });
 });
 

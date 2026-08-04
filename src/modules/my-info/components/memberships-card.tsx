@@ -2,8 +2,9 @@
  * MembershipsCard: shows the signed-in member's current-term memberships.
  *
  * - Lists each ACTIVE membership with dept code + kind badge.
- * - Volunteers (ACTIVE VOLUNTEER kind) get a "I am not volunteering this term"
- *   ConfirmButton that submits a server action.
+ * - Volunteers (ACTIVE VOLUNTEER kind) get an optional reason field and an
+ *   "I am not volunteering this term" ConfirmButton that submits a server action.
+ *   The reason rides along to the offboarding managers who get alerted.
  * - Director rows show a note directing members to contact the EDs instead of
  *   a withdraw button.
  * - When the list is empty (alumni, no current term): a quiet message.
@@ -12,9 +13,10 @@
 import type { TermMembership, Department, Term } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
+import { Input } from "@/platform/ui/input";
+import { WithdrawnToast } from "./withdrawn-toast";
 
 type MembershipWithRelations = TermMembership & {
   department: Department;
@@ -37,11 +39,7 @@ export function MembershipsCard({
 
   return (
     <Card>
-      {withdrawn !== undefined && withdrawn > 0 && (
-        <Alert tone="success" className="mb-3">
-          Withdrawn from {withdrawn} volunteer assignment{withdrawn !== 1 ? "s" : ""} this term.
-        </Alert>
-      )}
+      <WithdrawnToast withdrawn={withdrawn} />
 
       {memberships.length === 0 ? (
         <p className="text-sm text-subtle-foreground">No current-term assignments.</p>
@@ -60,10 +58,17 @@ export function MembershipsCard({
         </ul>
       )}
 
-      {/* Volunteer withdraw button */}
+      {/* Volunteer withdraw button, with an optional reason for the offboarding alert */}
       {hasVolunteer && (
         <form action={withdrawAction} className="mt-4">
-          <FormActions>
+          <FormActions className="flex-wrap">
+            <Input
+              name="reason"
+              placeholder="Reason (optional)"
+              aria-label="Reason for not volunteering (optional)"
+              maxLength={300}
+              className="max-w-56"
+            />
             <ConfirmButton
               label="I am not volunteering this term"
               confirmLabel="Confirm withdrawal?"

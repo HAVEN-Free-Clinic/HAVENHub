@@ -248,16 +248,14 @@ async function linkEpicRequestAction(formData: FormData) {
 }
 
 type PageProps = {
-  // `error` carries Tracker/Pending row-action failures; `incidentError` is scoped to
-  // the "Log a YNHH incident" form so a tracker-action error no longer surfaces inside
-  // that unrelated card (#115). `term` selects the Term batch tab's target term.
-  searchParams: Promise<{ tab?: string; error?: string; incidentError?: string; term?: string }>;
+  // `term` selects the Term batch tab's target term.
+  searchParams: Promise<{ tab?: string; term?: string }>;
 };
 
 export default async function EpicRequestsPage({ searchParams }: PageProps) {
   await requirePermission("support.manage_requests");
 
-  const { tab, error, incidentError, term } = await searchParams;
+  const { tab, term } = await searchParams;
   const activeTab =
     tab === "pending"
       ? "pending"
@@ -311,8 +309,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         rollup={rollup}
         termOptions={termOptions}
         liveTermId={liveTerm?.id ?? null}
-        error={error ?? undefined}
-        incidentError={incidentError ?? undefined}
+        nowIso={new Date().toISOString()}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

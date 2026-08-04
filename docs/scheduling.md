@@ -217,9 +217,26 @@ The module declares four permissions:
 | Permission | Grants |
 | --- | --- |
 | `schedule.view` | Access to the module and all of its pages. This is the module access permission. |
-| `schedule.edit_own_dept` | Build and edit the schedule for departments the actor manages. |
+| `schedule.edit_own_dept` | Build and edit the schedule for the departments the grant reaches (see below). |
 | `schedule.edit_all` | Build and edit across all departments, and approve or deny requests anywhere. |
-| `schedule.manage_requests` | Approve and deny swap and drop requests. |
+| `schedule.manage_requests` | Approve and deny swap and drop requests, in the departments the grant reaches. |
+
+`edit_own_dept` and `manage_requests` are scoped by the **target of the role
+assignment that granted them**, not by every department the holder belongs to
+(`permissionDepartmentIds` in `src/platform/rbac/engine.ts`):
+
+| Assignment target | Departments the grant reaches |
+| --- | --- |
+| A membership kind ("All Directors" / "All Volunteers") | Only the departments where the holder's membership is of that kind. |
+| A department | That department alone. |
+| A person | Every department the person is an active member of. |
+
+This is why someone who directs one department and volunteers in another does
+not get edit or approval rights in the department they merely volunteer in: the
+grant arrived through their DIRECTOR membership, so it stays there. Note that
+`can()` still answers the flat, department-blind question ("may they, anywhere?")
+and will return `true` for that person -- always resolve the department set
+through `manageableScheduleDepartmentIds` / `manageableRequestDepartmentIds`.
 
 Pages gate only on `schedule.view`. The services enforce the finer rules:
 

@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { decodePDFRawStream, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { generatePdf } from "./itcm-pdf";
+import { epicPositionLabel, generatePdf } from "./itcm-pdf";
 
 const templatePath = path.join(process.cwd(), "public", "templates", "epic-request-template.pdf");
 const templateBytes = new Uint8Array(fs.readFileSync(templatePath));
@@ -188,5 +188,126 @@ describe("generatePdf", () => {
         expect(content, `${name} should stroke`).toMatch(/\bS\b/);
       }
     });
+  });
+});
+
+describe("Section IV affiliation routing", () => {
+  async function loadWithAffiliation(yaleAffiliation: string) {
+    const bytes = await generatePdf({
+      requestType: "new_individual",
+      authorizer,
+      person: { ...person, yaleAffiliation },
+      endDate: "10/15/2026",
+      mirrorPerson: { name: "Mirror Person", epicId: "MIR456" },
+      templateBytes,
+    });
+    return (await PDFDocument.load(bytes)).getForm();
+  }
+
+  it("checks Med Student for both YSM tracks", async () => {
+    for (const value of ["ysm_md", "ysm_pa"]) {
+      const form = await loadWithAffiliation(value);
+      expect(form.getCheckBox("Check Box45").isChecked(), value).toBe(true);
+      expect(form.getCheckBox("Check Box48").isChecked(), value).toBe(false);
+      expect(form.getCheckBox("Check Box21").isChecked(), value).toBe(false);
+    }
+  });
+
+  it("checks the Student Other row for a non-medical Yale school and writes the label", async () => {
+    const form = await loadWithAffiliation("ysn");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(false);
+    expect(form.getTextField("Text30").getText()).toBe("Yale School of Nursing (YSN)");
+  });
+
+  it("checks the Job Title Other row for staff and non-affiliates and writes the label", async () => {
+    for (const [value, label] of [
+      ["staff", "Yale Staff"],
+      ["other_yale", "Other Yale Affiliation"],
+      ["non_yale", "I am NOT a Yale Affiliate"],
+    ]) {
+      const form = await loadWithAffiliation(value);
+      expect(form.getCheckBox("Check Box21").isChecked(), value).toBe(true);
+      expect(form.getCheckBox("Check Box48").isChecked(), value).toBe(false);
+      expect(form.getTextField("Text29").getText()).toBe(label);
+    }
+  });
+
+  it("writes an unmapped legacy value through verbatim rather than blanking the row", async () => {
+    const form = await loadWithAffiliation("Medical Student");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getTextField("Text30").getText()).toBe("Medical Student");
+  });
+
+  it("checks Med Student for the legacy /my-info YSM string, not Student Other", async () => {
+    const form = await loadWithAffiliation("Yale School of Medicine");
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(true);
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(false);
+  });
+
+  it("checks Med Student for the legacy Physician Associate Program string", async () => {
+    const form = await loadWithAffiliation("Physician Associate Program");
+    expect(form.getCheckBox("Check Box45").isChecked()).toBe(true);
+  });
+
+  it("checks the Job Title Other row for the legacy 'Yale Staff' string", async () => {
+    const form = await loadWithAffiliation("Yale Staff");
+    expect(form.getCheckBox("Check Box21").isChecked()).toBe(true);
+    expect(form.getTextField("Text29").getText()).toBe("Yale Staff");
+  });
+
+  it("checks the Student Other row for the legacy 'Yale College' string", async () => {
+    const form = await loadWithAffiliation("Yale College");
+    expect(form.getCheckBox("Check Box48").isChecked()).toBe(true);
+    expect(form.getTextField("Text30").getText()).toBe("Yale College");
+  });
+
+  it("checks no affiliation row when the affiliation is blank", async () => {
+    const form = await loadWithAffiliation("");
+    for (const box of ["Check Box45", "Check Box48", "Check Box21"]) {
+      expect(form.getCheckBox(box).isChecked(), box).toBe(false);
+    }
+  });
+});
+
+describe("epicPositionLabel (bulk spreadsheet Role / Job Title cell)", () => {
+  it("labels both YSM tracks with YNHH's own Med Student wording", () => {
+    expect(epicPositionLabel("ysm_md")).toBe("Med Student");
+    expect(epicPositionLabel("ysm_pa")).toBe("Med Student");
+  });
+
+  it("labels every other Yale school as a student of that school", () => {
+    expect(epicPositionLabel("ysn")).toBe("Yale School of Nursing (YSN) (Student)");
+    expect(epicPositionLabel("yale_college")).toBe("Yale College (Student)");
+    expect(epicPositionLabel("ysph")).toBe("Yale School of Public Health (YSPH) (Student)");
+  });
+
+  it("writes a non-student affiliation as a plain job title, with no student marker", () => {
+    expect(epicPositionLabel("staff")).toBe("Yale Staff");
+    expect(epicPositionLabel("other_yale")).toBe("Other Yale Affiliation");
+    expect(epicPositionLabel("non_yale")).toBe("I am NOT a Yale Affiliate");
+  });
+
+  it("normalizes a legacy stored value so it routes like a canonical key", () => {
+    // The backfill has not run, so most rows still hold one of these.
+    expect(epicPositionLabel("Yale School of Medicine")).toBe("Med Student");
+    expect(epicPositionLabel("Physician Associate Program")).toBe("Med Student");
+    expect(epicPositionLabel("Yale Staff")).toBe("Yale Staff");
+    expect(epicPositionLabel("  graduate school  ")).toBe(
+      "Yale Graduate School of Arts and Sciences (GSAS) (Student)"
+    );
+  });
+
+  it("passes an unrecognized affiliation through as a student rather than dropping it", () => {
+    expect(epicPositionLabel("Visiting Scholar")).toBe("Visiting Scholar (Student)");
+  });
+
+  it("returns an empty cell for a blank or missing affiliation, never a fabricated one", () => {
+    // The previous hardcoded "Yale College (Student)" asserted this about
+    // everyone in the batch; a blank cell is honest where the data is absent.
+    expect(epicPositionLabel(null)).toBe("");
+    expect(epicPositionLabel(undefined)).toBe("");
+    expect(epicPositionLabel("")).toBe("");
+    expect(epicPositionLabel("   ")).toBe("");
   });
 });

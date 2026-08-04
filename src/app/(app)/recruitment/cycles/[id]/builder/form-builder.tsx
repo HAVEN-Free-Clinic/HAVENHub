@@ -10,15 +10,21 @@ import { addSectionAction, reorderSectionsAction } from "./actions";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
+import type { DepartmentNameRow } from "@/modules/recruitment/templates/department-options";
 
 export function FormBuilder({
-  cycleId, cycleTitle, editable, status, departments, subcommittees, sections, acceptsRenewals,
+  cycleId, cycleTitle, editable, status, departments, departmentNames, subcommittees, sections, acceptsRenewals,
 }: {
   cycleId: string;
   cycleTitle: string;
   editable: boolean;
   status: string;
   departments: string[];
+  // Passed straight through to ApplyPreview (not to SectionCard) so the "Preview
+  // form" modal can resolve department names and generated section titles the
+  // same way the live apply wizard does. See the fetch site in page.tsx for why
+  // this stays separate from `sections`'s own stored titles.
+  departmentNames: DepartmentNameRow[];
   subcommittees: { id: string; name: string }[];
   sections: BuilderSection[];
   acceptsRenewals: boolean;
@@ -100,6 +106,7 @@ export function FormBuilder({
         onClose={() => setPreviewOpen(false)}
         sections={sections}
         departments={departments}
+        departmentNames={departmentNames}
         subcommittees={subcommittees}
         acceptsRenewals={acceptsRenewals}
         cycleTitle={cycleTitle}

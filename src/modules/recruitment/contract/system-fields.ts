@@ -1,5 +1,6 @@
 import type { TemplateOption } from "../templates/types";
 import { GRAD_YEAR, YALE_AFFILIATION } from "../templates/content/options";
+import { affiliationOptionsWith } from "@/platform/affiliation";
 
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
@@ -59,6 +60,10 @@ export function systemFieldOptions(
 ): TemplateOption[] {
   const options = SYSTEM_FIELDS[key].options;
   if (!options) return [];
+  // yaleAffiliation's prepend rule lives in @/platform/affiliation, which
+  // /my-info and the admin person editor also render from. Delegate so the four
+  // forms cannot diverge on how an unrecognized stored value is preserved.
+  if (key === "yaleAffiliation") return affiliationOptionsWith(currentValue);
   if (!currentValue || options.some((o) => o.value === currentValue)) return options;
   return [{ value: currentValue, label: currentValue }, ...options];
 }

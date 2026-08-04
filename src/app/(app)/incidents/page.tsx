@@ -30,10 +30,12 @@ import { Card } from "@/platform/ui/card";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
 import { submitReportAction } from "./actions";
+import { formReviewerDisclosure } from "./disclosure";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -85,6 +87,14 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   const zone = await getDisplayTimeZone();
   const todayIso = formatForDateInput(new Date(), zone);
   const maxUploadMb = await getSetting<number>("uploads.maxMb");
+
+  // Same query notifyReviewersOfSubmission runs at submission time (report.ts),
+  // so the count shown here matches the audience that actually gets notified,
+  // not an approximation. Not filtered to exclude the actor: report.ts only
+  // excludes a report's linked subjects from the reviewer set, never the
+  // reporter, so a reporter who holds incidents.manage is themselves part of
+  // this count -- excluding them here would understate the real audience.
+  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
 
   return (
     <div>
@@ -144,12 +154,20 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
             <Textarea name="patientImpactDetail" rows={2} />
           </Field>
 
-          {/* Section 6: immediate risk */}
+          {/* Section 6: immediate risk. Neither option is pre-checked: this flag
+              chooses between "flagged as an immediate risk" and plain "submitted"
+              in the reviewer email and Teams card (report.ts), so a reporter who
+              never reaches this below-the-fold question must answer it rather
+              than silently submitting the de-escalating default. `required` on
+              the radios (native HTML: any radio in a named group carrying it
+              makes the whole group required) blocks the submit and moves focus
+              here in-browser, so a report with several paragraphs already
+              written is never discarded by a validation round-trip. */}
           <fieldset>
             <legend className="mb-2 text-sm font-medium">6. Does this present an ongoing risk right now?</legend>
             <RadioGroup>
-              <Radio name="immediateRisk" value="yes" label="Yes - needs urgent attention" />
-              <Radio name="immediateRisk" value="no" defaultChecked label="No - resolved or not time-sensitive" />
+              <Radio name="immediateRisk" value="yes" label="Yes - needs urgent attention" required />
+              <Radio name="immediateRisk" value="no" label="No - resolved or not time-sensitive" required />
             </RadioGroup>
           </fieldset>
 
@@ -185,9 +203,9 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           <div className="space-y-3 border-t border-border pt-6">
             <h2 className="text-sm font-medium">10. Your information</h2>
             <ReadonlyField label="Your name" value={actor.name ?? ""} />
+            <p className="text-xs text-subtle-foreground">{formReviewerDisclosure(reviewers.length)}</p>
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox name="anonymous" /> I would prefer to remain anonymous (your name is not shared with the
-              subject)
+              <Checkbox name="anonymous" /> Do not share my name with the person I am reporting.
             </label>
           </div>
 

@@ -96,8 +96,7 @@ test("director interview: schedule, decide accept, release", async ({
   await page.click('button:has-text("Release decisions")');
   await page.click('button:has-text("Send acceptance emails?")');
 
-  await page.waitForURL((url) =>
-    url.pathname.includes("/decisions") && url.searchParams.has("sent")
-  );
-  await expect(page.getByText(/Released 1 acceptance email\(s\)/)).toBeVisible();
+  // The toast reader strips ?sent and ?skipped. The page redirects to itself, so a
+  // pathname predicate is already true at click time and would not wait; assert the toast.
+  await expect(page.getByText(/Released 1 acceptance email\(s\)/)).toBeVisible({ timeout: 30_000 });
 });

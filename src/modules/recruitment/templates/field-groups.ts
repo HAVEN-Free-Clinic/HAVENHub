@@ -135,10 +135,15 @@ export function directorEssaysSection(): TemplateSection {
  *  preference dropdown is asked only of new applicants and transfers (TRANSFER
  *  resolves to NEW), not same-department renewals. */
 export function directorDepartmentSection(): TemplateSection {
+  // The descriptions pointer lives on the section (not the field's helpText, as
+  // it did before) so it renders through the same linkified FormSection
+  // description apply-wizard.tsx already applies to every section -- matching
+  // volunteerDepartmentSection above. Field helpText is plain text with no
+  // linkification path of its own (see field-preview.tsx / contract-field.tsx,
+  // shared with onboarding, which this must not touch).
   return sec("Department preferences", "NEW", [
-    { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true,
-      helpText: "See department descriptions at havenfreeclinic.com/apply before ranking your choices." },
-  ]);
+    { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true },
+  ], { description: "See department descriptions at havenfreeclinic.com/apply before ranking your choices." });
 }
 
 export function subcommitteeSection(): TemplateSection {

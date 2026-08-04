@@ -13,21 +13,24 @@ export default async function OnboardingLearningPage() {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
+  // A COMPLETE learning step still renders: the member may be blocked on another
+  // step and want to reopen a finished course, and /learning is no longer
+  // reachable to them. Only an absent or not-applicable step has nothing to show.
   const task = status.tasks.find((t) => t.key === "learning");
-  if (!task || task.state === "COMPLETE" || task.state === "NOT_REQUIRED") redirect("/get-started");
+  if (!task || task.state === "NOT_REQUIRED") redirect("/get-started");
 
   const courses = await getMyCourses(person.personId);
 
   return (
     <OnboardingStepShell
       title="Learning modules"
-      description="Complete the courses your department assigned to you. Each opens in the course player; you return here when you are done."
+      description="Complete the courses your department assigned to you. Each one opens in the course player; you return to this list when you are done."
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
       <div className="space-y-3">
         {courses.map((c) => (
-          <Link key={c.id} href={`/learning/${c.id}?from=onboarding`} className="block">
+          <Link key={c.id} href={`/get-started/learning/${c.id}`} className="block">
             <Card interactive>
               <div className="flex items-center justify-between gap-3">
                 <span className="font-medium text-foreground">{c.title}</span>

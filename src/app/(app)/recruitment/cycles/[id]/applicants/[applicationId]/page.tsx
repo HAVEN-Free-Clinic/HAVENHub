@@ -15,7 +15,6 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
@@ -25,9 +24,8 @@ import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescin
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
-export default async function ApplicationDetailPage({ params, searchParams }: { params: Promise<{ id: string; applicationId: string }>; searchParams: Promise<{ error?: string; routeError?: string; scoreError?: string; saved?: string }> }) {
+export default async function ApplicationDetailPage({ params }: { params: Promise<{ id: string; applicationId: string }> }) {
   const { id, applicationId } = await params;
-  const { error, routeError, scoreError, saved } = await searchParams;
   const app = await getApplication(applicationId);
   if (!app) notFound();
   const person = await requirePersonSession();
@@ -174,7 +172,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           </p>
           {canScore && (
             <>
-              {scoreError && <Alert tone="error" className="mt-3">{scoreError}</Alert>}
               <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
                 <div className="w-28">
                   <Field label="Your score">
@@ -209,7 +206,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
           )}
-          {routeError && <Alert tone="error" className="mt-3">{routeError}</Alert>}
           <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
             <div className="w-40">
               <Field label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
@@ -231,7 +227,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       {app.cycle.track === "DIRECTOR" ? (
         <Card>
           <SectionHeader>Interview</SectionHeader>
-          {error && <Alert tone="error" className="mt-3">{error}</Alert>}
           {existingInterviews.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">
               {existingInterviews.map((iv) => (
@@ -261,9 +256,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
       ) : (
         <Card>
           <SectionHeader>Department decision</SectionHeader>
-          {saved === "decision" && <Alert tone="success" className="mt-3">Decision recorded.</Alert>}
-          {saved === "reopened" && <Alert tone="success" className="mt-3">Decision reopened.</Alert>}
-          {saved === "rescind" && <Alert tone="success" className="mt-3">Acceptance rescinded.</Alert>}
           {!app.routedDepartmentCode ? (
             app.decision !== "PENDING" ? (
               <div className="mt-3 space-y-2">
@@ -271,7 +263,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
                   This applicant was <strong className="text-foreground">{decisionLabel[app.decision as keyof typeof decisionLabel]}</strong> without routing.
                   {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
                 </p>
-                {error && <Alert tone="error">{error}</Alert>}
                 {scope.all && (
                   <form action={reopenDecisionAction.bind(null, id, applicationId)}>
                     <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
@@ -286,7 +277,6 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               <p className="mt-3 text-sm text-foreground-soft">
                 Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
               </p>
-              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
               {emailedAcceptance && (
                 <RescindAcceptanceNotice
                   departmentCode={app.routedDepartmentCode}
@@ -319,10 +309,7 @@ export default async function ApplicationDetailPage({ params, searchParams }: { 
               )}
             </>
           ) : (
-            <>
-              {error && <Alert tone="error" className="mt-3">{error}</Alert>}
-              <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
-            </>
+            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
           )}
         </Card>
       )}

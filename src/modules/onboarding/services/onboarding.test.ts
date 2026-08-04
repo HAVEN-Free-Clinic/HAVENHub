@@ -7,9 +7,20 @@ import { getOnboardingStatus, getMyOnboarding } from "./onboarding";
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
+/** Seed one keyed quiz question on a cycle so setTrainingCycle's designation
+ *  guard (at least one answer key) is satisfied. These onboarding tests never
+ *  submit the quiz itself, so a single graded question is enough. */
+async function addKeyedQuestion(cycleId: string) {
+  const section = await prisma.formSection.create({ data: { cycleId, title: "Quiz", order: 10, appliesTo: "BOTH", purpose: "QUIZ" } });
+  await prisma.formField.create({
+    data: { sectionId: section.id, cycleId, key: "q1", label: "Q1", type: "SINGLE_SELECT", order: 0, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], correctValue: "a" },
+  });
+}
+
 async function seedTermWithTraining(code: string, name: string, status: "ACTIVE" | "PLANNING", srrId: string) {
   const term = await prisma.term.create({ data: { code, name, startDate: new Date(code === "FA26" ? "2026-09-01" : "2026-05-30"), endDate: new Date(code === "FA26" ? "2027-01-01" : "2026-09-26"), status } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: `${code} vol`, publicSlug: `${code}-vol`, departments: ["SRHD"], createdById: srrId, status: "OPEN" } });
+  await addKeyedQuestion(cycle.id);
   await setTrainingCycle(cycle.id, true, srrId);
   return term;
 }
@@ -24,6 +35,21 @@ async function validCert(personId: string) {
       mimeType: "application/pdf",
       completionDate: new Date(), // valid well past any term end + 30d
       verifiedAt: new Date(),
+      uploadedAt: new Date(),
+    },
+  });
+}
+
+async function pendingCert(personId: string) {
+  await prisma.hipaaCertificate.create({
+    data: {
+      personId,
+      fileName: "c.pdf",
+      storedName: `c-${personId}.pdf`,
+      size: 100,
+      mimeType: "application/pdf",
+      completionDate: new Date(), // self-asserted date, not yet verified
+      verifiedAt: null,
       uploadedAt: new Date(),
     },
   });
@@ -118,4 +144,40 @@ it("counts an assigned-but-unstarted course as outstanding on the next-term chec
   const learning = nextEntry.status.tasks.find((t) => t.key === "learning");
   expect(learning).toBeDefined();
   expect(learning!.state).not.toBe("complete");
+});
+
+it("tells a member with a pending certificate that we have it, not to upload it", async () => {
+  const { vol } = await seed();
+  await pendingCert(vol.id);
+
+  const status = await getOnboardingStatus(vol.id);
+  const hipaa = status.tasks.find((t) => t.key === "hipaa");
+  expect(hipaa?.state).toBe("IN_PROGRESS");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
+  expect(hipaa?.ctaLabel).toBe("View certificate");
+  // The gate is unchanged: still not onboarded (live-term training is still outstanding).
+  expect(status.onboarded).toBe(false);
+});
+
+it("the pending-verification copy wins over a term's own override of the HIPAA description", async () => {
+  const { vol, live } = await seed();
+  await pendingCert(vol.id);
+  // An admin override describes what the step IS ("upload your certificate...").
+  // It must not survive into the IN_PROGRESS state, or the checklist reproduces
+  // the exact bug being fixed: asking for a re-upload of a cert already on file.
+  await prisma.termOnboardingStep.create({
+    data: {
+      termId: live.id,
+      kind: "hipaa",
+      description: "Upload your current HIPAA certificate so we can verify it.",
+      order: 1,
+    },
+  });
+
+  const status = await getOnboardingStatus(vol.id);
+  const hipaa = status.tasks.find((t) => t.key === "hipaa");
+  expect(hipaa?.state).toBe("IN_PROGRESS");
+  expect(hipaa?.description).toBe("We have your certificate. A compliance manager is reviewing it.");
+  expect(hipaa?.ctaLabel).toBe("View certificate");
+  expect(status.onboarded).toBe(false);
 });

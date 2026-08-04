@@ -6,18 +6,13 @@ import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
-export default async function OnboardingProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
+export default async function OnboardingProfilePage() {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
   const task = status.tasks.find((t) => t.key === "profile");
   if (!task || task.state === "COMPLETE" || task.state === "NOT_REQUIRED") redirect("/get-started");
 
-  const sp = await searchParams;
   const { person: me } = await getMyInfo(person.personId);
 
   async function action(formData: FormData) {
@@ -50,7 +45,7 @@ export default async function OnboardingProfilePage({
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
-      <MyInfoForm action={action} person={me} error={sp.error} requireContact />
+      <MyInfoForm action={action} person={me} requireContact />
     </OnboardingStepShell>
   );
 }

@@ -19,14 +19,11 @@ import { UploadPackageForm } from "./UploadPackageForm";
 
 export default async function EditCoursePage({
   params,
-  searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ error?: string }>;
 }) {
   await requirePermission("learning.manage_courses");
   const { courseId } = await params;
-  const { error } = await searchParams;
   const course = await getCourseForEdit(courseId);
   if (!course) notFound();
   const zone = await getDisplayTimeZone();
@@ -51,12 +48,20 @@ export default async function EditCoursePage({
           <form action={updateCourseAction}>
             <input type="hidden" name="courseId" value={course.id} />
             <div className="space-y-4">
-              {error && <Alert tone="error">{error}</Alert>}
               <Field label="Title">
                 <Input name="title" defaultValue={course.title} required />
               </Field>
               <Field label="Description">
                 <Textarea name="description" defaultValue={course.description ?? ""} placeholder="Description" />
+              </Field>
+              <Field
+                label="Recurrence"
+                hint="Takes effect next term, not immediately. Volunteers already complete this term keep their status; the retake starts next term."
+              >
+                <Select name="recurrence" defaultValue={course.recurrence} className="max-w-xs">
+                  <option value="ONCE">Complete once, cleared forever</option>
+                  <option value="PER_TERM">Retake each term</option>
+                </Select>
               </Field>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox name="isActive" defaultChecked={course.isActive} /> Active

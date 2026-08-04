@@ -9,18 +9,15 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
 };
 
-export default async function AssignSubcommitteesPage({ params, searchParams }: PageProps) {
+export default async function AssignSubcommitteesPage({ params }: PageProps) {
   const { id } = await params;
-  const { error, saved } = await searchParams;
   await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
@@ -44,8 +41,6 @@ export default async function AssignSubcommitteesPage({ params, searchParams }: 
         })}
       />
       <PageHeader title="Assign subcommittees" description={`${cycle.title}: accepted applicants and their ranked preferences.`} />
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && <Alert tone="success">Assignment saved.</Alert>}
 
       <Table>
         <THead>

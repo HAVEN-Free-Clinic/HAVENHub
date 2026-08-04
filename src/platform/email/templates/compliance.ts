@@ -204,6 +204,25 @@ export function complianceVerificationReviewContext(p: ComplianceDateReviewParam
   };
 }
 
+/** Params for the member-facing "your certificate is verified" email. */
+export type ComplianceCertVerifiedParams = {
+  volunteerName: string;
+  myInfoLink: string;
+};
+
+/**
+ * Build the context for the compliance-cert-verified template, sent to the
+ * certificate OWNER when a manager verifies it. Every other compliance template
+ * in this file is manager-facing; this one closes the loop back to the member,
+ * who is blocked by the gate until this happens.
+ */
+export function complianceCertVerifiedContext(p: ComplianceCertVerifiedParams): Record<string, unknown> {
+  return {
+    volunteerName: p.volunteerName,
+    myInfoLink: p.myInfoLink,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Descriptors
 // ---------------------------------------------------------------------------
@@ -338,6 +357,28 @@ export const complianceDescriptors: TemplateDescriptor[] = [
 <p>{{ volunteerName }} uploaded a HIPAA certificate with a completion date, but it must be verified before the volunteer can be cleared. Please review the certificate and verify it.</p>
 
 <p><a href="{{ reviewLink }}">Open the compliance master view</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "compliance-cert-verified",
+    name: "Compliance: certificate verified (member)",
+    category: "transactional",
+    group: "compliance",
+    variables: [
+      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      {
+        name: "myInfoLink",
+        label: "Link to the member's own info page",
+        sampleValue: "https://hub.havenfreeclinic.org/my-info",
+      },
+    ],
+    defaultSubject: "[HAVEN] Your HIPAA certificate is verified",
+    defaultBody: `<p>Hi {{ volunteerName }},</p>
+
+<p>A compliance manager has confirmed your HIPAA certificate. Nothing further is needed from you for this requirement.</p>
+
+<p><a href="{{ myInfoLink }}">View your certificate</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

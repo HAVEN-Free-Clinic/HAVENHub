@@ -6,13 +6,14 @@
  * handles this at process.env level before any module is loaded.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { config } from "@/platform/config";
 import { LastAdminError } from "@/platform/rbac/last-admin";
+import { recordSelfWithdrawal } from "@/platform/offboarding/self-withdrawal";
 import {
   getMyInfo,
   updateMyInfo,
@@ -22,6 +23,14 @@ import {
   parseCertificateUpload,
   CertificateValidationError,
 } from "./my-info";
+
+// Partial mock: keeps the real recordSelfWithdrawal by default (other tests below
+// assert real flag/notification rows) but lets a single test force it to reject,
+// to exercise withdrawFromTerm's best-effort try/catch (finding 2).
+vi.mock("@/platform/offboarding/self-withdrawal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/offboarding/self-withdrawal")>();
+  return { ...actual, recordSelfWithdrawal: vi.fn(actual.recordSelfWithdrawal) };
+});
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -321,6 +330,122 @@ describe("withdrawFromTerm", () => {
 
     expect(count).toBe(1);
     expect((await prisma.termMembership.findUnique({ where: { id: m1.id } }))?.status).toBe("REMOVED");
+  });
+
+  it("flags the withdrawing member for offboarding with the departments in the note", async () => {
+    const person = await createPerson({ name: "Jane Doe" });
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept1 = await createDepartment("MED");
+    const dept2 = await createDepartment("PCAR");
+    await createMembership(person.id, term.id, dept1.id, "VOLUNTEER", "ACTIVE");
+    await createMembership(person.id, term.id, dept2.id, "VOLUNTEER", "ACTIVE");
+
+    await withdrawFromTerm(person.id, "Graduating in May.");
+
+    const flag = await prisma.offboardFlag.findUnique({
+      where: { personId_termId: { personId: person.id, termId: term.id } },
+    });
+    expect(flag).not.toBeNull();
+    expect(flag!.flaggedById).toBe(person.id);
+    // Departments come from the memberships as they were BEFORE removal.
+    expect(flag!.note).toBe('Not volunteering this term (MED, PCAR) - "Graduating in May."');
+  });
+
+  it("records the reason on the audit row", async () => {
+    const person = await createPerson();
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("MED");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    await withdrawFromTerm(person.id, "  Graduating in May.  ");
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "my-info.withdraw", actorPersonId: person.id },
+    });
+    const after = audit!.after as Record<string, unknown>;
+    expect(after.reason).toBe("Graduating in May.");
+  });
+
+  it("stores a blank reason as null", async () => {
+    const person = await createPerson();
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("MED");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    await withdrawFromTerm(person.id, "   ");
+
+    const flag = await prisma.offboardFlag.findUnique({
+      where: { personId_termId: { personId: person.id, termId: term.id } },
+    });
+    expect(flag!.note).toBe("Not volunteering this term (MED)");
+  });
+
+  it("truncates a very long reason to 300 characters", async () => {
+    const person = await createPerson();
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("MED");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    await withdrawFromTerm(person.id, "x".repeat(500));
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "my-info.withdraw", actorPersonId: person.id },
+    });
+    const after = audit!.after as Record<string, unknown>;
+    expect((after.reason as string).length).toBe(300);
+  });
+
+  it("does NOT flag or notify when there was nothing to withdraw from", async () => {
+    const person = await createPerson();
+    await createTerm({ status: "ACTIVE" });
+
+    const count = await withdrawFromTerm(person.id);
+
+    expect(count).toBe(0);
+    expect(await prisma.offboardFlag.findMany()).toEqual([]);
+    expect(
+      await prisma.notification.findMany({ where: { type: "volunteers.self_withdrawal" } }),
+    ).toEqual([]);
+  });
+
+  it("does not flag a member who keeps a directorship, but still removes the volunteer rows", async () => {
+    const person = await createPerson({ name: "Dana Director" });
+    const term = await createTerm({ status: "ACTIVE" });
+    const volunteerDept = await createDepartment("MED");
+    const directorDept = await createDepartment("SRR");
+    const volunteerRow = await createMembership(person.id, term.id, volunteerDept.id, "VOLUNTEER", "ACTIVE");
+    await createMembership(person.id, term.id, directorDept.id, "DIRECTOR", "ACTIVE");
+
+    const count = await withdrawFromTerm(person.id);
+
+    expect(count).toBe(1);
+    expect((await prisma.termMembership.findUnique({ where: { id: volunteerRow.id } }))?.status).toBe("REMOVED");
+    expect(await prisma.offboardFlag.findMany()).toEqual([]);
+  });
+
+  it("does not fail the withdrawal, and the removal stays committed, when recordSelfWithdrawal throws", async () => {
+    const person = await createPerson({ name: "Jane Doe" });
+    const term = await createTerm({ status: "ACTIVE" });
+    const dept = await createDepartment("MED");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER", "ACTIVE");
+
+    vi.mocked(recordSelfWithdrawal).mockRejectedValueOnce(new Error("Graph is down"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let count: number;
+    try {
+      count = await withdrawFromTerm(person.id, "Graduating in May.");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+
+    // The withdrawal itself must succeed: it already committed and was audited
+    // before the best-effort notification step ran.
+    expect(count).toBe(1);
+    const memberships = await prisma.termMembership.findMany({
+      where: { personId: person.id, termId: term.id },
+    });
+    expect(memberships.every((m) => m.status === "REMOVED")).toBe(true);
   });
 });
 

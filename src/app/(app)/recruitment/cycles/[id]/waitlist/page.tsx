@@ -8,17 +8,14 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; promoted?: string; sent?: string }>;
 };
 
-export default async function WaitlistPage({ params, searchParams }: PageProps) {
+export default async function WaitlistPage({ params }: PageProps) {
   const { id } = await params;
-  const { error, promoted, sent } = await searchParams;
   await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
@@ -34,17 +31,6 @@ export default async function WaitlistPage({ params, searchParams }: PageProps) 
         })}
       />
       <PageHeader title="Waitlist" description={cycle.title} />
-      {error && <Alert tone="error">{error}</Alert>}
-      {promoted && (sent === "conflicted" ? (
-        <Alert tone="warning">
-          Promoted {promoted} to accepted, but they now hold offers from more than one department. Resolve the
-          conflict on the Decisions page, then release to email them.
-        </Alert>
-      ) : (
-        <Alert tone="success">
-          Promoted {promoted} to accepted{sent === "1" ? " and emailed them." : "."}
-        </Alert>
-      ))}
       <p className="text-sm text-muted-foreground">
         {entries.length} waitlisted {entries.length === 1 ? "applicant" : "applicants"}. Promoting an applicant
         accepts them for their department and emails them their acceptance right away.

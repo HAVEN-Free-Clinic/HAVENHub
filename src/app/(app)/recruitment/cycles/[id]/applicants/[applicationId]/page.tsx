@@ -30,10 +30,14 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (!app) notFound();
   const person = await requirePersonSession();
   if (app.cycleId !== id) notFound();
-  const [scope, managesCycles, canScorePerm, acceptances] = await Promise.all([
+  const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
     can(person.personId, "recruitment.score"),
+    // This page admits committee scorers and scoped reviewers who lack
+    // recruitment.access, but the cycle overview enforces it, so the breadcrumb
+    // must not offer them a link that bounces to /no-access.
+    can(person.personId, "recruitment.access"),
     listAcceptances(applicationId),
   ]);
   const seeAll = scope.all || managesCycles;
@@ -80,6 +84,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb
         trail={cycleTrail({
+          canOpenOverview,
           cycleId: id,
           cycleTitle: app.cycle.title,
           section: { label: "Applicants", slug: "applicants" },

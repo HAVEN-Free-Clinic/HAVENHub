@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { TabRow, type TabItem } from "./tab-row";
+import { TabRow, scrollActiveTabIntoView, type TabItem } from "./tab-row";
 
 /** Inline to avoid a platform->platform/modules import under the lint rule. */
 type NavItem = { label: string; href: string };
@@ -30,15 +30,16 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
   }
 
   // When the row scrolls horizontally on narrow screens, keep the active tab in
-  // view so the current section is always visible. `nearest` only scrolls the
-  // tab row (never the page) and does nothing when the tab is already visible.
-  // TabRow renders the active link itself (and marks it with aria-current), so
-  // instead of holding a ref to a specific <a>, this reaches into the row via
-  // the forwarded nav ref and finds the current one.
+  // view so the current section is always visible. TabRow renders the active
+  // link itself (and marks it with aria-current), so instead of holding a ref
+  // to a specific <a>, this reaches into the row via the forwarded nav ref.
+  //
+  // This used to call scrollIntoView, under a comment asserting that `nearest`
+  // scrolls only the row and never the page. That was wrong: scrollIntoView
+  // scrolls every scrollable ancestor including the document. See
+  // scrollActiveTabIntoView for what that cost.
   useEffect(() => {
-    navRef.current
-      ?.querySelector<HTMLAnchorElement>('[aria-current="page"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    scrollActiveTabIntoView(navRef.current);
   }, [pathname]);
 
   return (

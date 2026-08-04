@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { TabRow, type TabItem } from "@/platform/ui/tab-row";
+import { TabRow, scrollActiveTabIntoView, type TabItem } from "@/platform/ui/tab-row";
 
 /**
  * Persistent tab bar for a single cycle's workspace (Overview, Form,
@@ -54,12 +54,14 @@ export function CycleNavTabs({ items }: { items: TabItem[] }) {
   }
 
   // Keep the active tab in view when the row scrolls horizontally on narrow
-  // screens. `nearest` only scrolls the tab row (never the page) and does
-  // nothing when the tab is already visible.
+  // screens. This row carries up to 13 tabs, so it overflows far more readily
+  // than any module nav.
+  //
+  // Must not use scrollIntoView: it scrolls every scrollable ancestor including
+  // the document, which nudged the page on every cycle page load and raced
+  // Playwright's click on Publish. See scrollActiveTabIntoView.
   useEffect(() => {
-    navRef.current
-      ?.querySelector<HTMLAnchorElement>('[aria-current="page"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    scrollActiveTabIntoView(navRef.current);
   }, [pathname]);
 
   return (

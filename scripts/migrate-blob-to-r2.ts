@@ -24,6 +24,15 @@ const apply = process.argv.includes("--apply");
  */
 const SKIP_PREFIX = "scorm-uploads/";
 
+/**
+ * Consecutive `copyOne` failures that trip the circuit breaker in `main`. A
+ * systemic problem (bad R2 credentials, wrong bucket, R2 outage mid-run) fails
+ * every object the same way, so a short run of failures in a row is enough to
+ * tell it apart from a handful of genuinely bad objects scattered through an
+ * otherwise healthy run.
+ */
+const MAX_CONSECUTIVE_FAILURES = 5;
+
 type Stats = {
   copied: number;
   skippedExisting: number;
@@ -55,29 +64,51 @@ async function alreadyPresent(key: string, size: number): Promise<boolean> {
   return existing !== null && existing.length === size;
 }
 
+/**
+ * One cheap round-trip against R2 before the main loop starts, so a broken
+ * credential or wrong account/bucket fails fast with a single clear message
+ * instead of degrading into one FAILED line per object once the list loop
+ * begins. The key does not need to exist -- getObject treats "not found" as a
+ * normal null result (see src/platform/storage/r2.ts), so only a real
+ * connection/auth/config problem throws here.
+ */
+async function preflightR2(): Promise<void> {
+  try {
+    await getObject("__migrate-blob-to-r2-preflight__");
+  } catch (err) {
+    throw new Error(
+      `R2 preflight check failed: ${(err as Error).message}. Verify R2_ACCOUNT_ID, ` +
+        "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET before retrying."
+    );
+  }
+}
+
+/** Returns true on success (including a legitimate skip), false on failure. */
 async function copyOne(
   key: string,
   size: number,
   token: string,
   stats: Stats
-): Promise<void> {
+): Promise<boolean> {
   if (key.startsWith(SKIP_PREFIX)) {
     stats.skippedTransient++;
-    return;
+    return true;
   }
   // Everything below can fail on a transient R2 or Blob error (including the
   // presence check itself). Isolate failures per object so one bad key does
   // not abort the whole run -- the failure is recorded and the loop continues.
+  // main() also watches the return value to trip a circuit breaker on a run
+  // of consecutive failures, which is what a systemic problem looks like.
   try {
     if (await alreadyPresent(key, size)) {
       stats.skippedExisting++;
-      return;
+      return true;
     }
     if (!apply) {
       console.log(`  would copy ${key} (${size} bytes)`);
       stats.copied++;
       stats.bytes += size;
-      return;
+      return true;
     }
     const meta = await head(key, { token });
     const source = await get(key, { access: "private", token });
@@ -89,14 +120,17 @@ async function copyOne(
     stats.copied++;
     stats.bytes += bytes.length;
     console.log(`  copied ${key} (${bytes.length} bytes)`);
+    return true;
   } catch (err) {
     stats.failed++;
     console.error(`  FAILED ${key}: ${(err as Error).message}`);
+    return false;
   }
 }
 
 async function main(): Promise<void> {
   const token = requireConfig();
+  await preflightR2();
   console.log(
     apply
       ? `Apply mode -- copying Vercel Blob objects into R2 bucket "${config.R2_BUCKET}".`
@@ -112,12 +146,19 @@ async function main(): Promise<void> {
   };
 
   let cursor: string | undefined;
+  let consecutiveFailures = 0;
+  let abortedOnConsecutiveFailures = false;
   do {
     const page = await list({ cursor, token });
     for (const blob of page.blobs) {
-      await copyOne(blob.pathname, blob.size, token, stats);
+      const ok = await copyOne(blob.pathname, blob.size, token, stats);
+      consecutiveFailures = ok ? 0 : consecutiveFailures + 1;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        abortedOnConsecutiveFailures = true;
+        break;
+      }
     }
-    cursor = page.hasMore ? page.cursor : undefined;
+    cursor = !abortedOnConsecutiveFailures && page.hasMore ? page.cursor : undefined;
   } while (cursor);
 
   console.log("");
@@ -127,7 +168,16 @@ async function main(): Promise<void> {
   console.log(`Failed:             ${stats.failed}`);
   console.log(`Bytes:              ${stats.bytes}`);
 
-  if (stats.failed > 0) {
+  if (abortedOnConsecutiveFailures) {
+    console.error("");
+    console.error(
+      `Aborted after ${MAX_CONSECUTIVE_FAILURES} failures in a row -- the list was not fully ` +
+        "processed. That pattern usually means something systemic is wrong (credentials, " +
+        "network, bucket config) rather than a handful of bad objects. Fix the underlying " +
+        "issue and re-run; objects already copied will be skipped."
+    );
+    process.exitCode = 1;
+  } else if (stats.failed > 0) {
     console.error("");
     console.error(
       "Some objects failed. The script is idempotent, so re-run it to retry only " +

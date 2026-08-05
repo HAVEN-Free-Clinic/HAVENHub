@@ -211,7 +211,8 @@ describe("filterAccessibleModules", () => {
 
   describe("recruitment nav for the four extraIds viewer shapes", () => {
     // Exercises the real MODULES registry entry for recruitment (accessPermission
-    // "recruitment.access", nav: [{ label: "Cycles", href: "/recruitment" }])
+    // "recruitment.access", nav: [{ label: "Cycles", href: "/recruitment" },
+    // { label: "History", href: "/recruitment/history", permission: "recruitment.access" }])
     // against every shape of viewer the (app) layout can produce via
     // recruitmentGlobalNav. Guards the fix for the dead "Cycles" link a bare
     // panelist used to see: a module admitted ONLY via extraIds must build its
@@ -225,9 +226,12 @@ describe("filterAccessibleModules", () => {
       return result.find((m) => m.id === "recruitment");
     }
 
-    it("1. normal recruitment staff (recruitment.access held): unaffected, nav is the registry item", () => {
+    it("1. normal recruitment staff (recruitment.access held): unaffected, nav is the registry items", () => {
       const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set());
-      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }]);
+      expect(recruitment?.nav).toEqual([
+        { label: "Cycles", href: "/recruitment" },
+        { label: "History", href: "/recruitment/history" },
+      ]);
       expect(recruitment?.href).toBe("/recruitment");
     });
 
@@ -248,7 +252,11 @@ describe("filterAccessibleModules", () => {
       // applies here (canAccessModule is true), so the registry nav is kept
       // and extended, not replaced.
       const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set(["recruitment"]), [MY_INTERVIEWS]);
-      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }, MY_INTERVIEWS]);
+      expect(recruitment?.nav).toEqual([
+        { label: "Cycles", href: "/recruitment" },
+        { label: "History", href: "/recruitment/history" },
+        MY_INTERVIEWS,
+      ]);
       expect(recruitment?.href).toBe("/recruitment");
     });
   });

@@ -545,6 +545,32 @@ describe("resolveDepartmentCode", () => {
   it("returns null for a code that is not known, rather than inventing one", () => {
     expect(resolveDepartmentCode("XXXX", known)).toBeNull();
   });
+
+  it("resolves every ops-confirmed alias to its live code", () => {
+    // Confirmed by ops on 2026-08-05 against the real unresolved list, never
+    // guessed. TBAD and LCCN in particular are ones no fuzzy matcher would
+    // ever have reached, and ICCD/FCLR are ones a fuzzy matcher would have
+    // "corrected" without authority.
+    const live = new Set(["ICDD", "PNLC", "SCTP", "SRR", "ITCM", "FCRL"]);
+    expect(resolveDepartmentCode("TBAD", live)).toBe("ICDD");   // 49 rows
+    expect(resolveDepartmentCode("PNTC", live)).toBe("PNLC");   // 37 rows
+    expect(resolveDepartmentCode("SCTL", live)).toBe("SCTP");   // 26 rows
+    expect(resolveDepartmentCode("ICCD", live)).toBe("ICDD");   // 19 rows
+    expect(resolveDepartmentCode("LCCN", live)).toBe("PNLC");   // 14 rows
+    expect(resolveDepartmentCode("SR&R", live)).toBe("SRR");    //  8 rows
+    expect(resolveDepartmentCode("ITCC", live)).toBe("ITCM");   //  7 rows
+    expect(resolveDepartmentCode("FCLR", live)).toBe("FCRL");   //  3 rows
+  });
+
+  it("matches an alias case-insensitively", () => {
+    expect(resolveDepartmentCode("tbad", new Set(["ICDD"]))).toBe("ICDD");
+  });
+
+  it("returns null when an alias points at a department that does not exist", () => {
+    // The alias is applied before the known-codes check but its TARGET is
+    // still validated, so a retired target can never write a dangling code.
+    expect(resolveDepartmentCode("TBAD", new Set(["BVHD"]))).toBeNull();
+  });
 });
 
 describe("resolveDepartmentCodes", () => {
@@ -566,11 +592,42 @@ npx vitest run src/platform/airtable/import/history/departments.test.ts
 
 ```ts
 /**
- * Old bases spell a department three ways: the bare code ("BVHD"), a friendly
- * label with the code in parentheses, and occasionally a retired code. The
+ * Retired or mistyped codes, mapped to their live equivalents. Every entry
+ * here was confirmed by ops on 2026-08-05 against the real unresolved list;
+ * NONE were guessed. That distinction is the whole point: several of these
+ * look like transpositions a fuzzy matcher would "helpfully" correct
+ * (ICCD/ICDD, FCLR/FCRL), and two of them (TBAD, LCCN) resolve to departments
+ * a fuzzy matcher would never have reached. Guessing would have been wrong
+ * both ways.
+ *
+ * Row counts at the time of confirmation, 163 rows total:
+ *   TBAD 49, PNTC 37, SCTL 26, ICCD 19, LCCN 14, SR&R 8, ITCC 7, FCLR 3
+ *
+ * All eight targets were verified present in the live department set (the 32
+ * codes on the SU26 and SP26 rosters).
+ */
+export const DEPARTMENT_ALIASES: Record<string, string> = {
+  TBAD: "ICDD",
+  PNTC: "PNLC",
+  SCTL: "SCTP",
+  ICCD: "ICDD",
+  LCCN: "PNLC",
+  "SR&R": "SRR",
+  ITCC: "ITCM",
+  FCLR: "FCRL",
+};
+
+/**
+ * Old bases spell a department four ways: the bare code ("BVHD"), a friendly
+ * label with the code in parentheses, a retired or mistyped code covered by
+ * DEPARTMENT_ALIASES, and occasionally something nobody recognizes. The
  * resolver never invents a code: an unrecognized value returns null and is
  * surfaced in the dry-run report, because silently coercing it would attribute
  * an application to the wrong department forever.
+ *
+ * An alias is applied BEFORE the known-codes check, and its target is still
+ * validated against the live codes, so an alias pointing at a department that
+ * does not exist resolves to null rather than writing a dangling code.
  */
 export function resolveDepartmentCode(
   raw: string | null | undefined,
@@ -580,7 +637,11 @@ export function resolveDepartmentCode(
   if (!value) return null;
 
   const upper = value.toUpperCase();
-  if (knownCodes.has(upper)) return upper;
+  // Alias first, but its target is still validated below, so an alias
+  // pointing at a department that no longer exists returns null rather than
+  // writing a dangling code.
+  const aliased = DEPARTMENT_ALIASES[upper] ?? upper;
+  if (knownCodes.has(aliased)) return aliased;
 
   const bracketed = value.match(/\(([^)]+)\)\s*$/);
   if (bracketed) {

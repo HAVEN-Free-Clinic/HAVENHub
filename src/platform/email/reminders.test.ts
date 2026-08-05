@@ -127,7 +127,7 @@ async function emailLogCount(template: string): Promise<number> {
 }
 
 async function getReminderRow(personId: string) {
-  return prisma.complianceReminder.findUnique({ where: { personId } });
+  return prisma.memberReminderState.findUnique({ where: { personId } });
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +189,6 @@ describe("first run - EXPIRED volunteer, no row", () => {
     expect(row).not.toBeNull();
     expect(row!.remindersSent).toBe(1);
     expect(row!.lastRemindedAt).not.toBeNull();
-    expect(row!.lastStatus).toBe("EXPIRED");
   });
 });
 
@@ -272,7 +271,6 @@ describe("COMPLIANT reset", () => {
     const row = await getReminderRow(person.id);
     expect(row!.remindersSent).toBe(0);
     expect(row!.lastRemindedAt).toBeNull();
-    expect(row!.lastStatus).toBeNull();
   });
 });
 
@@ -300,11 +298,12 @@ describe("NO_CERTIFICATE and UNKNOWN_DATE persons", () => {
     expect(result.remindersSent).toBe(2);
     expect(await emailLogCount("compliance-reminder")).toBe(2);
 
+    // Each is claimed independently: one row apiece, each counted once.
     const noCertRow = await getReminderRow(noCert.id);
-    expect(noCertRow!.lastStatus).toBe("NO_CERTIFICATE");
+    expect(noCertRow!.remindersSent).toBe(1);
 
     const unknownRow = await getReminderRow(unknownDate.id);
-    expect(unknownRow!.lastStatus).toBe("UNKNOWN_DATE");
+    expect(unknownRow!.remindersSent).toBe(1);
   });
 });
 
@@ -365,12 +364,11 @@ describe("COMPLIANT person with already-zeroed reminder row", () => {
     await addCert(person.id, COMPLIANT_COMPLETION);
 
     // Create a zeroed reminder row manually
-    await prisma.complianceReminder.create({
+    await prisma.memberReminderState.create({
       data: {
         personId: person.id,
         remindersSent: 0,
         lastRemindedAt: null,
-        lastStatus: null,
       },
     });
 
@@ -397,7 +395,7 @@ describe("EXPIRING_SOON person", () => {
 
     expect(result.remindersSent).toBe(1);
     const row = await getReminderRow(person.id);
-    expect(row!.lastStatus).toBe("EXPIRING_SOON");
+    expect(row!.remindersSent).toBe(1);
   });
 });
 

@@ -5,7 +5,7 @@
  * ---------------------
  * Each ComplianceReminder row tracks one person's non-compliant streak.
  *
- *   COMPLIANT -> row is reset to zeroed state (remindersSent=0, escalatedAt=null).
+ *   COMPLIANT -> row is reset to zeroed state (remindersSent=0, lastRemindedAt=null).
  *                Zeroed rows and absent rows are left alone.
  *
  *   Non-compliant (EXPIRING_SOON | EXPIRED | UNKNOWN_DATE | NO_CERTIFICATE):
@@ -123,7 +123,7 @@ export async function runComplianceReminders(
   }
 
   // 4. Existing reminder rows.
-  const existingRows = await prisma.complianceReminder.findMany({
+  const existingRows = await prisma.memberReminderState.findMany({
     where: { personId: { in: personIds } },
   });
   const reminderMap = new Map(existingRows.map((r) => [r.personId, r]));
@@ -189,17 +189,13 @@ export async function runComplianceReminders(
     if (isDone) {
       if (
         existing !== null &&
-        (existing.remindersSent > 0 ||
-          existing.escalatedAt !== null ||
-          existing.lastRemindedAt !== null)
+        (existing.remindersSent > 0 || existing.lastRemindedAt !== null)
       ) {
-        await prisma.complianceReminder.update({
+        await prisma.memberReminderState.update({
           where: { personId: person.id },
           data: {
             remindersSent: 0,
             lastRemindedAt: null,
-            lastStatus: null,
-            escalatedAt: null,
           },
         });
         result.reset++;
@@ -238,17 +234,17 @@ export async function runComplianceReminders(
     //    before the send trades a possible lost reminder on a mid-run crash
     //    (recovered next interval) for guaranteed no-duplicate delivery.
     const cutoff = new Date(now.getTime() - intervalMs);
-    await prisma.complianceReminder.upsert({
+    await prisma.memberReminderState.upsert({
       where: { personId: person.id },
       create: { personId: person.id, remindersSent: 0 },
       update: {},
     });
-    const claim = await prisma.complianceReminder.updateMany({
+    const claim = await prisma.memberReminderState.updateMany({
       where: {
         personId: person.id,
         OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lt: cutoff } }],
       },
-      data: { lastRemindedAt: now, remindersSent: { increment: 1 }, lastStatus: status },
+      data: { lastRemindedAt: now, remindersSent: { increment: 1 } },
     });
     if (claim.count === 0) {
       result.skipped++;

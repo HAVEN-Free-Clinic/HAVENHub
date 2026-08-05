@@ -4,6 +4,35 @@ import Link from "next/link";
 export type TabItem = { label: string; href: string; badge?: number };
 
 /**
+ * Bring a row's active tab into horizontal view WITHOUT scrolling anything else.
+ *
+ * Do NOT use `Element.scrollIntoView` for this. It scrolls EVERY scrollable
+ * ancestor as needed, up to and including the document; `block: "nearest"`
+ * only chooses the alignment, not which ancestors move. A long-standing
+ * comment in this codebase claimed the opposite ("nearest only scrolls the tab
+ * row, never the page"), and acting on it is what made every cycle page nudge
+ * the document on load. That shift raced Playwright's click on Publish: the
+ * button moved between the actionability check and the click, the publish
+ * never fired, and five recruitment specs went red on an unrelated assertion
+ * (the OPEN badge). See the isolation experiment in PRs #510 and #511.
+ *
+ * Adjusting the row's own `scrollLeft` is strictly horizontal and strictly
+ * scoped to the row, so it cannot move the page or shift a control out from
+ * under a cursor.
+ */
+export function scrollActiveTabIntoView(nav: HTMLElement | null): void {
+  const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+  if (!nav || !active) return;
+  const row = nav.getBoundingClientRect();
+  const tab = active.getBoundingClientRect();
+  if (tab.left < row.left) {
+    nav.scrollLeft -= row.left - tab.left;
+  } else if (tab.right > row.right) {
+    nav.scrollLeft += tab.right - row.right;
+  }
+}
+
+/**
  * Shared horizontal tab-row primitive. Presentational only: it takes
  * `isActive` as a prop instead of computing it from the pathname, because the
  * consumers disagree on what "active" means (module nav prefix-matches

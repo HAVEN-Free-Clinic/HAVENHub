@@ -9,7 +9,7 @@
  * EXPIRING_SOON: valid today but fails term bar OR within 60d of expiry.
  * EXPIRED: expiresAt < now.
  *
- * All assertions use EmailLog.template to distinguish reminder vs escalation rows.
+ * All assertions use EmailLog.template to distinguish one stream's rows from another's.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -139,7 +139,7 @@ beforeEach(resetDb);
 describe("no active term", () => {
   it("returns all-zero result and sends no emails", async () => {
     const result = await runComplianceReminders(NOW);
-    expect(result).toEqual({ remindersSent: 0, escalationsSent: 0, reset: 0, skipped: 0 });
+    expect(result).toEqual({ remindersSent: 0, reset: 0, skipped: 0 });
     expect(await emailLogCount("compliance-reminder")).toBe(0);
   });
 });
@@ -180,7 +180,6 @@ describe("first run - EXPIRED volunteer, no row", () => {
     const result = await runComplianceReminders(NOW);
 
     expect(result.remindersSent).toBe(1);
-    expect(result.escalationsSent).toBe(0);
     expect(result.reset).toBe(0);
     expect(result.skipped).toBe(0);
 
@@ -191,7 +190,6 @@ describe("first run - EXPIRED volunteer, no row", () => {
     expect(row!.remindersSent).toBe(1);
     expect(row!.lastRemindedAt).not.toBeNull();
     expect(row!.lastStatus).toBe("EXPIRED");
-    expect(row!.escalatedAt).toBeNull();
   });
 });
 
@@ -245,78 +243,6 @@ describe("third run - now advanced past the interval", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Escalation threshold reached on a past-interval run
-// ---------------------------------------------------------------------------
-
-describe("escalation at threshold", () => {
-  it("sends escalation to director at remindersSent=3, then no second escalation on next run", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Alice", "alice@example.com");
-    const director = await createPerson("Director Bob", "bob@example.com");
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give the director a compliant cert so they are not a reminder candidate themselves.
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Run 1: remindersSent=1 (no escalation; threshold is 3)
-    await runComplianceReminders(NOW);
-    // Run 2: remindersSent=2
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    // Run 3: remindersSent=3 => threshold reached, escalation fires
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.remindersSent).toBe(1);
-    expect(r3.escalationsSent).toBe(1);
-
-    expect(await emailLogCount("compliance-reminder")).toBe(3);
-    expect(await emailLogCount("compliance-escalation")).toBe(1);
-
-    const row = await getReminderRow(volunteer.id);
-    expect(row!.remindersSent).toBe(3);
-    expect(row!.escalatedAt).not.toBeNull();
-
-    // Run 4: past-interval again. Another reminder is sent but NOT another escalation
-    const r4 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 3));
-
-    expect(r4.remindersSent).toBe(1);
-    expect(r4.escalationsSent).toBe(0);
-
-    expect(await emailLogCount("compliance-escalation")).toBe(1); // still only 1
-    const row4 = await getReminderRow(volunteer.id);
-    expect(row4!.remindersSent).toBe(4);
-  });
-
-  it("deep-links the escalation notification to /volunteers, a page directors can open, not /admin (#70)", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-    const volunteer = await createPerson("Alice", "alice@example.com");
-    const director = await createPerson("Director Bob", "bob@example.com");
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Three runs reach the escalation threshold and notify the director.
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    const notif = await prisma.notification.findFirstOrThrow({
-      where: { personId: director.id, type: "compliance-escalation" },
-    });
-    // The seeded Director baseline holds volunteers.view (the /volunteers compliance
-    // surface) but NOT admin.access, so the old /admin link resolved to /no-access
-    // for the escalation's entire intended audience.
-    expect(notif.link).toMatch(/\/volunteers$/);
-    expect(notif.link).not.toContain("/admin");
-  });
-});
-
 describe("COMPLIANT reset", () => {
   it("resets row to zeroed state when person becomes compliant, no new EmailLog", async () => {
     const term = await createTerm();
@@ -340,7 +266,6 @@ describe("COMPLIANT reset", () => {
 
     expect(result.reset).toBe(1);
     expect(result.remindersSent).toBe(0);
-    expect(result.escalationsSent).toBe(0);
     // No new email after reset
     expect(await emailLogCount("compliance-reminder")).toBe(emailsBefore);
 
@@ -348,7 +273,6 @@ describe("COMPLIANT reset", () => {
     expect(row!.remindersSent).toBe(0);
     expect(row!.lastRemindedAt).toBeNull();
     expect(row!.lastStatus).toBeNull();
-    expect(row!.escalatedAt).toBeNull();
   });
 });
 
@@ -407,131 +331,6 @@ describe("person with no contactEmail", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Director escalation: excludes the volunteer themselves
-// ---------------------------------------------------------------------------
-
-describe("escalation excludes the volunteer when they are also a director", () => {
-  it("does not send an escalation to the volunteer-director themselves", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    // person is both VOLUNTEER and DIRECTOR in the same dept
-    const selfDirector = await createPerson("SelfDirector", "self@example.com");
-    await addMembership(selfDirector.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(selfDirector.id, term.id, dept.id, "DIRECTOR");
-    await addCert(selfDirector.id, EXPIRED_COMPLETION);
-
-    // run 3 times to reach threshold
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    // No escalation email should be sent because the only director IS the volunteer
-    expect(r3.escalationsSent).toBe(0);
-    expect(await emailLogCount("compliance-escalation")).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Director escalation deduplication: director of two of volunteer's departments
-// ---------------------------------------------------------------------------
-
-describe("director who directs two of the volunteer's departments gets only one escalation email", () => {
-  it("sends exactly one compliance-escalation to a shared director", async () => {
-    const term = await createTerm();
-    const deptA = await createDepartment("ANAT");
-    const deptB = await createDepartment("BIOL");
-
-    const volunteer = await createPerson("MultiDept Volunteer", "vol@example.com");
-    const director = await createPerson("Shared Director", "dir@example.com");
-
-    // volunteer is in BOTH departments
-    await addMembership(volunteer.id, term.id, deptA.id, "VOLUNTEER");
-    await addMembership(volunteer.id, term.id, deptB.id, "VOLUNTEER");
-
-    // director directs BOTH departments
-    await addMembership(director.id, term.id, deptA.id, "DIRECTOR");
-    await addMembership(director.id, term.id, deptB.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give director a compliant cert so they are not a reminder candidate themselves.
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Three runs to reach escalation threshold
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    // Director is deduped to exactly 1 escalation email (not 2)
-    expect(r3.escalationsSent).toBe(1);
-    expect(await emailLogCount("compliance-escalation")).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Multiple directors in same department
-// ---------------------------------------------------------------------------
-
-describe("multiple directors in the volunteer's department", () => {
-  it("sends one escalation email per director", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Volunteer", "vol@example.com");
-    const dir1 = await createPerson("Director One", "dir1@example.com");
-    const dir2 = await createPerson("Director Two", "dir2@example.com");
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(dir1.id, term.id, dept.id, "DIRECTOR");
-    await addMembership(dir2.id, term.id, dept.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give directors compliant certs so they are not reminder candidates themselves.
-    await addCert(dir1.id, COMPLIANT_COMPLETION);
-    await addCert(dir2.id, COMPLIANT_COMPLETION);
-
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.escalationsSent).toBe(2);
-    expect(await emailLogCount("compliance-escalation")).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Director without contactEmail is skipped in escalation
-// ---------------------------------------------------------------------------
-
-describe("director with no contactEmail", () => {
-  it("is skipped in escalation, escalationsSent is 0", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Volunteer", "vol@example.com");
-    const director = await createPerson("No Email Director", null); // no contactEmail
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.escalationsSent).toBe(0);
-    expect(await emailLogCount("compliance-escalation")).toBe(0);
-
-    // escalatedAt must be set even when no director email goes out: the threshold
-    // was met and we attempted escalation, so the once-per-streak guard must fire.
-    const row = await getReminderRow(volunteer.id);
-    expect(row!.remindersSent).toBe(3);
-    expect(row!.escalatedAt).not.toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // COMPLIANT person with no existing row: do nothing
 // ---------------------------------------------------------------------------
 
@@ -572,7 +371,6 @@ describe("COMPLIANT person with already-zeroed reminder row", () => {
         remindersSent: 0,
         lastRemindedAt: null,
         lastStatus: null,
-        escalatedAt: null,
       },
     });
 

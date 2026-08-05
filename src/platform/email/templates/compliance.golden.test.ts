@@ -2,15 +2,15 @@
  * Golden-master tests for compliance email templates via renderEmail.
  *
  * These tests assert that the new descriptor + renderEmail system produces the
- * same body content as the pre-refactor complianceReminderEmail /
- * complianceEscalationEmail functions. The body is now injected verbatim into the
- * branded layout shell, so we assert the body is contained in the rendered email.
+ * same body content as the pre-refactor complianceReminderEmail function. The body
+ * is now injected verbatim into the branded layout shell, so we assert the body is
+ * contained in the rendered email.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { renderEmail } from "./renderEmail";
-import { complianceReminderContext, complianceEscalationContext } from "./compliance";
+import { complianceReminderContext } from "./compliance";
 
 beforeEach(resetDb);
 
@@ -118,55 +118,4 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     expect(out.html).not.toContain(CTA_URL);
   });
 
-  // ---------------------------------------------------------------------------
-  // compliance-escalation
-  // ---------------------------------------------------------------------------
-
-  it("compliance-escalation EXPIRED matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "EXPIRED",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
-  });
-
-  it("compliance-escalation EXPIRING_SOON matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "EXPIRING_SOON",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expiring soon) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
-  });
-
-  it("compliance-escalation NO_CERTIFICATE matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "NO_CERTIFICATE",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (no certificate on file) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
-  });
 });

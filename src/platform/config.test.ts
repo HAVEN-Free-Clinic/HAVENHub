@@ -113,10 +113,9 @@ describe("loadConfig", () => {
 
   // --- Compliance reminder cadence config ---
 
-  it("defaults COMPLIANCE_REMINDER_INTERVAL_DAYS to 7 and COMPLIANCE_ESCALATION_THRESHOLD to 3", () => {
+  it("defaults COMPLIANCE_REMINDER_INTERVAL_DAYS to 7", () => {
     const config = loadConfig(base);
     expect(config.COMPLIANCE_REMINDER_INTERVAL_DAYS).toBe(7);
-    expect(config.COMPLIANCE_ESCALATION_THRESHOLD).toBe(3);
   });
 
   it("rejects COMPLIANCE_REMINDER_INTERVAL_DAYS 'abc' naming the variable", () => {
@@ -135,24 +134,6 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ ...base, COMPLIANCE_REMINDER_INTERVAL_DAYS: "-1" })
     ).toThrowError(/COMPLIANCE_REMINDER_INTERVAL_DAYS/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD 'abc' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "abc" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '0' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "0" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '-1' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "-1" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
   });
 
   // --- RHD table IDs ---

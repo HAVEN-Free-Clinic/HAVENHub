@@ -17,14 +17,6 @@
  *        "email" channel a Teams-only member is unreachable and is NOT claimed or
  *        escalated, since notify() would queue nothing for them.
  *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
- *     4. Escalation fires once per non-compliant streak, guarded by escalatedAt:
- *        when the NEW remindersSent >= COMPLIANCE_ESCALATION_THRESHOLD AND escalatedAt
- *        is currently null, escalation emails are queued to each director of any
- *        department where the volunteer holds an ACTIVE membership in the active term.
- *        Directors are deduped by personId and the volunteer themselves is excluded.
- *        Escalation emails are queued BEFORE escalatedAt is persisted so that a crash
- *        between the two re-queues on the next run (at-least-once) rather than leaving
- *        escalatedAt set with no director notification ever sent.
  *
  * All notifications are dispatched via notify(); no transport is invoked here.
  */
@@ -37,10 +29,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
-import {
-  complianceReminderContext,
-  complianceEscalationContext,
-} from "./templates/compliance";
+import { complianceReminderContext } from "./templates/compliance";
 import { loadEhsMissingMap } from "@/platform/ehs/services/status";
 import { isFullyCompliant } from "@/platform/ehs/engine/applicability";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -63,7 +52,6 @@ const REMINDER_ITEM_LABELS: Record<string, string> = {
 /** Counters returned by a single engine run. */
 export type ReminderRunResult = {
   remindersSent: number;
-  escalationsSent: number;
   reset: number;
   skipped: number;
 };
@@ -84,7 +72,6 @@ export async function runComplianceReminders(
   const startedAt = Date.now();
   const result: ReminderRunResult = {
     remindersSent: 0,
-    escalationsSent: 0,
     reset: 0,
     skipped: 0,
   };
@@ -144,7 +131,6 @@ export async function runComplianceReminders(
   // Pre-compute the interval in milliseconds.
   const intervalMs =
     (await getSetting<number>("compliance.reminderIntervalDays")) * 24 * 60 * 60 * 1000;
-  const threshold = await getSetting<number>("compliance.escalationThreshold");
 
   // Resolved once for the run: the hub base URL (for the My Info call-to-action
   // and Teams deep link) and the brand color (for the CTA button).
@@ -268,10 +254,6 @@ export async function runComplianceReminders(
       result.skipped++;
       continue;
     }
-    const claimed = await prisma.complianceReminder.findUniqueOrThrow({
-      where: { personId: person.id },
-      select: { remindersSent: true, escalatedAt: true },
-    });
 
     // c. Send reminder.
     const expiresAt =
@@ -304,19 +286,6 @@ export async function runComplianceReminders(
       },
     });
 
-    // d. Escalate once per non-compliant streak when the threshold is reached.
-    //    Queue the escalation emails BEFORE stamping escalatedAt (guarded on
-    //    escalatedAt: null so it is atomic and idempotent) so a crash between the two
-    //    re-queues next run rather than marking escalated with nothing sent.
-    const shouldEscalate = claimed.remindersSent >= threshold && claimed.escalatedAt === null;
-    if (shouldEscalate) {
-      await sendEscalations(person, termId, effectiveStatus, ehsMissing, otherItems, result);
-      await prisma.complianceReminder.updateMany({
-        where: { personId: person.id, escalatedAt: null },
-        data: { escalatedAt: now },
-      });
-    }
-
     result.remindersSent++;
   }
 
@@ -328,131 +297,4 @@ export async function runComplianceReminders(
     ...result,
   });
   return result;
-}
-
-// ---------------------------------------------------------------------------
-// sendEscalations (private helper)
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve the directors for the volunteer's active-term departments and queue
- * one escalation email per unique director (with a contactEmail). The volunteer
- * themselves are excluded. The department name for the email is the first
- * department by code where both the volunteer and the director share a membership.
- *
- * Escalation emails are queued before escalatedAt is recorded in the caller's
- * upsert. A crash between the two re-queues on the next run (at-least-once)
- * rather than dropping the director notification silently.
- */
-async function sendEscalations(
-  volunteer: { id: string; name: string },
-  termId: string,
-  status: import("@/platform/compliance/rules").ComplianceStatus,
-  ehsMissing: string[],
-  otherItems: string[],
-  result: ReminderRunResult
-): Promise<void> {
-  // Load the volunteer's active-term ACTIVE memberships with department info.
-  const volunteerMemberships = await prisma.termMembership.findMany({
-    where: {
-      personId: volunteer.id,
-      termId,
-      status: "ACTIVE",
-    },
-    select: {
-      departmentId: true,
-      department: { select: { code: true, name: true } },
-    },
-    orderBy: { department: { code: "asc" } },
-  });
-
-  if (volunteerMemberships.length === 0) return;
-
-  const volunteerDeptIds = volunteerMemberships.map((m) => m.departmentId);
-
-  // Build a map from departmentId to { code, name } for the department name lookup.
-  const deptMeta = new Map<string, { code: string; name: string }>();
-  for (const m of volunteerMemberships) {
-    deptMeta.set(m.departmentId, m.department);
-  }
-
-  // Load DIRECTOR memberships in the active term for those departments, with director person info.
-  const directorMemberships = await prisma.termMembership.findMany({
-    where: {
-      termId,
-      departmentId: { in: volunteerDeptIds },
-      kind: "DIRECTOR",
-      status: "ACTIVE",
-    },
-    select: {
-      departmentId: true,
-      person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
-    },
-    orderBy: { department: { code: "asc" } },
-  });
-
-  // Dedupe directors by personId. Track the first department (by code order) for each.
-  const seenDirectors = new Map<
-    string,
-    { id: string; name: string; contactEmail: string | null; entraObjectId: string | null; departmentName: string }
-  >();
-
-  for (const dm of directorMemberships) {
-    const dirPersonId = dm.person.id;
-
-    // Exclude the volunteer themselves.
-    if (dirPersonId === volunteer.id) continue;
-
-    if (!seenDirectors.has(dirPersonId)) {
-      const dept = deptMeta.get(dm.departmentId);
-      seenDirectors.set(dirPersonId, {
-        id: dirPersonId,
-        name: dm.person.name,
-        contactEmail: dm.person.contactEmail,
-        entraObjectId: dm.person.entraObjectId,
-        // Use the first department by code (memberships are ordered by code asc).
-        departmentName: dept?.name ?? "Unknown Department",
-      });
-    }
-  }
-
-  // Queue one escalation notification per director that has a contactEmail or entraObjectId.
-  for (const [, director] of seenDirectors) {
-    if (!director.contactEmail && !director.entraObjectId) continue;
-
-    const renderedEscalation = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: director.name,
-        volunteerName: volunteer.name,
-        departmentName: director.departmentName,
-        status,
-        ehsMissing,
-        otherItems,
-      }),
-    );
-    await notify(prisma, {
-      type: "compliance-escalation",
-      person: {
-        id: director.id,
-        entraObjectId: director.entraObjectId,
-        contactEmail: director.contactEmail,
-      },
-      email: { subject: renderedEscalation.subject, html: renderedEscalation.html },
-      teams: {
-        title: "Compliance escalation",
-        summary: `${volunteer.name} in ${director.departmentName} has outstanding compliance requirements.`,
-        // Deep-link the director to the compliance list they can actually open.
-        // /admin gates on admin.access, which the seeded Director baseline does not
-        // hold, so it resolved to /no-access for this notification's entire intended
-        // audience (both the Teams card and the in-app Notification row, which notify()
-        // stores this link into). /volunteers gates on volunteers.view, which Director
-        // holds -- and it is the compliance surface itself (#70). (Not the per-person
-        // /volunteers/compliance/[personId], which requires volunteers.manage_compliance.)
-        link: `${await getSetting<string>("app.baseUrl")}/volunteers`,
-      },
-    });
-
-    result.escalationsSent++;
-  }
 }

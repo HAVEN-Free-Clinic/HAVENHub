@@ -100,16 +100,6 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.COMPLIANCE_REMINDER_INTERVAL_DAYS,
     secret: false,
   }),
-  define<number>({
-    key: "compliance.escalationThreshold",
-    category: "Operations",
-    label: "Compliance escalation threshold",
-    help: "Number of reminders sent before escalating to the director.",
-    input: { type: "number", min: 1 },
-    schema: z.number().int().positive(),
-    envDefault: () => config.COMPLIANCE_ESCALATION_THRESHOLD,
-    secret: false,
-  }),
   define<string>({
     key: "email.sender",
     category: "Email",

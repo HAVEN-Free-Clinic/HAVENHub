@@ -1693,3 +1693,383 @@ must be exercised by hand before merge, via the smoke test in the cutover runboo
    If it is wrong, presigned PUTs fail with `SignatureDoesNotMatch`.
 2. **The bucket CORS rule.** Its absence fails the browser upload with an opaque
    CORS error that looks nothing like a configuration problem.
+
+---
+
+### Task 8: Blob fallback driver for a working rollback
+
+**Added after Task 7's review found the spec's rollback claim was false.** The spec, plan, and cutover runbook all stated that unsetting the `R2_*` variables reverts to Vercel Blob. It does not: `storage/index.ts` selects between exactly two drivers, and unsetting `R2_BUCKET` selects the local disk driver, which on Vercel is ephemeral. The documented rollback was a production storage outage.
+
+**Files:**
+- Create: `src/platform/storage/blob.ts`
+- Create: `src/platform/storage/index.test.ts`
+- Modify: `src/platform/storage/index.ts`
+- Modify: `src/platform/config.ts` (add `BLOB_READ_WRITE_TOKEN`)
+- Modify: `src/platform/config.test.ts`
+
+**Interfaces:**
+- Consumes: `config.R2_BUCKET`, new `config.BLOB_READ_WRITE_TOKEN`, the existing `./r2` and `./disk` drivers.
+- Produces: unchanged public API. `usingRemoteStorage` now means "bytes live in ANY remote store", so it is true under R2 or Blob.
+
+**Two problems this solves at once:**
+
+1. **Rollback.** Driver selection becomes three-way: R2 when `R2_BUCKET` is set, else Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set, else local disk. Unsetting the R2 variables while leaving the Blob token in place is then a true revert to the pre-migration store.
+2. **The cutover window.** While R2 is active and a Blob token is still present, `getObject` falls back to Blob on a miss. A file written to Blob between the backfill and the deploy is served rather than 404ing, which removes the gap the second backfill pass was papering over.
+
+**The delete hazard this must not introduce:** during dual-read, deleting an object that exists only in Blob would be a no-op against R2 and the next read would resurrect it from Blob. `deleteObject` and `deletePrefix` must therefore delete from BOTH stores whenever the fallback is active. Writes are not duplicated: `putObject` targets only the active store, and reads find R2 first.
+
+- [ ] **Step 1: Add the Blob token to config**
+
+In `src/platform/config.ts`, directly after the four `R2_*` fields:
+
+```ts
+    // Vercel Blob, retained ONLY for the R2 migration: it makes the rollback a
+    // config change rather than a redeploy, and lets getObject read through to
+    // the old store during the cutover window. Delete with storage/blob.ts once
+    // the migration is decommissioned.
+    BLOB_READ_WRITE_TOKEN: z.string().optional(),
+```
+
+Add to `src/platform/config.test.ts`:
+
+```ts
+it("accepts a Blob token alongside a complete R2 config (migration fallback)", () => {
+  const config = loadConfig({ ...base, ...r2, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
+  expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
+});
+
+it("accepts a Blob token with no R2 config (the rolled-back state)", () => {
+  const config = loadConfig({ ...base, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
+  expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
+  expect(config.R2_BUCKET).toBeUndefined();
+});
+```
+
+The second test matters: the all-or-nothing R2 guard must not reject the rolled-back state, where every R2 variable is absent and only the Blob token remains.
+
+- [ ] **Step 2: Restore the Blob driver**
+
+Create `src/platform/storage/blob.ts`. This is the pre-migration Blob code from `storage.ts` at commit `44d887b9`, extracted into a driver with the same shape as `disk.ts` and `r2.ts`:
+
+```ts
+/**
+ * Vercel Blob driver, retained ONLY to support the R2 migration.
+ *
+ * Two jobs, both temporary:
+ *   - Rollback. With the R2_* variables unset and this token present, the app
+ *     reverts to the pre-migration store as a config change, no redeploy.
+ *   - Cutover window. While R2 is active, ./index.ts reads through to here on a
+ *     miss, so an object written to Blob between the backfill and the deploy is
+ *     still served.
+ *
+ * Delete this file, the BLOB_READ_WRITE_TOKEN config field, and the @vercel/blob
+ * dependency together once the migration is decommissioned.
+ */
+import { config } from "@/platform/config";
+
+function token(): string {
+  return config.BLOB_READ_WRITE_TOKEN as string;
+}
+
+/** Store bytes under `key`, overwriting any existing object at that key. */
+export async function putObject(
+  key: string,
+  bytes: Buffer,
+  contentType: string
+): Promise<void> {
+  const { put } = await import("@vercel/blob");
+  // Private access: these are HIPAA certificates and recruitment documents. The
+  // bytes are only ever served back through authenticated route handlers, so a
+  // deterministic key is safe (the store token is the access gate).
+  await put(key, bytes, {
+    access: "private",
+    contentType,
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    token: token(),
+  });
+}
+
+/** Read bytes stored under `key`, or null when the object is missing. */
+export async function getObject(key: string): Promise<Buffer | null> {
+  const { get } = await import("@vercel/blob");
+  try {
+    const result = await get(key, { access: "private", token: token() });
+    if (!result || result.statusCode !== 200) return null;
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/** Delete the object stored under `key`. Missing objects are a no-op. */
+export async function deleteObject(key: string): Promise<void> {
+  const { del } = await import("@vercel/blob");
+  try {
+    await del(key, { token: token() });
+  } catch {
+    // Already gone, or never existed -- nothing to clean up.
+  }
+}
+
+/** Delete every object stored under `prefix`. The caller has already validated it. */
+export async function deletePrefix(prefix: string): Promise<void> {
+  const { list, del } = await import("@vercel/blob");
+  let cursor: string | undefined;
+  do {
+    const page = await list({ prefix, cursor, token: token() });
+    if (page.blobs.length > 0) {
+      await del(page.blobs.map((b) => b.url), { token: token() });
+    }
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+}
+```
+
+- [ ] **Step 3: Write the failing selection tests**
+
+Create `src/platform/storage/index.test.ts`. These tests are the whole point of the task, so they must exercise selection and fallback rather than restating the implementation:
+
+```ts
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+const { r2, blob, disk } = vi.hoisted(() => ({
+  r2: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn(), deletePrefix: vi.fn() },
+  blob: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn(), deletePrefix: vi.fn() },
+  disk: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn(), deletePrefix: vi.fn() },
+}));
+
+vi.mock("./r2", () => r2);
+vi.mock("./blob", () => blob);
+vi.mock("./disk", () => disk);
+
+const configMock = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+vi.mock("@/platform/config", () => ({ get config() { return configMock.value; } }));
+
+async function loadStorage(env: Record<string, unknown>) {
+  configMock.value = { UPLOAD_DIR: "/tmp/x", ...env };
+  vi.resetModules();
+  return import("./index");
+}
+
+beforeEach(() => {
+  for (const d of [r2, blob, disk]) {
+    for (const fn of Object.values(d)) fn.mockReset();
+  }
+});
+
+const R2_ONLY = { R2_BUCKET: "b", R2_ACCOUNT_ID: "a", R2_ACCESS_KEY_ID: "k", R2_SECRET_ACCESS_KEY: "s" };
+const BLOB_ONLY = { BLOB_READ_WRITE_TOKEN: "t" };
+const BOTH = { ...R2_ONLY, ...BLOB_ONLY };
+
+describe("driver selection", () => {
+  it("uses R2 when the R2 config is present", async () => {
+    const s = await loadStorage(R2_ONLY);
+    r2.getObject.mockResolvedValue(Buffer.from("r2"));
+    expect(await s.getObject("k")).toEqual(Buffer.from("r2"));
+    expect(disk.getObject).not.toHaveBeenCalled();
+    expect(blob.getObject).not.toHaveBeenCalled();
+  });
+
+  it("uses Vercel Blob when only the Blob token is present (the rolled-back state)", async () => {
+    // This is the rollback path. Before this task, unsetting the R2 variables
+    // selected the DISK driver, which on Vercel is ephemeral -- the documented
+    // rollback was a storage outage.
+    const s = await loadStorage(BLOB_ONLY);
+    blob.getObject.mockResolvedValue(Buffer.from("blob"));
+    expect(await s.getObject("k")).toEqual(Buffer.from("blob"));
+    expect(disk.getObject).not.toHaveBeenCalled();
+    expect(r2.getObject).not.toHaveBeenCalled();
+  });
+
+  it("uses local disk when neither is configured", async () => {
+    const s = await loadStorage({});
+    disk.getObject.mockResolvedValue(Buffer.from("disk"));
+    expect(await s.getObject("k")).toEqual(Buffer.from("disk"));
+    expect(r2.getObject).not.toHaveBeenCalled();
+    expect(blob.getObject).not.toHaveBeenCalled();
+  });
+
+  it("reports usingRemoteStorage for R2 and for Blob, but not for disk", async () => {
+    expect((await loadStorage(R2_ONLY)).usingRemoteStorage).toBe(true);
+    expect((await loadStorage(BLOB_ONLY)).usingRemoteStorage).toBe(true);
+    expect((await loadStorage({})).usingRemoteStorage).toBe(false);
+  });
+});
+
+describe("cutover-window fallback", () => {
+  it("reads through to Blob when R2 misses and both are configured", async () => {
+    const s = await loadStorage(BOTH);
+    r2.getObject.mockResolvedValue(null);
+    blob.getObject.mockResolvedValue(Buffer.from("legacy"));
+    expect(await s.getObject("k")).toEqual(Buffer.from("legacy"));
+  });
+
+  it("does not touch Blob when R2 hits", async () => {
+    const s = await loadStorage(BOTH);
+    r2.getObject.mockResolvedValue(Buffer.from("fresh"));
+    expect(await s.getObject("k")).toEqual(Buffer.from("fresh"));
+    expect(blob.getObject).not.toHaveBeenCalled();
+  });
+
+  it("returns null when both miss", async () => {
+    const s = await loadStorage(BOTH);
+    r2.getObject.mockResolvedValue(null);
+    blob.getObject.mockResolvedValue(null);
+    expect(await s.getObject("k")).toBeNull();
+  });
+
+  it("does not read through when no Blob token is configured", async () => {
+    const s = await loadStorage(R2_ONLY);
+    r2.getObject.mockResolvedValue(null);
+    expect(await s.getObject("k")).toBeNull();
+    expect(blob.getObject).not.toHaveBeenCalled();
+  });
+
+  it("writes only to R2, never duplicating into Blob", async () => {
+    const s = await loadStorage(BOTH);
+    await s.putObject("k", Buffer.from("x"), "text/plain");
+    expect(r2.putObject).toHaveBeenCalledTimes(1);
+    expect(blob.putObject).not.toHaveBeenCalled();
+  });
+
+  it("deletes from BOTH stores so a Blob-only copy cannot resurrect", async () => {
+    // Deleting only from R2 would be a no-op for an object that lives solely in
+    // Blob, and the next read would fall back and serve the supposedly deleted
+    // file. This is the one place the fallback could reintroduce data.
+    const s = await loadStorage(BOTH);
+    await s.deleteObject("k");
+    expect(r2.deleteObject).toHaveBeenCalledWith("k");
+    expect(blob.deleteObject).toHaveBeenCalledWith("k");
+  });
+
+  it("deletes a prefix from BOTH stores for the same reason", async () => {
+    const s = await loadStorage(BOTH);
+    await s.deletePrefix("scorm/c1/");
+    expect(r2.deletePrefix).toHaveBeenCalledWith("scorm/c1/");
+    expect(blob.deletePrefix).toHaveBeenCalledWith("scorm/c1/");
+  });
+});
+
+describe("prefix validation", () => {
+  it("rejects an unsafe prefix before reaching any driver", async () => {
+    const s = await loadStorage(BOTH);
+    await expect(s.deletePrefix("../etc")).rejects.toThrow(/unsafe storage prefix/);
+    expect(r2.deletePrefix).not.toHaveBeenCalled();
+    expect(blob.deletePrefix).not.toHaveBeenCalled();
+    expect(disk.deletePrefix).not.toHaveBeenCalled();
+  });
+});
+```
+
+- [ ] **Step 4: Run the tests to verify they fail**
+
+Run: `npx vitest run src/platform/storage/index.test.ts`
+Expected: FAIL. Selection and fallback do not exist yet.
+
+- [ ] **Step 5: Rewrite index.ts for three-way selection with read-through**
+
+Replace the driver-selection and dispatch portion of `src/platform/storage/index.ts` (keep the file's existing header comment, updating it to describe three drivers):
+
+```ts
+import { config } from "@/platform/config";
+import * as disk from "./disk";
+
+/** R2 is the primary store whenever it is configured. */
+const r2Active = Boolean(config.R2_BUCKET);
+
+/**
+ * The Blob store is reachable in two situations, both temporary:
+ *   - R2 is NOT configured and a Blob token is: the rolled-back state, where
+ *     Blob is the whole store.
+ *   - R2 IS configured and a Blob token is: the cutover window, where Blob is a
+ *     read-through fallback for objects the backfill has not copied yet.
+ */
+const blobConfigured = Boolean(config.BLOB_READ_WRITE_TOKEN);
+const blobOnly = !r2Active && blobConfigured;
+const readThroughToBlob = r2Active && blobConfigured;
+
+/**
+ * True when bytes live in a remote store rather than on this machine.
+ *
+ * Two scripts guard on this: import-certificates refuses to write rows to a
+ * remote database while bytes go to local disk, and seed-ux-audit-fixtures
+ * refuses to write throwaway fixtures into a shared store. Both care about
+ * "remote", not about which remote, so Blob counts.
+ */
+export const usingRemoteStorage = r2Active || blobConfigured;
+
+/** Store bytes under `key`, overwriting any existing object at that key. */
+export async function putObject(
+  key: string,
+  bytes: Buffer,
+  contentType: string
+): Promise<void> {
+  // Writes go to the active store only. During the cutover window that is R2,
+  // and reads find R2 first, so there is nothing to gain from duplicating.
+  if (r2Active) return (await import("./r2")).putObject(key, bytes, contentType);
+  if (blobOnly) return (await import("./blob")).putObject(key, bytes, contentType);
+  return disk.putObject(key, bytes, contentType);
+}
+
+/** Read bytes stored under `key`, or null when the object is missing. */
+export async function getObject(key: string): Promise<Buffer | null> {
+  if (r2Active) {
+    const bytes = await (await import("./r2")).getObject(key);
+    if (bytes !== null) return bytes;
+    // Cutover window: an object written to Blob between the backfill and this
+    // deploy lives only there. Read through rather than 404.
+    if (readThroughToBlob) return (await import("./blob")).getObject(key);
+    return null;
+  }
+  if (blobOnly) return (await import("./blob")).getObject(key);
+  return disk.getObject(key);
+}
+
+/** Delete the object stored under `key`. Missing objects are a no-op. */
+export async function deleteObject(key: string): Promise<void> {
+  if (r2Active) {
+    await (await import("./r2")).deleteObject(key);
+    // Delete from Blob too. An object that lives only in Blob would otherwise
+    // survive the R2 no-op and be resurrected by the read-through above.
+    if (readThroughToBlob) await (await import("./blob")).deleteObject(key);
+    return;
+  }
+  if (blobOnly) return (await import("./blob")).deleteObject(key);
+  return disk.deleteObject(key);
+}
+
+/**
+ * Delete every object stored under `prefix` (e.g. "scorm/<courseId>/"). Used when
+ * replacing a SCORM package so stale files from the previous upload don't linger.
+ */
+export async function deletePrefix(prefix: string): Promise<void> {
+  // Allowlist the prefix to our own storage namespace before it reaches any path
+  // or list operation: slash-separated segments of safe chars only. This rejects
+  // "..", absolute paths, and backslashes outright (our prefixes are "scorm/<id>/").
+  if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\/?$/.test(prefix)) {
+    throw new Error(`Refusing unsafe storage prefix: ${prefix}`);
+  }
+  if (r2Active) {
+    await (await import("./r2")).deletePrefix(prefix);
+    // Same resurrection hazard as deleteObject.
+    if (readThroughToBlob) await (await import("./blob")).deletePrefix(prefix);
+    return;
+  }
+  if (blobOnly) return (await import("./blob")).deletePrefix(prefix);
+  return disk.deletePrefix(prefix);
+}
+```
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npx vitest run src/platform/storage/ src/platform/config.test.ts`
+Expected: PASS.
+
+- [ ] **Step 7: Typecheck, lint, commit**
+
+```bash
+npm run typecheck && npx eslint src e2e scripts
+git add src/platform/storage src/platform/config.ts src/platform/config.test.ts
+git commit -m "feat(storage): add a Blob fallback driver so rollback is a config change"
+```

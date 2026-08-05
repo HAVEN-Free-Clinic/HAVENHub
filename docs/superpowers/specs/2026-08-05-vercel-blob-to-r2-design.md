@@ -122,10 +122,23 @@ before any list or delete call, so the R2 driver inherits the same rejection of
 
 ### Exported flag rename
 
-`usingBlobStorage` becomes `usingRemoteStorage`. It has one consumer,
-`learning/manage/[courseId]/page.tsx`, which uses it to choose between the
-direct-upload form and the Server Action form. The new name states the actual
-predicate: storage is remote, so the direct-upload path is required.
+`usingBlobStorage` becomes `usingRemoteStorage`. The new name states the actual
+predicate: storage is remote, so bytes do not land on this machine.
+
+It has three consumers, two of which are **safety guards** whose logic depends on
+the flag meaning "remote", not specifically "Blob":
+
+| Consumer | Use |
+| --- | --- |
+| `learning/manage/[courseId]/page.tsx` | Chooses the direct-upload form over the Server Action form |
+| `scripts/import-certificates.ts` | `assertStorageMatchesDatabase` refuses to run against a remote database while bytes silently go to local disk |
+| `scripts/seed-ux-audit-fixtures.ts` | `assertLocalStorage` refuses to write and delete fixture PDFs in a shared remote store |
+
+Both guards keep working under the rename because the predicate is unchanged,
+but their error messages and comments name `BLOB_READ_WRITE_TOKEN` and "Vercel
+Blob" explicitly and must be updated to name the R2 variables instead. Leaving
+stale text there would send an operator hunting for an environment variable the
+application no longer reads.
 
 ## SCORM upload via presigned PUT
 
@@ -187,7 +200,8 @@ conventions.
   `PutObject` into R2 **under the identical key**. Because `putObject` has always
   set `addRandomSuffix: false`, a Blob `pathname` already is the storage key, so
   no database migration is needed.
-- Dry-run by default. `--execute` performs writes.
+- Dry-run by default. `--apply` performs writes, matching the flag every other
+  script in `scripts/` already uses.
 - Idempotent and resumable: a key already present in R2 with a matching size is
   skipped, so an interrupted run is safe to re-run.
 - Skips `scorm-uploads/` staging artifacts. Those were written with
@@ -205,7 +219,7 @@ re-running the backfill afterward.
 
 1. Operator creates the R2 buckets (one production, one preview), an API token
    scoped to them, and the CORS rule.
-2. Run the backfill against production, dry-run first, then `--execute`.
+2. Run the backfill against production, dry-run first, then `--apply`.
 3. Deploy with the R2 variables set.
 4. Re-run the backfill to sweep anything written during the window. This is
    cheap because the script is idempotent.

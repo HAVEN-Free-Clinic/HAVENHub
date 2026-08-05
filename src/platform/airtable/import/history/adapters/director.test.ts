@@ -144,6 +144,55 @@ describe("transformDirector", () => {
     expect(row.identity.email).toBe("direct@yale.edu");
   });
 
+  it("prefers Final Decisions department over Acceptances when both exist", () => {
+    // The ?? chain in resultDepartmentRaw depends on Final Decisions winning.
+    // If the order were reversed, D-SU26's acceptances could clobber a real
+    // Final Decisions decision. This test guards against that regression.
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "shared@yale.edu" })],
+      finalDecisions: [record("recFD", {
+        [D.email]: ["shared@yale.edu"], [D.departmentHire]: "ITCM",
+      })],
+      acceptances: [record("recA", {
+        [A.email]: ["shared@yale.edu"], [A.department]: ["BVHD"],
+      })],
+    }, SOURCE);
+    expect(row.resultDepartmentRaw).toBe("ITCM");
+  });
+
+  it("keeps REJECTED even with a contract link", () => {
+    // The NO_DECISION gate in the outcome ternary protects explicit rejections
+    // from being flipped to ACCEPTED by the onboarded check. A future
+    // "simplification" removing that gate would silently convert rejections to
+    // acceptances when a contract exists.
+    const [row] = transformDirector({
+      applications: [record("rec1", {
+        [F.email]: "a@yale.edu", [F.contracts]: ["recCon"],
+      })],
+      finalDecisions: [record("recFD", {
+        [D.email]: ["a@yale.edu"], [D.status]: "Rejected",
+      })],
+    }, SOURCE);
+    expect(row.outcome).toBe("REJECTED");
+  });
+
+  it("tracks ONBOARDED stage alongside REJECTED outcome (deliberate split)", () => {
+    // Stage and outcome are independent: stage tracks progression through the
+    // pipeline, while outcome tracks the decision. A row can be ONBOARDED
+    // (progressed to contract) yet REJECTED (final verdict). This split is
+    // intentional; do not "fix" it by conflating them.
+    const [row] = transformDirector({
+      applications: [record("rec1", {
+        [F.email]: "a@yale.edu", [F.contracts]: ["recCon"],
+      })],
+      finalDecisions: [record("recFD", {
+        [D.email]: ["a@yale.edu"], [D.status]: "Rejected",
+      })],
+    }, SOURCE);
+    expect(row.furthestStage).toBe("ONBOARDED");
+    expect(row.outcome).toBe("REJECTED");
+  });
+
   it("skips contactless rows", () => {
     expect(transformDirector(only([record("rec1", {})]), SOURCE)).toHaveLength(0);
   });

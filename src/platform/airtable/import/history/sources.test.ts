@@ -24,4 +24,14 @@ describe("HISTORY_SOURCES", () => {
       if (s.code !== "INTEREST") expect(s.termCode).toBeTruthy();
     }
   });
+
+  it("registers the Acceptances table for D-SU26", () => {
+    // D-SU26 has no Final Decisions table; instead it recorded its 36 outcomes
+    // in an Acceptances table. Without this registration the importer never
+    // fetches the table, so every acceptance's department is lost and all
+    // rows import as undecided.
+    const succ26 = HISTORY_SOURCES.find((s) => s.code === "D-SU26");
+    expect(succ26).toBeDefined();
+    expect(succ26?.tables.acceptances).toBe("tblqM7b0f5srEmbBw");
+  });
 });

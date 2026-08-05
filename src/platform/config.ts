@@ -109,11 +109,13 @@ const schema = z
           }
         })
       ),
-    // Number of reminder emails sent before escalating to the director.
-    // Default is 3. Rejected if not a positive finite number.
-    COMPLIANCE_ESCALATION_THRESHOLD: z
+    // Onboarding reminder cadence: how many days between onboarding-requirement
+    // emails. Default is 1 (daily), much faster than the HIPAA cadence because these
+    // are tasks a new member should finish in their first week. Rejected if not a
+    // positive finite number.
+    ONBOARDING_REMINDER_INTERVAL_DAYS: z
       .string()
-      .default("3")
+      .default("1")
       .transform(Number)
       .pipe(
         z.number().superRefine((val, ctx) => {
@@ -121,7 +123,7 @@ const schema = z
             ctx.addIssue({
               code: "custom",
               path: [],
-              message: "COMPLIANCE_ESCALATION_THRESHOLD must be a positive number",
+              message: "ONBOARDING_REMINDER_INTERVAL_DAYS must be a positive number",
             });
           }
         })

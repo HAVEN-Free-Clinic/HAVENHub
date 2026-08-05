@@ -180,7 +180,7 @@ model Person {
   emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
   recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
-  complianceReminder             ComplianceReminder?
+  complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
@@ -996,14 +996,23 @@ model RecruitmentCycleEmail {
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
 /// the escalation threshold (remindersSent), and the once-only director
 /// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
-model ComplianceReminder {
-  id             String    @id @default(cuid())
-  personId       String    @unique
-  remindersSent  Int       @default(0)
-  lastRemindedAt DateTime?
-  lastStatus     String?
-  escalatedAt    DateTime?
-  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+/// Per-person reminder state for the clearance engine. One row per person, with an
+/// independent claim per leg: `lastRemindedAt` paces the HIPAA reminder, and
+/// `onboardingLastRemindedAt` paces the onboarding-requirements reminder, which runs
+/// on a much shorter interval. `stalledSince` is stamped on the first nag of a streak
+/// and cleared when both legs are satisfied; the weekly director digest sorts and
+/// flags on it. Mapped to the original table name so the rename cost no migration.
+model MemberReminderState {
+  id                       String    @id @default(cuid())
+  personId                 String    @unique
+  remindersSent            Int       @default(0)
+  lastRemindedAt           DateTime?
+  onboardingRemindersSent  Int       @default(0)
+  onboardingLastRemindedAt DateTime?
+  stalledSince             DateTime?
+  person                   Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@map("ComplianceReminder")
 }
 
 /// Idempotency marker for periodic reminder dispatches (shift reminders + schedule

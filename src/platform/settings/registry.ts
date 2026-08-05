@@ -101,13 +101,13 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<number>({
-    key: "compliance.escalationThreshold",
+    key: "onboarding.reminderIntervalDays",
     category: "Operations",
-    label: "Compliance escalation threshold",
-    help: "Number of reminders sent before escalating to the director.",
+    label: "Onboarding reminder interval (days)",
+    help: "Days between onboarding-requirement reminder emails. Separate from the HIPAA reminder interval, and much shorter by default.",
     input: { type: "number", min: 1 },
     schema: z.number().int().positive(),
-    envDefault: () => config.COMPLIANCE_ESCALATION_THRESHOLD,
+    envDefault: () => config.ONBOARDING_REMINDER_INTERVAL_DAYS,
     secret: false,
   }),
   define<string>({

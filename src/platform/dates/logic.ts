@@ -44,3 +44,29 @@ export function businessDaysSince(start: Date, now: Date = new Date(), zone?: st
   }
   return count;
 }
+
+/**
+ * Returns an ISO-8601 week key ("2026-W31") in UTC. Every day from Monday through
+ * Sunday of one week maps to the same key, which makes it usable as a periodKey for
+ * a weekly claimReminderDispatch. Like isoDateKey this is a comparison key, never a
+ * display value, and must never change zone.
+ */
+export function isoWeekKey(d: Date): string {
+  const dayMs = 86_400_000;
+  // ISO 8601 defines a week's year as the year containing its Thursday, so shift to
+  // this date's Thursday first. That is what makes late-December and early-January
+  // weeks land in the right year instead of splitting across two keys.
+  const thursday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dow = (thursday.getUTCDay() + 6) % 7; // 0 = Monday
+  thursday.setUTCDate(thursday.getUTCDate() - dow + 3);
+
+  const isoYear = thursday.getUTCFullYear();
+
+  // Week 1 is the week containing January 4th, so its Thursday is the reference point.
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstDow = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDow + 3);
+
+  const week = 1 + Math.round((thursday.getTime() - firstThursday.getTime()) / (7 * dayMs));
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
+}

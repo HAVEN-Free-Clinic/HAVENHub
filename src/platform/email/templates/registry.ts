@@ -1,6 +1,7 @@
 import type { TemplateDescriptor } from "./types";
 import { layoutDescriptor } from "./layout";
 import { complianceDescriptors } from "./compliance";
+import { clearanceDescriptors } from "./clearance";
 import { epicDescriptors } from "./epic";
 import { recruitmentDescriptors } from "./recruitment";
 import { supportDescriptors } from "./support";
@@ -15,6 +16,7 @@ export const LAYOUT_KEY = "layout";
 const ALL: TemplateDescriptor[] = [
   layoutDescriptor,
   ...complianceDescriptors,
+  ...clearanceDescriptors,
   ...epicDescriptors,
   ...recruitmentDescriptors,
   ...supportDescriptors,

@@ -223,6 +223,7 @@ model Person {
   licensedRN                     Boolean                    @default(false)
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
+  historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -1792,4 +1793,111 @@ model MemberLoginToken {
 
   @@index([emailLower])
   @@index([personId])
+}
+
+enum HistoricalStage {
+  APPLIED
+  ADVANCED
+  FINAL_ROUND
+  ACCEPTED
+  ONBOARDED
+}
+
+enum HistoricalOutcome {
+  ACCEPTED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+  INELIGIBLE
+  NO_DECISION
+  UNKNOWN
+}
+
+model HistoricalApplicant {
+  id           String  @id @default(cuid())
+  /// Lowercased, and only when the source value passes isNetIdShaped(). The
+  /// strongest join key available: stable across a student's whole Yale career.
+  netId        String? @unique
+  /// Display only. Matching goes through the emails relation, never this column.
+  primaryEmail String
+  firstName    String
+  lastName     String
+  /// Resolved at import and re-resolved on every re-run, so a 2024 reject who
+  /// joins in 2026 retroactively gains their history. Never load-bearing: the
+  /// reviewer card matches on netId/email directly, because most past applicants
+  /// have no Person row at all.
+  personId     String?
+  person       Person? @relation("historicalApplicantPerson", fields: [personId], references: [id], onDelete: SetNull)
+
+  emails       HistoricalApplicantEmail[]
+  applications HistoricalApplication[]
+  interests    HistoricalInterest[]
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  @@index([personId])
+  @@index([lastName, firstName])
+}
+
+model HistoricalApplicantEmail {
+  id          String @id @default(cuid())
+  applicantId String
+  /// Lowercased and unique ACROSS ALL applicants. The database enforces what the
+  /// identity pass computes: a merge bug fails loudly on insert instead of
+  /// silently splitting one person into two half-timelines.
+  email       String @unique
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@index([applicantId])
+}
+
+model HistoricalApplication {
+  id             String @id @default(cuid())
+  applicantId    String
+  /// Provenance and idempotency key. Re-running the import updates in place.
+  sourceBaseId   String
+  sourceTableId  String
+  sourceRecordId String
+
+  cycleCode  String // "V-FA25"
+  cycleLabel String // "Fall 2025 Volunteer Recruitment"
+  track      Track
+  /// Plain string, no FK. History must outlive a Term being renamed or absent.
+  termCode   String?
+
+  applicantType     ApplicantType?
+  /// Hub department CODES, resolved at import. Strings rather than FKs: BVHD,
+  /// SCTP, SCTS and INTP appear across the old bases and may since have been
+  /// renamed or retired. A FK would either block the import or silently rewrite
+  /// history when a department row is edited.
+  departmentChoices String[]
+  resultDepartment  String?
+
+  furthestStage HistoricalStage
+  outcome       HistoricalOutcome
+  submittedAt   DateTime?
+  decidedAt     DateTime?
+  /// Source values no adapter could map, kept verbatim for auditing. Never rendered.
+  unmappedNotes Json?
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceBaseId, sourceTableId, sourceRecordId])
+  @@index([applicantId, submittedAt])
+  @@index([cycleCode])
+}
+
+model HistoricalInterest {
+  id             String    @id @default(cuid())
+  applicantId    String
+  sourceBaseId   String
+  sourceTableId  String
+  sourceRecordId String
+  submittedAt    DateTime?
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceBaseId, sourceTableId, sourceRecordId])
+  @@index([applicantId])
 }

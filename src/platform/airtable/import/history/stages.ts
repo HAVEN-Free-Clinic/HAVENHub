@@ -22,12 +22,39 @@ export function deriveStage(s: StageSignals): HistoricalStage {
   return "APPLIED";
 }
 
+/**
+ * Ordered: the FIRST matching pattern wins, so the order encodes real
+ * precedence decisions rather than style.
+ *
+ * Every pattern is derived from the actual distinct values across all ten
+ * source bases, tallied 2026-08-05, not from guesswork:
+ *
+ *   Approved 1270, Confirmed 827, Rejected 618,
+ *   "Rejection - Department Capacity" 163, "Rejection - Ineligible Applicant" 19,
+ *   "Rejection - Other" 19, "R2 Deferral" 10, Ineligible 5, Pending 2,
+ *   Withdrawn 1, "Awaiting Confirmation" 1
+ *
+ * Note that "Approved" and "Confirmed", not "Accepted", are how these bases
+ * actually spell an acceptance. They are 2097 of the 2131 acceptances.
+ *
+ * Two orderings are load-bearing:
+ *
+ *   INELIGIBLE precedes REJECTED so "Rejection - Ineligible Applicant" lands
+ *   as INELIGIBLE. Ops ruled those applicants were not turned down on merit,
+ *   so a later reapplication must not read as a prior rejection.
+ *
+ *   The in-flight patterns precede ACCEPTED so "Awaiting Confirmation" is not
+ *   swallowed by the "Confirmed" rule. ACCEPTED is anchored with ^ for the
+ *   same reason. Do not relax it to a substring match.
+ */
 const OUTCOMES: Array<[RegExp, HistoricalOutcome]> = [
-  [/^accept/i, "ACCEPTED"],
-  [/^(reject|den(y|ied)|no)$|^reject/i, "REJECTED"],
+  [/ineligib/i, "INELIGIBLE"],
+  [/^(pending|awaiting)/i, "NO_DECISION"],
+  [/defer/i, "NO_DECISION"],
+  [/^(approve|confirm|accept)/i, "ACCEPTED"],
+  [/^(reject|den(y|ied))/i, "REJECTED"],
   [/^wait ?list/i, "WAITLISTED"],
   [/^withdr/i, "WITHDRAWN"],
-  [/^ineligib/i, "INELIGIBLE"],
 ];
 
 /**

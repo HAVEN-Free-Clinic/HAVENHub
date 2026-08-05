@@ -1131,6 +1131,28 @@ describe("transformDirector", () => {
     expect(row.outcome).toBe("ACCEPTED");
   });
 
+  it("falls back to the linked-record email when the direct field is empty", () => {
+    // Not a hypothetical: 57 of D-SU26's 76 rows look like this, because
+    // returning applicants link an existing record instead of retyping.
+    // Reading only F.email drops three quarters of that cycle.
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.emailFromRecord]: ["linked@yale.edu"] })],
+      finalDecisions: [],
+    }, SOURCE_SU26);
+    expect(row).toBeDefined();
+    expect(row.identity.email).toBe("linked@yale.edu");
+  });
+
+  it("prefers the direct email when both are present", () => {
+    const [row] = transformDirector({
+      applications: [record("rec1", {
+        [F.email]: "direct@yale.edu", [F.emailFromRecord]: ["linked@yale.edu"],
+      })],
+      finalDecisions: [],
+    }, SOURCE_SU26);
+    expect(row.identity.email).toBe("direct@yale.edu");
+  });
+
   it("skips contactless rows", () => {
     expect(transformDirector(only([record("rec1", {})]), SOURCE)).toHaveLength(0);
   });
@@ -1161,6 +1183,16 @@ export const DIRECTOR_FIELDS = {
   firstName: "fldmyKP0uuIvMWo2F",
   lastName: "fldr0cJ1wWVMB9HjJ",
   email: "flddxvLy47P1dotdt",
+  /**
+   * SECOND email source, and it is not optional. D-SU26 routes most applicants
+   * through a linked record, so the direct Yale Email field is EMPTY on 57 of
+   * its 76 rows while this lookup carries 58. Reading only `email` would drop
+   * three quarters of that cycle as contactless cruft. Verified 2026-08-05:
+   *   D-SU26: Yale Email 19/76, email from record 58/76, union 75/76.
+   * Absent on the older director bases, where `fields[...]` is simply
+   * undefined and the fallback is a no-op.
+   */
+  emailFromRecord: "fldERuDIrmqOiLrzC",
   netId: "fldDT16TCdgMZmB9S",
   dept1: "fldQJbP4sHT2w2Vit",
   dept2: "fldGotOFXGfqJr17b",
@@ -1200,7 +1232,9 @@ export function transformDirector(
 
   for (const record of tables.applications ?? []) {
     const f = record.fields;
-    const email = str(f[F.email]);
+    // Two sources, in order. See the comment on DIRECTOR_FIELDS.emailFromRecord:
+    // reading only the direct field drops 57 of D-SU26's 76 applicants.
+    const email = str(f[F.email]) ?? lookupFirst(f[F.emailFromRecord]);
     const rawNetId = str(f[F.netId]);
     if (!email && !rawNetId) continue;
 
@@ -1472,6 +1506,15 @@ Good news: **V-SU26 needs only the Applicants table.** It carries link fields to
 export const SU26_FIELDS = {
   firstName: "fldiZWK1yycg5rwB3",
   lastName: "fldwLgLBjxGr6NYvy",
+  /**
+   * PRIMARY email source: a formula, populated on all 358 rows. Read this
+   * FIRST. The direct `email` field below is populated on only 161, because
+   * returning members link an existing record instead of retyping their
+   * address. Reading only the direct field would drop 197 of 358 applicants
+   * as contactless cruft. Verified 2026-08-05:
+   *   Primary Email 358/358, Email 161/358, email from record 204/358.
+   */
+  primaryEmail: "fldpyzUIOubXWqrQ3",
   email: "fldA2aimGltA8NX1G",
   netId: "fldaDUQ4PIQuzUVT8",
   dept1: "fldQvDs0wg4EDTMLo",
@@ -1483,7 +1526,27 @@ export const SU26_FIELDS = {
 } as const;
 ```
 
-`accepted` is a non-empty `acceptances` link, `onboarded` a non-empty `contracts` link, and `submittedAt` parses the createdTime string into a `Date`. Test the same behaviors as Task 6: identity mapping, NetID rejection, accepted, onboarded, department order, and cruft skipping.
+Resolve the email as `flat(f[F.primaryEmail]) ?? str(f[F.email])`, where `flat` unwraps a single-element array (formula and lookup cells can arrive either way). `accepted` is a non-empty `acceptances` link, `onboarded` a non-empty `contracts` link, and `submittedAt` parses the createdTime string into a `Date`.
+
+Test the same behaviors as Task 6 (identity mapping, NetID rejection, accepted, onboarded, department order, cruft skipping) PLUS these two, which guard the 197-row drop:
+
+```ts
+it("reads the formula Primary Email when the direct Email field is empty", () => {
+  // 197 of SU26's 358 rows look exactly like this.
+  const [row] = transformVolunteerSu26({
+    applicants: [record("rec1", { [F.primaryEmail]: "linked@yale.edu" })],
+  }, SOURCE);
+  expect(row).toBeDefined();
+  expect(row.identity.email).toBe("linked@yale.edu");
+});
+
+it("unwraps a single-element array from the formula cell", () => {
+  const [row] = transformVolunteerSu26({
+    applicants: [record("rec1", { [F.primaryEmail]: ["boxed@yale.edu"] })],
+  }, SOURCE);
+  expect(row.identity.email).toBe("boxed@yale.edu");
+});
+```
 
 - [ ] **Step 5: Write the interest-form adapter**
 

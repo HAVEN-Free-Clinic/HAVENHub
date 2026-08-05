@@ -74,6 +74,15 @@ cutover window, and the same token is the entirety of the rollback path describe
 above. Removing it here, thinking of it as Blob-era cleanup, converts both of
 those safety nets into a silent outage the next time anyone needs them.
 
+Leave `BLOB_READ_WRITE_TOKEN` unset on the preview scope, or confirm it points at
+a staging Blob store, not the production one. Preview deploys already run against
+the production database (see `docs/runbooks/r2-bucket-setup.md`'s reasoning for
+keeping preview and production R2 buckets separate), and with both a Blob token
+and R2 configured, deletes fan out to Blob as well as R2. A reviewer replacing a
+file on a preview build could otherwise issue a `deletePrefix` against whatever
+Blob store the preview token points at, using real keys read from the production
+database.
+
 ## 4. Smoke-test
 
 - Open a HIPAA certificate from `/my-info` and confirm the PDF renders.
@@ -86,8 +95,19 @@ those safety nets into a silent outage the next time anyone needs them.
 
 ## 5. Sweep the cutover window
 
-Re-run `npm run migrate:r2:apply`. This copies anything written to Blob between
-step 2 and step 3. Expect a small number of new objects, or zero.
+Dry-run first -- `npm run migrate:r2:dry` -- and inspect the `would copy` list
+before applying. Step 3's deploy made R2 the live store, so anything written to
+a fixed key since then (for example a branding logo re-upload from
+`/admin/settings`) already sits in R2 with newer bytes than the frozen Blob
+snapshot has at that same key. The script's presence check is a plain existence
+check, not a size or content comparison, precisely so it never mistakes that
+newer R2 object for something stale and copies the old Blob bytes back over it
+-- but the dry run is still the cheap way to confirm the `would copy` list is
+exactly what you expect (objects genuinely written to Blob only, during the
+step 2/step 3 window) before running `--apply`.
+
+Then re-run `npm run migrate:r2:apply`. This copies anything written to Blob
+between step 2 and step 3. Expect a small number of new objects, or zero.
 
 This is no longer about preventing a 404: the read-through fallback described
 above already serves cutover-window objects live, before this step ever runs.
@@ -97,16 +117,9 @@ any object that exists only in Blob and was never copied into R2 is lost for goo
 at that point, read-through or not. Run this step before step 7 regardless of
 whether the smoke test in step 4 turned up anything missing.
 
-This pass is not free, either: the script checks whether an object is already in
-R2 by downloading its full body from R2 and comparing the byte count.
-`src/platform/storage/r2.ts` exposes only a full-body `getObject`, not a
-head-only check (R2's underlying S3 API does support `HeadObject`; the driver
-here just does not use it). On this second pass, that means every object copied
-in step 2 gets fully re-downloaded from R2 just to confirm it is already there,
-even though nothing new is written for it. For a store holding large SCORM
-packages, expect this sweep to take noticeably longer than the object count
-written to Blob during the cutover window would suggest -- its runtime tracks
-the size of the whole store, not just the size of what changed.
+The presence check is a `HeadObject` call, not a full-body download, so this
+pass is cheap: it does not re-download every object step 2 already copied just
+to confirm it is still there.
 
 ## 6. Verify
 

@@ -1681,7 +1681,7 @@ git commit -m "docs(storage): add the R2 cutover runbook"
 - [ ] Typecheck: `npm run typecheck`
 - [ ] Lint the whole repo: `npm run lint`
 - [ ] Confirm no application code imports Vercel Blob: `grep -rn "@vercel/blob" --include="*.ts" --include="*.tsx" src` returns nothing
-- [ ] Confirm the storage public API is unchanged: `grep -rn "from \"@/platform/storage\"" --include="*.ts" --include="*.tsx" src | wc -l` still returns 24
+- [ ] Confirm the storage public API is unchanged: `grep -rn "from \"@/platform/storage\"" --include="*.ts" --include="*.tsx" src | wc -l` now returns 25, not the 24 this checklist originally shipped with -- `src/app/api/learning/upload-url/route.ts` is a new importer added by Task 4 for `supportsPresignedUpload`
 
 ## What cannot be verified without a real bucket
 

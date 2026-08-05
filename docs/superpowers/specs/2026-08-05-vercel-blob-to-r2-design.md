@@ -66,17 +66,36 @@ singleton, presigning, and list pagination on top of that.
 
 | File | Responsibility |
 | --- | --- |
-| `storage/index.ts` | Public API, driver selection, prefix validation |
+| `storage/index.ts` | Public API, driver selection, read-through, prefix validation |
 | `storage/r2.ts` | S3 client, the four operations, presign helper |
+| `storage/blob.ts` | Vercel Blob driver, retained only for rollback and cutover-window read-through (added after this document's original design, in Task 8) |
 | `storage/disk.ts` | Local filesystem driver, moved verbatim |
 
 ### Driver selection
 
-R2 is used when all four of `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-`R2_SECRET_ACCESS_KEY`, and `R2_BUCKET` are set. Local disk is used when none
-are set.
+Three-way, selected at runtime in `storage/index.ts`:
 
-**A partially-set configuration must throw at boot.** This is a deliberate
+- **R2** whenever `R2_BUCKET` is set (and, by the all-or-nothing guard below,
+  the other three `R2_*` variables with it). The primary store in every
+  deployed environment.
+- **Vercel Blob** whenever `R2_BUCKET` is unset and `BLOB_READ_WRITE_TOKEN` is
+  set. This is the rolled-back state: the app reads and writes Blob exactly as
+  it did before this migration.
+- **Local disk** only when neither is set -- local dev, CI, and the test suite.
+
+Unsetting the R2 variables does NOT land on local disk while a Blob token is
+still configured; it lands on Blob. Local disk is reached only when nothing
+remote is configured at all.
+
+While R2 is active and a Blob token is also present (the cutover window),
+`getObject` reads R2 first and falls through to Blob on a miss, so an object
+written to Blob between the backfill and the deploy is served immediately
+rather than 404ing until the next backfill pass. `deleteObject` and
+`deletePrefix` fan out to both stores in that same window: deleting only from
+R2 would leave a Blob-only object for the read-through to resurrect on the next
+read.
+
+**A partially-set R2 configuration must throw at boot.** This is a deliberate
 change from today's behavior, not an incidental one. Right now a missing
 `BLOB_READ_WRITE_TOKEN` silently degrades to the disk driver, and on Vercel the
 function filesystem is ephemeral, so uploads appear to succeed and then vanish on
@@ -120,25 +139,35 @@ server-side only.
 before any list or delete call, so the R2 driver inherits the same rejection of
 `..`, absolute paths, and backslashes.
 
-### Exported flag rename
+### Two exported flags
 
-`usingBlobStorage` becomes `usingRemoteStorage`. The new name states the actual
-predicate: storage is remote, so bytes do not land on this machine.
+`usingBlobStorage` becomes `usingRemoteStorage`. Originally (this document's
+first draft) that meant "R2 is configured," full stop. Task 8 broadens the
+predicate to "bytes live in ANY remote store": `r2Active || blobConfigured`, so
+it is also true in the rolled-back, Blob-only state.
 
-It has three consumers, two of which are **safety guards** whose logic depends on
-the flag meaning "remote", not specifically "Blob":
+It has two consumers, both **safety guards** whose logic depends on the flag
+meaning "remote", not specifically "R2":
 
 | Consumer | Use |
 | --- | --- |
-| `learning/manage/[courseId]/page.tsx` | Chooses the direct-upload form over the Server Action form |
 | `scripts/import-certificates.ts` | `assertStorageMatchesDatabase` refuses to run against a remote database while bytes silently go to local disk |
 | `scripts/seed-ux-audit-fixtures.ts` | `assertLocalStorage` refuses to write and delete fixture PDFs in a shared remote store |
 
-Both guards keep working under the rename because the predicate is unchanged,
-but their error messages and comments name `BLOB_READ_WRITE_TOKEN` and "Vercel
-Blob" explicitly and must be updated to name the R2 variables instead. Leaving
-stale text there would send an operator hunting for an environment variable the
-application no longer reads.
+Both guards keep working after the widening because the predicate they check
+("remote", not "which remote") is unchanged, but their error messages and
+comments must name whichever store is actually active (R2 or Blob) rather than
+naming only one.
+
+A second, narrower flag, `supportsPresignedUpload`, is `r2Active` alone: true
+only when R2 itself is configured, because only the R2 driver can presign a PUT.
+Its one consumer, `learning/manage/[courseId]/page.tsx`, gates the SCORM upload
+form's direct-upload path on this flag, not on `usingRemoteStorage`. The two
+diverge in exactly the rolled-back state: bytes are remote (in Blob), so
+`usingRemoteStorage` is true, but presigning against Blob is not a thing, so
+gating the direct-upload path on `usingRemoteStorage` there would build an R2
+presigned request from undefined credentials. Using the wrong flag for this
+choice was an actual bug caught during this migration, not a hypothetical one.
 
 ## SCORM upload via presigned PUT
 
@@ -207,8 +236,10 @@ conventions.
 - Skips `scorm-uploads/` staging artifacts. Those were written with
   `addRandomSuffix: true`, are transient inputs to ingest rather than served
   content, and are not referenced by any database row.
-- Ends with a verification pass comparing key sets on both sides and printing
-  counts, total bytes, and any failures.
+- Prints counts, total bytes, and any failures when it finishes. It does not
+  itself compare key sets between Blob and R2 -- that verification is manual:
+  the cutover runbook's step 6 has the operator compare object counts between
+  the Vercel Blob dashboard and the R2 bucket.
 
 ## Cutover
 
@@ -279,5 +310,5 @@ token is gone and the Blob store it pointed at no longer exists.
 | SDK checksum defaults break PUT or presigning | Explicit `WHEN_REQUIRED` settings, verified against a real bucket before merge |
 | Missing CORS rule breaks browser upload with an opaque error | Documented as an explicit prerequisite in the runbook |
 | Partial R2 config silently falls back to disk in production | `config.ts` guard throws at boot |
-| Write lands in Blob during the cutover window | Backfill re-run in step 4 |
+| Write lands in Blob during the cutover window | Closed by read-through: `getObject` falls back to Blob on an R2 miss (`storage/index.ts`, Task 8), so the object is served correctly the moment the step-3 deploy is live. The sweep in step 5 still copies it into R2 itself before step 7 deletes the Blob store. |
 | Backfill interrupted midway | Idempotent and resumable by design |

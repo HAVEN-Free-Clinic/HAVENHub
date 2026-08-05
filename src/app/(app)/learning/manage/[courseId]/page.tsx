@@ -13,7 +13,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { getCourseForEdit } from "@/modules/learning/services/courses";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { usingBlobStorage } from "@/platform/storage";
+import { usingRemoteStorage } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
 
@@ -110,7 +110,7 @@ export default async function EditCoursePage({
               ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
-          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingBlob={usingBlobStorage} />
+          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingBlob={usingRemoteStorage} />
         </div>
       </div>
     </>

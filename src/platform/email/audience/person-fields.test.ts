@@ -89,6 +89,26 @@ describe("person fields", () => {
   });
 });
 
+describe("yaleAffiliation audience field", () => {
+  it("offers the 13 canonical options as an enum", () => {
+    const view = PERSON_FIELD_VIEWS.find((f) => f.key === "yaleAffiliation")!;
+    expect(view.kind).toBe("enum");
+    expect(view.options).toHaveLength(13);
+    expect(view.options?.map((o) => o.value)).toContain("ysm_md");
+  });
+
+  it("yaleAffiliation -> direct equality on the canonical key", () => {
+    expect(personFieldWhere({ field: "yaleAffiliation", op: "eq", value: "ysm_md" }, ctx))
+      .toEqual({ yaleAffiliation: "ysm_md" });
+  });
+
+  it("yaleAffiliation -> an empty value matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "yaleAffiliation", op: "eq", value: "" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "yaleAffiliation", op: "eq", value: "   " }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "yaleAffiliation", op: "eq" }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
 describe("text operators", () => {
   it("contains -> case-insensitive contains", () => {
     expect(personFieldWhere({ field: "name", op: "contains", value: "jane" }, ctx)).toEqual({

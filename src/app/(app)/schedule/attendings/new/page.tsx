@@ -4,12 +4,9 @@ import { createAttending, canManageAnyRhdDept, CAPABILITY_KEYS, AttendingValidat
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
 import { PageHeader } from "@/platform/ui/page-header";
 
-type PageProps = { searchParams: Promise<{ error?: string }> };
-
-export default async function NewAttendingPage({ searchParams }: PageProps) {
+export default async function NewAttendingPage() {
   const session = await requireModuleAccess("schedule");
   if (!(await canManageAnyRhdDept(session.personId))) redirect("/no-access");
-  const { error } = await searchParams;
 
   async function createAction(formData: FormData) {
     "use server";
@@ -36,7 +33,7 @@ export default async function NewAttendingPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader title="Add attending" />
-      <AttendingForm action={createAction} error={error} />
+      <AttendingForm action={createAction} />
     </div>
   );
 }

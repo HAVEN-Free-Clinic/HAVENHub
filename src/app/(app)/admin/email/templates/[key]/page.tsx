@@ -13,7 +13,6 @@ import { sendSenderTest } from "@/modules/admin/services/email";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { Alert } from "@/platform/ui/alert";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
@@ -21,13 +20,11 @@ import { TemplateEditor } from "./preview";
 
 type Props = {
   params: Promise<{ key: string }>;
-  searchParams: Promise<{ error?: string }>;
 };
 
-export default async function EditTemplatePage({ params, searchParams }: Props) {
+export default async function EditTemplatePage({ params }: Props) {
   await requirePermission("admin.manage_email_templates");
   const { key } = await params;
-  const { error } = await searchParams;
   const decodedKey = decodeURIComponent(key);
   // A mistyped, stale, or renamed template key throws "Unknown email template:
   // ...". Render the standard not-found page for that case instead of letting the
@@ -121,8 +118,6 @@ export default async function EditTemplatePage({ params, searchParams }: Props) 
         title={t.name}
         description={t.hasOverride ? "Customized" : "Using default"}
       />
-
-      {error ? <Alert tone="error">{error}</Alert> : null}
 
       <form action={saveAction}>
         <Card className="space-y-6">

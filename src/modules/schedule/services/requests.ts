@@ -16,12 +16,9 @@ import type { ShiftRequest } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
-import {
-  departmentDirectorPersonIds,
-  manageableDepartmentIds,
-  memberDepartmentIds,
-} from "@/platform/departments";
-import { can } from "@/platform/rbac/engine";
+import { displayTodayKey } from "@/platform/dates/today";
+import { departmentDirectorPersonIds, manageableDepartmentIds } from "@/platform/departments";
+import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import {
   validateRequest,
   planApply,
@@ -103,17 +100,18 @@ async function buildScheduleRows(
 }
 
 export async function manageableRequestDepartmentIds(personId: string): Promise<string[]> {
-  const [base, manageRequests, editAll] = await Promise.all([
+  const [base, manageRequestIds, editAll] = await Promise.all([
     manageableDepartmentIds(personId),
-    can(personId, "schedule.manage_requests"),
+    permissionDepartmentIds(personId, "schedule.manage_requests"),
     can(personId, "schedule.edit_all"),
   ]);
 
   const ids = new Set<string>(base);
 
-  if (manageRequests) {
-    for (const id of await memberDepartmentIds(personId)) ids.add(id);
-  }
+  // manage_requests is scoped to the departments the grant reaches, so a
+  // director who also volunteers elsewhere cannot decide that department's
+  // requests.
+  for (const id of manageRequestIds) ids.add(id);
 
   if (editAll) {
     const all = await prisma.department.findMany({ select: { id: true } });
@@ -178,9 +176,12 @@ async function scopeCheck(actorPersonId: string, departmentId: string): Promise<
  * Recipients =
  *   - department directors by membership + one-hop delegated directors
  *     ({@link departmentDirectorPersonIds}), PLUS
- *   - schedule.manage_requests holders who are ACTIVE members of the department
- *     (manageableRequestDepartmentIds only extends such a holder to departments
- *     they belong to).
+ *   - ACTIVE members of the department whose schedule.manage_requests grant
+ *     actually reaches it (permissionDepartmentIds, the same scoping
+ *     manageableRequestDepartmentIds applies for approveRequest/denyRequest).
+ *     A holder whose grant came from a Director-kind assignment is not an
+ *     approver in a department they merely volunteer in, so they are not
+ *     emailed about it either.
  *
  * Blanket schedule.edit_all admins are intentionally excluded so a routine drop
  * request does not email every org-wide administrator. Deduped by person; the
@@ -211,7 +212,11 @@ export async function requestApproverRecipients(
   const manageRequestsMemberIds = (
     await Promise.all(
       memberIds.map(async (pid) =>
-        (await can(pid, "schedule.manage_requests")) ? pid : null,
+        (await permissionDepartmentIds(pid, "schedule.manage_requests", termId)).includes(
+          departmentId,
+        )
+          ? pid
+          : null,
       ),
     )
   ).filter((pid): pid is string => pid !== null);
@@ -305,6 +310,7 @@ export async function createRequest(
     targetDateKey?: string;
     note?: string;
   },
+  now: Date = new Date(),
 ): Promise<ShiftRequest> {
   const terms = await getPersonTerms(actorPersonId);
   const term = terms.find((t) => t.id === input.termId);
@@ -339,6 +345,19 @@ export async function createRequest(
       );
     }
     canonicalTargetDate = d;
+  }
+
+  // Past-date guard: run only once both keys are proven real clinic dates
+  // (above), so an invalid date is reported as invalid rather than masked
+  // behind a stale-date message. >= today: a same-day request against the
+  // morning of the clinic day is a real case, so today counts as valid, not
+  // past; only a date that has fully elapsed is refused.
+  const todayKey = await displayTodayKey(now);
+  if (
+    input.requesterDateKey < todayKey ||
+    (input.targetDateKey !== undefined && input.targetDateKey < todayKey)
+  ) {
+    throw new RequestValidationError("That clinic date has already passed.");
   }
 
   const scheduleRows = await buildScheduleRows(term.id, input.departmentId);
@@ -651,6 +670,7 @@ export async function listDepartmentRequests(
 export async function approveRequest(
   actorPersonId: string,
   requestId: string,
+  now: Date = new Date(),
 ): Promise<void> {
   const req = await prisma.shiftRequest.findUnique({ where: { id: requestId } });
   if (!req) {
@@ -667,6 +687,23 @@ export async function approveRequest(
 
   const requesterDateKey = isoDateKey(req.requesterDate);
   const targetDateKey = req.targetDate ? isoDateKey(req.targetDate) : undefined;
+
+  // Past-date guard: approving a drop issues a deleteMany on ShiftAssignment,
+  // which is the record that this person worked that day, so approving a
+  // stale request would silently erase attendance history. This makes a
+  // request unapprovable once its date has passed, so the message names Deny
+  // (unguarded, see denyRequest) as the disposition that remains available.
+  // >= today: same-day approval is legitimate; only a fully elapsed date is
+  // refused.
+  const todayKey = await displayTodayKey(now);
+  if (
+    requesterDateKey < todayKey ||
+    (targetDateKey !== undefined && targetDateKey < todayKey)
+  ) {
+    throw new RequestValidationError(
+      "This request is for a clinic date that has already passed. Deny it instead.",
+    );
+  }
 
   const validationResult = validateRequest({
     scheduleRows,
@@ -708,7 +745,10 @@ export async function approveRequest(
     clinicDateMap.set(isoDateKey(d), d);
   }
 
-  const now = new Date();
+  // The actual decision timestamp -- always the real clock, unlike the `now`
+  // parameter above (which only supplies the past-date guard's reference
+  // "today" and defaults to the real clock itself).
+  const decidedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
     if (req.targetId && req.targetDate) {
@@ -834,7 +874,7 @@ export async function approveRequest(
       data: {
         status: "APPROVED",
         decidedById: actorPersonId,
-        decidedAt: now,
+        decidedAt,
       },
     });
     if (count === 0) {
@@ -1020,9 +1060,12 @@ export async function eligibleSwapPartners(
   requesterDateKey: string,
   departmentId: string,
   termId: string,
+  now: Date = new Date(),
 ): Promise<Array<{ personId: string; name: string; dateKey: string }>> {
   const term = await prisma.term.findUnique({ where: { id: termId } });
   if (!term) return [];
+
+  const todayKey = await displayTodayKey(now);
 
   const actorAssignment = await prisma.shiftAssignment.findFirst({
     where: {
@@ -1094,7 +1137,13 @@ export async function eligibleSwapPartners(
         // approveRequest re-checks this on the write path.
         activeMemberIds.has(p.personId) &&
         !actorBusyDateKeys.has(isoDateKey(p.clinicDate)) &&
-        !partnerIdsOnRequesterDate.has(p.personId),
+        !partnerIdsOnRequesterDate.has(p.personId) &&
+        // A partner's only free date can't be in the past: swapping onto it
+        // would hand the actor a shift that has already happened. >= today,
+        // not >, since a partner free on the morning of the clinic day is a
+        // real, offerable option; createRequest and approveRequest enforce
+        // the same boundary on the write path.
+        isoDateKey(p.clinicDate) >= todayKey,
     )
     .map((p) => ({
       personId: p.personId,

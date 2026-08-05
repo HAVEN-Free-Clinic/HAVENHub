@@ -8,6 +8,19 @@ export function normalizeDeptCode(code: string): string {
   return ALIASES[c] ?? c;
 }
 
+/**
+ * The generated title for a department supplement section, built from the
+ * normalized code alone (no Department table lookup at template time -- see
+ * department-options.ts for why the display name is swapped in at render
+ * time instead). volunteer.ts and director.ts call this rather than
+ * inlining the literal so there is exactly one expression to keep in sync
+ * with department-options.ts's resolveSectionTitle, which imports this same
+ * function to know what "still the generated default" means.
+ */
+export function defaultSupplementSectionTitle(code: string): string {
+  return `${code} department questions`;
+}
+
 // Canonical (normalized) department codes that carry a supplement section,
 // extracted verbatim from the live Airtable application forms.
 export const SUPPLEMENT_DEPARTMENTS: Record<Track, string[]> = {

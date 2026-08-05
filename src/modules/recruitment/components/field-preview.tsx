@@ -116,9 +116,16 @@ export function FieldPreview({
       );
       break;
     }
-    case "DEPARTMENT_CHOICE":
-      control = <Select name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{departments.map((d) => <option key={d} value={d}>{d}</option>)}</Select>;
+    case "DEPARTMENT_CHOICE": {
+      // f.options carries resolved { value: code, label: name } pairs when the
+      // caller has injected them (the live apply page). The form builder's own
+      // preview never injects options -- nothing authors them there -- so this
+      // falls back to the raw `departments` codes; removing the fallback would
+      // blank the builder's dropdown.
+      const deptOptions = f.options ?? departments.map((d) => ({ value: d, label: d }));
+      control = <Select name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{deptOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;
+    }
     case "SINGLE_SELECT":
       control = <Select name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;

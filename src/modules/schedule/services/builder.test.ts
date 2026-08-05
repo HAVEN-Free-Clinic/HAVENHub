@@ -177,6 +177,39 @@ async function grantPermission(personId: string, permission: string) {
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId } });
 }
 
+/**
+ * Grants a permission to everyone holding a membership of `kind` in `termId` --
+ * the "All Directors" / "All Volunteers" baseline assignment shape.
+ */
+async function grantPermissionToKind(
+  kind: "VOLUNTEER" | "DIRECTOR",
+  permission: string,
+  termId: string,
+) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${kind}-${permission}-${Date.now()}-${Math.random()}`,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, kind, termId } });
+}
+
+/** Grants a permission to every active member of one department. */
+async function grantPermissionToDepartment(
+  departmentId: string,
+  permission: string,
+  termId: string,
+) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-dept-${permission}-${Date.now()}-${Math.random()}`,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, departmentId, termId } });
+}
+
 async function createCycle(termId: string, track: "VOLUNTEER" | "DIRECTOR", creatorId: string) {
   return prisma.recruitmentCycle.create({
     data: {
@@ -288,6 +321,51 @@ describe("manageableScheduleDepartmentIds", () => {
 
     const ids = await manageableScheduleDepartmentIds(person.id);
     expect(ids).toContain(dept.id);
+  });
+
+  it("does NOT leak into a volunteer department when edit_own_dept came from a DIRECTOR assignment", async () => {
+    // A person who directs one department and volunteers in another. The role
+    // carrying schedule.edit_own_dept is assigned to "All Directors", so the
+    // permission must only reach the department they actually direct.
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const directed = await createDepartment("DIRD");
+    const volunteered = await createDepartment("VOLD");
+    const person = await createPerson("Director-and-Volunteer");
+    await createMembership(person.id, term.id, directed.id, "DIRECTOR");
+    await createMembership(person.id, term.id, volunteered.id, "VOLUNTEER");
+    await grantPermissionToKind("DIRECTOR", "schedule.edit_own_dept", term.id);
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).toContain(directed.id);
+    expect(ids).not.toContain(volunteered.id);
+  });
+
+  it("reaches volunteer departments when edit_own_dept came from a VOLUNTEER assignment", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const dept = await createDepartment("VOPS");
+    const person = await createPerson("Volunteer-Ops");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermissionToKind("VOLUNTEER", "schedule.edit_own_dept", term.id);
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).toContain(dept.id);
+  });
+
+  it("scopes edit_own_dept to the assigned department for a department assignment", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates, "ACTIVE");
+    const granted = await createDepartment("GRNT");
+    const other = await createDepartment("OTHR");
+    const person = await createPerson("Two-Dept Volunteer");
+    await createMembership(person.id, term.id, granted.id, "VOLUNTEER");
+    await createMembership(person.id, term.id, other.id, "VOLUNTEER");
+    await grantPermissionToDepartment(granted.id, "schedule.edit_own_dept", term.id);
+
+    const ids = await manageableScheduleDepartmentIds(person.id);
+    expect(ids).toContain(granted.id);
+    expect(ids).not.toContain(other.id);
   });
 
   it("does NOT include member departments without schedule.edit_own_dept", async () => {

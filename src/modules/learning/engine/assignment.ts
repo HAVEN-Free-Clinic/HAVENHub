@@ -7,7 +7,7 @@
  *  uploading its package from locking every assigned member out of the onboarding
  *  gate with a requirement they can never complete (the player has no SCO to
  *  finish). */
-import type { CourseAudience, Track } from "@prisma/client";
+import type { CourseAudience, CourseRecurrence, Track } from "@prisma/client";
 
 export type AssignableCourse = {
   id: string;
@@ -39,6 +39,26 @@ export function audienceToKind(audience: CourseAudience): Track | null {
 export function kindMatchesAudience(kind: Track, audience: CourseAudience): boolean {
   const required = audienceToKind(audience);
   return required === null || kind === required;
+}
+
+/**
+ * Split a batch of courses' ids by whether their progress lookup must be scoped
+ * to a term. PER_TERM courses go in `perTermIds` (a caller must filter by the
+ * relevant termId); ONCE courses go in `onceIds` and stay unscoped, preserving
+ * today's behavior (a completion counts forever). Shared so every progress
+ * reader (getMyCourses, loadClearanceMap, ...) applies the exact same
+ * recurrence rule instead of each re-deriving it and risking drift between
+ * the checklist and the schedule builder's clearance map.
+ */
+export function splitByRecurrence<T extends { id: string; recurrence: CourseRecurrence }>(
+  courses: T[]
+): { onceIds: string[]; perTermIds: string[] } {
+  const onceIds: string[] = [];
+  const perTermIds: string[] = [];
+  for (const c of courses) {
+    (c.recurrence === "PER_TERM" ? perTermIds : onceIds).push(c.id);
+  }
+  return { onceIds, perTermIds };
 }
 
 export function coursesForMember(params: {

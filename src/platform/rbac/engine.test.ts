@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { can, getEffectivePermissions, hasPermission } from "./engine";
+import { can, getEffectivePermissions, hasPermission, permissionDepartmentIds } from "./engine";
 
 async function fixture() {
   const term = await prisma.term.create({
@@ -164,5 +164,118 @@ describe("hasPermission", () => {
   it("honors the wildcard", () => {
     expect(hasPermission(new Set(["*"]), "anything.at_all")).toBe(true);
     expect(hasPermission(new Set(["schedule.view"]), "schedule.edit_all")).toBe(false);
+  });
+});
+
+describe("permissionDepartmentIds", () => {
+  beforeEach(resetDb);
+
+  /** A fresh role granting exactly `permission`. */
+  async function roleGranting(permission: string) {
+    return prisma.role.create({
+      data: {
+        name: `R-${permission}-${Date.now()}-${Math.random()}`,
+        grants: { create: [{ permission }] },
+      },
+    });
+  }
+
+  it("limits a kind-targeted grant to memberships of that kind", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "Dir+Vol" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "DIRECTOR" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" },
+    });
+    const role = await roleGranting("schedule.edit_own_dept");
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, kind: "DIRECTOR", termId: null },
+    });
+
+    const ids = await permissionDepartmentIds(person.id, "schedule.edit_own_dept");
+    expect(ids).toEqual([f.itcm.id]);
+    // The flat view still says yes -- which is exactly why the scoped one exists.
+    expect(await can(person.id, "schedule.edit_own_dept")).toBe(true);
+  });
+
+  it("limits a department-targeted grant to that department", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "TwoDept" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "VOLUNTEER" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" },
+    });
+    const role = await roleGranting("schedule.edit_own_dept");
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, departmentId: f.itcm.id, termId: null },
+    });
+
+    expect(await permissionDepartmentIds(person.id, "schedule.edit_own_dept")).toEqual([f.itcm.id]);
+  });
+
+  it("spreads a person-targeted grant across every member department", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "PersonGrant" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "DIRECTOR" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" },
+    });
+    const role = await roleGranting("schedule.edit_own_dept");
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id, termId: null },
+    });
+
+    const ids = await permissionDepartmentIds(person.id, "schedule.edit_own_dept");
+    expect([...ids].sort()).toEqual([f.itcm.id, f.vadm.id].sort());
+  });
+
+  it("returns [] for a permission nobody granted", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "NoGrant" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "VOLUNTEER" },
+    });
+
+    expect(await permissionDepartmentIds(person.id, "schedule.edit_own_dept")).toEqual([]);
+  });
+
+  it("treats a wildcard role as granting the permission with its own scope", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "Wildcard" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "DIRECTOR" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" },
+    });
+    await prisma.roleAssignment.create({
+      data: { roleId: f.adminRole.id, kind: "DIRECTOR", termId: null },
+    });
+
+    expect(await permissionDepartmentIds(person.id, "schedule.edit_own_dept")).toEqual([f.itcm.id]);
+  });
+
+  it("resolves against an explicit non-active term when asked", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "NextTerm" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.oldTerm.id, departmentId: f.vadm.id, kind: "VOLUNTEER" },
+    });
+    const role = await roleGranting("schedule.manage_requests");
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, personId: person.id, termId: null },
+    });
+
+    // No ACTIVE-term membership, so the default (active-term) view is empty.
+    expect(await permissionDepartmentIds(person.id, "schedule.manage_requests")).toEqual([]);
+    expect(
+      await permissionDepartmentIds(person.id, "schedule.manage_requests", f.oldTerm.id),
+    ).toEqual([f.vadm.id]);
   });
 });

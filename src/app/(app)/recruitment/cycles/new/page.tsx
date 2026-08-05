@@ -7,23 +7,17 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
 import { MultiCombobox } from "@/platform/ui/multi-combobox";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { Checkbox } from "@/platform/ui/checkbox";
 
-type PageProps = {
-  searchParams: Promise<{ error?: string }>;
-};
-
-export default async function NewCyclePage({ searchParams }: PageProps) {
+export default async function NewCyclePage() {
   // Gate the form on the same permission createCycleAction enforces. Without this
   // a recruitment.access-only user (e.g. an SRR reviewer) could open and fill the
   // form, then get silently bounced to /no-access on submit. Gating here lands
   // them on the friendly /no-access page up front instead.
   await requirePermission("recruitment.manage_cycles");
-  const { error } = await searchParams;
   const terms = await prisma.term.findMany({ orderBy: { startDate: "desc" } });
   const activeDepts = await prisma.department.findMany({
     where: { isActive: true },
@@ -37,7 +31,6 @@ export default async function NewCyclePage({ searchParams }: PageProps) {
       <PageHeader title="New recruitment cycle" description="Set up an application cycle, then build its form." />
       <form action={createCycleAction}>
         <Card className="space-y-4">
-          {error && <Alert tone="error">{error}</Alert>}
           <Field
             label="Title"
             hint="Used to generate the email subject line and public sign-up link, so name it carefully."

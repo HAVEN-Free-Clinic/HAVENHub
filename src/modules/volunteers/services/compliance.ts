@@ -18,6 +18,8 @@ import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
+import { notifyCertVerified } from "@/platform/compliance/review-notifications";
+import { log, errorAttrs } from "@/platform/logging";
 
 export type { ComplianceStatus };
 export type { ClearanceSummary };
@@ -469,6 +471,37 @@ export async function masterCompliance(
 }
 
 /**
+ * Notify a certificate owner that their certificate is now verified. Shared by
+ * both paths that can flip a cert from unverified to verified: verifyCertificate
+ * (parsed date, manager confirms it) and setCompletionDateAsManager (parser
+ * could not read a date, manager enters it and verifies in the same action).
+ * Both populations must hear the same thing.
+ *
+ * The certificate is already durably updated and audited by the time this
+ * runs, so a notification failure must not surface to the manager as a failed
+ * verification. Same isolation as saveCertificate's manager alerts: catch,
+ * log, continue.
+ */
+async function notifyCertOwnerOfVerification(personId: string, certId: string): Promise<void> {
+  try {
+    const owner = await prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true, entraObjectId: true, contactEmail: true },
+    });
+    if (owner) {
+      await notifyCertVerified(prisma, {
+        id: personId,
+        name: owner.name,
+        entraObjectId: owner.entraObjectId,
+        contactEmail: owner.contactEmail,
+      });
+    }
+  } catch (err) {
+    log.error("[compliance] failed to notify member of certificate verification", errorAttrs(err, { certId }));
+  }
+}
+
+/**
  * Stamp a HIPAA certificate as verified.
  *
  * Re-verify is allowed and updates the stamp. Audits with action
@@ -533,6 +566,9 @@ export async function verifyCertificate(
       properties: { verified_by: actorPersonId, via: "verify" },
       groups: await activeTermGroup(),
     });
+
+    // Close the loop back to the member.
+    await notifyCertOwnerOfVerification(cert.personId, certId);
   }
 }
 
@@ -621,7 +657,10 @@ export async function setCompletionDateAsManager(
   });
 
   // Setting the date also verifies the cert; fire the same milestone once, on
-  // the not-verified -> verified transition.
+  // the not-verified -> verified transition, and close the loop back to the
+  // member the same way verifyCertificate does. This is the dateless-cert
+  // population (UNKNOWN_DATE): the PDF parser could not read a date, so this
+  // is their only path to clearance and they must hear about it too.
   if (!cert.verifiedAt) {
     await captureEvent({
       event: "hipaa_certificate_verified",
@@ -629,6 +668,8 @@ export async function setCompletionDateAsManager(
       properties: { verified_by: actorPersonId, via: "set_date" },
       groups: await activeTermGroup(),
     });
+
+    await notifyCertOwnerOfVerification(cert.personId, cert.id);
   }
 }
 

@@ -26,6 +26,7 @@ import { can } from "@/platform/rbac/engine";
 import { resolveMirrorsByPerson, getPeopleByIds, listEpicAuthorizers, reconcileDeactivationRequests, submitEpicRequests } from "@/modules/support/services/itcm";
 import { SupportConflictError, SupportStateError, SupportNotFoundError } from "@/modules/support/services/tech-request";
 import {
+  epicPositionLabel,
   generatePdf,
   type RequestType,
 } from "@/modules/support/services/itcm-pdf";
@@ -119,6 +120,8 @@ async function generateSpreadsheet(args: {
     netId: string;
     epicId: string;
     mirrorEpicId: string;
+    /** Role / Job Title cell, derived per person from their Yale affiliation. */
+    position: string;
   }>;
   endDate: string;
 }): Promise<Buffer> {
@@ -152,7 +155,7 @@ async function generateSpreadsheet(args: {
   for (const p of people) {
     const row = ws.addRow([
       p.lastName, p.firstName, "", p.email, "",
-      "Yale College (Student)", "Yale College (Student)",
+      p.position, p.position,
       today, endDate, "No", p.netId, "",
       isNew ? "" : p.epicId, p.mirrorEpicId,
     ]);
@@ -166,7 +169,7 @@ async function generateSpreadsheet(args: {
     const maxLen = Math.max(
       headers[i]?.length ?? 10,
       ...people.map((p) => {
-        const vals = [p.lastName, p.firstName, "", p.email, "", "Yale College (Student)", "Yale College (Student)", today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
+        const vals = [p.lastName, p.firstName, "", p.email, "", p.position, p.position, today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
         return String(vals[i] ?? "").length;
       })
     );
@@ -384,6 +387,11 @@ export async function POST(req: Request) {
         netId: p.netId ?? "",
         epicId: p.epicId ?? "",
         mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? "",
+        // Was a hardcoded "Yale College (Student)" for every row, which stamped
+        // every YSM, YSN, and staff volunteer in a term batch as a Yale College
+        // student. Derived per person now, mirroring the single-person PDF's
+        // Section IV split.
+        position: epicPositionLabel(p.yaleAffiliation),
       };
     });
 

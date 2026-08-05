@@ -4,18 +4,12 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
-import { Alert } from "@/platform/ui/alert";
 import { listTrainings } from "@/platform/ehs/services/trainings";
 import { createTrainingAction } from "./actions";
 
-export default async function ManageEhsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
+export default async function ManageEhsPage() {
   await requirePermission("volunteers.manage_compliance");
   const trainings = await listTrainings();
-  const sp = await searchParams;
 
   return (
     <>
@@ -24,9 +18,6 @@ export default async function ManageEhsPage({
         description="Add, edit, and scope EHS training requirements."
       />
       <div className="mt-6 max-w-2xl space-y-6">
-        {sp.error && (
-          <Alert tone="error">{sp.error}</Alert>
-        )}
         <Card>
           <form action={createTrainingAction} className="flex gap-2">
             <Input name="name" placeholder="New EHS training name" required className="flex-1" />

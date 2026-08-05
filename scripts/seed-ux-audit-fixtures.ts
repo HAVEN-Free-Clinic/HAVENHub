@@ -672,8 +672,14 @@ async function main(): Promise<void> {
     report("created", "dev.volunteer training completion", "(via live session)");
   }
 
+  // CourseProgress is unique on (personId, courseId, termId) since the
+  // course_recurrence migration, which dropped the old (personId, courseId)
+  // index so a PER_TERM course can hold one row per term. This lookup is
+  // term-scoped to match, exactly as enrollment.ts does.
   const courseRollup = await prisma.courseProgress.findUnique({
-    where: { personId_courseId: { personId: devVolunteer.id, courseId: course.id } },
+    where: {
+      personId_courseId_termId: { personId: devVolunteer.id, courseId: course.id, termId: term.id },
+    },
   });
   if (courseRollup?.status === "COMPLETE") {
     report("skipped", "dev.volunteer course completion");

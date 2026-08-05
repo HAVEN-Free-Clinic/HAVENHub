@@ -310,6 +310,7 @@ export default async function TrainingPage() {
                         termId={my.term.id}
                         track={my.track}
                         questions={my.questions}
+                        gradedQuestionCount={my.gradedQuestionCount}
                         passPercent={my.passPercent}
                         maxAttempts={my.maxAttempts}
                         attemptsUsed={my.attemptsUsed}

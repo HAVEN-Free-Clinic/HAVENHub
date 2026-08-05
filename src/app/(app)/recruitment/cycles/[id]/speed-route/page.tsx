@@ -9,7 +9,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Field, Input } from "@/platform/ui/input";
-import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SpeedRouteBoard } from "@/modules/recruitment/components/speed-route-board";
 import {
@@ -21,9 +20,8 @@ import {
   setRouteThresholdsAction,
 } from "./actions";
 
-export default async function SpeedRoutePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function SpeedRoutePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { error } = await searchParams;
   const person = await requirePersonSession();
   let board;
   try {
@@ -39,8 +37,6 @@ export default async function SpeedRoutePage({ params, searchParams }: { params:
         trail={cycleTrail({ cycleId: id, cycleTitle: board.title, section: { label: "Speed route", slug: "speed-route" } })}
       />
       <PageHeader title="Speed route" description={board.title} />
-
-      {error && <Alert tone="error">{error}</Alert>}
 
       <Card>
         <SectionHeader>Thresholds</SectionHeader>

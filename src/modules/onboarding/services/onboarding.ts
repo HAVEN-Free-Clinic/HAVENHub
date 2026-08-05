@@ -87,15 +87,20 @@ export async function computeOnboardingForTerm(
   function buildTask(key: OnboardingTaskKey, state: OnboardingTaskState): Entry | null {
     const s = steps.get(key);
     if (!s || !s.enabled) return null;
+    // A pending-verification wait describes what the system is currently doing,
+    // which must win over a term's override of what the step normally is (see
+    // inProgressDescription doc comment in step-config.ts). Applied here, after
+    // effective() has already resolved the override, not inside the merge.
+    const inProgress = state === "IN_PROGRESS";
     return {
       task: {
         key,
         state,
         blocking: s.blocking,
         label: s.label,
-        description: s.description,
+        description: (inProgress && s.inProgressDescription) || s.description,
         href: s.href,
-        ctaLabel: s.ctaLabel,
+        ctaLabel: (inProgress && s.inProgressCtaLabel) || s.ctaLabel,
         reviewable: s.reviewable,
       },
       order: s.order,

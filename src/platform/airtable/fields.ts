@@ -9,12 +9,34 @@ export const ALL_PEOPLE_FIELDS = {
   gradYear: "fld0doB6wtaypevj0",
 } as const;
 
+/**
+ * The three field ids every per-term roster table carries. Each term gets its
+ * own Airtable table with its own field ids, so the roster transform takes this
+ * shape rather than hard-coding one term's ids.
+ */
+export type RosterFieldIds = {
+  departmentName: string;
+  directors: string;
+  volunteers: string;
+};
+
 /** SU 26 roster (tbl2VrP1uqwFt7QNQ) field ids. */
-export const SU26_ROSTER_FIELDS = {
+export const SU26_ROSTER_FIELDS: RosterFieldIds = {
   departmentName: "fldBIGmgM2dU0vFUQ",
   directors: "fldtKUkW1wwzVBQdo",
   volunteers: "fldd6ENTWgPHmprMj",
-} as const;
+};
+
+/**
+ * SP 26 roster (tblv6XWgQNJ46cf6N) field ids. Spring 2026 is a CLOSED term:
+ * this roster is imported only through the historical-term path, which creates
+ * the term ARCHIVED. See import/historical-term.ts.
+ */
+export const SP26_ROSTER_FIELDS: RosterFieldIds = {
+  departmentName: "fld4Tctv8pqjDA4dN",
+  directors: "fldWVqrbnTJYyGfwl",
+  volunteers: "fldGhaU8iD26ZuQ5g",
+};
 
 /**
  * Attachment fields on All People that are NOT included in ALL_PEOPLE_FIELDS.

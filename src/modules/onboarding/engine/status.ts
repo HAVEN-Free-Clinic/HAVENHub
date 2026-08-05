@@ -16,9 +16,14 @@ export function deriveProfileTaskState(p: { contactEmail: string | null; phone: 
   return present(p.contactEmail) && present(p.phone) ? "COMPLETE" : "INCOMPLETE";
 }
 
-/** A HIPAA cert that is valid today (compliant or merely expiring soon) clears the task. */
+/** A HIPAA cert that is valid today (compliant or merely expiring soon) clears the task.
+ *  A cert that is on file but waiting on a compliance manager reads as in progress: the
+ *  member has done their part and re-uploading would not help. IN_PROGRESS still fails
+ *  isSatisfied, so the gate is unchanged; only what the member is told changes. */
 export function deriveHipaaTaskState(status: ComplianceStatus): OnboardingTaskState {
-  return status === "COMPLIANT" || status === "EXPIRING_SOON" ? "COMPLETE" : "INCOMPLETE";
+  if (status === "COMPLIANT" || status === "EXPIRING_SOON") return "COMPLETE";
+  if (status === "PENDING_VERIFICATION" || status === "UNKNOWN_DATE") return "IN_PROGRESS";
+  return "INCOMPLETE";
 }
 
 /** Training is complete when passed; a started-but-unpassed attempt reads as in progress.

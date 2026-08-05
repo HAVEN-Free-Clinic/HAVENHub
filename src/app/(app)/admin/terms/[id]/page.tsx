@@ -13,7 +13,6 @@ import {
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
-import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
@@ -29,13 +28,7 @@ import {
 type PageProps = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
-    error?: string;
-    saved?: string;
     addq?: string;
-    copied?: string;
-    skipped?: string;
-    rosterError?: string;
-    stepsSaved?: string;
   }>;
 };
 
@@ -43,7 +36,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   const session = await requireAnyPermission(["admin.manage_terms", "admin.manage_roster"]);
   const canManageTerms = await can(session.personId, "admin.manage_terms");
   const { id } = await params;
-  const { error, saved, addq, copied, skipped, rosterError, stepsSaved } = await searchParams;
+  const { addq } = await searchParams;
 
   // Fetch the term with membership count. Scope to ACTIVE so the header number
   // matches the ACTIVE-only roster rendered below it (memberships are soft-deleted).
@@ -201,9 +194,6 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         action={statusBadge}
       />
 
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved === "1" && <Alert tone="success">Saved.</Alert>}
-
       {/* Lifecycle section */}
       {canManageTerms && (
         <section>
@@ -256,7 +246,6 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
           <OnboardingStepsEditor
             steps={stepConfig}
             saveAction={saveStepsAction}
-            saved={stepsSaved === "1"}
           />
         </section>
       )}
@@ -266,9 +255,6 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
         term={term}
         addq={addq}
         termDetailHref={`/admin/terms/${id}`}
-        copiedCount={copied !== undefined ? Number(copied) : undefined}
-        skippedCount={skipped !== undefined ? Number(skipped) : undefined}
-        rosterError={rosterError}
         canManage={await can(session.personId, "admin.manage_roster")}
       />
     </div>

@@ -71,14 +71,6 @@ type PageProps = {
     template?: string;
     q?: string;
     page?: string;
-    error?: string;
-    message?: string;
-    retried?: string;
-    retriedAll?: string;
-    connected?: string;
-    senderSaved?: string;
-    senderError?: string;
-    senderTested?: string;
   }>;
 };
 
@@ -116,22 +108,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
   const q = sp.q?.trim() || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-
-  const errorCode = sp.error ?? null;
-  const errorMessage = errorCode
-    ? errorCode === "validation" && sp.message
-      ? sp.message
-      : "An unexpected error occurred."
-    : null;
-
-  const retriedSuccess = sp.retried === "1";
-  const retriedAllCount = sp.retriedAll ? parseInt(sp.retriedAll, 10) : 0;
-  const retriedAllSuccess = retriedAllCount > 0;
-  const connectedSuccess = sp.connected === "1";
-
-  const senderSavedSuccess = sp.senderSaved === "1";
-  const senderTestedSuccess = sp.senderTested === "1";
-  const senderErrorMessage = sp.senderError ?? null;
 
   const [
     { rows, total, counts },
@@ -310,27 +286,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
           ) : undefined
         }
       />
-
-      {/* Banners */}
-      {errorMessage && <Alert tone="error">{errorMessage}</Alert>}
-      {retriedSuccess && !errorMessage && (
-        <Alert tone="success">Email re-queued.</Alert>
-      )}
-      {retriedAllSuccess && !errorMessage && (
-        <Alert tone="success">
-          {retriedAllCount} failed {retriedAllCount === 1 ? "email" : "emails"} re-queued.
-        </Alert>
-      )}
-      {connectedSuccess && !errorMessage && (
-        <Alert tone="success">Mailbox connected.</Alert>
-      )}
-      {senderSavedSuccess && !errorMessage && (
-        <Alert tone="success">Sender address saved.</Alert>
-      )}
-      {senderTestedSuccess && !errorMessage && (
-        <Alert tone="success">Test message sent. Check the inbox to confirm.</Alert>
-      )}
-      {senderErrorMessage && <Alert tone="error">{senderErrorMessage}</Alert>}
 
       {/* Mailer connection panel */}
       <Card className="flex flex-wrap items-center justify-between gap-3">

@@ -23,6 +23,13 @@ async function main() {
   if (report.people.skipped.length > 0) {
     console.log(`\n${report.people.skipped.length} record(s) skipped; fix in Airtable and re-run.`);
   }
+  if (report.people.rejectedNetIds.length > 0) {
+    console.log(
+      `\n${report.people.rejectedNetIds.length} NetID cell(s) were not NetID-shaped and were NOT written.\n` +
+        `Those members sign in via the non-Yale member email link (keyed off Contact Email), so\n` +
+        `nothing is lost -- but clear the cell in Airtable so the row reads honestly.`,
+    );
+  }
 }
 
 main().catch((error) => {

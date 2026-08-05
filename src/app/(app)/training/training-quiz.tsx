@@ -23,6 +23,7 @@ export function TrainingQuiz({
   termId,
   track,
   questions,
+  gradedQuestionCount,
   passPercent,
   maxAttempts,
   attemptsUsed: initialAttemptsUsed,
@@ -31,6 +32,7 @@ export function TrainingQuiz({
   termId: string;
   track: Track;
   questions: Question[];
+  gradedQuestionCount: number;
   passPercent: number;
   maxAttempts: number;
   attemptsUsed: number;
@@ -46,6 +48,7 @@ export function TrainingQuiz({
   const [error, setError] = useState<string | null>(null);
   const [attemptsUsed, setAttemptsUsed] = useState(initialAttemptsUsed);
   const [pending, startTransition] = useTransition();
+  const fieldsetRefs = useRef<Record<string, HTMLFieldSetElement | null>>({});
 
   const answeredCount = Object.keys(answers).length;
   const allAnswered = answeredCount === questions.length;
@@ -60,11 +63,15 @@ export function TrainingQuiz({
     if (graded && !graded.passed) resultHeadingRef.current?.focus();
   }, [graded]);
 
-  // A track's makeup quiz can have zero questions (e.g. still being authored). With
-  // none, there is nothing to grade: the progress bar would divide by zero (NaN width),
-  // an empty answer set would read as "all answered" and enable Submit, and submitting
-  // only throws server-side. Show an explanatory notice instead of the quiz form.
-  if (questions.length === 0) {
+  // A track's makeup quiz can have zero questions (e.g. still being authored), or it
+  // can have questions that nobody has keyed with a correct answer yet, which is just
+  // as unpassable (gradeQuiz never passes a quiz with zero graded questions). With
+  // either, there is nothing gradable to take: the progress bar would divide by zero
+  // (NaN width) in the no-questions case, an empty answer set would read as "all
+  // answered" and enable Submit, and submitting only throws server-side. The learner
+  // cannot tell the two cases apart and should not have to, so show one explanatory
+  // notice instead of the quiz form.
+  if (questions.length === 0 || gradedQuestionCount === 0) {
     return (
       <Card className="flex items-start gap-4">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-faint text-brand-fg">
@@ -73,8 +80,8 @@ export function TrainingQuiz({
         <div>
           <p className="text-base font-bold text-foreground">Makeup quiz not ready yet</p>
           <p className="mt-0.5 text-sm text-foreground-soft">
-            This training does not have any quiz questions yet. Please contact your coordinator so they can finish
-            setting it up, then check back here.
+            This training&apos;s quiz has not been finished yet, so there is nothing to take. Please contact
+            your coordinator so they can complete it, then check back here.
           </p>
         </div>
       </Card>
@@ -87,9 +94,28 @@ export function TrainingQuiz({
   }
 
   function tryAgain() {
+    const verdicts = graded?.verdictByKey ?? {};
     setGraded(null);
     setError(null);
-    setAnswers({});
+    setAnswers((a) => {
+      const next = { ...a };
+      for (const [key, verdict] of Object.entries(verdicts)) {
+        if (verdict === "wrong") delete next[key];
+      }
+      return next;
+    });
+    // Land the reader on the first question they have to redo. Without this,
+    // focus falls to <body> near the bottom of a very long page and the next
+    // Tab starts from the top of the document. The fieldset itself does not
+    // unmount across this state change (only its styling does), so focusing it
+    // here rather than in a post-render effect is safe, and it means nothing
+    // happens if nothing was wrong (retryFocusKey would just be undefined).
+    const retryFocusKey = questions.find((q) => verdicts[q.key] === "wrong")?.key;
+    if (retryFocusKey) {
+      const el = fieldsetRefs.current[retryFocusKey];
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+    }
   }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -175,16 +201,21 @@ export function TrainingQuiz({
           {questions.map((q, i) => (
             <fieldset
               key={q.key}
+              ref={(el) => {
+                fieldsetRefs.current[q.key] = el;
+              }}
+              tabIndex={-1}
               aria-labelledby={`quiz-q${i}-legend quiz-q${i}-label`}
-              className="border-b border-border py-4 last:border-b-0"
+              className="border-b border-border py-4 outline-none last:border-b-0"
             >
               <legend id={`quiz-q${i}-legend`} className="text-xs font-bold tracking-wide text-muted-foreground">Question {i + 1}</legend>
               <p id={`quiz-q${i}-label`} className="mb-3 mt-1.5 text-base font-semibold leading-snug text-foreground">{q.label}</p>
               <div className="flex flex-col gap-2.5">
                 {q.options.map((o) => {
                   const sel = answers[q.key] === o.value;
-                  const isCorrect = reviewing && graded!.correctByKey[q.key] === o.value;
-                  const isWrong = reviewing && sel && !isCorrect;
+                  const verdict = reviewing ? graded!.verdictByKey[q.key] : undefined;
+                  const isCorrect = sel && verdict === "correct";
+                  const isWrong = sel && verdict === "wrong";
                   return (
                     <label
                       key={o.value}
@@ -199,7 +230,7 @@ export function TrainingQuiz({
                         {o.label}
                       </span>
                       {isCorrect && <span className="ml-auto text-xs font-bold text-success-foreground">Correct</span>}
-                      {isWrong && <span className="ml-auto text-xs font-bold text-critical">Your answer</span>}
+                      {isWrong && <span className="ml-auto text-xs font-bold text-critical">Not correct</span>}
                     </label>
                   );
                 })}

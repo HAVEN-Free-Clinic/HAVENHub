@@ -37,11 +37,25 @@ function utcNoon(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
 }
 
-/** Six consecutive Saturdays starting 2026-06-06, anchored at noon UTC. */
+/**
+ * Six consecutive Saturdays, anchored at noon UTC, starting comfortably in
+ * the future relative to whenever the suite runs. requests.ts now refuses
+ * change requests for clinic dates that have passed, so a base pinned to a
+ * fixed calendar date would eventually fall into the past and break every
+ * fixture below that isn't about that guard. Deriving the base from the real
+ * clock, well clear of "today", keeps those ordinary fixtures valid
+ * indefinitely. The tests that exercise the past/today/future boundary
+ * itself inject an explicit `now` -- one of these same six dates -- instead
+ * of relying on the real clock, so they stay deterministic regardless of
+ * when this base lands.
+ */
 function sixSaturdays(): Date[] {
-  // 2026-06-06 is a Saturday
-  const base = utcNoon(2026, 6, 6);
-  return Array.from({ length: 6 }, (_, i) => new Date(base.getTime() + i * 7 * 86400000));
+  const base = new Date();
+  base.setUTCDate(base.getUTCDate() + 30); // comfortably clear of "today"
+  const daysUntilSaturday = (6 - base.getUTCDay() + 7) % 7; // 6 = Saturday
+  base.setUTCDate(base.getUTCDate() + daysUntilSaturday);
+  const anchored = utcNoon(base.getUTCFullYear(), base.getUTCMonth() + 1, base.getUTCDate());
+  return Array.from({ length: 6 }, (_, i) => new Date(anchored.getTime() + i * 7 * 86400000));
 }
 
 async function createPerson(name: string) {
@@ -118,6 +132,25 @@ async function grantPermission(personId: string, permission: string) {
     },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
+}
+
+/**
+ * Grants a permission to everyone holding a membership of `kind` in `termId` --
+ * the "All Directors" / "All Volunteers" baseline assignment shape.
+ */
+async function grantPermissionToKind(
+  kind: "VOLUNTEER" | "DIRECTOR",
+  permission: string,
+  termId: string,
+) {
+  const role = await prisma.role.create({
+    data: {
+      name: `Role-${kind}-${permission}-${Date.now()}-${Math.random()}`,
+      isSystem: false,
+      grants: { create: [{ permission }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, kind, termId } });
 }
 
 async function delegate(managerDepartmentId: string, managedDepartmentId: string) {
@@ -420,6 +453,81 @@ describe("createRequest", () => {
         departmentId: dept.id,
       })
     ).rejects.toBeInstanceOf(RequestValidationError);
+  });
+
+  it("throws RequestValidationError for a past requesterDateKey", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Alice");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+
+    // "Now" is a week after dates[0]: that clinic day has already happened.
+    await expect(
+      createRequest(
+        actor.id,
+        { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+        dates[1],
+      )
+    ).rejects.toThrow(RequestValidationError);
+    await expect(
+      createRequest(
+        actor.id,
+        { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+        dates[1],
+      )
+    ).rejects.toThrow("That clinic date has already passed.");
+  });
+
+  it("throws RequestValidationError for a past targetDateKey", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Alice");
+    const target = await createPerson("Bob");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, term.id, dept.id, "VOLUNTEER");
+    // Requester's own date (dates[1]) stays valid; the partner's date
+    // (dates[0]) is the one that has passed by "now" = dates[1].
+    await createShift(term.id, dept.id, actor.id, dates[1], "VOLUNTEER");
+    await createShift(term.id, dept.id, target.id, dates[0], "VOLUNTEER");
+
+    await expect(
+      createRequest(
+        actor.id,
+        {
+          termId: term.id,
+          requesterDateKey: isoDateKey(dates[1]),
+          departmentId: dept.id,
+          targetId: target.id,
+          targetDateKey: isoDateKey(dates[0]),
+        },
+        dates[1],
+      )
+    ).rejects.toThrow("That clinic date has already passed.");
+  });
+
+  it("still accepts a valid future pair (today counts as valid, the >= boundary)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Alice");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+
+    // "Now" is exactly dates[0]: a same-day request against the morning of
+    // the clinic day must still be accepted.
+    const req = await createRequest(
+      actor.id,
+      { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+      dates[0],
+    );
+
+    expect(req.status).toBe("PENDING");
   });
 });
 
@@ -972,6 +1080,127 @@ describe("approveRequest", () => {
     const reqAfter = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
     expect(reqAfter.status).toBe("PENDING");
   });
+
+  it("refuses a request whose requesterDate has passed, naming Deny as the alternative", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    // Created while dates[0] is still "today"; by the time a director acts on
+    // it (a week later, dates[1]), dates[0] has passed.
+    const req = await createRequest(
+      vol.id,
+      { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+      dates[0],
+    );
+
+    await expect(approveRequest(director.id, req.id, dates[1])).rejects.toBeInstanceOf(
+      RequestValidationError,
+    );
+    await expect(approveRequest(director.id, req.id, dates[1])).rejects.toThrow(
+      "This request is for a clinic date that has already passed. Deny it instead.",
+    );
+
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
+  });
+
+  it("refuses a request whose targetDate has passed", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const vol2 = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
+    // Requester's date (dates[1]) stays valid through approval; the partner's
+    // date (dates[0]) is the one that has passed by the time approval runs.
+    await createShift(term.id, dept.id, vol1.id, dates[1], "VOLUNTEER");
+    await createShift(term.id, dept.id, vol2.id, dates[0], "VOLUNTEER");
+
+    const req = await createRequest(
+      vol1.id,
+      {
+        termId: term.id,
+        requesterDateKey: isoDateKey(dates[1]),
+        departmentId: dept.id,
+        targetId: vol2.id,
+        targetDateKey: isoDateKey(dates[0]),
+      },
+      dates[0],
+    );
+
+    await expect(approveRequest(director.id, req.id, dates[1])).rejects.toThrow(
+      "This request is for a clinic date that has already passed. Deny it instead.",
+    );
+
+    const still = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(still.status).toBe("PENDING");
+  });
+
+  it("still approves a valid one, including exactly on the clinic day (the >= boundary)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    const req = await createRequest(
+      vol.id,
+      { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+      dates[0],
+    );
+
+    // "Now" is exactly dates[0]: approving on the clinic day itself is valid.
+    await approveRequest(director.id, req.id, dates[0]);
+
+    const updated = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.status).toBe("APPROVED");
+  });
+
+  it("denying a stale request still works (the escape hatch once approve is refused)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol = await createPerson("Volunteer");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+
+    const req = await createRequest(
+      vol.id,
+      { termId: term.id, requesterDateKey: isoDateKey(dates[0]), departmentId: dept.id },
+      dates[0],
+    );
+
+    // The clinic date has since passed: approve is refused ...
+    await expect(approveRequest(director.id, req.id, dates[1])).rejects.toBeInstanceOf(
+      RequestValidationError,
+    );
+
+    // ... but deny -- the only disposition left for the director -- has no
+    // date guard and still works.
+    await denyRequest(director.id, req.id);
+
+    const updated = await prisma.shiftRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updated.status).toBe("DENIED");
+    expect(updated.decidedById).toBe(director.id);
+  });
 });
 
 describe("denyRequest", () => {
@@ -1250,6 +1479,79 @@ describe("eligibleSwapPartners", () => {
     expect(ids).not.toContain(collidingPartner.id);
     expect(ids).toContain(cleanPartner.id);
   });
+
+  it("excludes a partner whose only free date is in the past", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const partner = await createPerson("Partner");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(partner.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[3], "VOLUNTEER");
+    // Partner's only shift is dates[0], which has already passed by "now" =
+    // dates[1].
+    await createShift(term.id, dept.id, partner.id, dates[0], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(
+      actor.id,
+      isoDateKey(dates[3]),
+      dept.id,
+      term.id,
+      dates[1],
+    );
+
+    expect(partners.map((p) => p.personId)).not.toContain(partner.id);
+  });
+
+  it("includes a partner whose only free date is today (the >= boundary)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const partner = await createPerson("Partner");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(partner.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[3], "VOLUNTEER");
+    // Partner's only shift is dates[1], which IS "now" -- today, not past.
+    await createShift(term.id, dept.id, partner.id, dates[1], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(
+      actor.id,
+      isoDateKey(dates[3]),
+      dept.id,
+      term.id,
+      dates[1],
+    );
+
+    expect(partners.map((p) => p.personId)).toContain(partner.id);
+  });
+
+  it("still includes a partner whose free date is in the future", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const actor = await createPerson("Actor");
+    const partner = await createPerson("Partner");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(partner.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[3], "VOLUNTEER");
+    // Partner's only shift is dates[4], after "now" = dates[1].
+    await createShift(term.id, dept.id, partner.id, dates[4], "VOLUNTEER");
+
+    const partners = await eligibleSwapPartners(
+      actor.id,
+      isoDateKey(dates[3]),
+      dept.id,
+      term.id,
+      dates[1],
+    );
+
+    expect(partners.map((p) => p.personId)).toContain(partner.id);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1288,6 +1590,35 @@ describe("manage_requests scope", () => {
     await grantPermission(actor.id, "schedule.edit_own_dept");
 
     await expect(listDepartmentRequests(actor.id, dept.id, term.id)).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+
+  it("does NOT reach a volunteer department when manage_requests came from a DIRECTOR assignment", async () => {
+    // Directs one department, volunteers in another. The grant is assigned to
+    // "All Directors", so it must not confer decisions in the volunteer one.
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const directed = await createDepartment("MRQ4");
+    const volunteered = await createDepartment("MRQ5");
+    const actor = await createPerson("Director-and-Volunteer");
+    await createMembership(actor.id, term.id, directed.id, "DIRECTOR");
+    await createMembership(actor.id, term.id, volunteered.id, "VOLUNTEER");
+    await grantPermissionToKind("DIRECTOR", "schedule.manage_requests", term.id);
+
+    await expect(listDepartmentRequests(actor.id, directed.id, term.id)).resolves.toEqual([]);
+    await expect(
+      listDepartmentRequests(actor.id, volunteered.id, term.id),
+    ).rejects.toBeInstanceOf(RequestForbiddenError);
+  });
+
+  it("reaches a volunteer department when manage_requests came from a VOLUNTEER assignment", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("MRQ6");
+    const actor = await createPerson("Volunteer-Ops");
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermissionToKind("VOLUNTEER", "schedule.manage_requests", term.id);
+
+    await expect(listDepartmentRequests(actor.id, dept.id, term.id)).resolves.toEqual([]);
   });
 });
 

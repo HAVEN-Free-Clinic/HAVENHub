@@ -16,6 +16,17 @@ export type LoginProfile = {
 };
 
 /**
+ * What a Yale NetID looks like: 2-8 letters then optional digits ("jc999",
+ * "acn38", "mmm325"). The single definition, so the login path and anything
+ * WRITING Person.netId agree on what belongs in that column -- an address or
+ * other free text there can never match a sign-in, and it feeds the YNHH Epic
+ * access PDF, which expects a real NetID.
+ */
+export function isNetIdShaped(value: string): boolean {
+  return /^[a-z]{2,8}[0-9]*$/i.test(value);
+}
+
+/**
  * Yale UPNs look like "abc123@yale.edu" (NetID local part).
  * Alias addresses ("first.last@yale.edu") are not NetIDs, and
  * non-Yale domains never carry NetIDs.
@@ -24,17 +35,21 @@ export function netIdFromUpn(upn: string): string | null {
   const [local, domain] = upn.split("@");
   if (domain?.toLowerCase() !== "yale.edu") return null;
   if (!local) return null;
-  return /^[a-z]{2,8}[0-9]*$/i.test(local) ? local.toLowerCase() : null;
+  return isNetIdShaped(local) ? local.toLowerCase() : null;
 }
 
 /**
- * Resolution order per spec §5. Matches via steps 2/3 link entraObjectId,
- * except when a Person is already bound to a different oid; in that case
- * linking is skipped and the stored oid remains authoritative.
+ * The identity half of login resolution (spec §5), with NO status gate and NO
+ * write of any kind: given a claim, which Person does it name?
+ *
+ * This is the project's single definition of "this claim belongs to that
+ * Person". It is shared by resolvePersonForLogin (which adds oid linking, and
+ * whose callers add the Person.status gate) and findMemberRecordByClaim (which
+ * only reads the record). Keeping one copy is the point: two hand-maintained
+ * copies of a trust gate drift, and a drifted copy here is an account-takeover
+ * bug. Change the matching rules ONLY here.
  */
-export async function resolvePersonForLogin(
-  profile: LoginProfile
-): Promise<Person | null> {
+async function matchPersonByClaim(profile: LoginProfile): Promise<Person | null> {
   // 1. Already linked
   if (profile.entraObjectId) {
     const linked = await prisma.person.findUnique({
@@ -49,7 +64,7 @@ export async function resolvePersonForLogin(
     const byNetId = await prisma.person.findFirst({
       where: { netId: { equals: netId, mode: "insensitive" } },
     });
-    if (byNetId) return link(byNetId, profile.entraObjectId);
+    if (byNetId) return byNetId;
   }
 
   // 3. Email against contactEmail, but ONLY when the claim is Yale-asserted
@@ -65,11 +80,46 @@ export async function resolvePersonForLogin(
     const byEmail = await prisma.person.findFirst({
       where: { contactEmail: { equals: profile.email, mode: "insensitive" as const } },
     });
-    if (byEmail) return link(byEmail, profile.entraObjectId);
+    if (byEmail) return byEmail;
   }
 
   // 4. No match
   return null;
+}
+
+/**
+ * Resolution order per spec §5. Matches via steps 2/3 link entraObjectId,
+ * except when a Person is already bound to a different oid; in that case
+ * linking is skipped and the stored oid remains authoritative. A step-1 match
+ * is already bound to this same oid, so link() is a no-op for it.
+ */
+export async function resolvePersonForLogin(
+  profile: LoginProfile
+): Promise<Person | null> {
+  const match = await matchPersonByClaim(profile);
+  return match ? link(match, profile.entraObjectId) : null;
+}
+
+/**
+ * The Person a verified claim names, WHATEVER their status, without linking or
+ * otherwise writing. This is deliberately not an authentication path and grants
+ * nothing: it exists so the apply portal can recognize a returning alum whose
+ * Person.status is OFFBOARDED, which auth.ts refuses to sign in as a member
+ * (resolveEntraLogin returns null for OFFBOARDED, so they arrive as a
+ * prospective applicant).
+ *
+ * Callers MUST NOT use this to grant access. Hub access resolves through
+ * resolvePersonForLogin + getActivePerson, both of which enforce
+ * Person.status === "ACTIVE".
+ *
+ * It runs the same trust gate as sign-in, so it can only ever surface a record
+ * the caller has already proven they own: a linked oid, a NetID from a Yale
+ * UPN, or a Yale-asserted email. A non-Yale claim reaches nothing by email.
+ */
+export async function findMemberRecordByClaim(
+  profile: LoginProfile
+): Promise<Person | null> {
+  return matchPersonByClaim(profile);
 }
 
 /**

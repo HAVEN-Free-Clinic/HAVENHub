@@ -3,7 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { deriveStatus } from "../engine/status";
-import { LearningAuthError } from "./errors";
+import { LearningAuthError, LearningValidationError } from "./errors";
 import { audienceToKind } from "../engine/assignment";
 
 async function requireViewer(actorId: string): Promise<void> {
@@ -53,8 +53,17 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
   });
 
   const personIds = memberships.map((m) => m.person.id);
+  // Scope by term for a PER_TERM course, mirroring getMyCourses/loadClearanceMap:
+  // this roster is already built from the active term's memberships (`term` above),
+  // so a PER_TERM course's rows from a DIFFERENT term would describe a completion
+  // that does not apply to this term's roster. ONCE stays unscoped (today's
+  // behavior, unchanged).
   const progressRows = await prisma.courseProgress.findMany({
-    where: { courseId, personId: { in: personIds } },
+    where: {
+      courseId,
+      personId: { in: personIds },
+      ...(course.recurrence === "PER_TERM" ? { termId: term.id } : {}),
+    },
     select: { personId: true, lessonStatus: true, scoreRaw: true, completedAt: true },
   });
   const byPerson = new Map(progressRows.map((p) => [p.personId, p]));
@@ -85,24 +94,50 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Clear a learner's progress on a course so they can retake it. */
+/**
+ * Clear a learner's progress on a course so they can retake it.
+ *
+ * Progress is now per-term, so "reset" needs a scope decision: every term's rows,
+ * or just the one this director is looking at? These rows are a compliance
+ * artifact (did this person complete this course in this term), so wiping every
+ * term would destroy the record that they genuinely completed it back when they
+ * were actually in that term -- a much bigger loss than what the director asked
+ * for by clicking "reset" on THIS term's roster (getCourseCompletion above, which
+ * is itself scoped to the active term for a PER_TERM course).
+ *
+ * So: for a PER_TERM course, reset only the active term's rows, leaving prior
+ * terms' completions on the record so a retake this term does not erase the fact
+ * they finished it in an earlier one. For a ONCE course there is only ever the one
+ * row (persistScoCmi always reuses it, never re-keys it to a new term), so scoping
+ * the delete would either hit that same row or, if it happens to carry an older
+ * term's id than whatever is "active" right now, silently find nothing and no-op
+ * the reset the director just asked for -- so ONCE keeps the unscoped delete,
+ * matching today's behavior and actually clearing the row being looked at.
+ */
 export async function resetCourseProgress(personId: string, courseId: string, actorId: string): Promise<void> {
   if (!(await can(actorId, "learning.manage_courses"))) {
     throw new LearningAuthError("You do not have permission to reset progress.");
+  }
+  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { recurrence: true } });
+  let termFilter: { termId?: string } = {};
+  if (course?.recurrence === "PER_TERM") {
+    const term = await getActiveTerm();
+    if (!term) throw new LearningValidationError("No active term to reset progress against.");
+    termFilter = { termId: term.id };
   }
   // Delete both progress records in one transaction (mirrors the ingest-time
   // resetProgress reset) so we never leave an orphaned course rollup or per-SCO
   // rows if one delete fails.
   await prisma.$transaction([
-    prisma.courseProgress.deleteMany({ where: { personId, courseId } }),
-    prisma.scoProgress.deleteMany({ where: { personId, courseId } }),
+    prisma.courseProgress.deleteMany({ where: { personId, courseId, ...termFilter } }),
+    prisma.scoProgress.deleteMany({ where: { personId, courseId, ...termFilter } }),
   ]);
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.progress_reset",
     entityType: "Course",
     entityId: courseId,
-    after: { personId },
+    after: { personId, termId: termFilter.termId ?? null },
   });
 }
 

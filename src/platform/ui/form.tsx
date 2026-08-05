@@ -12,7 +12,7 @@ export function FormSection({
   children,
 }: {
   title?: string;
-  description?: string;
+  description?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -26,6 +26,113 @@ export function FormSection({
       {children}
     </fieldset>
   );
+}
+
+// Matches either a scheme URL ("https://example.com/anything") or a bare
+// domain with a mandatory path segment ("example.com/apply"). The mandatory
+// path on the bare-domain branch is deliberate: without it, plain-text
+// mentions of a filename ("policy.pdf", "resume.docx", "node.js") or an email
+// address's domain ("info@example.com") read as false-positive domains, since
+// a filename extension and a TLD are indistinguishable in isolation. A path
+// is the cheapest signal that a bare "word.word" is actually a link and not
+// a file or an email host. This does mean a bare domain with no path never
+// linkifies -- there is no rule here that covers "see example.com" with
+// nothing after it; the task this exists for always has a path
+// ("havenfreeclinic.com/apply"), so that trade-off is deliberately accepted.
+// The leading (?<!@) keeps an emailed URL that does have a path
+// ("user@example.com/reset") from linkifying starting mid-domain, but only
+// when the host is a single label. A multi-label host still linkifies past
+// the "@": "admin@sub.example.com/reset" still produces a link to
+// "example.com/reset", because \b also matches the boundary right before
+// "example", and the lookbehind there only sees the "." immediately before
+// it, not the "@" two labels back. Not patched, for the same reason as the
+// filename case below: the strings this helper renders are staff-authored
+// department/form descriptions, not arbitrary user text, and this has not
+// shown up in real content.
+//
+// Known residual limitation, accepted rather than patched: a filename
+// immediately followed by a path ("node.js/api", "policy.pdf/v2") still
+// linkifies, because an extension and a TLD are the same shape once a path
+// follows -- nothing in the string itself says which one it is. This is not
+// always a harmlessly dead link either: "node.js/api" resolves nowhere
+// (there is no ".js" gTLD), but "handbook.zip/latest" resolves to a real
+// origin, because ".zip" and ".mov" are live gTLDs. Fixing this would mean
+// maintaining a blocklist of known extensions, which is its own permanent
+// drift problem for a case that has not shown up in real content. The
+// mandatory path already removes the common bare-filename false positive
+// (see above).
+const URL_PATTERN =
+  /(?<!@)\b(?:https?:\/\/[^\s<>"]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"]*)/gi;
+
+/**
+ * Splits sentence punctuation trailing a matched URL from the URL itself, so
+ * "...apply." links only "...apply" and leaves the period as plain text.
+ * Trailing ")" is only treated as punctuation (not part of the URL) when it
+ * has no matching "(" earlier in the match, so a Wikipedia-style URL ending
+ * in a real parenthesized path segment ("Foo_(bar)") keeps its balanced
+ * paren intact.
+ */
+function splitTrailingPunctuation(raw: string): { url: string; trailing: string } {
+  let end = raw.length;
+  while (end > 0) {
+    const ch = raw[end - 1];
+    if (".,;:!?".includes(ch)) {
+      end--;
+      continue;
+    }
+    if (ch === ")") {
+      const core = raw.slice(0, end);
+      const opens = (core.match(/\(/g) ?? []).length;
+      const closes = (core.match(/\)/g) ?? []).length;
+      if (closes <= opens) break; // this ")" is balanced by an earlier "(" -- keep it
+      end--;
+      continue;
+    }
+    break;
+  }
+  return { url: raw.slice(0, end), trailing: raw.slice(end) };
+}
+
+/**
+ * Turns bare URLs/domains embedded in plain text into safe external links,
+ * leaving the rest of the text untouched.
+ *
+ * Section descriptions (e.g. the "See department descriptions at
+ * havenfreeclinic.com/apply" pointer) are persisted verbatim to
+ * FormSection.description, a text column staff can edit in the cycle
+ * builder -- so a real <a> can never live in the stored string. This lets
+ * every renderer of a persisted description turn it into a real link at
+ * display time instead.
+ */
+export function linkifyUrls(text: string): ReactNode {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_PATTERN.lastIndex = 0;
+  while ((match = URL_PATTERN.exec(text))) {
+    const raw = match[0];
+    const { url, trailing } = splitTrailingPunctuation(raw);
+    if (!url) continue;
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    nodes.push(
+      <a
+        key={match.index}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2"
+      >
+        {url}
+        <span className="sr-only"> (opens in a new tab)</span>
+      </a>,
+    );
+    if (trailing) nodes.push(trailing);
+    lastIndex = match.index + raw.length;
+  }
+  if (nodes.length === 0) return text;
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
 }
 
 /** Standard footer row for form submit/secondary buttons. */

@@ -22,6 +22,25 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 
 /**
+ * The terms an offboard is allowed to touch: everything except ARCHIVED.
+ *
+ * Offboarding answers "does this person still have a place here", which is a
+ * question about live and upcoming terms. An ARCHIVED term's roster is a
+ * historical record of who served then -- it grants nothing (every
+ * permission-, roster- and schedule-bearing query scopes to the ACTIVE term)
+ * and it is not the offboard's to rewrite. Without this, importing a past
+ * term's roster (see airtable/import/historical-term.ts) meant the next
+ * offboard silently flipped that person's history to REMOVED, and no re-import
+ * would repair it because the import never overwrites an existing row.
+ *
+ * Exported so the pre-flight count in volunteers/services/offboarding.ts
+ * reports exactly what the write below will change.
+ */
+export const OFFBOARDABLE_TERM = {
+  term: { status: { not: "ARCHIVED" } },
+} as const satisfies Pick<Prisma.TermMembershipWhereInput, "term">;
+
+/**
  * Options for setPersonStatusField / setPersonStatus.
  *
  * assertInvariant runs inside the OFFBOARDED transaction, before any mutation,
@@ -298,9 +317,9 @@ export async function setPersonStatusField(
   // Offboarding is the single convergence point for every offboard path (the
   // admin people page AND the volunteers executeOffboard flow both call here).
   // A person can never be OFFBOARDED yet still appear as a current member: we
-  // set ALL their ACTIVE memberships (any term) to REMOVED in the same
-  // transaction as the status flip, because the compliance, disciplinary, and
-  // offboarding rosters all key off TermMembership.status, not Person.status.
+  // set their ACTIVE memberships in every NON-ARCHIVED term to REMOVED in the
+  // same transaction as the status flip, because the compliance, disciplinary,
+  // and offboarding rosters all key off TermMembership.status, not Person.status.
   // Reactivation is status-only -- it never restores memberships (which ones to
   // restore is ambiguous), matching the existing offboarding behavior.
   //
@@ -324,7 +343,7 @@ export async function setPersonStatusField(
       if (opts.assertInvariant) await opts.assertInvariant(tx);
 
       const { count } = await tx.termMembership.updateMany({
-        where: { personId, status: "ACTIVE" },
+        where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },
         data: { status: "REMOVED" },
       });
       removedMemberships = count;

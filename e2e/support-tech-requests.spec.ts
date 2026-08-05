@@ -53,10 +53,12 @@ test("support: volunteer submits a General IT request; a manager replies publicl
   await page.getByLabel("Description").fill("My laptop cannot reach the clinic wifi.");
   await page.getByRole("button", { name: "Submit request" }).click();
 
-  // Server action redirects to /support/<id>?submitted=1.
-  await page.waitForURL(
-    (url) => /^\/support\/[^/]+$/.test(url.pathname) && url.searchParams.get("submitted") === "1"
-  );
+  // Server action redirects to /support/<id>?submitted=1, but the toast reader strips
+  // that param, so waiting on it being present is a race. Exclude "new" explicitly: this
+  // click starts on /support/new, which a bare /support/<segment> pattern already
+  // matches, so the wait would return immediately and `id` below could capture the
+  // literal string "new".
+  await page.waitForURL((url) => /^\/support\/(?!new$)[^/]+$/.test(url.pathname));
   await page.waitForLoadState("networkidle");
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
@@ -173,9 +175,9 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   await page.getByLabel("Subject").fill(subject);
   await page.getByLabel("Description").fill("New Epic account for a new clinic volunteer.");
   await page.getByRole("button", { name: "Submit request" }).click();
-  await page.waitForURL(
-    (url) => /^\/support\/[^/]+$/.test(url.pathname) && url.searchParams.get("submitted") === "1"
-  );
+  // As above: exclude "new", which this click starts on, or the wait is a no-op and `id`
+  // can capture the literal string "new".
+  await page.waitForURL((url) => /^\/support\/(?!new$)[^/]+$/.test(url.pathname));
   await page.waitForLoadState("networkidle");
   const id = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();

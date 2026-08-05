@@ -2,7 +2,7 @@ import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { formatTrainingDate, formatTrainingLocation } from "@/app/onboard/[token]/training-date";
+import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
 import type { OnboardingPreviewContext } from "./onboarding-preview";
 
 /**

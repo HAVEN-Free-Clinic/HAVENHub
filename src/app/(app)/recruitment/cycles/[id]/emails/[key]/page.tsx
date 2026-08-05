@@ -11,7 +11,6 @@ import { CYCLE_EMAIL_KEYS, type CycleEmailKey } from "@/modules/recruitment/emai
 import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
-import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
 // TemplateEditor lives in the admin route group. TypeScript resolves the path
 // correctly because [key] is a literal directory name on disk.
@@ -19,18 +18,16 @@ import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview"
 
 type Props = {
   params: Promise<{ id: string; key: string }>;
-  searchParams: Promise<{ error?: string }>;
 };
 
 function isCycleKey(k: string): k is CycleEmailKey {
   return (CYCLE_EMAIL_KEYS as readonly string[]).includes(k);
 }
 
-export default async function EditCycleEmailPage({ params, searchParams }: Props) {
+export default async function EditCycleEmailPage({ params }: Props) {
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id, key } = await params;
-  const { error } = await searchParams;
   const decodedKey = decodeURIComponent(key);
   if (!isCycleKey(decodedKey)) notFound();
   const t = await getCycleEmailForEdit(id, decodedKey);
@@ -68,7 +65,6 @@ export default async function EditCycleEmailPage({ params, searchParams }: Props
         title={t.name}
         description={t.hasOverride ? "Customized for this cycle" : "Using the default"}
       />
-      {error ? <Alert tone="error">{error}</Alert> : null}
       <form action={saveAction}>
         <TemplateEditor
           templateKey={t.key}

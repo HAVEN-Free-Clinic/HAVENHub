@@ -35,6 +35,10 @@ Your reach depends on your permissions:
 department is set as a manager over another department, you can build that
 department's schedule too (one hop out).
 
+If you are a director in one department and a volunteer in another, you manage
+only the one you direct. Permissions given to you as a director stay with your
+directorship, so the department you volunteer in stays read-only for you.
+
 If you try to edit a department outside your reach, the action is refused.
 
 ## Building a clinic in the builder

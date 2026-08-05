@@ -14,7 +14,6 @@ import type { TechRequestCategory } from "@prisma/client";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
@@ -24,15 +23,12 @@ const DEFAULT_CATEGORY: TechRequestCategory = "GENERAL_IT";
 
 type SubmitFormProps = {
   action: (formData: FormData) => Promise<void>;
-  error?: string;
 };
 
-export function SubmitForm({ action, error }: SubmitFormProps) {
+export function SubmitForm({ action }: SubmitFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
-
         <Field label="Category" required>
           <Select name="category" defaultValue={DEFAULT_CATEGORY}>
             {Object.entries(CATEGORY_LABELS).map(([value, label]) => (

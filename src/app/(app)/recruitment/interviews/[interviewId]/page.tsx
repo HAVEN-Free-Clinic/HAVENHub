@@ -15,7 +15,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -27,18 +26,9 @@ import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescin
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
-const savedMessage: Record<string, string> = {
-  decision: "Decision recorded.",
-  schedule: "Schedule saved.",
-  panelist: "Panel updated.",
-  invite: "Invite sent.",
-  evaluation: "Evaluation saved.",
-  rescind: "Acceptance rescinded.",
-};
 
-export default async function InterviewDetail({ params, searchParams }: { params: Promise<{ interviewId: string }>; searchParams: Promise<{ error?: string; saved?: string }> }) {
+export default async function InterviewDetail({ params }: { params: Promise<{ interviewId: string }> }) {
   const { interviewId } = await params;
-  const { error, saved } = await searchParams;
   const person = await requirePersonSession();
   const iv = await getInterview(interviewId);
   if (!iv) notFound();
@@ -87,9 +77,6 @@ export default async function InterviewDetail({ params, searchParams }: { params
         description={`${iv.departmentCode} director interview`}
         action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
-      {error && <Alert tone="error">{error}</Alert>}
-      {saved && savedMessage[saved] && <Alert tone="success">{savedMessage[saved]}</Alert>}
-
       {canManage && (
         <>
           <Card>

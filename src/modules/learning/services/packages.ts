@@ -70,6 +70,17 @@ async function requireManager(actorId: string): Promise<void> {
  * course-level COMPLETE rollup would persist for content the learner never took
  * (falsely clearing the onboarding/training gate). Left false, prior progress is
  * preserved unchanged.
+ *
+ * Deliberately NOT scoped to the active term the way dashboard.ts's per-learner
+ * resetCourseProgress is. That reset is about giving one person a fresh attempt at
+ * content that has not changed, so a prior term's row is still a genuine
+ * compliance record and is left alone. This one is about the content itself
+ * changing: every existing ScoProgress row references SCO ids from the OLD
+ * manifest, which the new manifest may not even have, so no term's row is a valid
+ * completion of what is now being served -- there is no "current term only" that
+ * would leave a meaningful record behind, only orphaned rows pointing at deleted
+ * content. Scoping this delete would just relocate the orphans instead of
+ * clearing them.
  */
 export async function ingestScormPackage(
   courseId: string,

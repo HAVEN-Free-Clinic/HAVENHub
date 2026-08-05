@@ -12,20 +12,9 @@ import type { Person } from "@prisma/client";
 import { Input, Field, ReadonlyField } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-
-const YALE_AFFILIATIONS = [
-  "Yale College",
-  "Yale School of Medicine",
-  "Yale School of Nursing",
-  "Yale School of Public Health",
-  "Physician Associate Program",
-  "Graduate School",
-  "Staff",
-  "Other",
-] as const;
+import { affiliationOptionsWith } from "@/platform/affiliation";
 
 type MyInfoFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -41,26 +30,19 @@ type MyInfoFormProps = {
     | "dateOfBirth"
     | "dietaryRestrictions"
   >;
-  error?: string;
-  saved?: string;
   /** Onboarding uses this shared form for the "profile" step, which only clears
    *  once BOTH phone and contactEmail are present. When true, require them so the
    *  step can't be submitted blank and silently re-loop on the checklist. */
   requireContact?: boolean;
 };
 
-export function MyInfoForm({ action, person, error, saved, requireContact }: MyInfoFormProps) {
+export function MyInfoForm({ action, person, requireContact }: MyInfoFormProps) {
   const currentAffiliation = person.yaleAffiliation ?? "";
-  const isKnownAffiliation = YALE_AFFILIATIONS.includes(
-    currentAffiliation as (typeof YALE_AFFILIATIONS)[number]
-  );
+  const affiliationOptions = affiliationOptionsWith(currentAffiliation);
 
   return (
     <form action={action}>
       <Card className="space-y-6">
-        {error && <Alert tone="error">{error}</Alert>}
-        {saved && <Alert tone="success">{saved}</Alert>}
-
         {/* Read-only identity rows (IT-managed) */}
         <div className="grid gap-4 sm:grid-cols-2">
           <ReadonlyField label="Name" value={person.name} />
@@ -106,14 +88,11 @@ export function MyInfoForm({ action, person, error, saved, requireContact }: MyI
           <Field label="Yale Affiliation">
             <Select name="yaleAffiliation" defaultValue={currentAffiliation}>
               <option value="">Not set</option>
-              {YALE_AFFILIATIONS.map((aff) => (
-                <option key={aff} value={aff}>
-                  {aff}
+              {affiliationOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
-              {currentAffiliation && !isKnownAffiliation && (
-                <option value={currentAffiliation}>{currentAffiliation}</option>
-              )}
             </Select>
           </Field>
 

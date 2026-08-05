@@ -12,18 +12,13 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
-export default async function OnboardingHipaaPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ certError?: string; certSaved?: string }>;
-}) {
+export default async function OnboardingHipaaPage() {
   const person = await requirePersonSession();
   const status = await getOnboardingStatus(person.personId);
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
   const task = status.tasks.find((t) => t.key === "hipaa");
   if (!task || task.state === "COMPLETE" || task.state === "NOT_REQUIRED") redirect("/get-started");
 
-  const sp = await searchParams;
   const [{ activeTerm }, certificates] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
@@ -53,7 +48,7 @@ export default async function OnboardingHipaaPage({
   return (
     <OnboardingStepShell
       title="HIPAA certificate"
-      description="Upload your current HIPAA certificate so we can verify it is valid through the term."
+      description={task.description}
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
@@ -61,8 +56,6 @@ export default async function OnboardingHipaaPage({
         certificates={certificates}
         uploadAction={uploadAction}
         status={certStatus}
-        error={sp.certError}
-        certSaved={sp.certSaved === "1"}
       />
     </OnboardingStepShell>
   );

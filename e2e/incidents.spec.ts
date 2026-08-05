@@ -49,6 +49,13 @@ async function submitReport(
   // Section 2: description (required).
   await page.locator('textarea[name="description"]').fill(description);
 
+  // Section 6: ongoing risk (required, no default -- see page.tsx). None of
+  // these flows exercise the immediate-risk flag itself, so answer "No" here
+  // to keep prior behavior; a dedicated assertion for the "Yes" path and for
+  // the native required-blocks-submit behavior lives outside this suite (see
+  // page.tsx's comment on Section 6).
+  await page.locator('input[name="immediateRisk"][value="no"]').check();
+
   // Section 4: link each subject via the searchable combobox, then click
   // "Add" to append them to the on-page list. Adding a person remounts the
   // combobox (clearing its text), so each loop iteration starts from the
@@ -70,10 +77,15 @@ async function submitReport(
 
   await page.getByRole("button", { name: "Submit report" }).click();
 
-  // submitReportAction redirects to /incidents/mine?submitted=<number>.
-  await page.waitForURL((url) => url.pathname === "/incidents/mine" && url.searchParams.has("submitted"));
-  const number = new URL(page.url()).searchParams.get("submitted");
-  if (!number) throw new Error("submitReportAction did not redirect with a submitted report number");
+  // submitReportAction redirects to /incidents/mine?submitted=<number>, but the toast
+  // reader consumes that param and strips it with router.replace, so waiting on the
+  // param being present is a race the test loses. Wait on the destination, then read
+  // the number out of the toast, which renders "Report #<number> submitted."
+  await page.waitForURL((url) => url.pathname === "/incidents/mine");
+  const toast = page.getByText(/^Report #\d+ submitted\.$/);
+  await expect(toast).toBeVisible();
+  const number = ((await toast.textContent()) ?? "").match(/#(\d+)/)?.[1];
+  if (!number) throw new Error("submitReportAction did not report a submitted report number");
   return number;
 }
 
@@ -106,10 +118,10 @@ test("anyone can file a report: dev.volunteer submits one and sees it in My repo
   await devLogin(page, "dev.volunteer@yale.edu");
 
   const description = `E2E incident ${tag()}`;
+  // submitReport already asserts the confirmation toast and reads the number out of it.
+  // Do not re-assert it here: it is a success toast, so it auto-dismisses about four
+  // seconds after it appeared, and this assertion would be racing that timer.
   const number = await submitReport(page, description);
-
-  // Success banner on /incidents/mine.
-  await expect(page.getByText(`Report #${number} submitted.`)).toBeVisible();
 
   // The new report's row is visible, linking to its detail page. exact: true
   // guards against a substring match on another row (e.g. "#7" inside "#71").

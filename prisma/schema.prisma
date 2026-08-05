@@ -1871,7 +1871,7 @@ model HistoricalApplication {
   /// SCTP, SCTS and INTP appear across the old bases and may since have been
   /// renamed or retired. A FK would either block the import or silently rewrite
   /// history when a department row is edited.
-  departmentChoices String[]
+  departmentChoices String[]       @default([])
   resultDepartment  String?
 
   furthestStage HistoricalStage

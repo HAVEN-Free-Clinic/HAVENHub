@@ -18,6 +18,9 @@ beforeEach(async () => {
   await prisma.historicalInterest.deleteMany();
   await prisma.historicalApplicantEmail.deleteMany();
   await prisma.historicalApplicant.deleteMany();
+  // The linking test creates a Person; without this the suite passes once
+  // and then fails on the unique contactEmail on every later run.
+  await prisma.person.deleteMany({ where: { contactEmail: "a@yale.edu" } });
 });
 
 describe("loadHistory", () => {

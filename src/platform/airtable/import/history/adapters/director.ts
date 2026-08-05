@@ -30,6 +30,13 @@ export const DIRECTOR_FIELDS = {
   interviews: "fldYYMi71F7i2nYPM",
   decisions: "fldTlrJkHmNXvQZAS",
   contracts: "fldcFW0hsfHRsQhsk",
+  /**
+   * SECOND contract link, and it is the ONLY one D-SU26 uses. Verified
+   * 2026-08-05 on that base: `contracts` is populated on 0 of 76 rows while
+   * this field carries 36. Reading only `contracts` loses every D-SU26
+   * onboarding. Absent on the older bases, where it reads as undefined.
+   */
+  contractsAlt: "fldG74yBW1LjC6gib",
   returningDepartment: "fldcdPQc9rX8UgYj0",
 } as const;
 
@@ -41,6 +48,18 @@ export const DIRECTOR_DECISION_FIELDS = {
   netId: "fldpZnT1Y7b27OzEv",       // Candidate Yale NetID (lookup)
   status: "fldH8btzgKjLu3b6j",      // Status (singleLineText)
   departmentHire: "fldfUyRMWRw3d6IWs", // Department HIRE (singleSelect)
+} as const;
+
+/**
+ * D-SU26 alone records outcomes in an Acceptances table (tblqM7b0f5srEmbBw,
+ * 36 rows) instead of Final Decisions, which that base does not have. Like
+ * Final Decisions it carries no link back to Applications, so the join is
+ * again by lowercased email. Verified 2026-08-05: all 36 acceptance emails
+ * resolve, matching 37 of the 76 applications, and all 36 carry a department.
+ */
+export const DIRECTOR_ACCEPTANCE_FIELDS = {
+  email: "fldveBn6WeR9iDQBd",       // Email (lookup)
+  department: "fldApydh1v6TazK3T",  // Department (lookup)
 } as const;
 
 const str = (v: unknown): string | null => {
@@ -59,6 +78,7 @@ export function transformDirector(
 ): RawHistoryRow[] {
   const F = DIRECTOR_FIELDS;
   const D = DIRECTOR_DECISION_FIELDS;
+  const A = DIRECTOR_ACCEPTANCE_FIELDS;
   const rows: RawHistoryRow[] = [];
 
   // Final Decisions has no link back to Applications, so the join is by
@@ -68,6 +88,14 @@ export function transformDirector(
   for (const record of tables.finalDecisions ?? []) {
     const email = lookupFirst(record.fields[D.email])?.toLowerCase();
     if (email) decisions.set(email, record);
+  }
+
+  // D-SU26 only. Same story as Final Decisions: no link back, so join by
+  // lowercased email. Absent on every other director base.
+  const acceptances = new Map<string, AirtableRecord>();
+  for (const record of tables.acceptances ?? []) {
+    const email = lookupFirst(record.fields[A.email])?.toLowerCase();
+    if (email) acceptances.set(email, record);
   }
 
   for (const record of tables.applications ?? []) {
@@ -83,16 +111,19 @@ export function transformDirector(
     if (rawNetId && isNetIdShaped(rawNetId)) netId = rawNetId.toLowerCase();
     else if (rawNetId) unmapped.rejectedNetId = rawNetId;
 
-    const decision = email ? decisions.get(email.toLowerCase()) : undefined;
+    const key = email?.toLowerCase();
+    const decision = key ? decisions.get(key) : undefined;
+    const acceptance = key ? acceptances.get(key) : undefined;
     const decisionRaw = decision ? str(decision.fields[D.status]) : null;
     const outcome = parseOutcome(decisionRaw);
     if (outcome === "UNKNOWN") unmapped.decision = decisionRaw;
 
-    const onboarded = linked(f[F.contracts]);
+    // Either contract field counts. D-SU26 populates only the second.
+    const onboarded = linked(f[F.contracts]) || linked(f[F.contractsAlt]);
     const furthestStage = deriveStage({
       advanced: linked(f[F.interviews]) || linked(f[F.decisions]),
       finalRound: linked(f[F.interviews]),
-      accepted: onboarded || outcome === "ACCEPTED",
+      accepted: onboarded || outcome === "ACCEPTED" || acceptance !== undefined,
       onboarded,
     });
 
@@ -102,10 +133,16 @@ export function transformDirector(
       identity: { firstName: str(f[F.firstName]) ?? "", lastName: str(f[F.lastName]) ?? "", email, netId },
       applicantType: linked(f[F.returningDepartment]) ? "RENEWAL" : null,
       departmentChoicesRaw: [str(f[F.dept1]), str(f[F.dept2]), str(f[F.dept3])],
-      resultDepartmentRaw: decision ? str(decision.fields[D.departmentHire]) : null,
+      resultDepartmentRaw:
+        (decision ? str(decision.fields[D.departmentHire]) : null) ??
+        (acceptance ? lookupFirst(acceptance.fields[A.department]) : null),
       furthestStage,
-      // A contract is proof of acceptance even when no decision row survives.
-      outcome: outcome === "NO_DECISION" && onboarded ? "ACCEPTED" : outcome,
+      // A contract or an acceptance row is proof of acceptance even when no
+      // decision row survives. D-SU26 has no Final Decisions table at all.
+      outcome:
+        outcome === "NO_DECISION" && (onboarded || acceptance !== undefined)
+          ? "ACCEPTED"
+          : outcome,
       submittedAt: null,
       decidedAt: null,
       unmapped: Object.keys(unmapped).length ? unmapped : null,

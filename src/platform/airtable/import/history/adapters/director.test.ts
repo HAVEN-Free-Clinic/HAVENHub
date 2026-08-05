@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { transformDirector, DIRECTOR_FIELDS as F, DIRECTOR_DECISION_FIELDS as D } from "./director";
+import {
+  transformDirector,
+  DIRECTOR_FIELDS as F,
+  DIRECTOR_DECISION_FIELDS as D,
+  DIRECTOR_ACCEPTANCE_FIELDS as A,
+} from "./director";
 
 const SOURCE = {
   code: "D-FA25", label: "Fall 2025 Director Recruitment", track: "DIRECTOR" as const,
@@ -95,6 +100,38 @@ describe("transformDirector", () => {
     }, SOURCE_SU26);
     expect(row).toBeDefined();
     expect(row.identity.email).toBe("linked@yale.edu");
+  });
+
+  it("counts the ALTERNATE contract link, which is the only one D-SU26 uses", () => {
+    // Verified: on D-SU26 the primary contracts field is populated on 0 of 76
+    // rows and this one on 36. Reading only the primary loses every SU26
+    // onboarding.
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "a@yale.edu", [F.contractsAlt]: ["recCon"] })],
+    }, SOURCE_SU26);
+    expect(row.furthestStage).toBe("ONBOARDED");
+    expect(row.outcome).toBe("ACCEPTED");
+  });
+
+  it("reads an Acceptances row as an acceptance, joined by email", () => {
+    // D-SU26 has no Final Decisions table; its 36 outcomes live here.
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "Ada@Yale.edu" })],
+      acceptances: [record("recA", {
+        [A.email]: ["ada@yale.edu"], [A.department]: ["ITCM"],
+      })],
+    }, SOURCE_SU26);
+    expect(row.outcome).toBe("ACCEPTED");
+    expect(row.resultDepartmentRaw).toBe("ITCM");
+    expect(row.furthestStage).toBe("ACCEPTED");
+  });
+
+  it("leaves an applicant with no acceptance row undecided", () => {
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "a@yale.edu" })],
+      acceptances: [record("recA", { [A.email]: ["other@yale.edu"] })],
+    }, SOURCE_SU26);
+    expect(row.outcome).toBe("NO_DECISION");
   });
 
   it("prefers the direct email when both are present", () => {

@@ -80,4 +80,64 @@ describe("loadHistory", () => {
     );
     expect(report.unmappedDepartments).toContain("Not A Real Dept");
   });
+
+  it("adopts a netId that arrives on a re-run without orphaning the applicant", async () => {
+    await loadHistory([row("rec1", "a@yale.edu")], [], { dryRun: false });
+    await loadHistory(
+      [row("rec1", "a@yale.edu", { identity: { firstName: "Ada", lastName: "Lovelace", email: "a@yale.edu", netId: "abc12" } })],
+      [], { dryRun: false },
+    );
+
+    expect(await prisma.historicalApplicant.count()).toBe(1);
+    const applicant = await prisma.historicalApplicant.findFirst();
+    expect(applicant!.netId).toBe("abc12");
+  });
+
+  it("does not orphan the application when a netId arrives on a re-run", async () => {
+    await loadHistory([row("rec1", "a@yale.edu")], [], { dryRun: false });
+    await loadHistory(
+      [row("rec1", "a@yale.edu", { identity: { firstName: "Ada", lastName: "Lovelace", email: "a@yale.edu", netId: "abc12" } })],
+      [], { dryRun: false },
+    );
+
+    // Fetched by netId, not findFirst(), so this targets the one true
+    // surviving applicant even if a duplicate were (wrongly) also present.
+    expect(await prisma.historicalApplicant.count()).toBe(1);
+    const applicant = await prisma.historicalApplicant.findFirst({ where: { netId: "abc12" } });
+    expect(await prisma.historicalApplication.count()).toBe(1);
+    const application = await prisma.historicalApplication.findFirst();
+    expect(application!.applicantId).toBe(applicant!.id);
+  });
+
+  it("merges two pre-existing applicants once a later row proves they are the same person", async () => {
+    // Applicant A: email-only, no netId.
+    await loadHistory([row("recA", "old@yale.edu")], [], { dryRun: false });
+    // Applicant B: a different email, carrying the netId.
+    await loadHistory(
+      [row("recB", "new@yale.edu", { identity: { firstName: "Ada", lastName: "Lovelace", email: "new@yale.edu", netId: "abc12" } })],
+      [], { dryRun: false },
+    );
+    expect(await prisma.historicalApplicant.count()).toBe(2);
+
+    // A third row carries BOTH keys: A and B are now known to be one person.
+    const report = await loadHistory(
+      [row("recC", "old@yale.edu", { identity: { firstName: "Ada", lastName: "Lovelace", email: "old@yale.edu", netId: "abc12" } })],
+      [], { dryRun: false },
+    );
+
+    const applicants = await prisma.historicalApplicant.findMany();
+    expect(applicants).toHaveLength(1);
+    const survivor = applicants[0];
+    expect(survivor.netId).toBe("abc12");
+
+    const applications = await prisma.historicalApplication.findMany();
+    expect(applications).toHaveLength(3);
+    expect(applications.every((a) => a.applicantId === survivor.id)).toBe(true);
+
+    const emails = await prisma.historicalApplicantEmail.findMany();
+    expect(emails).toHaveLength(2);
+    expect(emails.every((e) => e.applicantId === survivor.id)).toBe(true);
+
+    expect(report.identitiesMerged).toBe(1);
+  });
 });

@@ -34,6 +34,7 @@ export function formatReport(report: ImportReport): string {
   lines.push(`  rows considered: ${report.identities.rows}`);
   lines.push(`  resolved to: ${report.identities.resolved}`);
   lines.push(`  spanning multiple cycles: ${report.identities.multiCycle}`);
+  lines.push(`  merged into an existing applicant: ${report.identitiesMerged}`);
   lines.push("");
 
   lines.push("Unmapped departments (needs a human):");

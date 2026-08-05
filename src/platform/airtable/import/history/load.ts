@@ -13,6 +13,13 @@ export type ImportReport = {
     byOutcome: Record<string, number>;
   }>;
   identities: { rows: number; resolved: number; multiCycle: number };
+  /**
+   * Count of pre-existing HistoricalApplicant rows collapsed into a single
+   * survivor because a later row proved they were the same person (one
+   * matched by netId, the other by email, until one row carried both keys).
+   * Always 0 on a dry run, since a dry run performs no merges.
+   */
+  identitiesMerged: number;
   /** Raw department labels no adapter or resolver could map to a Hub code. */
   unmappedDepartments: string[];
   /** Raw decision strings the outcome ladder in stages.ts does not recognize. */
@@ -172,15 +179,29 @@ export async function loadHistory(
     unmappedDepartments: [...unmappedDepartments],
     unmappedDecisions: [...unmappedDecisions],
     rejectedNetIds,
+    identitiesMerged: 0,
   };
 
   // 5. Dry run: return the report without ever opening a write.
   if (opts.dryRun) return report;
 
-  // 6. Otherwise, one transaction per identity: upsert the HistoricalApplicant
-  // (by netId when the identity has one, else by joining through
-  // HistoricalApplicantEmail.email), upsert its emails, then upsert each
-  // application and interest keyed on the three source columns.
+  // 6. Otherwise, one transaction per identity: find or create the
+  // HistoricalApplicant, upsert its emails, then upsert each application and
+  // interest keyed on the three source columns.
+  //
+  // The applicant lookup gathers candidates from BOTH keys (netId and the
+  // emails relation) rather than branching to just one. A row can arrive with
+  // an email but no netId, get an applicant created for it, and only later
+  // have its netId filled in (by ops, or by a second row for the same
+  // person). Branching exclusively on "netId present" would then miss the
+  // existing email-matched applicant, create a second one, and silently move
+  // the email to it while every previously-imported application stayed
+  // attached to the orphaned original. Gathering both and reconciling makes
+  // that case a one-candidate match (adopt the netId) instead of a silent
+  // split, and makes the rarer two-candidate case (two already-distinct
+  // applicants a later row proves are the same person) an explicit, counted
+  // merge rather than an arbitrary pick.
+  let totalMerges = 0;
   for (const identity of identities) {
     const memberRows = rowsByIdentity.get(identity) ?? [];
     const memberInterests = interestsByIdentity.get(identity) ?? [];
@@ -189,38 +210,79 @@ export async function loadHistory(
     const personId = resolvePersonId(identity);
 
     await prisma.$transaction(async (tx) => {
-      const existing = identity.netId
-        ? await tx.historicalApplicant.findUnique({ where: { netId: identity.netId } })
-        : ((
-            await tx.historicalApplicantEmail.findFirst({
-              where: { email: { in: identity.emails } },
-              include: { applicant: true },
-            })
-          )?.applicant ?? null);
+      const candidateIds = new Set<string>();
+      if (identity.netId) {
+        const byNetId = await tx.historicalApplicant.findUnique({ where: { netId: identity.netId } });
+        if (byNetId) candidateIds.add(byNetId.id);
+      }
+      const emailMatches = await tx.historicalApplicantEmail.findMany({
+        where: { email: { in: identity.emails } },
+        select: { applicantId: true },
+      });
+      for (const match of emailMatches) candidateIds.add(match.applicantId);
 
-      const applicant = existing
-        ? await tx.historicalApplicant.update({
-            where: { id: existing.id },
-            data: {
-              primaryEmail: identity.primaryEmail,
-              firstName: identity.firstName,
-              lastName: identity.lastName,
-              personId,
-              // Never downgrade a known netId to null: an identity matched
-              // purely by email in this run must not erase a stronger join
-              // key a previous run already recorded.
-              ...(identity.netId ? { netId: identity.netId } : {}),
-            },
-          })
-        : await tx.historicalApplicant.create({
-            data: {
-              netId: identity.netId,
-              primaryEmail: identity.primaryEmail,
-              firstName: identity.firstName,
-              lastName: identity.lastName,
-              personId,
-            },
+      let applicant;
+      if (candidateIds.size === 0) {
+        applicant = await tx.historicalApplicant.create({
+          data: {
+            netId: identity.netId,
+            primaryEmail: identity.primaryEmail,
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            personId,
+          },
+        });
+      } else {
+        const candidates = await tx.historicalApplicant.findMany({
+          where: { id: { in: [...candidateIds] } },
+          include: { _count: { select: { applications: true } } },
+        });
+
+        // Survivor: most applications, ties broken by earliest createdAt.
+        // Deterministic so a re-run always picks the same survivor.
+        const [survivor, ...duplicates] = candidates.sort((a, b) => {
+          if (b._count.applications !== a._count.applications) {
+            return b._count.applications - a._count.applications;
+          }
+          return a.createdAt.getTime() - b.createdAt.getTime();
+        });
+
+        // Re-point everything off each duplicate BEFORE deleting it: both
+        // HistoricalApplication and HistoricalApplicantEmail cascade-delete
+        // from HistoricalApplicant, so deleting first would destroy the very
+        // history and join keys this merge exists to preserve.
+        for (const duplicate of duplicates) {
+          await tx.historicalApplication.updateMany({
+            where: { applicantId: duplicate.id },
+            data: { applicantId: survivor.id },
           });
+          await tx.historicalInterest.updateMany({
+            where: { applicantId: duplicate.id },
+            data: { applicantId: survivor.id },
+          });
+          await tx.historicalApplicantEmail.updateMany({
+            where: { applicantId: duplicate.id },
+            data: { applicantId: survivor.id },
+          });
+          await tx.historicalApplicant.delete({ where: { id: duplicate.id } });
+          totalMerges++;
+        }
+
+        applicant = await tx.historicalApplicant.update({
+          where: { id: survivor.id },
+          data: {
+            primaryEmail: identity.primaryEmail,
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            personId,
+            // Never downgrade a known netId to null: an identity matched
+            // purely by email in this run must not erase a stronger join
+            // key a previous run already recorded. Duplicates carrying the
+            // netId are already deleted above, so this can never collide.
+            ...(identity.netId ? { netId: identity.netId } : {}),
+          },
+        });
+      }
 
       for (const email of identity.emails) {
         await tx.historicalApplicantEmail.upsert({
@@ -275,5 +337,6 @@ export async function loadHistory(
     });
   }
 
+  report.identitiesMerged = totalMerges;
   return report;
 }

@@ -12,6 +12,7 @@ describe("notification registry", () => {
         "compliance-cert-verified",
         "compliance-reminder",
         "onboarding-reminder",
+        "clearance-digest",
         "epic-activation",
         "epic-onboarding",
         "epic-password-reset",

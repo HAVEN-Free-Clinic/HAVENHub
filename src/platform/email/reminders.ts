@@ -42,10 +42,16 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
-import { complianceReminderContext } from "./templates/compliance";
-import { onboardingReminderContext } from "./templates/clearance";
+import { complianceReminderContext, READABLE_STATUS } from "./templates/compliance";
+import {
+  onboardingReminderContext,
+  clearanceDigestContext,
+  type ClearanceDigestMember,
+} from "./templates/clearance";
 import { loadEhsMissingMap } from "@/platform/ehs/services/status";
 import { loadClearanceMap } from "@/platform/clearance";
+import { isoWeekKey } from "@/platform/dates";
+import { claimReminderDispatch } from "./reminder-dispatch";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -56,6 +62,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * settings registry only if ops actually asks.
  */
 const ONBOARDING_REMINDER_GRACE_DAYS = 2;
+
+/**
+ * Days stalled before the digest flags a member as overdue. 21 is where the retired
+ * threshold escalation used to fire: three reminders at the 7-day HIPAA interval.
+ * Keeping that boundary is what stops a six-week holdout reading the same as someone
+ * who joined on Tuesday. A constant, not a setting, because the setting it derived
+ * from was removed with the escalation.
+ */
+const DIGEST_STALLED_FLAG_DAYS = 21;
 
 /**
  * Human-readable, self-serviceable outstanding items, keyed by onboarding task key.
@@ -94,8 +109,20 @@ function onboardingItems(missing: readonly string[], ehsMissing: string[]): stri
 export type ReminderRunResult = {
   hipaaRemindersSent: number;
   onboardingRemindersSent: number;
+  digestsSent: number;
   reset: number;
   skipped: number;
+};
+
+/**
+ * A member the run found uncleared, carried into the weekly director digest.
+ * `stalledSince` is non-nullable here: by the time a member is recorded, the row has
+ * either carried a stall marker forward or just been stamped with `now`.
+ */
+type UnclearedMember = {
+  name: string;
+  items: string[];
+  stalledSince: Date;
 };
 
 /**
@@ -115,6 +142,7 @@ export async function runClearanceReminders(
   const result: ReminderRunResult = {
     hipaaRemindersSent: 0,
     onboardingRemindersSent: 0,
+    digestsSent: 0,
     reset: 0,
     skipped: 0,
   };
@@ -212,6 +240,9 @@ export async function runClearanceReminders(
   //    missing task keys that drive the onboarding leg.
   const ehsMissingByPerson = await loadEhsMissingMap(termId);
   const clearanceByPerson = await loadClearanceMap(personIds, termId);
+
+  // Members the loop finds uncleared, carried into the weekly digest after it.
+  const uncleared = new Map<string, UnclearedMember>();
 
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
@@ -394,7 +425,24 @@ export async function runClearanceReminders(
         }
       }
     }
+
+    // Record for the weekly digest. Unconditional on delivery: the digest is about
+    // who is not cleared, and a member no channel could reach still belongs in it
+    // (arguably belongs in it most).
+    //
+    // stalledSince is known without re-reading the row. Either the row already
+    // carried one, or the upsert/updateMany a few lines above just stamped `now`.
+    uncleared.set(person.id, {
+      name: person.name,
+      items: [
+        ...(hipaaUnsatisfied ? [`HIPAA certification: ${READABLE_STATUS[hipaaStatus]}`] : []),
+        ...items,
+      ],
+      stalledSince: existing?.stalledSince ?? now,
+    });
   }
+
+  await sendClearanceDigests(termId, uncleared, now, baseUrl, result);
 
   // Surface the run size + duration so the write phase (O(active members) serial
   // round-trips) can be watched trending toward the 300s budget before it truncates.
@@ -404,4 +452,142 @@ export async function runClearanceReminders(
     ...result,
   });
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// sendClearanceDigests (private helper)
+// ---------------------------------------------------------------------------
+
+/**
+ * Queue one weekly roll-up per director covering every uncleared member in the
+ * departments where they hold an ACTIVE DIRECTOR membership this term.
+ *
+ * The weekly cadence comes from the claim, not from a schedule: the periodKey is the
+ * ISO week, so the first daily run of each week wins and the other six skip. That
+ * needs no day-of-week branch, and it self-heals when a run fails, unlike a hard
+ * weekly cron which would silently skip the entire week.
+ *
+ * Directors are resolved from TermMembership kind DIRECTOR rather than from RBAC,
+ * matching the escalation this replaced. A director in several departments gets one
+ * email spanning all of them, and never appears in their own digest.
+ */
+async function sendClearanceDigests(
+  termId: string,
+  uncleared: Map<string, UnclearedMember>,
+  now: Date,
+  baseUrl: string,
+  result: ReminderRunResult
+): Promise<void> {
+  if (uncleared.size === 0) return;
+
+  const memberships = await prisma.termMembership.findMany({
+    where: { termId, status: "ACTIVE" },
+    select: {
+      personId: true,
+      kind: true,
+      departmentId: true,
+      department: { select: { code: true, name: true } },
+      person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
+    },
+    orderBy: { department: { code: "asc" } },
+  });
+
+  type DirectorPerson = { id: string; name: string; contactEmail: string | null; entraObjectId: string | null };
+
+  const deptName = new Map<string, string>();
+  const deptCode = new Map<string, string>();
+  const directorById = new Map<string, DirectorPerson>();
+  const deptsByDirector = new Map<string, Set<string>>();
+  const rowsByDept = new Map<string, Array<{ personId: string } & ClearanceDigestMember>>();
+
+  const flagCutoff = new Date(now.getTime() - DIGEST_STALLED_FLAG_DAYS * MS_PER_DAY);
+
+  for (const m of memberships) {
+    deptName.set(m.departmentId, m.department.name);
+    deptCode.set(m.departmentId, m.department.code);
+
+    if (m.kind === "DIRECTOR") {
+      directorById.set(m.person.id, m.person);
+      const set = deptsByDirector.get(m.person.id) ?? new Set<string>();
+      set.add(m.departmentId);
+      deptsByDirector.set(m.person.id, set);
+    }
+
+    const u = uncleared.get(m.personId);
+    if (!u) continue;
+    const list = rowsByDept.get(m.departmentId) ?? [];
+    list.push({
+      personId: m.personId,
+      name: u.name,
+      departmentName: m.department.name,
+      items: u.items,
+      stalledDays: Math.floor((now.getTime() - u.stalledSince.getTime()) / MS_PER_DAY),
+      flagged: u.stalledSince < flagCutoff,
+    });
+    rowsByDept.set(m.departmentId, list);
+  }
+
+  const periodKey = isoWeekKey(now);
+
+  for (const [directorId, deptIds] of deptsByDirector) {
+    const director = directorById.get(directorId);
+    if (!director) continue;
+    if (!director.contactEmail && !director.entraObjectId) continue;
+
+    // Dedupe members across the director's departments; first department by code wins,
+    // matching how the retired escalation picked a department name.
+    const ordered = [...deptIds].sort((a, b) =>
+      (deptCode.get(a) ?? "").localeCompare(deptCode.get(b) ?? "")
+    );
+    const rows = new Map<string, ClearanceDigestMember>();
+    for (const deptId of ordered) {
+      for (const row of rowsByDept.get(deptId) ?? []) {
+        if (row.personId === directorId) continue;
+        if (!rows.has(row.personId)) rows.set(row.personId, row);
+      }
+    }
+    if (rows.size === 0) continue;
+
+    // Longest stalled first.
+    const members = [...rows.values()].sort((a, b) => b.stalledDays - a.stalledDays);
+
+    // Claim last, so nothing before this consumes the week's slot. A failed claim
+    // means this director already got their digest for this ISO week.
+    if (!(await claimReminderDispatch("clearance-digest", directorId, periodKey))) continue;
+
+    const departmentNames = ordered
+      .map((id) => deptName.get(id))
+      .filter((n): n is string => Boolean(n))
+      .join(", ");
+    const reviewUrl = `${baseUrl}/volunteers`;
+
+    const rendered = await renderEmail(
+      "clearance-digest",
+      clearanceDigestContext({
+        directorName: director.name,
+        departmentNames,
+        members,
+        reviewUrl,
+      }),
+    );
+    await notify(prisma, {
+      type: "clearance-digest",
+      person: {
+        id: director.id,
+        entraObjectId: director.entraObjectId,
+        contactEmail: director.contactEmail,
+      },
+      email: { subject: rendered.subject, html: rendered.html },
+      teams: {
+        title: "Weekly clearance digest",
+        summary: `${members.length} member${members.length === 1 ? "" : "s"} in ${departmentNames} are not cleared.`,
+        // /volunteers gates on volunteers.view, which the seeded Director baseline
+        // holds, and it is the compliance surface itself. /admin gates on admin.access,
+        // which Director does NOT hold, so linking there resolves to /no-access for
+        // this notification's entire intended audience (#70).
+        link: reviewUrl,
+      },
+    });
+    result.digestsSent++;
+  }
 }

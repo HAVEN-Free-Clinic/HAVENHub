@@ -46,6 +46,27 @@ export function itemsToHtml(items: string[]): string {
 // Context builders
 // ---------------------------------------------------------------------------
 
+export type ClearanceDigestMember = {
+  name: string;
+  departmentName: string;
+  /** Outstanding items across both streams, as ready-to-display sentences. */
+  items: string[];
+  /** Whole days since the member first went unsatisfied. */
+  stalledDays: number;
+  /** True when the member has been stalled past the overdue threshold. */
+  flagged: boolean;
+};
+
+export type ClearanceDigestParams = {
+  directorName: string;
+  /** Comma-joined names of the departments this digest covers. */
+  departmentNames: string;
+  /** Members not cleared, already sorted longest-stalled first. */
+  members: ClearanceDigestMember[];
+  /** Absolute link to the volunteers surface, which directors can open. */
+  reviewUrl: string;
+};
+
 export function onboardingReminderContext(p: OnboardingReminderParams): Record<string, unknown> {
   const count = p.items.length;
   return {
@@ -55,6 +76,29 @@ export function onboardingReminderContext(p: OnboardingReminderParams): Record<s
     itemNoun: count === 1 ? "item" : "items",
     ctaUrl: `${p.appUrl ?? ""}/get-started`,
     brandColor: p.brandColor ?? "",
+  };
+}
+
+export function clearanceDigestContext(p: ClearanceDigestParams): Record<string, unknown> {
+  const rows = p.members.map((m) => {
+    const since = ` outstanding ${m.stalledDays} day${m.stalledDays === 1 ? "" : "s"}`;
+    const flag = m.flagged ? " <strong>(overdue)</strong>" : "";
+    return (
+      `<li><strong>${esc(m.name)}</strong> (${esc(m.departmentName)})${since}${flag}` +
+      `<ul>${itemsToHtml(m.items)}</ul></li>`
+    );
+  });
+  const count = p.members.length;
+  return {
+    directorName: p.directorName,
+    departmentNames: p.departmentNames,
+    memberCount: count,
+    memberNoun: count === 1 ? "member" : "members",
+    // The subject reads "N member(s) is/are not cleared", so the verb has to agree
+    // with the count as well as the noun.
+    memberVerb: count === 1 ? "is" : "are",
+    memberRowsHtml: rows.join(""),
+    reviewUrl: p.reviewUrl,
   };
 }
 
@@ -104,6 +148,35 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
 </table>
 
 <p>Reach out to your director if you are unsure how to complete any of these.</p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "clearance-digest",
+    name: "Clearance: weekly digest (directors)",
+    category: "transactional",
+    group: "compliance",
+    variables: [
+      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "departmentNames", label: "Comma-joined department names this digest covers", sampleValue: "Cardiology" },
+      { name: "memberCount", label: "How many members are not cleared", sampleValue: "2" },
+      { name: "memberNoun", label: "\"member\" or \"members\", matched to the count", sampleValue: "members" },
+      { name: "memberVerb", label: "\"is\" or \"are\", matched to the count", sampleValue: "are" },
+      {
+        name: "memberRowsHtml",
+        label: "Pre-rendered <li> rows, one per member, each with a nested list of outstanding items",
+        sampleValue: "<li><strong>Jane Doe</strong> (Cardiology) outstanding 30 days<ul><li>HIPAA certification: expired</li></ul></li>",
+      },
+      { name: "reviewUrl", label: "Absolute link to the volunteers surface", sampleValue: "https://hub.havenfreeclinic.org/volunteers" },
+    ],
+    defaultSubject: "[HAVEN] {{ memberCount }} {{ memberNoun }} {{ memberVerb }} not cleared",
+    defaultBody: `<p>Hello {{ directorName }},</p>
+
+<p>{{ memberCount }} {{ memberNoun }} in {{ departmentNames }} {{ memberVerb }} not yet cleared to volunteer. Longest outstanding first:</p>
+
+<ul>{{{ memberRowsHtml }}}</ul>
+
+<p><a href="{{ reviewUrl }}">Open the volunteers list</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

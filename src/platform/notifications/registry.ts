@@ -15,6 +15,7 @@ export interface NotificationType {
 export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "compliance-reminder", label: "Compliance reminder", defaultChannel: "email" },
   { key: "onboarding-reminder", label: "Onboarding: outstanding requirements", defaultChannel: "email" },
+  { key: "clearance-digest", label: "Clearance: weekly digest (directors)", defaultChannel: "email" },
   { key: "compliance-date-review", label: "HIPAA certificate date review (compliance managers)", defaultChannel: "email" },
   { key: "compliance-verification-review", label: "HIPAA certificate verification review (compliance managers)", defaultChannel: "email" },
   { key: "compliance-cert-verified", label: "HIPAA certificate verified (member)", defaultChannel: "email" },

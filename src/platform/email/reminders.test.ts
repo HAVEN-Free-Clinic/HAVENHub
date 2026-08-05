@@ -157,6 +157,7 @@ describe("no active term", () => {
     expect(result).toEqual({
       hipaaRemindersSent: 0,
       onboardingRemindersSent: 0,
+      digestsSent: 0,
       reset: 0,
       skipped: 0,
     });
@@ -724,5 +725,102 @@ describe("stalledSince", () => {
     expect(row!.stalledSince).toBeNull();
     expect(row!.remindersSent).toBe(0);
     expect(row!.onboardingRemindersSent).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekly per-director clearance digest
+// ---------------------------------------------------------------------------
+
+describe("weekly clearance digest", () => {
+  it("sends one digest per director per ISO week across repeated daily runs", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const volunteer = await createPerson("Alice", "alice@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    // NOW is 2026-06-01, a Monday (ISO week 2026-W23). Run every day of that week.
+    for (let d = 0; d < 7; d++) {
+      await runClearanceReminders(advanceNow(d));
+    }
+    expect(await emailLogCount("clearance-digest")).toBe(1);
+
+    // The following Monday opens a new ISO week and a second digest.
+    await runClearanceReminders(advanceNow(7));
+    expect(await emailLogCount("clearance-digest")).toBe(2);
+  });
+
+  it("sends one digest covering both departments to a director of two", async () => {
+    const term = await createTerm();
+    const pcar = await createDepartment("PCAR");
+    const jctp = await createDepartment("JCTP");
+    const a = await createPerson("Alice", "alice@example.com");
+    const b = await createPerson("Bella", "bella@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(a.id, term.id, pcar.id, "VOLUNTEER");
+    await addMembership(b.id, term.id, jctp.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, pcar.id, "DIRECTOR");
+    await addMembership(director.id, term.id, jctp.id, "DIRECTOR");
+    await addCert(a.id, EXPIRED_COMPLETION);
+    await addCert(b.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    for (const p of [a, b, director]) await backdateMemberships(p.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.digestsSent).toBe(1);
+    expect(await emailLogCount("clearance-digest")).toBe(1);
+    const digest = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "clearance-digest" },
+    });
+    expect(digest.html).toContain("Alice");
+    expect(digest.html).toContain("Bella");
+  });
+
+  it("skips a director whose departments are fully cleared", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const volunteer = await createPerson("Alice", "alice@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, COMPLIANT_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.digestsSent).toBe(0);
+    expect(await emailLogCount("clearance-digest")).toBe(0);
+  });
+
+  it("includes a member no channel can reach, which is exactly who a director must chase", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    // No contactEmail and no Teams identity: unreachable under every channel.
+    const volunteer = await createPerson("Ghost", null);
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(result.digestsSent).toBe(1);
+    const digest = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "clearance-digest" },
+    });
+    expect(digest.html).toContain("Ghost");
   });
 });

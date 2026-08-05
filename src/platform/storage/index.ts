@@ -3,32 +3,52 @@
  * recruitment application files, onboarding documents, incident and support
  * attachments, branding images, unzipped SCORM package trees).
  *
- * Two drivers, selected at runtime:
- *   - Cloudflare R2 -- used when the R2_* variables are set (every deployed
- *                      environment). Vercel's function filesystem is
- *                      read-only/ephemeral, so disk storage does not persist there.
+ * Three drivers, selected at runtime:
+ *   - Cloudflare R2 -- the primary store whenever the R2_* variables are set
+ *                      (every deployed environment). Vercel's function
+ *                      filesystem is read-only/ephemeral, so disk storage does
+ *                      not persist there.
+ *   - Vercel Blob   -- retained ONLY to support the R2 migration. It is the
+ *                      whole store in the rolled-back state (R2_* unset, Blob
+ *                      token present), and a read-through fallback during the
+ *                      cutover window (R2 active AND a Blob token present).
+ *                      See ./blob.ts for the deletion plan.
  *   - Local disk    -- the default for local dev, CI, and the test suite. Files
  *                      are written under config.UPLOAD_DIR.
  *
  * Callers pass a stable `key` (a relative path such as "<certId>.pdf" or
- * "recruitment/<cycleId>/<storedName>"). The same key round-trips through both
- * drivers, so DB-stored `storedName` values keep working unchanged.
+ * "recruitment/<cycleId>/<storedName>"). The same key round-trips through every
+ * driver, so DB-stored `storedName` values keep working unchanged.
  *
- * The R2 driver is loaded dynamically so the AWS SDK is never pulled into
- * environments that do not use it.
+ * The R2 and Blob drivers are loaded dynamically so their SDKs are never pulled
+ * into environments that do not use them.
  */
 import { config } from "@/platform/config";
 import * as disk from "./disk";
 
+/** R2 is the primary store whenever it is configured. */
+const r2Active = Boolean(config.R2_BUCKET);
+
+/**
+ * The Blob store is reachable in two situations, both temporary:
+ *   - R2 is NOT configured and a Blob token is: the rolled-back state, where
+ *     Blob is the whole store.
+ *   - R2 IS configured and a Blob token is: the cutover window, where Blob is a
+ *     read-through fallback for objects the backfill has not copied yet.
+ */
+const blobConfigured = Boolean(config.BLOB_READ_WRITE_TOKEN);
+const blobOnly = !r2Active && blobConfigured;
+const readThroughToBlob = r2Active && blobConfigured;
+
 /**
  * True when bytes live in a remote store rather than on this machine.
  *
- * config.ts enforces that the R2 variables are all set or all unset, so testing
- * one is sufficient. Two scripts guard on this flag: import-certificates refuses
- * to write rows to a remote database while bytes go to local disk, and
- * seed-ux-audit-fixtures refuses to write throwaway fixtures into a shared store.
+ * Two scripts guard on this: import-certificates refuses to write rows to a
+ * remote database while bytes go to local disk, and seed-ux-audit-fixtures
+ * refuses to write throwaway fixtures into a shared store. Both care about
+ * "remote", not about which remote, so Blob counts.
  */
-export const usingRemoteStorage = Boolean(config.R2_BUCKET);
+export const usingRemoteStorage = r2Active || blobConfigured;
 
 /** Store bytes under `key`, overwriting any existing object at that key. */
 export async function putObject(
@@ -36,28 +56,37 @@ export async function putObject(
   bytes: Buffer,
   contentType: string
 ): Promise<void> {
-  if (usingRemoteStorage) {
-    const r2 = await import("./r2");
-    return r2.putObject(key, bytes, contentType);
-  }
+  // Writes go to the active store only. During the cutover window that is R2,
+  // and reads find R2 first, so there is nothing to gain from duplicating.
+  if (r2Active) return (await import("./r2")).putObject(key, bytes, contentType);
+  if (blobOnly) return (await import("./blob")).putObject(key, bytes, contentType);
   return disk.putObject(key, bytes, contentType);
 }
 
 /** Read bytes stored under `key`, or null when the object is missing. */
 export async function getObject(key: string): Promise<Buffer | null> {
-  if (usingRemoteStorage) {
-    const r2 = await import("./r2");
-    return r2.getObject(key);
+  if (r2Active) {
+    const bytes = await (await import("./r2")).getObject(key);
+    if (bytes !== null) return bytes;
+    // Cutover window: an object written to Blob between the backfill and this
+    // deploy lives only there. Read through rather than 404.
+    if (readThroughToBlob) return (await import("./blob")).getObject(key);
+    return null;
   }
+  if (blobOnly) return (await import("./blob")).getObject(key);
   return disk.getObject(key);
 }
 
 /** Delete the object stored under `key`. Missing objects are a no-op. */
 export async function deleteObject(key: string): Promise<void> {
-  if (usingRemoteStorage) {
-    const r2 = await import("./r2");
-    return r2.deleteObject(key);
+  if (r2Active) {
+    await (await import("./r2")).deleteObject(key);
+    // Delete from Blob too. An object that lives only in Blob would otherwise
+    // survive the R2 no-op and be resurrected by the read-through above.
+    if (readThroughToBlob) await (await import("./blob")).deleteObject(key);
+    return;
   }
+  if (blobOnly) return (await import("./blob")).deleteObject(key);
   return disk.deleteObject(key);
 }
 
@@ -72,9 +101,12 @@ export async function deletePrefix(prefix: string): Promise<void> {
   if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\/?$/.test(prefix)) {
     throw new Error(`Refusing unsafe storage prefix: ${prefix}`);
   }
-  if (usingRemoteStorage) {
-    const r2 = await import("./r2");
-    return r2.deletePrefix(prefix);
+  if (r2Active) {
+    await (await import("./r2")).deletePrefix(prefix);
+    // Same resurrection hazard as deleteObject.
+    if (readThroughToBlob) await (await import("./blob")).deletePrefix(prefix);
+    return;
   }
+  if (blobOnly) return (await import("./blob")).deletePrefix(prefix);
   return disk.deletePrefix(prefix);
 }

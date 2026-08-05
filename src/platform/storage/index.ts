@@ -43,12 +43,31 @@ const readThroughToBlob = r2Active && blobConfigured;
 /**
  * True when bytes live in a remote store rather than on this machine.
  *
- * Two scripts guard on this: import-certificates refuses to write rows to a
- * remote database while bytes go to local disk, and seed-ux-audit-fixtures
- * refuses to write throwaway fixtures into a shared store. Both care about
- * "remote", not about which remote, so Blob counts.
+ * Three things have cared about this flag: import-certificates refuses to
+ * write rows to a remote database while bytes go to local disk,
+ * seed-ux-audit-fixtures refuses to write throwaway fixtures into a shared
+ * store, and (formerly) the SCORM package upload form's choice between a
+ * direct-to-R2 presigned upload and a plain Server Action upload. That third
+ * use was wrong: this flag is true in the Blob-only rolled-back state, where a
+ * presigned PUT would build an R2 request from undefined credentials. The
+ * form now branches on supportsPresignedUpload instead -- see its doc comment
+ * for why that is a different question from this one.
  */
 export const usingRemoteStorage = r2Active || blobConfigured;
+
+/**
+ * True when the browser can PUT bytes straight to object storage via a
+ * presigned URL, i.e. R2 is configured.
+ *
+ * This is a narrower question than "do bytes live somewhere remote?"
+ * (usingRemoteStorage above): only the R2 driver supports presigning, so this
+ * is false in the Blob-only rolled-back state even though usingRemoteStorage
+ * is true there. The two flags diverge precisely in that state, which is why
+ * the SCORM upload form must gate its direct-upload path on this flag and not
+ * on usingRemoteStorage: presigning against Blob is not a thing, and building
+ * an R2 presigned request with no R2 credentials configured fails.
+ */
+export const supportsPresignedUpload = r2Active;
 
 /** Store bytes under `key`, overwriting any existing object at that key. */
 export async function putObject(

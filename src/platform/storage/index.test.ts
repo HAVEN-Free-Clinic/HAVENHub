@@ -62,6 +62,15 @@ describe("driver selection", () => {
     expect((await loadStorage(BLOB_ONLY)).usingRemoteStorage).toBe(true);
     expect((await loadStorage({})).usingRemoteStorage).toBe(false);
   });
+
+  it("reports supportsPresignedUpload only for R2, not for Blob-only or disk", async () => {
+    expect((await loadStorage(R2_ONLY)).supportsPresignedUpload).toBe(true);
+    // This is the regression the fix exists to prevent: usingRemoteStorage is
+    // true in the Blob-only rolled-back state, but presigning is an R2-only
+    // capability, so this flag must stay false there.
+    expect((await loadStorage(BLOB_ONLY)).supportsPresignedUpload).toBe(false);
+    expect((await loadStorage({})).supportsPresignedUpload).toBe(false);
+  });
 });
 
 describe("cutover-window fallback", () => {

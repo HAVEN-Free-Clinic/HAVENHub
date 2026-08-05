@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
+import { supportsPresignedUpload } from "@/platform/storage";
 import { presignPut } from "@/platform/storage/r2";
 
 /** Max COMPRESSED upload size. Mirrors the client-side check in UploadPackageForm. */
@@ -96,6 +97,19 @@ export async function POST(request: Request): Promise<Response> {
   const person = await getActivePerson(session.personId);
   if (!person || !(await can(person.id, "learning.manage_courses"))) {
     return bad("Unauthorized", 403);
+  }
+
+  // Presigning only makes sense against R2: r2.ts's presignPut builds its
+  // request from R2_BUCKET/R2_ACCOUNT_ID/credentials, all undefined once R2 is
+  // rolled back to Blob. UploadPackageForm already gates its direct-upload path
+  // on this same flag and should never reach here in that state, but a stale
+  // client or a direct request still can -- fail cleanly instead of building a
+  // request against undefined credentials.
+  if (!supportsPresignedUpload) {
+    return bad(
+      "Direct uploads are unavailable right now. Please try again shortly or contact support.",
+      503
+    );
   }
 
   const key = `scorm-uploads/${courseId}/${randomUUID()}-${sanitizeFilename(filename)}`;

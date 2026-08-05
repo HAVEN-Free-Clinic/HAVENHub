@@ -3,17 +3,26 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 // vi.mock factories are hoisted above ordinary top-level const declarations, so
 // the mocks referenced inside them must come from vi.hoisted() (see
 // src/platform/storage/r2.test.ts for the same pattern).
-const { auth, getActivePerson, can, presignPut } = vi.hoisted(() => ({
+const { auth, getActivePerson, can, presignPut, storageMock } = vi.hoisted(() => ({
   auth: vi.fn(),
   getActivePerson: vi.fn(),
   can: vi.fn(),
   presignPut: vi.fn(),
+  storageMock: { supportsPresignedUpload: true },
 }));
 
 vi.mock("@/platform/auth/auth", () => ({ auth }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson }));
 vi.mock("@/platform/rbac/engine", () => ({ can }));
 vi.mock("@/platform/storage/r2", () => ({ presignPut }));
+// Getter, not a plain value: route.ts reads supportsPresignedUpload once per
+// request, and beforeEach below flips storageMock between tests without
+// re-importing the route module.
+vi.mock("@/platform/storage", () => ({
+  get supportsPresignedUpload() {
+    return storageMock.supportsPresignedUpload;
+  },
+}));
 
 import { POST } from "./route";
 
@@ -36,6 +45,7 @@ beforeEach(() => {
   getActivePerson.mockReset().mockResolvedValue({ id: "p1" });
   can.mockReset().mockResolvedValue(true);
   presignPut.mockReset().mockResolvedValue("https://signed.example/put");
+  storageMock.supportsPresignedUpload = true;
 });
 
 describe("POST /api/learning/upload-url", () => {
@@ -69,6 +79,17 @@ describe("POST /api/learning/upload-url", () => {
     can.mockResolvedValue(false);
     const res = await POST(request(valid));
     expect(res.status).toBe(403);
+    expect(presignPut).not.toHaveBeenCalled();
+  });
+
+  it("fails cleanly with 503 when R2 is not configured, without calling presignPut", async () => {
+    // The rolled-back state: R2_* unset, so presignPut would build its request
+    // from undefined bucket/account/credentials. UploadPackageForm already
+    // gates its direct-upload path on supportsPresignedUpload and should never
+    // reach here, but a stale client or a direct request still can.
+    storageMock.supportsPresignedUpload = false;
+    const res = await POST(request(valid));
+    expect(res.status).toBe(503);
     expect(presignPut).not.toHaveBeenCalled();
   });
 

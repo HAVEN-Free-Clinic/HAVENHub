@@ -74,7 +74,11 @@ export function transformVolunteerSu26(
     });
 
     const rawSubmitted = str(f[F.submittedAt]);
-    const submittedAt = rawSubmitted ? new Date(rawSubmitted) : null;
+    const submittedAt = rawSubmitted
+      ? new Date(rawSubmitted)
+      : record.createdTime
+        ? new Date(record.createdTime)
+        : null;
 
     rows.push({
       source: { baseId: source.baseId, tableId: source.tables.applicants, recordId: record.id },

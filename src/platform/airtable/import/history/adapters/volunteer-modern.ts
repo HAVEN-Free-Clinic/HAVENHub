@@ -77,7 +77,7 @@ export function transformModernVolunteer(
       furthestStage,
       // The checkbox is an acceptance with no recorded decision string.
       outcome: outcome === "NO_DECISION" && acceptedByCheckbox ? "ACCEPTED" : outcome,
-      submittedAt: null,
+      submittedAt: record.createdTime ? new Date(record.createdTime) : null,
       decidedAt: null,
       unmapped: Object.keys(unmapped).length ? unmapped : null,
     });

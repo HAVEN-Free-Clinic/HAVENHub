@@ -82,7 +82,7 @@ export function transformVolunteerFa24(
           onboarded,
         }),
         outcome,
-        submittedAt: null,
+        submittedAt: record.createdTime ? new Date(record.createdTime) : null,
         decidedAt: null,
         unmapped: null,
       });

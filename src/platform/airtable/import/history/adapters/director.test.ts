@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { AirtableRecord } from "../../../client";
 import {
   transformDirector,
   DIRECTOR_FIELDS as F,
@@ -16,8 +17,9 @@ const SOURCE_SU26 = {
   ...SOURCE, code: "D-SU26", termCode: "SU26", baseId: "app6MHzSA1yPej2zX",
   tables: { applications: "tbluFoybFPBjBAXyk" },
 };
-const record = (id: string, fields: Record<string, unknown>) => ({ id, fields });
-const only = (applications: ReturnType<typeof record>[]) => ({ applications, finalDecisions: [] });
+const record = (id: string, fields: Record<string, unknown>, createdTime?: string): AirtableRecord =>
+  ({ id, fields, createdTime });
+const only = (applications: AirtableRecord[]) => ({ applications, finalDecisions: [] });
 
 describe("transformDirector", () => {
   it("reads identity from the director field ids", () => {
@@ -195,5 +197,20 @@ describe("transformDirector", () => {
 
   it("skips contactless rows", () => {
     expect(transformDirector(only([record("rec1", {})]), SOURCE)).toHaveLength(0);
+  });
+
+  it("parses submittedAt from the application record's createdTime", () => {
+    const [row] = transformDirector(
+      only([record("rec1", { [F.email]: "a@yale.edu" }, "2024-11-03T09:30:00.000Z")]),
+      SOURCE,
+    );
+    expect(row.submittedAt).toEqual(new Date("2024-11-03T09:30:00.000Z"));
+  });
+
+  it("leaves submittedAt null, not an Invalid Date, when createdTime is absent", () => {
+    const [row] = transformDirector(only([record("rec1", {
+      [F.email]: "a@yale.edu",
+    })]), SOURCE);
+    expect(row.submittedAt).toBeNull();
   });
 });

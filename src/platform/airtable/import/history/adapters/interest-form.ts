@@ -55,7 +55,7 @@ export function transformInterestForm(
       rows.push({
         source: { baseId: source.baseId, tableId: source.tables[key], recordId: record.id },
         identity: { firstName, lastName, email, netId: null },
-        submittedAt: null,
+        submittedAt: record.createdTime ? new Date(record.createdTime) : null,
       });
     }
   }

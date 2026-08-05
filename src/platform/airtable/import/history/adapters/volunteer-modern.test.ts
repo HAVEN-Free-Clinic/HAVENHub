@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { AirtableRecord } from "../../../client";
 import { transformModernVolunteer, MODERN_VOLUNTEER_FIELDS as F } from "./volunteer-modern";
 
 const SOURCE = {
@@ -7,7 +8,8 @@ const SOURCE = {
   tables: { applications: "tblJPuEMyBq5c2x0W" },
 };
 
-const record = (id: string, fields: Record<string, unknown>) => ({ id, fields });
+const record = (id: string, fields: Record<string, unknown>, createdTime?: string): AirtableRecord =>
+  ({ id, fields, createdTime });
 
 describe("transformModernVolunteer", () => {
   it("reads identity from the field ids, not names", () => {
@@ -75,5 +77,19 @@ describe("transformModernVolunteer", () => {
 
   it("skips rows with no email and no netId, which are Airtable cruft", () => {
     expect(transformModernVolunteer([record("rec1", {})], SOURCE)).toHaveLength(0);
+  });
+
+  it("parses submittedAt from the record's createdTime", () => {
+    const [row] = transformModernVolunteer([record("rec1", {
+      [F.email]: "a@yale.edu",
+    }, "2025-08-15T12:00:00.000Z")], SOURCE);
+    expect(row.submittedAt).toEqual(new Date("2025-08-15T12:00:00.000Z"));
+  });
+
+  it("leaves submittedAt null, not an Invalid Date, when createdTime is absent", () => {
+    const [row] = transformModernVolunteer([record("rec1", {
+      [F.email]: "a@yale.edu",
+    })], SOURCE);
+    expect(row.submittedAt).toBeNull();
   });
 });

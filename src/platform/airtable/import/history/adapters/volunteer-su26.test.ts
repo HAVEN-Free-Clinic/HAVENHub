@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { AirtableRecord } from "../../../client";
 import { transformVolunteerSu26, SU26_FIELDS as F } from "./volunteer-su26";
 
 const SOURCE = {
@@ -7,8 +8,9 @@ const SOURCE = {
   tables: { applicants: "tblV3UrQQvIIZzFTU" },
 };
 
-const record = (id: string, fields: Record<string, unknown>) => ({ id, fields });
-const only = (applicants: ReturnType<typeof record>[]) => ({ applicants });
+const record = (id: string, fields: Record<string, unknown>, createdTime?: string): AirtableRecord =>
+  ({ id, fields, createdTime });
+const only = (applicants: AirtableRecord[]) => ({ applicants });
 
 describe("transformVolunteerSu26", () => {
   it("reads identity from the field ids, not names", () => {
@@ -86,5 +88,26 @@ describe("transformVolunteerSu26", () => {
       [F.primaryEmail]: "formula@yale.edu", [F.email]: "direct@yale.edu",
     })]), SOURCE);
     expect(row.identity.email).toBe("formula@yale.edu");
+  });
+
+  it("parses submittedAt from its own field when present", () => {
+    const [row] = transformVolunteerSu26(only([record("rec1", {
+      [F.email]: "a@yale.edu", [F.submittedAt]: "2026-01-10T08:00:00.000Z",
+    })]), SOURCE);
+    expect(row.submittedAt).toEqual(new Date("2026-01-10T08:00:00.000Z"));
+  });
+
+  it("falls back to the record's createdTime when its own field is absent", () => {
+    const [row] = transformVolunteerSu26(only([record("rec1", {
+      [F.email]: "a@yale.edu",
+    }, "2026-01-05T08:00:00.000Z")]), SOURCE);
+    expect(row.submittedAt).toEqual(new Date("2026-01-05T08:00:00.000Z"));
+  });
+
+  it("leaves submittedAt null, not an Invalid Date, when neither its own field nor createdTime is present", () => {
+    const [row] = transformVolunteerSu26(only([record("rec1", {
+      [F.email]: "a@yale.edu",
+    })]), SOURCE);
+    expect(row.submittedAt).toBeNull();
   });
 });

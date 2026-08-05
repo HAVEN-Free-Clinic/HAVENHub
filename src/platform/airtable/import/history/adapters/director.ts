@@ -143,7 +143,7 @@ export function transformDirector(
         outcome === "NO_DECISION" && (onboarded || acceptance !== undefined)
           ? "ACCEPTED"
           : outcome,
-      submittedAt: null,
+      submittedAt: record.createdTime ? new Date(record.createdTime) : null,
       decidedAt: null,
       unmapped: Object.keys(unmapped).length ? unmapped : null,
     });

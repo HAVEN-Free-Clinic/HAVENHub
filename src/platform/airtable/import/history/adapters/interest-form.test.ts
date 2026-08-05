@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { AirtableRecord } from "../../../client";
 import { transformInterestForm, INTEREST_FIELDS as F } from "./interest-form";
 
 const SOURCE = {
@@ -7,8 +8,9 @@ const SOURCE = {
   tables: { responses: "tblEacqiHtqKMJphX", responsesOld: "tbl55zvZUFQgcnp04" },
 };
 
-const record = (id: string, fields: Record<string, unknown>) => ({ id, fields });
-const only = (responses: ReturnType<typeof record>[], responsesOld: ReturnType<typeof record>[] = []) => ({
+const record = (id: string, fields: Record<string, unknown>, createdTime?: string): AirtableRecord =>
+  ({ id, fields, createdTime });
+const only = (responses: AirtableRecord[], responsesOld: AirtableRecord[] = []) => ({
   responses,
   responsesOld,
 });
@@ -52,5 +54,19 @@ describe("transformInterestForm", () => {
     expect(transformInterestForm(only([
       record("rec1", { [F.responses.name]: "No Email" }),
     ]), SOURCE)).toHaveLength(0);
+  });
+
+  it("parses submittedAt from the record's createdTime", () => {
+    const [row] = transformInterestForm(only([record("rec1", {
+      [F.responses.name]: "Ada Lovelace", [F.responses.email]: "ada@yale.edu",
+    }, "2023-10-05T14:00:00.000Z")]), SOURCE);
+    expect(row.submittedAt).toEqual(new Date("2023-10-05T14:00:00.000Z"));
+  });
+
+  it("leaves submittedAt null, not an Invalid Date, when createdTime is absent", () => {
+    const [row] = transformInterestForm(only([record("rec1", {
+      [F.responses.name]: "Ada Lovelace", [F.responses.email]: "ada@yale.edu",
+    })]), SOURCE);
+    expect(row.submittedAt).toBeNull();
   });
 });

@@ -1,22 +1,35 @@
 /**
- * Compliance reminder engine for HAVEN Hub.
+ * Clearance reminder engine for HAVEN Hub.
  *
- * State machine summary
- * ---------------------
- * Each ComplianceReminder row tracks one person's non-compliant streak.
+ * One pass over the active term's members produces two independent member-facing
+ * streams, each with its own cadence and its own atomic claim:
  *
- *   COMPLIANT -> row is reset to zeroed state (remindersSent=0, lastRemindedAt=null).
- *                Zeroed rows and absent rows are left alone.
+ *   HIPAA leg (compliance-reminder, `compliance.reminderIntervalDays`, 7 by default)
+ *     Driven by effectiveComplianceStatus. Unsatisfied for every status except
+ *     COMPLIANT, so EXPIRING_SOON keeps producing the renewal nudge.
  *
- *   Non-compliant (EXPIRING_SOON | EXPIRED | UNKNOWN_DATE | NO_CERTIFICATE):
- *     1. Dedup window check: if lastRemindedAt is within COMPLIANCE_REMINDER_INTERVAL_DAYS,
- *        the person is skipped entirely (no reminder, no escalation evaluation).
- *     2. If the notification channel cannot reach the person, they are skipped
- *        (state is not advanced): the "email"/"both" channel needs a contactEmail,
- *        the "teams"/"both" channel needs a Teams identity. Under the default
- *        "email" channel a Teams-only member is unreachable and is NOT claimed or
- *        escalated, since notify() would queue nothing for them.
- *     3. A reminder email is queued; remindersSent is incremented; lastRemindedAt = now.
+ *     This leg MUST read `status` and not ClearanceSummary.missing:
+ *     deriveHipaaTaskState maps EXPIRING_SOON to COMPLETE, so `hipaa` is absent from
+ *     `missing` for a member whose certificate expires next week. Deriving this leg
+ *     from `missing` silently deletes the renewal nudge.
+ *
+ *   Onboarding leg (onboarding-reminder, `onboarding.reminderIntervalDays`, 1 by
+ *   default) Driven by ClearanceSummary.missing with `hipaa` filtered out, so it
+ *     covers profile, EHS, volunteer/director training, and learning. Suppressed for
+ *     the first ONBOARDING_REMINDER_GRACE_DAYS of a member's earliest active
+ *     membership, so a member who accepted yesterday meets the hub through their
+ *     onboarding link rather than a list of things they have not done.
+ *
+ * Per-term step config is honored on both legs. A disabled step is dropped from
+ * `tasks` (and therefore from `missing`) by loadClearanceMap, which covers the
+ * onboarding leg for free; the HIPAA leg checks for the `hipaa` task explicitly
+ * because it reads `status` rather than `missing`.
+ *
+ * `stalledSince` is stamped on the first nag of a streak and cleared when both legs
+ * are satisfied. Unlike the per-leg claims it is stamped before the reachability
+ * guards, because it is a statement about the member's state rather than about
+ * delivery, and the weekly director digest specifically wants to surface members no
+ * channel can reach.
  *
  * All notifications are dispatched via notify(); no transport is invoked here.
  */
@@ -30,7 +43,48 @@ import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
 import { complianceReminderContext } from "./templates/compliance";
+import { onboardingReminderContext } from "./templates/clearance";
+import { loadEhsMissingMap } from "@/platform/ehs/services/status";
 import { loadClearanceMap } from "@/platform/clearance";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Days a member is left alone before the onboarding reminder starts. Deliberately a
+ * constant rather than a setting: one cadence knob is enough, and this is a fixed
+ * "let them arrive first" courtesy, not an operational dial. Promote it to the
+ * settings registry only if ops actually asks.
+ */
+const ONBOARDING_REMINDER_GRACE_DAYS = 2;
+
+/**
+ * Human-readable, self-serviceable outstanding items, keyed by onboarding task key.
+ * `hipaa` is deliberately absent: it has its own stream.
+ */
+const REMINDER_ITEM_LABELS: Record<string, string> = {
+  profile: "Confirm your contact details in your profile",
+  ehs: "Complete your required EHS training",
+  training: "Finish this term's volunteer training",
+  directorTraining: "Finish this term's director training",
+  learning: "Complete your assigned learning courses",
+};
+
+/**
+ * Turn a member's missing task keys into display sentences for the onboarding email.
+ * `hipaa` is dropped (its own stream covers it) and the EHS row is expanded with the
+ * specific outstanding course names, which is the detail the bundled email used to
+ * carry.
+ */
+function onboardingItems(missing: readonly string[], ehsMissing: string[]): string[] {
+  const out: string[] = [];
+  for (const key of missing) {
+    if (key === "hipaa") continue;
+    const label = REMINDER_ITEM_LABELS[key];
+    if (!label) continue;
+    out.push(key === "ehs" && ehsMissing.length > 0 ? `${label}: ${ehsMissing.join(", ")}` : label);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -38,27 +92,29 @@ import { loadClearanceMap } from "@/platform/clearance";
 
 /** Counters returned by a single engine run. */
 export type ReminderRunResult = {
-  remindersSent: number;
+  hipaaRemindersSent: number;
+  onboardingRemindersSent: number;
   reset: number;
   skipped: number;
 };
 
 /**
- * Run one cycle of the compliance reminder engine.
+ * Run one cycle of the clearance reminder engine.
  *
- * Resolves the active term, scans all active candidates, applies the dedup
- * and escalation state machine, and returns summary counters. Idempotent
- * within the dedup window: re-running with the same "now" is safe.
+ * Resolves the active term, scans all active candidates, applies each leg's dedup
+ * claim, and returns summary counters. Idempotent within the dedup windows:
+ * re-running with the same "now" is safe.
  *
  * @param now  Reference timestamp (defaults to the current wall clock). Pass
  *             an explicit value in tests for deterministic behavior.
  */
-export async function runComplianceReminders(
+export async function runClearanceReminders(
   now: Date = new Date()
 ): Promise<ReminderRunResult> {
   const startedAt = Date.now();
   const result: ReminderRunResult = {
-    remindersSent: 0,
+    hipaaRemindersSent: 0,
+    onboardingRemindersSent: 0,
     reset: 0,
     skipped: 0,
   };
@@ -73,12 +129,19 @@ export async function runComplianceReminders(
   //    in the active term. Two-step: membership ids -> person rows (ACTIVE only).
   const membershipRows = await prisma.termMembership.findMany({
     where: { termId, status: "ACTIVE" },
-    select: { personId: true },
+    select: { personId: true, createdAt: true },
   });
 
   const candidateIds = Array.from(
     new Set(membershipRows.map((m) => m.personId))
   );
+
+  // Earliest active membership per person, for the onboarding grace period.
+  const joinedAt = new Map<string, Date>();
+  for (const m of membershipRows) {
+    const seen = joinedAt.get(m.personId);
+    if (!seen || m.createdAt < seen) joinedAt.set(m.personId, m.createdAt);
+  }
 
   if (candidateIds.length === 0) return result;
 
@@ -115,28 +178,39 @@ export async function runComplianceReminders(
   });
   const reminderMap = new Map(existingRows.map((r) => [r.personId, r]));
 
-  // Pre-compute the interval in milliseconds.
-  const intervalMs =
-    (await getSetting<number>("compliance.reminderIntervalDays")) * 24 * 60 * 60 * 1000;
+  // Pre-compute each leg's interval in milliseconds.
+  const hipaaIntervalMs =
+    (await getSetting<number>("compliance.reminderIntervalDays")) * MS_PER_DAY;
+  const onboardingIntervalMs =
+    (await getSetting<number>("onboarding.reminderIntervalDays")) * MS_PER_DAY;
 
   // Resolved once for the run: the hub base URL (for the My Info call-to-action
   // and Teams deep link) and the brand color (for the CTA button).
   const baseUrl = await getSetting<string>("app.baseUrl");
   const brandColor = await getSetting<string>("branding.brandColor");
 
-  // The channel that will actually carry the reminder (constant per run). The
-  // reachability guard below is relative to it: a reminder only lands when the
-  // channel matches an identifier the member has -- email needs contactEmail,
-  // Teams needs entraObjectId. Under the shipped default ("email"), a Teams-only
-  // member is unreachable and must be skipped, not claimed and escalated.
-  const reminderChannel = await resolveChannel("compliance-reminder");
-  const reminderWantsEmail = reminderChannel === "email" || reminderChannel === "both";
-  const reminderWantsTeams = reminderChannel === "teams" || reminderChannel === "both";
+  // Each stream resolves its own channel: an admin can route one to Teams and leave
+  // the other on email. The reachability guard below is relative to whichever channel
+  // will actually carry that stream's send -- email needs contactEmail, Teams needs
+  // entraObjectId. Under the shipped default ("email"), a Teams-only member is
+  // unreachable and must be skipped, not claimed and counted as reminded.
+  const hipaaChannel = await resolveChannel("compliance-reminder");
+  const onboardingChannel = await resolveChannel("onboarding-reminder");
 
-  // 5. Load full clearance for all candidates once per run. Only the per-term step
-  //    config is read from it here (to tell "HIPAA disabled this term" apart from
-  //    "HIPAA satisfied"); the HIPAA status itself comes from `status` below so the
-  //    expiring-soon nudge is preserved.
+  const canReach = (
+    channel: string,
+    person: { contactEmail: string | null; entraObjectId: string | null }
+  ): boolean => {
+    const wantsEmail = channel === "email" || channel === "both";
+    const wantsTeams = channel === "teams" || channel === "both";
+    return (wantsEmail && !!person.contactEmail) || (wantsTeams && !!person.entraObjectId);
+  };
+
+  // 5. Load the EHS missing map + full clearance for all candidates once per run.
+  //    loadEhsMissingMap gives the specific outstanding EHS course names for the
+  //    onboarding email; loadClearanceMap gives the per-term step config plus the
+  //    missing task keys that drive the onboarding leg.
+  const ehsMissingByPerson = await loadEhsMissingMap(termId);
   const clearanceByPerson = await loadClearanceMap(personIds, termId);
 
   // 5 + 6 + 7. Process each candidate.
@@ -144,34 +218,45 @@ export async function runComplianceReminders(
     const certs = certsByPerson.get(person.id) ?? [];
     const cert = certs[0] ?? null;
     // Effective (all-certs) status: an early renewal awaiting verification must not
-    // flip a still-cleared member back to PENDING_VERIFICATION and re-trigger reminders
-    // + director escalation. EXPIRING_SOON is still surfaced so the renewal nudge holds.
+    // flip a still-cleared member back to PENDING_VERIFICATION and re-trigger nags.
+    // EXPIRING_SOON is still surfaced so the renewal nudge holds.
     const status = effectiveComplianceStatus(certs, activeTerm.endDate, now);
-    const existing = reminderMap.get(person.id) ?? null;
     const clearance = clearanceByPerson.get(person.id);
-    // A term can disable the HIPAA/EHS onboarding step. loadClearanceMap drops a
-    // disabled step from `tasks`, so its absence means "not required this term":
-    // such an item must not block clearance, nag, or escalate. Neutralize a
-    // disabled leg for both the done-gate and the reminder body.
-    const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
-    const effectiveStatus = hipaaEnabled ? status : "COMPLIANT";
-    // This stream is now purely about the HIPAA certificate, so the gate is the HIPAA
-    // status alone: unsatisfied for every status except COMPLIANT, which keeps the
-    // EXPIRING_SOON renewal nudge flowing. EHS and the remaining onboarding items are
-    // no longer carried here; the onboarding-reminder stream picks them up.
-    const isDone = effectiveStatus === "COMPLIANT";
 
-    // --- HIPAA satisfied: reset any lingering reminder state ---
-    if (isDone) {
+    // A term can disable the HIPAA step. loadClearanceMap drops a disabled step from
+    // `tasks`, so its absence means "not required this term": neutralize the leg.
+    // The onboarding leg needs no equivalent, since a disabled step is already gone
+    // from `missing`.
+    const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
+    const hipaaStatus = hipaaEnabled ? status : "COMPLIANT";
+    const hipaaUnsatisfied = hipaaStatus !== "COMPLIANT";
+
+    const items = onboardingItems(
+      clearance?.missing ?? [],
+      ehsMissingByPerson.get(person.id) ?? []
+    );
+    const onboardingUnsatisfied = items.length > 0;
+
+    const existing = reminderMap.get(person.id) ?? null;
+
+    // --- Both legs satisfied: reset any lingering state ---
+    if (!hipaaUnsatisfied && !onboardingUnsatisfied) {
       if (
         existing !== null &&
-        (existing.remindersSent > 0 || existing.lastRemindedAt !== null)
+        (existing.remindersSent > 0 ||
+          existing.onboardingRemindersSent > 0 ||
+          existing.lastRemindedAt !== null ||
+          existing.onboardingLastRemindedAt !== null ||
+          existing.stalledSince !== null)
       ) {
         await prisma.memberReminderState.update({
           where: { personId: person.id },
           data: {
             remindersSent: 0,
             lastRemindedAt: null,
+            onboardingRemindersSent: 0,
+            onboardingLastRemindedAt: null,
+            stalledSince: null,
           },
         });
         result.reset++;
@@ -179,84 +264,136 @@ export async function runComplianceReminders(
       continue;
     }
 
-    // --- Not cleared: remind (and escalate at threshold) ---
+    // --- At least one leg outstanding ---
 
-    // a. No channel can actually reach the member: skip without advancing state.
-    //    A reminder only lands when the resolved channel matches an identifier the
-    //    member has. The old guard skipped only when BOTH were absent, on the
-    //    assumption that a Teams-reachable member is reminded via Teams -- but with
-    //    the default channel "email", notify() queues nothing for a member with no
-    //    contactEmail, while the row was still claimed, counted, and (at threshold)
-    //    escalated to their directors, so a member never contacted on any channel
-    //    looked "reminded". Gate on the channel that will actually carry the send.
-    //    This check runs BEFORE the claim so an unreachable person never gets a row.
-    const reachableByEmail = reminderWantsEmail && !!person.contactEmail;
-    const reachableByTeams = reminderWantsTeams && !!person.entraObjectId;
-    if (!reachableByEmail && !reachableByTeams) {
-      log.info(
-        `[reminders] Skipping person ${person.id} (${person.name}): channel ${reminderChannel} cannot reach them (contactEmail=${person.contactEmail ? "yes" : "no"}, teams=${person.entraObjectId ? "yes" : "no"}).`,
-        { personId: person.id },
-      );
-      result.skipped++;
-      continue;
-    }
-
-    // b. Atomic dedup claim. Ensure a row exists, then claim it for THIS tick only
-    //    when it is outside the reminder interval, incrementing remindersSent in the
-    //    same statement. updateMany is atomic, so two overlapping cron runs cannot
-    //    both win the claim, which prevents duplicate reminders and duplicate
-    //    escalations. count === 0 means we are inside the dedup window (previously an
-    //    early `continue`) or a concurrent run already claimed this tick. Claiming
-    //    before the send trades a possible lost reminder on a mid-run crash
-    //    (recovered next interval) for guaranteed no-duplicate delivery.
-    const cutoff = new Date(now.getTime() - intervalMs);
+    // Ensure the row exists and stamp stalledSince if this is the start of a streak.
+    // This runs before the reachability guards on purpose: an unreachable member is
+    // exactly who a director needs to see in the weekly digest, and stalledSince is a
+    // fact about the member's state, not about whether a send landed.
     await prisma.memberReminderState.upsert({
       where: { personId: person.id },
-      create: { personId: person.id, remindersSent: 0 },
+      create: { personId: person.id, stalledSince: now },
       update: {},
     });
-    const claim = await prisma.memberReminderState.updateMany({
-      where: {
-        personId: person.id,
-        OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lt: cutoff } }],
-      },
-      data: { lastRemindedAt: now, remindersSent: { increment: 1 } },
+    await prisma.memberReminderState.updateMany({
+      where: { personId: person.id, stalledSince: null },
+      data: { stalledSince: now },
     });
-    if (claim.count === 0) {
-      result.skipped++;
-      continue;
+
+    // --- HIPAA leg ---
+    if (hipaaUnsatisfied) {
+      if (!canReach(hipaaChannel, person)) {
+        log.info(
+          `[reminders] Skipping HIPAA reminder for ${person.id} (${person.name}): channel ${hipaaChannel} cannot reach them.`,
+          { personId: person.id },
+        );
+        result.skipped++;
+      } else {
+        // Atomic claim: updateMany cannot be won twice, so two overlapping cron runs
+        // cannot both send. Claiming before the send trades a possible lost reminder
+        // on a mid-run crash (recovered next interval) for guaranteed no duplicates.
+        const claim = await prisma.memberReminderState.updateMany({
+          where: {
+            personId: person.id,
+            OR: [
+              { lastRemindedAt: null },
+              { lastRemindedAt: { lt: new Date(now.getTime() - hipaaIntervalMs) } },
+            ],
+          },
+          data: { lastRemindedAt: now, remindersSent: { increment: 1 } },
+        });
+        if (claim.count === 0) {
+          result.skipped++;
+        } else {
+          const expiresAt = cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
+          const rendered = await renderEmail(
+            "compliance-reminder",
+            complianceReminderContext({
+              personName: person.name,
+              status: hipaaStatus,
+              expiresAt,
+              appUrl: baseUrl,
+              brandColor,
+            }),
+          );
+          await notify(prisma, {
+            type: "compliance-reminder",
+            person: {
+              id: person.id,
+              entraObjectId: person.entraObjectId,
+              contactEmail: person.contactEmail,
+            },
+            email: { subject: rendered.subject, html: rendered.html },
+            teams: {
+              title: "HIPAA certification reminder",
+              summary: "Your HIPAA certification needs attention. Please review it in HAVEN Hub.",
+              link: `${baseUrl}/my-info`,
+            },
+          });
+          result.hipaaRemindersSent++;
+        }
+      }
     }
 
-    // c. Send reminder.
-    const expiresAt =
-      cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
+    // --- Onboarding leg ---
+    if (onboardingUnsatisfied) {
+      const joined = joinedAt.get(person.id);
+      const inGrace =
+        joined !== undefined &&
+        now.getTime() - joined.getTime() < ONBOARDING_REMINDER_GRACE_DAYS * MS_PER_DAY;
 
-    const renderedReminder = await renderEmail(
-      "compliance-reminder",
-      complianceReminderContext({
-        personName: person.name,
-        status: effectiveStatus,
-        expiresAt,
-        appUrl: baseUrl,
-        brandColor,
-      }),
-    );
-    await notify(prisma, {
-      type: "compliance-reminder",
-      person: {
-        id: person.id,
-        entraObjectId: person.entraObjectId,
-        contactEmail: person.contactEmail,
-      },
-      email: { subject: renderedReminder.subject, html: renderedReminder.html },
-      teams: {
-        title: "Compliance reminder",
-        summary: "You have outstanding compliance requirements. Please review your compliance status.",
-        link: `${baseUrl}/get-started`,
-      },
-    });
-
-    result.remindersSent++;
+      if (inGrace) {
+        result.skipped++;
+      } else if (!canReach(onboardingChannel, person)) {
+        log.info(
+          `[reminders] Skipping onboarding reminder for ${person.id} (${person.name}): channel ${onboardingChannel} cannot reach them.`,
+          { personId: person.id },
+        );
+        result.skipped++;
+      } else {
+        const claim = await prisma.memberReminderState.updateMany({
+          where: {
+            personId: person.id,
+            OR: [
+              { onboardingLastRemindedAt: null },
+              { onboardingLastRemindedAt: { lt: new Date(now.getTime() - onboardingIntervalMs) } },
+            ],
+          },
+          data: {
+            onboardingLastRemindedAt: now,
+            onboardingRemindersSent: { increment: 1 },
+          },
+        });
+        if (claim.count === 0) {
+          result.skipped++;
+        } else {
+          const rendered = await renderEmail(
+            "onboarding-reminder",
+            onboardingReminderContext({
+              personName: person.name,
+              items,
+              appUrl: baseUrl,
+              brandColor,
+            }),
+          );
+          await notify(prisma, {
+            type: "onboarding-reminder",
+            person: {
+              id: person.id,
+              entraObjectId: person.entraObjectId,
+              contactEmail: person.contactEmail,
+            },
+            email: { subject: rendered.subject, html: rendered.html },
+            teams: {
+              title: "Outstanding onboarding requirements",
+              summary: `You have ${items.length} item${items.length === 1 ? "" : "s"} left before you are cleared to volunteer.`,
+              link: `${baseUrl}/get-started`,
+            },
+          });
+          result.onboardingRemindersSent++;
+        }
+      }
+    }
   }
 
   // Surface the run size + duration so the write phase (O(active members) serial

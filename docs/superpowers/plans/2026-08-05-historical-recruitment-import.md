@@ -676,9 +676,11 @@ export const HISTORY_SOURCES: HistorySource[] = [
   ] as const).map(([code, name, termCode, baseId]) => ({
     code, label: `${name} Director Recruitment`, track: "DIRECTOR" as Track, termCode,
     baseId, adapter: "director" as const,
-    // Applications alone: its Interview Details, Decisions and Director
-    // Contracts link fields carry the whole ladder.
-    tables: { applications: "tbluFoybFPBjBAXyk" },
+    // Applications carries the STAGE (its Interview Details, Decisions and
+    // Director Contracts links), but the decision VALUE lives only on Final
+    // Decisions: Applications has no decision lookup, verified 2026-08-05.
+    // Without this second table every rejection imports as NO_DECISION.
+    tables: { applications: "tbluFoybFPBjBAXyk", finalDecisions: "tblfw1kjlBc5fULrY" },
   })),
   {
     // This base has neither a Final Decisions nor a Candidate Evaluations
@@ -959,65 +961,119 @@ git commit -m "feat(recruitment): add the modern volunteer history adapter"
 
 **Interfaces:**
 - Consumes: as Task 6.
-- Produces: `DIRECTOR_FIELDS` and `transformDirector(records: AirtableRecord[], source: HistorySource): RawHistoryRow[]`.
+- Produces: `DIRECTOR_FIELDS`, `DIRECTOR_DECISION_FIELDS`, and `transformDirector(tables: Record<string, AirtableRecord[]>, source: HistorySource): RawHistoryRow[]`.
 
-**Background:** the Applications table (`tbluFoybFPBjBAXyk`) carries link fields for interviews, decisions and contracts, so this adapter also needs only one table read. D-SU26 has no Final Decisions table, so its acceptance signal is the Director Contracts link.
+Note the signature: like the FA24 adapter, this takes a map of already-fetched tables keyed by the `tables` key from the source registry, because it reads two tables.
+
+**Background, and the split that matters:** the Applications table (`tbluFoybFPBjBAXyk`) carries link fields for interviews, decisions and contracts, so it alone determines the **stage**. It does NOT carry the decision **value**: verified on 2026-08-05, its only lookup/formula fields are three name formulas. The value lives on Final Decisions (`tblfw1kjlBc5fULrY`), which has no link back, so the two are joined by lowercased email exactly as the FA24 adapter joins its tables.
+
+Skipping that join would import every non-onboarded director applicant as `NO_DECISION`, erasing the distinction between "interviewed then rejected" and "no decision recorded" across all 260 director applications.
+
+D-SU26 is the exception: it has no Final Decisions table at all, so `tables.finalDecisions` is absent and its acceptance signal stays the Director Contracts link. The adapter must handle an absent table, not assume it.
+
+Verified Final Decisions field ids (`tblfw1kjlBc5fULrY`):
+
+```ts
+export const DIRECTOR_DECISION_FIELDS = {
+  email: "fld5VMpMm0E4Y0r2D",       // Candidate Email (lookup)
+  netId: "fldpZnT1Y7b27OzEv",       // Candidate Yale NetID (lookup)
+  status: "fldH8btzgKjLu3b6j",      // Status (singleLineText)
+  departmentHire: "fldfUyRMWRw3d6IWs", // Department HIRE (singleSelect)
+} as const;
+```
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { transformDirector, DIRECTOR_FIELDS as F } from "./director";
+import { transformDirector, DIRECTOR_FIELDS as F, DIRECTOR_DECISION_FIELDS as D } from "./director";
 
 const SOURCE = {
   code: "D-FA25", label: "Fall 2025 Director Recruitment", track: "DIRECTOR" as const,
   termCode: "FA25", baseId: "appvvlDJLmGfN0340", adapter: "director" as const,
   tables: { applications: "tbluFoybFPBjBAXyk", finalDecisions: "tblfw1kjlBc5fULrY" },
 };
+// D-SU26 genuinely has no Final Decisions table.
+const SOURCE_SU26 = {
+  ...SOURCE, code: "D-SU26", termCode: "SU26", baseId: "app6MHzSA1yPej2zX",
+  tables: { applications: "tbluFoybFPBjBAXyk" },
+};
 const record = (id: string, fields: Record<string, unknown>) => ({ id, fields });
+const only = (applications: ReturnType<typeof record>[]) => ({ applications, finalDecisions: [] });
 
 describe("transformDirector", () => {
   it("reads identity from the director field ids", () => {
-    const [row] = transformDirector([record("rec1", {
+    const [row] = transformDirector(only([record("rec1", {
       [F.firstName]: "Ada", [F.lastName]: "Lovelace",
       [F.email]: "ada@yale.edu", [F.netId]: "al123",
-    })], SOURCE);
+    })]), SOURCE);
     expect(row.identity.email).toBe("ada@yale.edu");
     expect(row.identity.netId).toBe("al123");
     expect(row.cycle.track).toBe("DIRECTOR");
   });
 
   it("derives FINAL_ROUND from an interview link", () => {
-    const [row] = transformDirector([record("rec1", {
+    const [row] = transformDirector(only([record("rec1", {
       [F.email]: "a@yale.edu", [F.interviews]: ["recIntv"],
-    })], SOURCE);
+    })]), SOURCE);
     expect(row.furthestStage).toBe("FINAL_ROUND");
   });
 
   it("derives ONBOARDED from a contract link", () => {
-    const [row] = transformDirector([record("rec1", {
+    const [row] = transformDirector(only([record("rec1", {
       [F.email]: "a@yale.edu", [F.interviews]: ["recIntv"], [F.contracts]: ["recCon"],
-    })], SOURCE);
+    })]), SOURCE);
     expect(row.furthestStage).toBe("ONBOARDED");
   });
 
   it("collects all three department choices in rank order", () => {
-    const [row] = transformDirector([record("rec1", {
+    const [row] = transformDirector(only([record("rec1", {
       [F.email]: "a@yale.edu", [F.dept1]: "ITCM", [F.dept2]: "BVHD", [F.dept3]: "SCTP",
-    })], SOURCE);
+    })]), SOURCE);
     expect(row.departmentChoicesRaw).toEqual(["ITCM", "BVHD", "SCTP"]);
   });
 
-  it("treats a decisions link as an acceptance signal only via the contract or decision value", () => {
-    const [row] = transformDirector([record("rec1", {
-      [F.email]: "a@yale.edu", [F.decisions]: ["recDec"],
-    })], SOURCE);
-    // A decision row existing does not by itself mean accepted.
-    expect(row.furthestStage).not.toBe("ACCEPTED");
+  it("reads REJECTED from Final Decisions, joined by email", () => {
+    // The whole point of the second table: without it this row would be
+    // NO_DECISION and indistinguishable from an undecided applicant.
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "Ada@Yale.edu", [F.interviews]: ["recIntv"] })],
+      finalDecisions: [record("recFD", { [D.email]: ["ada@yale.edu"], [D.status]: "Rejected" })],
+    }, SOURCE);
+    expect(row.furthestStage).toBe("FINAL_ROUND");
+    expect(row.outcome).toBe("REJECTED");
+  });
+
+  it("reads ACCEPTED and the hired department from Final Decisions", () => {
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "a@yale.edu" })],
+      finalDecisions: [record("recFD", {
+        [D.email]: ["a@yale.edu"], [D.status]: "Accepted", [D.departmentHire]: "ITCM",
+      })],
+    }, SOURCE);
+    expect(row.outcome).toBe("ACCEPTED");
+    expect(row.resultDepartmentRaw).toBe("ITCM");
+    expect(row.furthestStage).toBe("ACCEPTED");
+  });
+
+  it("reports NO_DECISION when no Final Decisions row matches", () => {
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "a@yale.edu" })],
+      finalDecisions: [record("recFD", { [D.email]: ["someone-else@yale.edu"], [D.status]: "Rejected" })],
+    }, SOURCE);
+    expect(row.outcome).toBe("NO_DECISION");
+  });
+
+  it("works when the source has no Final Decisions table at all (D-SU26)", () => {
+    const [row] = transformDirector({
+      applications: [record("rec1", { [F.email]: "a@yale.edu", [F.contracts]: ["recCon"] })],
+    }, SOURCE_SU26);
+    expect(row.furthestStage).toBe("ONBOARDED");
+    expect(row.outcome).toBe("ACCEPTED");
   });
 
   it("skips contactless rows", () => {
-    expect(transformDirector([record("rec1", {})], SOURCE)).toHaveLength(0);
+    expect(transformDirector(only([record("rec1", {})]), SOURCE)).toHaveLength(0);
   });
 });
 ```
@@ -1063,14 +1119,27 @@ const str = (v: unknown): string | null => {
 };
 const linked = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
 
+/** Lookup cells arrive as single-element arrays. */
+const lookupFirst = (v: unknown): string | null => (Array.isArray(v) ? str(v[0]) : str(v));
+
 export function transformDirector(
-  records: AirtableRecord[],
+  tables: Record<string, AirtableRecord[]>,
   source: HistorySource,
 ): RawHistoryRow[] {
   const F = DIRECTOR_FIELDS;
+  const D = DIRECTOR_DECISION_FIELDS;
   const rows: RawHistoryRow[] = [];
 
-  for (const record of records) {
+  // Final Decisions has no link back to Applications, so the join is by
+  // lowercased email. D-SU26 has no such table; an absent table is normal,
+  // not an error, and simply leaves every decision unresolved.
+  const decisions = new Map<string, AirtableRecord>();
+  for (const record of tables.finalDecisions ?? []) {
+    const email = lookupFirst(record.fields[D.email])?.toLowerCase();
+    if (email) decisions.set(email, record);
+  }
+
+  for (const record of tables.applications ?? []) {
     const f = record.fields;
     const email = str(f[F.email]);
     const rawNetId = str(f[F.netId]);
@@ -1081,14 +1150,16 @@ export function transformDirector(
     if (rawNetId && isNetIdShaped(rawNetId)) netId = rawNetId.toLowerCase();
     else if (rawNetId) unmapped.rejectedNetId = rawNetId;
 
-    // A contract is the only unambiguous acceptance signal on this lineage:
-    // a Decisions link merely means a decision row exists, which is equally
-    // true of a rejection.
+    const decision = email ? decisions.get(email.toLowerCase()) : undefined;
+    const decisionRaw = decision ? str(decision.fields[D.status]) : null;
+    const outcome = parseOutcome(decisionRaw);
+    if (outcome === "UNKNOWN") unmapped.decision = decisionRaw;
+
     const onboarded = linked(f[F.contracts]);
     const furthestStage = deriveStage({
       advanced: linked(f[F.interviews]) || linked(f[F.decisions]),
       finalRound: linked(f[F.interviews]),
-      accepted: onboarded,
+      accepted: onboarded || outcome === "ACCEPTED",
       onboarded,
     });
 
@@ -1098,9 +1169,10 @@ export function transformDirector(
       identity: { firstName: str(f[F.firstName]) ?? "", lastName: str(f[F.lastName]) ?? "", email, netId },
       applicantType: linked(f[F.returningDepartment]) ? "RENEWAL" : null,
       departmentChoicesRaw: [str(f[F.dept1]), str(f[F.dept2]), str(f[F.dept3])],
-      resultDepartmentRaw: null,
+      resultDepartmentRaw: decision ? str(decision.fields[D.departmentHire]) : null,
       furthestStage,
-      outcome: onboarded ? "ACCEPTED" : parseOutcome(null),
+      // A contract is proof of acceptance even when no decision row survives.
+      outcome: outcome === "NO_DECISION" && onboarded ? "ACCEPTED" : outcome,
       submittedAt: null,
       decidedAt: null,
       unmapped: Object.keys(unmapped).length ? unmapped : null,
@@ -1618,6 +1690,23 @@ async function seedArchive(email: string) {
   return applicant;
 }
 
+/**
+ * Seeds two live-era applications for one person in two different cycles.
+ * Needed by the exclusion test: with only one application, asserting "the
+ * current one is absent" passes vacuously on an empty list.
+ *
+ * Build the Term, Department, RecruitmentCycle, Applicant and Application
+ * rows this needs with the project's existing test helpers if any exist
+ * (check e2e/fixtures and any src/**\/*.test-helpers.ts before hand-rolling);
+ * both cycles must share one Applicant row keyed on emailLower.
+ */
+async function seedTwoLiveApplications(email: string): Promise<{
+  current: { id: string; cycleId: string };
+  sibling: { id: string; cycleId: string };
+}> {
+  throw new Error("implement per the doc comment above");
+}
+
 describe("getApplicantHistory", () => {
   it("finds archive entries by email, case-insensitively", async () => {
     await seedArchive("ada@yale.edu");
@@ -1670,10 +1759,20 @@ describe("getApplicantHistory", () => {
     expect(h.entries).toHaveLength(1);
   });
 
-  it("excludes the application currently being viewed", async () => {
+  it("excludes the application currently being viewed but keeps its siblings", async () => {
     // Live-era exclusion: the reviewer card must not list the page it is on.
-    const h = await getApplicantHistory({ emails: ["ada@yale.edu"], excludeApplicationId: "someLiveId" });
-    expect(h.entries.every((e) => e.href !== "/recruitment/cycles/x/applicants/someLiveId")).toBe(true);
+    // Two live applications are seeded so the assertion distinguishes real
+    // exclusion from an empty result set.
+    const { current, sibling } = await seedTwoLiveApplications("ada@yale.edu");
+
+    const h = await getApplicantHistory({
+      emails: ["ada@yale.edu"],
+      excludeApplicationId: current.id,
+    });
+
+    const liveIds = h.entries.filter((e) => e.era === "live").map((e) => e.href);
+    expect(liveIds).toContain(`/recruitment/cycles/${sibling.cycleId}/applicants/${sibling.id}`);
+    expect(liveIds).not.toContain(`/recruitment/cycles/${current.cycleId}/applicants/${current.id}`);
   });
 
   it("includes interest-form entries, distinctly from applications", async () => {

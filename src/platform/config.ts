@@ -109,6 +109,25 @@ const schema = z
           }
         })
       ),
+    // Onboarding reminder cadence: how many days between onboarding-requirement
+    // emails. Default is 1 (daily), much faster than the HIPAA cadence because these
+    // are tasks a new member should finish in their first week. Rejected if not a
+    // positive finite number.
+    ONBOARDING_REMINDER_INTERVAL_DAYS: z
+      .string()
+      .default("1")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (Number.isNaN(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "ONBOARDING_REMINDER_INTERVAL_DAYS must be a positive number",
+            });
+          }
+        })
+      ),
     // Maximum procedures per RHD clinic session. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
     RHD_MAX_PROCEDURES: z

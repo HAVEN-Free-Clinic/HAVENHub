@@ -206,6 +206,10 @@ describe("phase 1 operations scalars", () => {
   it("resolves the compliance scalars from env defaults", async () => {
     expect(await getSetting<number>("compliance.reminderIntervalDays")).toBe(7);
   });
+
+  it("resolves the onboarding reminder interval from its env default", async () => {
+    expect(await getSetting<number>("onboarding.reminderIntervalDays")).toBe(1);
+  });
 });
 
 describe("phase 1 email/links/teams scalars", () => {

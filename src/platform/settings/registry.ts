@@ -100,6 +100,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.COMPLIANCE_REMINDER_INTERVAL_DAYS,
     secret: false,
   }),
+  define<number>({
+    key: "onboarding.reminderIntervalDays",
+    category: "Operations",
+    label: "Onboarding reminder interval (days)",
+    help: "Days between onboarding-requirement reminder emails. Separate from the HIPAA reminder interval, and much shorter by default.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().positive(),
+    envDefault: () => config.ONBOARDING_REMINDER_INTERVAL_DAYS,
+    secret: false,
+  }),
   define<string>({
     key: "email.sender",
     category: "Email",

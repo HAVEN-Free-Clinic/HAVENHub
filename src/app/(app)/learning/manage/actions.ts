@@ -98,14 +98,9 @@ export async function uploadPackageAction(_prev: UploadState, formData: FormData
   return null;
 }
 
-/**
- * Validate that a client-supplied blob pathname stays within this course's own
- * upload prefix. The browser controls this string, so we never read or delete a
- * pathname outside scorm-uploads/<courseId>/ (prevents reading/deleting other
- * tenants' blobs). Returns the safe pathname.
- */
-function safeUploadPathname(pathname: string, courseId: string): string {
-  const norm = pathname.replace(/^\/+/, "");
+/** Reject an upload key that does not belong to this course's staging namespace. */
+function safeUploadKey(key: string, courseId: string): string {
+  const norm = key.replace(/^\/+/, "");
   if (!norm.startsWith(`scorm-uploads/${courseId}/`) || norm.split("/").some((s) => s === "..")) {
     throw new LearningValidationError("Invalid upload reference.");
   }
@@ -113,21 +108,21 @@ function safeUploadPathname(pathname: string, courseId: string): string {
 }
 
 /**
- * Ingest a SCORM package the browser already uploaded directly to Blob (the path
- * used on Vercel, where the function request body is capped at 4.5 MB). The blob
- * is PRIVATE; we read its bytes through the storage abstraction by pathname (no
- * fetch of a client URL), ingest, then delete the transient upload.
+ * Ingest a SCORM package the browser already uploaded directly to R2 (the path
+ * used on Vercel, where the function request body is capped at 4.5 MB). We read
+ * the object's bytes through the storage abstraction by key (no fetch of a
+ * client URL), ingest, then delete the transient upload.
  */
 export async function ingestUploadedPackageAction(input: {
   courseId: string;
-  pathname: string;
+  key: string;
   resetProgress?: boolean;
 }): Promise<UploadState> {
   const person = await requirePermission("learning.manage_courses");
 
   let key: string;
   try {
-    key = safeUploadPathname(input.pathname, input.courseId);
+    key = safeUploadKey(input.key, input.courseId);
   } catch (err) {
     if (err instanceof LearningValidationError) return { error: err.message };
     throw err;
@@ -136,6 +131,12 @@ export async function ingestUploadedPackageAction(input: {
   try {
     const bytes = await getObject(key);
     if (!bytes) return { error: "Could not read the uploaded package from storage." };
+    // The presigned URL capped nothing: it was signed against a size the client
+    // declared, not the bytes it actually sent. This is the first look at the
+    // real object, so check it before handing anything to the unzipper.
+    if (bytes.length > MAX_UPLOAD_BYTES) {
+      return { error: "That package is too large (max 75 MB)." };
+    }
     await ingestScormPackage(input.courseId, bytes, person.personId, { resetProgress: !!input.resetProgress });
   } catch (err) {
     if (err instanceof LearningValidationError) return { error: err.message };

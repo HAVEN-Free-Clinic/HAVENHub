@@ -1,7 +1,6 @@
 "use client";
 import { useActionState, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { upload } from "@vercel/blob/client";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
@@ -35,22 +34,57 @@ function ResetProgressField({ checked, onChange }: { checked?: boolean; onChange
 }
 
 /**
- * SCORM package upload. On Vercel (Blob configured) the browser uploads the .zip
- * DIRECTLY to Blob storage and then asks the server to ingest it -- this bypasses
- * the 4.5 MB Vercel function request-body limit that a plain Server Action upload
- * hits (FUNCTION_PAYLOAD_TOO_LARGE). In local dev (no Blob) it falls back to a
- * normal Server Action form, which has no such limit.
+ * PUT a file to a presigned R2 URL, reporting progress.
+ *
+ * XMLHttpRequest rather than fetch: fetch exposes no upload-progress event, and
+ * a 75 MB SCORM package needs a live percentage or the form looks hung.
  */
-export function UploadPackageForm({ courseId, hasPackage, usingBlob }: FormProps & { usingBlob: boolean }) {
-  return usingBlob ? (
-    <BlobUploadForm courseId={courseId} hasPackage={hasPackage} />
+function putWithProgress(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    // Must match the content type the URL was signed with, or R2 rejects the
+    // upload with SignatureDoesNotMatch.
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}).`));
+    };
+    xhr.onerror = () =>
+      reject(new Error("Upload failed. Check your connection and try again."));
+    xhr.send(file);
+  });
+}
+
+/**
+ * SCORM package upload. On Vercel (R2 configured) the browser uploads the .zip
+ * DIRECTLY to R2 via a presigned URL and then asks the server to ingest it --
+ * this bypasses the 4.5 MB Vercel function request-body limit that a plain
+ * Server Action upload hits (FUNCTION_PAYLOAD_TOO_LARGE). In local dev (no R2)
+ * it falls back to a normal Server Action form, which has no such limit.
+ */
+export function UploadPackageForm({
+  courseId,
+  hasPackage,
+  usingRemoteStorage,
+}: FormProps & { usingRemoteStorage: boolean }) {
+  return usingRemoteStorage ? (
+    <DirectUploadForm courseId={courseId} hasPackage={hasPackage} />
   ) : (
     <ServerActionUploadForm courseId={courseId} hasPackage={hasPackage} />
   );
 }
 
-/** Direct-to-Blob path (Vercel). */
-function BlobUploadForm({ courseId, hasPackage }: FormProps) {
+/** Direct-to-R2 path (Vercel). */
+function DirectUploadForm({ courseId, hasPackage }: FormProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -72,15 +106,30 @@ function BlobUploadForm({ courseId, hasPackage }: FormProps) {
     }
     setBusy(true);
     try {
-      setPhase("Uploading… 0%");
-      const result = await upload(`scorm-uploads/${courseId}/${file.name}`, file, {
-        access: "private",
-        contentType: "application/zip",
-        handleUploadUrl: "/api/learning/blob-upload",
-        onUploadProgress: (p) => setPhase(`Uploading… ${Math.round(p.percentage)}%`),
+      const contentType = "application/zip";
+      setPhase("Preparing…");
+      const signed = await fetch("/api/learning/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId,
+          filename: file.name,
+          contentType,
+          size: file.size,
+        }),
       });
+      if (!signed.ok) {
+        const body = (await signed.json().catch(() => null)) as { error?: string } | null;
+        setError(body?.error ?? "Could not start the upload. Please try again.");
+        return;
+      }
+      const { url, key } = (await signed.json()) as { url: string; key: string };
+      setPhase("Uploading… 0%");
+      await putWithProgress(url, file, contentType, (percent) =>
+        setPhase(`Uploading… ${Math.round(percent)}%`)
+      );
       setPhase("Processing…");
-      const res = await ingestUploadedPackageAction({ courseId, pathname: result.pathname, resetProgress });
+      const res = await ingestUploadedPackageAction({ courseId, key, resetProgress });
       if (res?.error) {
         setError(res.error);
         return;

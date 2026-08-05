@@ -212,30 +212,45 @@ conventions.
 
 ## Cutover
 
-The chosen approach is a backfill without a dual-read fallback, which leaves a
-window between the backfill finishing and the deployment going live in which a
-write could land in Blob and be missed. The sequence closes that window by
-re-running the backfill afterward.
+The backfill runs ahead of the deploy in step 3, which leaves a window between
+the backfill finishing and the deployment going live in which a write could land
+in Blob and be missed. The initial plan closed that window only by re-running the
+backfill afterward (step 4). Review of that plan found it also left production
+with no working rollback: unsetting the R2 variables alone selects the local disk
+driver, which is ephemeral on Vercel, so the documented rollback was a storage
+outage rather than a revert. A retained Blob driver (`src/platform/storage/blob.ts`)
+was added to fix both problems together: `storage/index.ts` selects it whenever
+`R2_BUCKET` is unset and `BLOB_READ_WRITE_TOKEN` is present, which is what makes
+rollback a real config change, and while R2 is active the same driver lets
+`getObject` read through to Blob on a miss, closing the cutover window directly
+instead of only narrowing it.
 
 1. Operator creates the R2 buckets (one production, one preview), an API token
    scoped to them, and the CORS rule.
 2. Run the backfill against production, dry-run first, then `--apply`.
-3. Deploy with the R2 variables set.
-4. Re-run the backfill to sweep anything written during the window. This is
-   cheap because the script is idempotent.
+3. Deploy with the R2 variables set, leaving `BLOB_READ_WRITE_TOKEN` in place.
+4. Re-run the backfill to sweep anything written during the window. The
+   read-through fallback already serves those objects live, so this step exists
+   to copy them into R2 before the Blob store is torn down in step 6, not to
+   prevent a 404. It is not cheap: the script checks presence by downloading each
+   object's full body from R2, so this pass re-downloads everything step 2 already
+   copied.
 5. Verify key sets match, then spot-check a certificate download and a SCORM
    course playthrough.
 6. A follow-up change removes `@vercel/blob` from `package.json`, deletes
-   `scripts/migrate-blob-to-r2.ts` (its only remaining importer), and tears down
-   the Vercel Blob store itself.
+   `scripts/migrate-blob-to-r2.ts` (its only remaining importer), removes
+   `src/platform/storage/blob.ts` and the `BLOB_READ_WRITE_TOKEN` config field,
+   removes that variable from the Vercel project, and tears down the Vercel Blob
+   store itself.
 
-The Blob store is not deleted until step 6, so every step before it is
-reversible by unsetting the R2 variables and redeploying.
-
-Given this application's write volume, the exposure in step 3 is realistically a
-few minutes of near-zero traffic. If that is judged too risky, the alternative is
-a temporary dual-read in `getObject` (R2 first, Blob on miss), which removes the
-window entirely at the cost of keeping `@vercel/blob` installed for longer.
+Every step before step 6 is reversible by unsetting the four R2 variables and
+redeploying, provided `BLOB_READ_WRITE_TOKEN` was never removed -- that token,
+not merely the absence of the R2 variables, is what `storage/index.ts` selects
+the Blob driver on. Writes only ever go to the currently active store, so an
+object created or updated in R2 after step 3 is not visible from a rolled-back,
+Blob-only application; rollback is safest exercised close to step 3, not after
+the migration has been live for a while. After step 6 there is no rollback: the
+token is gone and the Blob store it pointed at no longer exists.
 
 ## Testing
 

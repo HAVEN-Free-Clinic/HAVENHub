@@ -4,11 +4,22 @@ Prerequisite: `docs/runbooks/r2-bucket-setup.md` is complete, so the buckets, th
 API token, and the CORS rules exist.
 
 There is a window between the backfill finishing and the new deploy going live in
-which a write could still land in Vercel Blob and be missed. Step 5 closes it by
-re-running the backfill. Nothing before step 7 (Decommission) is destructive: the
-Blob store is untouched throughout steps 1-6, so at any point before step 7,
-rollback is unsetting the four R2 variables and redeploying. Once step 7 runs,
-that option is gone -- see Rollback below.
+which a write could still land in Vercel Blob. The application closes that window
+itself: once R2 is active, a read that misses in R2 falls through to Blob
+automatically (`src/platform/storage/index.ts`), so an object written during the
+window is served correctly the moment the deploy in step 3 goes live, with no
+operator action required. Step 5 still matters for a different reason -- see that
+step.
+
+Nothing before step 7 (Decommission) is destructive. Blob is never deleted before
+then, and rollback -- at any point before step 7 -- is unsetting the four `R2_*`
+variables and redeploying. That only works, though, if `BLOB_READ_WRITE_TOKEN`
+stays set on the Vercel project the whole time: unsetting the R2 variables makes
+`storage/index.ts` select the Blob driver only when that token is present, and
+falls through to the local disk driver otherwise, which is ephemeral on Vercel
+and produces a silent outage, not a revert. `BLOB_READ_WRITE_TOKEN` should
+already be set from before this migration -- do not remove it at any point before
+step 7.
 
 ## 1. Dry-run the backfill
 
@@ -20,6 +31,12 @@ npm run migrate:r2:dry
 
 Confirm the key list looks like real storage keys and the object count is
 plausible. Nothing is written.
+
+The `BLOB_READ_WRITE_TOKEN` here is a local environment variable for this
+one-off script, letting it read the source store -- a separate thing from the
+`BLOB_READ_WRITE_TOKEN` already set on the Vercel project, which the deployed
+app itself reads for rollback and read-through. Both should hold the same
+token, but only the Vercel-project one matters after step 3.
 
 Before it lists anything, the script does one round-trip against R2 (the
 "preflight" check) to catch a bad credential, account ID, or bucket name with a
@@ -51,7 +68,11 @@ abort.
 ## 3. Deploy
 
 Set the four `R2_*` variables on the Vercel project (production scope) and deploy
-the branch. The application now reads and writes R2 exclusively.
+the branch. **Leave `BLOB_READ_WRITE_TOKEN` in place.** The application now reads
+R2 first for every object; a miss falls through to Blob for the rest of the
+cutover window, and the same token is the entirety of the rollback path described
+above. Removing it here, thinking of it as Blob-era cleanup, converts both of
+those safety nets into a silent outage the next time anyone needs them.
 
 ## 4. Smoke-test
 
@@ -68,14 +89,24 @@ the branch. The application now reads and writes R2 exclusively.
 Re-run `npm run migrate:r2:apply`. This copies anything written to Blob between
 step 2 and step 3. Expect a small number of new objects, or zero.
 
-This pass is not free, though: the script checks whether an object is already in
-R2 by downloading its full body from R2 and comparing the byte count, since R2
-exposes no cheaper head-only check here. On this second pass, that means every
-object copied in step 2 gets fully re-downloaded from R2 just to confirm it is
-already there, even though nothing new is written for it. For a store holding
-large SCORM packages, expect this sweep to take noticeably longer than the object
-count written to Blob during the cutover window would suggest -- its runtime
-tracks the size of the whole store, not just the size of what changed.
+This is no longer about preventing a 404: the read-through fallback described
+above already serves cutover-window objects live, before this step ever runs.
+What this step still does is copy those objects into R2 itself, not merely make
+them reachable. That distinction matters because step 7 deletes the Blob store --
+any object that exists only in Blob and was never copied into R2 is lost for good
+at that point, read-through or not. Run this step before step 7 regardless of
+whether the smoke test in step 4 turned up anything missing.
+
+This pass is not free, either: the script checks whether an object is already in
+R2 by downloading its full body from R2 and comparing the byte count.
+`src/platform/storage/r2.ts` exposes only a full-body `getObject`, not a
+head-only check (R2's underlying S3 API does support `HeadObject`; the driver
+here just does not use it). On this second pass, that means every object copied
+in step 2 gets fully re-downloaded from R2 just to confirm it is already there,
+even though nothing new is written for it. For a store holding large SCORM
+packages, expect this sweep to take noticeably longer than the object count
+written to Blob during the cutover window would suggest -- its runtime tracks
+the size of the whole store, not just the size of what changed.
 
 ## 6. Verify
 
@@ -84,18 +115,37 @@ allowing for the `scorm-uploads/` staging objects the script deliberately skips.
 
 ## 7. Decommission
 
-Only after the above is confirmed, in a follow-up change:
+Only after the above is confirmed, in a follow-up change. This is the step where
+rollback stops being available -- once it lands, the Blob store is gone and
+nothing in the application can read or write it, so there is no going back.
 
 - `npm uninstall @vercel/blob`
 - `git rm scripts/migrate-blob-to-r2.ts` and drop its two `package.json` entries
   (`migrate:r2:dry`, `migrate:r2:apply`)
+- `git rm src/platform/storage/blob.ts`
+- Remove the `BLOB_READ_WRITE_TOKEN` field from `src/platform/config.ts` (and its
+  coverage in `config.test.ts`)
+- Collapse `src/platform/storage/index.ts` back to two-way selection (R2 or local
+  disk): remove the `blobOnly` / `readThroughToBlob` branches and the Blob-related
+  cases in `index.test.ts`
 - Remove `BLOB_READ_WRITE_TOKEN` from the Vercel project
 - Delete the Vercel Blob store
 
 ## Rollback
 
-Before step 7: unset the four `R2_*` variables and redeploy. The Blob store still
-holds every object, untouched, so the application falls straight back to reading
-and writing it. After step 7 there is no rollback -- the Blob store is gone and the
-code path back to it no longer exists -- which is why decommission is a separate,
-later change and not folded into step 6.
+Before step 7: unset the four `R2_*` variables and redeploy, with
+`BLOB_READ_WRITE_TOKEN` still set. `storage/index.ts` selects the Blob driver
+whenever `R2_BUCKET` is unset and a Blob token is present, so the application
+reverts to reading and writing Blob exactly as it did before this migration.
+
+That reversion is not perfect symmetry with the forward migration, though: writes
+only ever go to the currently active store, so any object created or updated in
+R2 after step 3 and before the rollback is invisible to the rolled-back,
+Blob-only application -- nothing copies R2 writes back into Blob the way step 5
+copies Blob writes into R2. The longer the cutover runs before a decision to roll
+back, the more R2-only data a rollback would silently strand. Treat rollback as a
+near-term option exercised close to step 3, not something to reach for after the
+migration has been live and taking real writes for a while.
+
+After step 7 there is no rollback: `BLOB_READ_WRITE_TOKEN` is gone, the Blob
+driver is gone, and the Blob store itself no longer exists.

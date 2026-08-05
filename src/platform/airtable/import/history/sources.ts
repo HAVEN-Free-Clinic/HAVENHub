@@ -66,12 +66,12 @@ export const HISTORY_SOURCES: HistorySource[] = [
     tables: { applications: "tbluFoybFPBjBAXyk", finalDecisions: "tblfw1kjlBc5fULrY" },
   })),
   {
-    // This base has neither a Final Decisions nor a Candidate Evaluations
-    // table. The director adapter reads only Applications regardless, deriving
-    // everything from its link fields, so no deviation is needed here.
+    // No Final Decisions table here; this cycle recorded its 36 outcomes in
+    // an Acceptances table instead. Omitting it imports every SU26 director
+    // as undecided.
     code: "D-SU26", label: "Summer 2026 Director Recruitment", track: "DIRECTOR", termCode: "SU26",
     baseId: "app6MHzSA1yPej2zX", adapter: "director",
-    tables: { applications: "tbluFoybFPBjBAXyk" },
+    tables: { applications: "tbluFoybFPBjBAXyk", acceptances: "tblqM7b0f5srEmbBw" },
   },
   {
     code: "INTEREST", label: "Interest form", track: "VOLUNTEER", termCode: null,

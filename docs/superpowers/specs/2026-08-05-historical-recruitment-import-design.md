@@ -31,7 +31,7 @@ Verified live against the Airtable REST API on 2026-08-05. Counts are exact.
 | V-SP25 | `appWSVTqKqiwVyVio` | 504 | 399 R1 sel / 3 R2 apps / 135 R2 sel / 499 final |
 | V-SU25 | `appBTfqxZSHyf1LBl` | 413 | 309 / 104 / 52 / 413 |
 | V-FA25 | `app0DXgMSFvsWW4t8` | 722 | 476 / 262 / 26 / 722 |
-| V-SP26 | `appsXFzmnfi5vWzrJ` | 551 | Decisions inline; R2 tables return 403 |
+| V-SP26 | `appsXFzmnfi5vWzrJ` | 551 | Outcome-thin: only `ACCEPTED?` survives (108 set). See below |
 | V-SU26 | `appOq1yOiA1Lfzq8L` | 358 | 74 acceptances, 303 contracts; own shape |
 
 ### Director cycles
@@ -44,7 +44,7 @@ Candidate Evaluations `tbloK5O8uzzyvXzCx`, Final Decisions `tblfw1kjlBc5fULrY`.
 | D-FA24 | `appwhZqNU4zCkQ9U2` | 87 / 77 / 111 / 87 |
 | D-SU25 | `app5ma8K8a1qansUu` | 84 / 42 / 74 / 82 |
 | D-FA25 | `appvvlDJLmGfN0340` | 89 / 74 / 10 / 0 |
-| D-SU26 | `app6MHzSA1yPej2zX` | 76 / 73 / 403 / n/a |
+| D-SU26 | `app6MHzSA1yPej2zX` | 76 / 73 / no evals table / 36 acceptances |
 
 ### Interest form
 
@@ -273,19 +273,34 @@ one type at the boundary, and identity, department resolution, loading, and repo
 written once. Adapters are pure functions from `AirtableRecord[]` to rows, so they test against
 fixtures with no network and no database.
 
-Stage derivation falls out of table membership for the modern volunteer lineage: appearing in Round
-1 Selections means ADVANCED, in Round 2 Applications means FINAL_ROUND, in Final Decisions with
-`ACCEPTED?` set means ACCEPTED. The director lineage derives the same ladder from its Interviews and
-Final Decisions tables.
+**Stage derivation needs only the Round 1 Applications table** for the modern volunteer lineage.
+That table carries link fields to every downstream table plus a lookup of the final decision, so a
+non-empty link array is itself the stage signal and the downstream tables never have to be read:
 
-Two cycles need a documented deviation inside their adapter rather than a separate adapter:
+| Field id | Meaning | Stage it proves |
+|---|---|---|
+| `fldjynzhT3vXhfvTi` | Round 1 Selections (link) | ADVANCED |
+| `fldt1KIkLCdkOpBwu` | Round 2 Applications (link) | FINAL_ROUND |
+| `fldAOwxW8t639e5uk` | Round 2 Selections (link) | FINAL_ROUND |
+| `fldrwLEgdh6Acf3Tl` | Final Decisions (link) | decision exists |
+| `fld3PcyqYyRONmiEi` | FD Decision (lookup) | the outcome value |
 
-- **V-SP26** has an empty Final Decisions table; its outcome lives inline on Round 1 Applications
-  (`ACCEPTED?` checkbox, `Department`, `FD Decision` lookup).
-- **D-SU26** has no Final Decisions or Candidate Evaluations table. It carries Acceptances
-  (`tblqM7b0f5srEmbBw`) and Director Contracts (`tblLLg179HDssV8Of`) instead, so ACCEPTED comes from
-  the Acceptances table and ONBOARDED from Contracts, mirroring how the V-SU26 adapter reads its own
-  Acceptances and Contracts tables.
+The director lineage derives the same ladder from the `Interview Details`
+(`fldYYMi71F7i2nYPM`), `Decisions` (`fldTlrJkHmNXvQZAS`) and `Director Contracts`
+(`fldcFW0hsfHRsQhsk`) link fields on its Applications table.
+
+Two cycles deviate, handled inside their adapter rather than by a separate adapter:
+
+- **V-SP26 is outcome-thin, and no access grant can fix it.** Its Final Decisions table holds zero
+  records, and on Round 1 Applications every link field, the `FD Decision` lookup, and `Department`
+  are empty across all 551 rows. The one populated signal is the `ACCEPTED?` checkbox
+  (`fldzBRNBv4AjmsIb0`), set on 108 rows. SP26 therefore imports as APPLIED or ACCEPTED with no
+  mid-funnel stage, and that is a faithful representation of what the cycle recorded, not a
+  degradation introduced by this import. The adapter must not infer ADVANCED or FINAL_ROUND for
+  SP26.
+- **D-SU26 has neither a Final Decisions nor a Candidate Evaluations table.** It carries Acceptances
+  (`tblqM7b0f5srEmbBw`, 36 records) and Director Contracts (`tblLLg179HDssV8Of`), so ACCEPTED comes
+  from Acceptances and ONBOARDED from Contracts, mirroring the V-SU26 adapter.
 
 **Identity resolution is a pure in-memory pass before any write.** Extract every row from all
 sources, union-find over the netId and email edges, then write. The incremental alternative has a
@@ -380,9 +395,15 @@ suite is the only thing that really guards UI flows here ([[e2e-covered-flows-no
 The migration lands before the UI branch, because preview deploys share the production database and
 a branch behind a migration crashes with P2021 ([[preview-deploys-share-prod-db]]).
 
-## Open item
+## Resolved during design: the "403" was not a permissions problem
 
-The Airtable PAT returns 403 on V-SP26's Round 2 tables and D-SU26's Candidate Evaluations. Those
-two cycles will import with their applications and final outcomes but without mid-funnel stage
-detail until that access is granted. This does not block the build; it should be resolved before the
-production `--apply` run.
+An earlier read of the survey treated 403 responses on V-SP26's Round 2 tables and D-SU26's
+Candidate Evaluations as missing PAT scope, and flagged granting access as a pre-`--apply` action.
+That was wrong. Airtable returns 403, not 404, for a table id that does not exist in a base, and the
+base metadata confirms these tables were never created in those cycles: V-SP26 has four tables and
+D-SU26 has six, and none of them are the ones being requested. The ids came from sibling bases in
+the same lineage.
+
+No access needs granting, and there is no outstanding blocker for the production run. The
+consequence is only that V-SP26 records less than its siblings, which the adapter handles explicitly
+as described above.

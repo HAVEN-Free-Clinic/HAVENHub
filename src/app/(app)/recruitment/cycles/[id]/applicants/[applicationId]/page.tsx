@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
+import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
@@ -21,6 +22,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
+import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -30,7 +32,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (!app) notFound();
   const person = await requirePersonSession();
   if (app.cycleId !== id) notFound();
-  const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances] = await Promise.all([
+  const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances, history] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
     can(person.personId, "recruitment.score"),
@@ -39,6 +41,11 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     // must not offer them a link that bounces to /no-access.
     can(person.personId, "recruitment.access"),
     listAcceptances(applicationId),
+    getApplicantHistory({
+      netId: app.applicant.netId,
+      emails: [app.applicant.email],
+      excludeApplicationId: applicationId,
+    }),
   ]);
   const seeAll = scope.all || managesCycles;
   // Committee scoring applies to both tracks; only routing is volunteer-only.
@@ -101,6 +108,8 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             : ""
         }`}
       />
+
+      <ApplicantHistory history={history} title="Past applications" />
 
       {sections.map((section) => {
         // The ranking is hoisted into its own column at submission (submissions.ts

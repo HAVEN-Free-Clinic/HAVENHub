@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { renderEmail } from "./renderEmail";
 import { complianceReminderContext } from "./compliance";
+import { getDescriptor } from "./registry";
 
 beforeEach(resetDb);
 
@@ -58,7 +59,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expired on January 15, 2026."),
     );
@@ -75,7 +76,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expires on January 15, 2026."),
     );
@@ -92,7 +93,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "We do not have a current HIPAA certificate on file for you."),
     );
@@ -109,7 +110,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
@@ -118,4 +119,22 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     expect(out.html).not.toContain(CTA_URL);
   });
 
+});
+
+describe("compliance-reminder descriptor is HIPAA only", () => {
+  it("declares no EHS or onboarding variables", () => {
+    const names = getDescriptor("compliance-reminder")!.variables.map((v) => v.name);
+    expect(names).not.toContain("ehsMissingList");
+    expect(names).not.toContain("hasEhsGap");
+    expect(names).not.toContain("otherItemsHtml");
+    expect(names).not.toContain("hasOtherItems");
+  });
+
+  it("has no EHS or onboarding blocks in its body, and a HIPAA-specific subject", () => {
+    const d = getDescriptor("compliance-reminder")!;
+    expect(d.defaultBody).not.toContain("hasEhsGap");
+    expect(d.defaultBody).not.toContain("hasOtherItems");
+    expect(d.defaultBody).not.toContain("before you are cleared to volunteer");
+    expect(d.defaultSubject).toBe("[HAVEN] HIPAA certification reminder");
+  });
 });

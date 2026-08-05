@@ -31,11 +31,6 @@ export type ComplianceReminderParams = {
   appUrl?: string;
   /** Resolved `branding.brandColor`, used for the CTA button background. */
   brandColor?: string;
-  /** Names of required EHS trainings the member has not yet completed. */
-  ehsMissing?: string[];
-  /** Other outstanding clearance items beyond HIPAA/EHS (profile, training, learning),
-   *  as ready-to-display sentences. */
-  otherItems?: string[];
 };
 
 export type ComplianceDateReviewParams = {
@@ -53,12 +48,6 @@ export type ComplianceDateReviewParams = {
 function fmtDate(d: Date | null): string {
   if (d === null) return "soon";
   return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
-}
-
-/** Render outstanding-item sentences as <li> rows for the {{{ otherItemsHtml }}} slot.
- *  Items are internal, hardcoded labels (no user input), so no escaping is needed. */
-function itemsToHtml(items: string[]): string {
-  return items.map((i) => `<li>${i}</li>`).join("");
 }
 
 /** Short human phrase per HIPAA status. Consumed by the director-facing digest. */
@@ -119,12 +108,9 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
       actionLine =
         "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance.";
       break;
-    case "COMPLIANT":
-      // HIPAA is current, but the person has outstanding EHS items (otherwise
-      // isFullyCompliant would have prevented a reminder from being sent).
-      statusLine = "Your HIPAA certificate is on file and current.";
-      actionLine = "No HIPAA action is needed from you right now.";
-      break;
+    // No COMPLIANT branch: the engine only calls this for a member whose HIPAA
+    // status is actually unsatisfied. A COMPLIANT status reaching here means the
+    // caller's gate is wrong, so the default throw below is the right answer.
     default:
       throw new Error(`Unexpected reminder status: ${p.status}`);
   }
@@ -136,10 +122,6 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     showCta,
     ctaUrl: `${p.appUrl ?? ""}/my-info`,
     brandColor: p.brandColor ?? "",
-    ehsMissingList: (p.ehsMissing ?? []).join(", "),
-    hasEhsGap: (p.ehsMissing ?? []).length > 0,
-    otherItemsHtml: itemsToHtml(p.otherItems ?? []),
-    hasOtherItems: (p.otherItems ?? []).length > 0,
   };
 }
 
@@ -224,12 +206,8 @@ export const complianceDescriptors: TemplateDescriptor[] = [
         label: "Brand color for the call-to-action button background (hex)",
         sampleValue: "#00356b",
       },
-      { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
-      { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
-      { name: "otherItemsHtml", label: "Pre-rendered <li> rows for other outstanding items (profile, training, learning)", sampleValue: "<li>Complete your assigned learning courses</li>" },
-      { name: "hasOtherItems", label: "True when there are outstanding items beyond HIPAA/EHS", sampleValue: "false" },
     ],
-    defaultSubject: "[HAVEN] Compliance reminder",
+    defaultSubject: "[HAVEN] HIPAA certification reminder",
     defaultBody: `<p>Hello {{ personName }},</p>
 
 <p>{{ statusLine }}</p>
@@ -242,12 +220,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       <a href="{{ ctaUrl }}" style="display: inline-block; padding: 12px 24px; font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none;">Open HAVEN Hub &rarr;</a>
     </td>
   </tr>
-</table>{{else}}<p>{{ actionLine }}</p>{{/if}}{{#if hasEhsGap}}
-
-<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}{{#if hasOtherItems}}
-
-<p>You still have the following to finish before you are cleared to volunteer:</p>
-<ul>{{{ otherItemsHtml }}}</ul>{{/if}}
+</table>{{else}}<p>{{ actionLine }}</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

@@ -31,14 +31,14 @@ describe("compliance-reminder via renderEmail", () => {
   const BRAND = "#00356b";
   const CTA_URL = `${APP_URL}/my-info`;
 
-  it("subject is exactly '[HAVEN] Compliance reminder'", async () => {
+  it("subject is exactly '[HAVEN] HIPAA certification reminder'", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
       status: "EXPIRING_SOON",
       expiresAt: new Date("2026-07-04T00:00:00Z"),
     };
     const { subject } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(subject).toBe("[HAVEN] Compliance reminder");
+    expect(subject).toBe("[HAVEN] HIPAA certification reminder");
   });
 
   it("EXPIRING_SOON: html contains the word 'expires'", async () => {

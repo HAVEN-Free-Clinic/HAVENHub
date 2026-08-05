@@ -30,20 +30,7 @@ import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
 import { complianceReminderContext } from "./templates/compliance";
-import { loadEhsMissingMap } from "@/platform/ehs/services/status";
-import { isFullyCompliant } from "@/platform/ehs/engine/applicability";
 import { loadClearanceMap } from "@/platform/clearance";
-
-/**
- * Human-readable, self-serviceable outstanding items beyond HIPAA and EHS (those
- * two have their own dedicated copy in the templates). Keyed by onboarding task key.
- */
-const REMINDER_ITEM_LABELS: Record<string, string> = {
-  profile: "Confirm your contact details in your profile",
-  training: "Finish this term's volunteer training",
-  directorTraining: "Finish this term's director training",
-  learning: "Complete your assigned learning courses",
-};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -146,13 +133,10 @@ export async function runComplianceReminders(
   const reminderWantsEmail = reminderChannel === "email" || reminderChannel === "both";
   const reminderWantsTeams = reminderChannel === "teams" || reminderChannel === "both";
 
-  // 5. Load the EHS missing map + full clearance for all candidates once per run.
-  //    loadEhsMissingMap gives the EHS names for the template; loadClearanceMap gives
-  //    the overall cleared decision plus the non-HIPAA/non-EHS gaps (profile, training,
-  //    learning) so the reminder covers every item blocking clearance.
-  const ehsMissingByPerson = await loadEhsMissingMap(termId);
-  // Clearance is used only for its profile/training/learning gaps (time-independent);
-  // HIPAA still comes from `status` below so the expiring-soon nudge is preserved.
+  // 5. Load full clearance for all candidates once per run. Only the per-term step
+  //    config is read from it here (to tell "HIPAA disabled this term" apart from
+  //    "HIPAA satisfied"); the HIPAA status itself comes from `status` below so the
+  //    expiring-soon nudge is preserved.
   const clearanceByPerson = await loadClearanceMap(personIds, termId);
 
   // 5 + 6 + 7. Process each candidate.
@@ -164,28 +148,20 @@ export async function runComplianceReminders(
     // + director escalation. EXPIRING_SOON is still surfaced so the renewal nudge holds.
     const status = effectiveComplianceStatus(certs, activeTerm.endDate, now);
     const existing = reminderMap.get(person.id) ?? null;
-    const ehsMissingAll = ehsMissingByPerson.get(person.id) ?? [];
     const clearance = clearanceByPerson.get(person.id);
     // A term can disable the HIPAA/EHS onboarding step. loadClearanceMap drops a
     // disabled step from `tasks`, so its absence means "not required this term":
     // such an item must not block clearance, nag, or escalate. Neutralize a
     // disabled leg for both the done-gate and the reminder body.
     const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
-    const ehsEnabled = clearance?.tasks.some((t) => t.key === "ehs") ?? true;
     const effectiveStatus = hipaaEnabled ? status : "COMPLIANT";
-    const ehsMissing = ehsEnabled ? ehsMissingAll : [];
-    // Outstanding items beyond HIPAA/EHS (profile, training, learning), for the body.
-    const otherItems = (clearance?.missing ?? [])
-      .map((k) => REMINDER_ITEM_LABELS[k])
-      .filter((s): s is string => Boolean(s));
-    // Done when the (enabled) HIPAA + EHS legs are fully compliant (this keeps
-    // reminding on EXPIRING_SOON, the renewal nudge) AND there are no other
-    // outstanding items (profile/training/learning).
-    const isDone =
-      isFullyCompliant({ hipaaStatus: effectiveStatus, ehsMissingCount: ehsMissing.length }) &&
-      otherItems.length === 0;
+    // This stream is now purely about the HIPAA certificate, so the gate is the HIPAA
+    // status alone: unsatisfied for every status except COMPLIANT, which keeps the
+    // EXPIRING_SOON renewal nudge flowing. EHS and the remaining onboarding items are
+    // no longer carried here; the onboarding-reminder stream picks them up.
+    const isDone = effectiveStatus === "COMPLIANT";
 
-    // --- Fully cleared: reset any lingering reminder state ---
+    // --- HIPAA satisfied: reset any lingering reminder state ---
     if (isDone) {
       if (
         existing !== null &&
@@ -263,8 +239,6 @@ export async function runComplianceReminders(
         expiresAt,
         appUrl: baseUrl,
         brandColor,
-        ehsMissing,
-        otherItems,
       }),
     );
     await notify(prisma, {

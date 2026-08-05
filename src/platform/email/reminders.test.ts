@@ -475,11 +475,17 @@ describe("Teams channel routing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// HIPAA-compliant person with an EHS gap still receives a compliance-reminder
+// A non-HIPAA gap no longer produces a compliance-reminder
+//
+// These two cases used to assert the opposite: the bundled reminder covered EHS and
+// profile as well, so a HIPAA-compliant member with either gap still received one.
+// The split moves that copy to the onboarding-reminder stream, so this template must
+// now stay silent. The positive coverage (an onboarding-reminder IS sent) lands with
+// the onboarding leg.
 // ---------------------------------------------------------------------------
 
-describe("EHS gap reminder", () => {
-  it("sends a compliance-reminder to a HIPAA-compliant person who has a missing EHS training", async () => {
+describe("EHS gap no longer triggers the HIPAA reminder", () => {
+  it("sends no compliance-reminder to a HIPAA-compliant person who has a missing EHS training", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("EHS Gap Volunteer", "ehsgap@example.com");
@@ -494,19 +500,13 @@ describe("EHS gap reminder", () => {
 
     const result = await runComplianceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
-    const emailCount = await emailLogCount("compliance-reminder");
-    expect(emailCount).toBe(1);
+    expect(result.remindersSent).toBe(0);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// HIPAA-compliant person with an incomplete profile still receives a reminder
-// (full-clearance coverage: the reminder now spans profile/training/learning too)
-// ---------------------------------------------------------------------------
-
-describe("profile gap reminder", () => {
-  it("sends a compliance-reminder to a HIPAA-compliant person whose profile is incomplete", async () => {
+describe("profile gap no longer triggers the HIPAA reminder", () => {
+  it("sends no compliance-reminder to a HIPAA-compliant person whose profile is incomplete", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("Profile Gap Volunteer", "profilegap@example.com");
@@ -517,7 +517,7 @@ describe("profile gap reminder", () => {
 
     const result = await runComplianceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
-    expect(await emailLogCount("compliance-reminder")).toBe(1);
+    expect(result.remindersSent).toBe(0);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
   });
 });

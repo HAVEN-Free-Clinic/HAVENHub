@@ -74,9 +74,9 @@ function putWithProgress(
 export function UploadPackageForm({
   courseId,
   hasPackage,
-  usingRemoteStorage,
-}: FormProps & { usingRemoteStorage: boolean }) {
-  return usingRemoteStorage ? (
+  supportsPresignedUpload,
+}: FormProps & { supportsPresignedUpload: boolean }) {
+  return supportsPresignedUpload ? (
     <DirectUploadForm courseId={courseId} hasPackage={hasPackage} />
   ) : (
     <ServerActionUploadForm courseId={courseId} hasPackage={hasPackage} />

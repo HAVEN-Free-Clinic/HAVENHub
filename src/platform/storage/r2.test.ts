@@ -15,6 +15,9 @@ vi.mock("@aws-sdk/client-s3", () => ({
   GetObjectCommand: vi.fn(function (input) {
     return { kind: "Get", input };
   }),
+  HeadObjectCommand: vi.fn(function (input) {
+    return { kind: "Head", input };
+  }),
   DeleteObjectCommand: vi.fn(function (input) {
     return { kind: "Delete", input };
   }),
@@ -88,6 +91,52 @@ describe("getObject", () => {
       Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
     );
     await expect(r2.getObject("cert.pdf")).rejects.toThrow("boom");
+  });
+});
+
+describe("headObject", () => {
+  it("returns the object size without downloading the body", async () => {
+    send.mockResolvedValue({ ContentLength: 4096 });
+    const result = await r2.headObject("cert.pdf");
+    expect(result).toEqual({ size: 4096 });
+    expect(send.mock.calls[0][0]).toMatchObject({
+      kind: "Head",
+      input: { Bucket: "test-bucket", Key: "cert.pdf" },
+    });
+  });
+
+  it("returns null for a missing key rather than throwing", async () => {
+    send.mockRejectedValue(Object.assign(new Error("nope"), { name: "NoSuchKey" }));
+    expect(await r2.headObject("gone.pdf")).toBeNull();
+  });
+
+  it("returns null on a bare 404 with no error name", async () => {
+    send.mockRejectedValue(
+      Object.assign(new Error("nope"), { $metadata: { httpStatusCode: 404 } })
+    );
+    expect(await r2.headObject("gone.pdf")).toBeNull();
+  });
+
+  it("rethrows a genuine failure so it is not mistaken for a missing file", async () => {
+    send.mockRejectedValue(
+      Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
+    );
+    await expect(r2.headObject("cert.pdf")).rejects.toThrow("boom");
+  });
+
+  it("rethrows NoSuchBucket rather than treating a typo'd bucket as a missing key", async () => {
+    // A missing key and a missing bucket both answer with a 404. Only the
+    // bucket case means R2_BUCKET itself is misconfigured, and the backfill's
+    // preflight check depends on this throwing rather than resolving to null --
+    // otherwise a typo'd bucket passes preflight cleanly and the run fails on
+    // every object once the main loop starts instead.
+    send.mockRejectedValue(
+      Object.assign(new Error("nope"), {
+        name: "NoSuchBucket",
+        $metadata: { httpStatusCode: 404 },
+      })
+    );
+    await expect(r2.headObject("cert.pdf")).rejects.toThrow("nope");
   });
 });
 

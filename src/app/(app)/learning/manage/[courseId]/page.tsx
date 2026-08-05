@@ -110,7 +110,7 @@ export default async function EditCoursePage({
               ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
               : "No package uploaded yet."}
           </p>
-          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} usingRemoteStorage={supportsPresignedUpload} />
+          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} supportsPresignedUpload={supportsPresignedUpload} />
         </div>
       </div>
     </>

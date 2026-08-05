@@ -7,12 +7,14 @@
 // addRandomSuffix:false, so a Blob pathname already IS the storage key and no
 // database row has to change.
 //
-// Safe to re-run. Objects already present in R2 at the same size are skipped, so
-// an interrupted run resumes, and a second pass after the deploy sweeps anything
-// written during the cutover window.
+// Safe to re-run. Objects already present in R2 are skipped by an existence
+// check, not a size comparison -- see alreadyPresent below for why a size check
+// would be actively wrong on a post-deploy re-run -- so an interrupted run
+// resumes, and a second pass after the deploy sweeps anything written during
+// the cutover window.
 import { list, head, get } from "@vercel/blob";
 import { config } from "@/platform/config";
-import { putObject, getObject } from "@/platform/storage/r2";
+import { putObject, headObject } from "@/platform/storage/r2";
 
 const apply = process.argv.includes("--apply");
 
@@ -58,23 +60,41 @@ function requireConfig(): string {
   return token;
 }
 
-/** True when R2 already holds this key with the same byte length. */
-async function alreadyPresent(key: string, size: number): Promise<boolean> {
-  const existing = await getObject(key);
-  return existing !== null && existing.length === size;
+/**
+ * True when R2 already holds an object at this key.
+ *
+ * A pure existence check, not a size comparison. PutObject is atomic on
+ * S3-compatible stores, so a present object is by definition a complete one --
+ * checking its size buys nothing worth a full download before the cutover
+ * deploy, and after it (the step-5 sweep) a size check is actively wrong: once
+ * R2 is the live store taking writes, an admin can overwrite a fixed-key object
+ * (src/platform/branding/assets.ts writes every logo/favicon to the fixed key
+ * `branding/<asset>`) with new bytes at a different length than the frozen Blob
+ * snapshot ever had. A size mismatch there means "R2 is newer," not "R2 is
+ * stale," and a size-based check would read it backwards -- copying the OLD
+ * Blob bytes back over the NEW R2 object. headObject never looks at length at
+ * all, so it cannot make that mistake.
+ */
+async function alreadyPresent(key: string): Promise<boolean> {
+  return (await headObject(key)) !== null;
 }
 
 /**
  * One cheap round-trip against R2 before the main loop starts, so a broken
- * credential or wrong account/bucket fails fast with a single clear message
- * instead of degrading into one FAILED line per object once the list loop
- * begins. The key does not need to exist -- getObject treats "not found" as a
- * normal null result (see src/platform/storage/r2.ts), so only a real
- * connection/auth/config problem throws here.
+ * credential, wrong account, or wrong bucket fails fast with a single clear
+ * message instead of degrading into one FAILED line per object once the list
+ * loop begins. The sentinel key does not need to exist -- headObject treats a
+ * missing KEY as a normal null result (see src/platform/storage/r2.ts), so only
+ * a genuine connection/auth/config problem throws here. A missing BUCKET is the
+ * one exception: headObject rethrows NoSuchBucket rather than swallowing it, so
+ * a typo'd R2_BUCKET -- the misconfiguration an operator is most likely to make,
+ * hand-copying it from the setup runbook's table -- fails here with a clear
+ * message instead of passing preflight and then failing on every object once
+ * the main loop starts.
  */
 async function preflightR2(): Promise<void> {
   try {
-    await getObject("__migrate-blob-to-r2-preflight__");
+    await headObject("__migrate-blob-to-r2-preflight__");
   } catch (err) {
     throw new Error(
       `R2 preflight check failed: ${(err as Error).message}. Verify R2_ACCOUNT_ID, ` +
@@ -100,7 +120,7 @@ async function copyOne(
   // main() also watches the return value to trip a circuit breaker on a run
   // of consecutive failures, which is what a systemic problem looks like.
   try {
-    if (await alreadyPresent(key, size)) {
+    if (await alreadyPresent(key)) {
       stats.skippedExisting++;
       return true;
     }

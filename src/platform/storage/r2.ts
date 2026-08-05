@@ -9,6 +9,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
@@ -56,6 +57,16 @@ function isNotFound(err: unknown): boolean {
   return e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
 }
 
+/**
+ * A missing bucket, not a missing key. Both answer with an HTTP 404, but only
+ * this one means the R2_BUCKET configuration itself is wrong. headObject below
+ * must not swallow it the way isNotFound swallows an ordinary missing key, or a
+ * typo'd bucket name reads as "object not found yet" instead of failing loudly.
+ */
+function isBucketNotFound(err: unknown): boolean {
+  return (err as { name?: string })?.name === "NoSuchBucket";
+}
+
 /** Store bytes under `key`, overwriting any existing object at that key. */
 export async function putObject(
   key: string,
@@ -81,6 +92,31 @@ export async function getObject(key: string): Promise<Buffer | null> {
     if (!result.Body) return null;
     return Buffer.from(await result.Body.transformToByteArray());
   } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Check whether `key` exists without downloading its bytes.
+ *
+ * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts): as a presence
+ * check that only asks "does this exist," never "is it the same size" (see that
+ * script's alreadyPresent for why a size comparison is actively wrong once R2 is
+ * the live store), and, against a sentinel key, as a preflight that a broken
+ * credential or a typo'd bucket name fails loudly instead of looking like an
+ * ordinary miss. That second use is why a missing BUCKET is rethrown here
+ * instead of mapped to null the way a missing key is: only a missing key means
+ * "not yet copied."
+ */
+export async function headObject(key: string): Promise<{ size: number } | null> {
+  try {
+    const result = await s3().send(
+      new HeadObjectCommand({ Bucket: bucket(), Key: key })
+    );
+    return { size: result.ContentLength ?? 0 };
+  } catch (err) {
+    if (isBucketNotFound(err)) throw err;
     if (isNotFound(err)) return null;
     throw err;
   }

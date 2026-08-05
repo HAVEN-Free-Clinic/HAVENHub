@@ -3,7 +3,10 @@
  *
  * Two jobs, both temporary:
  *   - Rollback. With the R2_* variables unset and this token present, the app
- *     reverts to the pre-migration store as a config change, no redeploy.
+ *     reverts to the pre-migration store as a config change PLUS a redeploy:
+ *     r2Active/blobConfigured/blobOnly/readThroughToBlob in ./index.ts are
+ *     module-level consts evaluated once at init, so a warm function instance
+ *     never observes an env var change on its own.
  *   - Cutover window. While R2 is active, ./index.ts reads through to here on a
  *     miss, so an object written to Blob between the backfill and the deploy is
  *     still served.

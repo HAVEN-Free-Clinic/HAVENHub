@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "@/platform/db";
 import { loadHistory } from "./load";
-import type { RawHistoryRow } from "./types";
+import type { RawHistoryRow, RawInterestRow } from "./types";
 
 const row = (recordId: string, email: string, over: Partial<RawHistoryRow> = {}): RawHistoryRow => ({
   source: { baseId: "appTest", tableId: "tblTest", recordId },
@@ -10,6 +10,13 @@ const row = (recordId: string, email: string, over: Partial<RawHistoryRow> = {})
   applicantType: null, departmentChoicesRaw: ["BVHD"], resultDepartmentRaw: null,
   furthestStage: "APPLIED", outcome: "NO_DECISION",
   submittedAt: null, decidedAt: null, unmapped: null,
+  ...over,
+});
+
+const interestRow = (recordId: string, email: string, over: Partial<RawInterestRow> = {}): RawInterestRow => ({
+  source: { baseId: "appTest", tableId: "tblInterest", recordId },
+  identity: { firstName: "Ada", lastName: "Lovelace", email, netId: null },
+  submittedAt: null,
   ...over,
 });
 
@@ -139,5 +146,35 @@ describe("loadHistory", () => {
     expect(emails.every((e) => e.applicantId === survivor.id)).toBe(true);
 
     expect(report.identitiesMerged).toBe(1);
+  });
+
+  it("keeps two different people separate even when their sources share a bare record id", async () => {
+    // Airtable base duplication preserves record ids, so "rec1" from one base
+    // and "rec1" from a cloned base are two unrelated rows that happen to
+    // carry the same recordId. Neither row has a netId or a shared email, so
+    // the only thing that could wrongly merge them is an identity key that
+    // ignores which source the record id came from.
+    await loadHistory(
+      [
+        row("rec1", "person-a@yale.edu", { source: { baseId: "appA", tableId: "tblA", recordId: "rec1" } }),
+        row("rec1", "person-b@yale.edu", { source: { baseId: "appB", tableId: "tblB", recordId: "rec1" } }),
+      ],
+      [],
+      { dryRun: false },
+    );
+
+    expect(await prisma.historicalApplicant.count()).toBe(2);
+  });
+
+  it("counts interest rows in the report even though they carry no cycle code", async () => {
+    // perSource is keyed by cycle code, which interest rows do not have, so
+    // interestRows is the only place their count is visible to a human
+    // reading the dry-run report.
+    const report = await loadHistory(
+      [],
+      [interestRow("recI1", "i1@yale.edu"), interestRow("recI2", "i2@yale.edu")],
+      { dryRun: true },
+    );
+    expect(report.interestRows).toBe(2);
   });
 });

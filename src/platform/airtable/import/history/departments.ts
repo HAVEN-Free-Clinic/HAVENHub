@@ -44,7 +44,11 @@ export function resolveDepartmentCode(
   const bracketed = value.match(/\(([^)]+)\)\s*$/);
   if (bracketed) {
     const code = bracketed[1].trim().toUpperCase();
-    if (knownCodes.has(code)) return code;
+    // Same alias-then-validate treatment as the primary path above: a
+    // retired code inside the parentheses ("Pediatrics (PNTC)") must resolve
+    // exactly like the bare code ("PNTC") does.
+    const aliasedCode = DEPARTMENT_ALIASES[code] ?? code;
+    if (knownCodes.has(aliasedCode)) return aliasedCode;
   }
   return null;
 }

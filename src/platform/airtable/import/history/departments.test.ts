@@ -70,6 +70,17 @@ describe("resolveDepartmentCode", () => {
     it("returns null when an alias's target department is not in knownCodes", () => {
       expect(resolveDepartmentCode("TBAD", new Set(["BVHD"]))).toBeNull();
     });
+
+    it("applies the alias to a bracketed code too, not just the whole-value form", () => {
+      // The retired code appears inside a friendly label's parentheses here,
+      // rather than as the whole value ("PNTC" alone) -- the bracketed-code
+      // path must alias it exactly like the primary path does.
+      expect(resolveDepartmentCode("Pediatrics (PNTC)", knownAliasTargets)).toBe("PNLC");
+    });
+
+    it("still validates the aliased bracketed code against knownCodes", () => {
+      expect(resolveDepartmentCode("Pediatrics (PNTC)", new Set(["BVHD"]))).toBeNull();
+    });
   });
 });
 

@@ -109,7 +109,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         }`}
       />
 
-      <ApplicantHistory history={history} title="Past applications" />
+      <ApplicantHistory history={history} title="Past applications" pendingApplication />
 
       {sections.map((section) => {
         // The ranking is hoisted into its own column at submission (submissions.ts

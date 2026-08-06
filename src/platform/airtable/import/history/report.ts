@@ -28,6 +28,9 @@ export function formatReport(report: ImportReport): string {
       lines.push(`    outcomes: ${outcomes || "none"}`);
     }
   }
+  // Interest-form rows carry no cycle code, so they never appear in the
+  // per-source breakdown above; this is the only line that surfaces them.
+  lines.push(`  Interest form rows: ${report.interestRows}`);
   lines.push("");
 
   lines.push("Identities:");

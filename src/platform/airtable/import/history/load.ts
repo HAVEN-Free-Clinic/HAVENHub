@@ -12,6 +12,13 @@ export type ImportReport = {
     byStage: Record<string, number>;
     byOutcome: Record<string, number>;
   }>;
+  /**
+   * Count of archived interest-form rows. Interest rows have no cycle code of
+   * their own (see INTEREST_CYCLE in history.ts), so they never appear in
+   * `perSource` above; without this field the dry-run report a human reads
+   * before authorizing a write has no visibility into them at all.
+   */
+  interestRows: number;
   identities: { rows: number; resolved: number; multiCycle: number };
   /**
    * Count of pre-existing HistoricalApplicant rows collapsed into a single
@@ -40,6 +47,20 @@ const identityInputFrom = (
 });
 
 /**
+ * The identity key for one source row, namespaced to the source it came
+ * from. Airtable base duplication PRESERVES record ids (this is how D-WN26
+ * was identified as a clone of D-FA25, holding "the same 89 record ids"), so
+ * `recordId` alone is not unique across sources: if two included sources
+ * ever shared a bare record id, both rows would collapse onto the same
+ * union-find node in identity.ts and TWO DIFFERENT PEOPLE would be written
+ * as a single HistoricalApplicant with both their emails attached. Keying on
+ * the full (baseId, tableId, recordId) triple keeps rows from different
+ * sources apart no matter what their record ids look like.
+ */
+const identityKeyFor = (source: { baseId: string; tableId: string; recordId: string }): string =>
+  `${source.baseId}:${source.tableId}:${source.recordId}`;
+
+/**
  * Loads adapter output into the historical recruitment tables, idempotently.
  *
  * Every write is an upsert keyed on the row's own unique identity (netId for
@@ -59,11 +80,11 @@ export async function loadHistory(
   opts: { dryRun: boolean },
 ): Promise<ImportReport> {
   // 1. Build IdentityInput[] from every application row and interest row,
-  // keyed on source.recordId so a resolved identity's memberKeys map straight
-  // back to the rows that produced it.
+  // keyed on identityKeyFor(source) so a resolved identity's memberKeys map
+  // straight back to the rows that produced it.
   const identityInputs: IdentityInput[] = [
-    ...rows.map((row) => identityInputFrom(row.source.recordId, row.identity)),
-    ...interests.map((interest) => identityInputFrom(interest.source.recordId, interest.identity)),
+    ...rows.map((row) => identityInputFrom(identityKeyFor(row.source), row.identity)),
+    ...interests.map((interest) => identityInputFrom(identityKeyFor(interest.source), interest.identity)),
   ];
 
   // 2. Resolve identities once, over the combined list.
@@ -79,7 +100,7 @@ export async function loadHistory(
   // and is skipped here the same way.
   const rowsByIdentity = new Map<ResolvedIdentity, RawHistoryRow[]>();
   for (const row of rows) {
-    const identity = identityByKey.get(row.source.recordId);
+    const identity = identityByKey.get(identityKeyFor(row.source));
     if (!identity) continue;
     const bucket = rowsByIdentity.get(identity);
     if (bucket) bucket.push(row);
@@ -87,7 +108,7 @@ export async function loadHistory(
   }
   const interestsByIdentity = new Map<ResolvedIdentity, RawInterestRow[]>();
   for (const interest of interests) {
-    const identity = identityByKey.get(interest.source.recordId);
+    const identity = identityByKey.get(identityKeyFor(interest.source));
     if (!identity) continue;
     const bucket = interestsByIdentity.get(identity);
     if (bucket) bucket.push(interest);
@@ -175,6 +196,7 @@ export async function loadHistory(
   const report: ImportReport = {
     dryRun: opts.dryRun,
     perSource: [...perSourceMap.entries()].map(([code, stats]) => ({ code, ...stats })),
+    interestRows: interests.length,
     identities: { rows: identityInputs.length, resolved: identities.length, multiCycle },
     unmappedDepartments: [...unmappedDepartments],
     unmappedDecisions: [...unmappedDecisions],

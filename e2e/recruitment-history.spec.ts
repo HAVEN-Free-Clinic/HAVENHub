@@ -48,7 +48,9 @@ test("history browser finds a seeded applicant by email and opens their detail p
     await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
     // No HistoricalApplication was seeded for this applicant, so the timeline
     // must render the empty-history copy, not a stale or miscounted summary.
-    await expect(page.getByText("First application, no earlier record.", { exact: true })).toBeVisible();
+    // This mount passes no `pendingApplication`, so it gets the non-pending
+    // empty-state wording, never the reviewer card's "First application".
+    await expect(page.getByText("No recorded applications.", { exact: true })).toBeVisible();
   } finally {
     await cleanup();
   }

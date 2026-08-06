@@ -32,12 +32,28 @@ function ordinal(n: number): string {
  * furthest) instead of recomputing them, so this line can never drift from
  * getApplicantHistory's counting rules, most importantly that interest-form
  * entries are never counted as applications.
+ *
+ * `pendingApplication` must be true only for the reviewer's application detail
+ * card: its caller queries with `excludeApplicationId`, so the application
+ * currently under review is deliberately missing from `history` and the
+ * ordinal below adds it back. Every other mount (the admin person profile,
+ * the history browser) queries with no exclusion, so `history` already counts
+ * every application and must not claim one more than it has. This is an
+ * explicit parameter rather than an inference from `entries` or
+ * `applicationCount`, because a silent inference over that same shape is what
+ * produced the wrong ordinal on those other mounts in the first place.
  */
-function summaryLine(history: ApplicantHistoryData): string {
-  if (history.entries.length === 0) return "First application, no earlier record.";
+export function summaryLine(history: ApplicantHistoryData, pendingApplication: boolean): string {
+  if (history.entries.length === 0) {
+    return pendingApplication ? "First application, no earlier record." : "No recorded applications.";
+  }
   if (history.applicationCount === 0) return "First application. Interest form on file.";
   const { furthest } = history;
-  if (!furthest) return `${ordinal(history.applicationCount + 1)} application.`;
+  const count = history.applicationCount + (pendingApplication ? 1 : 0);
+  const countLabel = pendingApplication
+    ? `${ordinal(count)} application`
+    : `${count} prior application${count === 1 ? "" : "s"}`;
+  if (!furthest) return `${countLabel}.`;
   // `furthest` carries a stage and cycle label but no track of its own (see
   // ApplicantHistory in history.ts), and stageLabel needs one. Look up the
   // application entry that produced it to read the track off directly, rather
@@ -49,7 +65,7 @@ function summaryLine(history: ApplicantHistoryData): string {
     (e) => e.kind === "application" && e.furthestStage === furthest.stage && e.cycleLabel === furthest.cycleLabel,
   );
   const label = stageLabel(furthest.stage, source?.track ?? "VOLUNTEER");
-  return `${ordinal(history.applicationCount + 1)} application. Furthest: ${label} (${furthest.cycleLabel}).`;
+  return `${countLabel}. Furthest: ${label} (${furthest.cycleLabel}).`;
 }
 
 function HistoryRow({ entry }: { entry: HistoryEntry }) {
@@ -72,7 +88,16 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
   // instead of crashing the page.
   const stage = entry.furthestStage ?? "APPLIED";
   const outcome = entry.outcome ?? "NO_DECISION";
-  const meta = [TRACK_LABEL[entry.track], entry.departmentCodes.join(", ") || null].filter(Boolean).join(" · ");
+  // The placement is shown distinctly from the choices it was drawn from
+  // (or without them, if none survived mapping) so a routed-then-accepted
+  // department is never confused with the departments merely applied to.
+  const departments = [
+    entry.departmentCodes.join(", ") || null,
+    entry.resultDepartment ? `-> ${entry.resultDepartment}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const meta = [TRACK_LABEL[entry.track], departments || null].filter(Boolean).join(" · ");
 
   return (
     <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3">
@@ -94,22 +119,34 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
 }
 
 /**
- * "Past applications" card for the reviewer's application detail page: a
+ * History card shared by three mounts: the reviewer's application detail
+ * page, the admin person profile, and the history browser's detail page. A
  * one-line summary (drawn straight from the service's own applicationCount
  * and furthest tallies) plus one row per prior cycle or interest-form
  * submission, newest first.
  *
- * Renders even when history is empty, showing "First application, no earlier
- * record." A missing card would be ambiguous between "new applicant" and
+ * Renders even when history is empty, showing empty-state copy rather than
+ * disappearing. A missing card would be ambiguous between "new applicant" and
  * "something failed to load"; confirming a genuine first-timer is itself
  * useful information to a reviewer.
+ *
+ * `pendingApplication` must be true ONLY on the reviewer's card -- see
+ * summaryLine's doc comment for why.
  */
-export function ApplicantHistory({ history, title }: { history: ApplicantHistoryData; title: string }) {
+export function ApplicantHistory({
+  history,
+  title,
+  pendingApplication = false,
+}: {
+  history: ApplicantHistoryData;
+  title: string;
+  pendingApplication?: boolean;
+}) {
   return (
     <Card pad={false}>
       <div className="px-5 py-4">
         <SectionHeader>{title}</SectionHeader>
-        <p className="mt-1 text-sm text-foreground-soft">{summaryLine(history)}</p>
+        <p className="mt-1 text-sm text-foreground-soft">{summaryLine(history, pendingApplication)}</p>
       </div>
       {history.entries.length > 0 && (
         <ul className="divide-y divide-border-subtle border-t border-border-subtle">

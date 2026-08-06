@@ -15,7 +15,7 @@ const OUTCOME_LABEL: Record<HistoricalOutcome, string> = {
   WAITLISTED: "Waitlisted",
   WITHDRAWN: "Withdrawn",
   INELIGIBLE: "Ineligible",
-  NO_DECISION: "No decision",
+  NO_DECISION: "No recorded outcome",
   UNKNOWN: "Unknown",
 };
 

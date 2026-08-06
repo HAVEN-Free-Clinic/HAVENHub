@@ -346,6 +346,19 @@ describe("top-nav module filtering (regression for limited roles)", () => {
     const result = filterAccessibleModules(MODULES, new Set(["recruitment.score"]));
     expect(result.map((m) => m.id)).toContain("recruitment");
   });
+
+  it("admits a committee scorer to recruitment but hides the History tab, which hard-gates on recruitment.access", () => {
+    // recruitment.score alone grants the module tile (additionalAccessPermissions)
+    // but not the "History" nav item, which is gated with permission:
+    // "recruitment.access" precisely so a scorer-only viewer is never handed a
+    // dead link into /recruitment/history (that page bounces them to /no-access).
+    const result = filterAccessibleModules(MODULES, new Set(["recruitment.score"]));
+    const recruitment = result.find((m) => m.id === "recruitment");
+    expect(recruitment).toBeDefined();
+    expect(recruitment?.nav).not.toContainEqual(
+      expect.objectContaining({ label: "History" }),
+    );
+  });
 });
 
 describe("isModuleActive", () => {

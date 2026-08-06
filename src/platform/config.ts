@@ -71,6 +71,17 @@ const schema = z
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),
+    // Cloudflare R2 object storage, used in every deployed environment. All four
+    // are required together: see the all-or-nothing superRefine below.
+    R2_ACCOUNT_ID: z.string().optional(),
+    R2_ACCESS_KEY_ID: z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
+    R2_BUCKET: z.string().optional(),
+    // Vercel Blob, retained ONLY for the R2 migration: it makes the rollback a
+    // config change rather than a redeploy, and lets getObject read through to
+    // the old store during the cutover window. Delete with storage/blob.ts once
+    // the migration is decommissioned.
+    BLOB_READ_WRITE_TOKEN: z.string().optional(),
     // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
     // Default is 4 MB: every upload path except SCORM packages goes through a Server
@@ -186,6 +197,30 @@ const schema = z
           code: "custom",
           path: [key],
           message: "required when EMAIL_TRANSPORT is graph",
+        });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // R2 configuration is all-or-nothing. With a partial config, storage falls
+    // back to local disk -- and on Vercel the function filesystem is ephemeral,
+    // so uploads appear to succeed and then vanish on the next deploy, with no
+    // error anywhere. Refuse to boot instead of losing files quietly.
+    const keys = [
+      "R2_ACCOUNT_ID",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "R2_BUCKET",
+    ] as const;
+    const present = keys.filter((key) => env[key]);
+    if (present.length === 0 || present.length === keys.length) return;
+    for (const key of keys) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message:
+            "required when any other R2_* variable is set (R2 config is all-or-nothing)",
         });
       }
     }

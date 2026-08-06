@@ -280,4 +280,53 @@ describe("loadConfig", () => {
     const config = loadConfig({ ...base, ENV_BANNER_LABEL: "Staging" });
     expect(config.ENV_BANNER_LABEL).toBe("Staging");
   });
+
+  // --- R2 storage config ---
+
+  const r2 = {
+    R2_ACCOUNT_ID: "acct123",
+    R2_ACCESS_KEY_ID: "akid",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "havenhub-uploads",
+  };
+
+  it("accepts an env with no R2 variables at all (local disk storage)", () => {
+    const config = loadConfig(base);
+    expect(config.R2_BUCKET).toBeUndefined();
+  });
+
+  it("accepts a complete R2 configuration", () => {
+    const config = loadConfig({ ...base, ...r2 });
+    expect(config.R2_BUCKET).toBe("havenhub-uploads");
+    expect(config.R2_ACCOUNT_ID).toBe("acct123");
+  });
+
+  it("rejects a partial R2 configuration, naming the missing variable", () => {
+    // A partial config silently falls back to local disk. On Vercel the function
+    // filesystem is ephemeral, so every upload would vanish on the next deploy
+    // with no error. It has to fail at boot instead.
+    const { R2_SECRET_ACCESS_KEY: _omitted, ...partial } = r2;
+    expect(() => loadConfig({ ...base, ...partial })).toThrowError(
+      /R2_SECRET_ACCESS_KEY/
+    );
+  });
+
+  it("rejects a lone R2_ACCOUNT_ID rather than silently using local disk", () => {
+    expect(() => loadConfig({ ...base, R2_ACCOUNT_ID: "acct123" })).toThrowError(
+      /R2_BUCKET/
+    );
+  });
+
+  // --- Blob fallback token (R2 migration rollback) ---
+
+  it("accepts a Blob token alongside a complete R2 config (migration fallback)", () => {
+    const config = loadConfig({ ...base, ...r2, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
+    expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
+  });
+
+  it("accepts a Blob token with no R2 config (the rolled-back state)", () => {
+    const config = loadConfig({ ...base, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
+    expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
+    expect(config.R2_BUCKET).toBeUndefined();
+  });
 });

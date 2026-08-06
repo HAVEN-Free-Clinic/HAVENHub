@@ -164,7 +164,14 @@ export const MODULES: ModuleManifest[] = [
     additionalAccessPermissions: ["recruitment.score"],
     permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all", "recruitment.score"],
     status: "active",
-    nav: [{ label: "Cycles", href: "/recruitment" }],
+    nav: [
+      { label: "Cycles", href: "/recruitment" },
+      // /recruitment/history hard-gates on recruitment.access (no committee-scorer
+      // carve-out like the Cycles index has), so gate the tab the same way --
+      // otherwise a score-only reviewer (admitted via additionalAccessPermissions
+      // above) sees a tab that bounces to /no-access.
+      { label: "History", href: "/recruitment/history", permission: "recruitment.access" },
+    ],
   },
   {
     id: "learning",

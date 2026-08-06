@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type HistoricalOutcome, type HistoricalStage, type Track } from "@prisma/client";
 import { readFileSync } from "node:fs";
 
 /** Playwright does not auto-load .env; read DATABASE_URL from env with a .env fallback. */
@@ -232,5 +232,74 @@ export async function seedCapacityConfig(
         data: { idealHeadcount: before.idealHeadcount, patientCapacityPerProvider: before.patientCapacityPerProvider },
       }).catch((e) => console.warn("[e2e cleanup] capacity reset failed:", e instanceof Error ? e.message : e));
     },
+  };
+}
+
+/**
+ * Seeds a HistoricalApplicant (+ one known email) from the Airtable-import
+ * history tables, optionally with a single prior-cycle HistoricalApplication,
+ * for the recruitment-history e2e coverage. Deleting the applicant cascades to
+ * its emails and applications (see the onDelete: Cascade relations in
+ * prisma/schema.prisma), so cleanup is a single delete.
+ *
+ * The email is stored lowercased: getApplicantHistory matches archive rows by
+ * lower-casing whatever email it is given, and matching "goes through the
+ * emails relation, never [primaryEmail]" per the model's own doc comment, so
+ * this mirrors what a real import produces.
+ */
+export async function seedHistoricalApplicant(opts: {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  netId?: string;
+  application?: {
+    cycleLabel: string;
+    cycleCode?: string;
+    track?: Track;
+    departmentChoices?: string[];
+    furthestStage?: HistoricalStage;
+    outcome?: HistoricalOutcome;
+    submittedAt?: Date;
+  };
+}) {
+  const t = tag();
+  const emailLower = opts.email.trim().toLowerCase();
+  const application = opts.application;
+  const applicant = await prisma.historicalApplicant.create({
+    data: {
+      firstName: opts.firstName ?? "E2E",
+      lastName: opts.lastName ?? `History ${t}`,
+      primaryEmail: emailLower,
+      netId: opts.netId ?? null,
+      emails: { create: [{ email: emailLower }] },
+      ...(application
+        ? {
+            applications: {
+              create: [
+                {
+                  sourceBaseId: "e2e",
+                  sourceTableId: "e2e",
+                  sourceRecordId: t,
+                  cycleCode: application.cycleCode ?? `E2E-${t}`,
+                  cycleLabel: application.cycleLabel,
+                  track: application.track ?? "VOLUNTEER",
+                  departmentChoices: application.departmentChoices ?? [],
+                  furthestStage: application.furthestStage ?? "APPLIED",
+                  outcome: application.outcome ?? "NO_DECISION",
+                  submittedAt: application.submittedAt ?? new Date("2023-09-01T00:00:00Z"),
+                },
+              ],
+            },
+          }
+        : {}),
+    },
+  });
+  return {
+    applicant,
+    cleanup: () =>
+      prisma.historicalApplicant
+        .delete({ where: { id: applicant.id } })
+        .then(() => {})
+        .catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }

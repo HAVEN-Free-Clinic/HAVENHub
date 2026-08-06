@@ -5,6 +5,13 @@ export type AirtableRecord = {
   id: string;
   /** Keyed by FIELD ID (returnFieldsByFieldId=true is the project convention). */
   fields: Record<string, unknown>;
+  /**
+   * ISO 8601 record creation timestamp. The API always sends this; it is
+   * typed optional only so the roughly fifty test fixtures across the
+   * adapter test files that construct records as `{ id, fields }` do not
+   * all need to supply it.
+   */
+  createdTime?: string;
 };
 
 export type AirtableClientOptions = {

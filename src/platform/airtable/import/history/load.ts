@@ -231,7 +231,26 @@ export async function loadHistory(
 
     const personId = resolvePersonId(identity);
 
-    await prisma.$transaction(async (tx) => {
+    // ONLY applicant resolution and the merge run inside a transaction, and
+    // that boundary is load-bearing rather than stylistic.
+    //
+    // The merge re-points three relations off each duplicate and then deletes
+    // it. Those relations cascade-delete from HistoricalApplicant, so a
+    // half-applied merge destroys history. That genuinely needs atomicity.
+    //
+    // The bulk upserts below do NOT, because every one is keyed on a natural
+    // key (the email, or the source triple) and is idempotent, so a crash
+    // partway leaves rows a re-run simply corrects.
+    //
+    // Keeping them inside cost us a real production failure: each upsert is a
+    // separate round trip, and Prisma's interactive transactions default to a
+    // 5s budget. Against local Postgres a dozen round trips take about 2ms;
+    // against Neon they take seconds. The first production run died at
+    // 11,682ms on one identity, after 93 had already committed. Every local
+    // test passed, because localhost latency is roughly 1000x lower.
+    //
+    // Do not move the loops back inside this transaction.
+    const applicant = await prisma.$transaction(async (tx) => {
       const candidateIds = new Set<string>();
       if (identity.netId) {
         const byNetId = await tx.historicalApplicant.findUnique({ where: { netId: identity.netId } });
@@ -243,9 +262,9 @@ export async function loadHistory(
       });
       for (const match of emailMatches) candidateIds.add(match.applicantId);
 
-      let applicant;
+      let resolved;
       if (candidateIds.size === 0) {
-        applicant = await tx.historicalApplicant.create({
+        resolved = await tx.historicalApplicant.create({
           data: {
             netId: identity.netId,
             primaryEmail: identity.primaryEmail,
@@ -290,7 +309,7 @@ export async function loadHistory(
           totalMerges++;
         }
 
-        applicant = await tx.historicalApplicant.update({
+        resolved = await tx.historicalApplicant.update({
           where: { id: survivor.id },
           data: {
             primaryEmail: identity.primaryEmail,
@@ -306,14 +325,21 @@ export async function loadHistory(
         });
       }
 
-      for (const email of identity.emails) {
-        await tx.historicalApplicantEmail.upsert({
-          where: { email },
-          update: { applicantId: applicant.id },
-          create: { email, applicantId: applicant.id },
-        });
-      }
+      return resolved;
+      // The merge does a handful of round trips per duplicate, so give it more
+      // than the 5s default. It is bounded by the number of duplicates, which
+      // is normally zero and never large.
+    }, { timeout: 20_000 });
 
+    for (const email of identity.emails) {
+      await prisma.historicalApplicantEmail.upsert({
+        where: { email },
+        update: { applicantId: applicant.id },
+        create: { email, applicantId: applicant.id },
+      });
+    }
+
+    {
       for (const row of memberRows) {
         const { codes: departmentChoices } = resolveDepartmentCodes(row.departmentChoicesRaw, knownDepartmentCodes);
         const resultDepartment = resolveDepartmentCode(row.resultDepartmentRaw, knownDepartmentCodes);
@@ -337,7 +363,7 @@ export async function loadHistory(
           // A nullable Json column: Prisma.DbNull, not plain null, clears it.
           unmappedNotes: (row.unmapped as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
         };
-        await tx.historicalApplication.upsert({
+        await prisma.historicalApplication.upsert({
           where: { sourceBaseId_sourceTableId_sourceRecordId: sourceKey },
           update: fields,
           create: { applicantId: applicant.id, ...sourceKey, ...fields },
@@ -350,13 +376,13 @@ export async function loadHistory(
           sourceTableId: interest.source.tableId,
           sourceRecordId: interest.source.recordId,
         };
-        await tx.historicalInterest.upsert({
+        await prisma.historicalInterest.upsert({
           where: { sourceBaseId_sourceTableId_sourceRecordId: sourceKey },
           update: { submittedAt: interest.submittedAt },
           create: { applicantId: applicant.id, ...sourceKey, submittedAt: interest.submittedAt },
         });
       }
-    });
+    }
   }
 
   report.identitiesMerged = totalMerges;

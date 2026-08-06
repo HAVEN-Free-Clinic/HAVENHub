@@ -18,6 +18,29 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
  */
 const RESULT_LIMIT = 50;
 
+/**
+ * The imported data contains values in the email column that are not addresses:
+ * a surname the source form put in the wrong field ("zentner"), a full name
+ * ("sourav roy"), a typo ("paola.corral&yale.edu"), and outright junk ("n/a",
+ * a street address). 20 of them. Rendering those under an Email heading states
+ * something false, so the column shows a dash instead and the value is still
+ * used as the row's label below, where it is at least honest about being
+ * whatever the source recorded.
+ */
+const looksLikeEmail = (value: string): boolean => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+
+/**
+ * What to call a row in the list. 158 identities came in through an old
+ * interest form whose export carried no name column at all, so a blank Name
+ * cell is expected rather than a defect. Falling back to the email keeps every
+ * row identifiable and clickable; falling back again to the raw value covers
+ * the handful whose email field holds a misplaced name.
+ */
+const displayLabel = (a: { firstName: string; lastName: string; primaryEmail: string }): string => {
+  const name = `${a.firstName} ${a.lastName}`.trim();
+  return name || a.primaryEmail;
+};
+
 type PageProps = {
   searchParams: Promise<{ q?: string }>;
 };
@@ -26,6 +49,7 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
   await requirePermission("recruitment.access");
   const { q } = await searchParams;
   const term = q?.trim();
+
 
   // Case-insensitive across every identifier a reviewer might type in: first
   // or last name, the display email, any other email on file for this
@@ -46,10 +70,21 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
     prisma.historicalApplicant.count({ where }),
     prisma.historicalApplicant.findMany({
       where,
+      // Nameless identities sort LAST, not first. 158 people came in through an
+      // old interest form whose export carried no name column at all, and an
+      // ascending sort on an empty lastName put every one of them at the top of
+      // the default view, burying the 1,976 identities that do have names.
+      // They stay fully searchable by email either way.
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       take: RESULT_LIMIT,
     }),
   ]);
+  const ordered = [...applicants].sort((a, b) => {
+    const aNamed = Boolean(a.lastName.trim() || a.firstName.trim());
+    const bNamed = Boolean(b.lastName.trim() || b.firstName.trim());
+    if (aNamed !== bNamed) return aNamed ? -1 : 1;
+    return 0;
+  });
 
   const truncated = total > applicants.length;
 
@@ -90,18 +125,18 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
           </tr>
         </THead>
         <tbody>
-          {applicants.map((a) => (
+          {ordered.map((a) => (
             <TR key={a.id}>
               <TD>
                 <Link
                   className="font-medium text-foreground hover:text-brand-fg"
                   href={`/recruitment/history/${a.id}`}
                 >
-                  {a.firstName} {a.lastName}
+                  {displayLabel(a)}
                 </Link>
               </TD>
               <TD className="text-foreground-soft">{a.netId ?? "-"}</TD>
-              <TD className="text-foreground-soft">{a.primaryEmail}</TD>
+              <TD className="text-foreground-soft">{looksLikeEmail(a.primaryEmail) ? a.primaryEmail : "-"}</TD>
             </TR>
           ))}
           {applicants.length === 0 && (

@@ -12,6 +12,13 @@ import type { RawHistoryRow } from "../types";
 export const DIRECTOR_FIELDS = {
   firstName: "fldmyKP0uuIvMWo2F",
   lastName: "fldr0cJ1wWVMB9HjJ",
+  /**
+   * Full-coverage name fallback, needed for the same linked-record reason as
+   * emailFromRecord below. On D-SU26 the direct First/Last columns are
+   * populated on only 19 of 76 rows while this formula covers 75. Verified
+   * 2026-08-06 after the first production import wrote a blank-named applicant.
+   */
+  fullName: "fldEH2JgC0rD50DUU",
   email: "flddxvLy47P1dotdt",
   /**
    * SECOND email source, and it is not optional. D-SU26 routes most applicants
@@ -72,6 +79,23 @@ const linked = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
 /** Lookup cells arrive as single-element arrays. */
 const lookupFirst = (v: unknown): string | null => (Array.isArray(v) ? str(v[0]) : str(v));
 
+/**
+ * Direct First/Last when present, otherwise split the full-coverage Full Name
+ * formula on the first space. Reading only the direct columns left a blank
+ * named applicant in the first production import.
+ */
+const resolveName = (f: Record<string, unknown>): { firstName: string; lastName: string } => {
+  const first = str(f[DIRECTOR_FIELDS.firstName]);
+  const last = str(f[DIRECTOR_FIELDS.lastName]);
+  if (first || last) return { firstName: first ?? "", lastName: last ?? "" };
+
+  const full = lookupFirst(f[DIRECTOR_FIELDS.fullName]);
+  if (!full) return { firstName: "", lastName: "" };
+  const spaceIndex = full.indexOf(" ");
+  if (spaceIndex === -1) return { firstName: full, lastName: "" };
+  return { firstName: full.slice(0, spaceIndex), lastName: full.slice(spaceIndex + 1).trim() };
+};
+
 export function transformDirector(
   tables: Record<string, AirtableRecord[]>,
   source: HistorySource,
@@ -130,7 +154,7 @@ export function transformDirector(
     rows.push({
       source: { baseId: source.baseId, tableId: source.tables.applications, recordId: record.id },
       cycle: { code: source.code, label: source.label, track: source.track, termCode: source.termCode },
-      identity: { firstName: str(f[F.firstName]) ?? "", lastName: str(f[F.lastName]) ?? "", email, netId },
+      identity: { ...resolveName(f), email, netId },
       applicantType: linked(f[F.returningDepartment]) ? "RENEWAL" : null,
       departmentChoicesRaw: [str(f[F.dept1]), str(f[F.dept2]), str(f[F.dept3])],
       resultDepartmentRaw:

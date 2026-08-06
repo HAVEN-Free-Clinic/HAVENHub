@@ -14,6 +14,14 @@ export const SU26_FIELDS = {
   firstName: "fldiZWK1yycg5rwB3",
   lastName: "fldwLgLBjxGr6NYvy",
   /**
+   * Full-coverage name fallback, and it is needed for the same reason as
+   * primaryEmail below: returning members link an existing record instead of
+   * retyping, so the direct First/Last columns are populated on only 161 of
+   * 358 rows while this formula covers all 358. Verified 2026-08-06 after the
+   * first production import wrote applicants with blank names.
+   */
+  fullName: "fldDeejw8gu41cFCX",
+  /**
    * PRIMARY email source: a formula, populated on all 358 rows. Read this
    * FIRST. The direct `email` field below is populated on only 161, because
    * returning members link an existing record instead of retyping their
@@ -40,6 +48,23 @@ const str = (v: unknown): string | null => {
 const linked = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
 /** Formula and lookup cells can arrive either boxed or bare. */
 const lookupFirst = (v: unknown): string | null => (Array.isArray(v) ? str(v[0]) : str(v));
+
+/**
+ * Direct First/Last when present, otherwise split the full-coverage Full Name
+ * formula on the first space. Reading only the direct columns left applicants
+ * with blank names in the first production import.
+ */
+const resolveName = (f: Record<string, unknown>): { firstName: string; lastName: string } => {
+  const first = str(f[SU26_FIELDS.firstName]);
+  const last = str(f[SU26_FIELDS.lastName]);
+  if (first || last) return { firstName: first ?? "", lastName: last ?? "" };
+
+  const full = lookupFirst(f[SU26_FIELDS.fullName]);
+  if (!full) return { firstName: "", lastName: "" };
+  const spaceIndex = full.indexOf(" ");
+  if (spaceIndex === -1) return { firstName: full, lastName: "" };
+  return { firstName: full.slice(0, spaceIndex), lastName: full.slice(spaceIndex + 1).trim() };
+};
 
 export function transformVolunteerSu26(
   tables: Record<string, AirtableRecord[]>,
@@ -83,7 +108,7 @@ export function transformVolunteerSu26(
     rows.push({
       source: { baseId: source.baseId, tableId: source.tables.applicants, recordId: record.id },
       cycle: { code: source.code, label: source.label, track: source.track, termCode: source.termCode },
-      identity: { firstName: str(f[F.firstName]) ?? "", lastName: str(f[F.lastName]) ?? "", email, netId },
+      identity: { ...resolveName(f), email, netId },
       applicantType: null,
       departmentChoicesRaw: [str(f[F.dept1]), str(f[F.dept2])],
       resultDepartmentRaw: lookupFirst(f[F.acceptedDept]),

@@ -105,6 +105,11 @@ export async function deleteObject(key: string): Promise<void> {
  * ListObjectsV2 returns at most 1000 keys per call and an unzipped SCORM package
  * can exceed that, so this pages to exhaustion. The caller (./index.ts) has
  * already validated the prefix against the storage-namespace allowlist.
+ *
+ * Throws if any key fails to delete, whether the failure is transport-level or
+ * reported per-object in the batch response (see below). A caller that can live
+ * with a partial sweep has to say so with its own catch; this never reports a
+ * prefix as emptied when it was not.
  */
 export async function deletePrefix(prefix: string): Promise<void> {
   let token: string | undefined;
@@ -120,12 +125,29 @@ export async function deletePrefix(prefix: string): Promise<void> {
       .map((object) => object.Key)
       .filter((key): key is string => Boolean(key));
     if (keys.length > 0) {
-      await s3().send(
+      const response = await s3().send(
         new DeleteObjectsCommand({
           Bucket: bucket(),
           Delete: { Objects: keys.map((Key) => ({ Key })) },
         })
       );
+      // S3 batch delete answers 200 even when individual keys fail: per-object
+      // failures arrive in response.Errors, never as a thrown error. Discarding
+      // that array would let a partial delete read as a clean sweep, leaving
+      // stale SCORM files under a prefix the caller believes it emptied. Throw
+      // instead, which is already what a transport-level failure does here.
+      const errors = response.Errors ?? [];
+      if (errors.length > 0) {
+        const details = errors
+          .map(
+            (e) =>
+              `${e.Key ?? "<unknown>"} (${e.Code ?? "Unknown"}): ${e.Message ?? "no message"}`
+          )
+          .join(", ");
+        throw new Error(
+          `Failed to delete ${errors.length} object(s) under prefix "${prefix}": ${details}`
+        );
+      }
     }
     token = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (token);

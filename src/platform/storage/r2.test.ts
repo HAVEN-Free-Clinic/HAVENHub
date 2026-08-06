@@ -137,6 +137,24 @@ describe("deletePrefix", () => {
     ]);
   });
 
+  it("throws when the batch delete reports per-object failures", async () => {
+    // The S3 batch delete API signals per-object failures in the response body
+    // with a 200, not as a thrown error. A discarded response would let a
+    // partial delete read as a clean sweep and leave stale files behind.
+    send
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "scorm/c1/a.html" }, { Key: "scorm/c1/b.js" }],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({
+        Errors: [
+          { Key: "scorm/c1/a.html", Code: "AccessDenied", Message: "Access Denied" },
+        ],
+      });
+
+    await expect(r2.deletePrefix("scorm/c1/")).rejects.toThrow(/scorm\/c1\/a\.html/);
+  });
+
   it("issues no delete call when the prefix is empty", async () => {
     send.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
     await r2.deletePrefix("scorm/empty/");

@@ -57,17 +57,20 @@ export function resolveDepartmentCodes(
   raw: Array<string | null | undefined>,
   knownCodes: Set<string>,
 ): { codes: string[]; unmapped: string[] } {
-  const codes: string[] = [];
-  const unmapped: string[] = [];
+  // Sets rather than arrays: dedup is a membership test, and Set iteration
+  // preserves insertion order, so the arrays returned below read exactly as the
+  // includes/push version's did.
+  const codes = new Set<string>();
+  const unmapped = new Set<string>();
   for (const value of raw) {
     const trimmed = value?.trim();
     if (!trimmed) continue;
     const code = resolveDepartmentCode(trimmed, knownCodes);
     if (!code) {
-      if (!unmapped.includes(trimmed)) unmapped.push(trimmed);
+      unmapped.add(trimmed);
       continue;
     }
-    if (!codes.includes(code)) codes.push(code);
+    codes.add(code);
   }
-  return { codes, unmapped };
+  return { codes: [...codes], unmapped: [...unmapped] };
 }

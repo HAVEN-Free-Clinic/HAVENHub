@@ -1420,7 +1420,7 @@ Create `scripts/migrate-blob-to-r2.ts`:
 // addRandomSuffix:false, so a Blob pathname already IS the storage key and no
 // database row has to change.
 //
-// Safe to re-run. Objects already present in R2 at the same size are skipped, so
+// Safe to re-run. Objects already present in R2 under the same key are skipped, so
 // an interrupted run resumes, and a second pass after the deploy sweeps anything
 // written during the cutover window.
 import { list, head, get } from "@vercel/blob";

@@ -75,20 +75,19 @@ because a production bucket has no reason to accept a PUT from a laptop.
 ]
 ```
 
-`AllowedHeaders` must include `Content-Type`, because the presigned PUT signs
-that header and the browser sends it. A mismatch there fails the upload with an
-opaque CORS error rather than anything that names the real cause.
+`AllowedHeaders` must include `Content-Type` because the browser sends that
+header on every upload PUT and CORS requires any non-simple header the browser
+sends to be explicitly allowed -- independent of whether the SDK signature
+covers it (it does not; only `host` is signed, see `r2.ts`'s `presignPut`).
+Omitting it here fails the upload with an opaque CORS error rather than
+anything that names the real cause.
 
-Two caveats on the preview list, both unverified:
-
-- `https://*.vercel.app` was accepted by the API and reads back intact, but that
-  only proves R2 stored it. Whether R2 actually matches a wildcard origin at
-  request time is not documented and has not been tested. If a preview upload
-  fails on CORS, add that deploy's exact origin and treat the wildcard as
-  decorative.
-- Vercel mints a new preview URL per deployment, so no fixed list can cover
-  them. If the wildcard turns out not to match, browser uploads on previews will
-  need the origin added per deploy, or testing on `staging` instead.
+The `https://*.vercel.app` wildcard is verified, not just accepted: a real
+preflight request from `https://havenhub-abc123.vercel.app` returned that exact
+origin back in `access-control-allow-origin`, confirming R2 matches the
+wildcard at request time, not only that it stored the rule correctly. No
+per-deploy origin list is needed; the wildcard covers every preview URL Vercel
+mints.
 
 ## 4. Environment variables
 

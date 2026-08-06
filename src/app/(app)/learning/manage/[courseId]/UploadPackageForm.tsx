@@ -48,8 +48,10 @@ function putWithProgress(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
-    // Must match the content type the URL was signed with, or R2 rejects the
-    // upload with SignatureDoesNotMatch.
+    // Content-Type is not covered by the presigned signature (see r2.ts's
+    // presignPut), so R2 would still accept a mismatch here -- but this header
+    // is also what R2 stores as the object's content type, so it must still
+    // match what the server signed for that stored type to be correct.
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);

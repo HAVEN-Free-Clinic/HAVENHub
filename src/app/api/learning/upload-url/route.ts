@@ -85,6 +85,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(courseId)) {
     return bad("Invalid course reference.", 400);
   }
+  // Content-Type is not covered by the presigned signature (see r2.ts's
+  // presignPut), so this allowlist constrains what a well-behaved client asks
+  // for, not what it can actually send on the PUT itself -- it is not enforced
+  // at upload time. Acceptable here: only learning.manage_courses holders can
+  // obtain a URL at all, and stored objects are never served directly from R2
+  // to a browser.
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     return bad("Upload a .zip SCORM package.", 400);
   }

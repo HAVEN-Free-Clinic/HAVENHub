@@ -58,8 +58,11 @@ describe("POST /api/learning/upload-url", () => {
   });
 
   it("signs with the same content type the client will send", async () => {
-    // A mismatch between the signed ContentType and the PUT header fails with
-    // SignatureDoesNotMatch, which surfaces to the user as an opaque 403.
+    // Content-Type is not part of the presigned signature (R2 accepts a
+    // mismatch there rather than rejecting it), but it is stored as the
+    // object's content type exactly as sent. Signing with the same value the
+    // client sends is what keeps that stored type correct, not what prevents a
+    // signature failure.
     await POST(request(valid));
     expect(presignPut).toHaveBeenCalledWith(
       expect.stringContaining("scorm-uploads/course-1/"),

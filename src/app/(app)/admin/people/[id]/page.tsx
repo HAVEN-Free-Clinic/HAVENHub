@@ -15,6 +15,8 @@ import { assertNotLastActiveAdminTx, LastAdminError } from "@/platform/rbac/last
 import { PersonMembershipsPanel } from "@/modules/admin/components/person-memberships-panel";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { getApplicantHistory } from "@/modules/recruitment/services/history";
+import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -28,6 +30,16 @@ export default async function PersonDetailPage({ params }: PageProps) {
   if (!person) notFound();
 
   const canManageRoster = await can(session.personId, "admin.manage_roster");
+
+  // Reuses the same reviewer-facing card from the application detail page (see
+  // ApplicantHistory in the recruitment module), matched by netId/email/personId
+  // the same way that page does. `.filter(Boolean)` alone would not narrow
+  // `contactEmail`'s `string | null` for TS, hence the explicit predicate.
+  const history = await getApplicantHistory({
+    netId: person.netId,
+    emails: [person.contactEmail].filter((e): e is string => Boolean(e)),
+    personId: person.id,
+  });
 
   async function updateAction(formData: FormData) {
     "use server";
@@ -122,6 +134,8 @@ export default async function PersonDetailPage({ params }: PageProps) {
         canManage={canManageRoster}
         baseHref={`/admin/people/${id}`}
       />
+
+      <ApplicantHistory history={history} title="Recruitment history" />
 
       {/* Status section */}
       <section>

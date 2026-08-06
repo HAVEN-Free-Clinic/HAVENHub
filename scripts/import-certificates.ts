@@ -2,6 +2,14 @@
 // Dry-run by default:
 //   npx tsx --env-file=.env scripts/import-certificates.ts
 //   npx tsx --env-file=.env scripts/import-certificates.ts --apply
+//
+// Refresh mode replaces the stored bytes on existing rows instead of
+// skipping them, without touching verifiedAt, verifiedById, or
+// completionDate. Use it when the file bytes were lost (e.g. the Blob store
+// went unreadable) but the Airtable attachments and the DB rows are both
+// still intact:
+//   npx tsx --env-file=.env scripts/import-certificates.ts --refresh
+//   npx tsx --env-file=.env scripts/import-certificates.ts --apply --refresh
 import { config } from "@/platform/config";
 import { AirtableClient } from "@/platform/airtable/client";
 import { backfillCertificates } from "@/platform/airtable/import/certificates";
@@ -54,6 +62,7 @@ async function main() {
   }
 
   const dryRun = !process.argv.includes("--apply");
+  const refresh = process.argv.includes("--refresh");
   if (!dryRun) assertStorageMatchesDatabase();
   const client = new AirtableClient(config.AIRTABLE_PAT);
 
@@ -62,18 +71,30 @@ async function main() {
       ? "Dry run -- no changes will be written."
       : `Apply mode -- writing to database and ${usingRemoteStorage ? "remote storage" : "local disk"}.`
   );
+  if (refresh) {
+    console.log("Refresh mode -- existing rows get new bytes; verifiedAt, verifiedById, and completionDate are preserved.");
+  }
   console.log();
 
   const report = await backfillCertificates(client, download, {
     baseId: config.HAVEN_MGMT_BASE_ID,
     peopleTableId: config.ALL_PEOPLE_TABLE_ID,
     dryRun,
+    refresh,
   });
 
   console.log(JSON.stringify(report, null, 2));
 
   if (dryRun) {
     console.log("\nDry run only. Re-run with --apply to write.");
+  }
+
+  if (report.missingAttachment > 0) {
+    console.log(
+      `\nWARNING: ${report.missingAttachment} certificate(s) have a DB row but no Airtable ` +
+        "attachment. Those files are gone from both Airtable and storage and cannot be " +
+        "recovered by this script."
+    );
   }
 
   if (report.failures.length > 0) {

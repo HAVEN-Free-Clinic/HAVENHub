@@ -321,3 +321,33 @@ token is gone and the Blob store it pointed at no longer exists.
 | Partial R2 config silently falls back to disk in production | `config.ts` guard throws at boot |
 | Write lands in Blob during the cutover window | Closed by read-through: `getObject` falls back to Blob on an R2 miss (`storage/index.ts`, Task 8), so the object is served correctly the moment the step-3 deploy is live. The sweep in step 5 still copies it into R2 itself before step 7 deletes the Blob store. |
 | Backfill interrupted midway | Idempotent and resumable by design |
+
+## Outcome
+
+The plan above did not run. Before the backfill could start, Vercel blocked
+the Blob store: `list` and `head` still answered, but every byte-read returned
+HTTP 403 with the body `Your store is blocked`, so no object could be copied
+out.
+
+Checking what the production database actually referenced in that store found
+nothing except 647 HIPAA certificates, all originating in Airtable. Incident
+attachments, tech-request attachments, onboarding contracts, branding assets,
+and SCORM packages were all zero rows. Everything else in the store was
+orphaned test data.
+
+The certificates were re-imported straight from Airtable into R2 instead
+(`scripts/import-certificates.ts --refresh --apply`): 646 refreshed, 0
+failures, 0 unrecoverable, with `verifiedAt`, `verifiedById`, and
+`completionDate` preserved. Verified by reading two real certificates back out
+of R2 and confirming byte length and PDF magic number.
+
+With nothing in the database pointing at Vercel Blob, the machinery this
+document specifies to make a cutover safe was guarding a scenario that could
+no longer occur, and was removed: the Blob driver (`storage/blob.ts`), the
+read-through fallback and dual-delete in `storage/index.ts`, the
+`BLOB_READ_WRITE_TOKEN` config field, the backfill script
+(`scripts/migrate-blob-to-r2.ts`) and its two `package.json` entries, the
+`@vercel/blob` dependency, and `headObject`/`bucketExists` in `storage/r2.ts`
+(both added solely for the backfill's presence check and bucket preflight).
+`docs/runbooks/r2-cutover.md` was rewritten from a procedure into a
+retrospective record of this outcome.

@@ -12,12 +12,6 @@ means a preview branch can never write into or delete production files.
 > endpoints are not reachable with a delegated OAuth session, and R2's temporary
 > credentials need an existing permanent key to sign with, so there is no
 > bootstrap path.
->
-> **Confirm the account is the right one before any data moves into it.** These
-> buckets will hold HIPAA training certificates and signed onboarding contracts.
-> If they belong in an institutional account rather than a personal one, delete
-> both buckets and redo this setup there. Nothing is stored yet, so that is free
-> right now and expensive after the backfill.
 
 ## 1. Create the buckets
 
@@ -100,12 +94,6 @@ points at the preview bucket:
 | `R2_ACCESS_KEY_ID` | from step 2 |
 | `R2_SECRET_ACCESS_KEY` | from step 2 |
 | `R2_BUCKET` | `havenhub-uploads` or `havenhub-uploads-preview` |
-
-Leave `BLOB_READ_WRITE_TOKEN` set on production for the duration of the cutover.
-It is what makes the rollback work and what lets reads fall through to the old
-store; see `r2-cutover.md`. On preview scope, leave it unset or point it at the
-staging Blob store, because deletes fan out to both stores while both are
-configured.
 
 All four are required together. A partial configuration is rejected at boot
 rather than silently falling back to the ephemeral local disk.

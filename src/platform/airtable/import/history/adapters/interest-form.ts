@@ -54,14 +54,38 @@ const isNumericId = (value: string | null): boolean => value !== null && /^\d+$/
  * nameless on purpose, because a manufactured name that looks authoritative is
  * worse than none in a tool people make decisions in.
  */
+const capitalize = (s: string) =>
+  s.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("-");
+
 const nameFromYaleEmail = (email: string): { firstName: string; lastName: string } | null => {
   const [local, domain] = email.toLowerCase().split("@");
-  if (domain !== "yale.edu" || !local) return null;
+  // Any yale.edu subdomain, not just the bare one: alumni keep first.last at
+  // aya.yale.edu, and requiring an exact match missed them.
+  if (!domain || !/(^|\.)yale\.edu$/.test(domain) || !local) return null;
   if (!/^[a-z]+\.[a-z-]+$/.test(local)) return null;
   const [first, last] = local.split(".");
-  const capitalize = (s: string) =>
-    s.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("-");
   return { firstName: capitalize(first), lastName: capitalize(last) };
+};
+
+/**
+ * Some rows have a person's name sitting in the email column, because the
+ * source form collected it there: "sourav roy", "vraj patel", and surnames
+ * like "zentner" alongside a first name that did land correctly. A value with
+ * no "@" is not an address, so when the name is otherwise blank it is better
+ * read as the name than stored as a fake email.
+ *
+ * Values that are clearly not names either ("n/a", "sss", a street address)
+ * fall through to the same blank they would have had. This never invents
+ * anything: it only relocates a value the source already recorded.
+ */
+const nameFromMisplacedEmail = (value: string): { firstName: string; lastName: string } | null => {
+  if (value.includes("@")) return null;
+  const cleaned = value.trim();
+  // Two alphabetic words is the shape of a name. One word could be a surname
+  // but is just as likely to be junk, so require the pair.
+  if (!/^[a-z]+ [a-z]+$/i.test(cleaned)) return null;
+  const [first, last] = cleaned.split(/\s+/);
+  return { firstName: capitalize(first.toLowerCase()), lastName: capitalize(last.toLowerCase()) };
 };
 
 export function transformInterestForm(
@@ -85,7 +109,10 @@ export function transformInterestForm(
 
       const rawName = str(record.fields[fields.name]);
       const { firstName, lastName } = isNumericId(rawName)
-        ? nameFromYaleEmail(email) ?? { firstName: "", lastName: "" }
+        ? // No name in this table at all, so recover one from the address if
+          // its shape allows, then from a name misfiled into the email column.
+          nameFromYaleEmail(email) ??
+          nameFromMisplacedEmail(email) ?? { firstName: "", lastName: "" }
         : splitName(rawName);
 
       rows.push({

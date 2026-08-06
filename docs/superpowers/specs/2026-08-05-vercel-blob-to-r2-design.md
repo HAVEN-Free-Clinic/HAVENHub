@@ -121,7 +121,16 @@ S3-compatible providers. R2 has since added support for the common algorithms,
 but the default also forces a checksum header onto presigned PUT URLs, which the
 browser then has to reproduce exactly or the request fails with
 `SignatureDoesNotMatch`. Setting both to `WHEN_REQUIRED` avoids that class of
-failure. This must be verified against a real bucket rather than assumed.
+failure.
+
+Verified against the real bucket rather than assumed: a presigned PUT succeeded
+(HTTP 200) and its `X-Amz-SignedHeaders` was `host` alone, so no checksum header
+entered the signature. Note what that also means, since it contradicts a claim
+this spec carried earlier: `Content-Type` is not signature-covered either. The
+client's header is accepted as sent and becomes the stored object's content
+type, and a mismatched value is accepted rather than rejected. Client and route
+still send the same value so the stored type is right, but a mismatch is a
+wrong content type, not a failed upload.
 
 New dependencies: `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner`, both
 server-side only.

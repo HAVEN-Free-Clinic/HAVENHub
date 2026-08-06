@@ -26,6 +26,15 @@ test("history browser finds a seeded applicant by email and opens their detail p
     // Search by the seeded email, not by any count of rows: the suite runs
     // serially against a shared, never-emptied database.
     await page.goto("/recruitment/history");
+
+    // The DEFAULT view must lead with identities that have names. Nameless
+    // ones exist (an old interest-form export carried no name column), and
+    // because an empty lastName sorts ahead of every real surname, a single
+    // ordered query with a row cap returned nothing but nameless rows. That
+    // shipped once. The first row's label is the guard: it must be the seeded
+    // person's name, never an email standing in for a missing one.
+    const firstRowLink = page.locator("table tbody tr").first().getByRole("link");
+    await expect(firstRowLink).not.toHaveText(/@/);
     await page.getByLabel("Search recruitment history").fill(email);
     // exact: true is load-bearing. Accessible-name matching is substring by
     // default, so a bare "Search" also matches the app shell's Cmd+K palette

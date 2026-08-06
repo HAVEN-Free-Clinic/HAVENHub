@@ -15,7 +15,7 @@ const complianceCtx = {
 };
 
 describe("person fields", () => {
-  it("exposes a whitelist with options", () => {
+  it("exposes all expected person field keys in order", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
@@ -287,5 +287,18 @@ describe("relation-backed conditions (compliance program additions)", () => {
       expect(personFieldWhere({ field, op: "isTrue" }, noTerm)).toEqual({ id: { in: [] } });
       expect(personFieldWhere({ field, op: "isFalse" }, noTerm)).toEqual({ id: { in: [] } });
     }
+  });
+
+  // role and department are term-scoped too, but take eq/in rather than the
+  // boolean operators above, so they need their own no-active-term assertions.
+  // Both used to lean on `termId: ""` matching no membership by accident; these
+  // pin the match-nobody guarantee to an explicit guard instead.
+  it("role and department match nobody when there is no active term", () => {
+    const noTerm = { activeTermId: null };
+    expect(personFieldWhere({ field: "role", op: "eq", value: "DIRECTOR" }, noTerm)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, noTerm)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, noTerm)).toEqual({
+      id: { in: [] },
+    });
   });
 });

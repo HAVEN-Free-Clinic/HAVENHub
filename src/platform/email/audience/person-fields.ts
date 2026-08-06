@@ -195,9 +195,14 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     compile: (cond, ctx) => {
       const value = typeof cond.value === "string" ? cond.value.trim() : "";
       if (value !== "DIRECTOR" && value !== "VOLUNTEER") return MATCH_NOBODY;
+      // With no active term there is no roster to hold a role on. The old
+      // `termId: ctx.activeTermId ?? ""` did match nobody, but only because no
+      // membership carries an empty term id -- say it outright, the way the
+      // other term-scoped fields do, so the guarantee does not rest on that.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
       return {
         memberships: {
-          some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: value },
+          some: { termId: ctx.activeTermId, status: "ACTIVE", kind: value },
         },
       };
     },
@@ -208,11 +213,15 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     group: "Status & roles",
     kind: "multiEnum",
     operators: ["in"],
-    compile: (cond, ctx) => ({
-      memberships: {
-        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
-      },
-    }),
+    compile: (cond, ctx) => {
+      // Same no-active-term guard as `role` above, and for the same reason.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
+      return {
+        memberships: {
+          some: { termId: ctx.activeTermId, status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
+        },
+      };
+    },
   },
   {
     key: "complianceStatus",

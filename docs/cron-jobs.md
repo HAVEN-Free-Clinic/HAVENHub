@@ -21,7 +21,7 @@ the job below silently stops running with no in-repo error.
 | Path | Trigger | Cadence | UTC schedule | What it does | What breaks if it stops |
 | --- | --- | --- | --- | --- | --- |
 | `/api/cron/email` | External (cron-job.org) | every 30 min | `*/30 * * * *` | Dispatches due campaigns, then drains the email + Teams queues. **Backstop** only: primary delivery fires on enqueue (post-response flush). | Failed-send retries and scheduled campaigns stall (new transactional mail still goes out on enqueue). |
-| `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA compliance reminders and director escalations (delivered by the enqueue flush after it runs, backstopped by the email tick). | HIPAA reminders and director escalations are never enqueued. |
+| `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA certificate reminders and onboarding-requirement reminders, plus the weekly per-director clearance digest (which self-paces off an ISO-week claim, so it lands on the first run of each week). | HIPAA reminders, onboarding reminders, and the weekly director digest are all never enqueued. |
 | `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivered by the enqueue flush after it runs, backstopped by the email tick). | Volunteers stop receiving their Saturday shift reminders. |
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 | `/api/cron/recruitment-review-digest` | External (cron-job.org) | daily | `0 14 * * *` | Notifies each active department director who has applications awaiting review (volunteer routed-undecided + director-track undecided) in their department(s). Enqueue-only; skips directors with nothing to review. | Directors get no daily reminder of applications waiting on their review (they can still reach them via the roster). |
@@ -42,6 +42,10 @@ Notes:
   only **enqueue**; their mail is delivered by the enqueue flush after they run, or
   by this backstop tick. Each is idempotent per (person, day) via
   `claimReminderDispatch`, so an at-least-once retry never double-sends.
+- The weekly clearance digest rides the daily `reminders` job rather than its own
+  schedule. Its periodKey is the ISO week, so the first daily run of a week sends and
+  the rest skip. That means one fewer external schedule to lose on re-provision, and
+  a failed Monday run is picked up on Tuesday instead of skipping the week.
 - `recruitment-drafts` used to be a Vercel Cron but was moved to the external
   scheduler for the same reason as the others (Vercel does not fire `vercel.json`
   crons on the current plan). `vercel.json` no longer declares any crons.

@@ -3,7 +3,7 @@
  *
  * These tests verify the behavioral contracts (subject, HTML shape, HTML
  * escaping, status branches) previously tested against the old
- * complianceReminderEmail / complianceEscalationEmail functions.
+ * complianceReminderEmail function.
  *
  * The golden-master (byte-exact) assertions live in compliance.golden.test.ts.
  */
@@ -13,10 +13,8 @@ import { resetDb } from "@/platform/test/db";
 import { renderEmail } from "./renderEmail";
 import {
   complianceReminderContext,
-  complianceEscalationContext,
   complianceDateReviewContext,
   type ComplianceReminderParams,
-  type ComplianceEscalationParams,
   type ComplianceDateReviewParams,
 } from "./compliance";
 
@@ -33,14 +31,14 @@ describe("compliance-reminder via renderEmail", () => {
   const BRAND = "#00356b";
   const CTA_URL = `${APP_URL}/my-info`;
 
-  it("subject is exactly '[HAVEN] Compliance reminder'", async () => {
+  it("subject is exactly '[HAVEN] HIPAA certification reminder'", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
       status: "EXPIRING_SOON",
       expiresAt: new Date("2026-07-04T00:00:00Z"),
     };
     const { subject } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(subject).toBe("[HAVEN] Compliance reminder");
+    expect(subject).toBe("[HAVEN] HIPAA certification reminder");
   });
 
   it("EXPIRING_SOON: html contains the word 'expires'", async () => {
@@ -199,115 +197,6 @@ describe("compliance-reminder via renderEmail", () => {
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
     expect(html).toContain("Please upload or renew your certificate in");
     expect(html).toContain(`<a href="${CTA_URL}">HAVEN Hub</a>`);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// compliance-escalation
-// ---------------------------------------------------------------------------
-
-describe("compliance-escalation via renderEmail", () => {
-  it("subject is exactly '[HAVEN] Volunteer compliance needs attention'", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRED",
-    };
-    const { subject } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(subject).toBe("[HAVEN] Volunteer compliance needs attention");
-  });
-
-  it("html contains the volunteer name", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRED",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("Alice Smith");
-  });
-
-  it("html contains the department name", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRED",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("Outreach");
-  });
-
-  it("html contains readable status 'expired' for EXPIRED", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRED",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("expired");
-  });
-
-  it("html contains readable status 'expiring soon' for EXPIRING_SOON", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRING_SOON",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("expiring soon");
-  });
-
-  it("html contains readable status 'no certificate on file' for NO_CERTIFICATE", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "NO_CERTIFICATE",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("no certificate on file");
-  });
-
-  it("html contains readable status 'completion date needed' for UNKNOWN_DATE", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "UNKNOWN_DATE",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).toContain("completion date needed");
-  });
-
-  it("COMPLIANT status with EHS gap renders EHS-only copy, not HIPAA-complaint copy", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "Dr. Director",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "COMPLIANT",
-      ehsMissing: ["BBP Clinical"],
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).not.toContain("not HIPAA compliant");
-    expect(html).toContain("outstanding clearance requirements");
-    expect(html).toContain("BBP Clinical");
-  });
-
-  it("HTML-escapes a malicious directorName", async () => {
-    const params: ComplianceEscalationParams = {
-      directorName: "<script>evil()</script>",
-      volunteerName: "Alice Smith",
-      departmentName: "Outreach",
-      status: "EXPIRED",
-    };
-    const { html } = await renderEmail("compliance-escalation", complianceEscalationContext(params));
-    expect(html).not.toContain("<script>");
-    expect(html).toContain("&lt;script&gt;");
   });
 });
 

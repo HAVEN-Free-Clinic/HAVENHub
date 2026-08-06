@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { RecruitmentCycle, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -95,7 +96,8 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
   return cycle;
 }
 
-export async function getCycle(id: string) {
+/** The uncached read. Call this from mutations; render paths want getCycle. */
+async function loadCycle(id: string) {
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id },
     include: {
@@ -108,6 +110,23 @@ export async function getCycle(id: string) {
   // stored snapshot. Resolving here covers the form builder and ApplyPreview.
   return { ...cycle, sections: resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates) };
 }
+
+/**
+ * The cycle plus its full form definition, memoized per render.
+ *
+ * This is the heaviest read in the module (term clinic dates, every section,
+ * every field, plus a resolveAvailabilityOptions pass) and every one of the 12
+ * pages under /recruitment/cycles/[id] needs it. cache() means the layout and
+ * its page share one query instead of each paying for their own, so a server
+ * component added to that tree later cannot quietly reintroduce the duplicate
+ * (#512 / PR #510, where the layout was doing exactly that).
+ *
+ * Mutations must call loadCycle instead. React's cache lives for the request,
+ * not the render, so a server action that read through here before writing
+ * would leave the pre-write row memoized for the revalidated render that
+ * follows it in the same request, and the page would paint stale.
+ */
+export const getCycle = cache(loadCycle);
 
 /** A cycle with its full form definition (sections -> fields), as returned by getCycle. */
 export type CycleWithForm = NonNullable<Awaited<ReturnType<typeof getCycle>>>;
@@ -130,7 +149,11 @@ export async function listArchivedCycles(): Promise<RecruitmentCycle[]> {
 }
 
 export async function publishCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
-  const cycle = await getCycle(id);
+  // loadCycle, not getCycle: this reads the cycle and then writes it, so going
+  // through the memoized read would leave the DRAFT row cached for the render
+  // that publishCycleAction revalidates into, and the overview would keep
+  // showing the DRAFT badge until a manual reload.
+  const cycle = await loadCycle(id);
   if (!cycle) throw new CyclePublishError("Cycle not found.");
   if (cycle.status !== "DRAFT") throw new CyclePublishError("Only a DRAFT cycle can be published.");
 

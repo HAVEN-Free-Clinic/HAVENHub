@@ -32,6 +32,8 @@
     "import:histterm:apply": "tsx --env-file=.env scripts/import-historical-term.ts --apply",
     "import:history:dry": "tsx --env-file=.env scripts/import-history.ts",
     "import:history:apply": "tsx --env-file=.env scripts/import-history.ts --apply",
+    "migrate:r2:dry": "tsx --env-file=.env scripts/migrate-blob-to-r2.ts",
+    "migrate:r2:apply": "tsx --env-file=.env scripts/migrate-blob-to-r2.ts --apply",
     "fixtures:ux": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-ux-audit-fixtures.ts"
   },
   "prisma": {
@@ -43,6 +45,8 @@
     "sharp": "^0.35.0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
+    "@aws-sdk/s3-request-presigner": "^3.1104.0",
     "@bprogress/next": "^3.2.12",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

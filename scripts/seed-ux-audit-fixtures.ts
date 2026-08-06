@@ -25,7 +25,7 @@
  */
 import { zipSync, strToU8 } from "fflate";
 import { prisma } from "@/platform/db";
-import { putObject, deleteObject, usingBlobStorage } from "@/platform/storage";
+import { putObject, deleteObject, usingRemoteStorage } from "@/platform/storage";
 import { isoDateKey } from "@/platform/dates";
 import { createNotification } from "@/platform/notifications/inbox";
 import { createCycle, publishCycle } from "@/modules/recruitment/services/cycles";
@@ -127,21 +127,22 @@ function assertAuditDatabase(): void {
 }
 
 /**
- * Refuse to run with real Blob storage configured.
+ * Refuse to run with real remote storage configured.
  *
- * `assertAuditDatabase` only guards the database. `usingBlobStorage` picks Vercel
- * Blob over local disk based on `BLOB_READ_WRITE_TOKEN` alone, with no per-database
- * scoping, so a developer with a real token would pass the database guard and then
- * write fixture PDFs, and on the rebuild path run `deleteObject` against them, in
- * the shared Blob store rather than a throwaway one.
+ * `assertAuditDatabase` only guards the database. `usingRemoteStorage` picks a
+ * remote store (R2 or Blob) over local disk based on the R2_* variables or
+ * BLOB_READ_WRITE_TOKEN alone, with no per-database scoping, so a developer with real
+ * credentials would pass the database guard and then write fixture PDFs, and on
+ * the rebuild path run `deleteObject` against them, in the shared remote store
+ * rather than a throwaway one.
  */
 function assertLocalStorage(): void {
-  if (usingBlobStorage) {
+  if (usingRemoteStorage) {
     throw new Error(
-      "Refusing to build audit fixtures with BLOB_READ_WRITE_TOKEN set. This script " +
+      "Refusing to build audit fixtures with remote storage configured. This script " +
         "writes fixture PDFs, and deletes them again on rebuild, under keys that would " +
-        "land in the real Blob store instead of a throwaway one. Unset " +
-        "BLOB_READ_WRITE_TOKEN so storage falls back to local disk.",
+        "land in the real R2 or Blob store instead of a throwaway one. Unset R2_BUCKET " +
+        "and BLOB_READ_WRITE_TOKEN so storage falls back to local disk.",
     );
   }
 }

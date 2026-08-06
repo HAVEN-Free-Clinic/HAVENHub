@@ -2,15 +2,16 @@
  * Golden-master tests for compliance email templates via renderEmail.
  *
  * These tests assert that the new descriptor + renderEmail system produces the
- * same body content as the pre-refactor complianceReminderEmail /
- * complianceEscalationEmail functions. The body is now injected verbatim into the
- * branded layout shell, so we assert the body is contained in the rendered email.
+ * same body content as the pre-refactor complianceReminderEmail function. The body
+ * is now injected verbatim into the branded layout shell, so we assert the body is
+ * contained in the rendered email.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { renderEmail } from "./renderEmail";
-import { complianceReminderContext, complianceEscalationContext } from "./compliance";
+import { complianceReminderContext } from "./compliance";
+import { getDescriptor } from "./registry";
 
 beforeEach(resetDb);
 
@@ -58,7 +59,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expired on January 15, 2026."),
     );
@@ -75,7 +76,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "Your HIPAA certification expires on January 15, 2026."),
     );
@@ -92,7 +93,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       actionableBody("Jane Doe", "We do not have a current HIPAA certificate on file for you."),
     );
@@ -109,7 +110,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
         brandColor: BRAND,
       }),
     );
-    expect(out.subject).toBe("[HAVEN] Compliance reminder");
+    expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
       "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
@@ -118,55 +119,22 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     expect(out.html).not.toContain(CTA_URL);
   });
 
-  // ---------------------------------------------------------------------------
-  // compliance-escalation
-  // ---------------------------------------------------------------------------
+});
 
-  it("compliance-escalation EXPIRED matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "EXPIRED",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expired) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
+describe("compliance-reminder descriptor is HIPAA only", () => {
+  it("declares no EHS or onboarding variables", () => {
+    const names = getDescriptor("compliance-reminder")!.variables.map((v) => v.name);
+    expect(names).not.toContain("ehsMissingList");
+    expect(names).not.toContain("hasEhsGap");
+    expect(names).not.toContain("otherItemsHtml");
+    expect(names).not.toContain("hasOtherItems");
   });
 
-  it("compliance-escalation EXPIRING_SOON matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "EXPIRING_SOON",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (expiring soon) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
-  });
-
-  it("compliance-escalation NO_CERTIFICATE matches pre-refactor output", async () => {
-    const out = await renderEmail(
-      "compliance-escalation",
-      complianceEscalationContext({
-        directorName: "Dr. Smith",
-        volunteerName: "Jane Doe",
-        departmentName: "Cardiology",
-        status: "NO_CERTIFICATE",
-      }),
-    );
-    expect(out.subject).toBe("[HAVEN] Volunteer compliance needs attention");
-    expect(out.html).toContain(
-      "<p>Hello Dr. Smith,</p>\n\n<p>Jane Doe in Cardiology is not HIPAA compliant (no certificate on file) and has not responded to reminders. Please follow up.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
-    );
+  it("has no EHS or onboarding blocks in its body, and a HIPAA-specific subject", () => {
+    const d = getDescriptor("compliance-reminder")!;
+    expect(d.defaultBody).not.toContain("hasEhsGap");
+    expect(d.defaultBody).not.toContain("hasOtherItems");
+    expect(d.defaultBody).not.toContain("before you are cleared to volunteer");
+    expect(d.defaultSubject).toBe("[HAVEN] HIPAA certification reminder");
   });
 });

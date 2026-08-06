@@ -21,12 +21,11 @@ const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", ""]);
 /**
  * Guard against the footgun that orphaned every imported certificate once:
  * running against a REMOTE database (e.g. prod Neon) while storage silently
- * falls back to LOCAL DISK because neither the R2_* variables nor
- * BLOB_READ_WRITE_TOKEN are set. The DB rows land in prod, the bytes land on
- * this laptop, and downloads 404 forever.
+ * falls back to LOCAL DISK because the R2_* variables are not set. The DB rows
+ * land in prod, the bytes land on this laptop, and downloads 404 forever.
  */
 function assertStorageMatchesDatabase(): void {
-  if (usingRemoteStorage) return; // R2 or Blob is configured -- bytes go where the rows go.
+  if (usingRemoteStorage) return; // R2 is configured -- bytes go where the rows go.
   const dbUrl = process.env.DATABASE_URL ?? "";
   let host = "";
   try {
@@ -36,11 +35,10 @@ function assertStorageMatchesDatabase(): void {
   }
   if (!LOCAL_DB_HOSTS.has(host)) {
     console.error(
-      `Refusing to import: DATABASE_URL points at a remote host (${host}) but ` +
-        `neither the R2_* variables nor BLOB_READ_WRITE_TOKEN are set, so file bytes ` +
-        `would be written to local disk instead of a remote store. Pull the storage ` +
-        `credentials (e.g. \`vercel env pull\`) before applying, or point DATABASE_URL ` +
-        `at a local database.`
+      `Refusing to import: DATABASE_URL points at a remote host (${host}) but the ` +
+        `R2_* variables are not set, so file bytes would be written to local disk ` +
+        `instead of R2. Pull the storage credentials (e.g. \`vercel env pull\`) ` +
+        `before applying, or point DATABASE_URL at a local database.`
     );
     process.exit(1);
   }

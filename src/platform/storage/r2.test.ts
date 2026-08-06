@@ -18,6 +18,9 @@ vi.mock("@aws-sdk/client-s3", () => ({
   HeadObjectCommand: vi.fn(function (input) {
     return { kind: "Head", input };
   }),
+  HeadBucketCommand: vi.fn(function (input) {
+    return { kind: "HeadBucket", input };
+  }),
   DeleteObjectCommand: vi.fn(function (input) {
     return { kind: "Delete", input };
   }),
@@ -123,20 +126,46 @@ describe("headObject", () => {
     );
     await expect(r2.headObject("cert.pdf")).rejects.toThrow("boom");
   });
+});
 
-  it("rethrows NoSuchBucket rather than treating a typo'd bucket as a missing key", async () => {
-    // A missing key and a missing bucket both answer with a 404. Only the
-    // bucket case means R2_BUCKET itself is misconfigured, and the backfill's
-    // preflight check depends on this throwing rather than resolving to null --
-    // otherwise a typo'd bucket passes preflight cleanly and the run fails on
-    // every object once the main loop starts instead.
+describe("bucketExists", () => {
+  it("returns true when HeadBucket succeeds", async () => {
+    send.mockResolvedValue({});
+    expect(await r2.bucketExists()).toBe(true);
+    expect(send.mock.calls[0][0]).toMatchObject({
+      kind: "HeadBucket",
+      input: { Bucket: "test-bucket" },
+    });
+  });
+
+  it("returns false when the bucket does not exist -- R2's NotFound", async () => {
+    // R2 never sends NoSuchBucket (the AWS S3 name); it sends the generic
+    // NotFound with a 404, same as a missing key would. HeadBucket takes no
+    // key, so a 404 from it unambiguously means the bucket itself is absent.
     send.mockRejectedValue(
       Object.assign(new Error("nope"), {
-        name: "NoSuchBucket",
+        name: "NotFound",
         $metadata: { httpStatusCode: 404 },
       })
     );
-    await expect(r2.headObject("cert.pdf")).rejects.toThrow("nope");
+    expect(await r2.bucketExists()).toBe(false);
+  });
+
+  it("returns false on a bare 404 with no error name", async () => {
+    send.mockRejectedValue(
+      Object.assign(new Error("nope"), { $metadata: { httpStatusCode: 404 } })
+    );
+    expect(await r2.bucketExists()).toBe(false);
+  });
+
+  it("rethrows a genuine failure rather than reading it as a missing bucket", async () => {
+    // A bad credential or a connectivity failure must not masquerade as
+    // "bucket missing" -- the backfill's preflight message depends on being
+    // able to tell those apart.
+    send.mockRejectedValue(
+      Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
+    );
+    await expect(r2.bucketExists()).rejects.toThrow("boom");
   });
 });
 

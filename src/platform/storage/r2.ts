@@ -10,6 +10,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
@@ -32,9 +33,12 @@ function s3(): S3Client {
       secretAccessKey: config.R2_SECRET_ACCESS_KEY as string,
     },
     // AWS SDK v3 sends integrity checksums by default. That breaks presigned
-    // PUTs against R2: the signature covers a checksum header the browser never
-    // reproduces, so the upload fails with SignatureDoesNotMatch. Send them only
-    // where the operation genuinely requires one.
+    // PUTs against R2: the default forces a checksum header into the signature
+    // that the browser can never reproduce, so the upload fails with
+    // SignatureDoesNotMatch. WHEN_REQUIRED keeps checksums off the signature for
+    // routine operations, which is why presignPut's SignedHeaders ends up being
+    // just `host` -- see the doc comment there for what that does and does not
+    // cover.
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
   });
@@ -55,16 +59,6 @@ function bucket(): string {
 function isNotFound(err: unknown): boolean {
   const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
   return e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
-}
-
-/**
- * A missing bucket, not a missing key. Both answer with an HTTP 404, but only
- * this one means the R2_BUCKET configuration itself is wrong. headObject below
- * must not swallow it the way isNotFound swallows an ordinary missing key, or a
- * typo'd bucket name reads as "object not found yet" instead of failing loudly.
- */
-function isBucketNotFound(err: unknown): boolean {
-  return (err as { name?: string })?.name === "NoSuchBucket";
 }
 
 /** Store bytes under `key`, overwriting any existing object at that key. */
@@ -100,14 +94,15 @@ export async function getObject(key: string): Promise<Buffer | null> {
 /**
  * Check whether `key` exists without downloading its bytes.
  *
- * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts): as a presence
+ * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts) as a presence
  * check that only asks "does this exist," never "is it the same size" (see that
  * script's alreadyPresent for why a size comparison is actively wrong once R2 is
- * the live store), and, against a sentinel key, as a preflight that a broken
- * credential or a typo'd bucket name fails loudly instead of looking like an
- * ordinary miss. That second use is why a missing BUCKET is rethrown here
- * instead of mapped to null the way a missing key is: only a missing key means
- * "not yet copied."
+ * the live store).
+ *
+ * This cannot also serve as a bucket-existence preflight: R2 answers a missing
+ * bucket with the same generic 404/NotFound as a missing key, so headObject has
+ * no way to tell "wrong key" from "wrong bucket" apart. Use bucketExists below
+ * for that.
  */
 export async function headObject(key: string): Promise<{ size: number } | null> {
   try {
@@ -116,8 +111,28 @@ export async function headObject(key: string): Promise<{ size: number } | null> 
     );
     return { size: result.ContentLength ?? 0 };
   } catch (err) {
-    if (isBucketNotFound(err)) throw err;
     if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Whether the configured R2_BUCKET itself exists.
+ *
+ * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts) as a preflight
+ * so a typo'd R2_BUCKET fails once, loudly, before the main copy loop starts,
+ * instead of failing on every single object once it does. HeadBucket takes no
+ * key, so a 404 from it unambiguously means the bucket is absent -- unlike
+ * HeadObject, whose 404 cannot distinguish a missing bucket from a missing key
+ * (see headObject above). A credentials or connectivity failure is rethrown,
+ * never read as "bucket missing": only a genuine 404/NotFound means that.
+ */
+export async function bucketExists(): Promise<boolean> {
+  try {
+    await s3().send(new HeadBucketCommand({ Bucket: bucket() }));
+    return true;
+  } catch (err) {
+    if (isNotFound(err)) return false;
     throw err;
   }
 }
@@ -166,9 +181,13 @@ export async function deletePrefix(prefix: string): Promise<void> {
 
 /**
  * Sign a PUT so a browser can upload straight to R2, bypassing the 4.5 MB Vercel
- * function request-body limit. `contentType` is part of the signature: the
- * caller must send exactly this value as the Content-Type header or R2 rejects
- * the upload with SignatureDoesNotMatch.
+ * function request-body limit. The signature covers only the `host` header (the
+ * checksum settings above are what keep it that narrow -- see the comment on
+ * them). `contentType` is NOT signature-covered: R2 accepts the PUT even if the
+ * browser sends a different Content-Type than this one. The caller should still
+ * send this exact value anyway, because it is what R2 stores as the object's
+ * content type as-sent -- a mismatch is accepted, not rejected, so it would
+ * silently mislabel the stored object rather than fail the upload.
  */
 export function presignPut(
   key: string,

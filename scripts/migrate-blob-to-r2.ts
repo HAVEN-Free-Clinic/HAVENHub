@@ -14,7 +14,7 @@
 // the cutover window.
 import { list, head, get } from "@vercel/blob";
 import { config } from "@/platform/config";
-import { putObject, headObject } from "@/platform/storage/r2";
+import { putObject, headObject, bucketExists } from "@/platform/storage/r2";
 
 const apply = process.argv.includes("--apply");
 
@@ -83,22 +83,36 @@ async function alreadyPresent(key: string): Promise<boolean> {
  * One cheap round-trip against R2 before the main loop starts, so a broken
  * credential, wrong account, or wrong bucket fails fast with a single clear
  * message instead of degrading into one FAILED line per object once the list
- * loop begins. The sentinel key does not need to exist -- headObject treats a
- * missing KEY as a normal null result (see src/platform/storage/r2.ts), so only
- * a genuine connection/auth/config problem throws here. A missing BUCKET is the
- * one exception: headObject rethrows NoSuchBucket rather than swallowing it, so
- * a typo'd R2_BUCKET -- the misconfiguration an operator is most likely to make,
- * hand-copying it from the setup runbook's table -- fails here with a clear
- * message instead of passing preflight and then failing on every object once
- * the main loop starts.
+ * loop begins.
+ *
+ * Uses HeadBucket (bucketExists in src/platform/storage/r2.ts), not a
+ * sentinel-key HeadObject. HeadBucket takes no key, so a 404 from it
+ * unambiguously means the bucket itself is absent. A HeadObject-based check
+ * cannot make that call on R2: R2 answers a missing bucket with the same
+ * generic NotFound/404 as a missing key, so a typo'd R2_BUCKET -- the
+ * misconfiguration an operator is most likely to make, hand-copying it from the
+ * setup runbook's table -- would read as "sentinel key not there yet," pass
+ * preflight cleanly, and only surface once every object in the main loop starts
+ * failing.
+ *
+ * A `bucketExists() === false` result means the bucket name itself is wrong and
+ * gets its own message naming R2_BUCKET. Anything thrown out of bucketExists is
+ * a credentials, account, or connectivity problem instead.
  */
 async function preflightR2(): Promise<void> {
+  let exists: boolean;
   try {
-    await headObject("__migrate-blob-to-r2-preflight__");
+    exists = await bucketExists();
   } catch (err) {
     throw new Error(
       `R2 preflight check failed: ${(err as Error).message}. Verify R2_ACCOUNT_ID, ` +
-        "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET before retrying."
+        "R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY before retrying."
+    );
+  }
+  if (!exists) {
+    throw new Error(
+      `R2 preflight check failed: bucket "${config.R2_BUCKET}" does not exist. ` +
+        "Verify R2_BUCKET before retrying."
     );
   }
 }

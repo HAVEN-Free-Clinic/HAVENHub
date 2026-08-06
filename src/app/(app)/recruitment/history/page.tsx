@@ -66,27 +66,41 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
       }
     : {};
 
-  const [total, applicants] = await Promise.all([
+  // Named identities are fetched FIRST, as their own query, and nameless ones
+  // only fill whatever room is left.
+  //
+  // This has to happen in the database, not after the fetch. 151 identities
+  // came in through an old interest form whose export carried no name column at
+  // all, and an ascending sort on an empty lastName puts every one of them
+  // ahead of every real name. A single `orderBy` plus `take: 50` therefore
+  // returned 50 nameless rows and nothing else, and re-sorting those 50 in
+  // memory could only reorder rows that were already all nameless. The default
+  // view showed no named identities whatsoever.
+  //
+  // Prisma cannot express "empty string sorts last" in one orderBy (nulls:
+  // "last" needs a nullable column, and these are not nullable), so the split
+  // is two queries sharing the same `where`. Both remain fully searchable.
+  const nameless: Prisma.HistoricalApplicantWhereInput = { firstName: "", lastName: "" };
+  const [total, named] = await Promise.all([
     prisma.historicalApplicant.count({ where }),
     prisma.historicalApplicant.findMany({
-      where,
-      // Nameless identities sort LAST, not first. 158 people came in through an
-      // old interest form whose export carried no name column at all, and an
-      // ascending sort on an empty lastName put every one of them at the top of
-      // the default view, burying the 1,976 identities that do have names.
-      // They stay fully searchable by email either way.
+      where: { AND: [where, { NOT: nameless }] },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       take: RESULT_LIMIT,
     }),
   ]);
-  const ordered = [...applicants].sort((a, b) => {
-    const aNamed = Boolean(a.lastName.trim() || a.firstName.trim());
-    const bNamed = Boolean(b.lastName.trim() || b.firstName.trim());
-    if (aNamed !== bNamed) return aNamed ? -1 : 1;
-    return 0;
-  });
+  const remaining = RESULT_LIMIT - named.length;
+  const unnamed =
+    remaining > 0
+      ? await prisma.historicalApplicant.findMany({
+          where: { AND: [where, nameless] },
+          orderBy: [{ primaryEmail: "asc" }],
+          take: remaining,
+        })
+      : [];
+  const ordered = [...named, ...unnamed];
 
-  const truncated = total > applicants.length;
+  const truncated = total > ordered.length;
 
   return (
     <div className="space-y-6">
@@ -112,7 +126,7 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
 
       {truncated && (
         <p className="text-sm text-subtle-foreground">
-          Showing the first {applicants.length} of {total.toLocaleString()} matches. Narrow your search to see more.
+          Showing the first {ordered.length} of {total.toLocaleString()} matches. Narrow your search to see more.
         </p>
       )}
 
@@ -139,7 +153,7 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
               <TD className="text-foreground-soft">{looksLikeEmail(a.primaryEmail) ? a.primaryEmail : "-"}</TD>
             </TR>
           ))}
-          {applicants.length === 0 && (
+          {ordered.length === 0 && (
             <TR>
               <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
                 {term ? "No matches." : "No imported identities."}

@@ -15,12 +15,6 @@ vi.mock("@aws-sdk/client-s3", () => ({
   GetObjectCommand: vi.fn(function (input) {
     return { kind: "Get", input };
   }),
-  HeadObjectCommand: vi.fn(function (input) {
-    return { kind: "Head", input };
-  }),
-  HeadBucketCommand: vi.fn(function (input) {
-    return { kind: "HeadBucket", input };
-  }),
   DeleteObjectCommand: vi.fn(function (input) {
     return { kind: "Delete", input };
   }),
@@ -94,78 +88,6 @@ describe("getObject", () => {
       Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
     );
     await expect(r2.getObject("cert.pdf")).rejects.toThrow("boom");
-  });
-});
-
-describe("headObject", () => {
-  it("returns the object size without downloading the body", async () => {
-    send.mockResolvedValue({ ContentLength: 4096 });
-    const result = await r2.headObject("cert.pdf");
-    expect(result).toEqual({ size: 4096 });
-    expect(send.mock.calls[0][0]).toMatchObject({
-      kind: "Head",
-      input: { Bucket: "test-bucket", Key: "cert.pdf" },
-    });
-  });
-
-  it("returns null for a missing key rather than throwing", async () => {
-    send.mockRejectedValue(Object.assign(new Error("nope"), { name: "NoSuchKey" }));
-    expect(await r2.headObject("gone.pdf")).toBeNull();
-  });
-
-  it("returns null on a bare 404 with no error name", async () => {
-    send.mockRejectedValue(
-      Object.assign(new Error("nope"), { $metadata: { httpStatusCode: 404 } })
-    );
-    expect(await r2.headObject("gone.pdf")).toBeNull();
-  });
-
-  it("rethrows a genuine failure so it is not mistaken for a missing file", async () => {
-    send.mockRejectedValue(
-      Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
-    );
-    await expect(r2.headObject("cert.pdf")).rejects.toThrow("boom");
-  });
-});
-
-describe("bucketExists", () => {
-  it("returns true when HeadBucket succeeds", async () => {
-    send.mockResolvedValue({});
-    expect(await r2.bucketExists()).toBe(true);
-    expect(send.mock.calls[0][0]).toMatchObject({
-      kind: "HeadBucket",
-      input: { Bucket: "test-bucket" },
-    });
-  });
-
-  it("returns false when the bucket does not exist -- R2's NotFound", async () => {
-    // R2 never sends NoSuchBucket (the AWS S3 name); it sends the generic
-    // NotFound with a 404, same as a missing key would. HeadBucket takes no
-    // key, so a 404 from it unambiguously means the bucket itself is absent.
-    send.mockRejectedValue(
-      Object.assign(new Error("nope"), {
-        name: "NotFound",
-        $metadata: { httpStatusCode: 404 },
-      })
-    );
-    expect(await r2.bucketExists()).toBe(false);
-  });
-
-  it("returns false on a bare 404 with no error name", async () => {
-    send.mockRejectedValue(
-      Object.assign(new Error("nope"), { $metadata: { httpStatusCode: 404 } })
-    );
-    expect(await r2.bucketExists()).toBe(false);
-  });
-
-  it("rethrows a genuine failure rather than reading it as a missing bucket", async () => {
-    // A bad credential or a connectivity failure must not masquerade as
-    // "bucket missing" -- the backfill's preflight message depends on being
-    // able to tell those apart.
-    send.mockRejectedValue(
-      Object.assign(new Error("boom"), { $metadata: { httpStatusCode: 500 } })
-    );
-    await expect(r2.bucketExists()).rejects.toThrow("boom");
   });
 });
 

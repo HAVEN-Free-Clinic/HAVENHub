@@ -77,11 +77,6 @@ const schema = z
     R2_ACCESS_KEY_ID: z.string().optional(),
     R2_SECRET_ACCESS_KEY: z.string().optional(),
     R2_BUCKET: z.string().optional(),
-    // Vercel Blob, retained ONLY for the R2 migration: it makes the rollback a
-    // config change rather than a redeploy, and lets getObject read through to
-    // the old store during the cutover window. Delete with storage/blob.ts once
-    // the migration is decommissioned.
-    BLOB_READ_WRITE_TOKEN: z.string().optional(),
     // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
     // Default is 4 MB: every upload path except SCORM packages goes through a Server

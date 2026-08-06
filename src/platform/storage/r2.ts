@@ -9,8 +9,6 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  HeadObjectCommand,
-  HeadBucketCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
@@ -87,52 +85,6 @@ export async function getObject(key: string): Promise<Buffer | null> {
     return Buffer.from(await result.Body.transformToByteArray());
   } catch (err) {
     if (isNotFound(err)) return null;
-    throw err;
-  }
-}
-
-/**
- * Check whether `key` exists without downloading its bytes.
- *
- * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts) as a presence
- * check that only asks "does this exist," never "is it the same size" (see that
- * script's alreadyPresent for why a size comparison is actively wrong once R2 is
- * the live store).
- *
- * This cannot also serve as a bucket-existence preflight: R2 answers a missing
- * bucket with the same generic 404/NotFound as a missing key, so headObject has
- * no way to tell "wrong key" from "wrong bucket" apart. Use bucketExists below
- * for that.
- */
-export async function headObject(key: string): Promise<{ size: number } | null> {
-  try {
-    const result = await s3().send(
-      new HeadObjectCommand({ Bucket: bucket(), Key: key })
-    );
-    return { size: result.ContentLength ?? 0 };
-  } catch (err) {
-    if (isNotFound(err)) return null;
-    throw err;
-  }
-}
-
-/**
- * Whether the configured R2_BUCKET itself exists.
- *
- * Used by the R2 backfill script (scripts/migrate-blob-to-r2.ts) as a preflight
- * so a typo'd R2_BUCKET fails once, loudly, before the main copy loop starts,
- * instead of failing on every single object once it does. HeadBucket takes no
- * key, so a 404 from it unambiguously means the bucket is absent -- unlike
- * HeadObject, whose 404 cannot distinguish a missing bucket from a missing key
- * (see headObject above). A credentials or connectivity failure is rethrown,
- * never read as "bucket missing": only a genuine 404/NotFound means that.
- */
-export async function bucketExists(): Promise<boolean> {
-  try {
-    await s3().send(new HeadBucketCommand({ Bucket: bucket() }));
-    return true;
-  } catch (err) {
-    if (isNotFound(err)) return false;
     throw err;
   }
 }

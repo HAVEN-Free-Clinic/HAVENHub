@@ -316,17 +316,4 @@ describe("loadConfig", () => {
       /R2_BUCKET/
     );
   });
-
-  // --- Blob fallback token (R2 migration rollback) ---
-
-  it("accepts a Blob token alongside a complete R2 config (migration fallback)", () => {
-    const config = loadConfig({ ...base, ...r2, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
-    expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
-  });
-
-  it("accepts a Blob token with no R2 config (the rolled-back state)", () => {
-    const config = loadConfig({ ...base, BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x" });
-    expect(config.BLOB_READ_WRITE_TOKEN).toBe("vercel_blob_rw_x");
-    expect(config.R2_BUCKET).toBeUndefined();
-  });
 });

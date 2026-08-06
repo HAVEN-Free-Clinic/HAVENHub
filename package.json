@@ -30,8 +30,6 @@
     "import:rhd:apply": "tsx --env-file=.env scripts/import-rhd.ts --apply",
     "import:histterm:dry": "tsx --env-file=.env scripts/import-historical-term.ts",
     "import:histterm:apply": "tsx --env-file=.env scripts/import-historical-term.ts --apply",
-    "migrate:r2:dry": "tsx --env-file=.env scripts/migrate-blob-to-r2.ts",
-    "migrate:r2:apply": "tsx --env-file=.env scripts/migrate-blob-to-r2.ts --apply",
     "fixtures:ux": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-ux-audit-fixtures.ts"
   },
   "prisma": {
@@ -62,7 +60,6 @@
     "@tiptap/pm": "^3.26.0",
     "@tiptap/react": "^3.26.0",
     "@tiptap/starter-kit": "^3.26.0",
-    "@vercel/blob": "^2.4.0",
     "cron-parser": "^5.5.0",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.8.0",

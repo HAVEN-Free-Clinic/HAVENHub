@@ -27,7 +27,12 @@ test("history browser finds a seeded applicant by email and opens their detail p
     // serially against a shared, never-emptied database.
     await page.goto("/recruitment/history");
     await page.getByLabel("Search recruitment history").fill(email);
-    await page.getByRole("button", { name: "Search" }).click();
+    // exact: true is load-bearing. Accessible-name matching is substring by
+    // default, so a bare "Search" also matches the app shell's Cmd+K palette
+    // trigger, whose aria-label is "Search the hub". That is a strict mode
+    // violation, not a silent mis-click. Same trap and same fix as
+    // admin.spec.ts and command-palette.spec.ts already document.
+    await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.waitForURL((url) => url.pathname === "/recruitment/history" && url.searchParams.get("q") === email);
 
     // Exact match: a substring match on the name could also hit an unrelated

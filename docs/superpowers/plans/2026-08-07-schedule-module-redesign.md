@@ -1324,7 +1324,64 @@ Add `import { SectionHeader } from "@/platform/ui/section-header";`.
 
 Note the level: this heading is an `h3` today, and `as="h3"` keeps it there. This card renders on **My Info as well as My Schedule**, and changing its level would shift the outline on two pages at once for no visual gain. `level="title"` reproduces its current `text-base font-semibold` styling exactly.
 
-- [ ] **Step 5: Run the checks**
+- [ ] **Step 5: The Builder's two early-return heroes**
+
+Added after the Task 5 review found these: the main Builder return lost its hero in Task 5, but two early returns still carry one, and Task 8 Step 1 greps for `rounded-2xl bg-brand` expecting no matches.
+
+In `src/app/(app)/schedule/builder/page.tsx` there are two blocks at roughly lines 154 and 179, the "No active term" and "No departments" early returns, each of the shape:
+
+```tsx
+<div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
+  <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
+  <h1 className="text-2xl font-bold tracking-tight">No active term</h1>
+</div>
+```
+
+Replace each with the shared header, preserving its own message:
+
+```tsx
+<div className="mb-8">
+  <PageHeader title="Schedule Builder" description="No active term" />
+</div>
+```
+
+and correspondingly `description="No departments"` for the second. `PageHeader` is already imported in this file from Task 5. Keep whatever body each early return renders beneath its hero unchanged.
+
+- [ ] **Step 6: The Approvals term heading**
+
+In `src/app/(app)/schedule/requests/page.tsx` line 113, replace:
+
+```tsx
+<h2 className="text-xl font-bold tracking-tight text-foreground">{term.name}</h2>
+```
+
+with:
+
+```tsx
+<SectionHeader as="h2" level="title" className="text-xl">{term.name}</SectionHeader>
+```
+
+`SectionHeader` is already imported in this file.
+
+- [ ] **Step 7: The day view's two column headings**
+
+In `src/modules/schedule/components/builder-day-view.tsx`, replace line 167:
+
+```tsx
+<h2 className="text-base font-bold text-foreground">Assigned</h2>
+```
+
+with:
+
+```tsx
+<SectionHeader as="h2" level="title">Assigned</SectionHeader>
+```
+
+and line 313 the same way for `Available to assign`. Add `import { SectionHeader } from "@/platform/ui/section-header";`.
+
+**The visible text of both must stay exactly `Assigned` and `Available to assign`.** `e2e/schedule.spec.ts` scopes five separate assertions on `h2` elements with those texts, including an anchored `/^Assigned$/`. `SectionHeader as="h2"` still renders an `h2` element with the same children, so those selectors keep resolving, but a reworded label would break them.
+
+- [ ] **Step 8: Run the checks**
 
 ```bash
 npm run typecheck && npx eslint src e2e
@@ -1338,14 +1395,26 @@ npx playwright test e2e/schedule.spec.ts e2e/my-info.spec.ts --workers=1 --repor
 
 `my-info.spec.ts` is included because the subscribe card renders there too.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 9: Confirm the sweep greps Task 8 will run now pass**
+
+```bash
+grep -rn "rounded-2xl bg-brand" src/ || echo "CLEAN: no hand-rolled heroes remain"
+grep -rn '<h[123] className' "src/app/(app)/schedule" src/modules/schedule || echo "CLEAN: no raw headings remain"
+```
+
+Both must print their `CLEAN` line. If either still reports a match, this task is not finished.
+
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/modules/schedule/components/pending-requests.tsx \
         src/modules/schedule/components/capacity-panel.tsx \
         src/modules/schedule/components/readiness-panel.tsx \
-        src/modules/schedule/calendar/subscribe-card.tsx
-git commit -m "refactor(schedule): move the remaining panel headings onto SectionHeader"
+        src/modules/schedule/calendar/subscribe-card.tsx \
+        src/modules/schedule/components/builder-day-view.tsx \
+        src/app/\(app\)/schedule/builder/page.tsx \
+        src/app/\(app\)/schedule/requests/page.tsx
+git commit -m "refactor(schedule): move the remaining headings onto the shared primitives"
 ```
 
 ---

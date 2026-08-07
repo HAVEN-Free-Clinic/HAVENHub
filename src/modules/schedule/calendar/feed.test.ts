@@ -27,6 +27,7 @@ const CTX = {
   timeZone: "America/New_York",
   host: "hub.example.org",
   baseUrl: "https://hub.example.org",
+  clinicAddress: "800 Howard Ave, New Haven, CT (Yale Physicians Building)",
 };
 
 /** Noon-UTC anchored calendar date, matching how the schema stores clinicDate. */
@@ -130,6 +131,29 @@ describe("shiftsToEvents", () => {
 
   it("returns nothing for a member with no shifts", () => {
     expect(shiftsToEvents([term([])], PERSON_ID, CTX)).toEqual([]);
+  });
+
+  it("puts the clinic address on an on-site shift", () => {
+    const [event] = shiftsToEvents([term([shift()])], PERSON_ID, CTX);
+    expect(event!.location).toBe("800 Howard Ave, New Haven, CT (Yale Physicians Building)");
+  });
+
+  // A remote shift with the clinic address would send a member across town for
+  // a shift they are doing from home, and clients turn location into
+  // directions and a travel-time estimate.
+  it("leaves a remote shift with no location at all", () => {
+    const [event] = shiftsToEvents(
+      [term([shift({ tags: { triage: false, walkin: false, cc: false, remote: true } })])],
+      PERSON_ID,
+      CTX,
+    );
+    expect(event!.location).toBeUndefined();
+    expect(event!.description).toContain("Remote");
+  });
+
+  it("omits the location when no clinic address is configured", () => {
+    const [event] = shiftsToEvents([term([shift()])], PERSON_ID, { ...CTX, clinicAddress: "" });
+    expect(event!.location).toBeUndefined();
   });
 
   it("gives two terms sharing a clinic date and department distinct UIDs, so a rollover-week shift never collapses onto another", () => {

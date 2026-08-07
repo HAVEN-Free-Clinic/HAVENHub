@@ -21,6 +21,8 @@ export type CalendarEvent = {
   end: Date;
   summary: string;
   description: string;
+  /** Omitted entirely when absent, so a remote shift carries no address. */
+  location?: string;
 };
 
 export type CalendarOptions = {
@@ -98,6 +100,10 @@ export function buildCalendar(events: CalendarEvent[], opts: CalendarOptions): s
       `DTEND:${formatUtcStamp(event.end)}`,
       `SUMMARY:${escapeText(event.summary)}`,
       `DESCRIPTION:${escapeText(event.description)}`,
+      // Emitted only when present. An empty LOCATION is not the same as no
+      // LOCATION: clients render the empty one as a blank location row, and
+      // Google will still try to geocode it.
+      ...(event.location ? [`LOCATION:${escapeText(event.location)}`] : []),
       "STATUS:CONFIRMED",
       "TRANSP:OPAQUE",
       // Google and Apple re-read the whole feed and diff by UID, so they don't

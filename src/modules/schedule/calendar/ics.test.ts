@@ -100,6 +100,33 @@ describe("buildCalendar", () => {
     expect(ics).toContain("STATUS:CONFIRMED");
   });
 
+  it("emits LOCATION when the event has one, escaping the commas in an address", () => {
+    const ics = buildCalendar(
+      [event({ location: "800 Howard Ave, New Haven, CT (Yale Physicians Building)" })],
+      OPTS,
+    );
+    expect(ics).toContain("LOCATION:800 Howard Ave\\, New Haven\\, CT (Yale Physicians Building)");
+  });
+
+  it("omits the LOCATION line entirely when the event has none", () => {
+    // An empty LOCATION is not the same as no LOCATION: clients render the
+    // empty one as a blank location row and Google still tries to geocode it.
+    expect(buildCalendar([event()], OPTS)).not.toContain("LOCATION");
+  });
+
+  it("omits LOCATION for an empty-string location rather than emitting a blank one", () => {
+    expect(buildCalendar([event({ location: "" })], OPTS)).not.toContain("LOCATION");
+  });
+
+  it("folds a LOCATION long enough to exceed one content line", () => {
+    const long = "800 Howard Avenue, New Haven, Connecticut 06519 (Yale Physicians Building, Ground Floor)";
+    const ics = buildCalendar([event({ location: long })], OPTS);
+    const locationLine = ics.split("\r\n").find((l) => l.startsWith("LOCATION:"))!;
+    expect(Buffer.from(locationLine, "utf8").length).toBeLessThanOrEqual(75);
+    // The remainder continues on a folded line, so the address is not truncated.
+    expect(ics).toContain("Ground Floor");
+  });
+
   it("stamps every event with the injected now, never a wall clock", () => {
     const ics = buildCalendar([event()], OPTS);
     expect(ics).toContain("DTSTAMP:20260806T150000Z");

@@ -569,10 +569,13 @@ describe("foldLine", () => {
     expect(foldLine("\u{1F600}".repeat(20))).toContain("\r\n ");
   });
 
+  // U+FFFD written as an escape, never as a literal glyph: a literal is exactly
+  // the kind of character an editor or copy step silently mangles into "?",
+  // which would turn this guard into a tautology that can never fail.
   it("never splits a multi-byte codepoint across a fold", () => {
     const folded = foldLine("\u{1F600}".repeat(20));
     for (const chunk of folded.split("\r\n ")) {
-      expect(chunk).not.toContain("�");
+      expect(chunk).not.toContain("\uFFFD");
       expect(Buffer.from(chunk, "utf8").toString("utf8")).toBe(chunk);
     }
   });

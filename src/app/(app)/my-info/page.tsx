@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -17,9 +18,14 @@ import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
+import { CalendarSubscribeCard } from "@/modules/my-info/components/calendar-subscribe-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { issueFeedToken, readFeedToken } from "@/modules/schedule/calendar/feed-token";
+import { getSetting } from "@/platform/settings/service";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { recordAudit } from "@/platform/audit";
 
 type PageProps = {
   searchParams: Promise<{
@@ -33,10 +39,13 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems] = await Promise.all([
+  const [myInfo, certificates, ehsItems, feedToken, baseUrl, timeZone] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     getMyEhsStatus(person.personId),
+    readFeedToken(person.personId),
+    getSetting<string>("app.baseUrl"),
+    getDisplayTimeZone(),
   ]);
   const { activeTerm } = myInfo;
 
@@ -96,6 +105,32 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
+  }
+
+  async function generateFeedAction() {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await issueFeedToken(session.personId);
+    await recordAudit({
+      actorPersonId: session.personId,
+      action: "calendar_feed.issue",
+      entityType: "CalendarFeedToken",
+      entityId: session.personId,
+    });
+    revalidatePath("/my-info");
+  }
+
+  async function resetFeedAction() {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await issueFeedToken(session.personId);
+    await recordAudit({
+      actorPersonId: session.personId,
+      action: "calendar_feed.reset",
+      entityType: "CalendarFeedToken",
+      entityId: session.personId,
+    });
+    revalidatePath("/my-info");
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -170,6 +205,18 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             // already-onboarded member (the usual case here) has only non-blocking,
             // coordinator-recorded items left, and /get-started just redirects home.
             finishHref={onboarding.onboarded ? undefined : "/get-started"}
+          />
+        </section>
+
+        {/* Calendar subscription */}
+        <section>
+          <SectionHeader className="mb-4">Calendar</SectionHeader>
+          <CalendarSubscribeCard
+            feedUrl={feedToken ? `${baseUrl}/api/calendar/${feedToken.token}.ics` : null}
+            lastFetchedAt={feedToken?.lastFetchedAt ?? null}
+            timeZone={timeZone}
+            generateAction={generateFeedAction}
+            resetAction={resetFeedAction}
           />
         </section>
       </div>

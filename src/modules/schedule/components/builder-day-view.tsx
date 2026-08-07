@@ -9,6 +9,7 @@ import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Day view -- Assigned / Available to assign columns
@@ -164,7 +165,7 @@ export function BuilderDayView({
       {/* Column 1: Assigned */}
       <section>
         <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-base font-bold text-foreground">Assigned</h2>
+          <SectionHeader as="h2" level="title">Assigned</SectionHeader>
           <span className="rounded-full bg-brand text-white text-xs font-semibold px-2.5 py-0.5">
             {assignedDirectors.length + assignedVolunteers.length + assignedShadows.length}
           </span>
@@ -310,7 +311,7 @@ export function BuilderDayView({
       {/* Column 2: Available to assign */}
       <section>
         <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-base font-bold text-foreground">Available to assign</h2>
+          <SectionHeader as="h2" level="title">Available to assign</SectionHeader>
           <Badge tone="success">{availableCount} available</Badge>
         </div>
 

@@ -2,30 +2,9 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { cx } from "@/platform/ui/cx";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import type { ApplicantStatusView } from "@/modules/recruitment/services/portal-status";
 import { ApplicationTracker } from "./application-tracker";
-import { withdrawApplicationAction, discardDraftAction } from "./portal-actions";
-
-/** Copy for each control, keyed by the server-computed withdraw kind. */
-const CONTROL = {
-  discard_draft: { label: "Discard draft", confirm: "Discard? This deletes your answers and any files." },
-  withdraw: { label: "Withdraw application", confirm: "Withdraw? We will stop considering you this cycle." },
-  decline_offer: { label: "Decline offer", confirm: "Decline this offer?" },
-} as const;
-
-/** The two-click destructive control, rendered only when the server said so.
- *  Eligibility lives in portal-status; this component never decides it. */
-function WithdrawControl({ app }: { app: ApplicantStatusView }) {
-  if (!app.withdraw) return null;
-  const { label, confirm } = CONTROL[app.withdraw.kind];
-  const action = app.withdraw.kind === "discard_draft" ? discardDraftAction : withdrawApplicationAction;
-  return (
-    <form action={action.bind(null, app.slug)} className="mt-3 flex justify-end border-t border-border-subtle pt-3">
-      <ConfirmButton label={label} confirmLabel={confirm} size="sm" />
-    </form>
-  );
-}
+import { WithdrawControl } from "./withdraw-control";
 
 export function StatusCard({ app }: { app: ApplicantStatusView }) {
   // Drafts get a compact "continue" row rather than a tracker. The row is NOT a

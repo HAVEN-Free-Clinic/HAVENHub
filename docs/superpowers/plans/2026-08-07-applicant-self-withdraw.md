@@ -14,7 +14,15 @@
 
 - **No em-dash (U+2014) anywhere under `src/**/*.{ts,tsx}`.** CI-enforced by the custom `local/no-em-dash` ESLint rule (`eslint.config.mjs:123-129`), which scans raw source text so it catches the character in comments and strings too. Use a comma, colon, parentheses, or hyphen.
 - **Lint with `npx eslint src e2e`**, not `npm run lint`. The bare script walks the gitignored `HAVEN Free Clinic Design System/` directory and produces noise.
-- **Tests need the test database.** Run `npm run test:prepare` once after any migration, then `npm test`. Tests set `DATABASE_URL` to `TEST_DATABASE_URL` (default `postgresql://haven:haven_dev@localhost:5434/havenhub_test`) via `vitest.setup.ts`. Start Postgres with `npm run db:up` if it is not running.
+- **Every test command must carry the database prefix.** Run tests as:
+
+  ```bash
+  TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_selfwithdraw npm test -- <files>
+  ```
+
+  This is not optional and `.env` will not do it for you. **Vitest does not load `.env`**, so without the inline prefix `vitest.setup.ts` falls back to the shared `havenhub_test` database, which is behind on migrations and shared with other worktrees. The symptom is a wall of `relation "X" does not exist` errors that look like broken code and are not. `havenhub_test_selfwithdraw` is this worktree's dedicated database and is already fully migrated.
+- **Postgres is native on :5434, not Docker.** Do NOT run `npm run db:up`: the port is already bound by the running native instance and compose will fail. It is already up.
+- **Never run a Prisma command without an explicit local `DATABASE_URL`.** The main checkout's `.env` points every database URL at **production Neon**. This worktree has its own `.env` pointing at `havenhub_test_selfwithdraw`, so plain `npx prisma migrate deploy` is safe *here*, but never copy a database URL in from the main checkout.
 - **`npm run typecheck` must pass before every commit.**
 - Vitest runs with `fileParallelism: false` because integration tests share one database. Every DB-backed test file calls `resetDb()` in both `beforeEach` and `afterEach`.
 - The email render engine supports `{{#if}}` but **has no `{{#each}}`**. Any list must be pre-joined into a string before it reaches a template.
@@ -169,11 +177,17 @@ ALTER TABLE "Application" ADD COLUMN     "withdrawnAt" TIMESTAMP(3);
 
 `prisma migrate dev` folds any pre-existing dev-database drift into the new migration file. Delete any statement unrelated to the two above before committing, or unrelated schema changes ship to production under this migration's name.
 
-- [ ] **Step 5: Apply to the test database and run the test**
+- [ ] **Step 5: Run the test**
 
-Run: `npm run test:prepare && npm test -- src/modules/recruitment/services/withdraw.test.ts`
+Run:
+
+```bash
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_selfwithdraw npm test -- src/modules/recruitment/services/withdraw.test.ts
+```
 
 Expected: PASS.
+
+Do NOT run `npm run test:prepare`. It shells out to `docker compose exec postgres`, which fails here (Postgres is native, not containerised), and it resolves `TEST_DATABASE_URL` from the shell rather than `.env`, so it would target the wrong database. Step 4's `migrate dev` already applied the migration to this worktree's database, because Prisma (unlike vitest and npm scripts) does read `.env`.
 
 - [ ] **Step 6: Typecheck, lint, and commit**
 

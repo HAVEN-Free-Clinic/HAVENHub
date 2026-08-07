@@ -1,6 +1,9 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
+
+/** Either the singleton client or a transaction client, so a caller mid-transaction can record on the same connection. */
+type Db = PrismaClient | Prisma.TransactionClient;
 
 export type AuditEntry = {
   actorPersonId?: string | null;
@@ -12,10 +15,16 @@ export type AuditEntry = {
   ip?: string | null;
 };
 
-/** Fire-and-forget durable audit. Never throws; logs failures to stderr instead. */
-export async function recordAudit(entry: AuditEntry): Promise<void> {
+/**
+ * Fire-and-forget durable audit. Never throws; logs failures to stderr instead.
+ *
+ * Pass `client` when recording from inside a caller's open transaction, so the
+ * audit row commits or rolls back together with the row it describes instead
+ * of persisting on a separate connection if the outer transaction aborts.
+ */
+export async function recordAudit(entry: AuditEntry, client: Db = prisma): Promise<void> {
   try {
-    await prisma.auditLog.create({
+    await client.auditLog.create({
       data: {
         actorPersonId: entry.actorPersonId ?? null,
         action: entry.action,

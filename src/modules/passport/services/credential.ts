@@ -63,12 +63,15 @@ export async function issueServiceCredential(
     select: { id: true, record: true, publicToken: true, issuedAt: true, revokedAt: true },
   });
 
-  await recordAudit({
-    actorPersonId: personId,
-    action: "passport.issue",
-    entityType: "ServiceCredential",
-    entityId: row.id,
-  });
+  await recordAudit(
+    {
+      actorPersonId: personId,
+      action: "passport.issue",
+      entityType: "ServiceCredential",
+      entityId: row.id,
+    },
+    client,
+  );
 
   return toIssued(row);
 }

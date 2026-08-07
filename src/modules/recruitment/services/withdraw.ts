@@ -20,6 +20,7 @@
 
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { can } from "@/platform/rbac/engine";
 import { notify } from "@/platform/notifications/notify";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { departmentDirectorPersonIds } from "@/platform/departments";
@@ -270,5 +271,33 @@ export async function discardDraft(slug: string, identity: ApplicantIdentity): P
     entityType: "Application",
     entityId: application.id,
     before: { cycleId: cycle.id, files: keys.length },
+  });
+}
+
+/**
+ * Undo a withdrawal. Staff-only: the applicant cannot reverse their own, so a
+ * change of heart goes through a human and stays visible.
+ *
+ * Mirrors reopenDecision in routing.ts, but is narrower: it touches only status
+ * and withdrawnAt. Acceptances, interviews, and contracts were never torn down
+ * by the withdrawal, so there is nothing to rebuild.
+ */
+export async function reopenWithdrawnApplication(applicationId: string, actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.manage_cycles"))) {
+    throw new WithdrawError("You can't reopen withdrawn applications.");
+  }
+  const res = await prisma.application.updateMany({
+    where: { id: applicationId, status: "WITHDRAWN" },
+    data: { status: "SUBMITTED", withdrawnAt: null },
+  });
+  if (res.count !== 1) throw new WithdrawError("This application is not withdrawn.");
+
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.application_withdraw_reopen",
+    entityType: "Application",
+    entityId: applicationId,
+    before: { status: "WITHDRAWN" },
+    after: { status: "SUBMITTED" },
   });
 }

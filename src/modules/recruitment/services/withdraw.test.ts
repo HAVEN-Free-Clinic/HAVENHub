@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { withdrawApplication, discardDraft, WithdrawError } from "./withdraw";
+import { withdrawApplication, discardDraft, reopenWithdrawnApplication, WithdrawError } from "./withdraw";
 import { releaseDecisions } from "./decisions";
 import { createOrResendContract } from "./onboarding";
 import { listApplicantsForReview } from "./review";
@@ -239,4 +239,31 @@ it("keeps a withdrawn applicant's interview visible to the panel, marked withdra
   const mine = await myAssignedInterviews(panelist.id);
   expect(mine).toHaveLength(1);
   expect(mine[0].application.status).toBe("WITHDRAWN");
+});
+
+it("reopens a withdrawn application back to SUBMITTED and clears the stamp", async () => {
+  const { srr, app, cycle } = await seedCycle("w18", "reed@yale.edu");
+  const manager = await personWithPermission("Morgan", "recruitment.manage_cycles");
+  await withdrawApplication("w18", ID("reed@yale.edu"));
+
+  await reopenWithdrawnApplication(app.id, manager.id);
+
+  const after = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
+  expect(after.status).toBe("SUBMITTED");
+  expect(after.withdrawnAt).toBeNull();
+  expect(await listApplicantsForReview(cycle.id, srr.id)).toHaveLength(1);
+});
+
+it("refuses to reopen without recruitment.manage_cycles", async () => {
+  const { app } = await seedCycle("w19", "reed@yale.edu");
+  const nobody = await prisma.person.create({ data: { name: "Nobody", status: "ACTIVE" } });
+  await withdrawApplication("w19", ID("reed@yale.edu"));
+  await expect(reopenWithdrawnApplication(app.id, nobody.id)).rejects.toBeInstanceOf(WithdrawError);
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("WITHDRAWN");
+});
+
+it("refuses to reopen an application that was never withdrawn", async () => {
+  const { app } = await seedCycle("w20", "reed@yale.edu");
+  const manager = await personWithPermission("Marley", "recruitment.manage_cycles");
+  await expect(reopenWithdrawnApplication(app.id, manager.id)).rejects.toBeInstanceOf(WithdrawError);
 });

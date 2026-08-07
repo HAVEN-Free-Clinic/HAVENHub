@@ -6,7 +6,7 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -20,6 +20,8 @@ import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { Alert } from "@/platform/ui/alert";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
@@ -110,6 +112,24 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
       />
 
       <ApplicantHistory history={history} title="Past applications" pendingApplication />
+
+      {app.status === "WITHDRAWN" && (
+        <Alert tone="warning">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              This applicant withdrew themselves
+              {app.withdrawnAt && <> on <DateTime value={app.withdrawnAt} /></>}. They are out of the
+              review queue. Any acceptance or onboarding contract is untouched and still needs to be resolved
+              separately.
+            </span>
+            {managesCycles && (
+              <form action={reopenWithdrawnAction.bind(null, id, applicationId)}>
+                <ConfirmButton label="Reopen" confirmLabel="Reopen this application?" size="sm" />
+              </form>
+            )}
+          </div>
+        </Alert>
+      )}
 
       {sections.map((section) => {
         // The ranking is hoisted into its own column at submission (submissions.ts

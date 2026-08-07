@@ -340,7 +340,7 @@ Replace the whole hero block (the `<div className="rounded-2xl bg-brand px-8 py-
 />
 ```
 
-The `term` variable already exists from `fullSchedule(sp.date)`. Add `className="mb-8"` handling by wrapping in `<div className="mb-8">` if the surrounding layout needs the spacing that the hero's `mb-8` provided.
+The `term` variable already exists from `fullSchedule(sp.date)`. Wrap the `PageHeader` in `<div className="mb-8">` so it keeps the bottom spacing the hero's own `mb-8` provided.
 
 - [ ] **Step 2: Replace the date wrap with ClinicDateStrip**
 
@@ -550,13 +550,24 @@ const laterShifts = upcoming.slice(1);
 
 `todayKey` is already resolved once for the page. The `>=` comparison matches the existing `isPast` guard exactly: today is not past, so a same-day shift still gets the full change form.
 
-Extract the existing shift-card JSX into a local function so all three groups render identically. Immediately inside the `termSections.map` callback, define:
+Extract the existing shift-card JSX into a local function so all three groups render identically.
+
+**This is a move, not a rewrite.** The card body in the current file (the block starting `const dateKey = isoDateKey(shift.clinicDate);` through the closing `</Card>`) moves verbatim into the function body. Every existing branch must survive unchanged: the `pendingReq` panel with its 5-day "Remind directors" gate and Cancel form, the `isPast` message, and the `<details>` disclosure containing both the drop form and the swap form with its `swapPartners` empty case. The `swapPartnersByKey` lookup and the `t.term.id` hidden inputs must keep working, so the function is declared inside the `termSections.map` callback where both are in scope.
+
+Immediately inside the `termSections.map` callback, define:
 
 ```tsx
 function shiftCard(shift: (typeof t.shifts)[number], emphasised: boolean) {
-  // ... the current card body, unchanged, with `emphasised` selecting the
-  // Card variant. Keep every existing branch: pendingReq, isPast, and the
-  // details/drop/swap forms.
+  const dateKey = isoDateKey(shift.clinicDate);
+  const isPast = dateKey < todayKey;
+  const cardKey = `${dateKey}|${shift.department.id}`;
+  const pendingReq = t.pendingRequests.get(cardKey);
+  const swapPartners = swapPartnersByKey.get(cardKey) ?? [];
+
+  return (
+    /* the existing <Card> ... </Card> block, moved verbatim apart from the
+       container change below */
+  );
 }
 ```
 

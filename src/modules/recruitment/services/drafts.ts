@@ -1,3 +1,4 @@
+import type { ApplicationStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";
@@ -45,7 +46,13 @@ function mergeDraftAnswers(
 
 export type DraftView = {
   applicationId: string;
-  status: "DRAFT" | "SUBMITTED";
+  /** The real column type. This deliberately does NOT narrow to the two states
+   *  the wizard can act on: it used to say "DRAFT" | "SUBMITTED", and getDraft
+   *  reached the third value through a cast, so widening ApplicationStatus with
+   *  WITHDRAWN compiled silently and /apply/[slug] handed a withdrawn applicant
+   *  the wizard back, prefilled with their old answers. Every consumer must
+   *  decide what it does with a status it cannot continue. */
+  status: ApplicationStatus;
   applicantType: ApplicantType;
   renewalDepartment: string | null;
   answers: Record<string, unknown>;
@@ -78,7 +85,7 @@ export async function getDraft(slug: string, identity: ApplicantIdentity): Promi
   if (!app) return null;
   return {
     applicationId: app.id,
-    status: app.status as "DRAFT" | "SUBMITTED",
+    status: app.status,
     applicantType: app.applicantType,
     renewalDepartment: app.renewalDepartment,
     answers: (app.answers as Record<string, unknown>) ?? {},

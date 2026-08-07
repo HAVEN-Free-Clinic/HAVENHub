@@ -89,6 +89,15 @@ test("apply portal: an applicant can withdraw a submitted application", async ({
 
   await expect(statusBadge).toHaveText("Withdrawn");
   await expect(apply.getByRole("button", { name: "Withdraw application" })).toHaveCount(0);
+
+  // --- The form itself is closed to them too. Withdrawal is terminal for the
+  // applicant (only staff can reopen), so returning to /apply/<slug> must show a
+  // terminal notice, not the wizard prefilled with the answers they withdrew:
+  // that path lets them retype the whole form, swallows every autosave, and then
+  // fails the submit with "you have already applied". ---
+  await apply.goto(`/apply/${slug}`);
+  await expect(apply.getByRole("heading", { name: "Application withdrawn" })).toBeVisible();
+  await expect(apply.locator('input[name="first_name"]')).toHaveCount(0);
   await ctx.close();
 
   // --- The applicant is gone from the review queue ---

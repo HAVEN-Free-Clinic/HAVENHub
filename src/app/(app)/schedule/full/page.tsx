@@ -7,6 +7,7 @@ import { cardClasses } from "@/platform/ui/card";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { markPresent, undoAttendance } from "@/modules/schedule/services/attendance";
 import { displayTodayKey } from "@/platform/dates/today";
+import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { formatCalendarDate } from "@/platform/dates";
@@ -36,9 +37,10 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   // non-today row would either no-op (today isn't a clinic day) or, worse,
   // silently land on TODAY's attendance instead of the browsed date's. Only
   // offer the write controls when the selected date IS the live clinic day;
-  // other dates show attendance read-only.
+  // other dates show attendance read-only. See isSelectedDateToday for the
+  // (separately unit-tested) comparison itself.
   const todayKey = await displayTodayKey();
-  const isSelectedDateToday = selectedKey !== null && selectedKey === todayKey;
+  const selectedDateIsToday = isSelectedDateToday(selectedKey, todayKey);
 
   // Each action re-enforces schedule.manage_attendance itself: a server action
   // is a public endpoint in its own right, and this page's gate above does not
@@ -75,10 +77,10 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
       return (
         <span className="flex items-center gap-1.5">
           <Badge tone="success">Here</Badge>
-          {isSelectedDateToday && (
+          {selectedDateIsToday && (
             <form action={undoAttendanceAction}>
               <input type="hidden" name="personId" value={personId} />
-              <Button type="submit" variant="ghost" size="sm" className="px-2 py-0.5 text-xs">
+              <Button type="submit" variant="ghost" className="px-2 py-0.5 text-xs">
                 Undo
               </Button>
             </form>
@@ -86,11 +88,11 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
         </span>
       );
     }
-    if (!isSelectedDateToday) return null;
+    if (!selectedDateIsToday) return null;
     return (
       <form action={markPresentAction}>
         <input type="hidden" name="personId" value={personId} />
-        <Button type="submit" variant="outline" size="sm" className="px-2 py-0.5 text-xs">
+        <Button type="submit" variant="outline" className="px-2 py-0.5 text-xs">
           Mark present
         </Button>
       </form>

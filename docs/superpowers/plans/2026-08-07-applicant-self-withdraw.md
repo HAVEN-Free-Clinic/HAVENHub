@@ -323,7 +323,7 @@ it("offers nothing once the onboarding contract is promoted", async () => {
   const { srr, app, cycle } = await cycleWithApp("cw5", "reed@yale.edu");
   const acc = await accept(app.id, "SRHD", srr.id);
   await releaseDecisions(cycle.id, srr.id);
-  await createOrResendContract(acc.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
   await prisma.onboardingContract.update({
     where: { acceptanceId: acc.id },
     data: { status: "PROMOTED", promotedAt: new Date() },
@@ -483,7 +483,7 @@ it("leaves acceptances, contracts, and interviews untouched", async () => {
   const { srr, app, cycle } = await seedCycle("w3", "reed@yale.edu");
   const acc = await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
   await releaseDecisions(cycle.id, srr.id);
-  await createOrResendContract(acc.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
   const iv = await prisma.interview.create({
     data: { applicationId: app.id, departmentCode: "SRHD", createdById: srr.id, scheduledAt: new Date() },
   });
@@ -499,7 +499,7 @@ it("refuses once the onboarding contract is promoted", async () => {
   const { srr, app, cycle } = await seedCycle("w4", "reed@yale.edu");
   const acc = await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
   await releaseDecisions(cycle.id, srr.id);
-  await createOrResendContract(acc.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
   await prisma.onboardingContract.update({
     where: { acceptanceId: acc.id },
     data: { status: "PROMOTED", promotedAt: new Date() },

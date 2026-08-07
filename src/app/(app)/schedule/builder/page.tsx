@@ -16,11 +16,14 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Select } from "@/platform/ui/select";
+import { PageHeader } from "@/platform/ui/page-header";
 import { redirect } from "next/navigation";
 import { runAction } from "@/platform/actions";
 import {
-  builderView,
+  // Aliased: this file also declares a local `builderView` holding the
+  // resolved BuilderView ("day" | "grid" | "availability") from
+  // resolveBuilderView -- the service export keeps its real name.
+  builderView as loadBuilderView,
   canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
@@ -47,18 +50,16 @@ import { activeTermGroup } from "@/platform/posthog/groups";
 import { getWorkingTerm } from "@/platform/terms/working-term";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { buildTermOptions } from "@/platform/terms/term-options";
-import { TermSwitcher } from "@/platform/ui/term-switcher";
 import { prisma } from "@/platform/db";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
 import { BuilderDayView } from "@/modules/schedule/components/builder-day-view";
 import { BuilderAvailabilityView } from "@/modules/schedule/components/builder-availability-view";
+import { BuilderToolbar, resolveBuilderView } from "@/modules/schedule/components/builder-toolbar";
+import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
 import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
-import { displayDate } from "@/modules/schedule/engine/display";
-import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
-import { NavForm } from "@/platform/ui/nav-form";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -143,6 +144,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const view = sp.view === "grid" ? "grid" : "saturday";
   const mode = sp.mode === "availability" ? "availability" : "assign";
   const gmode = sp.gmode === "shadow" ? "shadow" : "assign";
+  const builderView = resolveBuilderView(sp.view, sp.mode);
 
   const [workingTermOrNull, liveTerm] = await Promise.all([getWorkingTerm(sp.term), getActiveTerm()]);
   if (!workingTermOrNull) {
@@ -165,7 +167,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const editable = workingTerm.status !== "ARCHIVED";
   const termParam = workingTerm.id === liveTerm?.id ? undefined : workingTerm.id; // omit ?term for the live term
 
-  const data = await builderView(session.personId, {
+  const data = await loadBuilderView(session.personId, {
     departmentId: deptParam,
     dateKey: dateParam,
     termId: workingTerm.id,
@@ -464,90 +466,45 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
   }
 
-  const selectedDisplay = selectedDateKey
-    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
-    : null;
-
   return (
     <div>
-      {/* Hero */}
-      <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Schedule Builder</p>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
-            <p className="text-sm text-white/70 mt-0.5 font-semibold uppercase tracking-widest">{dept.code} &middot; {dept.name}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {mode === "availability" ? (
-              <Link href={href({ mode: "assign" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
-                &larr; Back to assigning
-              </Link>
-            ) : (
-              <>
-                {/* View toggle */}
-                <div className="flex items-center rounded-lg bg-white/10 overflow-hidden">
-                  <Link href={href({ view: "saturday" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${view === "saturday" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Day view</Link>
-                  <Link href={href({ view: "grid" })} className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/20 ${view === "grid" ? "bg-white text-brand" : "text-white/70 hover:text-white"}`}>Grid view</Link>
-                </div>
-                <Link href={href({ mode: "availability" })} className="inline-flex items-center min-h-11 px-3 py-1.5 rounded-lg bg-white/10 text-xs font-medium text-white/80 hover:text-white transition-colors">
-                  Edit availability
-                </Link>
-              </>
-            )}
-            {/* Department selector */}
-            <NavForm action="/schedule/builder" className="flex items-center gap-2">
-              {dateParam && <input type="hidden" name="date" value={dateParam} />}
-              {view !== "saturday" && <input type="hidden" name="view" value={view} />}
-              {mode !== "assign" && <input type="hidden" name="mode" value={mode} />}
-              {gmode !== "assign" && <input type="hidden" name="gmode" value={gmode} />}
-              {termParam && <input type="hidden" name="term" value={termParam} />}
-              <Select name="dept" aria-label="Department" defaultValue={dept.id} className="text-sm text-foreground bg-surface">
-                {data.departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
-                ))}
-              </Select>
-              <Button type="submit" variant="outline" size="sm" className="text-foreground border-border-strong bg-surface">Go</Button>
-            </NavForm>
-          </div>
-        </div>
-      </div>
-
-      {/* Working term switcher */}
       <div className="mb-6">
-        <TermSwitcher
-          options={termOptions}
-          selectedId={workingTerm.id}
-          liveTermId={liveTerm?.id ?? null}
-          hrefForTerm={(termId) => buildHref("/schedule/builder", { dept: dept.id, view, mode, gmode, term: termId ?? undefined })}
+        <PageHeader
+          title="Schedule Builder"
+          description={`${dept.name} · ${workingTerm.name}${
+            showPublishControl ? (deptPublished ? " · Published" : " · Not published") : ""
+          }`}
+          action={
+            showPublishControl ? (
+              deptPublished ? (
+                <form action={unpublishAction}>
+                  <ConfirmButton
+                    label="Unpublish"
+                    confirmLabel={`Unpublish ${dept.code}'s ${workingTerm.name} schedule?`}
+                  />
+                </form>
+              ) : (
+                <form action={publishAction}>
+                  <Button type="submit" variant="primary" size="sm">
+                    {`Publish ${dept.code}'s ${workingTerm.name} schedule`}
+                  </Button>
+                </form>
+              )
+            ) : undefined
+          }
         />
       </div>
 
-      {/* Publish control -- next (PLANNING) term only; the live term is always
-          visible to members and an archived term is read-only. */}
-      {showPublishControl && (
-        <div className="mb-4">
-          {deptPublished ? (
-            <form action={unpublishAction}>
-              <ConfirmButton
-                label="Unpublish"
-                confirmLabel={`Unpublish ${dept.code}'s ${workingTerm.name} schedule?`}
-              />
-            </form>
-          ) : (
-            <form action={publishAction}>
-              <Button type="submit" variant="primary" size="sm">
-                {`Publish ${dept.code}'s ${workingTerm.name} schedule`}
-              </Button>
-            </form>
-          )}
-        </div>
-      )}
+      <BuilderToolbar
+        departments={data.departments}
+        selectedDeptId={dept.id}
+        hrefParams={{ dept: dept.id, date: dateParam, term: termParam, gmode: gmode === "assign" ? null : gmode }}
+        view={builderView}
+        termOptions={termOptions}
+        workingTermId={workingTerm.id}
+        liveTermId={liveTerm?.id ?? null}
+        hrefForTerm={(termId) => buildHref("/schedule/builder", { dept: dept.id, view, mode, gmode, term: termId ?? undefined })}
+      />
 
       {/* Archived read-only banner */}
       {!editable && (
@@ -559,27 +516,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       {/* Date strip -- hidden in Grid view (dates are already columns there) and in
           edit-availability mode (availability is edited per member across all dates, so the
           per-date picker is just noise). */}
-      {clinicDates.length > 0 && mode !== "availability" && view !== "grid" && (
-        <nav className="flex flex-wrap gap-2 mb-6" aria-label="Clinic dates">
-          {clinicDates.map((d) => {
-            const key = isoDateKey(d);
-            const isSelected = key === selectedDateKey;
-            return (
-              <Link
-                key={key}
-                href={href({ date: key })}
-                aria-current={isSelected ? "page" : undefined}
-                className={
-                  isSelected
-                    ? "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                    : "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-muted text-foreground-soft hover:bg-muted-strong transition-colors"
-                }
-              >
-                {displayDate(key)}
-              </Link>
-            );
-          })}
-        </nav>
+      {clinicDates.length > 0 && builderView === "day" && (
+        <div className="mb-6">
+          <ClinicDateStrip
+            dates={clinicDates}
+            selectedKey={selectedDateKey}
+            hrefFor={(key) => href({ date: key })}
+            ariaLabel="Clinic dates"
+          />
+        </div>
       )}
 
       {/* Main content */}
@@ -588,7 +533,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <BuilderAvailabilityView
             members={members}
             clinicDates={clinicDates}
-            dept={dept}
             editable={editable}
             saveOverrideAction={saveOverrideAction}
             clearOverrideAction={clearOverrideAction}
@@ -631,7 +575,6 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
 
             <BuilderDayView
-              members={members}
               data={data}
               dept={dept}
               selectedDateKey={selectedDateKey}

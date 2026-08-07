@@ -206,8 +206,7 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  // "Schedule Builder" renders as a paragraph (breadcrumb) in the refactored builder layout.
-  await expect(page.locator("p", { hasText: "Schedule Builder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Schedule Builder" })).toBeVisible();
 
   // Select VADM department from the Department select.
   await selectDeptByCode(page, "VADM");
@@ -567,7 +566,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
   await page.waitForURL((url) => url.searchParams.get("date") !== null);
-  await page.getByRole("link", { name: "Grid view" }).click();
+  await page.getByRole("link", { name: "Grid" }).click();
   await page.waitForURL((url) => url.searchParams.get("view") === "grid");
 
   await page.getByRole("link", { name: "Shadow" }).click();
@@ -598,8 +597,10 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   // Switch to Day view for cleanup. The grid's force:true click can land in an adjacent
   // row due to the sticky member column's z-index geometry; Day view remove is reliable.
-  await page.getByRole("link", { name: "Day view" }).click();
-  await page.waitForURL((url) => url.searchParams.get("view") === "saturday");
+  // Day view emits neither ?view nor ?mode (the unified URL contract), so wait for
+  // ?view to drop rather than for a "saturday" value that no longer appears.
+  await page.getByRole("link", { name: "Day" }).click();
+  await page.waitForURL((url) => url.searchParams.get("view") === null);
 
   // Remove the seeded member's shadow assignment from the Day view Assigned section.
   const assignedSection = page.locator("section").filter({
@@ -619,7 +620,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   await page.waitForLoadState("networkidle");
 
   // Switch back to Grid Shadow view and confirm the cell shows Assign again.
-  await page.getByRole("link", { name: "Grid view" }).click();
+  await page.getByRole("link", { name: "Grid" }).click();
   await page.waitForLoadState("networkidle");
   await page.getByRole("link", { name: "Shadow" }).click();
   await page.waitForLoadState("networkidle");

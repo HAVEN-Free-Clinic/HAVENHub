@@ -13,10 +13,9 @@ import { IntakeNotes } from "./intake-notes";
 // Availability mode sub-view
 // ---------------------------------------------------------------------------
 
-type AvailabilityViewProps = {
+export type BuilderAvailabilityViewProps = {
   members: Awaited<ReturnType<typeof builderView>>["members"];
   clinicDates: Date[];
-  dept: { id: string; code: string; name: string };
   /** Archived (non-live/next) terms are read-only: hide the override/acknowledge forms. */
   editable: boolean;
   saveOverrideAction: (fd: FormData) => Promise<void>;
@@ -27,12 +26,11 @@ type AvailabilityViewProps = {
 export function BuilderAvailabilityView({
   members,
   clinicDates,
-  dept: _dept,
   editable,
   saveOverrideAction,
   clearOverrideAction,
   acknowledgeAction,
-}: AvailabilityViewProps) {
+}: BuilderAvailabilityViewProps) {
   return (
     <div className="flex flex-col gap-4">
       {members.length === 0 && (

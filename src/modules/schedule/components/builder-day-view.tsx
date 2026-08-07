@@ -15,7 +15,6 @@ import type { builderView, BuilderAssignmentEntry } from "@/modules/schedule/ser
 // ---------------------------------------------------------------------------
 
 export type BuilderDayViewProps = {
-  members: Awaited<ReturnType<typeof builderView>>["members"];
   data: Awaited<ReturnType<typeof builderView>>;
   dept: { id: string; code: string; name: string };
   selectedDateKey: string | null;
@@ -26,7 +25,6 @@ export type BuilderDayViewProps = {
 };
 
 export function BuilderDayView({
-  members,
   data,
   dept,
   selectedDateKey,
@@ -35,7 +33,7 @@ export function BuilderDayView({
   unassignAction,
   toggleTagAction,
 }: BuilderDayViewProps) {
-  const { assignmentsByDate, conflicts } = data;
+  const { members, assignmentsByDate, conflicts } = data;
 
   const assignmentsOnDate: Record<string, BuilderAssignmentEntry> =
     selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};

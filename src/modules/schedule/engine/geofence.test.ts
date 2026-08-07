@@ -4,6 +4,31 @@ import { haversineMeters, evaluateFence } from "./geofence";
 // Yale Physicians Building, 800 Howard Avenue, New Haven CT.
 const CLINIC = { latitude: 41.3025, longitude: -72.937 };
 
+/**
+ * Find a point due north of `base` whose haversineMeters distance from `base`
+ * is `targetMeters`, via bisection against the engine's own distance function.
+ *
+ * A fixed latitude delta (e.g. "+0.01 degrees") does not land on a chosen
+ * metre distance without knowing the earth-radius constant the engine uses
+ * internally. Bisecting against `haversineMeters` itself sidesteps that: the
+ * result is exact with respect to whatever formula and constant the engine
+ * actually uses, with no hard-coded conversion factor to get out of sync.
+ */
+function pointAtDistanceNorth(base: typeof CLINIC, targetMeters: number): typeof CLINIC {
+  let lo = 0;
+  let hi = 0.01; // ~1.1 km due north, comfortably past any target used in these tests.
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const candidate = { latitude: base.latitude + mid, longitude: base.longitude };
+    if (haversineMeters(base, candidate) < targetMeters) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return { latitude: base.latitude + hi, longitude: base.longitude };
+}
+
 describe("haversineMeters", () => {
   it("is zero for identical points", () => {
     expect(haversineMeters(CLINIC, CLINIC)).toBe(0);
@@ -60,12 +85,28 @@ describe("evaluateFence", () => {
     if (!v.ok) expect(v.reason).toBe("TOO_IMPRECISE");
   });
 
-  it("treats both thresholds as inclusive", () => {
+  it("treats the accuracy threshold as inclusive", () => {
     const atAccuracyLimit = evaluateFence({ ...base, position: CLINIC, accuracyMeters: 200 });
     expect(atAccuracyLimit.ok).toBe(true);
 
     const justOver = evaluateFence({ ...base, position: CLINIC, accuracyMeters: 201 });
     expect(justOver.ok).toBe(false);
+  });
+
+  it("treats the radius threshold as inclusive", () => {
+    // Derive points at exactly the radius and one metre past it, rather than
+    // guessing a lat/long offset, and confirm each lands where intended before
+    // trusting the verdict it produces.
+    const atRadius = pointAtDistanceNorth(CLINIC, base.radiusMeters);
+    expect(haversineMeters(CLINIC, atRadius)).toBeCloseTo(base.radiusMeters, 3);
+    const atLimit = evaluateFence({ ...base, position: atRadius, accuracyMeters: 10 });
+    expect(atLimit.ok).toBe(true);
+
+    const justBeyond = pointAtDistanceNorth(CLINIC, base.radiusMeters + 1);
+    expect(haversineMeters(CLINIC, justBeyond)).toBeCloseTo(base.radiusMeters + 1, 3);
+    const overLimit = evaluateFence({ ...base, position: justBeyond, accuracyMeters: 10 });
+    expect(overLimit.ok).toBe(false);
+    if (!overLimit.ok) expect(overLimit.reason).toBe("OUT_OF_RANGE");
   });
 
   it("rounds the reported distance to whole metres", () => {

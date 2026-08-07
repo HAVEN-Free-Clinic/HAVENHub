@@ -154,6 +154,10 @@ const schema = z
     // IANA display time zone for rendering real timestamps. Deploy-time seed;
     // admins can override live via the display.timeZone setting.
     DISPLAY_TIME_ZONE: z.string().default("America/New_York"),
+    // walletwallet.dev API key for issuing Apple/Google Wallet passes (volunteer
+    // passport). Optional: when unset, the wallet feature is off and no HTTP
+    // call is ever attempted (see src/modules/passport/services/wallet-client.ts).
+    WALLETWALLET_API_KEY: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

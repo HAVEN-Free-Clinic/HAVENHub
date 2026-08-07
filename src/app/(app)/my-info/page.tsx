@@ -20,6 +20,9 @@ import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-in
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getSetting } from "@/platform/settings/service";
+import { issueServiceCredential, type IssuedCredential } from "@/modules/passport/services/credential";
+import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
 
 type PageProps = {
   searchParams: Promise<{
@@ -33,10 +36,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems] = await Promise.all([
+  const [myInfo, certificates, ehsItems, brandColor, orgName] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     getMyEhsStatus(person.personId),
+    getSetting<string>("branding.brandColor"),
+    getSetting<string>("branding.orgName"),
   ]);
   const { activeTerm } = myInfo;
 
@@ -96,6 +101,12 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
+  }
+
+  async function issueAction(): Promise<IssuedCredential> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return issueServiceCredential(session.personId);
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -171,6 +182,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             // coordinator-recorded items left, and /get-started just redirects home.
             finishHref={onboarding.onboarded ? undefined : "/get-started"}
           />
+        </section>
+
+        {/* Service record */}
+        <section>
+          <ServiceRecordCard orgName={orgName} brandColor={brandColor} issue={issueAction} />
         </section>
       </div>
     </>

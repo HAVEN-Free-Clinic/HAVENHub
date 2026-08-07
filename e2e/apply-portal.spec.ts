@@ -69,6 +69,13 @@ test("apply portal: an applicant can withdraw a submitted application", async ({
   await submit.click();
   await expect(apply.getByText(/your application was received/i)).toBeVisible();
 
+  // --- Positive control: prove the queue-exclusion check below is real. Without
+  // this, an unrelated regression (permission redirect, broken query, route
+  // rename) could leave the queue empty for the wrong reason and the final
+  // toHaveCount(0) assertion would still pass by accident. ---
+  await page.goto(`/recruitment/cycles/${cycleId}/applicants`);
+  await expect(page.getByRole("link", { name: /Wanda/ })).toBeVisible();
+
   // --- Withdraw from the portal home ---
   await apply.goto("/apply");
   // Scope to the status badge, not a bare text match: the SUBMITTED state also

@@ -345,6 +345,18 @@ export const SETTINGS: SettingDef<unknown>[] = [
       return value > start ? null : "End time must be later than the clinic start time.";
     },
   }),
+  define<string>({
+    key: "schedule.clinicAddress",
+    category: "Operations",
+    label: "Clinic address",
+    help: "Street address of the clinic, used as the location on exported calendar events so members can tap through to directions. Leave blank to omit the location. Shifts marked remote never carry it.",
+    input: { type: "text" },
+    // Deliberately permissive, including empty: an address is free-form, and a
+    // blank value is the documented way to turn the location off.
+    schema: z.string(),
+    envDefault: () => "800 Howard Ave, New Haven, CT (Yale Physicians Building)",
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

@@ -13,9 +13,21 @@ type Props = {
   resetAction: () => Promise<void>;
 };
 
-/** Deep link that opens Google Calendar's add-by-URL flow. */
+/**
+ * Deep link that opens Google Calendar's add-by-URL flow.
+ *
+ * The cid MUST carry the webcal scheme, not https. Given an https value Google
+ * treats it as a Google calendar ID to look up rather than an external feed to
+ * subscribe to, and refuses with "Unable to add calendar. Check the URL." even
+ * when the feed is publicly reachable and valid. Confirmed in production:
+ * pasting the identical URL into Settings > Add calendar > From URL succeeded
+ * while this deep link failed.
+ *
+ * Only the scheme is rewritten; host, path, and the .ics suffix are untouched.
+ */
 export function googleCalendarUrl(feedUrl: string): string {
-  return `https://www.google.com/calendar/render?cid=${encodeURIComponent(feedUrl)}`;
+  const webcalUrl = feedUrl.replace(/^https?:\/\//, "webcal://");
+  return `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
 }
 
 export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, generateAction, resetAction }: Props) {

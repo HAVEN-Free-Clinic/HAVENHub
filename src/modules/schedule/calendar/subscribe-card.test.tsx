@@ -21,10 +21,34 @@ function html(overrides: Partial<Props> = {}): string {
 }
 
 describe("googleCalendarUrl", () => {
-  it("points Google at the encoded feed URL", () => {
+  // Regression: with an https cid, Google treats the value as a Google calendar
+  // ID to look up rather than an external feed to subscribe to, and fails with
+  // "Unable to add calendar. Check the URL." even when the feed is publicly
+  // reachable and valid. Verified in production: pasting the same URL into
+  // Settings > Add calendar > From URL worked while this deep link did not.
+  it("carries the feed as a webcal URL, not https", () => {
     expect(googleCalendarUrl(FEED_URL)).toBe(
-      "https://www.google.com/calendar/render?cid=https%3A%2F%2Fhub.example.org%2Fapi%2Fcalendar%2Fabc.ics",
+      "https://www.google.com/calendar/render?cid=webcal%3A%2F%2Fhub.example.org%2Fapi%2Fcalendar%2Fabc.ics",
     );
+  });
+
+  it("rewrites only the scheme, preserving host, path, and the .ics suffix", () => {
+    const decoded = decodeURIComponent(googleCalendarUrl(FEED_URL).split("cid=")[1]!);
+    expect(decoded).toBe("webcal://hub.example.org/api/calendar/abc.ics");
+  });
+
+  it("rewrites a plain http feed URL too, so a non-TLS deployment still subscribes", () => {
+    const decoded = decodeURIComponent(
+      googleCalendarUrl("http://localhost:3000/api/calendar/abc.ics").split("cid=")[1]!,
+    );
+    expect(decoded).toBe("webcal://localhost:3000/api/calendar/abc.ics");
+  });
+
+  it("leaves a token containing https-like text alone", () => {
+    const decoded = decodeURIComponent(
+      googleCalendarUrl("https://hub.example.org/api/calendar/ahttps-b.ics").split("cid=")[1]!,
+    );
+    expect(decoded).toBe("webcal://hub.example.org/api/calendar/ahttps-b.ics");
   });
 });
 

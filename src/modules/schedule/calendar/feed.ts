@@ -26,6 +26,8 @@ export type FeedContext = {
   /** Host used to namespace event UIDs. */
   host: string;
   baseUrl: string;
+  /** Clinic street address. Empty string means emit no location at all. */
+  clinicAddress: string;
 };
 
 const ROLE_LABELS: Record<ShiftRole, string> = {
@@ -91,6 +93,12 @@ export function shiftsToEvents(terms: MyTermSchedule[], personId: string, ctx: F
         end,
         summary: `${ctx.orgName}: ${shift.department.name}`,
         description: `${detail}\n${term.term.name}\n\n${ctx.baseUrl}/schedule`,
+        // Never on a remote shift: stamping the clinic address on one would
+        // tell a member to travel across town for a shift they are doing from
+        // home, and calendar clients turn the location into directions and a
+        // travel-time estimate. The "Remote" tag is already in the description,
+        // so nothing is lost by leaving this off.
+        location: shift.tags.remote ? undefined : ctx.clinicAddress || undefined,
       });
     }
   }
@@ -99,12 +107,13 @@ export function shiftsToEvents(terms: MyTermSchedule[], personId: string, ctx: F
 }
 
 async function loadContext(): Promise<FeedContext> {
-  const [orgName, startTime, endTime, timeZone, baseUrl] = await Promise.all([
+  const [orgName, startTime, endTime, timeZone, baseUrl, clinicAddress] = await Promise.all([
     getSetting<string>("branding.orgName"),
     getSetting<string>("schedule.clinicStartTime"),
     getSetting<string>("schedule.clinicEndTime"),
     getDisplayTimeZone(),
     getSetting<string>("app.baseUrl"),
+    getSetting<string>("schedule.clinicAddress"),
   ]);
 
   let host = "havenhub";
@@ -115,7 +124,7 @@ async function loadContext(): Promise<FeedContext> {
     // constant namespace, which still keeps them stable per person.
   }
 
-  return { orgName, startTime, endTime, timeZone, host, baseUrl };
+  return { orgName, startTime, endTime, timeZone, host, baseUrl, clinicAddress };
 }
 
 /** The member's shifts as an iCalendar document. */

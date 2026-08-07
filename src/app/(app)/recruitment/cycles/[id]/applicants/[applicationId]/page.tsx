@@ -114,21 +114,19 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
       <ApplicantHistory history={history} title="Past applications" pendingApplication />
 
       {app.status === "WITHDRAWN" && (
-        <Alert tone="warning">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>
-              This applicant withdrew themselves
-              {app.withdrawnAt && <> on <DateTime value={app.withdrawnAt} /></>}. They are out of the
-              review queue. Any acceptance or onboarding contract is untouched and still needs to be resolved
-              separately.
-            </span>
-            {managesCycles && (
-              <form action={reopenWithdrawnAction.bind(null, id, applicationId)}>
-                <ConfirmButton label="Reopen" confirmLabel="Reopen this application?" size="sm" />
-              </form>
-            )}
-          </div>
-        </Alert>
+        <div className="space-y-3">
+          <Alert tone="warning">
+            This applicant withdrew themselves
+            {app.withdrawnAt && <> on <DateTime value={app.withdrawnAt} /></>}. They are out of the
+            review queue. Any acceptance or onboarding contract is untouched and still needs to be resolved
+            separately.
+          </Alert>
+          {managesCycles && (
+            <form action={reopenWithdrawnAction.bind(null, id, applicationId)}>
+              <ConfirmButton label="Reopen" confirmLabel="Reopen this application?" size="sm" />
+            </form>
+          )}
+        </div>
       )}
 
       {sections.map((section) => {

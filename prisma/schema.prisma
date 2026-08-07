@@ -224,6 +224,7 @@ model Person {
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
+  calendarFeedToken              CalendarFeedToken?
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -1802,6 +1803,22 @@ model MemberLoginToken {
 
   @@index([emailLower])
   @@index([personId])
+}
+
+/// Long-lived, revocable credential for a member's personal calendar feed.
+/// Stored in PLAINTEXT on purpose: the member must be able to re-read this URL
+/// months later to add the calendar on a second device, and a hash cannot be
+/// reversed. Same tradeoff Google Calendar makes with its own secret iCal
+/// address. The feed exposes shift dates only and contains no patient data.
+model CalendarFeedToken {
+  personId      String    @id
+  token         String    @unique
+  createdAt     DateTime  @default(now())
+  /// Last time a calendar client fetched the feed. Written at most hourly so an
+  /// unauthenticated endpoint cannot amplify writes.
+  lastFetchedAt DateTime?
+  /// Cascade: the feed belongs to the person and dies with them.
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
 enum HistoricalStage {

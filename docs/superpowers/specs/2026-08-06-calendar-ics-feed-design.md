@@ -71,28 +71,37 @@ this value as the fallback, and no event-generation code changes.
 
 ```prisma
 model CalendarFeedToken {
-  id            String    @id @default(cuid())
-  personId      String    @unique
-  tokenHash     String    @unique
+  personId      String    @id
+  token         String    @unique
   createdAt     DateTime  @default(now())
   lastFetchedAt DateTime?
   person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 ```
 
-Token generation follows `member-magic-link.ts` exactly:
-`randomBytes(32).toString("base64url")` returned once to the caller, only the
-sha256 hash persisted. Two deliberate departures from `MemberLoginToken`:
+Token generation reuses the entropy source from `member-magic-link.ts`,
+`randomBytes(32).toString("base64url")`, but **stores the value in plaintext**
+rather than as a sha256 hash. Three deliberate departures from
+`MemberLoginToken`, each following from the token being a long-lived
+subscription credential rather than a one-shot link:
 
+- **Plaintext, not hashed.** The member has to be able to re-read this URL
+  months later to add the calendar on a second device. A hash cannot be
+  reversed, so hash-only storage would mean the only way to recover a lost URL
+  is to reset it, silently breaking every subscription already set up. This is
+  the same tradeoff Google Calendar makes with its own "Secret address in iCal
+  format," which it stores and re-displays indefinitely. The exposure a
+  database read leak would create is a member's shift dates, which contain no
+  patient data.
 - **No `expiresAt`.** A subscription that silently stops working months later,
   in a client the member rarely looks at directly, is a worse failure than one
   they can reset on demand. Revocation is explicit, not scheduled.
 - **No `usedAt`.** The token is polled indefinitely, not consumed once.
 
-`personId` is unique, so a member has exactly one feed. The row is created
-lazily the first time they ask for a link, so members who never subscribe never
-hold a dormant secret. Rotation deletes the row and creates a new one, which
-invalidates the old URL immediately.
+`personId` is the primary key, so a member has exactly one feed. The row is
+created lazily the first time they ask for a link, so members who never
+subscribe never hold a dormant credential. Rotation overwrites `token` in
+place, which invalidates the old URL immediately.
 
 `lastFetchedAt` records when a client last pulled the feed. This exists to
 answer the only support question this feature will ever generate, "why is my
@@ -160,7 +169,7 @@ onboarding gate, which must never have paths allowlisted into it.
 
 Request handling:
 
-1. Hash the path token, look up `CalendarFeedToken` by `tokenHash`.
+1. Look up `CalendarFeedToken` by `token`.
 2. No match: 404 with a plain-text body.
 3. Match, but the bound `Person` is not `ACTIVE`: return a valid but empty
    `VCALENDAR`.
@@ -223,9 +232,12 @@ Unit, on the ICS module:
 - UID stability across two generations of the same assignment.
 - A member with no shifts produces a valid, parseable, empty `VCALENDAR`.
 
-Unit, on the token service: issue returns a raw token whose plaintext never
-appears in the row, lookup matches on hash, rotation invalidates the prior
-token, and `lastFetchedAt` is not rewritten within the hour window.
+Unit, on the token service: issue is idempotent per person (one row, keyed by
+`personId`), lookup by token resolves the right person, rotation invalidates
+the prior token, and `lastFetchedAt` is not rewritten within the hour window.
+The touch query filters with an explicit `OR` on `lastFetchedAt: null` rather
+than a `not` comparison, because Prisma's `not` silently drops NULL rows and a
+never-fetched token would otherwise never record its first fetch.
 
 Route: 404 on an unknown token, empty calendar for a non-`ACTIVE` person,
 correct content type and cache headers on success.

@@ -1709,6 +1709,136 @@ git commit -m "test(e2e): applicant withdraws a submitted application from the p
 
 ---
 
+## Task 10: Promotion refuses a withdrawn applicant
+
+Added after Task 3's review surfaced this. It is a gap in the original spec, not a defect in any implemented task.
+
+**The hole.** `promoteContracts` claims on `where: { id: contract.id, status: "SUBMITTED" }` (`promotion.ts:99-101`) and never inspects `Application.status`. So an applicant who submits their onboarding contract and *then* declines through the portal can still be promoted onto the roster: the withdrawal leaves the contract intact by design (the declare-not-teardown rule), and nothing downstream notices. That defeats the feature at its most consequential moment, and it is exactly the moment the applicant most needs it to work.
+
+This is not a reason to make withdrawal tear the contract down. The teardown guards exist because cascading through `OnboardingContract` destroys signatures, DOB, and HIPAA certificates. The fix belongs on the promotion side: refuse to promote somebody who has withdrawn.
+
+**Files:**
+- Modify: `src/modules/recruitment/services/promotion.ts:60` (the skip guard) and `:99-103` (the transactional claim)
+- Test: `src/modules/recruitment/services/withdraw.test.ts`
+
+**Interfaces:**
+- Consumes: `ApplicationStatus.WITHDRAWN` (Task 1), `withdrawApplication` (Task 3), the `seedCycle` / `ID` / `personWithPermission` test helpers.
+- Produces: nothing new. Behavior change only.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `src/modules/recruitment/services/withdraw.test.ts`:
+
+```ts
+import { promoteContracts } from "./promotion";
+
+it("refuses to promote an applicant who withdrew after submitting their contract", async () => {
+  const { srr, app, cycle } = await seedCycle("w21", "reed@yale.edu");
+  const acc = await prisma.acceptance.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id },
+  });
+  await releaseDecisions(cycle.id, srr.id);
+  const contract = await createOrResendContract(acc.id, srr.id, "http://test");
+  // The applicant filled the contract in, then changed their mind.
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
+  });
+  await withdrawApplication("w21", ID("reed@yale.edu"));
+
+  const res = await promoteContracts([contract.id], srr.id);
+
+  expect(res.created).toBe(0);
+  expect(res.skipped).toBe(1);
+  const after = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
+  expect(after.status).toBe("SUBMITTED");
+  expect(after.promotedPersonId).toBeNull();
+});
+
+it("still promotes an applicant who did not withdraw", async () => {
+  const { srr, app, cycle } = await seedCycle("w22", "dana@yale.edu");
+  const acc = await prisma.acceptance.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id },
+  });
+  await releaseDecisions(cycle.id, srr.id);
+  const contract = await createOrResendContract(acc.id, srr.id, "http://test");
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+
+  expect(res.skipped).toBe(0);
+  expect(res.created + res.reactivated).toBe(1);
+});
+```
+
+The second test is not padding: it is the control that proves the new guard rejects only withdrawn applicants and has not broken promotion outright.
+
+- [ ] **Step 2: Run them to verify the first fails**
+
+```bash
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_selfwithdraw npm test -- src/modules/recruitment/services/withdraw.test.ts
+```
+
+Expected: the "refuses to promote" test FAILS (it promotes: `created` is 1, `skipped` is 0). The control test PASSES.
+
+- [ ] **Step 3: Add the skip guard**
+
+`promotion.ts:60` currently reads:
+
+```ts
+    if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
+```
+
+The contract query on the line above already includes `acceptance.application`, so the status is in hand with no extra query. Replace with:
+
+```ts
+    if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
+    // A withdrawn applicant must never reach the roster. Withdrawal deliberately
+    // leaves the acceptance and contract intact (tearing them down would cascade
+    // away signatures, DOB, and the HIPAA cert), so the contract still looks
+    // promotable and nothing else downstream would catch this.
+    if (contract.acceptance.application.status === "WITHDRAWN") { skipped += 1; continue; }
+```
+
+- [ ] **Step 4: Close the race inside the transaction**
+
+The guard above is a read outside the transaction, exactly like the `SUBMITTED` guard it follows. Immediately after the existing `if (claimed.count === 0) throw new ContractAlreadyClaimedError(contract.id);` line (`promotion.ts:103`), add:
+
+```ts
+        // Re-read inside the transaction: a withdrawal committing between the
+        // guard above and this claim must abort the promotion, not race it.
+        // ContractAlreadyClaimedError is the benign "counted as skipped" path,
+        // and rolling back here un-does the claim we just made.
+        const withdrawn = await tx.application.count({
+          where: { id: contract.acceptance.applicationId, status: "WITHDRAWN" },
+        });
+        if (withdrawn > 0) throw new ContractAlreadyClaimedError(contract.id);
+```
+
+Verify while editing that `ContractAlreadyClaimedError` is caught and counted as `skipped` rather than `failed` (it is, at the `catch` below the transaction) so a withdrawn applicant reports as skipped, not as an error.
+
+- [ ] **Step 5: Run the tests**
+
+```bash
+TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_selfwithdraw npm test -- src/modules/recruitment/services/withdraw.test.ts src/modules/recruitment/services/promotion.test.ts src/modules/recruitment/services/onboarding.test.ts
+```
+
+Expected: PASS, including every pre-existing promotion and onboarding test. Those suites are the real gate here: this task changes a code path they own.
+
+- [ ] **Step 6: Typecheck, lint, and commit**
+
+```bash
+npm run typecheck
+npx eslint src e2e
+git add src/modules/recruitment/services/promotion.ts src/modules/recruitment/services/withdraw.test.ts
+git commit -m "fix(recruitment): refuse to promote an applicant who withdrew"
+```
+
+---
+
 ## Self-Review Notes
 
 Checked against the spec. Every section maps to a task:

@@ -22,6 +22,8 @@ import {
   RequestForbiddenError,
   RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
+import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
+import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
@@ -175,6 +177,26 @@ export default async function MySchedulePage() {
     // Tell the truth: when every approver was throttled (e.g. the daily cron or a
     // recent reminder already emailed them), nothing was enqueued (#113).
     redirect(sent > 0 ? "/schedule?message=reminded" : "/schedule?message=already_reminded");
+  }
+
+  // The same card renders on My Info. Both paths are revalidated from either
+  // action so generating the link on one page cannot leave a stale empty card
+  // on the other. The gate here is "schedule", not "my-info": a member who can
+  // reach this page must be able to manage their own feed from it.
+  async function generateFeedAction() {
+    "use server";
+    const s = await requireModuleAccess("schedule");
+    await issueAuditedFeedToken(s.personId, "issue");
+    revalidatePath("/schedule");
+    revalidatePath("/my-info");
+  }
+
+  async function resetFeedAction() {
+    "use server";
+    const s = await requireModuleAccess("schedule");
+    await issueAuditedFeedToken(s.personId, "reset");
+    revalidatePath("/schedule");
+    revalidatePath("/my-info");
   }
 
   return (
@@ -490,6 +512,16 @@ export default async function MySchedulePage() {
           );
         })
       )}
+
+      {/* Calendar subscription. Outside the term loop on purpose: the feed is
+          per person and spans every term, not per term. */}
+      <section className="mt-10">
+        <CalendarSubscribeSection
+          personId={session.personId}
+          generateAction={generateFeedAction}
+          resetAction={resetFeedAction}
+        />
+      </section>
     </div>
   );
 }

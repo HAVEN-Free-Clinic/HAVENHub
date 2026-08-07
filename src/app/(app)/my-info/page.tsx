@@ -18,14 +18,11 @@ import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
-import { CalendarSubscribeCard } from "@/modules/my-info/components/calendar-subscribe-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
-import { issueFeedToken, readFeedToken } from "@/modules/schedule/calendar/feed-token";
-import { getSetting } from "@/platform/settings/service";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { recordAudit } from "@/platform/audit";
+import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
+import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
 type PageProps = {
   searchParams: Promise<{
@@ -39,13 +36,10 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems, feedToken, baseUrl, timeZone] = await Promise.all([
+  const [myInfo, certificates, ehsItems] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
     getMyEhsStatus(person.personId),
-    readFeedToken(person.personId),
-    getSetting<string>("app.baseUrl"),
-    getDisplayTimeZone(),
   ]);
   const { activeTerm } = myInfo;
 
@@ -107,30 +101,22 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     redirect("/my-info?certSaved=1");
   }
 
+  // The card also renders on /schedule, so both paths are revalidated: a member
+  // who generates the link here must not find a stale empty card over there.
   async function generateFeedAction() {
     "use server";
     const session = await requireModuleAccess("my-info");
-    await issueFeedToken(session.personId);
-    await recordAudit({
-      actorPersonId: session.personId,
-      action: "calendar_feed.issue",
-      entityType: "CalendarFeedToken",
-      entityId: session.personId,
-    });
+    await issueAuditedFeedToken(session.personId, "issue");
     revalidatePath("/my-info");
+    revalidatePath("/schedule");
   }
 
   async function resetFeedAction() {
     "use server";
     const session = await requireModuleAccess("my-info");
-    await issueFeedToken(session.personId);
-    await recordAudit({
-      actorPersonId: session.personId,
-      action: "calendar_feed.reset",
-      entityType: "CalendarFeedToken",
-      entityId: session.personId,
-    });
+    await issueAuditedFeedToken(session.personId, "reset");
     revalidatePath("/my-info");
+    revalidatePath("/schedule");
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -211,10 +197,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
         {/* Calendar subscription */}
         <section>
           <SectionHeader className="mb-4">Calendar</SectionHeader>
-          <CalendarSubscribeCard
-            feedUrl={feedToken ? `${baseUrl}/api/calendar/${feedToken.token}.ics` : null}
-            lastFetchedAt={feedToken?.lastFetchedAt ?? null}
-            timeZone={timeZone}
+          <CalendarSubscribeSection
+            personId={person.personId}
             generateAction={generateFeedAction}
             resetAction={resetFeedAction}
           />

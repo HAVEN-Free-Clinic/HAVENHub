@@ -2,7 +2,7 @@ import { CalendarPlus } from "lucide-react";
 import { Card } from "@/platform/ui/card";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { formatDateTime } from "@/platform/dates/format";
-import { FeedUrlField } from "./calendar-feed-url";
+import { FeedUrlField } from "./feed-url-field";
 
 type Props = {
   /** Full subscribe URL, or null when the member has not generated one yet. */

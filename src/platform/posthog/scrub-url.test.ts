@@ -36,6 +36,10 @@ describe("scrubPath", () => {
     expect(scrubPath("/onboarding-help")).toBe("/onboarding-help");
   });
 
+  it("redacts a credential token in the path", () => {
+    expect(scrubPath("/credential/abc123def")).toBe("/credential/[redacted]");
+  });
+
   it("is total on empty and malformed input", () => {
     expect(scrubPath("")).toBe("");
     expect(scrubPath("?token=secret")).toBe("?token=[redacted]");

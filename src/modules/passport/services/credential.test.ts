@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { getCredential, issueServiceCredential } from "./credential";
+import {
+  getCredential,
+  getCredentialByToken,
+  issueServiceCredential,
+  publishCredential,
+  unpublishCredential,
+} from "./credential";
 
 async function seedMember() {
   const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
@@ -106,5 +112,60 @@ describe("getCredential", () => {
     const found = await getCredential(person.id);
 
     expect(found!.record.name).toBe("Ada Lovelace");
+  });
+});
+
+describe("publishing", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("mints an unguessable token and makes the credential findable by it", async () => {
+    const { person } = await seedMember();
+    await issueServiceCredential(person.id);
+
+    const token = await publishCredential(person.id);
+
+    expect(token.length).toBeGreaterThanOrEqual(32);
+    const found = await getCredentialByToken(token);
+    expect(found!.record.name).toBe("Ada Lovelace");
+  });
+
+  it("is idempotent: publishing twice keeps the same token", async () => {
+    const { person } = await seedMember();
+    await issueServiceCredential(person.id);
+
+    const first = await publishCredential(person.id);
+    const second = await publishCredential(person.id);
+
+    expect(second).toBe(first);
+  });
+
+  it("issues the credential first when the member has never generated one", async () => {
+    const { person } = await seedMember();
+
+    const token = await publishCredential(person.id);
+
+    expect(await getCredentialByToken(token)).not.toBeNull();
+  });
+
+  it("unpublishing makes the token stop resolving", async () => {
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+
+    await unpublishCredential(person.id);
+
+    expect(await getCredentialByToken(token)).toBeNull();
+  });
+
+  it("does not resolve a revoked credential", async () => {
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+    await prisma.serviceCredential.update({
+      where: { personId: person.id },
+      data: { revokedAt: new Date() },
+    });
+
+    expect(await getCredentialByToken(token)).toBeNull();
   });
 });

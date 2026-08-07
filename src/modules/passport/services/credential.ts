@@ -7,6 +7,7 @@
  * what stops a public URL from surfacing a record the member never published.
  */
 
+import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -82,4 +83,72 @@ export async function getCredential(personId: string): Promise<IssuedCredential 
     select: { id: true, record: true, publicToken: true, issuedAt: true, revokedAt: true },
   });
   return row ? toIssued(row) : null;
+}
+
+/**
+ * 32 random bytes, base64url. The public credential page is unauthenticated, so
+ * this token is the only thing standing between a URL and a member's name and
+ * service history. It must never be derived from the person id or anything
+ * else enumerable.
+ *
+ * The token also travels in a URL path, which posthog-js captures verbatim on
+ * every pageview, so "/credential/" is registered in the PostHog scrub list
+ * (src/platform/posthog/scrub-url.ts). That scrub is load-bearing, not cosmetic.
+ */
+function mintToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/**
+ * Publish the member's credential and return its public token, issuing the
+ * credential first if they have never generated one. Idempotent: an
+ * already-published credential keeps its token so a shared link never breaks.
+ */
+export async function publishCredential(personId: string): Promise<string> {
+  const existing = await getCredential(personId);
+  if (!existing) await issueServiceCredential(personId);
+  if (existing?.publicToken) return existing.publicToken;
+
+  const token = mintToken();
+  await prisma.serviceCredential.update({
+    where: { personId },
+    data: { publicToken: token },
+  });
+  await recordAudit({
+    actorPersonId: personId,
+    action: "passport.publish",
+    entityType: "ServiceCredential",
+    entityId: personId,
+  });
+  return token;
+}
+
+/** Retract the public URL. The credential itself survives; only the token is dropped. */
+export async function unpublishCredential(personId: string): Promise<void> {
+  await prisma.serviceCredential.updateMany({
+    where: { personId },
+    data: { publicToken: null },
+  });
+  await recordAudit({
+    actorPersonId: personId,
+    action: "passport.unpublish",
+    entityType: "ServiceCredential",
+    entityId: personId,
+  });
+}
+
+/**
+ * Resolve a published credential for the PUBLIC page. Returns null for an
+ * unknown token, an unpublished credential, or a revoked one, so every one of
+ * those cases renders the same 404 and the page never distinguishes "wrong
+ * token" from "retracted".
+ */
+export async function getCredentialByToken(token: string): Promise<IssuedCredential | null> {
+  if (!token) return null;
+  const row = await prisma.serviceCredential.findUnique({
+    where: { publicToken: token },
+    select: { id: true, record: true, publicToken: true, issuedAt: true, revokedAt: true },
+  });
+  if (!row || row.revokedAt) return null;
+  return toIssued(row);
 }

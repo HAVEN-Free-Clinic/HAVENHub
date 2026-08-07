@@ -49,6 +49,31 @@ async function seedCycle(
   return { srr, term, dept, cycle, applicant, app };
 }
 
+/** A SECOND applicant, with their own application, inside an EXISTING cycle.
+ *  Cross-applicant isolation cannot be proved with one seeded applicant: an
+ *  identity matching nobody only ever exercises the not-found path. */
+async function addApplicant(
+  cycleId: string,
+  email: string,
+  opts: { personId?: string; appStatus?: "DRAFT" | "SUBMITTED" } = {},
+) {
+  const appStatus = opts.appStatus ?? "SUBMITTED";
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId, firstName: "Blake", lastName: "Brooks", email, emailLower: email.toLowerCase(),
+      applicantPersonId: opts.personId ?? null,
+    },
+  });
+  const app = await prisma.application.create({
+    data: {
+      cycleId, applicantId: applicant.id, answers: {}, applicantType: "NEW",
+      departmentChoices: ["SRHD"], status: appStatus,
+      submittedAt: appStatus === "DRAFT" ? null : new Date(),
+    },
+  });
+  return { applicant, app };
+}
+
 /** The portal identity shape (email is always already lowercased). */
 const ID = (email: string) => ({ email: email.toLowerCase(), personId: null, firstName: null });
 
@@ -71,10 +96,31 @@ it("withdraws a submitted application and stamps withdrawnAt", async () => {
   expect(after.withdrawnAt).toBeInstanceOf(Date);
 });
 
-it("reports decline_offer when an acceptance exists", async () => {
+it("reports withdraw, not decline_offer, while a recorded acceptance is still unreleased", async () => {
   const { srr, app } = await seedCycle("w2", "reed@yale.edu");
   await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  // Decision recorded, Release not yet run. The applicant has been told nothing,
+  // which is exactly why portal-status still offers them "Withdraw application".
+  // The service must agree with the control the portal rendered.
   const res = await withdrawApplication("w2", ID("reed@yale.edu"));
+  expect(res.kind).toBe("withdraw");
+});
+
+it("reports decline_offer once the acceptance email has gone out", async () => {
+  const { srr, app, cycle } = await seedCycle("w2b", "reed@yale.edu");
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  const res = await withdrawApplication("w2b", ID("reed@yale.edu"));
+  expect(res.kind).toBe("decline_offer");
+});
+
+it("reports decline_offer once onboarding paperwork reached them, even before release", async () => {
+  const { srr, app } = await seedCycle("w2c", "reed@yale.edu");
+  const acc = await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  // The onboarding link is itself an acceptance notification, so a contract with
+  // no emailedAt still means the applicant knows they were offered a place.
+  await createOrResendContract(acc.id, srr.id, "http://test");
+  const res = await withdrawApplication("w2c", ID("reed@yale.edu"));
   expect(res.kind).toBe("decline_offer");
 });
 
@@ -116,10 +162,51 @@ it("is idempotent: a second call rejects and does not restamp", async () => {
   expect(second.withdrawnAt?.getTime()).toBe(first.withdrawnAt?.getTime());
 });
 
-it("refuses to touch another applicant's application", async () => {
+it("refuses when no applicant in the cycle matches the identity at all", async () => {
   const { app } = await seedCycle("w6", "reed@yale.edu");
   await expect(withdrawApplication("w6", ID("intruder@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
   expect((await prisma.application.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("SUBMITTED");
+});
+
+it("withdraws only the caller's own row, never a co-applicant's in the same cycle", async () => {
+  const { cycle, app: victim } = await seedCycle("w6b", "reed@yale.edu");
+  const { app: mine } = await addApplicant(cycle.id, "blake@yale.edu");
+
+  await withdrawApplication("w6b", ID("blake@yale.edu"));
+
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe("WITHDRAWN");
+  const untouched = await prisma.application.findUniqueOrThrow({ where: { id: victim.id } });
+  expect(untouched.status).toBe("SUBMITTED");
+  expect(untouched.withdrawnAt).toBeNull();
+});
+
+it("resolves through applicantPersonId without reaching another applicant's row", async () => {
+  const { cycle, app: victim } = await seedCycle("w6c", "reed@yale.edu");
+  const blake = await prisma.person.create({ data: { name: "Blake Brooks", status: "ACTIVE" } });
+  const { app: mine } = await addApplicant(cycle.id, "blake@yale.edu", { personId: blake.id });
+
+  // Signed in as Blake under a DIFFERENT address, so only the applicantPersonId
+  // arm of findOwnApplication's OR can match. Every other test here pins
+  // personId to null, which leaves that arm entirely unexercised.
+  await withdrawApplication("w6c", { email: "blake.brooks@gmail.com", personId: blake.id, firstName: null });
+
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe("WITHDRAWN");
+  const untouched = await prisma.application.findUniqueOrThrow({ where: { id: victim.id } });
+  expect(untouched.status).toBe("SUBMITTED");
+  expect(untouched.withdrawnAt).toBeNull();
+});
+
+it("refuses a signed-in person who holds no application in the cycle", async () => {
+  const { cycle, app: victim } = await seedCycle("w6d", "reed@yale.edu");
+  const { app: other } = await addApplicant(cycle.id, "blake@yale.edu");
+  const stranger = await prisma.person.create({ data: { name: "Casey Stranger", status: "ACTIVE" } });
+
+  await expect(
+    withdrawApplication("w6d", { email: "casey@yale.edu", personId: stranger.id, firstName: null }),
+  ).rejects.toBeInstanceOf(WithdrawError);
+
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: victim.id } })).status).toBe("SUBMITTED");
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: other.id } })).status).toBe("SUBMITTED");
 });
 
 it("refuses on an unsubmitted draft", async () => {
@@ -159,20 +246,36 @@ it("stays silent for a plain under-review withdrawal", async () => {
   expect(await prisma.notification.count()).toBe(0);
 });
 
-it("notifies review_all holders when an offer is declined", async () => {
-  const { srr, app } = await seedCycle("w10", "reed@yale.edu");
+it("notifies review_all holders when a released offer is declined", async () => {
+  const { srr, app, cycle } = await seedCycle("w10", "reed@yale.edu");
   const reviewer = await personWithPermission("Robin", "recruitment.review_all");
   await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
 
   await withdrawApplication("w10", ID("reed@yale.edu"));
 
   expect(await prisma.notification.count({ where: { personId: reviewer.id } })).toBe(1);
 });
 
+it("stays silent when the acceptance was recorded but never released", async () => {
+  const { srr, app } = await seedCycle("w10b", "reed@yale.edu");
+  const reviewer = await personWithPermission("Reese", "recruitment.review_all");
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+
+  await withdrawApplication("w10b", ID("reed@yale.edu"));
+
+  // The applicant was never told anything, so this is an ordinary under-review
+  // withdrawal. Mailing every review_all holder that they "declined their offer"
+  // would be both noise and untrue.
+  expect(await prisma.notification.count({ where: { personId: reviewer.id } })).toBe(0);
+  expect(await prisma.notification.count()).toBe(0);
+});
+
 it("does not notify twice when the second withdrawal loses the claim", async () => {
-  const { srr, app } = await seedCycle("w11", "reed@yale.edu");
+  const { srr, app, cycle } = await seedCycle("w11", "reed@yale.edu");
   const reviewer = await personWithPermission("Rory", "recruitment.review_all");
   await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
 
   await withdrawApplication("w11", ID("reed@yale.edu"));
   await expect(withdrawApplication("w11", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
@@ -208,6 +311,19 @@ it("refuses to discard another applicant's draft", async () => {
   const { app } = await seedCycle("w15", "reed@yale.edu", { appStatus: "DRAFT" });
   await expect(discardDraft("w15", ID("intruder@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
   expect(await prisma.application.count({ where: { id: app.id } })).toBe(1);
+});
+
+it("discards only the caller's own draft, never a co-applicant's in the same cycle", async () => {
+  // discardDraft DELETES, so cross-applicant isolation matters more here than
+  // anywhere else in this module, and it shares findOwnApplication with withdraw.
+  const { cycle, app: victim, applicant: victimApplicant } = await seedCycle("w15b", "reed@yale.edu", { appStatus: "DRAFT" });
+  const { app: mine } = await addApplicant(cycle.id, "blake@yale.edu", { appStatus: "DRAFT" });
+
+  await discardDraft("w15b", ID("blake@yale.edu"));
+
+  expect(await prisma.application.count({ where: { id: mine.id } })).toBe(0);
+  expect(await prisma.application.count({ where: { id: victim.id } })).toBe(1);
+  expect(await prisma.applicant.count({ where: { id: victimApplicant.id } })).toBe(1);
 });
 
 it("drops a withdrawn application out of the review queue and the digest count", async () => {

@@ -66,7 +66,7 @@ async function findOwnApplication(slug: string, identity: ApplicantIdentity) {
     include: {
       applications: {
         include: {
-          acceptances: { select: { departmentCode: true, contract: { select: { status: true } } } },
+          acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { status: true } } } },
           interviews: { select: { id: true, departmentCode: true, scheduledAt: true } },
         },
       },
@@ -183,7 +183,17 @@ export async function withdrawApplication(
     throw new WithdrawError(PROMOTED_MESSAGE);
   }
 
-  const kind: WithdrawKind = application.acceptances.length > 0 ? "decline_offer" : "withdraw";
+  // An offer is one the applicant has actually SEEN: the acceptance email went
+  // out, or onboarding paperwork reached them. This is the same predicate
+  // portal-status.ts uses to choose between the "Withdraw application" and
+  // "Decline offer" controls (emailedAcc / onboardingAcc), and the two must
+  // agree. A bare Acceptance row means SRR recorded a decision that Release has
+  // not sent yet; treating that as an offer told the applicant "we will stop
+  // considering you" while mailing every review_all holder that they "declined
+  // their offer", about an offer that was never made.
+  const kind: WithdrawKind = application.acceptances.some((a) => a.emailedAt != null || a.contract != null)
+    ? "decline_offer"
+    : "withdraw";
 
   const claimed = await prisma.$transaction(async (tx) => {
     // Re-read the promotion state INSIDE the transaction. The guard above ran
@@ -240,8 +250,9 @@ export async function withdrawApplication(
  * Reuses the teardown sweepAbandonedDrafts performs (drafts.ts): collect the
  * stored file keys out of answers, clean up the blobs, then delete the Applicant,
  * which cascades to the draft Application. One Applicant holds exactly one
- * application per cycle (@@unique([cycleId, emailLower])), so deleting it takes
- * nothing else with it.
+ * application per cycle (Application.@@unique([cycleId, applicantId]) -- NOT
+ * Applicant.@@unique([cycleId, emailLower]), which only dedupes applicant rows
+ * by email), so deleting it takes nothing else with it.
  *
  * Only offered while the cycle is open, matching the canContinue gate in
  * portal-status: after close there is nothing left to discard toward, and the

@@ -105,6 +105,14 @@ describe("buildCalendar", () => {
     expect(ics).toContain("DTSTAMP:20260806T150000Z");
   });
 
+  it("emits SEQUENCE and LAST-MODIFIED on every event so Outlook notices an edited shift", () => {
+    const ics = buildCalendar([event()], OPTS);
+    expect(ics).toContain("SEQUENCE:0");
+    // LAST-MODIFIED comes from the injected `now`, matching DTSTAMP exactly,
+    // not a fresh clock read.
+    expect(ics).toContain("LAST-MODIFIED:20260806T150000Z");
+  });
+
   it("keeps the UID stable across regenerations", () => {
     const a = buildCalendar([event()], OPTS);
     const b = buildCalendar([event()], { ...OPTS, now: new Date("2026-09-01T00:00:00.000Z") });

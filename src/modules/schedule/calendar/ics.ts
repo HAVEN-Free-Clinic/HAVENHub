@@ -100,6 +100,16 @@ export function buildCalendar(events: CalendarEvent[], opts: CalendarOptions): s
       `DESCRIPTION:${escapeText(event.description)}`,
       "STATUS:CONFIRMED",
       "TRANSP:OPAQUE",
+      // Google and Apple re-read the whole feed and diff by UID, so they don't
+      // need these, but Outlook has historically relied on SEQUENCE to notice
+      // that an existing UID's content changed. The feed has no per-event
+      // revision counter (a shift edit is just a re-render of current state,
+      // not a tracked history), so every event is always SEQUENCE 0; that is
+      // enough for Outlook to treat LAST-MODIFIED, not SEQUENCE, as the
+      // update signal here. LAST-MODIFIED uses the injected `now`, matching
+      // DTSTAMP, never a clock read.
+      "SEQUENCE:0",
+      `LAST-MODIFIED:${stamp}`,
       "END:VEVENT",
     );
   }

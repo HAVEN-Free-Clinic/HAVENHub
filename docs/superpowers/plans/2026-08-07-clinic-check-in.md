@@ -2471,7 +2471,11 @@ Both must be clean. `npx eslint src e2e` rather than `npm run lint`, which walks
 
 - [ ] **Step 3: Confirm the fence coordinates**
 
-**This is a release blocker, not a nicety.** The seeded latitude and longitude are a geocode of 800 Howard Avenue and have not been verified against the building entrance. Confirm them (stand at the door with a phone, or check a satellite view) and update `clinic.checkInLatitude` / `clinic.checkInLongitude` in `/admin/settings` before announcing the feature. A centre even fifty metres off turns the fence into something that fails people at the door.
+**This is a PRE-DEPLOY blocker, not a pre-announcement one.**
+
+The seeded latitude and longitude are a geocode of 800 Howard Avenue and have not been verified against the building entrance. Confirm them (stand at the door with a phone, or check a satellite view) and set `clinic.checkInLatitude` / `clinic.checkInLongitude` before this reaches production.
+
+The timing matters more than it first appears. `getSetting` falls back to a setting's `envDefault()` whenever the stored value is missing, invalid, or unreadable, so the coordinates always resolve to a finite number and the fence starts enforcing against the geocoded default on the very first request. There is no window in which the feature sits inert waiting to be configured. A centre even fifty metres off means rejecting on-site volunteers from the first clinic, with the director override as the only way anyone gets checked in.
 
 - [ ] **Step 4: Provision the cron schedule**
 

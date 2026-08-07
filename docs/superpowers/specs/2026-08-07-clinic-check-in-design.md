@@ -355,9 +355,22 @@ arriving as a complaint.
 - `schedule.manage_attendance` is a new permission string. Per the system-role
   convention, granting it in production needs a backfill migration, not just a
   registry edit.
-- The feature is inert until the fence coordinates are set, because self-geo
-  fails closed. That makes "deploy, then configure, then announce" the natural
-  rollout order.
+- **The fence is live the moment this deploys, using the seeded default centre.**
+  An earlier draft of this spec claimed the feature would be inert until an
+  admin set the coordinates. That was wrong, and the error is worth recording
+  because it inverts the rollout order. Every settings-registry entry resolves
+  through `getSetting`, which falls back to its `envDefault()` whenever the
+  stored value is missing, invalid, or unreadable because the database is down.
+  The coordinates therefore always resolve to a valid finite number, so the
+  fail-closed guard cannot fire in production and the fence begins enforcing
+  against the geocoded default on the first request.
+- That makes confirming the coordinates a **pre-deploy** step, not a
+  pre-announcement one. Shipping with an unverified centre means rejecting
+  on-site volunteers from the first clinic, and the director override becomes
+  the only way anyone gets checked in.
+- The fail-closed guard in `resolveFence` is kept as defensive depth for a
+  future in which settings resolution can yield nothing, and it is honest about
+  being unreachable today. It is covered by a test that stubs the resolver.
 
 ## Follow-on: mission control
 

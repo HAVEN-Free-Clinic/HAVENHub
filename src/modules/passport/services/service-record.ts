@@ -52,6 +52,27 @@ export type ServiceRecord = {
   generatedAt: string;
 };
 
+/**
+ * A term with no shift records must never read as a zero. "Not recorded" says
+ * the clinic was not counting; "0 scheduled" says the member held no shifts.
+ * Collapsing the two would understate a long-serving member on a document that
+ * goes to residency programs.
+ *
+ * Lives here, next to ServiceTermRow, rather than in the PDF renderer: the
+ * certificate PDF and the public credential page both format this value and
+ * must never disagree about how it reads, and importing it from the PDF
+ * module would pull @react-pdf/renderer (no sideEffects: false) into the
+ * public page's server bundle for a two-line string helper.
+ */
+export function formatShifts(shifts: number | null): string {
+  return shifts === null ? "Not recorded" : `${shifts} scheduled`;
+}
+
+/** Human label for a term row's track. Same reuse rationale as formatShifts above. */
+export function trackLabel(track: ServiceTermRow["track"]): string {
+  return track === "DIRECTOR" ? "Director" : "Volunteer";
+}
+
 export async function computeServiceRecord(
   personId: string,
   client: PrismaClientOrTx = prisma,

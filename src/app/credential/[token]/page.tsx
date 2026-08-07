@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { getSetting } from "@/platform/settings/service";
 import { getCredentialByToken } from "@/modules/passport/services/credential";
-import { formatShifts } from "@/modules/passport/components/passport-pdf";
+import { formatShifts, trackLabel } from "@/modules/passport/services/service-record";
+import { THead, TR, TH, TD } from "@/platform/ui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -56,27 +57,27 @@ export default async function CredentialPage({
       </h2>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border-strong text-left">
-              <th className="py-2 font-normal">Term</th>
-              <th className="py-2 font-normal">Department</th>
-              <th className="py-2 font-normal">Role</th>
-              <th className="py-2 text-right font-normal">Clinic shifts</th>
-            </tr>
-          </thead>
+          <THead>
+            <TR>
+              <TH>Term</TH>
+              <TH>Department</TH>
+              <TH>Role</TH>
+              <TH className="text-right">Clinic shifts</TH>
+            </TR>
+          </THead>
           <tbody>
             {record.terms.map((row) => (
-              <tr key={`${row.source}-${row.termCode}`} className="border-b border-border-subtle">
-                <td className="py-2">
+              <TR key={`${row.source}-${row.termCode}`}>
+                <TD>
                   {row.termName}
                   {row.source === "RECRUITMENT" ? (
                     <span className="block text-xs text-muted-foreground">Joined via recruitment</span>
                   ) : null}
-                </td>
-                <td className="py-2">{row.departmentName}</td>
-                <td className="py-2">{row.track === "DIRECTOR" ? "Director" : "Volunteer"}</td>
-                <td className="py-2 text-right">{formatShifts(row.shifts)}</td>
-              </tr>
+                </TD>
+                <TD>{row.departmentName}</TD>
+                <TD>{trackLabel(row.track)}</TD>
+                <TD className="text-right">{formatShifts(row.shifts)}</TD>
+              </TR>
             ))}
           </tbody>
         </table>

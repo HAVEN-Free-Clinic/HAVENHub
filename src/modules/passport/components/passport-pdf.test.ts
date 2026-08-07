@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { describe, expect, it } from "vitest";
 import type { ReactElement } from "react";
-import type { ServiceRecord } from "../services/service-record";
-import { PassportDocument, formatShifts } from "./passport-pdf";
+import { formatShifts, type ServiceRecord } from "../services/service-record";
+import { PassportDocument } from "./passport-pdf";
 
 const RECORD: ServiceRecord = {
   name: "Ada Lovelace",

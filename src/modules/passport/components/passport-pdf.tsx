@@ -1,24 +1,10 @@
 import { Fragment } from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import type { ServiceRecord, ServiceTermRow } from "../services/service-record";
+import { formatShifts, trackLabel, type ServiceRecord } from "../services/service-record";
 
 const INK = "#1c2b2d";
 const MUTED = "#5c7073";
 const RULE = "#d8e0e1";
-
-/**
- * A term with no shift records must never read as a zero. "Not recorded" says
- * the clinic was not counting; "0 scheduled" says the member held no shifts.
- * Collapsing the two would understate a long-serving member on a document that
- * goes to residency programs.
- */
-export function formatShifts(shifts: number | null): string {
-  return shifts === null ? "Not recorded" : `${shifts} scheduled`;
-}
-
-function trackLabel(track: ServiceTermRow["track"]): string {
-  return track === "DIRECTOR" ? "Director" : "Volunteer";
-}
 
 const styles = StyleSheet.create({
   page: { padding: 48, fontSize: 10, color: INK, fontFamily: "Helvetica" },

@@ -19,6 +19,8 @@ import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { cx } from "@/platform/ui/cx";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
+import { formatCalendarDate } from "@/platform/dates";
 import { redirect } from "next/navigation";
 import { runAction } from "@/platform/actions";
 import {
@@ -466,6 +468,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     "use server";
   }
 
+  // Day view shows one date at a time; without this, only the brand-filled pill
+  // among ~18 in the date strip says which date is being edited, and the Day-view
+  // cell aria-labels carry no date either.
+  const selectedDisplay = selectedDateKey
+    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+
   return (
     <div>
       <div className="mb-6">
@@ -548,7 +562,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               )}
               <div className="flex items-center gap-3">
                 <span className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Clicks assign</span>
-                <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
+                <nav aria-label="Clicks assign" className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
                   <Link
                     href={href({ gmode: "assign" })}
                     aria-current={gmode === "assign" ? "page" : undefined}
@@ -571,7 +585,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   >
                     Shadow
                   </Link>
-                </div>
+                </nav>
               </div>
             </div>
             <BuilderGrid
@@ -587,57 +601,59 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             />
           </>
         ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
+          <>
+            {selectedDisplay && <SectionHeader as="h2" level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
+              <BuilderDayView
+                data={data}
+                dept={dept}
+                selectedDateKey={selectedDateKey}
+                editable={editable}
+                assignAction={assignAction}
+                unassignAction={unassignAction}
+                toggleTagAction={toggleTagAction}
+              />
 
-            <BuilderDayView
-              data={data}
-              dept={dept}
-              selectedDateKey={selectedDateKey}
-              editable={editable}
-              assignAction={assignAction}
-              unassignAction={unassignAction}
-              toggleTagAction={toggleTagAction}
-            />
-
-            {/* Column 3: Sidebar */}
-            <div className="flex flex-col gap-4">
-              {editable && selectedDateKey && data.hasCapacityConfig && (
-                // Key on the selected date so a date-strip soft nav (search-params-only,
-                // which Next reconciles rather than remounts) actually REMOUNTS the panel
-                // and re-reads its uncontrolled defaultValue inputs. Without this the
-                // Patients-booked field kept the prior date's typed value and Save wrote
-                // it onto the new date's clinic (#9).
-                <CapacityPanel
-                  key={selectedDateKey}
-                  metrics={data.capacity}
-                  deptCode={dept.code}
-                  patientsBookedAction={patientsBookedAction}
-                  departmentId={dept.id}
-                  dateKey={selectedDateKey!}
-                />
-              )}
-              {editable && data.rhd != null && selectedDateKey && (
-                // Same remount-on-date fix (#9): the Attending <select> and Procedures
-                // input otherwise kept the prior date's selection, silently overwriting
-                // the new date's real attending on Save.
-                <ReadinessPanel
-                  key={selectedDateKey}
-                  rhd={data.rhd!}
-                  clinicAction={rhdClinicAction}
-                  addAttendingAction={addAttendingAction}
-                  dateKey={selectedDateKey!}
-                />
-              )}
-              {canManageRequests && (
-                <PendingRequests
-                  rows={requestRows}
-                  approveAction={approveRequestAction}
-                  denyAction={denyRequestAction}
-                  todayKey={requestsTodayKey}
-                />
-              )}
+              {/* Column 3: Sidebar */}
+              <div className="flex flex-col gap-4">
+                {editable && selectedDateKey && data.hasCapacityConfig && (
+                  // Key on the selected date so a date-strip soft nav (search-params-only,
+                  // which Next reconciles rather than remounts) actually REMOUNTS the panel
+                  // and re-reads its uncontrolled defaultValue inputs. Without this the
+                  // Patients-booked field kept the prior date's typed value and Save wrote
+                  // it onto the new date's clinic (#9).
+                  <CapacityPanel
+                    key={selectedDateKey}
+                    metrics={data.capacity}
+                    deptCode={dept.code}
+                    patientsBookedAction={patientsBookedAction}
+                    departmentId={dept.id}
+                    dateKey={selectedDateKey!}
+                  />
+                )}
+                {editable && data.rhd != null && selectedDateKey && (
+                  // Same remount-on-date fix (#9): the Attending <select> and Procedures
+                  // input otherwise kept the prior date's selection, silently overwriting
+                  // the new date's real attending on Save.
+                  <ReadinessPanel
+                    key={selectedDateKey}
+                    rhd={data.rhd!}
+                    clinicAction={rhdClinicAction}
+                    addAttendingAction={addAttendingAction}
+                    dateKey={selectedDateKey!}
+                  />
+                )}
+                {canManageRequests && (
+                  <PendingRequests
+                    rows={requestRows}
+                    approveAction={approveRequestAction}
+                    denyAction={denyRequestAction}
+                    todayKey={requestsTodayKey}
+                  />
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

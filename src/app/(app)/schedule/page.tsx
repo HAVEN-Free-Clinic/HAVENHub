@@ -1,6 +1,6 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
@@ -218,10 +218,7 @@ export default async function MySchedulePage() {
               : undefined
           }
           action={
-            <Link
-              href="#calendar-subscription"
-              className="inline-flex items-center min-h-11 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground-soft hover:border-border-strong transition-colors"
-            >
+            <Link href="#calendar-subscription" className={buttonClasses("outline", "sm", "min-h-11")}>
               Add to calendar
             </Link>
           }
@@ -248,8 +245,16 @@ export default async function MySchedulePage() {
           // that order and past is reversed to put the most recent first.
           const upcoming = t.shifts.filter((s) => isoDateKey(s.clinicDate) >= todayKey);
           const past = t.shifts.filter((s) => isoDateKey(s.clinicDate) < todayKey).reverse();
-          const nextShift = upcoming[0] ?? null;
-          const laterShifts = upcoming.slice(1);
+          // Group the next shift by date, not by index: a member working two
+          // departments on the same Saturday must see both shifts under "Next
+          // shift(s)", not one split off into "Later this term" (#89, whose
+          // original fix lived in the sidebar this branch deleted).
+          const nextKey = upcoming[0] ? isoDateKey(upcoming[0].clinicDate) : null;
+          const nextShifts = nextKey ? upcoming.filter((s) => isoDateKey(s.clinicDate) === nextKey) : [];
+          const laterShifts = nextKey ? upcoming.filter((s) => isoDateKey(s.clinicDate) !== nextKey) : [];
+          const pastHasPendingRequest = past.some((s) =>
+            t.pendingRequests.has(`${isoDateKey(s.clinicDate)}|${s.department.id}`),
+          );
 
           function shiftCard(shift: (typeof t.shifts)[number], emphasised: boolean) {
             const dateKey = isoDateKey(shift.clinicDate);
@@ -264,7 +269,7 @@ export default async function MySchedulePage() {
               <Card
                 key={cardKey}
                 pad={false}
-                className={emphasised ? "px-5 py-4 border-brand shadow-md" : "px-5 py-4"}
+                className={emphasised ? "px-5 py-4 border-brand" : "px-5 py-4"}
               >
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} /></span>
@@ -368,9 +373,9 @@ export default async function MySchedulePage() {
                 </div>
               )}
 
-              {/* Figures the header does not already state. Shift count and departments
-                  live in the PageHeader description, so these carry availability and
-                  request state instead of repeating it. */}
+              {/* Quick-scan stats for this term: shift count, availability progress,
+                  and pending request count. Each also gets a full readout in its own
+                  section below; this row is just the at-a-glance summary. */}
               <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <StatCard label="Shifts this term" value={t.shifts.length} />
                 <StatCard
@@ -389,10 +394,7 @@ export default async function MySchedulePage() {
               </div>
 
               <section>
-                <div className="flex items-center gap-3 mb-5">
-                  <SectionHeader as="h2" level="title">My shifts</SectionHeader>
-                  <Badge>{t.shifts.length} total</Badge>
-                </div>
+                <SectionHeader as="h2" level="title" className="mb-5">My shifts</SectionHeader>
 
                 {!hasShifts ? (
                   <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
@@ -400,10 +402,12 @@ export default async function MySchedulePage() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-6">
-                    {nextShift && (
+                    {nextShifts.length > 0 && (
                       <div>
-                        <SectionHeader as="h3" className="mb-2">Next shift</SectionHeader>
-                        {shiftCard(nextShift, true)}
+                        <SectionHeader as="h3" className="mb-2">
+                          {nextShifts.length > 1 ? "Next shifts" : "Next shift"}
+                        </SectionHeader>
+                        <div className="flex flex-col gap-3">{nextShifts.map((s) => shiftCard(s, true))}</div>
                       </div>
                     )}
                     {laterShifts.length > 0 && (
@@ -413,7 +417,7 @@ export default async function MySchedulePage() {
                       </div>
                     )}
                     {past.length > 0 && (
-                      <details className="group">
+                      <details className="group" open={pastHasPendingRequest}>
                         <summary className="cursor-pointer text-sm text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
                           <span className="underline underline-offset-2">
                             {past.length} past shift{past.length === 1 ? "" : "s"}
@@ -429,12 +433,7 @@ export default async function MySchedulePage() {
               {/* My availability -- always editable pre-publish, regardless
                   of whether this term's schedule grid is showing yet. */}
               <section className="mt-10">
-                <div className="flex items-center gap-3 mb-2">
-                  <SectionHeader as="h2" level="title">My availability</SectionHeader>
-                  {t.availability && t.clinicDates.length > 0 && (
-                    <Badge>{t.availability.dates.length} of {t.clinicDates.length} dates</Badge>
-                  )}
-                </div>
+                <SectionHeader as="h2" level="title" className="mb-2">My availability</SectionHeader>
                 <p className="text-sm text-subtle-foreground mb-5">
                   {t.availability === null
                     ? ""

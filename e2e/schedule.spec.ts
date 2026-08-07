@@ -541,8 +541,8 @@ test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM
 
   // Clean up so the test is idempotent.
   // Scope Remove to the Shadows subsection to avoid hitting a Director's Remove button.
-  const shadowsPara = assignedSection.locator("p", { hasText: /^Shadows/ });
-  const removeBtn = shadowsPara.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
+  const shadowsHeading = assignedSection.getByRole("heading", { name: /^Shadows/ });
+  const removeBtn = shadowsHeading.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
   await removeBtn.click();
   // Use page-level locator for the confirm button to avoid React re-render scoping issues.
   const confirmBtn = page.getByRole("button", { name: "Remove this shadow?" }).first();
@@ -566,7 +566,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
   await page.waitForURL((url) => url.searchParams.get("date") !== null);
-  await page.getByRole("link", { name: "Grid" }).click();
+  await page.getByRole("link", { name: "Grid", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("view") === "grid");
 
   await page.getByRole("link", { name: "Shadow" }).click();
@@ -599,16 +599,16 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   // row due to the sticky member column's z-index geometry; Day view remove is reliable.
   // Day view emits neither ?view nor ?mode (the unified URL contract), so wait for
   // ?view to drop rather than for a "saturday" value that no longer appears.
-  await page.getByRole("link", { name: "Day" }).click();
+  await page.getByRole("link", { name: "Day", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("view") === null);
 
   // Remove the seeded member's shadow assignment from the Day view Assigned section.
   const assignedSection = page.locator("section").filter({
     has: page.locator("h2").filter({ hasText: /^Assigned$/ }),
   });
-  const shadowsPara = assignedSection.locator("p", { hasText: /^Shadows/ });
+  const shadowsHeading = assignedSection.getByRole("heading", { name: /^Shadows/ });
   // Find the member's specific card in the shadows list and click its Remove button.
-  const shadowCard = shadowsPara.locator("xpath=following-sibling::*").locator("div.rounded-2xl").filter({
+  const shadowCard = shadowsHeading.locator("xpath=following-sibling::*").locator("div.rounded-2xl").filter({
     has: page.locator("span", { hasText: memberGridName }),
   });
   await expect(shadowCard).toBeVisible({ timeout: 5_000 });
@@ -620,7 +620,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   await page.waitForLoadState("networkidle");
 
   // Switch back to Grid Shadow view and confirm the cell shows Assign again.
-  await page.getByRole("link", { name: "Grid" }).click();
+  await page.getByRole("link", { name: "Grid", exact: true }).click();
   await page.waitForLoadState("networkidle");
   await page.getByRole("link", { name: "Shadow" }).click();
   await page.waitForLoadState("networkidle");

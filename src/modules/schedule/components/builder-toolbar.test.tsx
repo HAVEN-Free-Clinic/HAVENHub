@@ -1,15 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import type { ReactNode } from "react";
-
-vi.mock("next/link", () => ({
-  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}));
-
-const { resolveBuilderView, builderViewHref } = await import("./builder-toolbar");
+import { describe, it, expect } from "vitest";
+import { resolveBuilderView, builderViewHref } from "./builder-toolbar";
 
 describe("resolveBuilderView", () => {
   it("selects Day when neither param is present", () => {

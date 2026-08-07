@@ -166,9 +166,9 @@ export function BuilderDayView({
       <section>
         <div className="flex items-center gap-2 mb-4">
           <SectionHeader as="h2" level="title">Assigned</SectionHeader>
-          <span className="rounded-full bg-brand text-white text-xs font-semibold px-2.5 py-0.5">
-            {assignedDirectors.length + assignedVolunteers.length + assignedShadows.length}
-          </span>
+          <Badge tone="success">
+            {assignedDirectors.length + assignedVolunteers.length + assignedShadows.length} assigned
+          </Badge>
         </div>
 
         {/* Clearance banner: volunteers scheduled here who are not fully cleared */}
@@ -190,9 +190,9 @@ export function BuilderDayView({
 
         {/* Directors */}
         <div className="mb-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
+          <SectionHeader as="h4" className="mb-2">
             Directors <span className="text-brand-fg">({assignedDirectors.length})</span>
-          </p>
+          </SectionHeader>
           {assignedDirectors.length === 0 ? (
             <p className="text-sm text-subtle-foreground italic">None assigned</p>
           ) : (
@@ -222,9 +222,9 @@ export function BuilderDayView({
 
         {/* Volunteers */}
         <div className="mb-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
+          <SectionHeader as="h4" className="mb-2">
             Volunteers <span className="text-success">({assignedVolunteers.length})</span>
-          </p>
+          </SectionHeader>
           {assignedVolunteers.length === 0 ? (
             <p className="text-sm text-subtle-foreground italic">None assigned</p>
           ) : (
@@ -277,9 +277,9 @@ export function BuilderDayView({
 
         {/* Shadows */}
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-2">
+          <SectionHeader as="h4" className="mb-2">
             Shadows <span className="text-warning">({assignedShadows.length})</span>
-          </p>
+          </SectionHeader>
           {assignedShadows.length === 0 ? (
             <p className="text-sm text-subtle-foreground italic">None assigned</p>
           ) : (

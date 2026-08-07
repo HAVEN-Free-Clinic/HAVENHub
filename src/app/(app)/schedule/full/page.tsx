@@ -62,7 +62,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
             />
           </div>
 
-          {selectedDisplay && <SectionHeader className="mb-4">{selectedDisplay}</SectionHeader>}
+          {selectedDisplay && <SectionHeader level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
 
           {/* Department cards */}
           {departments.length === 0 ? (

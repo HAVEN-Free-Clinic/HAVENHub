@@ -20,7 +20,29 @@
 - **Tests run serially against one shared test database** (`fileParallelism: false`). Call `resetDb()` in `beforeEach`.
 - **Vendor calls never run inside a Prisma transaction.**
 - **NEVER run `npx playwright test` locally.** `playwright.config.ts:57` starts its own dev server with `npm run dev`, which loads `.env`, whose `DATABASE_URL` points at **production Neon**. Running e2e locally writes test rows into production; it has already happened once in this repo. Author the `.spec.ts` files as specified and stop there. CI runs the full Playwright suite against its own database, and that is where e2e is verified.
-- **Local verification is exactly three commands:** `npx tsc --noEmit`, `npx eslint src e2e`, `npx vitest run <paths>`. Vitest is safe: `vitest.setup.ts:2` redirects `DATABASE_URL` to `TEST_DATABASE_URL` on localhost:5434.
+- **Local verification is exactly three commands:** `npx tsc --noEmit`, `npx eslint src e2e`, and Vitest as specified below.
+
+## Database safety (read before running any Prisma or Vitest command)
+
+This repo's `.env` points `DATABASE_URL` at **production Neon**. Two consequences that have already caused one production incident:
+
+- **Always run Vitest against this plan's dedicated database.** Prefix every Vitest command:
+
+  ```bash
+  TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run <paths>
+  ```
+
+  It is already created and migrated. The shared `havenhub_test` is being hit right now by stray processes from another worktree, which produces phantom `Unique constraint failed` errors that look like code defects and are not.
+
+- **Never run `npx prisma migrate dev` bare.** `prisma/schema.prisma:17` sets `directUrl = env("DATABASE_URL_UNPOOLED")`, and migration commands use `directUrl`. Overriding only `DATABASE_URL` is NOT enough and silently targets production. Both variables must be set:
+
+  ```bash
+  DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  npx prisma migrate dev --name <name>
+  ```
+
+  If you ever see "No pending migrations to apply" against a database you just created, you are connected to the wrong database. Stop and report it.
 
 ## Deviation from the spec, recorded
 
@@ -289,7 +311,7 @@ describe("computeServiceRecord", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/service-record.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/service-record.test.ts`
 Expected: FAIL, cannot resolve `./service-record`.
 
 - [ ] **Step 3: Write the implementation**
@@ -490,7 +512,7 @@ export async function computeServiceRecord(
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/services/service-record.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/service-record.test.ts`
 Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Lint and commit**
@@ -553,7 +575,9 @@ model ServiceCredential {
 - [ ] **Step 2: Generate the migration**
 
 ```bash
-npx prisma migrate dev --name add_service_credential
+DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  npx prisma migrate dev --name add_service_credential
 ```
 
 Open the generated `migration.sql` and confirm it contains ONLY the `CREATE TABLE "ServiceCredential"` plus its two unique indexes and the foreign key. Delete any other statement: `migrate dev` folds pre-existing schema drift into whatever migration you happen to be generating.
@@ -677,7 +701,7 @@ describe("getCredential", () => {
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/credential.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/credential.test.ts`
 Expected: FAIL, cannot resolve `./credential`.
 
 - [ ] **Step 5: Write the implementation**
@@ -771,7 +795,7 @@ export async function getCredential(personId: string): Promise<IssuedCredential 
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/services/credential.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/credential.test.ts`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 7: Lint and commit**
@@ -866,7 +890,7 @@ describe("offboarding snapshots the service record first", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/offboard-snapshot.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/offboard-snapshot.test.ts`
 Expected: FAIL on the first test, `credential` is null.
 
 Note: if `setPersonStatus` is not the exported name in `src/platform/people.ts`, read the file and use the exported offboard entry point. The test must exercise the real transaction, not `setPersonStatusField` internals.
@@ -900,12 +924,12 @@ Confirm `log` and `errorAttrs` are already imported in `people.ts`; if not, add 
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/services/offboard-snapshot.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/offboard-snapshot.test.ts`
 Expected: PASS, 2 tests.
 
 - [ ] **Step 5: Run the surrounding suites to check nothing regressed**
 
-Run: `npx vitest run src/platform/people.test.ts src/modules/my-info`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/platform/people.test.ts src/modules/my-info`
 Expected: PASS. Offboarding is widely exercised; a new write inside its transaction is exactly the kind of change that surfaces here.
 
 - [ ] **Step 6: Lint and commit**
@@ -1036,7 +1060,7 @@ describe("PassportDocument", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/components/passport-pdf.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/components/passport-pdf.test.ts`
 Expected: FAIL, cannot resolve `./passport-pdf`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1168,7 +1192,7 @@ export function PassportDocument({
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/components/passport-pdf.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/components/passport-pdf.test.ts`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 5: Lint and commit**
@@ -1425,7 +1449,7 @@ it("redacts a credential token in the path", () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npx vitest run src/modules/passport/services/credential.test.ts src/platform/posthog/scrub-url.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/credential.test.ts src/platform/posthog/scrub-url.test.ts`
 Expected: FAIL on the new cases.
 
 - [ ] **Step 3: Add the scrub prefix**
@@ -1523,7 +1547,7 @@ export async function getCredentialByToken(token: string): Promise<IssuedCredent
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `npx vitest run src/modules/passport/services/credential.test.ts src/platform/posthog/scrub-url.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/credential.test.ts src/platform/posthog/scrub-url.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Lint and commit**
@@ -1849,7 +1873,7 @@ Add the matching imports to the page: `publishCredential`, `unpublishCredential`
 ```bash
 npx tsc --noEmit
 npx eslint src e2e
-npx vitest run src/modules/passport
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport
 ```
 
 Expected: all pass. Do NOT run Playwright (see Global Constraints).
@@ -1981,7 +2005,7 @@ describe("wallet client", () => {
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/wallet-client.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/wallet-client.test.ts`
 Expected: FAIL, cannot resolve `./wallet-client`.
 
 - [ ] **Step 4: Write the implementation**
@@ -2104,7 +2128,7 @@ If `config` reads env at module load and does not see `vi.stubEnv`, change the t
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/services/wallet-client.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/wallet-client.test.ts`
 Expected: PASS, 7 tests.
 
 - [ ] **Step 6: Lint and commit**
@@ -2171,7 +2195,9 @@ model WalletPass {
 - [ ] **Step 2: Generate the migration**
 
 ```bash
-npx prisma migrate dev --name add_wallet_pass
+DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" \
+  npx prisma migrate dev --name add_wallet_pass
 ```
 
 Review the generated SQL and delete anything beyond the `CREATE TABLE`, its indexes, and its two foreign keys.
@@ -2338,7 +2364,7 @@ describe("revokeWalletPasses", () => {
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/wallet-pass.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/wallet-pass.test.ts`
 Expected: FAIL, cannot resolve `./wallet-pass`.
 
 - [ ] **Step 5: Write the implementation**
@@ -2390,11 +2416,9 @@ export async function issueWalletPass(
   // cumulative shift total. The full history lives on the certificate and the
   // credential page, which are the artifacts that survive offboarding.
   const record = await computeServiceRecord(personId);
-  const [orgName, brandColor] = await Promise.all([
-    getSetting<string>("branding.orgName"),
-    getSetting<string>("branding.brandColor"),
-  ]);
-  void brandColor; // Custom color is Pro-only; read here so the Pro upgrade is a one-line change.
+  // Only the org name is read: custom color and logo are Pro-tier features, and
+  // the free tier takes a colorPreset (set in wallet-client.ts).
+  const orgName = await getSetting<string>("branding.orgName");
 
   const role = membership.kind === "DIRECTOR" ? "Director" : "Volunteer";
   const secondaryFields = [
@@ -2488,8 +2512,8 @@ AFTER the `prisma.$transaction(...)` call completes (not inside it), in the `OFF
 - [ ] **Step 7: Run the tests**
 
 ```bash
-npx vitest run src/modules/passport
-npx vitest run src/platform/people.test.ts
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/platform/people.test.ts
 ```
 
 Expected: PASS.
@@ -2611,7 +2635,7 @@ describe("sweepWalletPasses", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npx vitest run src/modules/passport/services/wallet-sweep.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/wallet-sweep.test.ts`
 Expected: FAIL, cannot resolve `./wallet-sweep`.
 
 - [ ] **Step 3: Write the sweep**
@@ -2662,7 +2686,7 @@ export async function sweepWalletPasses(): Promise<{ revoked: number; failed: nu
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npx vitest run src/modules/passport/services/wallet-sweep.test.ts`
+Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run src/modules/passport/services/wallet-sweep.test.ts`
 Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Add the cron route**
@@ -2717,7 +2741,7 @@ Add a row to `docs/cron-jobs.md` matching the existing table format: path `/api/
 ```bash
 npx tsc --noEmit
 npx eslint src e2e
-npx vitest run
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_passport" npx vitest run
 ```
 
 Expected: all pass.

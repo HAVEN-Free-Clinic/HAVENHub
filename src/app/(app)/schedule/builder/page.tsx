@@ -566,7 +566,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     aria-current={gmode === "shadow" ? "page" : undefined}
                     className={cx(
                       "inline-flex items-center min-h-11 border-l border-border px-3 py-1.5 text-sm font-medium transition-colors",
-                      gmode === "shadow" ? "bg-warning text-warning-foreground" : "text-muted-foreground hover:text-foreground-soft",
+                      gmode === "shadow" ? "bg-warning/5 text-warning-foreground" : "text-muted-foreground hover:text-foreground-soft",
                     )}
                   >
                     Shadow

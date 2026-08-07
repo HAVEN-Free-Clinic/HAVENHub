@@ -4,6 +4,9 @@ import { prisma } from "@/platform/db";
 import { withdrawApplication, discardDraft, WithdrawError } from "./withdraw";
 import { releaseDecisions } from "./decisions";
 import { createOrResendContract } from "./onboarding";
+import { listApplicantsForReview } from "./review";
+import { pendingReviewCount } from "./review-digest";
+import { myAssignedInterviews } from "./interviews";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -204,4 +207,36 @@ it("refuses to discard another applicant's draft", async () => {
   const { app } = await seedCycle("w15", "reed@yale.edu", { appStatus: "DRAFT" });
   await expect(discardDraft("w15", ID("intruder@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
   expect(await prisma.application.count({ where: { id: app.id } })).toBe(1);
+});
+
+it("drops a withdrawn application out of the review queue and the digest count", async () => {
+  const { srr, cycle, app } = await seedCycle("w16", "reed@yale.edu");
+  // pendingReviewCount's VOLUNTEER-track branch counts only applications ROUTED to
+  // the department (routedDepartmentCode), not merely awaiting routing; seedCycle
+  // does not route, so route it here to get a realistic "pending review" fixture.
+  await prisma.application.update({ where: { id: app.id }, data: { routedDepartmentCode: "SRHD" } });
+  expect(await listApplicantsForReview(cycle.id, srr.id)).toHaveLength(1);
+  expect(await pendingReviewCount(["SRHD"])).toBe(1);
+
+  await withdrawApplication("w16", ID("reed@yale.edu"));
+
+  expect(await listApplicantsForReview(cycle.id, srr.id)).toHaveLength(0);
+  expect(await pendingReviewCount(["SRHD"])).toBe(0);
+});
+
+it("keeps a withdrawn applicant's interview visible to the panel, marked withdrawn", async () => {
+  const { srr, app } = await seedCycle("w17", "reed@yale.edu");
+  const panelist = await prisma.person.create({
+    data: { name: "Pat Panel", status: "ACTIVE", contactEmail: "pat2@yale.edu" },
+  });
+  const iv = await prisma.interview.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", createdById: srr.id, scheduledAt: new Date() },
+  });
+  await prisma.interviewPanelist.create({ data: { interviewId: iv.id, personId: panelist.id } });
+
+  await withdrawApplication("w17", ID("reed@yale.edu"));
+
+  const mine = await myAssignedInterviews(panelist.id);
+  expect(mine).toHaveLength(1);
+  expect(mine[0].application.status).toBe("WITHDRAWN");
 });

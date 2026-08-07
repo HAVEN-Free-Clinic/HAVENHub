@@ -43,7 +43,10 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const zone = await getDisplayTimeZone();
 
   const activeDepts = await prisma.department.findMany({ where: { isActive: true }, select: { code: true, name: true }, orderBy: { code: "asc" } });
-  const apps = await prisma.application.findMany({ where: { cycleId: id }, select: { departmentChoices: true } });
+  // Withdrawn applications are excluded: this count warns staff how many
+  // applicants a department removal would affect, and nobody will act on a
+  // withdrawn one, so counting it overstates the consequence.
+  const apps = await prisma.application.findMany({ where: { cycleId: id, status: { not: "WITHDRAWN" } }, select: { departmentChoices: true } });
   const counts = new Map<string, number>();
   for (const a of apps) for (const c of a.departmentChoices) counts.set(c, (counts.get(c) ?? 0) + 1);
   const activeCodes = new Set(activeDepts.map((d) => d.code));

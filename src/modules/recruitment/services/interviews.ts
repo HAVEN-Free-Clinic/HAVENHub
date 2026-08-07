@@ -221,6 +221,10 @@ export async function listInterviewsForReview(cycleId: string, viewerId: string)
   return interviews.filter((i) => mine.has(i.departmentCode));
 }
 
+/** Interviews where this person sits on the panel.
+ *  A withdrawn applicant's interview is deliberately still returned: silently
+ *  dropping the row is how a panelist dials into a call that was cancelled. The
+ *  status rides along so the page can mark it and free the slot. */
 export async function myAssignedInterviews(personId: string) {
   return prisma.interview.findMany({
     where: { panelists: { some: { personId } } },

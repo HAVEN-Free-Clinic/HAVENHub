@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { resolveFeedToken, touchFeedToken } from "@/modules/schedule/calendar/feed-token";
 import { renderFeedForPerson, renderEmptyFeed } from "@/modules/schedule/calendar/feed";
+import { log, errorAttrs } from "@/platform/logging";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
@@ -74,10 +75,15 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     return new Response(await renderEmptyFeed(), { status: 200, headers: CALENDAR_HEADERS });
   }
 
-  const [body] = await Promise.all([
-    renderFeedForPerson(match.personId),
-    touchFeedToken(match.personId),
-  ]);
+  const body = await renderFeedForPerson(match.personId);
+
+  // Best effort: the fetch-timestamp bookkeeping must never block or fail the
+  // response. A subscriber's calendar client polls this unattended, and a
+  // transient write blip here is not their problem -- their shifts already
+  // rendered successfully above.
+  void touchFeedToken(match.personId).catch((err: unknown) => {
+    log.warn("[calendar-feed] failed to record feed fetch", errorAttrs(err, { personId: match.personId }));
+  });
 
   return new Response(body, { status: 200, headers: CALENDAR_HEADERS });
 }

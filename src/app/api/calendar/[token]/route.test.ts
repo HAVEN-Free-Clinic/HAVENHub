@@ -27,7 +27,10 @@ function request(token: string) {
 describe("GET /api/calendar/[token]", () => {
   beforeEach(() => {
     vi.mocked(resolveFeedToken).mockReset();
-    vi.mocked(touchFeedToken).mockReset();
+    // Defaults to resolved so the route's fire-and-forget `.catch(...)` always
+    // has a real promise to attach to; individual tests override with
+    // mockRejectedValue to exercise the failure path.
+    vi.mocked(touchFeedToken).mockReset().mockResolvedValue(undefined);
     vi.mocked(renderFeedForPerson).mockReset().mockResolvedValue("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
     vi.mocked(renderEmptyFeed).mockReset().mockResolvedValue("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
     vi.mocked(prisma.person.findUnique).mockReset();
@@ -78,6 +81,25 @@ describe("GET /api/calendar/[token]", () => {
     await GET(...request("abc123"));
 
     expect(touchFeedToken).toHaveBeenCalledWith("p1");
+  });
+
+  it("still serves the rendered feed when the fetch-bookkeeping write fails", async () => {
+    vi.mocked(resolveFeedToken).mockResolvedValue({ personId: "p1" });
+    vi.mocked(prisma.person.findUnique).mockResolvedValue({ status: "ACTIVE" } as never);
+    // A rejected promise with a .catch already attached (as the route does)
+    // never becomes an unhandled rejection, regardless of when it settles.
+    vi.mocked(touchFeedToken).mockRejectedValue(new Error("write conflict"));
+
+    const res = await GET(...request("abc123"));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/calendar; charset=utf-8");
+    expect(await res.text()).toBe("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
+
+    // Flush the microtask queue so the route's swallowed .catch runs inside
+    // this test rather than bleeding console output into the next one.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   it("serves an empty calendar, not a 404, once the member is no longer active", async () => {

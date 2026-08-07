@@ -21,7 +21,13 @@ import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { getSetting } from "@/platform/settings/service";
-import { issueServiceCredential, type IssuedCredential } from "@/modules/passport/services/credential";
+import {
+  issueServiceCredential,
+  publishCredential,
+  unpublishCredential,
+  getCredential,
+  type IssuedCredential,
+} from "@/modules/passport/services/credential";
 import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
 
 type PageProps = {
@@ -36,13 +42,16 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems, brandColor, orgName] = await Promise.all([
-    getMyInfo(person.personId),
-    listMyCertificates(person.personId),
-    getMyEhsStatus(person.personId),
-    getSetting<string>("branding.brandColor"),
-    getSetting<string>("branding.orgName"),
-  ]);
+  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl] =
+    await Promise.all([
+      getMyInfo(person.personId),
+      listMyCertificates(person.personId),
+      getMyEhsStatus(person.personId),
+      getSetting<string>("branding.brandColor"),
+      getSetting<string>("branding.orgName"),
+      getCredential(person.personId),
+      getSetting<string>("app.baseUrl"),
+    ]);
   const { activeTerm } = myInfo;
 
   // Server actions
@@ -107,6 +116,22 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     "use server";
     const session = await requireModuleAccess("my-info");
     return issueServiceCredential(session.personId);
+  }
+
+  // Both actions derive personId from the session, never from an argument: this
+  // page is the only caller of publishCredential/unpublishCredential, and a
+  // client-suppliable person id would let any signed-in member publish someone
+  // else's record to the public internet.
+  async function publishAction(): Promise<string> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return publishCredential(session.personId);
+  }
+
+  async function unpublishAction(): Promise<void> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await unpublishCredential(session.personId);
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -186,7 +211,15 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Service record */}
         <section>
-          <ServiceRecordCard orgName={orgName} brandColor={brandColor} issue={issueAction} />
+          <ServiceRecordCard
+            orgName={orgName}
+            brandColor={brandColor}
+            baseUrl={baseUrl}
+            initialToken={existingCredential?.publicToken ?? null}
+            issue={issueAction}
+            publish={publishAction}
+            unpublish={unpublishAction}
+          />
         </section>
       </div>
     </>

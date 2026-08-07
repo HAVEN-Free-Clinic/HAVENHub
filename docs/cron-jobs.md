@@ -39,15 +39,14 @@ Notes:
   kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
   regardless of how often a drain is triggered; a permanently-failed row (FAILED
   after 8 attempts) releases its lock so an admin retry is immediately claimable.
-- The `reminders`, `shift-reminders`, and `recruitment-review-digest` jobs still
-  only **enqueue**; their mail is delivered by the enqueue flush after they run, or
-  by this backstop tick. Each is idempotent per (person, day) via
-  `claimReminderDispatch`, so an at-least-once retry never double-sends.
-- `clinic-checkin-invites` also only **enqueues**, one email per person even when
-  they are assigned to more than one department that day. It has no
-  `claimReminderDispatch` guard, so triggering it twice on the same clinic day
-  (a manual re-run, not an external-scheduler retry) would queue a duplicate
-  invite to everyone scheduled.
+- The `reminders`, `shift-reminders`, `recruitment-review-digest`, and
+  `clinic-checkin-invites` jobs still only **enqueue**; their mail is delivered by
+  the enqueue flush after they run, or by this backstop tick. Each is idempotent
+  per (person, day) via `claimReminderDispatch`, so an at-least-once retry (a
+  cron-job.org timeout/5xx re-fire, or a manual re-run) never double-sends.
+  `clinic-checkin-invites` claims under its own dispatch kind
+  (`clinic-checkin-invite`), keyed by clinic date, so it cannot collide with the
+  weekly `shift-reminders` claims even for the same person on the same day.
 - The weekly clearance digest rides the daily `reminders` job rather than its own
   schedule. Its periodKey is the ISO week, so the first daily run of a week sends and
   the rest skip. That means one fewer external schedule to lose on re-provision, and

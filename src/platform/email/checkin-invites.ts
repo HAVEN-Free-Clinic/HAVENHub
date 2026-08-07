@@ -5,9 +5,15 @@ import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
+import { claimReminderDispatch, releaseReminderDispatch } from "./reminder-dispatch";
 import { log, errorAttrs } from "@/platform/logging";
 
 const TEMPLATE_KEY = "clinic-checkin-invite";
+
+// Distinct from "shift-reminder" so a claim taken here can never collide with
+// (or be starved by) the weekly shift-reminder cron's own claims on the same
+// (personId, periodKey) shape.
+const DISPATCH_KIND = "clinic-checkin-invite";
 
 function firstNameOf(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -24,6 +30,12 @@ export type CheckInInviteRunResult = { skipped: boolean; queued: number };
  *
  * ENQUEUES ONLY. Delivery is /api/cron/email's job; draining here would run
  * concurrently with that route and double-send.
+ *
+ * Idempotent per (person, clinic day) via claimReminderDispatch: the external
+ * scheduler (cron-job.org) retries on a timeout or a 5xx, and this route's
+ * loop can take a while on a large roster, so a second firing on the same
+ * clinic morning must not re-queue a check-in email to everyone already
+ * invited.
  */
 export async function runCheckInInvites(now: Date = new Date()): Promise<CheckInInviteRunResult> {
   const term = await getActiveTerm();
@@ -57,9 +69,16 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
     day: "numeric",
   });
   const checkInUrl = `${baseUrl}/schedule/check-in`;
+  const clinicDateKey = isoDateKey(clinicDate);
 
   let queued = 0;
   for (const person of byPerson.values()) {
+    // Atomic per-clinic-day claim: even if two invocations overlap (a
+    // cron-job.org retry on top of the run it retried), only one wins this
+    // insert, so no volunteer is double-invited for the same clinic morning.
+    const claimed = await claimReminderDispatch(DISPATCH_KIND, person.id, clinicDateKey);
+    if (!claimed) continue;
+
     try {
       const rendered = await renderEmail(TEMPLATE_KEY, {
         firstName: firstNameOf(person.name),
@@ -79,7 +98,10 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
       });
       queued += 1;
     } catch (err) {
-      // One bad recipient must not abort the whole run.
+      // Release the claim (taken before the enqueue) so a later tick can
+      // retry this person instead of the claim silently suppressing them,
+      // then log and continue: one bad recipient must not abort the batch.
+      await releaseReminderDispatch(DISPATCH_KIND, person.id, clinicDateKey);
       log.error(
         `[checkin-invites] Failed to queue check-in invite for person ${person.id}`,
         errorAttrs(err, { personId: person.id }),

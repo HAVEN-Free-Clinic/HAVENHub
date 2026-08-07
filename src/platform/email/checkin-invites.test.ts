@@ -65,6 +65,22 @@ describe("runCheckInInvites", () => {
     expect(logs.map((l) => l.personId)).not.toContain(unscheduled.id);
   });
 
+  it("is idempotent: running twice on the same clinic day queues each person once", async () => {
+    const { scheduled } = await seed();
+
+    const first = await runCheckInInvites(SATURDAY_MORNING);
+    expect(first.queued).toBe(1);
+
+    // Simulates an external-scheduler retry (timeout / 5xx) re-firing the same
+    // cron for the same clinic morning. Must not send a second invite.
+    const second = await runCheckInInvites(SATURDAY_MORNING);
+    expect(second.skipped).toBe(false);
+    expect(second.queued).toBe(0);
+
+    const logs = await prisma.emailLog.findMany({ where: { personId: scheduled.id } });
+    expect(logs.length).toBe(1);
+  });
+
   it("queues one email for a person assigned to two departments", async () => {
     const { term, scheduled } = await seed();
     const second = await prisma.department.create({ data: { code: "JCTP", name: "Joint Clinic" } });

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import type { ClientDetectedFailureReason } from "./check-in-client-reasons";
 
 export type GeoPayload = { latitude: number; longitude: number; accuracyMeters: number };
 
@@ -11,15 +12,18 @@ export type CheckInActionResult =
   | { ok: false; reason: string };
 
 /**
- * Copy for every failure the volunteer can see. Every message except the
- * not-a-clinic-day one ends by pointing at a director, INCLUDING out-of-range:
- * wifi-derived geolocation puts genuinely present people hundreds of metres away
- * often enough that treating distance as proof of absence would be wrong.
- *
- * NOT_ELIGIBLE is the one deliberate exception to that rule: markPresent (the
- * director override) enforces the same ACTIVE-status gate checkInSelf does, so
- * a director literally cannot check in someone whose membership is not active.
- * Pointing them at a director here would be a false promise.
+ * Copy for every failure the volunteer can see. Every message, with no
+ * exception, ends by pointing at a director: OUT_OF_RANGE, because wifi-derived
+ * geolocation puts genuinely present people hundreds of metres away often
+ * enough that treating distance as proof of absence would be wrong; and
+ * NOT_ELIGIBLE, because even though markPresent (the director override)
+ * enforces the same ACTIVE-status gate checkInSelf does -- so a director
+ * cannot simply wave the person through -- a director can often resolve the
+ * underlying status problem itself (a data error, a delayed offboarding flip,
+ * a membership that needs renewing). Leaving someone standing in the clinic
+ * with no next step at all is the exact failure mode this rule exists to
+ * prevent, so the copy names the problem and points at a director without
+ * promising an override.
  */
 const FAILURE_COPY: Record<string, string> = {
   PERMISSION_DENIED:
@@ -34,7 +38,8 @@ const FAILURE_COPY: Record<string, string> = {
   NOT_ASSIGNED:
     "You are not on the schedule for today. If you are covering a shift, ask a director to check you in.",
   NOT_A_CLINIC_DAY: "There is no clinic today, so there is nothing to check in to.",
-  NOT_ELIGIBLE: "Your membership is not active, so check-in is unavailable.",
+  NOT_ELIGIBLE:
+    "Your membership is not showing as active, so check-in is unavailable. Ask a director to look into why.",
   FENCE_UNCONFIGURED:
     "Check-in is not configured yet. Ask a director to check you in and let an admin know.",
   UNAVAILABLE: "Check-in could not be recorded right now. Ask a director to check you in.",
@@ -43,9 +48,19 @@ const FAILURE_COPY: Record<string, string> = {
 export function CheckInPanel({
   mode,
   action,
+  reportClientFailure,
 }: {
   mode: "geo" | "remote";
   action: (payload: GeoPayload | null) => Promise<CheckInActionResult>;
+  /**
+   * Fire-and-forget analytics for a failure the client detected before ever
+   * calling `action` (declined permission, no fix, timed out). Without this,
+   * the most common real-world failure -- declining the location prompt --
+   * would never reach PostHog, because `action` (the only path that captures
+   * an event) is never invoked for it. Purely a capture: the result is not
+   * awaited for correctness and cannot affect what the volunteer sees.
+   */
+  reportClientFailure: (reason: ClientDetectedFailureReason) => Promise<void>;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +83,7 @@ export function CheckInPanel({
 
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setError(FAILURE_COPY.POSITION_UNAVAILABLE);
+      report("POSITION_UNAVAILABLE");
       return;
     }
 
@@ -84,16 +100,23 @@ export function CheckInPanel({
       (err) => {
         setLocating(false);
         // Map the browser's own codes so the message is specific.
-        const reason =
+        const reason: ClientDetectedFailureReason =
           err.code === err.PERMISSION_DENIED
             ? "PERMISSION_DENIED"
             : err.code === err.TIMEOUT
               ? "TIMEOUT"
               : "POSITION_UNAVAILABLE";
         setError(FAILURE_COPY[reason]);
+        report(reason);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
+  }
+
+  // Best-effort: never awaited, never lets an analytics hiccup surface as a
+  // user-visible error on top of the one already shown.
+  function report(reason: ClientDetectedFailureReason) {
+    reportClientFailure(reason).catch(() => {});
   }
 
   const busy = pending || locating;

@@ -9,6 +9,7 @@ import {
   type GeoPayload,
   type CheckInActionResult,
 } from "@/modules/schedule/components/check-in-panel";
+import { isClientDetectedFailureReason } from "@/modules/schedule/components/check-in-client-reasons";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroup } from "@/platform/posthog/groups";
 import { buildPageMetadata } from "@/platform/branding/metadata";
@@ -64,6 +65,36 @@ export default async function CheckInPage() {
     };
   }
 
+  /**
+   * Analytics-only: captures a failure the CLIENT detected before ever
+   * reaching checkInAction (declined the location prompt, no fix, timed out).
+   * These are the most common real-world failures, and without this they were
+   * invisible to PostHog -- checkInAction is the only path that captures an
+   * event, and the client never called it for them.
+   *
+   * `reason` is untrusted wire input, not the typed value the panel sends: a
+   * caller could invoke this action directly with anything. It is validated
+   * against the exact set the client can genuinely produce and dropped
+   * otherwise, and it is NEVER passed to checkInSelf or used to write
+   * anything -- worst case for a forged value is a dropped capture, never a
+   * false attendance row or an influenced verdict.
+   *
+   * A distinct event name (not a `source` property on clinic_check_in_failed)
+   * keeps a server-ruled failure and a client-reported one from being
+   * conflated in the funnel later.
+   */
+  async function reportClientFailure(reason: string): Promise<void> {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    if (!isClientDetectedFailureReason(reason)) return;
+    await captureEvent({
+      distinctId: actor.personId,
+      event: "clinic_check_in_client_failed",
+      properties: { reason },
+      groups: termGroup(state.termId),
+    });
+  }
+
   if (!state.clinicDate) {
     return (
       <Card>
@@ -104,7 +135,11 @@ export default async function CheckInPage() {
     <Card>
       <h1 className="text-xl font-bold text-foreground">Check in for {dateLabel}</h1>
       <div className="mt-4">
-        <CheckInPanel mode={state.allRemote ? "remote" : "geo"} action={checkInAction} />
+        <CheckInPanel
+          mode={state.allRemote ? "remote" : "geo"}
+          action={checkInAction}
+          reportClientFailure={reportClientFailure}
+        />
       </div>
     </Card>
   );

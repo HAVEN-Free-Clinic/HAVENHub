@@ -150,4 +150,17 @@ describe("buildActionCards", () => {
     });
     expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
   });
+
+  it("omits the check-in card without schedule access, even on a clinic day", () => {
+    // Every other false-access case above inherits base's clinicToday: false, so
+    // none of them would catch a dropped hasScheduleAccess check inside
+    // checkInCard. This one sets clinicToday: true explicitly to close that gap.
+    const cards = buildActionCards({
+      ...base,
+      hasScheduleAccess: false,
+      clinicToday: true,
+      checkedInToday: false,
+    });
+    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
+  });
 });

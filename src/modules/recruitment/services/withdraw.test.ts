@@ -7,6 +7,7 @@ import { createOrResendContract } from "./onboarding";
 import { listApplicantsForReview } from "./review";
 import { pendingReviewCount } from "./review-digest";
 import { myAssignedInterviews } from "./interviews";
+import { promoteContracts } from "./promotion";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -266,4 +267,45 @@ it("refuses to reopen an application that was never withdrawn", async () => {
   const { app } = await seedCycle("w20", "reed@yale.edu");
   const manager = await personWithPermission("Marley", "recruitment.manage_cycles");
   await expect(reopenWithdrawnApplication(app.id, manager.id)).rejects.toBeInstanceOf(WithdrawError);
+});
+
+it("refuses to promote an applicant who withdrew after submitting their contract", async () => {
+  const { srr, app, cycle } = await seedCycle("w21", "reed@yale.edu");
+  const acc = await prisma.acceptance.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id },
+  });
+  await releaseDecisions(cycle.id, srr.id);
+  const contract = await createOrResendContract(acc.id, srr.id, "http://test");
+  // The applicant filled the contract in, then changed their mind.
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
+  });
+  await withdrawApplication("w21", ID("reed@yale.edu"));
+
+  const res = await promoteContracts([contract.id], srr.id);
+
+  expect(res.created).toBe(0);
+  expect(res.skipped).toBe(1);
+  const after = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
+  expect(after.status).toBe("SUBMITTED");
+  expect(after.promotedPersonId).toBeNull();
+});
+
+it("still promotes an applicant who did not withdraw", async () => {
+  const { srr, app, cycle } = await seedCycle("w22", "dana@yale.edu");
+  const acc = await prisma.acceptance.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id },
+  });
+  await releaseDecisions(cycle.id, srr.id);
+  const contract = await createOrResendContract(acc.id, srr.id, "http://test");
+  await prisma.onboardingContract.update({
+    where: { id: contract.id },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
+  });
+
+  const res = await promoteContracts([contract.id], srr.id);
+
+  expect(res.skipped).toBe(0);
+  expect(res.created + res.reactivated).toBe(1);
 });

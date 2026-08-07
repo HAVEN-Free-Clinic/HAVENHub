@@ -59,7 +59,7 @@ describe("foldLine", () => {
   it("never splits a multi-byte codepoint across a fold", () => {
     const folded = foldLine("\u{1F600}".repeat(20));
     for (const chunk of folded.split("\r\n ")) {
-      expect(chunk).not.toContain("?");
+      expect(chunk).not.toContain("�");
       expect(Buffer.from(chunk, "utf8").toString("utf8")).toBe(chunk);
     }
   });

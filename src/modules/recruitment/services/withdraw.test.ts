@@ -122,3 +122,56 @@ it("refuses on an unsubmitted draft", async () => {
   await seedCycle("w7", "reed@yale.edu", { appStatus: "DRAFT" });
   await expect(withdrawApplication("w7", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
 });
+
+/** Grant a permission to a fresh person and return them. */
+async function personWithPermission(name: string, permission: string) {
+  const p = await prisma.person.create({ data: { name, status: "ACTIVE", contactEmail: `${name}@yale.edu` } });
+  const role = await prisma.role.create({ data: { name: `${name}-role`, grants: { create: [{ permission }] } } });
+  await prisma.roleAssignment.create({ data: { personId: p.id, roleId: role.id } });
+  return p;
+}
+
+it("notifies the panel when a scheduled interview is withdrawn from", async () => {
+  const { srr, app } = await seedCycle("w8", "reed@yale.edu");
+  const panelist = await prisma.person.create({
+    data: { name: "Pat Panel", status: "ACTIVE", contactEmail: "pat@yale.edu" },
+  });
+  const iv = await prisma.interview.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", createdById: srr.id, scheduledAt: new Date() },
+  });
+  await prisma.interviewPanelist.create({ data: { interviewId: iv.id, personId: panelist.id } });
+
+  await withdrawApplication("w8", ID("reed@yale.edu"));
+
+  const queued = await prisma.notification.findMany({ where: { personId: panelist.id } });
+  expect(queued).toHaveLength(1);
+});
+
+it("stays silent for a plain under-review withdrawal", async () => {
+  await seedCycle("w9", "reed@yale.edu");
+  await withdrawApplication("w9", ID("reed@yale.edu"));
+  // notify() always writes an inbox row, so a zero count proves nobody was told
+  // through any channel.
+  expect(await prisma.notification.count()).toBe(0);
+});
+
+it("notifies review_all holders when an offer is declined", async () => {
+  const { srr, app } = await seedCycle("w10", "reed@yale.edu");
+  const reviewer = await personWithPermission("Robin", "recruitment.review_all");
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+
+  await withdrawApplication("w10", ID("reed@yale.edu"));
+
+  expect(await prisma.notification.count({ where: { personId: reviewer.id } })).toBe(1);
+});
+
+it("does not notify twice when the second withdrawal loses the claim", async () => {
+  const { srr, app } = await seedCycle("w11", "reed@yale.edu");
+  const reviewer = await personWithPermission("Rory", "recruitment.review_all");
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+
+  await withdrawApplication("w11", ID("reed@yale.edu"));
+  await expect(withdrawApplication("w11", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+
+  expect(await prisma.notification.count({ where: { personId: reviewer.id } })).toBe(1);
+});

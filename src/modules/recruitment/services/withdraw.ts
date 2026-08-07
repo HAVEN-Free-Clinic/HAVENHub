@@ -20,6 +20,12 @@
 
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { notify } from "@/platform/notifications/notify";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { departmentDirectorPersonIds } from "@/platform/departments";
+import { getSetting } from "@/platform/settings/service";
+import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { applicantWithdrewContext } from "@/platform/email/templates/recruitment";
 import type { ApplicantIdentity } from "./portal-auth";
 
 export class WithdrawError extends Error {
@@ -66,6 +72,90 @@ async function findOwnApplication(slug: string, identity: ApplicantIdentity) {
   const application = applicant?.applications[0];
   if (!applicant || !application) return null;
   return { cycle, applicant, application };
+}
+
+/**
+ * Tell the people who would otherwise act on stale information.
+ *
+ * Deliberately silent for a plain under-review withdrawal: the application falls
+ * out of the review queue on its own, and during a live cycle one notification
+ * per withdrawal is noise on exactly the population that generates the most of
+ * them. Notification is reserved for a held interview slot and a planned roster
+ * spot, where a human is about to spend time on somebody who is gone.
+ */
+async function notifyWithdrawal(input: {
+  applicantName: string;
+  cycleTitle: string;
+  kind: WithdrawKind;
+  scheduledDepartmentCodes: string[];
+  acceptedDepartmentCodes: string[];
+  scheduledInterviewIds: string[];
+  actorPersonId: string | null;
+}): Promise<void> {
+  const declinedOffer = input.kind === "decline_offer";
+  const hadScheduledInterview = input.scheduledInterviewIds.length > 0;
+  if (!declinedOffer && !hadScheduledInterview) return;
+
+  const recipientIds = new Set<string>();
+
+  if (hadScheduledInterview) {
+    const panelists = await prisma.interviewPanelist.findMany({
+      where: { interviewId: { in: input.scheduledInterviewIds } },
+      select: { personId: true },
+    });
+    for (const p of panelists) recipientIds.add(p.personId);
+  }
+
+  // departmentDirectorPersonIds takes a department id, not a code.
+  const codes = [...new Set([...input.scheduledDepartmentCodes, ...input.acceptedDepartmentCodes])];
+  if (codes.length > 0) {
+    const depts = await prisma.department.findMany({ where: { code: { in: codes } }, select: { id: true } });
+    for (const d of depts) {
+      for (const id of await departmentDirectorPersonIds(d.id)) recipientIds.add(id);
+    }
+  }
+
+  if (declinedOffer) {
+    for (const p of await peopleWithAnyPermission(["recruitment.review_all"])) recipientIds.add(p.id);
+  }
+
+  // Never notify the withdrawing applicant about their own withdrawal: on the
+  // renewal path they have a Person and can sit in one of the lists above.
+  if (input.actorPersonId) recipientIds.delete(input.actorPersonId);
+  if (recipientIds.size === 0) return;
+
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  const reviewLink = `${baseUrl}/recruitment`;
+  const departments = codes.join(", ");
+  const { subject, html } = await renderEmail(
+    "recruitment.applicant_withdrew",
+    applicantWithdrewContext({
+      applicantName: input.applicantName,
+      cycleTitle: input.cycleTitle,
+      declinedOffer,
+      hadScheduledInterview,
+      departments,
+      reviewLink,
+    }),
+  );
+
+  const summary = declinedOffer
+    ? `${input.applicantName} declined their offer for ${input.cycleTitle}. Their acceptance is still on file.`
+    : `${input.applicantName} withdrew from ${input.cycleTitle}${hadScheduledInterview ? " and their interview slot is still held." : "."}`;
+
+  const recipients = await prisma.person.findMany({
+    where: { id: { in: [...recipientIds] } },
+    select: { id: true, entraObjectId: true, contactEmail: true },
+  });
+  for (const person of recipients) {
+    await notify(prisma, {
+      type: "recruitment.applicant_withdrew",
+      person,
+      email: { subject, html },
+      teams: { title: `${input.applicantName} withdrew`, summary, link: reviewLink },
+      triggeredById: input.actorPersonId,
+    });
+  }
 }
 
 /**
@@ -119,6 +209,18 @@ export async function withdrawApplication(
     entityType: "Application",
     entityId: application.id,
     after: { kind, self: true },
+  });
+
+  // Only after a won claim, so a lost race cannot send the panel a second
+  // cancellation email.
+  await notifyWithdrawal({
+    applicantName: `${row.applicant.firstName} ${row.applicant.lastName}`.trim(),
+    cycleTitle: row.cycle.title,
+    kind,
+    scheduledDepartmentCodes: application.interviews.filter((iv) => iv.scheduledAt != null).map((iv) => iv.departmentCode),
+    acceptedDepartmentCodes: application.acceptances.map((a) => a.departmentCode),
+    scheduledInterviewIds: application.interviews.filter((iv) => iv.scheduledAt != null).map((iv) => iv.id),
+    actorPersonId: identity.personId,
   });
 
   return { kind };

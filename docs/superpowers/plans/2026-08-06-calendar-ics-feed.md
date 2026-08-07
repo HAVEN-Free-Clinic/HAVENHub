@@ -17,6 +17,8 @@
 - Dates in this codebase are noon-UTC anchored calendar dates. Compare by UTC day key using `isoDateKey`, never by raw timestamp.
 - Prisma `{ not: x }` filters silently drop NULL rows. Use an explicit `OR` with `field: null` when NULL must be included.
 - Tests are Vitest. Unit tests run with `npm test`. Tests that touch the database need `npm run test:prepare` first.
+- **There is no `@testing-library/react` in this repo.** Component tests render with `renderToStaticMarkup` from `react-dom/server` in the default node environment and assert on the returned HTML string. Do not add a testing-library dependency.
+- Server components cannot carry event handlers. Anything using `onClick`, `onFocus`, or a hook belongs in its own `"use client"` file.
 
 ---
 
@@ -58,7 +60,8 @@ Expected: all tests pass. If anything fails before you have written a line of co
 - `src/modules/schedule/calendar/feed.test.ts`
 - `src/app/api/calendar/[token]/route.ts`
 - `src/app/api/calendar/[token]/route.test.ts`
-- `src/modules/my-info/components/calendar-subscribe-card.tsx`
+- `src/modules/my-info/components/calendar-subscribe-card.tsx` - server component
+- `src/modules/my-info/components/calendar-feed-url.tsx` - client component for copy and select-on-focus
 - `src/modules/my-info/components/calendar-subscribe-card.test.tsx`
 
 **Modify:**
@@ -1276,12 +1279,20 @@ git commit -m "feat(schedule): serve the personal calendar feed"
 
 **Files:**
 - Create: `src/modules/my-info/components/calendar-subscribe-card.tsx`
+- Create: `src/modules/my-info/components/calendar-feed-url.tsx`
 - Test: `src/modules/my-info/components/calendar-subscribe-card.test.tsx`
 - Modify: `src/app/(app)/my-info/page.tsx`
 
 **Interfaces:**
 - Consumes: `issueFeedToken`, `readFeedToken` from Task 2. `getSetting` from `@/platform/settings/service`. `recordAudit` from `@/platform/audit`.
-- Produces: `<CalendarSubscribeCard feedUrl={string | null} lastFetchedAt={Date | null} timeZone={string} generateAction={() => Promise<void>} resetAction={() => Promise<void>} />`
+- Produces: `<CalendarSubscribeCard feedUrl={string | null} lastFetchedAt={Date | null} timeZone={string} generateAction={() => Promise<void>} resetAction={() => Promise<void>} />` and `googleCalendarUrl(feedUrl: string): string`
+
+Two house conventions this task must follow. There is **no `@testing-library/react`
+in this repo**; component tests render with `renderToStaticMarkup` from
+`react-dom/server` in the default node environment and assert on the HTML
+string. See `src/modules/my-info/components/memberships-card.test.tsx` for the
+pattern. And a **server component cannot carry event handlers**, so anything
+needing `onClick` or `onFocus` lives in a separate `"use client"` file.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1289,15 +1300,30 @@ Create `src/modules/my-info/components/calendar-subscribe-card.test.tsx`:
 
 ```tsx
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { CalendarSubscribeCard, googleCalendarUrl } from "./calendar-subscribe-card";
 
 const noop = async () => {};
+const FEED_URL = "https://hub.example.org/api/calendar/abc.ics";
+
+type Props = Parameters<typeof CalendarSubscribeCard>[0];
+
+function html(overrides: Partial<Props> = {}): string {
+  return renderToStaticMarkup(
+    <CalendarSubscribeCard
+      feedUrl={FEED_URL}
+      lastFetchedAt={null}
+      timeZone="America/New_York"
+      generateAction={noop}
+      resetAction={noop}
+      {...overrides}
+    />,
+  );
+}
 
 describe("googleCalendarUrl", () => {
   it("points Google at the encoded feed URL", () => {
-    const url = googleCalendarUrl("https://hub.example.org/api/calendar/abc.ics");
-    expect(url).toBe(
+    expect(googleCalendarUrl(FEED_URL)).toBe(
       "https://www.google.com/calendar/render?cid=https%3A%2F%2Fhub.example.org%2Fapi%2Fcalendar%2Fabc.ics",
     );
   });
@@ -1305,76 +1331,36 @@ describe("googleCalendarUrl", () => {
 
 describe("CalendarSubscribeCard", () => {
   it("offers to generate a link when the member has none", () => {
-    render(
-      <CalendarSubscribeCard
-        feedUrl={null}
-        lastFetchedAt={null}
-        timeZone="America/New_York"
-        generateAction={noop}
-        resetAction={noop}
-      />,
-    );
+    const markup = html({ feedUrl: null });
+    expect(markup).toContain("Generate link");
+    expect(markup).not.toContain("Reset link");
+  });
 
-    expect(screen.getByRole("button", { name: /generate link/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /reset link/i })).toBeNull();
+  it("does not render any feed address before one exists", () => {
+    expect(html({ feedUrl: null })).not.toContain("/api/calendar/");
   });
 
   it("shows the URL and both actions once a link exists", () => {
-    render(
-      <CalendarSubscribeCard
-        feedUrl="https://hub.example.org/api/calendar/abc.ics"
-        lastFetchedAt={null}
-        timeZone="America/New_York"
-        generateAction={noop}
-        resetAction={noop}
-      />,
-    );
+    const markup = html();
+    expect(markup).toContain(`value="${FEED_URL}"`);
+    expect(markup).toContain("Reset link");
+    expect(markup).toContain("Add to Google");
+  });
 
-    const field = screen.getByLabelText(/calendar feed address/i) as HTMLInputElement;
-    expect(field.value).toBe("https://hub.example.org/api/calendar/abc.ics");
-    expect(screen.getByRole("button", { name: /reset link/i })).toBeTruthy();
+  it("links out to Google with the encoded feed URL", () => {
+    expect(html()).toContain(googleCalendarUrl(FEED_URL).replace(/&/g, "&amp;"));
   });
 
   it("always discloses that Google refreshes on its own schedule", () => {
-    render(
-      <CalendarSubscribeCard
-        feedUrl="https://hub.example.org/api/calendar/abc.ics"
-        lastFetchedAt={null}
-        timeZone="America/New_York"
-        generateAction={noop}
-        resetAction={noop}
-      />,
-    );
-
-    expect(screen.getByText(/its own timing/i)).toBeTruthy();
+    expect(html()).toContain("its own timing");
   });
 
   it("reports the last fetch when one has happened", () => {
-    render(
-      <CalendarSubscribeCard
-        feedUrl="https://hub.example.org/api/calendar/abc.ics"
-        lastFetchedAt={new Date("2026-08-06T15:00:00Z")}
-        timeZone="America/New_York"
-        generateAction={noop}
-        resetAction={noop}
-      />,
-    );
-
-    expect(screen.getByText(/last checked/i)).toBeTruthy();
+    expect(html({ lastFetchedAt: new Date("2026-08-06T15:00:00Z") })).toContain("Last checked");
   });
 
   it("says so when nothing has fetched the feed yet", () => {
-    render(
-      <CalendarSubscribeCard
-        feedUrl="https://hub.example.org/api/calendar/abc.ics"
-        lastFetchedAt={null}
-        timeZone="America/New_York"
-        generateAction={noop}
-        resetAction={noop}
-      />,
-    );
-
-    expect(screen.getByText(/not been checked yet/i)).toBeTruthy();
+    expect(html()).toContain("has not been checked yet");
   });
 });
 ```
@@ -1393,7 +1379,7 @@ import { CalendarPlus } from "lucide-react";
 import { Card } from "@/platform/ui/card";
 import { buttonClasses } from "@/platform/ui/button";
 import { formatDateTime } from "@/platform/dates/format";
-import { CopyButton } from "./calendar-copy-button";
+import { FeedUrlField } from "./calendar-feed-url";
 
 type Props = {
   /** Full subscribe URL, or null when the member has not generated one yet. */
@@ -1429,18 +1415,8 @@ export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, genera
             </form>
           ) : (
             <>
-              <label htmlFor="calendar-feed-url" className="mt-4 block text-xs font-medium text-subtle-foreground">
-                Calendar feed address
-              </label>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <input
-                  id="calendar-feed-url"
-                  readOnly
-                  value={feedUrl}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground-soft"
-                />
-                <CopyButton value={feedUrl} />
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <FeedUrlField value={feedUrl} />
                 <a
                   href={googleCalendarUrl(feedUrl)}
                   target="_blank"
@@ -1478,9 +1454,11 @@ export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, genera
 }
 ```
 
-- [ ] **Step 4: Write the copy button**
+- [ ] **Step 4: Write the client-side URL field**
 
-The card is a server component, so the clipboard interaction needs its own client component. Create `src/modules/my-info/components/calendar-copy-button.tsx`:
+The card is a server component and cannot carry event handlers, so the
+select-on-focus and clipboard behavior lives in its own client file. Create
+`src/modules/my-info/components/calendar-feed-url.tsx`:
 
 ```tsx
 "use client";
@@ -1488,21 +1466,36 @@ The card is a server component, so the clipboard interaction needs its own clien
 import { useState } from "react";
 import { buttonClasses } from "@/platform/ui/button";
 
-export function CopyButton({ value }: { value: string }) {
+/** Read-only feed address with select-on-focus and a copy button. */
+export function FeedUrlField({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <button
-      type="button"
-      className={buttonClasses("outline", "sm")}
-      onClick={async () => {
-        await navigator.clipboard.writeText(value);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      }}
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
+    <div className="min-w-0 flex-1">
+      <label htmlFor="calendar-feed-url" className="block text-xs font-medium text-subtle-foreground">
+        Calendar feed address
+      </label>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          id="calendar-feed-url"
+          readOnly
+          value={value}
+          onFocus={(e) => e.currentTarget.select()}
+          className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground-soft"
+        />
+        <button
+          type="button"
+          className={buttonClasses("outline", "sm")}
+          onClick={async () => {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
   );
 }
 ```
@@ -1510,7 +1503,7 @@ export function CopyButton({ value }: { value: string }) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run src/modules/my-info/components/calendar-subscribe-card.test.tsx`
-Expected: PASS, 6 tests
+Expected: PASS, 8 tests
 
 - [ ] **Step 6: Wire the card into My Info**
 
@@ -1588,7 +1581,7 @@ Expected: no errors
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/modules/my-info/components/calendar-subscribe-card.tsx src/modules/my-info/components/calendar-copy-button.tsx src/modules/my-info/components/calendar-subscribe-card.test.tsx "src/app/(app)/my-info/page.tsx"
+git add src/modules/my-info/components/calendar-subscribe-card.tsx src/modules/my-info/components/calendar-feed-url.tsx src/modules/my-info/components/calendar-subscribe-card.test.tsx "src/app/(app)/my-info/page.tsx"
 git commit -m "feat(my-info): add the calendar subscribe card"
 ```
 

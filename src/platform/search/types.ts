@@ -8,8 +8,15 @@
  * Changing this type changes the wire format: move both sides together.
  */
 
-/** Entity groups, in the order the palette shows them. */
-export const ENTITY_GROUPS = ["People", "Cycles", "Requests"] as const;
+/**
+ * Entity groups, in the order the palette shows them.
+ *
+ * "Recruitment history" sits next to Cycles because it is the same module's
+ * data, and after People because a current member is the more common thing to
+ * be looking for. It is spelled out rather than shortened to "History" so the
+ * heading still says what it is when it appears on its own.
+ */
+export const ENTITY_GROUPS = ["People", "Cycles", "Recruitment history", "Requests"] as const;
 
 export type EntityGroup = (typeof ENTITY_GROUPS)[number];
 

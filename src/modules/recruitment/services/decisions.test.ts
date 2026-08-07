@@ -62,6 +62,35 @@ it("release sends one email per accepted, non-conflicted, un-emailed acceptance 
   expect(await prisma.emailLog.count()).toBe(1);
 });
 
+it("release skips a withdrawn applicant and still emails everybody else", async () => {
+  const { srr, cycle, clean, conflicted } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  // A second, non-conflicted acceptance: the positive control that proves the
+  // release ran and the skip below is a skip, not an empty result set.
+  await accept(conflicted.id, "MDIC", srr.id);
+  // Withdrawal deliberately leaves the Acceptance row standing (services/withdraw.ts),
+  // so Application.status is the only thing that can stop the offer email -- and
+  // once emailedAt is stamped, only revokeAcceptance can undo it.
+  await prisma.application.update({ where: { id: clean.id }, data: { status: "WITHDRAWN", withdrawnAt: new Date() } });
+
+  const res = await releaseDecisions(cycle.id, srr.id);
+
+  expect(res.sent).toBe(1);
+  const emails = await prisma.emailLog.findMany({ where: { template: "recruitment.acceptance" } });
+  expect(emails.map((e) => e.toEmail)).toEqual(["conf@yale.edu"]);
+  expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
+});
+
+it("sendAcceptanceEmail does not email an applicant who withdrew", async () => {
+  const { srr, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  await prisma.application.update({ where: { id: clean.id }, data: { status: "WITHDRAWN", withdrawnAt: new Date() } });
+
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "withdrawn" });
+  expect(await prisma.emailLog.count()).toBe(0);
+  expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
+});
+
 it("requires review_all", async () => {
   const { plain, cycle } = await seed();
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);

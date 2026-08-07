@@ -24,6 +24,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "epic-password-reset", label: "Epic password reset", defaultChannel: "email" },
   { key: "recruitment.interview_assignment", label: "Recruitment: interview panel assignment", defaultChannel: "email" },
   { key: "recruitment.review_digest", label: "Recruitment: daily review digest (directors)", defaultChannel: "email" },
+  { key: "recruitment.applicant_withdrew", label: "Recruitment: applicant withdrew (panel + directors)", defaultChannel: "email" },
   { key: "support.ticket_submitted", label: "IT Support: ticket received (requester)", defaultChannel: "email" },
   { key: "support.ticket_manager_alert", label: "IT Support: new-ticket alert (managers)", defaultChannel: "email" },
   { key: "support.request_assigned", label: "IT Support: request assigned", defaultChannel: "email" },

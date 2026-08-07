@@ -535,6 +535,7 @@ enum ApplicantType {
 enum ApplicationStatus {
   DRAFT
   SUBMITTED
+  WITHDRAWN
 }
 
 enum InterviewDecision {
@@ -1367,6 +1368,10 @@ model Application {
   decidedAt                DateTime?
   decisionNotes            String?
   status                   ApplicationStatus @default(SUBMITTED)
+  /// Set when the applicant removed themselves through the portal. Null on every
+  /// other row. Withdrawal is a declaration only: it never deletes acceptances,
+  /// interviews, or onboarding contracts, which have their own guarded teardown.
+  withdrawnAt              DateTime?
   submittedAt              DateTime?
   createdAt                DateTime          @default(now())
   updatedAt                DateTime          @updatedAt

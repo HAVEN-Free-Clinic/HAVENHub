@@ -132,10 +132,16 @@ export async function getApplicantHistory(q: {
 }
 
 function liveEntry(app: LiveApplication): HistoryEntry {
+  // A withdrawal keeps its Acceptance row (services/withdraw.ts declares, it
+  // never tears down), so acceptances alone would report a declined offer as
+  // "Accepted" to the reviewer weighing a returning applicant. ONBOARDED is
+  // left as-is: withdrawApplication refuses once a contract is PROMOTED, so a
+  // withdrawn row cannot carry one.
+  const withdrawn = app.status === "WITHDRAWN";
   const stage = deriveStage({
     advanced: app.interviews.length > 0,
     finalRound: app.interviews.length > 0,
-    accepted: app.acceptances.length > 0,
+    accepted: !withdrawn && app.acceptances.length > 0,
     onboarded: app.acceptances.some((a) => a.contract?.status === "PROMOTED"),
   });
 
@@ -159,8 +165,15 @@ function liveEntry(app: LiveApplication): HistoryEntry {
  * volunteer-track (no interview) decisions live on Application.decision. An
  * Acceptance is the more authoritative "this happened" signal and wins over
  * either.
+ *
+ * The applicant's own withdrawal outranks all of it: it is the last thing that
+ * happened to the application, and because the withdrawal deliberately leaves
+ * the Acceptance in place, reading the acceptance first would render a declined
+ * offer as "Accepted" on the applicant detail page, the history browser, and
+ * the admin person profile.
  */
 function liveOutcome(app: LiveApplication): HistoricalOutcome {
+  if (app.status === "WITHDRAWN") return "WITHDRAWN";
   if (app.acceptances.length > 0) return "ACCEPTED";
   const decisions = app.interviews.length > 0 ? app.interviews.map((i) => i.decision) : [app.decision];
   if (decisions.includes("REJECT")) return "REJECTED";

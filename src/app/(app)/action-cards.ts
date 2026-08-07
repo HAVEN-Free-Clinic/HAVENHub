@@ -29,8 +29,6 @@ export type ActionCardInput = {
   trainingIncomplete: number;
   trainingHref: string;
   profileIncomplete: boolean;
-  clinicToday: boolean; // today is a clinic date for the live term
-  checkedInToday: boolean; // this person already has an attendance row
   backfill: ActionCard[]; // module shortcuts, in preference order, priority 0
   limit?: number; // default 4
 };
@@ -77,24 +75,6 @@ function swapCard(input: ActionCardInput): ActionCard {
 }
 
 /**
- * Only appears on a clinic day, and only until the person checks in. Priority
- * 100 puts it above every other card: on a Saturday morning it is the single
- * most time-sensitive thing the person can do.
- */
-function checkInCard(input: ActionCardInput): ActionCard | null {
-  if (!input.hasScheduleAccess || !input.clinicToday || input.checkedInToday) return null;
-  return {
-    key: "check-in",
-    href: "/schedule/check-in",
-    icon: ClipboardCheck,
-    hue: "schedule",
-    label: "Clinic check-in",
-    sub: "Check in for today",
-    priority: 100,
-  };
-}
-
-/**
  * Ranked smart action feed for the dashboard. Pure: all inputs are plain data,
  * so this is unit-tested without a database. Real (personal + role) actions rank
  * by urgency; module shortcuts in `backfill` fill any remaining slots. Capped at
@@ -104,8 +84,10 @@ function checkInCard(input: ActionCardInput): ActionCard | null {
 export function buildActionCards(input: ActionCardInput): ActionCard[] {
   const cards: ActionCard[] = [];
 
-  const checkIn = checkInCard(input);
-  if (checkIn) cards.push(checkIn);
+  // Clinic check-in is deliberately NOT a card here. In this grid it rendered
+  // identically to the navigation shortcuts, so the one time-sensitive action on
+  // a clinic morning read as another shortcut. It now has its own banner above
+  // the feed (see src/app/(app)/page.tsx).
 
   if (input.pendingApprovals > 0) {
     cards.push({

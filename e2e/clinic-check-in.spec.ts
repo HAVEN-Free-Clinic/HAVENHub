@@ -113,14 +113,16 @@ test.describe("clinic check-in", () => {
       // Sanity that the dashboard actually rendered (not stuck on a gate/error),
       // so the missing-card assertion below isn't a false pass from a blank page.
       await expect(page.getByRole("heading", { name: "Modules", exact: true })).toBeVisible();
-      // NOT getByRole("link", { name: "Clinic check-in" }): the card renders
-      // label and sub as sibling <span>s inside one <Link> ("Clinic check-in" +
-      // "Check in for today"), and a link's accessible name concatenates every
-      // descendant text node, so the real accessible name is "Clinic check-in
-      // Check in for today" and an exact-match role locator on just the label
-      // can never match, present or not. getByText matches the label <span>'s
-      // own text directly, which is exactly "Clinic check-in".
-      await expect(page.getByText("Clinic check-in", { exact: true })).toHaveCount(0);
+      // Check-in surfaces as a banner above the action feed, whose heading text is
+      // exactly "Clinic today" in its own <p>. Assert on that, and on the button,
+      // so a leak through either path is caught.
+      //
+      // Mutation-verified: removing the `checkIn.assignmentCount > 0` clause from
+      // src/app/(app)/page.tsx makes BOTH assertions fail. Absence assertions are
+      // silent no-ops when the locator cannot match, so if you change the banner's
+      // copy you must re-verify these the same way rather than trusting a pass.
+      await expect(page.getByText("Clinic today", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Check in", exact: true })).toHaveCount(0);
 
       // The dead end the card would otherwise walk them into: check-in still
       // refuses with NOT_ASSIGNED even though today is a clinic day.

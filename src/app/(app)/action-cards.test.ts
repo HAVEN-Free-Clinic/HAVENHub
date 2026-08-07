@@ -13,8 +13,6 @@ const base: ActionCardInput = {
   trainingIncomplete: 0,
   trainingHref: "/training",
   profileIncomplete: false,
-  clinicToday: false,
-  checkedInToday: false,
   backfill: [],
 };
 
@@ -121,46 +119,13 @@ describe("buildActionCards", () => {
     expect(swap?.sub).toBe("1 pending");
   });
 
-  it("surfaces check-in above everything else on a clinic day when not yet checked in", () => {
-    const cards = buildActionCards({
-      ...base,
-      hasScheduleAccess: true,
-      clinicToday: true,
-      checkedInToday: false,
-    });
-    expect(cards[0].key).toBe("check-in");
-  });
-
-  it("drops the check-in card once the person has checked in", () => {
-    const cards = buildActionCards({
-      ...base,
-      hasScheduleAccess: true,
-      clinicToday: true,
-      checkedInToday: true,
-    });
-    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
-  });
-
-  it("shows no check-in card when there is no clinic today", () => {
-    const cards = buildActionCards({
-      ...base,
-      hasScheduleAccess: true,
-      clinicToday: false,
-      checkedInToday: false,
-    });
-    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
-  });
-
-  it("omits the check-in card without schedule access, even on a clinic day", () => {
-    // Every other false-access case above inherits base's clinicToday: false, so
-    // none of them would catch a dropped hasScheduleAccess check inside
-    // checkInCard. This one sets clinicToday: true explicitly to close that gap.
-    const cards = buildActionCards({
-      ...base,
-      hasScheduleAccess: false,
-      clinicToday: true,
-      checkedInToday: false,
-    });
+  it("never puts clinic check-in in this feed", () => {
+    // Check-in used to be a card here, but in the tile grid it rendered
+    // identically to the navigation shortcuts, so the one time-sensitive action
+    // on a clinic morning read as another shortcut. It now has its own banner
+    // above the feed. This guards against it being reintroduced as a tile, which
+    // would put the same action on screen twice.
+    const cards = buildActionCards({ ...base, hasScheduleAccess: true });
     expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
   });
 });

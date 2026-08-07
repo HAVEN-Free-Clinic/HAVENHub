@@ -9,6 +9,7 @@ import {
   Check,
   Clock,
   ChevronRight,
+  ClipboardCheck,
 } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
@@ -31,7 +32,7 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey, formatCalendarDate, formatForDateInput } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
@@ -331,10 +332,28 @@ export default async function HubPage() {
     trainingIncomplete,
     trainingHref,
     profileIncomplete: profileTask?.state === "INCOMPLETE",
-    clinicToday: checkIn.clinicDate !== null && checkIn.assignmentCount > 0,
-    checkedInToday: checkIn.existing !== null,
     backfill,
   });
+
+  // Clinic check-in gets its own banner above the action feed rather than a tile
+  // inside it. In the tile grid it rendered identically to the navigation
+  // shortcuts (same size, same weight), so on a clinic morning the one
+  // time-sensitive action on the page read as another shortcut. Priority bought
+  // it the leftmost slot, which is position, not prominence.
+  //
+  // Gated on actually being scheduled: a banner for an unscheduled person would
+  // dead-end on the check-in page's NOT_ASSIGNED refusal.
+  const showCheckInBanner =
+    accessible.has("schedule") && checkIn.clinicDate !== null && checkIn.assignmentCount > 0;
+  // checkedInAt is a real instant (not a calendar marker like clinicDate), so it
+  // renders in the configurable display zone rather than the server's own zone,
+  // matching how every other instant in the app is shown.
+  const checkedInLabel = checkIn.existing
+    ? formatTimeOnly(checkIn.existing.checkedInAt, await getDisplayTimeZone(), {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <>
@@ -421,6 +440,42 @@ export default async function HubPage() {
                     className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
                   >
                     Go to my schedule <ArrowRight aria-hidden className="h-4 w-4" />
+                  </Link>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Clinic check-in: prompt, then a quiet confirmation once checked in. */}
+          {showCheckInBanner && (
+            <Card pad={false} className="mt-4 p-5">
+              {checkedInLabel ? (
+                <div className="flex items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-success-foreground">
+                    <Check aria-hidden className="h-[18px] w-[18px]" />
+                  </span>
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    Checked in at {checkedInLabel}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-fg">
+                      <ClipboardCheck aria-hidden className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-lg font-semibold text-foreground">Clinic today</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        Check in when you arrive at the clinic.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/schedule/check-in"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+                  >
+                    Check in <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
                 </div>
               )}

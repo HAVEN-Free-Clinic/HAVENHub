@@ -37,11 +37,46 @@ describe("ClinicDateStrip", () => {
     expect(out.match(/September 2026/g)).toHaveLength(1);
   });
 
+  it("keeps January 2027 and January 2028 as separate groups across year boundaries", () => {
+    const yearBoundaryDates = [d(2026, 12, 20), d(2027, 1, 10), d(2027, 1, 24), d(2028, 1, 5)];
+    const out = renderToStaticMarkup(
+      <ClinicDateStrip dates={yearBoundaryDates} selectedKey={null} hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,
+    );
+    expect(out).toContain("December 2026");
+    expect(out).toContain("January 2027");
+    expect(out).toContain("January 2028");
+    // January 2027 appears once (holds two dates)
+    expect(out.match(/January 2027/g)).toHaveLength(1);
+    // January 2028 appears once (holds one date)
+    expect(out.match(/January 2028/g)).toHaveLength(1);
+    // Verify they are separate month groups by checking neither label appears multiple times
+    // The keyed Map anti-pattern would have collapsed both to "January" and showed only 2026 or 2027
+  });
+
   it("marks only the selected date with aria-current", () => {
     const out = renderToStaticMarkup(
       <ClinicDateStrip dates={DATES} selectedKey="2026-09-20" hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,
     );
     expect(out.match(/aria-current="page"/g)).toHaveLength(1);
+  });
+
+  it("marks the correct selected date by verifying aria-current is on the selected date's link", () => {
+    const out = renderToStaticMarkup(
+      <ClinicDateStrip dates={DATES} selectedKey="2026-09-20" hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,
+    );
+    // Extract the September 20 link section
+    const sept20LinkMatch = out.match(/<a[^>]*href="\/x\?date=2026-09-20"[^>]*>/);
+    expect(sept20LinkMatch).toBeTruthy();
+    expect(sept20LinkMatch![0]).toContain('aria-current="page"');
+
+    // Verify the other links don't have aria-current
+    const sept6LinkMatch = out.match(/<a[^>]*href="\/x\?date=2026-09-06"[^>]*>/);
+    expect(sept6LinkMatch).toBeTruthy();
+    expect(sept6LinkMatch![0]).not.toContain('aria-current');
+
+    const oct4LinkMatch = out.match(/<a[^>]*href="\/x\?date=2026-10-04"[^>]*>/);
+    expect(oct4LinkMatch).toBeTruthy();
+    expect(oct4LinkMatch![0]).not.toContain('aria-current');
   });
 
   it("builds each link with the caller's hrefFor", () => {

@@ -1,5 +1,5 @@
 import type { CheckInMethod } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { isoDateKey } from "@/platform/dates";
@@ -222,13 +222,23 @@ export async function writeAttendance(input: {
       select: { checkedInAt: true, method: true },
     });
     return { ok: true, alreadyCheckedIn: false, checkedInAt: row.checkedInAt, method: row.method };
-  } catch {
-    // Lost the race. Re-read and report the winner.
+  } catch (error) {
+    // Only a unique-constraint collision means "lost the race": someone else's
+    // write beat ours to the same (termId, clinicDate, personId) row between our
+    // find and our create, and their row is the true arrival record. Anything
+    // else (FK violation, pool timeout, connection reset) is a real failure and
+    // must propagate -- swallowing it here would let an unrelated write failure
+    // get reported as a success, potentially with a DIFFERENT person's method
+    // once Task 4's staff override calls this same helper concurrently.
+    if (!isUniqueConstraintError(error)) throw error;
+
     const winner = await prisma.clinicAttendance.findUnique({
       where: key,
       select: { checkedInAt: true, method: true },
     });
-    if (!winner) throw new Error("clinic attendance write failed and no row exists");
+    if (!winner) {
+      throw new Error("clinic attendance unique collision but no row exists", { cause: error });
+    }
     return { ok: true, alreadyCheckedIn: true, checkedInAt: winner.checkedInAt, method: winner.method };
   }
 }

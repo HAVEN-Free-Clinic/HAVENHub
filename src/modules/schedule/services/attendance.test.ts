@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { setSetting } from "@/platform/settings/service";
 import * as settings from "@/platform/settings/service";
-import { checkInSelf, getCheckInState } from "./attendance";
+import { checkInSelf, getCheckInState, writeAttendance } from "./attendance";
 
 const CLINIC_DATE = new Date("2026-03-07T12:00:00Z");
 // A Saturday morning instant that falls on CLINIC_DATE in Eastern Time.
@@ -231,5 +232,76 @@ describe("getCheckInState", () => {
     const { person } = await seed();
     const state = await getCheckInState(person.id, new Date("2026-03-04T13:30:00Z"));
     expect(state.clinicDate).toBeNull();
+  });
+});
+
+describe("writeAttendance", () => {
+  beforeEach(resetDb);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("on a genuine unique-constraint collision, returns the winning row instead of the write it attempted", async () => {
+    const { term, person } = await seed();
+
+    // Simulate a concurrent writer landing between writeAttendance's own
+    // "does a row already exist" read and its create(): insert the winning
+    // row for real from inside the mocked read, so the create() call below
+    // hits an actual Postgres P2002, not a fabricated one.
+    vi.spyOn(prisma.clinicAttendance, "findUnique").mockImplementationOnce((async () => {
+      await prisma.clinicAttendance.create({
+        data: {
+          termId: term.id,
+          clinicDate: CLINIC_DATE,
+          personId: person.id,
+          method: "STAFF",
+          recordedById: null,
+        },
+      });
+      return null; // what this call's own read saw a moment before the race landed
+    }) as never);
+
+    const res = await writeAttendance({
+      termId: term.id,
+      clinicDate: CLINIC_DATE,
+      personId: person.id,
+      method: "SELF_GEO",
+      distanceMeters: 10,
+      accuracyMeters: 15,
+      recordedById: null,
+      note: null,
+    });
+
+    expect(res).toEqual({
+      ok: true,
+      alreadyCheckedIn: true,
+      checkedInAt: expect.any(Date),
+      method: "STAFF", // the actual winner, not the SELF_GEO this call tried to write
+    });
+    expect(await prisma.clinicAttendance.count()).toBe(1);
+  });
+
+  it("propagates a non-unique-constraint failure instead of reporting success or a misleading message", async () => {
+    const { term, person } = await seed();
+    const fkError = new Prisma.PrismaClientKnownRequestError("Foreign key constraint failed", {
+      code: "P2003",
+      clientVersion: "test",
+    });
+    vi.spyOn(prisma.clinicAttendance, "create").mockRejectedValueOnce(fkError);
+
+    await expect(
+      writeAttendance({
+        termId: term.id,
+        clinicDate: CLINIC_DATE,
+        personId: person.id,
+        method: "SELF_GEO",
+        distanceMeters: 10,
+        accuracyMeters: 15,
+        recordedById: null,
+        note: null,
+      }),
+    ).rejects.toBe(fkError);
+    expect(await prisma.clinicAttendance.count()).toBe(0);
   });
 });

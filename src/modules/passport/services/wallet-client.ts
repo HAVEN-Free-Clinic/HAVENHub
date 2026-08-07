@@ -97,7 +97,34 @@ async function call(
 export async function createPass(input: PassInput): Promise<PassResult | null> {
   const response = await call("/api/passes", "POST", body(input));
   if (!response) return null;
-  return (await response.json()) as PassResult;
+
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (error) {
+    // A 200 with a body that is not valid JSON (an HTML error/maintenance
+    // page, a truncated response, a proxy interstitial) must degrade the
+    // same as any other vendor failure, not throw out of this best-effort
+    // client.
+    log.error(
+      "[passport] wallet call returned invalid JSON",
+      errorAttrs(error, { path: "/api/passes", method: "POST", status: response.status }),
+    );
+    return null;
+  }
+
+  const result = parsed as Partial<PassResult> | null | undefined;
+  if (!result || typeof result.serialNumber !== "string" || result.serialNumber.length === 0) {
+    // A pass with no serial number can never be updated or revoked later, so
+    // it is as unusable as an outright failure.
+    log.error("[passport] wallet call returned no serialNumber", {
+      path: "/api/passes",
+      method: "POST",
+      status: response.status,
+    });
+    return null;
+  }
+  return result as PassResult;
 }
 
 export async function updatePass(serial: string, input: PassInput): Promise<boolean> {

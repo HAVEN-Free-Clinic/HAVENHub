@@ -62,6 +62,27 @@ describe("wallet client", () => {
     expect(await createPass(INPUT)).toBeNull();
   });
 
+  it("returns null on a 200 with a body that is not valid JSON rather than throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        },
+      }),
+    );
+
+    expect(await createPass(INPUT)).toBeNull();
+  });
+
+  it("returns null on a 200 whose body has no serialNumber", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+
+    expect(await createPass(INPUT)).toBeNull();
+  });
+
   it("returns null when no API key is configured", async () => {
     mockConfig.WALLETWALLET_API_KEY = "";
     const fetchMock = vi.fn();

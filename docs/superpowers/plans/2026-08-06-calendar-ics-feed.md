@@ -110,8 +110,40 @@ describe("clinic hours settings", () => {
     expect(schema.safeParse("08:60").success).toBe(false);
     expect(schema.safeParse("").success).toBe(false);
   });
+
+  // The admin form saves ONE setting key per POST, so a guard on only one of
+  // the pair leaves the other field free to invert the window. Both directions
+  // are covered here.
+  it("rejects an end time that is not after the start time", async () => {
+    const def = getSettingDef("schedule.clinicEndTime");
+    const ctx = { config, getSetting: async () => "08:00" };
+    expect(await def.validate!("07:00", ctx)).toEqual(expect.any(String));
+    expect(await def.validate!("08:00", ctx)).toEqual(expect.any(String));
+  });
+
+  it("accepts an end time after the start time", async () => {
+    const def = getSettingDef("schedule.clinicEndTime");
+    expect(await def.validate!("13:00", { config, getSetting: async () => "08:00" })).toBeNull();
+  });
+
+  it("rejects a start time that is not before the end time", async () => {
+    const def = getSettingDef("schedule.clinicStartTime");
+    const ctx = { config, getSetting: async () => "13:00" };
+    expect(await def.validate!("14:00", ctx)).toEqual(expect.any(String));
+    expect(await def.validate!("13:00", ctx)).toEqual(expect.any(String));
+  });
+
+  it("accepts a start time before the end time", async () => {
+    const def = getSettingDef("schedule.clinicStartTime");
+    expect(await def.validate!("08:00", { config, getSetting: async () => "13:00" })).toBeNull();
+  });
 });
 ```
+
+Import `config` from `@/platform/config` in the test file if it is not already
+imported. Build the `SettingValidateCtx` the same shape `setSetting` in
+`src/platform/settings/service.ts` builds it, so the test seam matches
+production rather than inventing one.
 
 Make sure `getSettingDef` is imported at the top of the test file; add it to the existing import from `./registry` if it is not already there.
 
@@ -141,6 +173,10 @@ Then append these two entries to the `SETTINGS` array, immediately after the `di
     schema: TIME_OF_DAY,
     envDefault: () => "08:00",
     secret: false,
+    validate: async (value, ctx) => {
+      const end = await ctx.getSetting<string>("schedule.clinicEndTime");
+      return value < end ? null : "Start time must be earlier than the clinic end time.";
+    },
   }),
   define<string>({
     key: "schedule.clinicEndTime",
@@ -158,7 +194,15 @@ Then append these two entries to the `SETTINGS` array, immediately after the `di
   }),
 ```
 
-The `validate` guard compares `HH:MM` strings directly, which is safe because zero-padded 24-hour times sort lexicographically in chronological order.
+The guards compare `HH:MM` strings directly, which is safe because `validate`
+only runs after `schema.safeParse`, so both operands are already zero-padded
+fixed-width 24-hour times, and those sort lexicographically in chronological
+order.
+
+Both settings carry a guard on purpose. The admin form submits one setting key
+per POST, so a guard on only the end time would let an admin move the start
+time past it and persist an inverted window with no error. Events built from an
+inverted window would have `DTEND` before `DTSTART`.
 
 - [ ] **Step 4: Run the test to verify it passes**
 

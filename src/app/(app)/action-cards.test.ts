@@ -13,6 +13,8 @@ const base: ActionCardInput = {
   trainingIncomplete: 0,
   trainingHref: "/training",
   profileIncomplete: false,
+  clinicToday: false,
+  checkedInToday: false,
   backfill: [],
 };
 
@@ -117,5 +119,35 @@ describe("buildActionCards", () => {
     const swap = buildActionCards({ ...base, upcomingCount: 2, pendingSwapCount: 1 }).find((c) => c.key === "swap");
     expect(swap?.priority).toBe(40);
     expect(swap?.sub).toBe("1 pending");
+  });
+
+  it("surfaces check-in above everything else on a clinic day when not yet checked in", () => {
+    const cards = buildActionCards({
+      ...base,
+      hasScheduleAccess: true,
+      clinicToday: true,
+      checkedInToday: false,
+    });
+    expect(cards[0].key).toBe("check-in");
+  });
+
+  it("drops the check-in card once the person has checked in", () => {
+    const cards = buildActionCards({
+      ...base,
+      hasScheduleAccess: true,
+      clinicToday: true,
+      checkedInToday: true,
+    });
+    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
+  });
+
+  it("shows no check-in card when there is no clinic today", () => {
+    const cards = buildActionCards({
+      ...base,
+      hasScheduleAccess: true,
+      clinicToday: false,
+      checkedInToday: false,
+    });
+    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
   });
 });

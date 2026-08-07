@@ -21,6 +21,7 @@ import { ClinicChannelCard } from "./clinic-channel-card";
 import { EpicAccessCard } from "./epic-access-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
+import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
@@ -182,7 +183,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
@@ -194,6 +195,7 @@ export default async function HubPage() {
     reviewScope(person.personId),
     getDisplayTimeZone(),
     getActiveTerm(),
+    getCheckInState(person.personId),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
@@ -329,6 +331,8 @@ export default async function HubPage() {
     trainingIncomplete,
     trainingHref,
     profileIncomplete: profileTask?.state === "INCOMPLETE",
+    clinicToday: checkIn.clinicDate !== null && checkIn.assignmentCount > 0,
+    checkedInToday: checkIn.existing !== null,
     backfill,
   });
 

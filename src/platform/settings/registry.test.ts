@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS, getSettingDef, listCategories } from "./registry";
+import { SETTINGS, getSettingDef, listCategories, type SettingValidateCtx } from "./registry";
+import { config } from "@/platform/config";
 
 describe("settings registry", () => {
   it("has unique keys", () => {
@@ -113,5 +114,45 @@ describe("clinic hours settings", () => {
     expect(schema.safeParse("24:00").success).toBe(false);
     expect(schema.safeParse("08:60").success).toBe(false);
     expect(schema.safeParse("").success).toBe(false);
+  });
+
+  it("start time validate rejects when equal to or later than end time", async () => {
+    const startDef = getSettingDef("schedule.clinicStartTime");
+    const mockCtx: SettingValidateCtx = {
+      config,
+      getSetting: <U>() => Promise.resolve("13:00") as Promise<U>,
+    };
+    expect(await startDef.validate?.("13:00", mockCtx)).toBe("Start time must be earlier than the clinic end time.");
+    expect(await startDef.validate?.("14:00", mockCtx)).toBe("Start time must be earlier than the clinic end time.");
+  });
+
+  it("start time validate accepts when earlier than end time", async () => {
+    const startDef = getSettingDef("schedule.clinicStartTime");
+    const mockCtx: SettingValidateCtx = {
+      config,
+      getSetting: <U>() => Promise.resolve("13:00") as Promise<U>,
+    };
+    expect(await startDef.validate?.("08:00", mockCtx)).toBe(null);
+    expect(await startDef.validate?.("12:59", mockCtx)).toBe(null);
+  });
+
+  it("end time validate rejects when equal to or earlier than start time", async () => {
+    const endDef = getSettingDef("schedule.clinicEndTime");
+    const mockCtx: SettingValidateCtx = {
+      config,
+      getSetting: <U>() => Promise.resolve("08:00") as Promise<U>,
+    };
+    expect(await endDef.validate?.("08:00", mockCtx)).toBe("End time must be later than the clinic start time.");
+    expect(await endDef.validate?.("07:00", mockCtx)).toBe("End time must be later than the clinic start time.");
+  });
+
+  it("end time validate accepts when later than start time", async () => {
+    const endDef = getSettingDef("schedule.clinicEndTime");
+    const mockCtx: SettingValidateCtx = {
+      config,
+      getSetting: <U>() => Promise.resolve("08:00") as Promise<U>,
+    };
+    expect(await endDef.validate?.("13:00", mockCtx)).toBe(null);
+    expect(await endDef.validate?.("23:59", mockCtx)).toBe(null);
   });
 });

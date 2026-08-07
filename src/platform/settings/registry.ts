@@ -326,6 +326,10 @@ export const SETTINGS: SettingDef<unknown>[] = [
     schema: TIME_OF_DAY,
     envDefault: () => "08:00",
     secret: false,
+    validate: async (value, ctx) => {
+      const end = await ctx.getSetting<string>("schedule.clinicEndTime");
+      return value < end ? null : "Start time must be earlier than the clinic end time.";
+    },
   }),
   define<string>({
     key: "schedule.clinicEndTime",

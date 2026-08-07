@@ -99,6 +99,12 @@ test.describe("clinic check-in", () => {
     page,
     context,
   }) => {
+    // This test cold-compiles two routes ("/" and "/schedule/check-in") on top of
+    // the dev-login round trip; the default 30s budget has been observed to run
+    // out on a cold Next.js dev-server compile, which would abort the finally
+    // block mid-cleanup and leak the seeded clinic date. Longer budget, same as
+    // schedule.spec.ts's own multi-navigation test.
+    test.setTimeout(60_000);
     const clinic = await seedTodayClinicDate();
     const volunteer = await seedOnboardedVolunteer("VADM"); // no assignment
     try {
@@ -107,7 +113,14 @@ test.describe("clinic check-in", () => {
       // Sanity that the dashboard actually rendered (not stuck on a gate/error),
       // so the missing-card assertion below isn't a false pass from a blank page.
       await expect(page.getByRole("heading", { name: "Modules", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Clinic check-in", exact: true })).toHaveCount(0);
+      // NOT getByRole("link", { name: "Clinic check-in" }): the card renders
+      // label and sub as sibling <span>s inside one <Link> ("Clinic check-in" +
+      // "Check in for today"), and a link's accessible name concatenates every
+      // descendant text node, so the real accessible name is "Clinic check-in
+      // Check in for today" and an exact-match role locator on just the label
+      // can never match, present or not. getByText matches the label <span>'s
+      // own text directly, which is exactly "Clinic check-in".
+      await expect(page.getByText("Clinic check-in", { exact: true })).toHaveCount(0);
 
       // The dead end the card would otherwise walk them into: check-in still
       // refuses with NOT_ASSIGNED even though today is a clinic day.
@@ -151,6 +164,12 @@ test.describe("clinic check-in", () => {
         .locator("li")
         .filter({ has: page.getByText(absent.person.name, { exact: true }) });
       await expect(presentRowAsDirector.getByText("Here", { exact: true })).toBeVisible();
+      // Also proves the "Undo" locator used in the viewer's absence check below
+      // CAN match a real element: undo only renders alongside "Here" on today's
+      // date, so without this the toHaveCount(0) for "Undo" later would pass
+      // vacuously if that locator were ever wrong, the same class of bug as the
+      // dashboard-card locator this test file previously got flagged for.
+      await expect(presentRowAsDirector.getByRole("button", { name: "Undo", exact: true })).toBeVisible();
       await expect(absentRowAsDirector.getByRole("button", { name: "Mark present", exact: true })).toBeVisible();
 
       // Switch to a plain volunteer: same page, same date, no manage_attendance.

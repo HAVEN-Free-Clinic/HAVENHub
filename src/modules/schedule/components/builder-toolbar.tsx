@@ -115,7 +115,7 @@ export function BuilderToolbar({
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">View</span>
-        <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
+        <nav aria-label="View" className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
           {VIEW_LABELS.map(({ value, label }) => (
             <Link
               key={value}
@@ -129,7 +129,7 @@ export function BuilderToolbar({
               {label}
             </Link>
           ))}
-        </div>
+        </nav>
       </div>
     </div>
   );

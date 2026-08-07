@@ -62,7 +62,15 @@ describe("builderViewHref", () => {
     for (const view of ["day", "grid", "availability"] as const) {
       const href = builderViewHref("/schedule/builder", base, view);
       expect(href).toContain("dept=d1");
+      expect(href).toContain("date=2026-09-20");
       expect(href).toContain("term=t1");
     }
+  });
+
+  it("drops gmode when leaving Grid, so a stale shadow mode cannot ride along", () => {
+    const p = { ...base, gmode: "shadow" };
+    expect(builderViewHref("/schedule/builder", p, "grid")).toContain("gmode=shadow");
+    expect(builderViewHref("/schedule/builder", p, "day")).not.toContain("gmode");
+    expect(builderViewHref("/schedule/builder", p, "availability")).not.toContain("gmode");
   });
 });

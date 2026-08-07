@@ -39,6 +39,19 @@ export type HistoricalApplicantRow = {
   netId: string | null;
 };
 
+/** One word of a search term, matched against every identifier on the row. */
+function matchesToken(token: string): Prisma.HistoricalApplicantWhereInput {
+  return {
+    OR: [
+      { firstName: { contains: token, mode: "insensitive" } },
+      { lastName: { contains: token, mode: "insensitive" } },
+      { primaryEmail: { contains: token, mode: "insensitive" } },
+      { netId: { contains: token, mode: "insensitive" } },
+      { emails: { some: { email: { contains: token, mode: "insensitive" } } } },
+    ],
+  };
+}
+
 /**
  * Match a search term case-insensitively across every identifier a reviewer
  * might type in: first or last name, the display email, any OTHER email on
@@ -47,19 +60,25 @@ export type HistoricalApplicantRow = {
  * The emails relation matters as much as primaryEmail: an identity merged from
  * several sources keeps every address it was seen under, and the one a
  * reviewer remembers is often not the one promoted to primary.
+ *
+ * The term is split on whitespace and EVERY word must match something, because
+ * a name is stored in two columns and no single one of them contains "Ada
+ * Lovelace". Matching the whole term against each column in turn -- the
+ * obvious reading, and what this did at first -- means typing a full name
+ * finds nothing at all, which is the one thing someone is most likely to type.
+ * Person.name has no such problem (one column, whole name), so the palette's
+ * People group has always handled this and this one has to earn it.
+ *
+ * Splitting can only widen the result set, never narrow it: a column
+ * containing "ada lovelace" contains "ada" and contains "lovelace" too. It
+ * also makes the words independent, so a reviewer who types a surname first,
+ * or a first name and a NetID together, still lands on the row.
  */
 export function historicalApplicantWhere(term: string | undefined | null): Prisma.HistoricalApplicantWhereInput {
-  const t = term?.trim();
-  if (!t) return {};
-  return {
-    OR: [
-      { firstName: { contains: t, mode: "insensitive" } },
-      { lastName: { contains: t, mode: "insensitive" } },
-      { primaryEmail: { contains: t, mode: "insensitive" } },
-      { netId: { contains: t, mode: "insensitive" } },
-      { emails: { some: { email: { contains: t, mode: "insensitive" } } } },
-    ],
-  };
+  const tokens = term?.trim().split(/\s+/).filter(Boolean) ?? [];
+  if (tokens.length === 0) return {};
+  if (tokens.length === 1) return matchesToken(tokens[0]);
+  return { AND: tokens.map(matchesToken) };
 }
 
 /** A nameless identity: both name columns are NOT NULL, so it is two empty strings. */

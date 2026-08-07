@@ -253,7 +253,9 @@ describe("searchEntities permission scoping", () => {
       primaryEmail: "ada@yale.edu",
       netId: "al2345",
     });
-    const hits = await searchEntities(admin, "Lovelace");
+    // The full name, because that is what someone actually types into a
+    // palette, and it is stored across two columns so neither one contains it.
+    const hits = await searchEntities(admin, "Ada Lovelace");
     const hit = hits.find((h) => h.group === "Recruitment history");
     expect(hit?.id).toBe(ghost.id);
     expect(hit?.label).toBe("Ada Lovelace");

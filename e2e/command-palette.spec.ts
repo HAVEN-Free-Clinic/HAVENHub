@@ -122,21 +122,25 @@ test("searching a past applicant's name surfaces a Recruitment history result th
   // suite runs serially against a shared, never-emptied database and this
   // environment's imported history may be empty.
   const t = tag();
+  const email = `palette-history-${t}@example.test`;
   const lastName = `Palette ${t}`;
   const fullName = `E2eHistory ${lastName}`;
-  const { applicant, cleanup } = await seedHistoricalApplicant({
-    email: `palette-history-${t}@example.test`,
-    firstName: "E2eHistory",
-    lastName,
-  });
+  const { applicant, cleanup } = await seedHistoricalApplicant({ email, firstName: "E2eHistory", lastName });
 
   try {
     await devSignIn(page);
     await trigger(page).click();
     await combobox(page).fill(fullName);
     const historyGroup = page.getByRole("group", { name: "Recruitment history" });
-    const result = historyGroup.getByRole("option", { name: fullName, exact: true });
+    // Not exact, unlike the People lookup above: a history row renders its
+    // sub-line (the NetID, or the email when there is none) inside the option
+    // itself, so the option's accessible name is the label AND that sub-line.
+    // The tag in the surname is unique, so a substring match is unambiguous.
+    const result = historyGroup.getByRole("option", { name: fullName });
     await expect(result).toBeVisible();
+    // The sub-line is the point of that looser matcher, so pin it: this row has
+    // no NetID, so it must fall back to the email.
+    await expect(result).toContainText(email);
     await result.click();
     // The href must land, not bounce: /recruitment/history/[id] requires
     // recruitment.access outright, which is the same gate the search applies.

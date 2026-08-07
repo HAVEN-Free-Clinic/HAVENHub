@@ -88,6 +88,39 @@ describe("historicalApplicantWhere", () => {
     expect((await search("lovelace@gmail")).map((r) => r.id)).toEqual([a.id]);
   });
 
+  // A name lives in two columns, so no single column contains "Ada Lovelace"
+  // and a whole-term `contains` against each one in turn finds nothing. Typing
+  // a full name is the most likely thing a searcher does, so it has to work.
+  it("finds an identity by full name, which no single column contains", async () => {
+    const a = await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    expect((await search("Ada Lovelace")).map((r) => r.id)).toEqual([a.id]);
+  });
+
+  it("finds an identity when the words are typed in either order", async () => {
+    const a = await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    expect((await search("lovelace ada")).map((r) => r.id)).toEqual([a.id]);
+  });
+
+  it("finds an identity from a first name and a NetID together", async () => {
+    const a = await createHistorical({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      primaryEmail: "ada@yale.edu",
+      netId: "al2345",
+    });
+    expect((await search("ada al2345")).map((r) => r.id)).toEqual([a.id]);
+  });
+
+  it("requires every word to match, so a wrong surname excludes the row", async () => {
+    await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    expect(await search("Ada Babbage")).toEqual([]);
+  });
+
+  it("ignores extra whitespace between and around the words", async () => {
+    const a = await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    expect((await search("  Ada   Lovelace  ")).map((r) => r.id)).toEqual([a.id]);
+  });
+
   it("returns nothing for a term that matches no identifier", async () => {
     await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
     expect(await search("babbage")).toEqual([]);

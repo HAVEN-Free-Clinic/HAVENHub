@@ -184,6 +184,10 @@ model Person {
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
+  /// Clinic attendance rows for this person.
+  clinicAttendances              ClinicAttendance[]         @relation("clinicAttendancePerson")
+  /// Clinic attendance rows this person recorded on someone else's behalf.
+  clinicAttendancesRecorded      ClinicAttendance[]         @relation("clinicAttendanceRecordedBy")
   schedulePublications           SchedulePublication[]      @relation("schedulePublishedBy")
   recruitmentCyclesCreated       RecruitmentCycle[]         @relation("RecruitmentCycleCreatedBy")
   recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
@@ -262,6 +266,7 @@ model Term {
   /// Offboard flags raised for this term.
   offboardFlags        OffboardFlag[]
   shiftAssignments     ShiftAssignment[]
+  clinicAttendances    ClinicAttendance[]
   shiftRequests        ShiftRequest[]
   scheduleDays         ScheduleDay[]
   rhdClinics           RhdClinic[]
@@ -1229,6 +1234,53 @@ model RhdClinic {
   attending        RhdAttending? @relation(fields: [attendingId], references: [id], onDelete: SetNull)
 
   @@unique([termId, clinicDate])
+}
+
+/// How an attendance record came to exist. SELF_GEO passed the geofence;
+/// SELF_REMOTE is a telehealth volunteer for whom the fence does not apply;
+/// STAFF was recorded by a director when self check-in was not possible.
+enum CheckInMethod {
+  SELF_GEO
+  SELF_REMOTE
+  STAFF
+}
+
+/// One row per person per clinic day. Its existence IS the attendance fact;
+/// absence is derived (an assignment with no row, on a past clinic date), never
+/// stored. Keyed per person rather than per assignment because a person may hold
+/// assignments in two departments on one clinic date and still arrives once.
+model ClinicAttendance {
+  id             String        @id @default(cuid())
+  termId         String
+  /// Noon-UTC anchored calendar date, matching Term.clinicDates and
+  /// ShiftAssignment.clinicDate. Compare by UTC day key, never raw timestamp.
+  clinicDate     DateTime
+  personId       String
+  /// True arrival instant, NOT date-anchored. Kept so punctuality and hours can
+  /// be derived later over data collected from day one.
+  checkedInAt    DateTime      @default(now())
+  method         CheckInMethod
+  /// Rounded metres from the configured fence centre. Null for SELF_REMOTE and
+  /// STAFF. Raw coordinates are deliberately never persisted (privacy).
+  distanceMeters Int?
+  /// The fix's reported accuracy in metres, kept for tuning the thresholds.
+  accuracyMeters Int?
+  /// The staff member who recorded it. Null for self check-in.
+  recordedById   String?
+  note           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  /// Restrict: term deletion is blocked while attendance history references it.
+  term       Term    @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// Cascade: attendance belongs to the person and dies with them.
+  person     Person  @relation("clinicAttendancePerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// SetNull: the record survives the recorder being deleted.
+  recordedBy Person? @relation("clinicAttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([termId, clinicDate, personId])
+  @@index([termId, clinicDate])
+  @@index([personId, termId])
 }
 
 model RecruitmentCycle {

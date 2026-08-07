@@ -242,3 +242,76 @@ export async function writeAttendance(input: {
     return { ok: true, alreadyCheckedIn: true, checkedInAt: winner.checkedInAt, method: winner.method };
   }
 }
+
+export type AttendanceRow = {
+  checkedInAt: Date;
+  method: CheckInMethod;
+  recordedById: string | null;
+};
+
+/**
+ * Director override: record that someone is here when self check-in could not
+ * happen (denied permission, no usable fix, or simply no assignment).
+ *
+ * Deliberately allows an UNASSIGNED subject. Informal covers happen, and a board
+ * that cannot show them is visibly wrong. The row carries no assignment, so it
+ * never enters the no-show denominator, which stays measured against
+ * ShiftAssignment.
+ *
+ * Caller must have already enforced `schedule.manage_attendance`.
+ */
+export async function markPresent(
+  actorId: string,
+  personId: string,
+  opts: { note?: string } = {},
+  now: Date = new Date(),
+): Promise<CheckInResult> {
+  const person = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { status: true },
+  });
+  if (!person || person.status !== "ACTIVE") return { ok: false, reason: "NOT_ELIGIBLE" };
+
+  const today = await todaysClinicDate(now);
+  if (!today) return { ok: false, reason: "NOT_A_CLINIC_DAY" };
+
+  return writeAttendance({
+    termId: today.termId,
+    clinicDate: today.clinicDate,
+    personId,
+    method: "STAFF",
+    distanceMeters: null,
+    accuracyMeters: null,
+    recordedById: actorId,
+    note: opts.note?.trim() || null,
+  });
+}
+
+/**
+ * Remove today's attendance row for a person, so a misclick can be corrected.
+ * No-op when there is nothing to remove.
+ *
+ * Caller must have already enforced `schedule.manage_attendance`.
+ */
+export async function undoAttendance(personId: string, now: Date = new Date()): Promise<void> {
+  const today = await todaysClinicDate(now);
+  if (!today) return;
+
+  await prisma.clinicAttendance.deleteMany({
+    where: { termId: today.termId, clinicDate: today.clinicDate, personId },
+  });
+}
+
+/** Attendance for one clinic date, keyed by personId, for roster overlays. */
+export async function attendanceForDate(
+  termId: string,
+  clinicDate: Date,
+): Promise<Map<string, AttendanceRow>> {
+  const rows = await prisma.clinicAttendance.findMany({
+    where: { termId, clinicDate },
+    select: { personId: true, checkedInAt: true, method: true, recordedById: true },
+  });
+  return new Map(
+    rows.map((r) => [r.personId, { checkedInAt: r.checkedInAt, method: r.method, recordedById: r.recordedById }]),
+  );
+}

@@ -24,6 +24,10 @@ export const MODULES: ModuleManifest[] = [
       "schedule.edit_own_dept",
       "schedule.edit_all",
       "schedule.manage_requests",
+      // Deliberately unscoped (not department-scoped, unlike the permissions
+      // above): the operational reality is one front-desk staffer marking
+      // walk-ins present across every department, not per-department checks.
+      "schedule.manage_attendance",
     ],
     status: "active",
     nav: [

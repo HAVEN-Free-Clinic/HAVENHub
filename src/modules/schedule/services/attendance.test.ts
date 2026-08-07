@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { setSetting } from "@/platform/settings/service";
 import * as settings from "@/platform/settings/service";
-import { checkInSelf, getCheckInState, writeAttendance } from "./attendance";
+import { checkInSelf, getCheckInState, writeAttendance, markPresent, undoAttendance, attendanceForDate } from "./attendance";
 
 const CLINIC_DATE = new Date("2026-03-07T12:00:00Z");
 // A Saturday morning instant that falls on CLINIC_DATE in Eastern Time.
@@ -303,5 +303,115 @@ describe("writeAttendance", () => {
       }),
     ).rejects.toBe(fkError);
     expect(await prisma.clinicAttendance.count()).toBe(0);
+  });
+});
+
+describe("markPresent", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await configureFence();
+  });
+
+  it("records a STAFF row with the recorder attributed", async () => {
+    const { person } = await seed();
+    const director = await prisma.person.create({ data: { name: "Grace Hopper" } });
+
+    const res = await markPresent(director.id, person.id, { note: "Phone had no signal" }, SATURDAY_MORNING);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.method).toBe("STAFF");
+
+    const row = await prisma.clinicAttendance.findFirstOrThrow({ where: { personId: person.id } });
+    expect(row.recordedById).toBe(director.id);
+    expect(row.note).toBe("Phone had no signal");
+    expect(row.distanceMeters).toBeNull();
+  });
+
+  it("records an UNASSIGNED person, so who-is-here stays honest", async () => {
+    const { term } = await seed();
+    const director = await prisma.person.create({ data: { name: "Grace Hopper" } });
+    const walkOn = await prisma.person.create({ data: { name: "Katherine Johnson" } });
+
+    const res = await markPresent(director.id, walkOn.id, {}, SATURDAY_MORNING);
+    expect(res.ok).toBe(true);
+
+    const row = await prisma.clinicAttendance.findFirstOrThrow({ where: { personId: walkOn.id } });
+    expect(row.termId).toBe(term.id);
+    // No assignment exists, so this person is present but not in the no-show denominator.
+    const assignments = await prisma.shiftAssignment.count({ where: { personId: walkOn.id } });
+    expect(assignments).toBe(0);
+  });
+
+  it("rejects an offboarded subject", async () => {
+    const { person } = await seed();
+    const director = await prisma.person.create({ data: { name: "Grace Hopper" } });
+    await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED" } });
+
+    const res = await markPresent(director.id, person.id, {}, SATURDAY_MORNING);
+    expect(res).toEqual({ ok: false, reason: "NOT_ELIGIBLE" });
+  });
+
+  it("rejects a non-clinic day", async () => {
+    const { person } = await seed();
+    const director = await prisma.person.create({ data: { name: "Grace Hopper" } });
+    const res = await markPresent(director.id, person.id, {}, new Date("2026-03-04T13:30:00Z"));
+    expect(res).toEqual({ ok: false, reason: "NOT_A_CLINIC_DAY" });
+  });
+
+  it("is idempotent against an existing self check-in", async () => {
+    const { person } = await seed();
+    const director = await prisma.person.create({ data: { name: "Grace Hopper" } });
+    await checkInSelf(person.id, { coords: CLINIC, accuracyMeters: 20 }, SATURDAY_MORNING);
+
+    const res = await markPresent(director.id, person.id, {}, SATURDAY_MORNING);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.alreadyCheckedIn).toBe(true);
+      // The original SELF_GEO record is NOT overwritten by a STAFF one.
+      expect(res.method).toBe("SELF_GEO");
+    }
+    expect(await prisma.clinicAttendance.count()).toBe(1);
+  });
+});
+
+describe("undoAttendance", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await configureFence();
+  });
+
+  it("removes the row so a misclick can be corrected", async () => {
+    const { person } = await seed();
+    await checkInSelf(person.id, { coords: CLINIC, accuracyMeters: 20 }, SATURDAY_MORNING);
+    expect(await prisma.clinicAttendance.count()).toBe(1);
+
+    await undoAttendance(person.id, SATURDAY_MORNING);
+    expect(await prisma.clinicAttendance.count()).toBe(0);
+  });
+
+  it("is a no-op when there is nothing to undo", async () => {
+    const { person } = await seed();
+    await expect(undoAttendance(person.id, SATURDAY_MORNING)).resolves.toBeUndefined();
+  });
+});
+
+describe("attendanceForDate", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await configureFence();
+  });
+
+  it("returns a map keyed by personId", async () => {
+    const { person, term } = await seed();
+    await checkInSelf(person.id, { coords: CLINIC, accuracyMeters: 20 }, SATURDAY_MORNING);
+
+    const map = await attendanceForDate(term.id, CLINIC_DATE);
+    expect(map.get(person.id)?.method).toBe("SELF_GEO");
+    expect(map.size).toBe(1);
+  });
+
+  it("is empty for a date with no attendance", async () => {
+    const { term } = await seed();
+    const map = await attendanceForDate(term.id, CLINIC_DATE);
+    expect(map.size).toBe(0);
   });
 });

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { withdrawApplication, WithdrawError } from "./withdraw";
+import { releaseDecisions } from "./decisions";
+import { createOrResendContract } from "./onboarding";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -43,7 +46,6 @@ async function seedCycle(
 }
 
 /** The portal identity shape (email is always already lowercased). */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for Tasks 2-9's tests appended below
 const ID = (email: string) => ({ email: email.toLowerCase(), personId: null, firstName: null });
 
 it("stores a WITHDRAWN application with a withdrawnAt stamp", async () => {
@@ -54,4 +56,69 @@ it("stores a WITHDRAWN application with a withdrawnAt stamp", async () => {
   });
   expect(stamped.status).toBe("WITHDRAWN");
   expect(stamped.withdrawnAt).toBeInstanceOf(Date);
+});
+
+it("withdraws a submitted application and stamps withdrawnAt", async () => {
+  const { app } = await seedCycle("w1", "reed@yale.edu");
+  const res = await withdrawApplication("w1", ID("reed@yale.edu"));
+  expect(res.kind).toBe("withdraw");
+  const after = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
+  expect(after.status).toBe("WITHDRAWN");
+  expect(after.withdrawnAt).toBeInstanceOf(Date);
+});
+
+it("reports decline_offer when an acceptance exists", async () => {
+  const { srr, app } = await seedCycle("w2", "reed@yale.edu");
+  await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  const res = await withdrawApplication("w2", ID("reed@yale.edu"));
+  expect(res.kind).toBe("decline_offer");
+});
+
+it("leaves acceptances, contracts, and interviews untouched", async () => {
+  const { srr, app, cycle } = await seedCycle("w3", "reed@yale.edu");
+  const acc = await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
+  const iv = await prisma.interview.create({
+    data: { applicationId: app.id, departmentCode: "SRHD", createdById: srr.id, scheduledAt: new Date() },
+  });
+
+  await withdrawApplication("w3", ID("reed@yale.edu"));
+
+  expect(await prisma.acceptance.count({ where: { id: acc.id } })).toBe(1);
+  expect(await prisma.onboardingContract.count({ where: { acceptanceId: acc.id } })).toBe(1);
+  expect(await prisma.interview.count({ where: { id: iv.id } })).toBe(1);
+});
+
+it("refuses once the onboarding contract is promoted", async () => {
+  const { srr, app, cycle } = await seedCycle("w4", "reed@yale.edu");
+  const acc = await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "SRHD", approvedById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
+  await prisma.onboardingContract.update({
+    where: { acceptanceId: acc.id },
+    data: { status: "PROMOTED", promotedAt: new Date() },
+  });
+  await expect(withdrawApplication("w4", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("SUBMITTED");
+});
+
+it("is idempotent: a second call rejects and does not restamp", async () => {
+  const { app } = await seedCycle("w5", "reed@yale.edu");
+  await withdrawApplication("w5", ID("reed@yale.edu"));
+  const first = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
+  await expect(withdrawApplication("w5", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  const second = await prisma.application.findUniqueOrThrow({ where: { id: app.id } });
+  expect(second.withdrawnAt?.getTime()).toBe(first.withdrawnAt?.getTime());
+});
+
+it("refuses to touch another applicant's application", async () => {
+  const { app } = await seedCycle("w6", "reed@yale.edu");
+  await expect(withdrawApplication("w6", ID("intruder@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  expect((await prisma.application.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("SUBMITTED");
+});
+
+it("refuses on an unsubmitted draft", async () => {
+  await seedCycle("w7", "reed@yale.edu", { appStatus: "DRAFT" });
+  await expect(withdrawApplication("w7", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
 });

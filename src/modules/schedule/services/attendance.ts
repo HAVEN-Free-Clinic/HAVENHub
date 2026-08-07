@@ -41,6 +41,17 @@ async function todaysClinicDate(now: Date): Promise<{ termId: string; clinicDate
   return match ? { termId: term.id, clinicDate: match } : null;
 }
 
+/**
+ * Whether today is a clinic date for the active term. Calendar-only, unlike
+ * every other check here: it applies to everyone, not one person's capability.
+ * Powers the "Check in" nav tab in schedule/layout.tsx so the tab only appears
+ * on a clinic date, mirroring how Builder/Approvals/Attendings each resolve
+ * their own dynamic gate there.
+ */
+export async function isClinicDayToday(now: Date = new Date()): Promise<boolean> {
+  return (await todaysClinicDate(now)) !== null;
+}
+
 /** Everything the check-in page needs to render, in one call. */
 export async function getCheckInState(personId: string, now: Date = new Date()): Promise<CheckInState> {
   const today = await todaysClinicDate(now);

@@ -32,6 +32,10 @@ export const MODULES: ModuleManifest[] = [
     status: "active",
     nav: [
       { label: "My schedule", href: "/schedule" },
+      // Data-driven: only meaningful on a clinic date, and schedule/layout.tsx
+      // drops it otherwise. dynamicGate keeps it out of the global dropdown,
+      // which cannot resolve "is today a clinic day".
+      { label: "Check in", href: "/schedule/check-in", dynamicGate: true },
       { label: "Full schedule", href: "/schedule/full" },
       // Builder, Approvals and Attendings all gate on a data-driven capability
       // (managing a schedule department / an RHD department / at least one

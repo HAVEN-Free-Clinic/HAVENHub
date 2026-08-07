@@ -1,9 +1,20 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { setPersonStatusField } from "@/platform/people";
-import { getCredential } from "./credential";
+import { getCredential, issueServiceCredential } from "./credential";
 import { computeServiceRecord } from "./service-record";
+
+// Partial mock: keeps the real issueServiceCredential by default (every other
+// test here relies on it actually running), but lets a single test force it
+// to reject, to exercise setPersonStatusField's best-effort try/catch around
+// the offboard snapshot (the transaction-poisoning hazard fixed in review
+// round 1: the snapshot must run on the singleton client, outside the offboard
+// transaction, so a failure here can never abort the membership flip).
+vi.mock("@/modules/passport/services/credential", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./credential")>();
+  return { ...actual, issueServiceCredential: vi.fn(actual.issueServiceCredential) };
+});
 
 const ACTOR = "actor-person-id";
 
@@ -58,6 +69,49 @@ describe("offboarding snapshots the service record first", () => {
 
     await setPersonStatusField(ACTOR, person.id, "ACTIVE");
 
+    expect(await getCredential(person.id)).toBeNull();
+  });
+
+  it("still completes the offboard when the snapshot fails at the database level", async () => {
+    const person = await seedActiveMember();
+
+    // A bare `mockRejectedValueOnce` would NOT reproduce the bug this test
+    // regresses: the old code awaited issueServiceCredential(personId, tx)
+    // INSIDE the offboard transaction, and a plain JS-level throw there was
+    // already caught fine by its try/catch. The actual hazard (see the
+    // comment in people.ts, and audit.ts's catch block) is a DB-level
+    // failure on the connection issueServiceCredential is handed: Postgres
+    // marks THAT connection's transaction aborted at the wire level, so the
+    // *next* statement on the same connection fails uncaught even though the
+    // failure itself was caught. Reproduce that exactly by running a real
+    // failing statement against whatever client the caller passes in.
+    // Called with the (fixed) singleton client, this only fails a one-off,
+    // unrelated statement. Called with a tx client (the bug), it poisons the
+    // whole offboard transaction and the very next statement
+    // (termMembership.updateMany) blows up uncaught, rolling everything back
+    // -- which is exactly what this test would catch if the fix regressed.
+    vi.mocked(issueServiceCredential).mockImplementationOnce(async (_personId, client = prisma) => {
+      await client.$executeRawUnsafe("SELECT 1/0");
+      throw new Error("unreachable: the statement above always throws");
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let updated: Awaited<ReturnType<typeof setPersonStatusField>>;
+    try {
+      updated = await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+
+    // The offboard is unaffected by the snapshot failure: status flipped and
+    // the membership was still removed, because the failing statement above
+    // never touched the offboard transaction's own connection.
+    expect(updated.status).toBe("OFFBOARDED");
+    const memberships = await prisma.termMembership.findMany({ where: { personId: person.id } });
+    expect(memberships).toHaveLength(1);
+    expect(memberships[0].status).toBe("REMOVED");
+
+    // And no credential was left behind by the failed attempt.
     expect(await getCredential(person.id)).toBeNull();
   });
 });

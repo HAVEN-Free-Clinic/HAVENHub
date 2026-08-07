@@ -27,9 +27,10 @@ import { log, errorAttrs } from "@/platform/logging";
 // every offboard path (admin people page and the volunteers executeOffboard
 // flow both call here -- see the docstring below), and OFFBOARDABLE_TERM
 // means the current term's membership is about to become REMOVED. Snapshotting
-// the service record has to happen inside THIS transaction, before that flip,
-// or a graduating member's final term is lost; there is no platform-owned
-// home for that snapshot logic to move to.
+// the service record has to happen before that flip, or a graduating member's
+// final term is lost; there is no platform-owned home for that snapshot logic
+// to move to. See the call site below for why it runs before, but outside,
+// the offboard transaction.
 // eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
 import { issueServiceCredential } from "@/modules/passport/services/credential";
 
@@ -341,11 +342,45 @@ export async function setPersonStatusField(
   // a second offboard call does not produce a duplicate (idempotent). On
   // reactivation the open DEACTIVATE request is cancelled: the person is back,
   // so revocation is no longer needed.
+  //
+  // Passport: offboarding also freezes a service-credential snapshot of the
+  // person's current record (see the try/catch immediately below) before the
+  // transaction removes their current term's membership.
   let removedMemberships = 0;
   let cancelledEpicRequestIds: string[] = [];
   let deactivationRequestId: string | null = null;
   let cancelledDeactivationRequestIds: string[] = [];
   let cancelledShiftRequestCount = 0;
+
+  if (status === "OFFBOARDED") {
+    // Freeze the service record while the current term's membership is still
+    // ACTIVE. OFFBOARDABLE_TERM scopes the sweep below (inside the transaction)
+    // to non-archived terms, so a graduating member's final term is about to
+    // become REMOVED and a record computed after that point would silently
+    // omit it. This has to run BEFORE the flip, but deliberately OUTSIDE the
+    // $transaction below: issueServiceCredential's audit write
+    // (recordAudit(..., tx)) is written to rethrow instead of swallow when
+    // passed a transaction client (see audit.ts), because Postgres marks a
+    // transaction aborted at the wire level the instant any statement in it
+    // fails -- so a caught-and-continued failure in here would still poison
+    // the transaction, and the very next statement (the termMembership
+    // updateMany) would blow up uncaught with "current transaction is
+    // aborted", rolling back the entire offboard. Calling it against the
+    // singleton client here means it runs on its own connection with its own
+    // best-effort audit (which swallows on that path), so nothing it does can
+    // touch the offboard transaction. It is an upsert, so if the transaction
+    // below is later aborted by assertInvariant, the snapshot just reflects
+    // this still-active person's current, accurate record and is safely
+    // overwritten by the next real issuance -- no incorrect state results.
+    //
+    // Best-effort: a credential failure must never block an offboard, which is
+    // a safety-relevant operation (it revokes access). Log and continue.
+    try {
+      await issueServiceCredential(personId);
+    } catch (error) {
+      log.error("[passport] offboard snapshot failed", errorAttrs(error, { personId }));
+    }
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
@@ -353,19 +388,6 @@ export async function setPersonStatusField(
       // transaction BEFORE any mutation, so the check and the status flip commit
       // atomically. Throwing here rolls the whole offboard back.
       if (opts.assertInvariant) await opts.assertInvariant(tx);
-
-      // Freeze the service record while the current term's membership is still
-      // ACTIVE. OFFBOARDABLE_TERM scopes the sweep below to non-archived terms,
-      // so a graduating member's final term is about to become REMOVED and a
-      // record computed after this point would silently omit it.
-      //
-      // Best-effort: a credential failure must never block an offboard, which is
-      // a safety-relevant operation (it revokes access). Log and continue.
-      try {
-        await issueServiceCredential(personId, tx);
-      } catch (error) {
-        log.error("[passport] offboard snapshot failed", errorAttrs(error, { personId }));
-      }
 
       const { count } = await tx.termMembership.updateMany({
         where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },

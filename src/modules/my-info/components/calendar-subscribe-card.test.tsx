@@ -50,6 +50,21 @@ describe("CalendarSubscribeCard", () => {
     expect(html()).toContain(googleCalendarUrl(FEED_URL).replace(/&/g, "&amp;"));
   });
 
+  it("marks the Google anchor ph-no-capture so its token-bearing href never reaches autocapture or replay", () => {
+    const markup = html();
+    const anchorStart = markup.indexOf("<a ");
+    const anchorEnd = markup.indexOf(">", anchorStart);
+    expect(markup.slice(anchorStart, anchorEnd)).toContain("ph-no-capture");
+  });
+
+  it("wraps the feed URL field in ph-no-capture so its token value is out of autocapture and masked in replay", () => {
+    const markup = html();
+    const wrapperIndex = markup.indexOf('<div class="ph-no-capture');
+    const inputIndex = markup.indexOf('id="calendar-feed-url"');
+    expect(wrapperIndex).toBeGreaterThan(-1);
+    expect(wrapperIndex).toBeLessThan(inputIndex);
+  });
+
   it("always discloses that Google refreshes on its own schedule", () => {
     expect(html()).toContain("its own timing");
   });

@@ -42,7 +42,12 @@ export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, genera
                   href={googleCalendarUrl(feedUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={buttonClasses("primary", "sm")}
+                  // ph-no-capture: the href embeds the live, non-expiring feed
+                  // token. Without this, posthog-js autocapture would emit it in
+                  // attr__href / $external_click_url on click, and session replay
+                  // would serialize it into the DOM snapshot just from this card
+                  // being on screen, click or not.
+                  className={buttonClasses("primary", "sm", "ph-no-capture")}
                 >
                   Add to Google
                 </a>

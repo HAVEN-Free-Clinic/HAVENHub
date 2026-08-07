@@ -1,12 +1,14 @@
 /**
  * Redaction of credential-bearing URLs before they reach PostHog.
  *
- * Three routes carry a live, unconsumed credential in the URL itself, because
- * each deliberately renders a page rather than consuming the token on GET:
+ * Four routes carry a live, unconsumed credential in the URL itself, because
+ * each deliberately renders a page (or, for the calendar feed, serves a
+ * response) rather than consuming the token on GET:
  *
  *   /login/verify?token=...   member magic link, 30 min, peek-then-confirm
  *   /apply/verify?token=...   applicant portal link, grants a 7-day cookie
  *   /onboard/<token>          onboarding contract, 21 days, never consumed on view
+ *   /api/calendar/<token>     personal calendar feed, NEVER expires, polled forever
  *
  * posthog-js captures `$current_url` (and friends) verbatim on every pageview,
  * so without this the raw token is written into the analytics project as an
@@ -21,7 +23,7 @@
 const SECRET_PARAMS = ["token"];
 
 /** Path prefixes whose NEXT segment is a credential, not an identifier. */
-const SECRET_PATH_PREFIXES = ["/onboard/"];
+const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/"];
 
 const REDACTED = "[redacted]";
 
@@ -52,16 +54,37 @@ export function scrubPath(pathAndQuery: string): string {
 
   if (!query) return path + hash;
 
-  const scrubbedQuery = query
-    .split("&")
-    .map((pair) => {
-      const eq = pair.indexOf("=");
-      const key = eq === -1 ? pair : pair.slice(0, eq);
-      return SECRET_PARAMS.includes(key) ? `${key}=${REDACTED}` : pair;
-    })
-    .join("&");
+  const scrubbedQuery = query.split("&").map(scrubQueryPair).join("&");
 
   return `${path}?${scrubbedQuery}${hash}`;
+}
+
+/**
+ * Scrub one `key=value` query pair. Handles two shapes of leak:
+ *
+ * 1. A param literally named `token` (SECRET_PARAMS): redact outright.
+ * 2. A param whose value is itself a URL-encoded URL carrying a credential
+ *    deeper in it, e.g. Google Calendar's add-by-URL deep link,
+ *    `https://google.com/calendar/render?cid=<encoded feed URL>`. The outer
+ *    path/params look innocuous; the secret is nested inside `cid`. Decoding,
+ *    scrubbing, and re-encoding catches this without having to special-case
+ *    every param name a third party might choose.
+ */
+function scrubQueryPair(pair: string): string {
+  const eq = pair.indexOf("=");
+  const key = eq === -1 ? pair : pair.slice(0, eq);
+  if (SECRET_PARAMS.includes(key)) return `${key}=${REDACTED}`;
+  if (eq === -1) return pair;
+
+  const rawValue = pair.slice(eq + 1);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawValue);
+  } catch {
+    return pair;
+  }
+  const scrubbed = scrubUrl(decoded);
+  return scrubbed === decoded ? pair : `${key}=${encodeURIComponent(scrubbed)}`;
 }
 
 /**
@@ -91,6 +114,9 @@ const URL_PROPERTIES = [
   "$session_entry_url",
   "$session_entry_pathname",
   "$session_entry_referrer",
+  // $autocapture's cross-origin click property: a credential-bearing href like
+  // the calendar feed's "Add to Google" link would otherwise ship the token.
+  "$external_click_url",
 ];
 
 /**

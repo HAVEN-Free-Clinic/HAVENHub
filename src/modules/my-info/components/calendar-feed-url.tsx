@@ -8,7 +8,13 @@ export function FeedUrlField({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="min-w-0 flex-1">
+    // ph-no-capture: this field's value is the member's live, non-expiring
+    // feed token. posthog-js's default input masking already covers the raw
+    // input value, but that default is a global setting someone could change
+    // later without knowing this field depends on it. Marking the wrapper
+    // itself keeps this specific field masked in session replay and out of
+    // autocapture regardless of that global default.
+    <div className="ph-no-capture min-w-0 flex-1">
       <label htmlFor="calendar-feed-url" className="block text-xs font-medium text-subtle-foreground">
         Calendar feed address
       </label>

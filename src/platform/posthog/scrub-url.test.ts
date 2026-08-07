@@ -40,6 +40,14 @@ describe("scrubPath", () => {
     expect(scrubPath("")).toBe("");
     expect(scrubPath("?token=secret")).toBe("?token=[redacted]");
   });
+
+  it("redacts the calendar feed token, a standing credential polled forever", () => {
+    expect(scrubPath("/api/calendar/abc123.ics")).toBe("/api/calendar/[redacted]");
+  });
+
+  it("redacts the calendar feed token even without the .ics suffix", () => {
+    expect(scrubPath("/api/calendar/abc123")).toBe("/api/calendar/[redacted]");
+  });
 });
 
 describe("scrubUrl", () => {
@@ -56,8 +64,30 @@ describe("scrubUrl", () => {
     expect(scrubUrl("/onboard/tok123")).toBe("/onboard/[redacted]");
   });
 
+  it("redacts the calendar feed token in an absolute URL", () => {
+    expect(scrubUrl("https://hub.havenfreeclinic.org/api/calendar/tok123.ics")).toBe(
+      "https://hub.havenfreeclinic.org/api/calendar/[redacted]",
+    );
+  });
+
   it("is total on empty input", () => {
     expect(scrubUrl("")).toBe("");
+  });
+
+  it("redacts a credential nested inside another domain's query string, as in the Google Calendar deep link", () => {
+    // The card's "Add to Google" anchor points at
+    // https://www.google.com/calendar/render?cid=<encoded feed URL>. The outer
+    // path (/calendar/render) and param name (cid) are both innocuous; the
+    // token only shows up once the value is decoded.
+    const feedUrl = "https://hub.example.org/api/calendar/SUPERSECRETTOKEN.ics";
+    const deepLink = `https://www.google.com/calendar/render?cid=${encodeURIComponent(feedUrl)}`;
+    const scrubbed = scrubUrl(deepLink);
+    expect(scrubbed).not.toContain("SUPERSECRETTOKEN");
+    expect(scrubbed).toBe(
+      `https://www.google.com/calendar/render?cid=${encodeURIComponent(
+        "https://hub.example.org/api/calendar/[redacted]",
+      )}`,
+    );
   });
 });
 
@@ -91,5 +121,17 @@ describe("scrubProperties", () => {
       $pathname: "/onboard/SUPERSECRET",
     });
     expect(JSON.stringify(out)).not.toContain("SUPERSECRET");
+  });
+
+  it("scrubs $external_click_url, the autocapture property for a cross-origin anchor click", () => {
+    // This is what an $autocapture event carries when a member clicks "Add to
+    // Google" on the calendar subscribe card: a google.com URL with their own
+    // feed URL (and its live token) embedded in the `cid` param.
+    const feedUrl = "https://hub.example.org/api/calendar/SUPERSECRETTOKEN.ics";
+    const out = scrubProperties({
+      $external_click_url: `https://www.google.com/calendar/render?cid=${encodeURIComponent(feedUrl)}`,
+    });
+    expect(out.$external_click_url).not.toContain("SUPERSECRETTOKEN");
+    expect(JSON.stringify(out)).not.toContain("SUPERSECRETTOKEN");
   });
 });

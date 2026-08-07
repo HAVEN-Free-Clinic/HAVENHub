@@ -20,6 +20,18 @@
 import { Prisma, type Person } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
+// One sanctioned platform -> module import, the same shape as the onboarding
+// gate's exception in auth/session.ts and the clearance facade in
+// clearance.ts. setPersonStatusField is the SINGLE convergence point for
+// every offboard path (admin people page and the volunteers executeOffboard
+// flow both call here -- see the docstring below), and OFFBOARDABLE_TERM
+// means the current term's membership is about to become REMOVED. Snapshotting
+// the service record has to happen inside THIS transaction, before that flip,
+// or a graduating member's final term is lost; there is no platform-owned
+// home for that snapshot logic to move to.
+// eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
+import { issueServiceCredential } from "@/modules/passport/services/credential";
 
 /**
  * The terms an offboard is allowed to touch: everything except ARCHIVED.
@@ -341,6 +353,19 @@ export async function setPersonStatusField(
       // transaction BEFORE any mutation, so the check and the status flip commit
       // atomically. Throwing here rolls the whole offboard back.
       if (opts.assertInvariant) await opts.assertInvariant(tx);
+
+      // Freeze the service record while the current term's membership is still
+      // ACTIVE. OFFBOARDABLE_TERM scopes the sweep below to non-archived terms,
+      // so a graduating member's final term is about to become REMOVED and a
+      // record computed after this point would silently omit it.
+      //
+      // Best-effort: a credential failure must never block an offboard, which is
+      // a safety-relevant operation (it revokes access). Log and continue.
+      try {
+        await issueServiceCredential(personId, tx);
+      } catch (error) {
+        log.error("[passport] offboard snapshot failed", errorAttrs(error, { personId }));
+      }
 
       const { count } = await tx.termMembership.updateMany({
         where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },

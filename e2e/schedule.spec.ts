@@ -78,8 +78,8 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
   await page.goto("/schedule/full");
   await page.waitForURL((url) => url.pathname === "/schedule/full");
 
-  // Hero eyebrow label ("Full Schedule"); the h1 now renders the selected date.
-  await expect(page.locator("p").filter({ hasText: "Full Schedule" }).first()).toBeVisible();
+  // Page title, rendered by PageHeader with title="Full Schedule".
+  await expect(page.getByRole("heading", { name: "Full Schedule" })).toBeVisible();
 
   // Date tab strip: links inside the nav[aria-label="Schedule dates"]
   // displayDate("2026-05-30") = "May 30th", etc.

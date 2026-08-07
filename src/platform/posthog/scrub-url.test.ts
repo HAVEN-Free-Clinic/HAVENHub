@@ -136,6 +136,40 @@ describe("scrubUrl", () => {
     // that survives decode-then-scrub. The file promises to never throw.
     expect(() => scrubPath("/x?u=%2Fonboard%2Fabc%2F\uD800")).not.toThrow();
   });
+
+  // Regression: the Google deep link had to switch from an https cid to a
+  // webcal one (Google reads https as a Google calendar ID, not an external
+  // feed). The nested-URL scrub was gated to http/https, so the switch would
+  // have silently stopped scrubbing the feed token riding inside the link.
+  it("redacts the feed token nested in a webcal Google deep link", () => {
+    const link =
+      "https://www.google.com/calendar/render?cid=webcal%3A%2F%2Fhub.example.org%2Fapi%2Fcalendar%2FSECRET.ics";
+
+    const scrubbed = scrubUrl(link);
+
+    expect(scrubbed).not.toContain("SECRET");
+    expect(scrubbed).toContain("webcal%3A%2F%2Fhub.example.org");
+  });
+
+  it("still redacts the token in the older https deep-link form", () => {
+    const link =
+      "https://www.google.com/calendar/render?cid=https%3A%2F%2Fhub.example.org%2Fapi%2Fcalendar%2FSECRET.ics";
+
+    expect(scrubUrl(link)).not.toContain("SECRET");
+  });
+
+  it("preserves the scheme and host of a non-special URL instead of writing 'null'", () => {
+    // `URL#origin` is the literal string "null" for any non-special scheme, so
+    // reconstructing from it corrupted the value. A real android-app referrer
+    // is the common case in the wild.
+    expect(scrubUrl("android-app://com.google.android.gm/")).toBe("android-app://com.google.android.gm/");
+  });
+
+  it("redacts a bare webcal feed URL", () => {
+    expect(scrubUrl("webcal://hub.example.org/api/calendar/SECRET.ics")).toBe(
+      "webcal://hub.example.org/api/calendar/[redacted]",
+    );
+  });
 });
 
 describe("scrubProperties", () => {

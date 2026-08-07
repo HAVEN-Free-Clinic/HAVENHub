@@ -39,6 +39,9 @@ const REDACTED = "[redacted]";
  */
 const MAX_QUERY_URL_DEPTH = 3;
 
+/** Schemes we will decode-and-recurse into when they appear as a query value. */
+const NESTED_URL_SCHEMES = ["http:", "https:", "webcal:"];
+
 /**
  * Redact credentials from a path plus optional query string, e.g.
  * "/onboard/abc123" or "/login/verify?token=abc&next=/schedule".
@@ -114,7 +117,12 @@ function scrubQueryPair(pair: string, depth: number): string {
   } catch {
     return pair;
   }
-  if (nestedUrl.protocol !== "http:" && nestedUrl.protocol !== "https:") return pair;
+  // webcal: is included because our own Google Calendar deep link carries the
+  // feed that way: Google reads an https cid as a Google calendar ID to look
+  // up rather than an external feed, so the link must use webcal, and the
+  // token rides inside it. Restricting to these three keeps ordinary opaque
+  // values (mailto:, tel:, status:ACTIVE) byte-identical.
+  if (!NESTED_URL_SCHEMES.includes(nestedUrl.protocol)) return pair;
 
   const scrubbed = scrubUrl(decoded, depth + 1);
   if (scrubbed === decoded) return pair;
@@ -138,7 +146,14 @@ export function scrubUrl(url: string, depth = 0): string {
   try {
     const parsed = new URL(url);
     const scrubbed = scrubPath(parsed.pathname + parsed.search + parsed.hash, depth);
-    return parsed.origin + scrubbed;
+    // `origin` serializes to the literal string "null" for any non-special
+    // scheme (webcal:, android-app:), which would corrupt the value into
+    // "null/api/...". Rebuild from protocol + host in that case. Schemes with
+    // no host at all (mailto:, tel:) keep the previous behavior rather than
+    // widening this fix beyond what it needs to cover.
+    const prefix =
+      parsed.origin === "null" && parsed.host ? `${parsed.protocol}//${parsed.host}` : parsed.origin;
+    return prefix + scrubbed;
   } catch {
     return scrubPath(url, depth);
   }

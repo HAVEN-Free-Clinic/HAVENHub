@@ -1,12 +1,14 @@
 /**
  * Redaction of credential-bearing URLs before they reach PostHog.
  *
- * Three routes carry a live, unconsumed credential in the URL itself, because
- * each deliberately renders a page rather than consuming the token on GET:
+ * Four routes carry a live, unconsumed credential in the URL itself, because
+ * each deliberately renders a page (or, for the calendar feed, serves a
+ * response) rather than consuming the token on GET:
  *
  *   /login/verify?token=...   member magic link, 30 min, peek-then-confirm
  *   /apply/verify?token=...   applicant portal link, grants a 7-day cookie
  *   /onboard/<token>          onboarding contract, 21 days, never consumed on view
+ *   /api/calendar/<token>     personal calendar feed, NEVER expires, polled forever
  *
  * posthog-js captures `$current_url` (and friends) verbatim on every pageview,
  * so without this the raw token is written into the analytics project as an
@@ -21,16 +23,28 @@
 const SECRET_PARAMS = ["token"];
 
 /** Path prefixes whose NEXT segment is a credential, not an identifier. */
-const SECRET_PATH_PREFIXES = ["/onboard/"];
+const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/"];
 
 const REDACTED = "[redacted]";
+
+/**
+ * How many times `scrubQueryPair` is allowed to decode-and-recurse into a
+ * nested URL (scrubQueryPair -> scrubUrl -> scrubPath -> scrubQueryPair...).
+ * Every real leak this file defends against is at most one level deep (a
+ * credential URL nested inside a Google Calendar deep link), so this caps
+ * well above any legitimate case while keeping the recursion bounded no
+ * matter how an attacker (or a pathological ad-tracking URL) shapes the
+ * input. At the cap, the value is left unscrubbed rather than descending
+ * further, preserving the "never throw" contract.
+ */
+const MAX_QUERY_URL_DEPTH = 3;
 
 /**
  * Redact credentials from a path plus optional query string, e.g.
  * "/onboard/abc123" or "/login/verify?token=abc&next=/schedule".
  * Accepts a value with or without a query string; returns the same shape.
  */
-export function scrubPath(pathAndQuery: string): string {
+export function scrubPath(pathAndQuery: string, depth = 0): string {
   if (!pathAndQuery) return pathAndQuery;
   const hashAt = pathAndQuery.indexOf("#");
   const hash = hashAt === -1 ? "" : pathAndQuery.slice(hashAt);
@@ -54,14 +68,64 @@ export function scrubPath(pathAndQuery: string): string {
 
   const scrubbedQuery = query
     .split("&")
-    .map((pair) => {
-      const eq = pair.indexOf("=");
-      const key = eq === -1 ? pair : pair.slice(0, eq);
-      return SECRET_PARAMS.includes(key) ? `${key}=${REDACTED}` : pair;
-    })
+    .map((pair) => scrubQueryPair(pair, depth))
     .join("&");
 
   return `${path}?${scrubbedQuery}${hash}`;
+}
+
+/**
+ * Scrub one `key=value` query pair. Handles two shapes of leak:
+ *
+ * 1. A param literally named `token` (SECRET_PARAMS): redact outright.
+ * 2. A param whose value is itself a URL-encoded URL carrying a credential
+ *    deeper in it, e.g. Google Calendar's add-by-URL deep link,
+ *    `https://google.com/calendar/render?cid=<encoded feed URL>`. The outer
+ *    path/params look innocuous; the secret is nested inside `cid`. Decoding,
+ *    scrubbing, and re-encoding catches this without having to special-case
+ *    every param name a third party might choose.
+ *
+ * Recursion into a decoded value only happens when that value itself parses
+ * as an absolute http(s) URL. Every secret this file defends against lives
+ * in an http(s) URL, so nothing is lost by restricting to that shape, and it
+ * is what keeps ordinary non-URL values (`status:ACTIVE`, `mailto:a@b.com`,
+ * `tel:+12035551234`) byte-identical: `URL#origin` serializes to the literal
+ * string "null" for any opaque (non-special-scheme) URL, which would
+ * otherwise silently corrupt those values.
+ */
+function scrubQueryPair(pair: string, depth: number): string {
+  const eq = pair.indexOf("=");
+  const key = eq === -1 ? pair : pair.slice(0, eq);
+  if (SECRET_PARAMS.includes(key)) return `${key}=${REDACTED}`;
+  if (eq === -1) return pair;
+  if (depth >= MAX_QUERY_URL_DEPTH) return pair;
+
+  const rawValue = pair.slice(eq + 1);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawValue);
+  } catch {
+    return pair;
+  }
+
+  let nestedUrl: URL;
+  try {
+    nestedUrl = new URL(decoded);
+  } catch {
+    return pair;
+  }
+  if (nestedUrl.protocol !== "http:" && nestedUrl.protocol !== "https:") return pair;
+
+  const scrubbed = scrubUrl(decoded, depth + 1);
+  if (scrubbed === decoded) return pair;
+  try {
+    return `${key}=${encodeURIComponent(scrubbed)}`;
+  } catch {
+    // A scrubbed value can (in principle) still carry a lone surrogate;
+    // encodeURIComponent throws URIError on those. Fall back to the
+    // original, untouched pair rather than violate the never-throw contract.
+    return pair;
+  }
 }
 
 /**
@@ -69,14 +133,14 @@ export function scrubPath(pathAndQuery: string): string {
  * treating the value as a bare path when it does not parse as a URL, so a
  * relative `$pathname` is handled by the same call.
  */
-export function scrubUrl(url: string): string {
+export function scrubUrl(url: string, depth = 0): string {
   if (!url) return url;
   try {
     const parsed = new URL(url);
-    const scrubbed = scrubPath(parsed.pathname + parsed.search + parsed.hash);
+    const scrubbed = scrubPath(parsed.pathname + parsed.search + parsed.hash, depth);
     return parsed.origin + scrubbed;
   } catch {
-    return scrubPath(url);
+    return scrubPath(url, depth);
   }
 }
 
@@ -91,6 +155,9 @@ const URL_PROPERTIES = [
   "$session_entry_url",
   "$session_entry_pathname",
   "$session_entry_referrer",
+  // $autocapture's cross-origin click property: a credential-bearing href like
+  // the calendar feed's "Add to Google" link would otherwise ship the token.
+  "$external_click_url",
 ];
 
 /**

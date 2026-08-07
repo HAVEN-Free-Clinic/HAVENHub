@@ -26,6 +26,8 @@ import { departmentDirectorPersonIds } from "@/platform/departments";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { applicantWithdrewContext } from "@/platform/email/templates/recruitment";
+import { cleanupFiles } from "./upload";
+import { isCycleOpen } from "./cycle-window";
 import type { ApplicantIdentity } from "./portal-auth";
 
 export class WithdrawError extends Error {
@@ -224,4 +226,49 @@ export async function withdrawApplication(
   });
 
   return { kind };
+}
+
+/**
+ * Throw away an unsubmitted draft, including any files uploaded into it.
+ *
+ * Deletes rather than marking WITHDRAWN, and that is required, not merely
+ * tidier: Application carries @@unique([cycleId, applicantId]), so a terminal
+ * row would lock the applicant out of a cycle that is still open. Discard at
+ * 2pm, change your mind at 3pm, no way back in.
+ *
+ * Reuses the teardown sweepAbandonedDrafts performs (drafts.ts): collect the
+ * stored file keys out of answers, clean up the blobs, then delete the Applicant,
+ * which cascades to the draft Application. One Applicant holds exactly one
+ * application per cycle (@@unique([cycleId, emailLower])), so deleting it takes
+ * nothing else with it.
+ *
+ * Only offered while the cycle is open, matching the canContinue gate in
+ * portal-status: after close there is nothing left to discard toward, and the
+ * stale-draft sweep will collect it anyway.
+ */
+export async function discardDraft(slug: string, identity: ApplicantIdentity): Promise<void> {
+  const row = await findOwnApplication(slug, identity);
+  if (!row) throw new WithdrawError("Application not found.");
+  const { cycle, applicant, application } = row;
+  if (application.status !== "DRAFT") throw new WithdrawError("This application has already been submitted.");
+  if (!isCycleOpen(cycle, new Date())) throw new WithdrawError("This cycle is no longer accepting applications.");
+
+  const answers = (application.answers as Record<string, unknown> | null) ?? {};
+  const keys: string[] = [];
+  for (const v of Object.values(answers)) {
+    if (v && typeof v === "object" && "storedName" in (v as object)) {
+      keys.push(`recruitment/${cycle.id}/${(v as { storedName: string }).storedName}`);
+    }
+  }
+  await cleanupFiles(keys);
+  // Deleting the Applicant cascades to its Application (Application FK is onDelete: Cascade).
+  await prisma.applicant.delete({ where: { id: applicant.id } });
+
+  await recordAudit({
+    actorPersonId: identity.personId ?? undefined,
+    action: "recruitment.draft_discard",
+    entityType: "Application",
+    entityId: application.id,
+    before: { cycleId: cycle.id, files: keys.length },
+  });
 }

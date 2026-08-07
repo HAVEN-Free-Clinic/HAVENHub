@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { withdrawApplication, WithdrawError } from "./withdraw";
+import { withdrawApplication, discardDraft, WithdrawError } from "./withdraw";
 import { releaseDecisions } from "./decisions";
 import { createOrResendContract } from "./onboarding";
 
@@ -174,4 +174,34 @@ it("does not notify twice when the second withdrawal loses the claim", async () 
   await expect(withdrawApplication("w11", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
 
   expect(await prisma.notification.count({ where: { personId: reviewer.id } })).toBe(1);
+});
+
+it("deletes the draft and its applicant so a fresh application is possible", async () => {
+  const { app, applicant, cycle } = await seedCycle("w12", "reed@yale.edu", { appStatus: "DRAFT" });
+  await discardDraft("w12", ID("reed@yale.edu"));
+  expect(await prisma.application.count({ where: { id: app.id } })).toBe(0);
+  expect(await prisma.applicant.count({ where: { id: applicant.id } })).toBe(0);
+  // The unique (cycleId, emailLower) slot is free again.
+  const fresh = await prisma.applicant.create({
+    data: { cycleId: cycle.id, firstName: "Reed", lastName: "Rivers", email: "reed@yale.edu", emailLower: "reed@yale.edu" },
+  });
+  expect(fresh.id).toBeTruthy();
+});
+
+it("refuses to discard a submitted application", async () => {
+  const { app } = await seedCycle("w13", "reed@yale.edu");
+  await expect(discardDraft("w13", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  expect(await prisma.application.count({ where: { id: app.id } })).toBe(1);
+});
+
+it("refuses once the cycle has closed", async () => {
+  const { app } = await seedCycle("w14", "reed@yale.edu", { appStatus: "DRAFT", cycleStatus: "CLOSED" });
+  await expect(discardDraft("w14", ID("reed@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  expect(await prisma.application.count({ where: { id: app.id } })).toBe(1);
+});
+
+it("refuses to discard another applicant's draft", async () => {
+  const { app } = await seedCycle("w15", "reed@yale.edu", { appStatus: "DRAFT" });
+  await expect(discardDraft("w15", ID("intruder@yale.edu"))).rejects.toBeInstanceOf(WithdrawError);
+  expect(await prisma.application.count({ where: { id: app.id } })).toBe(1);
 });

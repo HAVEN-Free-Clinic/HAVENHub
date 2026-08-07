@@ -1,4 +1,4 @@
-import { prisma } from "@/platform/db";
+import { prisma, isDbUnreachableError } from "@/platform/db";
 import { resolveFeedToken, touchFeedToken } from "@/modules/schedule/calendar/feed-token";
 import { renderFeedForPerson, renderEmptyFeed } from "@/modules/schedule/calendar/feed";
 import { log, errorAttrs } from "@/platform/logging";
@@ -61,29 +61,43 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   // accept the bare form too.
   const raw = token.endsWith(".ics") ? token.slice(0, -4) : token;
 
-  const match = await resolveFeedToken(raw);
-  if (!match) {
-    return new Response("Not found", { status: 404 });
+  // Mirrors the isDbUnreachableError -> 503 pattern in search/route.ts and
+  // notifications/route.ts: Google, Apple, and Outlook all poll this
+  // unattended on their own schedule, so a brief Neon blip must degrade to a
+  // response their client-side retry logic already expects, rather than
+  // propagate to a 500 (which also lands the live token in PostHog error
+  // tracking via onRequestError -- see scrub-url.ts).
+  try {
+    const match = await resolveFeedToken(raw);
+    if (!match) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const person = await prisma.person.findUnique({
+      where: { id: match.personId },
+      select: { status: true },
+    });
+
+    if (person?.status !== "ACTIVE") {
+      return new Response(await renderEmptyFeed(), { status: 200, headers: CALENDAR_HEADERS });
+    }
+
+    const body = await renderFeedForPerson(match.personId);
+
+    // Best effort: the fetch-timestamp bookkeeping must never block or fail the
+    // response. A subscriber's calendar client polls this unattended, and a
+    // transient write blip here is not their problem -- their shifts already
+    // rendered successfully above.
+    void touchFeedToken(match.personId).catch((err: unknown) => {
+      log.warn("[calendar-feed] failed to record feed fetch", errorAttrs(err, { personId: match.personId }));
+    });
+
+    return new Response(body, { status: 200, headers: CALENDAR_HEADERS });
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      log.warn("[calendar-feed] database unreachable serving feed", errorAttrs(err));
+      return new Response("Service Unavailable", { status: 503 });
+    }
+    throw err;
   }
-
-  const person = await prisma.person.findUnique({
-    where: { id: match.personId },
-    select: { status: true },
-  });
-
-  if (person?.status !== "ACTIVE") {
-    return new Response(await renderEmptyFeed(), { status: 200, headers: CALENDAR_HEADERS });
-  }
-
-  const body = await renderFeedForPerson(match.personId);
-
-  // Best effort: the fetch-timestamp bookkeeping must never block or fail the
-  // response. A subscriber's calendar client polls this unattended, and a
-  // transient write blip here is not their problem -- their shifts already
-  // rendered successfully above.
-  void touchFeedToken(match.personId).catch((err: unknown) => {
-    log.warn("[calendar-feed] failed to record feed fetch", errorAttrs(err, { personId: match.personId }));
-  });
-
-  return new Response(body, { status: 200, headers: CALENDAR_HEADERS });
 }

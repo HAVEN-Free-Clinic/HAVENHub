@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 vi.mock("@/modules/schedule/calendar/feed-token", () => ({
   resolveFeedToken: vi.fn(),
@@ -8,9 +9,15 @@ vi.mock("@/modules/schedule/calendar/feed", () => ({
   renderFeedForPerson: vi.fn(),
   renderEmptyFeed: vi.fn(),
 }));
-vi.mock("@/platform/db", () => ({
-  prisma: { person: { findUnique: vi.fn() } },
-}));
+// Keep the real isDbUnreachableError (it's pure: an instanceof check against
+// Prisma's error classes) while replacing prisma itself with a manual mock.
+vi.mock("@/platform/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/db")>();
+  return {
+    ...actual,
+    prisma: { person: { findUnique: vi.fn() } },
+  };
+});
 
 import { GET } from "./route";
 import { resolveFeedToken, touchFeedToken } from "@/modules/schedule/calendar/feed-token";
@@ -121,6 +128,62 @@ describe("GET /api/calendar/[token]", () => {
 
     expect(res.status).toBe(200);
     expect(renderEmptyFeed).toHaveBeenCalled();
+  });
+});
+
+describe("database unreachable", () => {
+  it("returns 503 when the database is unreachable resolving the token", async () => {
+    vi.mocked(resolveFeedToken).mockRejectedValue(
+      new Prisma.PrismaClientInitializationError(
+        "Can't reach database server at ep-broad-brook.neon.tech:5432",
+        "5.0.0",
+      ),
+    );
+
+    const res = await GET(...request("abc123"));
+
+    expect(res.status).toBe(503);
+    expect(renderFeedForPerson).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the database is unreachable looking up the person", async () => {
+    vi.mocked(resolveFeedToken).mockResolvedValue({ personId: "p1" });
+    vi.mocked(prisma.person.findUnique).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Can't reach database server", {
+        code: "P1001",
+        clientVersion: "5.0.0",
+      }),
+    );
+
+    const res = await GET(...request("abc123"));
+
+    expect(res.status).toBe(503);
+  });
+
+  it("returns 503 when the database is unreachable rendering the feed", async () => {
+    vi.mocked(resolveFeedToken).mockResolvedValue({ personId: "p1" });
+    vi.mocked(prisma.person.findUnique).mockResolvedValue({ status: "ACTIVE" } as never);
+    vi.mocked(renderFeedForPerson).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Operation timed out", {
+        code: "P1008",
+        clientVersion: "5.0.0",
+      }),
+    );
+
+    const res = await GET(...request("abc123"));
+
+    expect(res.status).toBe(503);
+  });
+
+  it("still rethrows a non-connectivity database error rather than mask it as a 503", async () => {
+    vi.mocked(resolveFeedToken).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "5.0.0",
+      }),
+    );
+
+    await expect(GET(...request("abc123"))).rejects.toThrow("Unique constraint failed");
   });
 });
 

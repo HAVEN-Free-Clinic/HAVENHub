@@ -14,6 +14,7 @@
 
 import { BuilderCell } from "./builder-cell";
 import { Badge } from "@/platform/ui/badge";
+import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
@@ -353,7 +354,12 @@ export function BuilderGrid({
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border">
+    <div
+      className={cx(
+        "overflow-x-auto rounded-2xl border",
+        mode === "shadow" ? "border-warning bg-warning/5" : "border-border",
+      )}
+    >
       <table className="border-collapse text-sm" aria-label="Schedule grid">
         <thead>
           <tr className="bg-muted">

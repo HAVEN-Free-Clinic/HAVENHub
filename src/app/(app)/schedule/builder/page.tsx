@@ -14,8 +14,10 @@
  */
 
 import { requireModuleAccess } from "@/platform/auth/session";
+import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { cx } from "@/platform/ui/cx";
 import { PageHeader } from "@/platform/ui/page-header";
 import { redirect } from "next/navigation";
 import { runAction } from "@/platform/actions";
@@ -540,23 +542,36 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           />
         ) : view === "grid" ? (
           <>
-            <div className="mb-4 flex items-center gap-3">
-              <span className="text-sm font-semibold text-foreground-soft">Assigning as:</span>
-              <div className="flex items-center rounded-lg border border-border overflow-hidden">
-                <Link
-                  href={href({ gmode: "assign" })}
-                  aria-current={gmode === "assign" ? "true" : undefined}
-                  className={`inline-flex items-center min-h-11 px-3 py-1.5 text-xs font-medium transition-colors ${gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft"}`}
-                >
-                  Volunteer
-                </Link>
-                <Link
-                  href={href({ gmode: "shadow" })}
-                  aria-current={gmode === "shadow" ? "true" : undefined}
-                  className={`inline-flex items-center min-h-11 px-3 py-1.5 font-medium transition-colors border-l ${gmode === "shadow" ? "border-border bg-warning/20 text-warning-foreground text-xs font-semibold" : "border-transparent text-xs text-muted-foreground hover:text-foreground-soft"}`}
-                >
-                  Shadow
-                </Link>
+            <div className="mb-4 flex flex-col gap-3">
+              {gmode === "shadow" && (
+                <Alert tone="warning">
+                  Clicking an empty cell assigns a <strong>Shadow</strong>, not a volunteer.
+                </Alert>
+              )}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Clicks assign</span>
+                <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
+                  <Link
+                    href={href({ gmode: "assign" })}
+                    aria-current={gmode === "assign" ? "page" : undefined}
+                    className={cx(
+                      "inline-flex items-center min-h-11 px-3 py-1.5 text-sm font-medium transition-colors",
+                      gmode === "assign" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft",
+                    )}
+                  >
+                    Volunteer
+                  </Link>
+                  <Link
+                    href={href({ gmode: "shadow" })}
+                    aria-current={gmode === "shadow" ? "page" : undefined}
+                    className={cx(
+                      "inline-flex items-center min-h-11 border-l border-border px-3 py-1.5 text-sm font-medium transition-colors",
+                      gmode === "shadow" ? "bg-warning text-warning-foreground" : "text-muted-foreground hover:text-foreground-soft",
+                    )}
+                  >
+                    Shadow
+                  </Link>
+                </div>
               </div>
             </div>
             <BuilderGrid

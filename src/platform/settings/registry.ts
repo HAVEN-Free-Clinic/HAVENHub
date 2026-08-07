@@ -59,6 +59,9 @@ function define<T>(def: SettingDef<T>): SettingDef<unknown> {
   return def as unknown as SettingDef<unknown>;
 }
 
+/** 24-hour HH:MM, 00:00 through 23:59. */
+const TIME_OF_DAY = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour HH:MM, for example 08:00");
+
 /**
  * Every admin-editable setting, declared exactly once. Adding a setting here is
  * all that is required for it to appear (auto-rendered) in /admin/settings.
@@ -313,6 +316,30 @@ export const SETTINGS: SettingDef<unknown>[] = [
     schema: z.enum(US_TIME_ZONE_IDS),
     envDefault: () => config.DISPLAY_TIME_ZONE,
     secret: false,
+  }),
+  define<string>({
+    key: "schedule.clinicStartTime",
+    category: "Operations",
+    label: "Clinic start time",
+    help: "When a clinic day begins, in the display time zone. Shifts are date-only in the Hub, so exported calendar events use this window.",
+    input: { type: "text" },
+    schema: TIME_OF_DAY,
+    envDefault: () => "08:00",
+    secret: false,
+  }),
+  define<string>({
+    key: "schedule.clinicEndTime",
+    category: "Operations",
+    label: "Clinic end time",
+    help: "When a clinic day ends, in the display time zone. Must be later than the start time.",
+    input: { type: "text" },
+    schema: TIME_OF_DAY,
+    envDefault: () => "13:00",
+    secret: false,
+    validate: async (value, ctx) => {
+      const start = await ctx.getSetting<string>("schedule.clinicStartTime");
+      return value > start ? null : "End time must be later than the clinic start time.";
+    },
   }),
 ];
 

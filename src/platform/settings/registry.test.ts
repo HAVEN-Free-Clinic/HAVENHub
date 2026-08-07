@@ -94,3 +94,24 @@ describe("ui.defaultTheme setting", () => {
     expect(def!.schema.safeParse("blue").success).toBe(false);
   });
 });
+
+describe("clinic hours settings", () => {
+  it("registers a start and end time with HH:MM defaults", () => {
+    expect(getSettingDef("schedule.clinicStartTime").envDefault()).toBe("08:00");
+    expect(getSettingDef("schedule.clinicEndTime").envDefault()).toBe("13:00");
+  });
+
+  it("accepts a valid 24-hour time", () => {
+    expect(getSettingDef("schedule.clinicStartTime").schema.safeParse("09:30").success).toBe(true);
+    expect(getSettingDef("schedule.clinicEndTime").schema.safeParse("23:59").success).toBe(true);
+  });
+
+  it("rejects malformed, 12-hour, and out-of-range times", () => {
+    const schema = getSettingDef("schedule.clinicStartTime").schema;
+    expect(schema.safeParse("8:00").success).toBe(false);
+    expect(schema.safeParse("08:00 AM").success).toBe(false);
+    expect(schema.safeParse("24:00").success).toBe(false);
+    expect(schema.safeParse("08:60").success).toBe(false);
+    expect(schema.safeParse("").success).toBe(false);
+  });
+});

@@ -611,11 +611,12 @@ const SATURDAY_MORNING = new Date("2026-03-07T13:30:00Z");
 const CLINIC = { latitude: 41.3025, longitude: -72.937 };
 const FAR_AWAY = { latitude: 42.3601, longitude: -71.0589 }; // Boston
 
+// setSetting takes THREE arguments: (key, rawValue, actorPersonId).
 async function configureFence() {
-  await setSetting("clinic.checkInLatitude", CLINIC.latitude);
-  await setSetting("clinic.checkInLongitude", CLINIC.longitude);
-  await setSetting("clinic.checkInRadiusMeters", 250);
-  await setSetting("clinic.checkInMaxAccuracyMeters", 200);
+  await setSetting("clinic.checkInLatitude", CLINIC.latitude, null);
+  await setSetting("clinic.checkInLongitude", CLINIC.longitude, null);
+  await setSetting("clinic.checkInRadiusMeters", 250, null);
+  await setSetting("clinic.checkInMaxAccuracyMeters", 200, null);
 }
 
 async function seed(opts: { remote?: boolean; assigned?: boolean } = {}) {
@@ -1641,12 +1642,16 @@ import {
   type CheckInActionResult,
 } from "@/modules/schedule/components/check-in-panel";
 import { captureEvent, GROUP_TERM } from "@/platform/posthog/capture";
-import { buildPageMetadata } from "@/platform/ui/metadata";
+import { buildPageMetadata } from "@/platform/branding/metadata";
 
-export const metadata = buildPageMetadata({
-  title: "Clinic check-in",
-  description: "Check in for today's clinic shift.",
-});
+// buildPageMetadata is async, so it goes through generateMetadata, not a static
+// `export const metadata`. This matches src/app/(app)/page.tsx.
+export function generateMetadata() {
+  return buildPageMetadata({
+    title: "Clinic check-in",
+    description: "Check in for today's clinic shift.",
+  });
+}
 
 export default async function CheckInPage() {
   const session = await requireModuleAccess("schedule");

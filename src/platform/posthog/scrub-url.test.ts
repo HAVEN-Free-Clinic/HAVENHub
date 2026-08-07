@@ -89,6 +89,53 @@ describe("scrubUrl", () => {
       )}`,
     );
   });
+
+  it("does not mangle a scheme-shaped query value into the literal string 'null'", () => {
+    // Regression: scrubQueryPair used to run scrubUrl on every decoded query
+    // value unconditionally. For any value the URL parser accepts as an
+    // opaque (non-special-scheme) URL, `origin` serializes to "null", which
+    // silently corrupted ordinary, non-secret values app-wide.
+    expect(scrubPath("/x?q=status:ACTIVE")).toBe("/x?q=status:ACTIVE");
+    expect(scrubPath("/x?filter=dept:IM,role:VOLUNTEER")).toBe("/x?filter=dept:IM,role:VOLUNTEER");
+    expect(scrubPath("/x?mail=mailto:a@b.com")).toBe("/x?mail=mailto:a@b.com");
+    expect(scrubPath("/x?ref=tel:+12035551234")).toBe("/x?ref=tel:+12035551234");
+  });
+
+  it("does not throw on a deeply pathological URL and stays bounded in size", () => {
+    // Regression: scrubPath -> scrubQueryPair -> scrubUrl -> scrubPath was
+    // unbounded mutual recursion, O(input length) deep, throwing
+    // "Maximum call stack size exceeded" around a 10 KB input.
+    const pathological = "https://example.org/x?" + "a=b?".repeat(4000);
+    let result = "";
+    expect(() => {
+      result = scrubUrl(pathological);
+    }).not.toThrow();
+    // Bounded, not necessarily equal to the input, but not a multi-megabyte
+    // blowup either.
+    expect(result.length).toBeLessThan(pathological.length * 10);
+  });
+
+  it("does not throw when a chain of validly-nested http(s) URLs exceeds the depth cap", () => {
+    // Regression: even gating recursion to genuine http(s) URLs (the fix for
+    // the "null" mangling defect) still leaves unbounded recursion possible
+    // for a deliberately deep chain of legitimately-shaped nested URLs. The
+    // depth cap is what actually bounds this, independent of that gate.
+    let inner = "https://innermost.example.org/api/calendar/SUPERSECRETTOKEN.ics";
+    for (let i = 0; i < 50; i++) {
+      inner = `https://layer${i}.example.org/?u=${encodeURIComponent(inner)}`;
+    }
+    let result = "";
+    expect(() => {
+      result = scrubUrl(inner);
+    }).not.toThrow();
+    expect(typeof result).toBe("string");
+  });
+
+  it("is total on a value containing a lone surrogate", () => {
+    // Regression: encodeURIComponent throws URIError on a lone surrogate
+    // that survives decode-then-scrub. The file promises to never throw.
+    expect(() => scrubPath("/x?u=%2Fonboard%2Fabc%2F\uD800")).not.toThrow();
+  });
 });
 
 describe("scrubProperties", () => {

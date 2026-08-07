@@ -28,11 +28,23 @@ const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/"];
 const REDACTED = "[redacted]";
 
 /**
+ * How many times `scrubQueryPair` is allowed to decode-and-recurse into a
+ * nested URL (scrubQueryPair -> scrubUrl -> scrubPath -> scrubQueryPair...).
+ * Every real leak this file defends against is at most one level deep (a
+ * credential URL nested inside a Google Calendar deep link), so this caps
+ * well above any legitimate case while keeping the recursion bounded no
+ * matter how an attacker (or a pathological ad-tracking URL) shapes the
+ * input. At the cap, the value is left unscrubbed rather than descending
+ * further, preserving the "never throw" contract.
+ */
+const MAX_QUERY_URL_DEPTH = 3;
+
+/**
  * Redact credentials from a path plus optional query string, e.g.
  * "/onboard/abc123" or "/login/verify?token=abc&next=/schedule".
  * Accepts a value with or without a query string; returns the same shape.
  */
-export function scrubPath(pathAndQuery: string): string {
+export function scrubPath(pathAndQuery: string, depth = 0): string {
   if (!pathAndQuery) return pathAndQuery;
   const hashAt = pathAndQuery.indexOf("#");
   const hash = hashAt === -1 ? "" : pathAndQuery.slice(hashAt);
@@ -54,7 +66,10 @@ export function scrubPath(pathAndQuery: string): string {
 
   if (!query) return path + hash;
 
-  const scrubbedQuery = query.split("&").map(scrubQueryPair).join("&");
+  const scrubbedQuery = query
+    .split("&")
+    .map((pair) => scrubQueryPair(pair, depth))
+    .join("&");
 
   return `${path}?${scrubbedQuery}${hash}`;
 }
@@ -69,12 +84,21 @@ export function scrubPath(pathAndQuery: string): string {
  *    path/params look innocuous; the secret is nested inside `cid`. Decoding,
  *    scrubbing, and re-encoding catches this without having to special-case
  *    every param name a third party might choose.
+ *
+ * Recursion into a decoded value only happens when that value itself parses
+ * as an absolute http(s) URL. Every secret this file defends against lives
+ * in an http(s) URL, so nothing is lost by restricting to that shape, and it
+ * is what keeps ordinary non-URL values (`status:ACTIVE`, `mailto:a@b.com`,
+ * `tel:+12035551234`) byte-identical: `URL#origin` serializes to the literal
+ * string "null" for any opaque (non-special-scheme) URL, which would
+ * otherwise silently corrupt those values.
  */
-function scrubQueryPair(pair: string): string {
+function scrubQueryPair(pair: string, depth: number): string {
   const eq = pair.indexOf("=");
   const key = eq === -1 ? pair : pair.slice(0, eq);
   if (SECRET_PARAMS.includes(key)) return `${key}=${REDACTED}`;
   if (eq === -1) return pair;
+  if (depth >= MAX_QUERY_URL_DEPTH) return pair;
 
   const rawValue = pair.slice(eq + 1);
   let decoded: string;
@@ -83,8 +107,25 @@ function scrubQueryPair(pair: string): string {
   } catch {
     return pair;
   }
-  const scrubbed = scrubUrl(decoded);
-  return scrubbed === decoded ? pair : `${key}=${encodeURIComponent(scrubbed)}`;
+
+  let nestedUrl: URL;
+  try {
+    nestedUrl = new URL(decoded);
+  } catch {
+    return pair;
+  }
+  if (nestedUrl.protocol !== "http:" && nestedUrl.protocol !== "https:") return pair;
+
+  const scrubbed = scrubUrl(decoded, depth + 1);
+  if (scrubbed === decoded) return pair;
+  try {
+    return `${key}=${encodeURIComponent(scrubbed)}`;
+  } catch {
+    // A scrubbed value can (in principle) still carry a lone surrogate;
+    // encodeURIComponent throws URIError on those. Fall back to the
+    // original, untouched pair rather than violate the never-throw contract.
+    return pair;
+  }
 }
 
 /**
@@ -92,14 +133,14 @@ function scrubQueryPair(pair: string): string {
  * treating the value as a bare path when it does not parse as a URL, so a
  * relative `$pathname` is handled by the same call.
  */
-export function scrubUrl(url: string): string {
+export function scrubUrl(url: string, depth = 0): string {
   if (!url) return url;
   try {
     const parsed = new URL(url);
-    const scrubbed = scrubPath(parsed.pathname + parsed.search + parsed.hash);
+    const scrubbed = scrubPath(parsed.pathname + parsed.search + parsed.hash, depth);
     return parsed.origin + scrubbed;
   } catch {
-    return scrubPath(url);
+    return scrubPath(url, depth);
   }
 }
 

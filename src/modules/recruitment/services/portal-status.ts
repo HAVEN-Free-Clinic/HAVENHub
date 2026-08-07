@@ -4,13 +4,19 @@ import { isCycleOpen } from "./cycle-window";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 
+/** Which self-service control the portal should offer for this application.
+ *  Computed on the server and re-checked in the action; the client only renders
+ *  what it is given and never decides eligibility itself. */
+export type WithdrawOption = { kind: "discard_draft" | "withdraw" | "decline_offer" };
+
 export type ApplicantStatusView = {
   slug: string;
   cycleTitle: string;
-  state: "DRAFT" | "SUBMITTED" | "INTERVIEW" | "ACCEPTED" | "ONBOARDING" | "NOT_SELECTED" | "WAITLISTED";
+  state: "DRAFT" | "SUBMITTED" | "INTERVIEW" | "ACCEPTED" | "ONBOARDING" | "NOT_SELECTED" | "WAITLISTED" | "WITHDRAWN";
   headline: string;
   detail: string | null;
   canContinue: boolean;
+  withdraw: WithdrawOption | null;
 };
 
 /** Per-application status for the portal. Final outcomes are shown only after
@@ -45,13 +51,20 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
     const app = a.applications[0];
     if (!app) continue;
     const base = { slug: a.cycle.publicSlug, cycleTitle: a.cycle.title };
+
+    if (app.status === "WITHDRAWN") {
+      views.push({ ...base, state: "WITHDRAWN", headline: "Withdrawn", detail: "You withdrew this application.", canContinue: false, withdraw: null });
+      continue;
+    }
     if (app.status === "DRAFT") {
       // A draft is only continuable while its cycle is still accepting
       // applications. Once the cycle closes, the destination form rejects the
-      // submission, so do not offer a dead "Continue" link here.
-      views.push(isCycleOpen(a.cycle, now)
-        ? { ...base, state: "DRAFT", headline: "Draft", detail: "Continue your application", canContinue: true }
-        : { ...base, state: "DRAFT", headline: "Applications closed", detail: "This cycle is no longer accepting applications.", canContinue: false });
+      // submission, so do not offer a dead "Continue" link here. Discarding is
+      // gated the same way: after close there is nothing left to discard toward.
+      const open = isCycleOpen(a.cycle, now);
+      views.push(open
+        ? { ...base, state: "DRAFT", headline: "Draft", detail: "Continue your application", canContinue: true, withdraw: { kind: "discard_draft" } }
+        : { ...base, state: "DRAFT", headline: "Applications closed", detail: "This cycle is no longer accepting applications.", canContinue: false, withdraw: null });
       continue;
     }
     const releasedAt = a.cycle.decisionsReleasedAt;
@@ -74,21 +87,26 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
 
     if (onboardingAcc?.contract) {
       const step = onboardingAcc.contract.status === "PROMOTED" ? "Complete" : onboardingAcc.contract.status === "SUBMITTED" ? "Form submitted" : "Form sent to you";
-      views.push({ ...base, state: "ONBOARDING", headline: "Onboarding in progress", detail: step, canContinue: false });
+      // A PROMOTED contract means they hold a real TermMembership. They are a
+      // member now, not an applicant, and /my-info withdrawFromTerm is the path.
+      const withdraw: WithdrawOption | null = onboardingAcc.contract.status === "PROMOTED" ? null : { kind: "decline_offer" };
+      views.push({ ...base, state: "ONBOARDING", headline: "Onboarding in progress", detail: step, canContinue: false, withdraw });
     } else if (emailedAcc) {
-      views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${deptName.get(emailedAcc.departmentCode) ?? emailedAcc.departmentCode}`, detail: null, canContinue: false });
+      views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${deptName.get(emailedAcc.departmentCode) ?? emailedAcc.departmentCode}`, detail: null, canContinue: false, withdraw: { kind: "decline_offer" } });
     } else if (released && waitlisted) {
-      views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false });
+      // Coming off a waitlist is a real thing to want, so the control stays.
+      views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false, withdraw: { kind: "withdraw" } });
     } else if (decidedForApp && app.acceptances.length === 0) {
       // Guard against the conflict case: if acceptance rows exist but none is emailed (pending resolution),
       // fall through to the neutral state rather than showing a false rejection.
-      views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false });
+      // No control here: withdrawing from a decision already made is pointless.
+      views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false, withdraw: null });
     } else if (scheduledInterview?.scheduledAt) {
       const zone = await getDisplayTimeZone();
       const when = formatDateTime(scheduledInterview.scheduledAt, zone, { dateStyle: "long", timeStyle: "short" });
-      views.push({ ...base, state: "INTERVIEW", headline: "Interview scheduled", detail: scheduledInterview.zoomLink ? `${when} (join link in your email)` : when, canContinue: false });
+      views.push({ ...base, state: "INTERVIEW", headline: "Interview scheduled", detail: scheduledInterview.zoomLink ? `${when} (join link in your email)` : when, canContinue: false, withdraw: { kind: "withdraw" } });
     } else {
-      views.push({ ...base, state: "SUBMITTED", headline: "Submitted", detail: "Under review", canContinue: false });
+      views.push({ ...base, state: "SUBMITTED", headline: "Submitted", detail: "Under review", canContinue: false, withdraw: { kind: "withdraw" } });
     }
   }
   return views;

@@ -31,6 +31,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "support.comment_added", label: "IT Support: new comment", defaultChannel: "email" },
   { key: "support.request_resolved", label: "IT Support: request resolved", defaultChannel: "email" },
   { key: "shift-reminder", label: "Shift reminder", defaultChannel: "email" },
+  { key: "clinic-checkin-invite", label: "Clinic day: check-in link", defaultChannel: "email" },
   { key: "incidents.report_submitted", label: "Incident: report submitted (reviewers)", defaultChannel: "email" },
   { key: "incidents.strike_requested", label: "Incident: strike requested (reviewers)", defaultChannel: "email" },
   { key: "incidents.strike_decided", label: "Incident: strike decision (reporter)", defaultChannel: "email" },

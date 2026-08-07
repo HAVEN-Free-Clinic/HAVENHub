@@ -1224,6 +1224,7 @@ Create `src/app/api/calendar/[token]/route.ts`:
 
 ```ts
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 import { resolveFeedToken, touchFeedToken } from "@/modules/schedule/calendar/feed-token";
 import { renderFeedForPerson, renderEmptyFeed } from "@/modules/schedule/calendar/feed";
 
@@ -1299,10 +1300,14 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     return new Response(await renderEmptyFeed(), { status: 200, headers: CALENDAR_HEADERS });
   }
 
-  const [body] = await Promise.all([
-    renderFeedForPerson(match.personId),
-    touchFeedToken(match.personId),
-  ]);
+  const body = await renderFeedForPerson(match.personId);
+
+  // Best effort, deliberately not awaited into the response path. This runs
+  // unattended inside Google, Apple, and Outlook: a transient failure on a
+  // "last fetched" bookkeeping write must never cost a member their calendar.
+  void touchFeedToken(match.personId).catch((error) => {
+    log.warn("[calendar] failed to record feed fetch", errorAttrs(error, { personId: match.personId }));
+  });
 
   return new Response(body, { status: 200, headers: CALENDAR_HEADERS });
 }

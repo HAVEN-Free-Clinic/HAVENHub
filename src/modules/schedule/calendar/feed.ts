@@ -53,25 +53,40 @@ function instantFor(clinicDate: Date, wallTime: string, zone: string): Date | nu
   return parseZonedInput(`${isoDateKey(clinicDate)}T${wallTime}`, zone);
 }
 
-/** Flatten a member's terms into calendar events. Pure; all inputs are explicit. */
-export function shiftsToEvents(terms: MyTermSchedule[], ctx: FeedContext): CalendarEvent[] {
+/**
+ * Flatten a member's terms into calendar events. Pure; all inputs are explicit.
+ *
+ * `personId` is needed for UID uniqueness only, not for querying: `terms`
+ * already came from `mySchedule(personId)`.
+ */
+export function shiftsToEvents(terms: MyTermSchedule[], personId: string, ctx: FeedContext): CalendarEvent[] {
   const events: CalendarEvent[] = [];
 
   for (const term of terms) {
     for (const shift of term.shifts) {
       const start = instantFor(shift.clinicDate, ctx.startTime, ctx.timeZone);
       const end = instantFor(shift.clinicDate, ctx.endTime, ctx.timeZone);
-      // A malformed clinic-hours setting should drop the event, not throw and
-      // take the whole feed down for every subscriber.
-      if (!start || !end) continue;
+      // A malformed clinic-hours setting, or one bypassed via resetSetting
+      // (which skips the cross-field start<end validation setSetting runs),
+      // should drop the event rather than ship an inverted DTEND before
+      // DTSTART, which RFC 5545 forbids and stricter clients may reject
+      // outright, or throw and take the whole feed down for every subscriber.
+      if (!start || !end || end <= start) continue;
 
       const dateKey = isoDateKey(shift.clinicDate);
       const detail = [ROLE_LABELS[shift.role], ...tagLabels(shift.tags)].join(" · ");
 
       events.push({
-        // Stable for a given person, date, and department, so an edited shift
-        // updates in place rather than duplicating in the client.
-        uid: `shift-${dateKey}-${shift.department.id}@${ctx.host}`,
+        // Includes both termId and personId because ShiftAssignment is unique
+        // on (termId, departmentId, clinicDate, personId): mySchedule can
+        // return the live term AND a PLANNING next term together, and if they
+        // share a clinic date and department (plausible right at a term
+        // rollover) omitting either would collapse two distinct shifts onto
+        // one UID and silently drop one from the calendar. This would ideally
+        // be shift-<assignmentId>@<host> per the design doc, but MyShift does
+        // not carry the ShiftAssignment id, so identity is reconstructed from
+        // the fields that make up its unique constraint instead.
+        uid: `shift-${term.term.id}-${personId}-${dateKey}-${shift.department.id}@${ctx.host}`,
         start,
         end,
         summary: `${ctx.orgName}: ${shift.department.name}`,
@@ -106,7 +121,7 @@ async function loadContext(): Promise<FeedContext> {
 /** The member's shifts as an iCalendar document. */
 export async function renderFeedForPerson(personId: string, now: Date = new Date()): Promise<string> {
   const [ctx, schedule] = await Promise.all([loadContext(), mySchedule(personId)]);
-  return buildCalendar(shiftsToEvents(schedule.terms, ctx), {
+  return buildCalendar(shiftsToEvents(schedule.terms, personId, ctx), {
     calendarName: `${ctx.orgName} Shifts`,
     timeZone: ctx.timeZone,
     now,

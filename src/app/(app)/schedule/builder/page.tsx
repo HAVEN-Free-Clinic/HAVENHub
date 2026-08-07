@@ -565,8 +565,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     href={href({ gmode: "shadow" })}
                     aria-current={gmode === "shadow" ? "page" : undefined}
                     className={cx(
-                      "inline-flex items-center min-h-11 border-l border-border px-3 py-1.5 text-sm font-medium transition-colors",
-                      gmode === "shadow" ? "bg-warning/5 text-warning-foreground" : "text-muted-foreground hover:text-foreground-soft",
+                      "inline-flex items-center min-h-11 px-3 py-1.5 text-sm font-medium transition-colors",
+                      gmode === "shadow"
+                        ? "border-l-2 border-warning bg-warning/5 text-warning-foreground"
+                        : "border-l border-border text-muted-foreground hover:text-foreground-soft",
                     )}
                   >
                     Shadow

@@ -19,6 +19,8 @@
 - **`prisma migrate dev` folds pre-existing drift into your migration.** Read the generated SQL and delete any statement you did not intend. Never accept a `DROP` of an object you do not recognize.
 - **Tests run serially against one shared test database** (`fileParallelism: false`). Call `resetDb()` in `beforeEach`.
 - **Vendor calls never run inside a Prisma transaction.**
+- **NEVER run `npx playwright test` locally.** `playwright.config.ts:57` starts its own dev server with `npm run dev`, which loads `.env`, whose `DATABASE_URL` points at **production Neon**. Running e2e locally writes test rows into production; it has already happened once in this repo. Author the `.spec.ts` files as specified and stop there. CI runs the full Playwright suite against its own database, and that is where e2e is verified.
+- **Local verification is exactly three commands:** `npx tsc --noEmit`, `npx eslint src e2e`, `npx vitest run <paths>`. Vitest is safe: `vitest.setup.ts:2` redirects `DATABASE_URL` to `TEST_DATABASE_URL` on localhost:5434.
 
 ## Deviation from the spec, recorded
 
@@ -1325,10 +1327,9 @@ test("a member can download their service record", async ({ page }) => {
 ```bash
 npx tsc --noEmit
 npx eslint src e2e
-npx playwright test e2e/my-info.spec.ts
 ```
 
-Expected: all pass.
+Expected: both pass. Do NOT run Playwright (see Global Constraints: the local e2e server points at production). The spec file is authored here and verified by CI.
 
 - [ ] **Step 5: Commit**
 
@@ -1617,10 +1618,12 @@ test.describe("public credential page", () => {
 
 `cleanupPerson` does not know about `ServiceCredential`, which is why the credential row is deleted first. Consider adding the delete to `cleanupPerson` itself so future specs do not have to remember it.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 2: Confirm the spec typechecks**
 
-Run: `npx playwright test e2e/credential-page.spec.ts`
-Expected: FAIL, the route does not exist (the first test will see a Next 404 page only once the route group resolves; before the route exists it may already 404, so confirm the second test fails).
+Run: `npx tsc --noEmit`
+Expected: PASS.
+
+Do NOT run Playwright (see Global Constraints: the local e2e server points at production Neon). This task's red-green cycle runs on the Vitest tests instead; the e2e is authored here and verified by CI. The `prisma.serviceCredential.create` call in the spec is the meaningful typecheck here: it fails to compile until the Task 2 model exists.
 
 - [ ] **Step 3: Write the page**
 
@@ -1847,10 +1850,9 @@ Add the matching imports to the page: `publishCredential`, `unpublishCredential`
 npx tsc --noEmit
 npx eslint src e2e
 npx vitest run src/modules/passport
-npx playwright test e2e/credential-page.spec.ts e2e/my-info.spec.ts
 ```
 
-Expected: all pass.
+Expected: all pass. Do NOT run Playwright (see Global Constraints).
 
 - [ ] **Step 6: Commit**
 

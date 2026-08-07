@@ -87,15 +87,19 @@ describe("buildSections", () => {
     expect(sections[0].rows).toHaveLength(2);
   });
 
-  it("orders entity sections People, Cycles, Requests and drops the empty ones", () => {
+  // The response arrives as one flat array in whatever order the server built
+  // it; the fixed ENTITY_GROUPS order is what keeps the list from reshuffling
+  // as a viewer types, so it must not follow the array.
+  it("orders entity sections by ENTITY_GROUPS and drops the empty ones", () => {
     const sections = buildSections(
       [],
       [
         { id: "r1", label: "Epic access", sub: "OPEN", href: "/support/r1", group: "Requests" },
+        { id: "h1", label: "Ada Lovelace", sub: "al2345", href: "/recruitment/history/h1", group: "Recruitment history" },
         { id: "p1", label: "Ada Lovelace", sub: null, href: "/admin/people/p1", group: "People" },
       ],
     );
-    expect(sections.map((s) => s.heading)).toEqual(["People", "Requests"]);
+    expect(sections.map((s) => s.heading)).toEqual(["People", "Recruitment history", "Requests"]);
   });
 
   it("puts pages before entities so the instant results lead", () => {

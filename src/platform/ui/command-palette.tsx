@@ -75,9 +75,9 @@ export function pageIndex(items: NavModule[]): NavModule[] {
  * Lay page hits and entity hits out as headed sections, numbering every row
  * with its position in the flat list Up/Down walks.
  *
- * Pages come first because they are instant and local; entities follow in a
- * fixed People / Cycles / Requests order so the list does not reshuffle as
- * responses land. Module sections keep the order their best-scoring hit
+ * Pages come first because they are instant and local; entities follow in the
+ * fixed ENTITY_GROUPS order so the list does not reshuffle as responses land.
+ * Module sections keep the order their best-scoring hit
  * arrived in (matchPages is already sorted), so the strongest match stays at
  * the top rather than being pushed down by an alphabetical heading sort.
  */
@@ -139,7 +139,8 @@ function otherModalOpen(own: HTMLElement | null): boolean {
 
 /**
  * The Cmd+K / Ctrl+K command palette: a jump-to search over the pages the
- * viewer can open plus the people, cycles, and requests they may see.
+ * viewer can open plus the people, cycles, past applicants, and requests they
+ * may see.
  *
  * `items` is the same permission-filtered NavModule list the global nav
  * renders, so the page index inherits that filtering and this component
@@ -397,8 +398,8 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
                   aria-controls={listId}
                   aria-autocomplete="list"
                   aria-activedescendant={rows.length > 0 ? optionId(activeIndex) : undefined}
-                  aria-label="Search pages, people, cycles, and requests"
-                  placeholder="Search pages, people, cycles, requests"
+                  aria-label="Search pages, people, cycles, past applicants, and requests"
+                  placeholder="Search pages, people, cycles, applicants, requests"
                   autoComplete="off"
                   className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-subtle-foreground"
                   value={query}
@@ -462,8 +463,8 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
 
                 {trimmed.length < MIN_ENTITY_QUERY ? (
                   <p className="px-3 py-3 text-xs text-muted-foreground">
-                    Pages match from the first letter. People, cycles, and requests need at least{" "}
-                    {MIN_ENTITY_QUERY} characters.
+                    Pages match from the first letter. People, cycles, past applicants, and requests
+                    need at least {MIN_ENTITY_QUERY} characters.
                   </p>
                 ) : (
                   rows.length === 0 && (

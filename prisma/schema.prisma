@@ -224,6 +224,7 @@ model Person {
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
+  serviceCredential              ServiceCredential?
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -1909,4 +1910,27 @@ model HistoricalInterest {
 
   @@unique([sourceBaseId, sourceTableId, sourceRecordId])
   @@index([applicantId])
+}
+
+/// A member's service record, frozen at issuance. One row per person, re-issued
+/// in place when the member regenerates.
+///
+/// The record is stored rather than recomputed on read so that the certificate
+/// PDF and the public credential page always agree, and so a public URL can
+/// never surface a record the member did not publish (a corrected term, a
+/// department they left, a shift count that moved).
+model ServiceCredential {
+  id          String    @id @default(cuid())
+  personId    String    @unique
+  /// Unguessable public token. Null until the member opts into publishing, and
+  /// nulled again on unpublish, which is what makes the public page 404.
+  publicToken String?   @unique
+  /// The full ServiceRecord as issued. Never recomputed on read.
+  record      Json
+  issuedAt    DateTime  @default(now())
+  /// Set only by a deliberate admin revocation (falsified service, record issued
+  /// in error). Offboarding does NOT set this: the credential is a past-tense
+  /// claim and a member who graduates normally did serve those terms.
+  revokedAt   DateTime?
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }

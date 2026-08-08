@@ -225,6 +225,7 @@ model Person {
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
   serviceCredential              ServiceCredential?
+  walletPasses                   WalletPass[]
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -274,6 +275,7 @@ model Term {
   scoProgress          ScoProgress[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+  walletPasses         WalletPass[]
 }
 
 /// Per-term override of the onboarding checklist. A missing row for a given kind
@@ -1933,4 +1935,24 @@ model ServiceCredential {
   /// claim and a member who graduates normally did serve those terms.
   revokedAt   DateTime?
   person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+/// A term-scoped wallet badge. One per person per term, expiring at term end.
+///
+/// The pass asserts PRESENT standing, which is why it is term-scoped and revoked
+/// on offboard, unlike ServiceCredential (a past-tense record that survives
+/// offboarding). serialNumber is the vendor's handle for update and revoke.
+model WalletPass {
+  id           String    @id @default(cuid())
+  personId     String
+  termId       String
+  serialNumber String    @unique
+  issuedAt     DateTime  @default(now())
+  revokedAt    DateTime?
+  person       Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// Restrict: a term with issued badges must not be deletable out from under them.
+  term         Term      @relation(fields: [termId], references: [id], onDelete: Restrict)
+
+  @@unique([personId, termId])
+  @@index([personId])
 }

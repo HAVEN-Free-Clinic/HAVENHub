@@ -33,6 +33,8 @@ import { log, errorAttrs } from "@/platform/logging";
 // the offboard transaction.
 // eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
 import { issueServiceCredential } from "@/modules/passport/services/credential";
+// eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
+import { revokeWalletPasses } from "@/modules/passport/services/wallet-pass";
 
 /**
  * The terms an offboard is allowed to touch: everything except ARCHIVED.
@@ -482,6 +484,18 @@ export async function setPersonStatusField(
         : { cancelledDeactivationRequestIds }),
     },
   });
+
+  // Outside the transaction on purpose: this makes a network call to the wallet
+  // vendor, and a timeout inside the transaction would hold a database
+  // connection open across a round trip and could roll back the offboard.
+  // Best-effort; the reconciliation cron retries anything that fails here.
+  if (status === "OFFBOARDED") {
+    try {
+      await revokeWalletPasses(personId);
+    } catch (error) {
+      log.error("[passport] offboard wallet revoke failed", errorAttrs(error, { personId }));
+    }
+  }
 
   return updated;
 }

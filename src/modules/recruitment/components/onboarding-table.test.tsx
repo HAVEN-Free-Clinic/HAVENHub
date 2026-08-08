@@ -68,8 +68,9 @@ describe("OnboardingTable", () => {
   // selection. It carries its own id so it cannot act on whatever is checked.
   it("renders a per-row withdraw carrying only that row's id", () => {
     const out = html([row({ state: "SUBMITTED", acceptanceId: "a7" })]);
-    expect(out).toContain('name="onlyAcceptanceId"');
-    expect(out).toContain('value="a7"');
+    // A SUBMITTED row also renders a Checkbox with value="a7", so asserting the
+    // value alone would still pass if the button lost its own value.
+    expect(out).toMatch(/name="onlyAcceptanceId"[^>]*value="a7"|value="a7"[^>]*name="onlyAcceptanceId"/);
   });
 
   it("renders no per-row withdraw for a row with no contract", () => {

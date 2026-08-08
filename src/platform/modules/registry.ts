@@ -24,10 +24,18 @@ export const MODULES: ModuleManifest[] = [
       "schedule.edit_own_dept",
       "schedule.edit_all",
       "schedule.manage_requests",
+      // Deliberately unscoped (not department-scoped, unlike the permissions
+      // above): the operational reality is one front-desk staffer marking
+      // walk-ins present across every department, not per-department checks.
+      "schedule.manage_attendance",
     ],
     status: "active",
     nav: [
       { label: "My schedule", href: "/schedule" },
+      // Data-driven: only meaningful on a clinic date, and schedule/layout.tsx
+      // drops it otherwise. dynamicGate keeps it out of the global dropdown,
+      // which cannot resolve "is today a clinic day".
+      { label: "Check in", href: "/schedule/check-in", dynamicGate: true },
       { label: "Full schedule", href: "/schedule/full" },
       // Builder, Approvals and Attendings all gate on a data-driven capability
       // (managing a schedule department / an RHD department / at least one

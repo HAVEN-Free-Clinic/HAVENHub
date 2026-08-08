@@ -58,6 +58,11 @@ export async function promoteContracts(
       include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
+    // A withdrawn applicant must never reach the roster. Withdrawal deliberately
+    // leaves the acceptance and contract intact (tearing them down would cascade
+    // away signatures, DOB, and the HIPAA cert), so the contract still looks
+    // promotable and nothing else downstream would catch this.
+    if (contract.acceptance.application.status === "WITHDRAWN") { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
     // than one department would otherwise land the person on two rosters. SRR
     // must resolve the conflict on the Decisions page first.
@@ -101,6 +106,15 @@ export async function promoteContracts(
           data: { status: "PROMOTED", promotedAt: new Date(), promotedById: actorId },
         });
         if (claimed.count === 0) throw new ContractAlreadyClaimedError(contract.id);
+
+        // Re-read inside the transaction: a withdrawal committing between the
+        // guard above and this claim must abort the promotion, not race it.
+        // ContractAlreadyClaimedError is the benign "counted as skipped" path,
+        // and rolling back here un-does the claim we just made.
+        const withdrawn = await tx.application.count({
+          where: { id: contract.acceptance.applicationId, status: "WITHDRAWN" },
+        });
+        if (withdrawn > 0) throw new ContractAlreadyClaimedError(contract.id);
 
         // Normalize the applicant-typed identity to the codebase-wide invariant
         // (trimmed + lowercase, empty -> null) before matching OR writing. Every

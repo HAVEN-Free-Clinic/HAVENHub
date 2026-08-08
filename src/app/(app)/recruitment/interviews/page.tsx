@@ -34,6 +34,9 @@ export default async function MyInterviewsPage() {
                 >
                   {iv.application.applicant.firstName} {iv.application.applicant.lastName}
                 </Link>
+                {iv.application.status === "WITHDRAWN" && (
+                  <Badge tone="warning" className="ml-2">Withdrawn</Badge>
+                )}
               </TD>
               <TD className="text-foreground-soft">{iv.departmentCode}</TD>
               <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>

@@ -22,6 +22,7 @@ import { formatForDateInput } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
+import { attendanceForDate, type AttendanceRow } from "./attendance";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -239,6 +240,14 @@ export async function mySchedule(personId: string): Promise<{ terms: MyTermSched
  * departments contains only departments with assignments on the selected date,
  * sorted by code; the page renders a single empty state when none.
  *
+ * attendance is keyed by personId for the selected date, straight from
+ * attendanceForDate. It is NOT filtered by the same active-membership set as
+ * departments: a departed member's stray attendance row stays retrievable here
+ * rather than being silently dropped, since this function has no way to know
+ * whether a caller needs it. In practice the page only looks up attendance for
+ * people it already lists (the filtered roster), so a departed member's record
+ * is simply never looked up, not incorrectly hidden.
+ *
  * No N+1: all ShiftAssignments for the term are loaded in a single query.
  * Conflict maps only include same-day conflicts for the selected date.
  */
@@ -250,15 +259,16 @@ export async function fullSchedule(
   clinicDates: Date[];
   selectedDate: Date | null;
   departments: FullScheduleDepartment[];
+  attendance: Map<string, AttendanceRow>;
 }> {
   const term = await getActiveTerm();
   if (!term) {
-    return { term: null, clinicDates: [], selectedDate: null, departments: [] };
+    return { term: null, clinicDates: [], selectedDate: null, departments: [], attendance: new Map() };
   }
 
   const { clinicDates } = term;
   if (clinicDates.length === 0) {
-    return { term, clinicDates: [], selectedDate: null, departments: [] };
+    return { term, clinicDates: [], selectedDate: null, departments: [], attendance: new Map() };
   }
 
   // Resolve selected date.
@@ -278,22 +288,26 @@ export async function fullSchedule(
 
   const selectedKey = isoDateKey(selectedDate);
 
-  // Load all shift assignments for the term in one query.
-  const rawAssignments = await prisma.shiftAssignment.findMany({
-    where: { termId: term.id },
-    select: {
-      personId: true,
-      departmentId: true,
-      clinicDate: true,
-      role: true,
-      triage: true,
-      walkin: true,
-      cc: true,
-      remote: true,
-      person: { select: { id: true, name: true } },
-      department: { select: { id: true, name: true, code: true } },
-    },
-  });
+  // Attendance for the selected date is independent of the assignment query
+  // below, so fetch it concurrently rather than serially.
+  const [rawAssignments, attendance] = await Promise.all([
+    prisma.shiftAssignment.findMany({
+      where: { termId: term.id },
+      select: {
+        personId: true,
+        departmentId: true,
+        clinicDate: true,
+        role: true,
+        triage: true,
+        walkin: true,
+        cc: true,
+        remote: true,
+        person: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true, code: true } },
+      },
+    }),
+    attendanceForDate(term.id, selectedDate),
+  ]);
 
   // Offboarding and removeMembership flip a TermMembership to REMOVED but leave
   // the ShiftAssignment rows (by design). This clinic-wide master schedule shows
@@ -406,7 +420,7 @@ export async function fullSchedule(
     };
   });
 
-  return { term, clinicDates, selectedDate, departments };
+  return { term, clinicDates, selectedDate, departments, attendance };
 }
 
 /**

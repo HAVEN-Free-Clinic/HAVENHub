@@ -21,7 +21,8 @@ export type ScheduleTemplateKey =
   | "schedule-request-denied"
   | "schedule-request-denied-partner"
   | "schedule-request-cancelled-partner"
-  | "schedule-request-submitted-director";
+  | "schedule-request-submitted-director"
+  | "clinic-checkin-invite";
 
 export const scheduleDescriptors: TemplateDescriptor[] = [
   {
@@ -200,6 +201,23 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
 <p>A shift swap request submitted by <strong>{{ requesterName }}</strong> involving your shift on <strong>{{ partnerDate }}</strong> and their shift on <strong>{{ requesterDate }}</strong> in the <strong>{{ departmentName }}</strong> department has been <strong>denied</strong> by your directors.</p>
 <p>No action is needed from you. Your schedule remains unchanged.</p>
 <p>${HUB_LINK}</p>`,
+  },
+  {
+    key: "clinic-checkin-invite",
+    name: "Clinic day: check-in link",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "firstName", label: "Recipient first name", sampleValue: "Alex" },
+      { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, July 19" },
+      { name: "checkInUrl", label: "Check-in link", sampleValue: "https://hub.havenfreeclinic.org/schedule/check-in" },
+    ],
+    defaultSubject: "Check in for clinic today",
+    defaultBody: `<p>Hello {{ firstName }},</p>
+<p>You are scheduled for clinic today, {{ clinicDateLabel }}. Please check in when you arrive.</p>
+<p><a href="{{ checkInUrl }}">Check in</a></p>
+<p>Check-in confirms you are at the clinic, so your device will ask to share your location. Only your rounded distance from the clinic is stored, never your coordinates. If you are volunteering remotely today, you can check in from anywhere.</p>
+<p>If check-in does not work for any reason, ask a director to check you in. Do not let it hold you up.</p>`,
   },
 ];
 

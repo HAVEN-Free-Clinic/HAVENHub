@@ -78,10 +78,15 @@ describe("module registry", () => {
     // offers all three to any schedule.view holder -- and every seeded volunteer
     // role holds schedule.view -- so the links bounce to /no-access. Losing the
     // marker silently reintroduces those dead ends, hence this assertion.
+    //
+    // Check in joins them for a different reason: its gate (isClinicDayToday)
+    // is a calendar fact, not a permission, so the global dropdown still can't
+    // resolve it -- offering the tab on a non-clinic day would land on a page
+    // with nothing to do, not /no-access, but the marker is the same mechanism.
     const schedule = MODULES.find((m) => m.id === "schedule")!;
     const gated = schedule.nav.filter((n) => n.dynamicGate).map((n) => n.href);
     expect(gated.sort()).toEqual(
-      ["/schedule/builder", "/schedule/requests", "/schedule/attendings"].sort(),
+      ["/schedule/builder", "/schedule/requests", "/schedule/attendings", "/schedule/check-in"].sort(),
     );
   });
 

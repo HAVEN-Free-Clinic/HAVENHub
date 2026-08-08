@@ -55,6 +55,23 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const identity = await getApplicantIdentity();
   if (!identity) redirect(`/apply?next=${encodeURIComponent(`/apply/${slug}`)}`);
   const draft = await getDraft(slug, identity);
+  // Withdrawal is terminal for the applicant: only staff can reopen one. Without
+  // this branch a WITHDRAWN row falls through to the wizard, prefilled with the
+  // answers they withdrew, and every autosave and the final submit then fail --
+  // they retype the whole form only to be told they already applied.
+  if (draft?.status === "WITHDRAWN") {
+    const support = await getSupportContact();
+    return (
+      <PortalShell>
+        <PortalNotice tone="neutral" title="Application withdrawn">
+          <p>You withdrew this application. It is no longer under consideration, and it cannot be reopened from here.</p>
+          {support.email && (
+            <p><SupportLink email={support.email}>{support.label}</SupportLink></p>
+          )}
+        </PortalNotice>
+      </PortalShell>
+    );
+  }
   if (draft?.status === "SUBMITTED") {
     return (
       <PortalShell>

@@ -10,6 +10,34 @@ import type { TemplateDescriptor } from "./types";
  * joinLink is rendered raw ({{{ }}}) because its context builder emits either an
  * anchor tag or the plain fallback text. All other values use escaped {{ }}.
  */
+export type ApplicantWithdrewParams = {
+  /** Full name of the applicant who withdrew. */
+  applicantName: string;
+  /** The recruitment cycle's title. */
+  cycleTitle: string;
+  /** True when they were declining an offer rather than withdrawing from review. */
+  declinedOffer: boolean;
+  /** True when they had an interview on the schedule. */
+  hadScheduledInterview: boolean;
+  /** Comma-joined department codes affected, e.g. "SRHD, MDIC". */
+  departments: string;
+  /** Absolute link to the applicant's detail page. */
+  reviewLink: string;
+};
+
+/** Build the flat render-engine context for recruitment.applicant_withdrew.
+ *  Department codes arrive pre-joined: the render engine has no {{#each}}. */
+export function applicantWithdrewContext(p: ApplicantWithdrewParams): Record<string, unknown> {
+  return {
+    applicantName: p.applicantName,
+    cycleTitle: p.cycleTitle,
+    declinedOffer: p.declinedOffer,
+    hadScheduledInterview: p.hadScheduledInterview,
+    departments: p.departments,
+    reviewLink: p.reviewLink,
+  };
+}
+
 export const recruitmentDescriptors: TemplateDescriptor[] = [
   {
     key: "recruitment.acceptance",
@@ -160,5 +188,33 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     defaultSubject: "Your HAVEN Hub application link",
     defaultBody:
       '<p>Hi {{ firstName }},</p><p>Use this link to access your HAVEN Hub application. It expires in 30 minutes and can be used once.</p><p><a href="{{ portalUrl }}">Open my application</a></p><p>If you did not request this, you can ignore this email.</p>',
+  },
+  {
+    key: "recruitment.applicant_withdrew",
+    name: "Recruitment: applicant withdrew",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "applicantName", label: "Applicant who withdrew", sampleValue: "Reed Rivers" },
+      { name: "cycleTitle", label: "Recruitment cycle title", sampleValue: "Volunteer 2026" },
+      { name: "declinedOffer", label: "True when they declined an offer", sampleValue: "false" },
+      { name: "hadScheduledInterview", label: "True when an interview was on the schedule", sampleValue: "true" },
+      { name: "departments", label: "Affected department codes (comma-joined)", sampleValue: "SRHD, MDIC" },
+      { name: "reviewLink", label: "Link to the applicant detail page", sampleValue: "https://hub.havenfreeclinic.org/recruitment" },
+    ],
+    defaultSubject: "[HAVEN] {{ applicantName }} withdrew from {{ cycleTitle }}",
+    defaultBody: `<p>Hello,</p>
+
+{{#if declinedOffer}}<p>{{ applicantName }} declined their offer for {{ cycleTitle }} ({{ departments }}).</p>
+
+<p>Their acceptance and any onboarding paperwork are still on file and unchanged. Rescind the acceptance on the Decisions page, or withdraw the onboarding contract first if one was already sent.</p>{{else}}<p>{{ applicantName }} withdrew their application to {{ cycleTitle }} ({{ departments }}).</p>{{/if}}
+
+{{#if hadScheduledInterview}}<p>They had an interview on the schedule. It has not been cancelled automatically, so the slot is still held until someone removes it.</p>{{/if}}
+
+<p>They no longer appear in the review queue.</p>
+
+<p><a href="{{ reviewLink }}">Open recruitment</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
 ];

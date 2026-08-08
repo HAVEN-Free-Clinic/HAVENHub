@@ -22,8 +22,8 @@ async function cycleWithApp(
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
   const role = await prisma.role.create({ data: { name: "RA " + slug, grants: { create: [{ permission: "recruitment.review_all" }] } } });
   await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
-  const term = await prisma.term.create({ data: { code: "FA26", name: "F", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
-  await prisma.department.create({ data: { code: "SRHD", name: "Student Run Health Dept" } });
+  const term = await prisma.term.create({ data: { code: "FA26-" + slug, name: "F", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  await prisma.department.upsert({ where: { code: "SRHD" }, update: {}, create: { code: "SRHD", name: "Student Run Health Dept" } });
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "Volunteer 2026", publicSlug: slug, departments: ["SRHD"], createdById: srr.id, status: cycleStatus, closesAt: opts.closesAt ?? null } });
   const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Reed", lastName: "R", email, emailLower: email.toLowerCase() } });
   const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["SRHD"], status: appStatus, submittedAt: appStatus === "SUBMITTED" ? new Date() : null } });
@@ -124,5 +124,56 @@ it("shows NOT_SELECTED for an application submitted at/before the release (audit
   await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: new Date("2026-06-05T00:00:00Z") } });
   const [v] = await getApplicantStatus(ID("early@yale.edu"));
   expect(v.state).toBe("NOT_SELECTED");
+});
+
+it("reports WITHDRAWN with no withdraw control", async () => {
+  const { app } = await cycleWithApp("cw1", "reed@yale.edu");
+  await prisma.application.update({
+    where: { id: app.id },
+    data: { status: "WITHDRAWN", withdrawnAt: new Date() },
+  });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.state).toBe("WITHDRAWN");
+  expect(v.headline).toBe("Withdrawn");
+  expect(v.withdraw).toBeNull();
+});
+
+it("offers discard_draft on an open-cycle draft and nothing once the cycle closes", async () => {
+  await cycleWithApp("cw2", "reed@yale.edu", { appStatus: "DRAFT" });
+  expect((await getApplicantStatus(ID("reed@yale.edu")))[0].withdraw).toEqual({ kind: "discard_draft" });
+
+  await cycleWithApp("cw3", "dana@yale.edu", { appStatus: "DRAFT", cycleStatus: "CLOSED" });
+  expect((await getApplicantStatus(ID("dana@yale.edu")))[0].withdraw).toBeNull();
+});
+
+it("offers withdraw under review and decline_offer once accepted", async () => {
+  const { srr, app, cycle } = await cycleWithApp("cw4", "reed@yale.edu");
+  expect((await getApplicantStatus(ID("reed@yale.edu")))[0].withdraw).toEqual({ kind: "withdraw" });
+
+  await accept(app.id, "SRHD", srr.id);
+  await releaseDecisions(cycle.id, srr.id);
+  expect((await getApplicantStatus(ID("reed@yale.edu")))[0].withdraw).toEqual({ kind: "decline_offer" });
+});
+
+it("offers nothing once the onboarding contract is promoted", async () => {
+  const { srr, app, cycle } = await cycleWithApp("cw5", "reed@yale.edu");
+  const acc = await accept(app.id, "SRHD", srr.id);
+  await releaseDecisions(cycle.id, srr.id);
+  await createOrResendContract(acc.id, srr.id, "http://test");
+  await prisma.onboardingContract.update({
+    where: { acceptanceId: acc.id },
+    data: { status: "PROMOTED", promotedAt: new Date() },
+  });
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.state).toBe("ONBOARDING");
+  expect(v.withdraw).toBeNull();
+});
+
+it("offers nothing once the applicant was not selected", async () => {
+  const { srr, cycle } = await cycleWithApp("cw6", "reed@yale.edu");
+  await releaseDecisions(cycle.id, srr.id);
+  const [v] = await getApplicantStatus(ID("reed@yale.edu"));
+  expect(v.state).toBe("NOT_SELECTED");
+  expect(v.withdraw).toBeNull();
 });
 

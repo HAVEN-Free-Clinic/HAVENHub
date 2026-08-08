@@ -9,6 +9,7 @@ import { createInterview, InterviewError } from "@/modules/recruitment/services/
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
+import { reopenWithdrawnApplication, WithdrawError } from "@/modules/recruitment/services/withdraw";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
@@ -149,6 +150,21 @@ export async function reopenDecisionAction(cycleId: string, applicationId: strin
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
       redirect(bounce(cycleId, applicationId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "reopened" }));
+}
+
+/** Undo an applicant's self-withdrawal. Gated on recruitment.manage_cycles in
+ *  the service, so a reviewer without it gets the refusal message, not a crash. */
+export async function reopenWithdrawnAction(cycleId: string, applicationId: string) {
+  const person = await requirePersonSession();
+  try {
+    await reopenWithdrawnApplication(applicationId, person.personId);
+  } catch (err) {
+    if (err instanceof WithdrawError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
     }
     throw err;
   }

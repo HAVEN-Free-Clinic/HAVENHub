@@ -1,9 +1,15 @@
-import { requireModuleAccess } from "@/platform/auth/session";
+import { requireModuleAccess, requirePermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
+import { revalidatePath } from "next/cache";
 import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
+import { markPresent, undoAttendance } from "@/modules/schedule/services/attendance";
+import { displayTodayKey } from "@/platform/dates/today";
+import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { formatCalendarDate } from "@/platform/dates";
@@ -13,11 +19,86 @@ type PageProps = {
 };
 
 export default async function FullSchedulePage({ searchParams }: PageProps) {
-  await requireModuleAccess("schedule");
+  const session = await requireModuleAccess("schedule");
   const sp = await searchParams;
 
-  const { term, clinicDates, selectedDate, departments } = await fullSchedule(sp.date);
+  // Attendance overlay is a separate, narrower permission from ordinary
+  // schedule.view access. Members without it must see this page exactly as it
+  // is today: no column, no badges, no indication of who has or hasn't checked
+  // in. Only holders of schedule.manage_attendance see attendance state at all.
+  const canMarkAttendance = await can(session.personId, "schedule.manage_attendance");
+
+  const { term, clinicDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
+
+  // markPresent/undoAttendance both write against TODAY's clinic date
+  // (todaysClinicDate inside attendance.ts), not whatever date this page
+  // happens to have selected. The date strip lets a director browse to any
+  // clinic date in the term, so without this check a write triggered from a
+  // non-today row would either no-op (today isn't a clinic day) or, worse,
+  // silently land on TODAY's attendance instead of the browsed date's. Only
+  // offer the write controls when the selected date IS the live clinic day;
+  // other dates show attendance read-only. See isSelectedDateToday for the
+  // (separately unit-tested) comparison itself.
+  const todayKey = await displayTodayKey();
+  const selectedDateIsToday = isSelectedDateToday(selectedKey, todayKey);
+
+  // Each action re-enforces schedule.manage_attendance itself: a server action
+  // is a public endpoint in its own right, and this page's gate above does not
+  // protect it from being invoked directly.
+  async function markPresentAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("schedule.manage_attendance");
+    const personId = (formData.get("personId") as string | null) ?? "";
+    if (personId) await markPresent(actor.personId, personId);
+    revalidatePath("/schedule/full");
+  }
+
+  async function undoAttendanceAction(formData: FormData) {
+    "use server";
+    await requirePermission("schedule.manage_attendance");
+    const personId = (formData.get("personId") as string | null) ?? "";
+    if (personId) await undoAttendance(personId);
+    revalidatePath("/schedule/full");
+  }
+
+  /**
+   * Attendance control for one roster row, gated on canMarkAttendance so a
+   * member without the permission never renders anything here -- not a badge,
+   * not a button, not an absence indicator. Holders see a "Here" badge when a
+   * record exists for whatever date is selected (read-only, safe to show for
+   * any date). The write controls (undo, mark present) only render on the
+   * live clinic day, since that is the only date the underlying service
+   * functions actually write against.
+   */
+  function attendanceControl(personId: string) {
+    if (!canMarkAttendance) return null;
+    const record = attendance.get(personId);
+    if (record) {
+      return (
+        <span className="flex items-center gap-1.5">
+          <Badge tone="success">Here</Badge>
+          {selectedDateIsToday && (
+            <form action={undoAttendanceAction}>
+              <input type="hidden" name="personId" value={personId} />
+              <Button type="submit" variant="ghost" className="px-2 py-0.5 text-xs">
+                Undo
+              </Button>
+            </form>
+          )}
+        </span>
+      );
+    }
+    if (!selectedDateIsToday) return null;
+    return (
+      <form action={markPresentAction}>
+        <input type="hidden" name="personId" value={personId} />
+        <Button type="submit" variant="outline" className="px-2 py-0.5 text-xs">
+          Mark present
+        </Button>
+      </form>
+    );
+  }
 
   const selectedDisplay = selectedDate
     ? formatCalendarDate(selectedDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
@@ -107,6 +188,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
                                 </Badge>
                               )}
+                              {attendanceControl(p.id)}
                             </li>
                           ))}
                         </ul>
@@ -130,6 +212,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                                   Also in {(conflicts.get(v.id) ?? []).join(", ")}
                                 </Badge>
                               )}
+                              {attendanceControl(v.id)}
                             </li>
                           ))}
                         </ul>
@@ -149,6 +232,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
                                 </Badge>
                               )}
+                              {attendanceControl(p.id)}
                             </li>
                           ))}
                         </ul>

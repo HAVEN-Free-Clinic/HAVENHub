@@ -2384,23 +2384,63 @@ import {
   type BulkResult,
 } from "@/modules/volunteers/services/transition-actions";
 import { TransitionTab } from "@/modules/volunteers/components/transition-tab";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { can } from "@/platform/rbac/engine";
 ```
 
-Replace the `const nextTerm = await getNextTerm();` line with:
+Task 5 deliberately shipped only two tabs, so this step adds the third one end to
+end. Four edits to the page, in order.
+
+**(a) Widen the tab union.** Task 5 left a comment saying this step widens it:
+
+```tsx
+type OffboardingTab = "transition" | "departments" | "flagged";
+```
+
+**(b) Resolve the next term and the executor flag, then load the active tab's data.**
+This goes after the existing `offboardingView` call and before the `tab` is used.
+`offboardingView` stays unconditional, because the tab list needs its `flagged !==
+null` to decide whether the Flagged tab exists at all:
 
 ```tsx
   const [nextTerm, canExecute] = await Promise.all([
     getNextTerm(),
     can(viewer.personId, "volunteers.manage_offboarding"),
   ]);
+```
+
+**(c) Make Transition the default during a rollover, and add it to the tab list.**
+Replace Task 5's two-value `requested`/`tab` block and its `items` array with:
+
+```tsx
+  // Default to the transition report while a term is being prepared, and to the
+  // department cards the rest of the year, so the page opens where it always has
+  // when no rollover is in progress.
+  const fallback: OffboardingTab = nextTerm ? "transition" : "departments";
+  const requested = rawTab as OffboardingTab | undefined;
+  const tab: OffboardingTab =
+    requested === "transition" || requested === "departments" || requested === "flagged"
+      ? requested
+      : fallback;
 
   // Only the active tab's data is queried, so a director opening Flagged does
   // not pay for the transition roll-up.
   const transition = tab === "transition" ? await transitionView(viewer.personId) : null;
+
+  const items = [
+    { label: "Transition", href: `${BASE}?tab=transition` },
+    { label: "By department", href: `${BASE}?tab=departments` },
+    // The flagged queue is executor-only, exactly as the old inline section was:
+    // offboardingView returns null for a viewer without manage_offboarding.
+    ...(flagged !== null ? [{ label: "Flagged", href: `${BASE}?tab=flagged` }] : []),
+  ];
 ```
 
-Note that `tab` is computed above this line in the Task 5 version, so this assignment must sit after the `const tab: OffboardingTab = ...` block. Move the `offboardingView` call so it only runs for the other two tabs is NOT part of this task; leave it as is, since the tab list needs `flagged !== null` to decide whether to show the Flagged tab.
+The `transition` assignment must sit after `tab` is computed, since it reads it.
+
+**(d) Leave the existing three server actions alone.** `flagAction`, `unflagAction`,
+and `executeOffboardAction` are unchanged, including the validated origin-tab
+handling Task 5 added to `unflagAction`.
 
 Add the two bulk server actions alongside the existing three:
 
@@ -2460,7 +2500,8 @@ Add the two bulk server actions alongside the existing three:
   }
 ```
 
-Replace the Task 5 placeholder with:
+Add the render block. Task 5 shipped no placeholder for it, so this is a new
+branch alongside the existing `departments` and `flagged` ones:
 
 ```tsx
       {tab === "transition" && transition && (

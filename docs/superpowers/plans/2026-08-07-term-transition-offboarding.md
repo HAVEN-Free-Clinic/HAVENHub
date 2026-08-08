@@ -1844,6 +1844,8 @@ export function FlaggedTab({
                   <div className="flex items-center gap-2">
                     <form action={unflagAction}>
                       <input type="hidden" name="personId" value={person.id} />
+                      {/* Tells unflagAction which tab to redirect back to on error. */}
+                      <input type="hidden" name="tab" value="flagged" />
                       <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                     </form>
                     <form action={executeOffboardAction}>
@@ -2552,6 +2554,11 @@ Replace `src/modules/volunteers/components/flagged-tab.tsx` entirely. It becomes
 component: the per-person Unflag and Offboard forms are unchanged, and a selection column, a bulk
 bar, and the offboarded-this-term export are added around them.
 
+Two things Task 5 put in this file that the replacement below KEEPS, and that you must not drop:
+the hidden `tab` input on the Unflag form (it is what makes `unflagAction` redirect back to this
+tab instead of Departments when it errors), and the comment on the `<section>` explaining why the
+top margin is `mt-8`. Diff your result against the current file and confirm both survived.
+
 ```tsx
 "use client";
 
@@ -2635,6 +2642,9 @@ export function FlaggedTab({
   const allSelected = flagged.length > 0 && flagged.every((f) => selected.has(f.person.id));
 
   return (
+    // mt-8 matches DepartmentTab's top spacing: both tabs' content sits directly
+    // under the shared TabRow now, so their top margins must agree (was mt-12
+    // pre-tabs, when this section stacked below the department cards instead).
     <section className="mt-8">
       <SectionHeader level="title" className="mb-3">Flagged for offboarding</SectionHeader>
 
@@ -2744,6 +2754,8 @@ export function FlaggedTab({
                   <div className="flex items-center gap-2">
                     <form action={unflagAction}>
                       <input type="hidden" name="personId" value={person.id} />
+                      {/* Tells unflagAction which tab to redirect back to on error. */}
+                      <input type="hidden" name="tab" value="flagged" />
                       <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                     </form>
                     <form action={executeOffboardAction}>

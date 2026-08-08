@@ -124,6 +124,14 @@ describe("OnboardingTable selection", () => {
     });
     expect(rowBoxes(c)).toHaveLength(1);
     expect(button(c, "Withdraw").textContent).toContain("(1)");
+    // Row count and the action counts both derive from the VISIBLE rows, so they
+    // stay correct even if the selection kept its hidden members. Only these read
+    // effectiveSelected.size directly, so they are what fails if the intersection
+    // is ever dropped.
+    expect(c.textContent).toContain("1 selected");
+    expect(c.textContent).not.toContain("3 selected");
+    expect(headerBox(c).checked).toBe(true);
+    expect(headerBox(c).indeterminate).toBe(false);
   });
 
   it("reports the selected count and clears it", () => {

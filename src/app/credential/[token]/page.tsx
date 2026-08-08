@@ -67,7 +67,9 @@ export default async function CredentialPage({
           </THead>
           <tbody>
             {record.terms.map((row) => (
-              <TR key={`${row.source}-${row.termCode}`}>
+              // Department is part of the key: a member in two departments in
+              // one term produces two rows with the same source and term code.
+              <TR key={`${row.source}-${row.termCode}-${row.departmentName}`}>
                 <TD>
                   {row.termName}
                   {row.source === "RECRUITMENT" ? (

@@ -54,13 +54,16 @@ describe("issueServiceCredential", () => {
     const { person, dept } = await seedMember();
     await issueServiceCredential(person.id);
 
+    // A term that has already STARTED. computeServiceRecord excludes terms whose
+    // start date is still in the future, because this clinic rosters the next
+    // term ahead of the flip and unserved time is not service.
     const second = await prisma.term.create({
       data: {
-        code: "FA26",
-        name: "Fall 2026",
-        startDate: new Date("2026-09-01T12:00:00Z"),
-        endDate: new Date("2026-12-20T12:00:00Z"),
-        status: "ACTIVE",
+        code: "FA25",
+        name: "Fall 2025",
+        startDate: new Date("2025-09-01T12:00:00Z"),
+        endDate: new Date("2025-12-20T12:00:00Z"),
+        status: "ARCHIVED",
       },
     });
     await prisma.termMembership.create({

@@ -7,7 +7,11 @@ async function person(name = "Ada Lovelace") {
   return prisma.person.create({ data: { name } });
 }
 
-async function term(code: string, start: string, status: "ACTIVE" | "ARCHIVED" = "ARCHIVED") {
+async function term(
+  code: string,
+  start: string,
+  status: "PLANNING" | "ACTIVE" | "ARCHIVED" = "ARCHIVED",
+) {
   return prisma.term.create({
     data: {
       code,
@@ -112,6 +116,121 @@ describe("computeServiceRecord", () => {
     expect(record.terms[0].shifts).toBe(3);
   });
 
+  it("counts shifts per department, not per term, for a member in two departments in one term", async () => {
+    const p = await person();
+    const itcm = await department();
+    const peds = await department("PEDS", "Pediatrics");
+    const t = await term("SU26", "2026-05-01");
+    for (const d of [itcm, peds]) {
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+    }
+    // Two in Internal Medicine, one in Pediatrics. A term-grained count would
+    // print 3 against BOTH rows: 6 shown against 3 served.
+    for (const day of ["2026-06-03", "2026-06-10"]) {
+      await prisma.shiftAssignment.create({
+        data: {
+          termId: t.id,
+          departmentId: itcm.id,
+          personId: p.id,
+          clinicDate: new Date(`${day}T12:00:00Z`),
+          role: "VOLUNTEER",
+        },
+      });
+    }
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: t.id,
+        departmentId: peds.id,
+        personId: p.id,
+        clinicDate: new Date("2026-06-17T12:00:00Z"),
+        role: "VOLUNTEER",
+      },
+    });
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms).toHaveLength(2);
+    expect(record.terms.find((r) => r.departmentName === "Internal Medicine")!.shifts).toBe(2);
+    expect(record.terms.find((r) => r.departmentName === "Pediatrics")!.shifts).toBe(1);
+  });
+
+  it("probes shift data per department, so one department reads 0 while another reads null", async () => {
+    const p = await person();
+    const other = await person("Someone Else");
+    const itcm = await department();
+    const peds = await department("PEDS", "Pediatrics");
+    const t = await term("SU26", "2026-05-01");
+    for (const d of [itcm, peds]) {
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+    }
+    // The term HAS shift data, but only for Internal Medicine, and it belongs to
+    // someone else. Pediatrics was not being counted, which is "Not recorded",
+    // not "0 scheduled".
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: t.id,
+        departmentId: itcm.id,
+        personId: other.id,
+        clinicDate: new Date("2026-06-03T12:00:00Z"),
+        role: "VOLUNTEER",
+      },
+    });
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms.find((r) => r.departmentName === "Internal Medicine")!.shifts).toBe(0);
+    expect(record.terms.find((r) => r.departmentName === "Pediatrics")!.shifts).toBeNull();
+  });
+
+  it("collapses a VOLUNTEER and a DIRECTOR membership in one term and department to the senior role", async () => {
+    const p = await person();
+    const d = await department();
+    const t = await term("SU26", "2026-05-01");
+    // `kind` is part of the membership unique key, so both rows can coexist.
+    for (const kind of ["VOLUNTEER", "DIRECTOR"] as const) {
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind },
+      });
+    }
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: t.id,
+        departmentId: d.id,
+        personId: p.id,
+        clinicDate: new Date("2026-06-03T12:00:00Z"),
+        role: "VOLUNTEER",
+      },
+    });
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms).toHaveLength(1);
+    expect(record.terms[0].track).toBe("DIRECTOR");
+    expect(record.terms[0].shifts).toBe(1);
+  });
+
+  it("excludes a term that has not started yet", async () => {
+    const p = await person();
+    const d = await department();
+    const served = await term("SU26", "2026-05-01");
+    // The clinic rosters the next term ahead of the ACTIVE flip, so an incoming
+    // director genuinely holds this membership before serving a day.
+    const upcoming = await term("FA99", "2099-09-01", "PLANNING");
+    for (const t of [served, upcoming]) {
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "DIRECTOR" },
+      });
+    }
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms.map((r) => r.termCode)).toEqual(["SU26"]);
+  });
+
   it("reconstructs a pre-roster term from an ONBOARDED + ACCEPTED recruitment outcome", async () => {
     const p = await person();
     await department();
@@ -163,6 +282,51 @@ describe("computeServiceRecord", () => {
         furthestStage: "FINAL_ROUND",
         outcome: "REJECTED",
         decidedAt: new Date("2022-09-15T12:00:00Z"),
+      },
+    });
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms).toHaveLength(0);
+  });
+
+  it("ignores recruitment outcomes that fail only ONE of ONBOARDED and ACCEPTED", async () => {
+    // The fixture above fails BOTH conditions, so it would still be excluded if
+    // the filter were an OR. These fail exactly one each, which is the only
+    // shape that catches an OR-for-AND regression.
+    const p = await person();
+    const applicant = await prisma.historicalApplicant.create({
+      data: { primaryEmail: "ada@example.com", firstName: "Ada", lastName: "Lovelace", personId: p.id },
+    });
+    const base = {
+      applicantId: applicant.id,
+      sourceBaseId: "app1",
+      sourceTableId: "tbl1",
+      track: "VOLUNTEER" as const,
+      decidedAt: new Date("2022-09-15T12:00:00Z"),
+    };
+    // Reached ONBOARDED, but withdrew: not service.
+    await prisma.historicalApplication.create({
+      data: {
+        ...base,
+        sourceRecordId: "rec-onboarded-withdrawn",
+        cycleCode: "V-FA22",
+        cycleLabel: "Fall 2022 Volunteer Recruitment",
+        termCode: "FA22",
+        furthestStage: "ONBOARDED",
+        outcome: "WITHDRAWN",
+      },
+    });
+    // Outcome ACCEPTED, but never reached onboarding: still not service.
+    await prisma.historicalApplication.create({
+      data: {
+        ...base,
+        sourceRecordId: "rec-accepted-not-onboarded",
+        cycleCode: "V-SP23",
+        cycleLabel: "Spring 2023 Volunteer Recruitment",
+        termCode: "SP23",
+        furthestStage: "ACCEPTED",
+        outcome: "ACCEPTED",
       },
     });
 

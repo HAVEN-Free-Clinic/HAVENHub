@@ -65,7 +65,9 @@ export function PassportDocument({
           </View>
         ) : (
           record.terms.map((row) => (
-            <Fragment key={`${row.source}-${row.termCode}`}>
+            // Department is part of the key: a member in two departments in one
+            // term produces two rows with the same source and term code.
+            <Fragment key={`${row.source}-${row.termCode}-${row.departmentName}`}>
               <View style={styles.row}>
                 <View style={styles.cTerm}>
                   <Text>{row.termName}</Text>

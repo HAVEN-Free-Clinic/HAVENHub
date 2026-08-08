@@ -22,6 +22,8 @@ import { buildOnboardingNextSteps } from "../onboarding-next-steps";
 import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
+import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
+import { resolveCustomAnswers } from "../contract/custom-answers";
 
 /**
  * How long an onboarding link stays usable after a send. The link is a standing
@@ -774,6 +776,38 @@ export async function listOnboarding(cycleId: string) {
     rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
   );
   return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
+}
+
+/**
+ * Project this cycle's acceptances into the narrow row DTO the onboarding table
+ * renders.
+ *
+ * listOnboarding returns whole OnboardingContract rows, which carry the link
+ * token (a standing credential), date of birth, phone, signature records, and
+ * HIPAA file metadata. The table is a client component, so anything returned
+ * here is serialized into the RSC payload and shipped to the browser. Only the
+ * fields below cross that boundary.
+ *
+ * `now` is a parameter so expiry is resolved once, here, rather than during
+ * client render.
+ */
+export async function listOnboardingRows(
+  cycleId: string,
+  now: Date = new Date(),
+): Promise<OnboardingRow[]> {
+  const rows = await listOnboarding(cycleId);
+  return rows.map((r) => ({
+    acceptanceId: r.id,
+    contractId: r.contract?.id ?? null,
+    firstName: r.application.applicant.firstName,
+    lastName: r.application.applicant.lastName,
+    departmentCode: r.departmentCode,
+    state: deriveRowState({ conflicted: r.conflicted, contract: r.contract, now }),
+    onRoster: r.contract?.promotedPersonId != null,
+    customAnswers: r.contract
+      ? resolveCustomAnswers(r.contract.templateSnapshot, r.contract.customAnswers)
+      : [],
+  }));
 }
 
 /** Load a submitted contract for the admin signed-contract view, with the owning

@@ -60,6 +60,9 @@ export default async function OffboardingPage({
     const personId = formData.get("personId") as string;
     const note = (formData.get("note") as string | null) || undefined;
     if (!personId) return;
+    // Unlike unflagAction, flagAction is only ever bound from the Departments
+    // tab (DepartmentTab), so a fixed redirect target is correct here; there is
+    // no second origin to preserve.
     try {
       await flagForOffboarding(actor.personId, personId, note);
     } catch (err) {
@@ -76,11 +79,19 @@ export default async function OffboardingPage({
     const actor = await requirePermission("volunteers.view");
     const personId = formData.get("personId") as string;
     if (!personId) return;
+    // unflagAction is bound from both tabs (a director unflags from Departments,
+    // an executor unflags from the Flagged queue), so an error must redirect back
+    // to whichever tab the form was submitted from, not always Departments. The
+    // form tells us via a hidden "tab" input; validate against the known tab
+    // names rather than interpolating the raw value into the redirect target.
+    const requestedTab = formData.get("tab") as string | null;
+    const originTab: OffboardingTab =
+      requestedTab === "departments" || requestedTab === "flagged" ? requestedTab : "departments";
     try {
       await unflag(actor.personId, personId);
     } catch (err) {
       if (err instanceof OffboardForbiddenError || err instanceof OffboardNotFoundError) {
-        redirect(`${BASE}?tab=departments&error=${encodeURIComponent(err.message)}`);
+        redirect(`${BASE}?tab=${originTab}&error=${encodeURIComponent(err.message)}`);
       }
       throw err;
     }

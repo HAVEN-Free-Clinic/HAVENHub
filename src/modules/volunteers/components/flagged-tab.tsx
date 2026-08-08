@@ -8,7 +8,10 @@ import type { FlaggedRow } from "@/modules/volunteers/services/offboarding";
  * The clinic-wide queue of people flagged for offboarding in the ACTIVE term,
  * with the per-person Unflag and Offboard controls.
  *
- * Lifted out of page.tsx unchanged when the page became tabbed.
+ * Lifted out of page.tsx when the page became tabbed. The Unflag form carries
+ * a hidden "tab" input (see DepartmentTab's matching form) so unflagAction's
+ * error redirect returns to this tab rather than always landing on
+ * Departments.
  */
 export function FlaggedTab({
   flagged,
@@ -20,6 +23,9 @@ export function FlaggedTab({
   executeOffboardAction: (formData: FormData) => Promise<void>;
 }) {
   return (
+    // mt-8 matches DepartmentTab's top spacing: both tabs' content sits directly
+    // under the shared TabRow now, so their top margins must agree (was mt-12
+    // pre-tabs, when this section stacked below the department cards instead).
     <section className="mt-8">
       <SectionHeader level="title" className="mb-3">Flagged for offboarding</SectionHeader>
 
@@ -57,6 +63,8 @@ export function FlaggedTab({
                   <div className="flex items-center gap-2">
                     <form action={unflagAction}>
                       <input type="hidden" name="personId" value={person.id} />
+                      {/* Tells unflagAction which tab to redirect back to on error. */}
+                      <input type="hidden" name="tab" value="flagged" />
                       <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                     </form>
                     <form action={executeOffboardAction}>

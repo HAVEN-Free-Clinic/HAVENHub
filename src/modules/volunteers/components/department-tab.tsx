@@ -9,8 +9,10 @@ import type { DepartmentOffboarding } from "@/modules/volunteers/services/offboa
  * One card per department the viewer manages, listing that department's ACTIVE
  * members in the ACTIVE term with a Flag or Unflag control.
  *
- * Lifted out of page.tsx unchanged when the page became tabbed. Server
- * component: the actions arrive as props and bind to plain forms.
+ * Lifted out of page.tsx when the page became tabbed. Server component: the
+ * actions arrive as props and bind to plain forms. The Unflag form carries a
+ * hidden "tab" input (see FlaggedTab's matching form) so unflagAction's error
+ * redirect returns to this tab rather than always landing on Departments.
  */
 export function DepartmentTab({
   departments,
@@ -69,6 +71,8 @@ export function DepartmentTab({
                       {m.flag ? (
                         <form action={unflagAction}>
                           <input type="hidden" name="personId" value={m.person.id} />
+                          {/* Tells unflagAction which tab to redirect back to on error. */}
+                          <input type="hidden" name="tab" value="departments" />
                           <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                         </form>
                       ) : (

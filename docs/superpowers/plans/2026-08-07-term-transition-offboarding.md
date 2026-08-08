@@ -1000,11 +1000,22 @@ Create `src/modules/volunteers/transition-limits.ts`:
 /**
  * The largest batch bulkExecuteOffboard will accept.
  *
- * revokeWalletPasses runs an 8s vendor timeout per pass, outside the offboard
- * transaction. During a wallet outage a 38-person batch would spend past the
- * 300s function limit in that loop alone and lose its tail. 25 bounds the worst
- * case near 225s with headroom. The UI enforces the same number on selection, so
- * nothing is silently truncated.
+ * Two reasons, one present and one imminent.
+ *
+ * Present: each person is offboarded in its own transaction with real side
+ * effects (memberships removed, Epic requests cancelled and enqueued, shift
+ * requests cancelled). Bounding the batch bounds the blast radius of a
+ * mis-click on a destructive action.
+ *
+ * Imminent: the volunteer-passport work, in flight on its own branch, adds
+ * revokeWalletPasses to this exact path with an 8s vendor timeout per pass,
+ * outside the offboard transaction. Once that merges, a wallet outage during a
+ * 38-person batch would spend past the 300s function limit in that loop alone
+ * and lose its tail. 25 bounds that worst case near 225s with headroom, and
+ * choosing it now means the limit is already correct when the path changes.
+ *
+ * The UI enforces the same number on selection, so nothing is silently
+ * truncated.
  */
 export const MAX_BULK_OFFBOARD = 25;
 ```
@@ -1025,8 +1036,8 @@ Create `src/modules/volunteers/services/transition-actions.ts`:
  *
  * Failure is isolated per person. One refusal never blocks the rest of the
  * batch, and the successes stand. Repeat execution is safe: setPersonStatusField
- * gates the credential snapshot on a real ACTIVE to OFFBOARDED transition and
- * guards duplicate DEACTIVATE creation.
+ * re-runs its membership sweep against an already-empty set and guards duplicate
+ * DEACTIVATE creation, so a second offboard is a no-op plus an audit row.
  *
  * Analytics deliberately live at the call site, not here, matching the
  * single-person page action which owns its own captureEvent.

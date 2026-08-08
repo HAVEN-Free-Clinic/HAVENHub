@@ -1970,8 +1970,14 @@ The existing block clicks `button:has-text("Send onboarding links")`, which has 
   await sendLinks.click();
 
   await expect(page.getByText(/Sent 1 onboarding link\(s\)\./)).toBeVisible();
-  // Anchor the status badge exactly: "Sent" is a substring of other copy on the page.
-  await expect(page.getByRole("cell").filter({ hasText: /^Sent$/ })).toBeVisible();
+  // Anchor the status badge exactly: "Sent" is a substring of other copy on the
+  // page, including the "Sent 1 onboarding link(s)." banner. Scope to the row and
+  // match the badge's own text, NOT the cell's: the Status cell also holds the
+  // per-row Withdraw button, so the cell's full text is "Sent Withdraw" and a
+  // /^Sent$/ filter on the cell can never match.
+  await expect(
+    page.getByRole("row", { name: /Ona Boarder/ }).getByText("Sent", { exact: true }),
+  ).toBeVisible();
 
   // The row is now PENDING, so Promote has nothing eligible but Withdraw does.
   await page.getByRole("checkbox", { name: /^Select Ona Boarder$/ }).check();

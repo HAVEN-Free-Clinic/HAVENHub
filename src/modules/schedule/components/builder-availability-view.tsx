@@ -8,6 +8,7 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView } from "@/modules/schedule/services/builder";
 import { IntakeNotes } from "./intake-notes";
+import { sortClinicDates } from "./clinic-date-order";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -31,6 +32,14 @@ export function BuilderAvailabilityView({
   clearOverrideAction,
   acknowledgeAction,
 }: BuilderAvailabilityViewProps) {
+  // `clinicDates` is Term.clinicDates, handed to this component (and its
+  // siblings in the same Builder request) by reference: it carries no
+  // ordering guarantee, and the check-in feature's seed appends today's date
+  // to the end regardless of where it falls chronologically. Sort a copy for
+  // the checkbox order below; never the prop itself, or every other consumer
+  // of this same array in the request would see it reordered too.
+  const sortedClinicDates = sortClinicDates(clinicDates);
+
   return (
     <div className="flex flex-col gap-4">
       {members.length === 0 && (
@@ -81,7 +90,7 @@ export function BuilderAvailabilityView({
                 >
                   <input type="hidden" name="membershipId" value={member.membershipId} />
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {clinicDates.map((d) => {
+                    {sortedClinicDates.map((d) => {
                       const key = isoDateKey(d);
                       const checked = availKeys.has(key);
                       return (
@@ -113,7 +122,7 @@ export function BuilderAvailabilityView({
               </>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {clinicDates.map((d) => {
+                {sortedClinicDates.map((d) => {
                   const key = isoDateKey(d);
                   const checked = availKeys.has(key);
                   return (

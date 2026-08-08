@@ -33,10 +33,10 @@ import { termGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
-import { formatCalendarDate } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
+import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
@@ -492,18 +492,18 @@ export default async function MySchedulePage() {
                       <form action={saveAvailabilityAction}>
                         <input type="hidden" name="termId" value={t.term.id} />
                         <div className="flex flex-col gap-6">
-                          {Object.entries(
-                            t.clinicDates.reduce((acc, d) => {
-                              const month = formatCalendarDate(d, { month: "long", year: "numeric" });
-                              if (!acc[month]) acc[month] = [];
-                              acc[month].push(d);
-                              return acc;
-                            }, {} as Record<string, Date[]>)
-                          ).map(([month, dates]) => (
-                            <div key={month}>
-                              <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{month}</p>
+                          {/* t.clinicDates is Term.clinicDates, a raw Postgres array
+                              column with no ordering guarantee -- the check-in
+                              feature's seed appends today's date to the end
+                              regardless of where it falls chronologically.
+                              groupByMonth sorts a copy before grouping, so the
+                              month headings below always render chronologically
+                              and never collide (see clinic-date-order.ts). */}
+                          {groupByMonth(t.clinicDates).map((group) => (
+                            <div key={group.key}>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{group.month}</p>
                               <div className="flex flex-wrap gap-2">
-                                {dates.map((d) => {
+                                {group.dates.map((d) => {
                                   const key = isoDateKey(d);
                                   const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
                                   return (

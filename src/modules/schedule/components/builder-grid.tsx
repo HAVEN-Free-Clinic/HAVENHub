@@ -20,6 +20,7 @@ import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
+import { sortClinicDates } from "./clinic-date-order";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -353,6 +354,14 @@ export function BuilderGrid({
     );
   }
 
+  // `clinicDates` is Term.clinicDates, handed to this component (and its
+  // siblings in the same Builder request) by reference: it carries no
+  // ordering guarantee, and the check-in feature's seed appends today's date
+  // to the end regardless of where it falls chronologically. Sort a copy for
+  // the column order below; never the prop itself, or every other consumer
+  // of this same array in the request would see it reordered too.
+  const sortedClinicDates = sortClinicDates(clinicDates);
+
   return (
     <div
       className={cx(
@@ -370,7 +379,7 @@ export function BuilderGrid({
             >
               Member
             </th>
-            {clinicDates.map((d) => {
+            {sortedClinicDates.map((d) => {
               const dk = isoDateKey(d);
               const isHighlight = dk === highlightDateKey;
               return (
@@ -412,7 +421,7 @@ export function BuilderGrid({
                     )}
                   </div>
                 </th>
-                {clinicDates.map((d) => {
+                {sortedClinicDates.map((d) => {
                   const dk = isoDateKey(d);
                   const assignment = assignmentsByDate[dk]?.[row.personId];
                   return (

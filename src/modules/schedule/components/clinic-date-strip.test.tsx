@@ -49,8 +49,14 @@ describe("ClinicDateStrip", () => {
     expect(out.match(/January 2027/g)).toHaveLength(1);
     // January 2028 appears once (holds one date)
     expect(out.match(/January 2028/g)).toHaveLength(1);
-    // Verify they are separate month groups by checking neither label appears multiple times
-    // The keyed Map anti-pattern would have collapsed both to "January" and showed only 2026 or 2027
+    // Each group's label is "Month Year" (formatCalendarDate's {month:
+    // "long", year: "numeric"}), so January 2027 and January 2028 are
+    // already distinct strings and were never at risk of collapsing into a
+    // shared "January" group. What this test actually exercises is that
+    // groupByMonth sorts a copy ascending before forming runs: that is what
+    // guarantees the three groups render in true chronological order (Dec
+    // 2026, then Jan 2027, then Jan 2028) rather than in whatever order the
+    // (possibly unsorted) source array happened to list them.
   });
 
   it("marks only the selected date with aria-current", () => {

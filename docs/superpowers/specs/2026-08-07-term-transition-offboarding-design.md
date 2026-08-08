@@ -80,6 +80,10 @@ Bucket is one axis; these render as badges on the row and do not change the buck
 
 - **draft application** when a DRAFT application exists for the next term's cycle. A draft does not
   count as renewing, but the human should see it before flagging.
+- **withdrew application** when a WITHDRAWN application exists for the next term's cycle. Tracked
+  separately from the draft chip: someone who applied and then withdrew is a confirmed departure,
+  stronger evidence than never having applied, and labelling it a draft would say the opposite of
+  what happened.
 - **flagged** when an `OffboardFlag` already exists for this person in the active term.
 - **self-withdrew** when that flag was raised by the person themselves
   ([[offboard-convergence]] covers the withdrawal path).

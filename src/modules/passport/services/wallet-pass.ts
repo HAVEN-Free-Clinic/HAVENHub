@@ -14,7 +14,13 @@ import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { computeServiceRecord } from "./service-record";
-import { createPass, isWalletEnabled, revokePass, type PassInput } from "./wallet-client";
+import {
+  createPass,
+  isWalletEnabled,
+  revokePass,
+  updatePass,
+  type PassInput,
+} from "./wallet-client";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -31,6 +37,14 @@ export async function issueWalletPass(
 
   const term = await getActiveTerm();
   if (!term) return null;
+
+  // getActiveTerm filters on status alone and ignores endDate, and this clinic
+  // runs a documented window where a term has ENDED but has not been flipped to
+  // ARCHIVED yet. Without this guard a member could resurrect, in that window,
+  // exactly the badge the reconciliation sweep just revoked for having an ended
+  // term (see wallet-sweep.ts). The badge asserts PRESENT standing, so a term
+  // that is over cannot back one.
+  if (term.endDate.getTime() < Date.now()) return null;
 
   const membership = await prisma.termMembership.findFirst({
     where: { personId, termId: term.id, status: "ACTIVE" },
@@ -68,6 +82,37 @@ export async function issueWalletPass(
     secondaryFields,
     barcodeValue: null,
   };
+
+  // Re-issue REFRESHES the live pass in place instead of minting a second one.
+  // Creating again would overwrite this row's serialNumber, and the old serial
+  // would then be referenced by nothing: neither revokeWalletPasses nor
+  // sweepWalletPasses can reach a serial that is not in the table, so an
+  // offboarded member would keep a live, scannable badge until term end. The
+  // free tier also counts creations, and /my-info re-offers "Add to wallet" on
+  // every reload, so this path is hit repeatedly by design.
+  //
+  // A REVOKED row is deliberately not reused: its serial is already deleted at
+  // the vendor, so there is nothing to orphan and nothing to refresh.
+  const existing = await prisma.walletPass.findUnique({
+    where: { personId_termId: { personId, termId: term.id } },
+    select: { id: true, serialNumber: true, revokedAt: true },
+  });
+
+  if (existing && !existing.revokedAt) {
+    const refreshed = await updatePass(existing.serialNumber, input);
+    // No fallback to createPass on failure: a duplicate we cannot revoke is
+    // worse than no badge on this click. The member retries, or the pass they
+    // already installed keeps working until it expires at term end.
+    if (!refreshed) return null;
+    await prisma.walletPass.update({
+      where: { id: existing.id },
+      data: { issuedAt: new Date() },
+    });
+    // The stored serial is deliberately NOT rewritten from the response: this
+    // row's serial is the only handle revocation has, and it is what the pass
+    // the member already installed was issued under.
+    return { googleSaveUrl: refreshed.googleSaveUrl, shareUrl: refreshed.shareUrl };
+  }
 
   const created = await createPass(input);
   if (!created) return null;

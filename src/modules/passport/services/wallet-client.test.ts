@@ -108,11 +108,49 @@ describe("wallet client", () => {
     expect(await revokePass("ser_123")).toBe(false);
   });
 
-  it("updates by serial", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+  it("updates by serial and returns the refreshed pass", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => OK });
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await updatePass("ser_123", INPUT)).toBe(true);
-    expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
+    expect(await updatePass("ser_123", INPUT)).toEqual(OK);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/passes/ser_123");
+    expect(init.method).toBe("PUT");
+  });
+
+  it("returns null from an update whose body carries no usable pass", async () => {
+    // The caller must not fall back to createPass here: a duplicate serial is
+    // unrevocable, so no badge beats an orphan.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+
+    expect(await updatePass("ser_123", INPUT)).toBeNull();
+  });
+
+  it("bounds every request with an abort signal", async () => {
+    // "Never throws" is not "never hangs": both a member's /my-info request and
+    // the offboard path await these calls.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => OK });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPass(INPUT);
+    await updatePass("ser_123", INPUT);
+    await revokePass("ser_123");
+
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("returns null when the request is aborted rather than propagating", async () => {
+    // What AbortSignal.timeout produces when it fires: fetch rejects with a
+    // TimeoutError DOMException, which the client's catch must swallow.
+    const aborted = vi
+      .fn()
+      .mockRejectedValue(new DOMException("The operation was aborted.", "TimeoutError"));
+    vi.stubGlobal("fetch", aborted);
+
+    expect(await createPass(INPUT)).toBeNull();
+    expect(await updatePass("ser_123", INPUT)).toBeNull();
+    expect(await revokePass("ser_123")).toBe(false);
   });
 });

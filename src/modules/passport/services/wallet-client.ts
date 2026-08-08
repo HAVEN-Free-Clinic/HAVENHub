@@ -23,6 +23,15 @@ import { log, errorAttrs } from "@/platform/logging";
 
 const BASE = "https://www.walletwallet.dev";
 
+/**
+ * "Never throws" is not "never hangs". Both a member's /my-info request and the
+ * offboard path await these calls, so an unbounded fetch would hold a request
+ * (and, on the offboard path, the caller) open for as long as the vendor stalls.
+ * Matches the 8s bound every other outbound fetch in this repo uses (see
+ * src/platform/notifications/teams-transport.ts and src/platform/email/*).
+ */
+const REQUEST_TIMEOUT_MS = 8000;
+
 export type PassField = { key: string; label: string; value: string };
 
 export type PassInput = {
@@ -82,6 +91,9 @@ async function call(
         "Content-Type": "application/json",
       },
       ...(payload ? { body: JSON.stringify(payload) } : {}),
+      // An abort surfaces as a rejected fetch, so the catch below already
+      // degrades it to null like any other vendor failure.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       log.error("[passport] wallet call failed", { path, method, status: response.status });
@@ -94,10 +106,11 @@ async function call(
   }
 }
 
-export async function createPass(input: PassInput): Promise<PassResult | null> {
-  const response = await call("/api/passes", "POST", body(input));
-  if (!response) return null;
-
+async function readPass(
+  response: Response,
+  path: string,
+  method: "POST" | "PUT",
+): Promise<PassResult | null> {
   let parsed: unknown;
   try {
     parsed = await response.json();
@@ -108,7 +121,7 @@ export async function createPass(input: PassInput): Promise<PassResult | null> {
     // client.
     log.error(
       "[passport] wallet call returned invalid JSON",
-      errorAttrs(error, { path: "/api/passes", method: "POST", status: response.status }),
+      errorAttrs(error, { path, method, status: response.status }),
     );
     return null;
   }
@@ -118,8 +131,8 @@ export async function createPass(input: PassInput): Promise<PassResult | null> {
     // A pass with no serial number can never be updated or revoked later, so
     // it is as unusable as an outright failure.
     log.error("[passport] wallet call returned no serialNumber", {
-      path: "/api/passes",
-      method: "POST",
+      path,
+      method,
       status: response.status,
     });
     return null;
@@ -127,8 +140,28 @@ export async function createPass(input: PassInput): Promise<PassResult | null> {
   return result as PassResult;
 }
 
-export async function updatePass(serial: string, input: PassInput): Promise<boolean> {
-  return Boolean(await call(`/api/passes/${encodeURIComponent(serial)}`, "PUT", body(input)));
+export async function createPass(input: PassInput): Promise<PassResult | null> {
+  const response = await call("/api/passes", "POST", body(input));
+  if (!response) return null;
+  return readPass(response, "/api/passes", "POST");
+}
+
+/**
+ * Refresh an EXISTING pass in place, keeping its serial. Returns the vendor's
+ * view of the refreshed pass so the caller can hand the member their save links
+ * again without minting a second pass.
+ *
+ * Returns null on any vendor failure AND on a success whose body carries no
+ * usable pass. The caller must treat that as "no badge right now" and must NOT
+ * fall back to createPass: a second create mints a serial that replaces this one
+ * in our table, and the old serial is then referenced by nothing, so neither
+ * revokeWalletPasses nor the sweep can ever kill it.
+ */
+export async function updatePass(serial: string, input: PassInput): Promise<PassResult | null> {
+  const path = `/api/passes/${encodeURIComponent(serial)}`;
+  const response = await call(path, "PUT", body(input));
+  if (!response) return null;
+  return readPass(response, path, "PUT");
 }
 
 /** Idempotent at the vendor: repeat deletes are documented no-ops. */

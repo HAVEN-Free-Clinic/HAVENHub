@@ -50,7 +50,7 @@ export function PendingRequests({
   if (rows.length === 0) {
     return (
       <section className={`${cardClasses({ pad: false })} px-4 py-3`}>
-        <h2 className="text-sm font-semibold text-foreground-soft mb-2">Pending Requests</h2>
+        <SectionHeader as="h2" level="title" className="text-sm mb-2">Pending Requests</SectionHeader>
         <p className="text-sm text-subtle-foreground">No requests.</p>
       </section>
     );
@@ -58,14 +58,14 @@ export function PendingRequests({
 
   return (
     <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
-      <h2 className="text-sm font-semibold text-foreground-soft">
-        Pending Requests
+      <div className="flex items-center gap-2">
+        <SectionHeader as="h2" level="title" className="text-sm">Pending Requests</SectionHeader>
         {pendingRows.length > 0 && (
-          <Badge tone="warning" className="ml-2">
+          <Badge tone="warning">
             {pendingRows.length}
           </Badge>
         )}
-      </h2>
+      </div>
 
       {pendingRows.length === 0 && (
         <p className="text-sm text-subtle-foreground">No pending requests.</p>

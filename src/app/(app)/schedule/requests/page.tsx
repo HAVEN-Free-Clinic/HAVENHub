@@ -110,7 +110,7 @@ export default async function ScheduleRequestsPage() {
           <div key={term.id} className="space-y-6">
             {showTermHeadings && (
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold tracking-tight text-foreground">{term.name}</h2>
+                <SectionHeader as="h2" level="title" className="text-xl">{term.name}</SectionHeader>
                 <Badge tone={isLive ? "brand" : "default"}>{isLive ? "Live" : "Next term"}</Badge>
               </div>
             )}

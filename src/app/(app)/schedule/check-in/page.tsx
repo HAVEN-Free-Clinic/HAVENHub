@@ -1,5 +1,6 @@
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Card } from "@/platform/ui/card";
+import { PageHeader } from "@/platform/ui/page-header";
 import { revalidatePath } from "next/cache";
 import { formatCalendarDate, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -97,12 +98,10 @@ export default async function CheckInPage() {
 
   if (!state.clinicDate) {
     return (
-      <Card>
-        <h1 className="text-xl font-bold text-foreground">No clinic today</h1>
-        <p className="mt-2 text-sm text-subtle-foreground">
-          There is no clinic scheduled for today, so there is nothing to check in to.
-        </p>
-      </Card>
+      <PageHeader
+        title="No clinic today"
+        description="There is no clinic scheduled for today, so there is nothing to check in to."
+      />
     );
   }
 
@@ -121,26 +120,21 @@ export default async function CheckInPage() {
       hour: "numeric",
       minute: "2-digit",
     });
-    return (
-      <Card>
-        <h1 className="text-xl font-bold text-foreground">You are checked in</h1>
-        <p className="mt-2 text-sm text-subtle-foreground">
-          {dateLabel}, at {timeLabel}.
-        </p>
-      </Card>
-    );
+    return <PageHeader title="You are checked in" description={`${dateLabel}, at ${timeLabel}.`} />;
   }
 
   return (
-    <Card>
-      <h1 className="text-xl font-bold text-foreground">Check in for {dateLabel}</h1>
-      <div className="mt-4">
+    <div>
+      <div className="mb-8">
+        <PageHeader title={`Check in for ${dateLabel}`} />
+      </div>
+      <Card>
         <CheckInPanel
           mode={state.allRemote ? "remote" : "geo"}
           action={checkInAction}
           reportClientFailure={reportClientFailure}
         />
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 }

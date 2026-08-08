@@ -21,19 +21,16 @@
 
 ## Shared test seeding
 
-Tasks 3, 4, and 7 are database-backed. This repo's convention is that each test
-file defines its own seeding inline (see `promotion.test.ts` and
-`onboarding.test.ts`, which each carry their own). Paste this helper verbatim at
-the top of each of those three test files. Do not extract it into a shared
-module; that would break the established pattern for a single feature.
+Tasks 3, 4, and 7 are database-backed and all need the same fixture. **Task 3
+creates this module; Tasks 4 and 7 import it.** It is a test-only helper living
+in `src`, mirroring the existing `@/platform/test/db` precedent, and its filename
+does not match vitest's `src/**/*.test.ts` include pattern so it is never
+collected as a suite of its own.
+
+Create at `src/modules/recruitment/test/seed-cycle.ts`:
 
 ```ts
-import { afterEach, beforeEach } from "vitest";
-import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-
-beforeEach(async () => { await resetDb(); });
-afterEach(async () => { await resetDb(); });
 
 type ContractSeed = {
   status: "PENDING" | "SUBMITTED" | "PROMOTED";
@@ -51,7 +48,7 @@ type ContractSeed = {
  * entries sharing an `applicationKey` attach to the SAME application, which is
  * how a conflicted acceptance (accepted by more than one department) is built.
  */
-async function seedCycle(entries: Array<{
+export async function seedCycle(entries: Array<{
   applicationKey?: string;
   dept?: "SRHD" | "PCAR";
   firstName?: string;
@@ -126,6 +123,19 @@ async function seedCycle(entries: Array<{
 
   return { cycleId: cycle.id, srrId: srr.id, plainId: plain.id, acceptances };
 }
+```
+
+Each of the three test files then opens with its own reset hooks, which stay
+per-file because that IS the repo convention and they carry no logic:
+
+```ts
+import { afterEach, beforeEach } from "vitest";
+import { resetDb } from "@/platform/test/db";
+import { prisma } from "@/platform/db";
+import { seedCycle } from "@/modules/recruitment/test/seed-cycle";
+
+beforeEach(async () => { await resetDb(); });
+afterEach(async () => { await resetDb(); });
 ```
 
 ---
@@ -535,16 +545,23 @@ git commit -m "feat(recruitment): add pure onboarding row state and eligibility 
 `listOnboarding` returns `contract: true`, the whole row, including the onboarding `token` (a standing credential), `dateOfBirth`, `phone`, signature records, and HIPAA file metadata. That is safe only while the page is a server component. This task adds a projection that crosses to the client safely.
 
 **Files:**
+- Create: `src/modules/recruitment/test/seed-cycle.ts`
 - Modify: `src/modules/recruitment/services/onboarding.ts`
 - Test: `src/modules/recruitment/services/onboarding.rows.test.ts` (create)
 
 **Interfaces:**
 - Consumes: `deriveRowState`, `OnboardingRow` (Task 2); `resolveCustomAnswers` (Task 1); existing `listOnboarding`.
-- Produces: `listOnboardingRows(cycleId: string, now?: Date): Promise<OnboardingRow[]>`
+- Produces:
+  - `listOnboardingRows(cycleId: string, now?: Date): Promise<OnboardingRow[]>`
+  - `seedCycle(entries)` from `@/modules/recruitment/test/seed-cycle`, used by Tasks 4 and 7.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Create the shared seeding module**
 
-Paste the `seedCycle` helper from **Shared test seeding** at the top of this file, then:
+Create `src/modules/recruitment/test/seed-cycle.ts` with exactly the content given in **Shared test seeding** above.
+
+- [ ] **Step 2: Write the failing test**
+
+Open the test file with the reset hooks and import shown in **Shared test seeding**, then:
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -630,12 +647,12 @@ describe("listOnboardingRows", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_bulkactions' BLOB_READ_WRITE_TOKEN='' npx vitest run src/modules/recruitment/services/onboarding.rows.test.ts`
 Expected: FAIL, `listOnboardingRows` is not exported.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 4: Write minimal implementation**
 
 Append to `src/modules/recruitment/services/onboarding.ts`:
 
@@ -680,15 +697,15 @@ import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
 import { resolveCustomAnswers } from "../contract/custom-answers";
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `TEST_DATABASE_URL='postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_bulkactions' BLOB_READ_WRITE_TOKEN='' npx vitest run src/modules/recruitment/services/onboarding.rows.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/modules/recruitment/services/onboarding.ts src/modules/recruitment/services/onboarding.rows.test.ts
+git add src/modules/recruitment/test/seed-cycle.ts src/modules/recruitment/services/onboarding.ts src/modules/recruitment/services/onboarding.rows.test.ts
 git commit -m "feat(recruitment): project onboarding rows without token or applicant PII"
 ```
 
@@ -708,7 +725,8 @@ Mirrors `promoteContracts`: one call, a batch of ids, a count summary. Keeps the
 
 - [ ] **Step 1: Write the failing test**
 
-Paste the `seedCycle` helper from **Shared test seeding** at the top of this file, then:
+Open with the reset hooks and `seedCycle` import shown in **Shared test seeding**
+(Task 3 created that module), then:
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -1215,8 +1233,15 @@ const rowBoxes = (c: HTMLElement) =>
   [...c.querySelectorAll<HTMLInputElement>('input[name="acceptanceId"]')];
 const headerBox = (c: HTMLElement) =>
   c.querySelector<HTMLInputElement>('input[aria-label="Select all"]')!;
-const button = (c: HTMLElement, startsWith: string) =>
-  [...c.querySelectorAll("button")].find((b) => b.textContent?.startsWith(startsWith))!;
+/**
+ * Find an action-bar button by its label.
+ *
+ * Matches on the "(N)" count suffix deliberately: the per-row Withdraw buttons
+ * render BEFORE the action bar and their text also starts with "Withdraw", so a
+ * bare startsWith would return a row button instead of the bulk one.
+ */
+const button = (c: HTMLElement, label: string) =>
+  [...c.querySelectorAll("button")].find((b) => b.textContent?.startsWith(`${label} (`))!;
 const click = (el: HTMLElement, init: MouseEventInit = {}) =>
   act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, ...init })); });
 
@@ -1288,7 +1313,8 @@ describe("OnboardingTable selection", () => {
     const c = mount(THREE);
     click(headerBox(c));
     expect(c.textContent).toContain("3 selected");
-    click(button(c, "Clear"));
+    const clear = [...c.querySelectorAll("button")].find((b) => b.textContent === "Clear")!;
+    click(clear);
     expect(rowBoxes(c).some((b) => b.checked)).toBe(false);
   });
 });
@@ -1475,9 +1501,9 @@ All three actions take `acceptanceId[]`, re-derive eligibility from the database
 - [ ] **Step 1: Write the failing test**
 
 The database stays real so the cycle scoping and eligibility queries are genuinely
-exercised; only the session, telemetry, settings, and navigation are mocked.
-Paste the `seedCycle` helper from **Shared test seeding** at the top of this file
-too, below the mocks.
+exercised; only the session, telemetry, settings, and navigation are mocked. Add
+the reset hooks and `seedCycle` import shown in **Shared test seeding** (Task 3
+created that module) below the mock block.
 
 ```ts
 import { describe, it, expect, vi } from "vitest";

@@ -2675,14 +2675,18 @@ export function FlaggedTab({
             {offboardResult.succeeded.length} offboarded
             {offboardResult.skipped.length > 0 && (
               <>
-                , {offboardResult.skipped.length} skipped:
-                <ul className="mt-1 list-disc pl-5">
-                  {offboardResult.skipped.map((s) => (
-                    <li key={s.personId}>
-                      {s.name}: {s.reason}
-                    </li>
-                  ))}
-                </ul>
+                {", "}
+                {offboardResult.skipped.length} skipped:
+                {/* Block spans, not a list. Alert renders a <p>, and a <ul>
+                    inside a paragraph is invalid: the browser auto-closes the
+                    <p>, so the server and client trees disagree and React
+                    throws a hydration mismatch. Task 6 hit this first; match
+                    the shape it settled on in transition-tab.tsx. */}
+                {offboardResult.skipped.map((s) => (
+                  <span key={s.personId} className="mt-1 block pl-3 text-xs">
+                    {s.name}: {s.reason}
+                  </span>
+                ))}
               </>
             )}
           </span>

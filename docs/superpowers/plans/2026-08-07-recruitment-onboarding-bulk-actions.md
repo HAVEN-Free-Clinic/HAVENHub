@@ -944,8 +944,10 @@ describe("OnboardingTable", () => {
   // selection. It carries its own id so it cannot act on whatever is checked.
   it("renders a per-row withdraw carrying only that row's id", () => {
     const out = html([row({ state: "SUBMITTED", acceptanceId: "a7" })]);
-    expect(out).toContain('name="onlyAcceptanceId"');
-    expect(out).toContain('value="a7"');
+    // Assert the name and value together. A SUBMITTED row also renders a
+    // Checkbox with value="a7", so a bare toContain('value="a7"') would still
+    // pass if the button lost its value entirely.
+    expect(out).toMatch(/name="onlyAcceptanceId"[^>]*value="a7"|value="a7"[^>]*name="onlyAcceptanceId"/);
   });
 
   it("renders no per-row withdraw for a row with no contract", () => {
@@ -1025,7 +1027,10 @@ export function OnboardingTable({
   const visible = useMemo(() => filterRows(rows, filters), [rows, filters]);
 
   return (
-    <form className="space-y-3">
+    // withdraw is the form's DEFAULT action, not a per-button formAction, so the
+    // per-row Withdraw button's name/value survives into the FormData. See the
+    // submit-button constraint in Global Constraints.
+    <form className="space-y-3" action={withdraw}>
       <div className="flex flex-wrap items-end gap-2">
         <div className="w-56">
           <Input
@@ -1120,7 +1125,6 @@ export function OnboardingTable({
                       label="Withdraw"
                       size="sm"
                       className="ml-2 inline-flex align-middle"
-                      formAction={withdraw}
                       name="onlyAcceptanceId"
                       value={r.acceptanceId}
                       confirmLabel={`Withdraw${r.state === "SUBMITTED" ? " (deletes the submitted contract + signatures)" : ""}?`}
@@ -1147,10 +1151,11 @@ export function OnboardingTable({
         <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled>
           Promote (0)
         </SubmitButton>
+        {/* No name/value and no formAction: this rides the form's default
+            action and must act on the checked selection, never on one row. */}
         <ConfirmButton
           label="Withdraw (0)"
           size="sm"
-          formAction={withdraw}
           confirmLabel="Withdraw?"
           disabled
         />

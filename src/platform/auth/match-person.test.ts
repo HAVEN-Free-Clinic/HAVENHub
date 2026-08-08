@@ -8,6 +8,7 @@ import {
   entraTenantAllowed,
   applicantEmailFromClaims,
   firstNameFromClaims,
+  yaleEmailForNetId,
 } from "./match-person";
 
 describe("netIdFromUpn", () => {
@@ -212,5 +213,15 @@ describe("firstNameFromClaims", () => {
     expect(firstNameFromClaims({ given_name: null, name: null })).toBeNull();
     expect(firstNameFromClaims({ name: "   " })).toBeNull();
     expect(firstNameFromClaims({ name: "Carney," })).toBeNull();
+  });
+});
+
+describe("yaleEmailForNetId", () => {
+  it("builds the Yale address from a NetID", () => {
+    expect(yaleEmailForNetId("abc123")).toBe("abc123@yale.edu");
+  });
+
+  it("lowercases and trims so it round-trips against a stored emailLower", () => {
+    expect(yaleEmailForNetId("  ABC123 ")).toBe("abc123@yale.edu");
   });
 });

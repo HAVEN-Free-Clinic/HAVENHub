@@ -16,6 +16,16 @@ import { FlaggedTab } from "@/modules/volunteers/components/flagged-tab";
 import { LastAdminError } from "@/platform/rbac/last-admin";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { transitionView } from "@/modules/volunteers/services/transition";
+import {
+  bulkFlag,
+  bulkExecuteOffboard,
+  TransitionBatchTooLargeError,
+  type BulkResult,
+} from "@/modules/volunteers/services/transition-actions";
+import { TransitionTab } from "@/modules/volunteers/components/transition-tab";
+import { getNextTerm } from "@/platform/terms/next-term";
+import { can } from "@/platform/rbac/engine";
 
 // The volunteers layout gates module access. Here we additionally require
 // volunteers.view for the page render and use volunteers.manage_offboarding
@@ -23,8 +33,7 @@ import { redirect } from "next/navigation";
 
 const BASE = "/volunteers/offboarding";
 
-// Task 6 widens this with "transition" when it adds that tab.
-type OffboardingTab = "departments" | "flagged";
+type OffboardingTab = "transition" | "departments" | "flagged";
 
 export default async function OffboardingPage({
   searchParams,
@@ -36,14 +45,27 @@ export default async function OffboardingPage({
 
   const { departments, flagged } = await offboardingView(viewer.personId);
 
-  // Task 6 adds the Transition tab and makes it the default during a rollover.
-  // This task is a pure refactor, so the landing tab stays the department cards
-  // the page has always opened on.
+  const [nextTerm, canExecute] = await Promise.all([
+    getNextTerm(),
+    can(viewer.personId, "volunteers.manage_offboarding"),
+  ]);
+
+  // Default to the transition report while a term is being prepared, and to the
+  // department cards the rest of the year, so the page opens where it always has
+  // when no rollover is in progress.
+  const fallback: OffboardingTab = nextTerm ? "transition" : "departments";
   const requested = rawTab as OffboardingTab | undefined;
   const tab: OffboardingTab =
-    requested === "departments" || requested === "flagged" ? requested : "departments";
+    requested === "transition" || requested === "departments" || requested === "flagged"
+      ? requested
+      : fallback;
+
+  // Only the active tab's data is queried, so a director opening Flagged does
+  // not pay for the transition roll-up.
+  const transition = tab === "transition" ? await transitionView(viewer.personId) : null;
 
   const items = [
+    { label: "Transition", href: `${BASE}?tab=transition` },
     { label: "By department", href: `${BASE}?tab=departments` },
     // The flagged queue is executor-only, exactly as the old inline section was:
     // offboardingView returns null for a viewer without manage_offboarding.
@@ -123,6 +145,60 @@ export default async function OffboardingPage({
     revalidatePath(BASE);
   }
 
+  async function bulkFlagAction(
+    _prev: BulkResult | null,
+    formData: FormData
+  ): Promise<BulkResult | null> {
+    "use server";
+    const actor = await requirePermission("volunteers.view");
+    const personIds = formData.getAll("personId").map(String).filter(Boolean);
+    const note = (formData.get("note") as string | null)?.trim() || undefined;
+    if (personIds.length === 0) return null;
+
+    const result = await bulkFlag(actor.personId, personIds, note);
+    revalidatePath(BASE);
+    return result;
+  }
+
+  async function bulkOffboardAction(
+    _prev: BulkResult | null,
+    formData: FormData
+  ): Promise<BulkResult | null> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_offboarding");
+    const personIds = formData.getAll("personId").map(String).filter(Boolean);
+    if (personIds.length === 0) return null;
+
+    let result: BulkResult;
+    try {
+      result = await bulkExecuteOffboard(actor.personId, personIds);
+    } catch (err) {
+      // The cap is enforced in the service too, so a client that bypasses the
+      // disabled button still gets a readable answer rather than a 500.
+      if (err instanceof TransitionBatchTooLargeError) {
+        return {
+          succeeded: [],
+          skipped: personIds.map((personId) => ({ personId, name: "Selection", reason: err.message })),
+        };
+      }
+      throw err;
+    }
+
+    // Analytics per person, matching the single-person execute action.
+    const groups = await activeTermGroup();
+    for (const person of result.succeeded) {
+      await captureEvent({
+        distinctId: actor.personId,
+        event: "volunteer_offboarded",
+        properties: { offboarded_person_id: person.personId, bulk: true },
+        groups,
+      });
+    }
+
+    revalidatePath(BASE);
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -141,6 +217,15 @@ export default async function OffboardingPage({
           isActive={(item) => item.href === `${BASE}?tab=${tab}`}
         />
       </div>
+
+      {tab === "transition" && transition && (
+        <TransitionTab
+          view={transition}
+          canExecute={canExecute}
+          bulkFlagAction={bulkFlagAction}
+          bulkOffboardAction={bulkOffboardAction}
+        />
+      )}
 
       {tab === "departments" && (
         <DepartmentTab

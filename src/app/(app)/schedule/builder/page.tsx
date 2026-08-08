@@ -482,7 +482,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
   return (
     <div>
-      <div className="mb-6">
+      <div className="mb-8">
         <PageHeader
           title="Schedule Builder"
           description={`${dept.name} · ${workingTerm.name}${

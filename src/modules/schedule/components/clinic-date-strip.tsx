@@ -25,20 +25,29 @@ export type ClinicDateStripProps = {
   ariaLabel: string;
 };
 
-type MonthGroup = { month: string; dates: Date[] };
+type MonthGroup = { key: string; month: string; dates: Date[] };
 
 /**
- * Group an already-ordered date list into runs of the same month. Runs, not a
- * keyed map, so the caller's ordering is preserved exactly and a term spanning
- * a year boundary cannot collapse two Januaries onto one heading.
+ * Group dates into runs of the same month. `dates` is NOT trusted to arrive
+ * sorted: `Term.clinicDates` is a raw Postgres array column with no ordering
+ * guarantee, and callers have been seen to append a date (e.g. today's,
+ * inserted by the check-in feature) to the end rather than in chronological
+ * position. Grouping that directly would split one month across two
+ * non-contiguous runs and render out of order, so this sorts a *copy*
+ * ascending first -- never the caller's own array -- before forming runs.
+ * Each group is also keyed on its first date's ISO key rather than the month
+ * label, so that even if two runs ever did land on the same month (a bug
+ * elsewhere, a future caller, ...), React would still see distinct keys
+ * instead of reporting a collision.
  */
 function groupByMonth(dates: Date[]): MonthGroup[] {
+  const sorted = [...dates].sort((a, b) => a.getTime() - b.getTime());
   const groups: MonthGroup[] = [];
-  for (const date of dates) {
+  for (const date of sorted) {
     const month = formatCalendarDate(date, { month: "long", year: "numeric" });
     const last = groups[groups.length - 1];
     if (last && last.month === month) last.dates.push(date);
-    else groups.push({ month, dates: [date] });
+    else groups.push({ key: isoDateKey(date), month, dates: [date] });
   }
   return groups;
 }
@@ -49,7 +58,7 @@ export function ClinicDateStrip({ dates, selectedKey, hrefFor, ariaLabel }: Clin
   return (
     <nav aria-label={ariaLabel} className="flex flex-col gap-3">
       {groupByMonth(dates).map((group) => (
-        <div key={group.month} className="flex flex-wrap items-center gap-2">
+        <div key={group.key} className="flex flex-wrap items-center gap-2">
           {/*
             A span, not a SectionHeader: these label a run of links inside a nav
             landmark rather than opening a document section, and promoting them

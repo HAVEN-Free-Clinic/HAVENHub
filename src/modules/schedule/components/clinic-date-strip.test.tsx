@@ -94,6 +94,34 @@ describe("ClinicDateStrip", () => {
     expect(out.match(/<a /g)).toHaveLength(3);
   });
 
+  it("sorts out-of-order dates before grouping, so one August group and one September group render chronologically", () => {
+    // Mirrors a real Term.clinicDates array: Postgres gives no ordering
+    // guarantee, and the check-in feature's seed appends today's date to the
+    // end regardless of where it falls chronologically.
+    const outOfOrder = [d(2026, 9, 12), d(2026, 9, 26), d(2026, 8, 7)];
+    const out = renderToStaticMarkup(
+      <ClinicDateStrip dates={outOfOrder} selectedKey={null} hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,
+    );
+    expect(out.match(/August 2026/g)).toHaveLength(1);
+    expect(out.match(/September 2026/g)).toHaveLength(1);
+    // Chronological: August 7 must render before September 12 even though it
+    // arrives last in the (unsorted) input array.
+    const augustLinkIndex = out.indexOf('href="/x?date=2026-08-07"');
+    const septemberLinkIndex = out.indexOf('href="/x?date=2026-09-12"');
+    expect(augustLinkIndex).toBeGreaterThan(-1);
+    expect(septemberLinkIndex).toBeGreaterThan(-1);
+    expect(augustLinkIndex).toBeLessThan(septemberLinkIndex);
+  });
+
+  it("does not mutate the caller's dates array while sorting a copy for grouping", () => {
+    const outOfOrder = [d(2026, 9, 12), d(2026, 9, 26), d(2026, 8, 7)];
+    const originalOrder = [...outOfOrder];
+    renderToStaticMarkup(
+      <ClinicDateStrip dates={outOfOrder} selectedKey={null} hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,
+    );
+    expect(outOfOrder).toEqual(originalOrder);
+  });
+
   it("renders nothing when there are no clinic dates", () => {
     const out = renderToStaticMarkup(
       <ClinicDateStrip dates={[]} selectedKey={null} hrefFor={(k) => `/x?date=${k}`} ariaLabel="Clinic dates" />,

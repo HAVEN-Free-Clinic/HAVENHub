@@ -190,7 +190,7 @@ export function BuilderDayView({
 
         {/* Directors */}
         <div className="mb-5">
-          <SectionHeader as="h4" className="mb-2">
+          <SectionHeader as="h3" className="mb-2">
             Directors <span className="text-brand-fg">({assignedDirectors.length})</span>
           </SectionHeader>
           {assignedDirectors.length === 0 ? (
@@ -222,7 +222,7 @@ export function BuilderDayView({
 
         {/* Volunteers */}
         <div className="mb-5">
-          <SectionHeader as="h4" className="mb-2">
+          <SectionHeader as="h3" className="mb-2">
             Volunteers <span className="text-success">({assignedVolunteers.length})</span>
           </SectionHeader>
           {assignedVolunteers.length === 0 ? (
@@ -277,7 +277,7 @@ export function BuilderDayView({
 
         {/* Shadows */}
         <div>
-          <SectionHeader as="h4" className="mb-2">
+          <SectionHeader as="h3" className="mb-2">
             Shadows <span className="text-warning">({assignedShadows.length})</span>
           </SectionHeader>
           {assignedShadows.length === 0 ? (

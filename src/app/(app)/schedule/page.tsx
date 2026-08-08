@@ -273,7 +273,7 @@ export default async function MySchedulePage() {
               >
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} /></span>
-                  <span className="text-xs font-bold uppercase tracking-widest text-subtle-foreground">{shift.department.code}</span>
+                  <Badge>{shift.department.code}</Badge>
                   <Badge tone={roleBadgeTone[shift.role] ?? "default"}>
                     {shift.role === "DIRECTOR" ? "Director" : shift.role === "VOLUNTEER" ? "Volunteer" : "Shadow"}
                   </Badge>

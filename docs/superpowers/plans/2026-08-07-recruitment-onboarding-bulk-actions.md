@@ -635,8 +635,13 @@ describe("listOnboardingRows", () => {
     const { cycleId } = await seedCycle([{
       contract: {
         status: "SUBMITTED",
+        // custom_question requires `type` (a FieldType) and `required`; the
+        // layout schema rejects the block without them.
         templateSnapshot: {
-          blocks: [{ kind: "custom_question", key: "tshirt", label: "T-shirt size", fieldType: "text" }],
+          blocks: [{
+            kind: "custom_question", key: "tshirt", label: "T-shirt size",
+            type: "SHORT_TEXT", required: false,
+          }],
         },
         customAnswers: { tshirt: "M", confirm__strikes: "on" },
       },

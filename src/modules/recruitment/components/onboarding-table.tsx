@@ -1,16 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import {
-  filterRows, isEligible, isSelectable,
+  countEligible, filterRows, isEligible, isSelectable,
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
 } from "@/modules/recruitment/engine/onboarding-rows";
 
@@ -41,12 +42,77 @@ export function OnboardingTable({
   const [filters, setFilters] = useState<OnboardingFilters>({
     query: "", status: "ALL", dept: "ALL",
   });
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // Anchor for shift-click ranges, in visible order.
+  const anchorRef = useRef<string | null>(null);
+  const headerRef = useRef<HTMLInputElement>(null);
 
   const departments = useMemo(
     () => [...new Set(rows.map((r) => r.departmentCode))].sort(),
     [rows],
   );
   const visible = useMemo(() => filterRows(rows, filters), [rows, filters]);
+
+  const selectableVisible = useMemo(() => visible.filter((r) => isSelectable(r.state)), [visible]);
+
+  // The selection is always scoped to what is on screen. Filtering something out
+  // deselects it, so a bulk action can never touch a row the operator cannot see.
+  const effectiveSelected = useMemo(() => {
+    const visibleIds = new Set(selectableVisible.map((r) => r.acceptanceId));
+    return new Set([...selected].filter((id) => visibleIds.has(id)));
+  }, [selected, selectableVisible]);
+
+  const selectedRows = useMemo(
+    () => selectableVisible.filter((r) => effectiveSelected.has(r.acceptanceId)),
+    [selectableVisible, effectiveSelected],
+  );
+
+  const counts = {
+    send: countEligible(selectedRows, "send"),
+    promote: countEligible(selectedRows, "promote"),
+    withdraw: countEligible(selectedRows, "withdraw"),
+  };
+  const submittedInSelection = selectedRows.filter((r) => r.state === "SUBMITTED").length;
+  const allVisibleSelected =
+    selectableVisible.length > 0 && effectiveSelected.size === selectableVisible.length;
+
+  useEffect(() => {
+    if (headerRef.current) {
+      headerRef.current.indeterminate =
+        effectiveSelected.size > 0 && !allVisibleSelected;
+    }
+  }, [effectiveSelected, allVisibleSelected]);
+
+  function toggleAll() {
+    setSelected(allVisibleSelected ? new Set() : new Set(selectableVisible.map((r) => r.acceptanceId)));
+    anchorRef.current = null;
+  }
+
+  function toggleRow(acceptanceId: string, shiftKey: boolean) {
+    // Captured here, before the ref is reassigned below: setSelected only
+    // schedules the updater, which React does not run until after this
+    // function returns, so reading anchorRef.current from inside the updater
+    // would see the reassignment rather than the anchor this click started from.
+    const anchor = anchorRef.current;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      // Shift-click extends from the anchor across the visible order, selecting
+      // the whole span rather than toggling each member.
+      if (shiftKey && anchor !== null) {
+        const ids = selectableVisible.map((r) => r.acceptanceId);
+        const from = ids.indexOf(anchor);
+        const to = ids.indexOf(acceptanceId);
+        if (from !== -1 && to !== -1) {
+          for (const id of ids.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(id);
+          return next;
+        }
+      }
+      if (next.has(acceptanceId)) next.delete(acceptanceId);
+      else next.add(acceptanceId);
+      return next;
+    });
+    anchorRef.current = acceptanceId;
+  }
 
   return (
     // The form's default action is withdraw, since both the per-row and the bulk
@@ -100,7 +166,15 @@ export function OnboardingTable({
       <Table>
         <THead>
           <tr>
-            <TH className="w-10"><span className="sr-only">Select</span></TH>
+            <TH className="w-10">
+              <Checkbox
+                ref={headerRef}
+                aria-label="Select all"
+                checked={allVisibleSelected}
+                onChange={toggleAll}
+                disabled={selectableVisible.length === 0}
+              />
+            </TH>
             <TH>Applicant</TH>
             <TH>Dept</TH>
             <TH>Status</TH>
@@ -117,6 +191,9 @@ export function OnboardingTable({
                       name="acceptanceId"
                       value={r.acceptanceId}
                       aria-label={`Select ${r.firstName} ${r.lastName}`}
+                      checked={effectiveSelected.has(r.acceptanceId)}
+                      onClick={(e) => toggleRow(r.acceptanceId, e.shiftKey)}
+                      onChange={() => {}}
                     />
                   )}
                 </TD>
@@ -176,20 +253,37 @@ export function OnboardingTable({
       </Table>
 
       <div className="flex flex-wrap items-center gap-2">
-        <SubmitButton size="sm" formAction={sendLinks} pendingLabel="Sending…" disabled>
-          Send links (0)
+        <SubmitButton size="sm" formAction={sendLinks} pendingLabel="Sending…" disabled={counts.send === 0}>
+          Send links ({counts.send})
         </SubmitButton>
-        <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled>
-          Promote (0)
+        <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled={counts.promote === 0}>
+          Promote ({counts.promote})
         </SubmitButton>
-        {/* Also relies on the form's default action (withdraw); see the per-row
-            comment above for why this control has no formAction of its own. */}
+        {/* No formAction: this rides the form's default action (withdraw). See the
+            per-row comment above for why a button with its own name/value pair
+            cannot also carry a formAction. This bulk control has no name/value of
+            its own, so it does not need one; if it did, a bulk withdraw would
+            collapse to withdrawing whatever single value React attached. */}
         <ConfirmButton
-          label="Withdraw (0)"
+          label={`Withdraw (${counts.withdraw})`}
           size="sm"
-          confirmLabel="Withdraw?"
-          disabled
+          disabled={counts.withdraw === 0}
+          confirmLabel={
+            submittedInSelection > 0
+              ? `Withdraw ${counts.withdraw}? Deletes ${submittedInSelection} submitted contract(s) + signatures`
+              : `Withdraw ${counts.withdraw}?`
+          }
         />
+        {effectiveSelected.size > 0 && (
+          <span className="text-xs text-subtle-foreground">
+            {effectiveSelected.size} selected
+          </span>
+        )}
+        {effectiveSelected.size > 0 && (
+          <Button type="button" size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+            Clear
+          </Button>
+        )}
       </div>
     </form>
   );

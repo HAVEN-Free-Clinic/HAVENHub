@@ -864,3 +864,31 @@ export async function getContractHipaa(contractId: string) {
     select: { hipaaStoredName: true, hipaaFileName: true, hipaaMimeType: true },
   });
 }
+
+/**
+ * Withdraw a batch of onboarding contracts.
+ *
+ * Authorization is checked once up front so a caller without the permission gets
+ * a hard error rather than a silent all-skipped result. Past that, a contract
+ * that is already promoted or already gone is a benign skip, not a failure: the
+ * batch keeps going and the caller reports the split.
+ */
+export async function withdrawContracts(
+  contractIds: string[],
+  actorId: string,
+): Promise<{ withdrawn: number; skipped: number; failed: number }> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
+  }
+  let withdrawn = 0, skipped = 0, failed = 0;
+  for (const id of contractIds) {
+    try {
+      await withdrawContract(id, actorId);
+      withdrawn += 1;
+    } catch (err) {
+      if (err instanceof ContractError) { skipped += 1; continue; }
+      failed += 1;
+    }
+  }
+  return { withdrawn, skipped, failed };
+}

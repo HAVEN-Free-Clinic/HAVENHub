@@ -804,6 +804,11 @@ Append to `src/modules/recruitment/services/onboarding.ts`:
  * a hard error rather than a silent all-skipped result. Past that, a contract
  * that is already promoted or already gone is a benign skip, not a failure: the
  * batch keeps going and the caller reports the split.
+ *
+ * Losing authorization mid-batch aborts. withdrawContract re-checks the
+ * permission per contract, and `can` re-queries live state, so a role revoked
+ * while this loop runs surfaces here. Absorbing that into the failure count
+ * would keep hard-deleting under an actor whose authorization just changed.
  */
 export async function withdrawContracts(
   contractIds: string[],
@@ -818,6 +823,7 @@ export async function withdrawContracts(
       await withdrawContract(id, actorId);
       withdrawn += 1;
     } catch (err) {
+      if (err instanceof RecruitmentAuthError) throw err;
       if (err instanceof ContractError) { skipped += 1; continue; }
       failed += 1;
     }

@@ -348,13 +348,50 @@ export async function setPersonStatusField(
   // Passport: offboarding also freezes a service-credential snapshot of the
   // person's current record (see the try/catch immediately below) before the
   // transaction removes their current term's membership.
+  //
+  // That snapshot is gated on this offboard being the one that actually removes
+  // something (see snapshotWorthTaking below): re-taking it overwrites the only
+  // copy with a strictly poorer one.
   let removedMemberships = 0;
   let cancelledEpicRequestIds: string[] = [];
   let deactivationRequestId: string | null = null;
   let cancelledDeactivationRequestIds: string[] = [];
   let cancelledShiftRequestCount = 0;
 
-  if (status === "OFFBOARDED") {
+  // The snapshot is gated, because re-taking it DESTROYS data. Issuance upserts
+  // the single ServiceCredential row and there is no history table, so whatever
+  // a re-snapshot computes replaces the previous one outright. And a second
+  // offboard can only ever compute LESS: the first one already flipped those
+  // memberships to REMOVED, and reactivation is status-only and deliberately
+  // does not restore them (see the comment above), so nothing can recompute the
+  // terms the first offboard removed. The snapshot IS the preservation
+  // mechanism. Two conditions, both required:
+  //
+  //   1. Not already OFFBOARDED. A repeat offboard of an offboarded person has
+  //      nothing new to preserve, and the older snapshot is the richer one.
+  //   2. This offboard is actually about to remove a membership. If the person
+  //      holds none in OFFBOARDABLE_TERM scope, the flip below destroys no
+  //      input, so a record computed after it is identical to one computed now
+  //      -- there is nothing to freeze, and freezing anyway is exactly how an
+  //      empty record lands on top of a good one (offboard, reactivate without
+  //      restoring memberships, offboard again).
+  //
+  // Recruitment-derived service needs no protection here either way:
+  // HistoricalApplication rows are untouched by an offboard, so that part of
+  // the record stays computable forever and the member can still issue it from
+  // /my-info.
+  //
+  // Reachable from executeOffboard and from a reactivated returning alum in
+  // promotion.ts as well, which is why the gate lives at this chokepoint and
+  // not at the call sites.
+  const snapshotWorthTaking =
+    status === "OFFBOARDED" &&
+    existing.status !== "OFFBOARDED" &&
+    (await prisma.termMembership.count({
+      where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },
+    })) > 0;
+
+  if (snapshotWorthTaking) {
     // Freeze the service record while the current term's membership is still
     // ACTIVE. OFFBOARDABLE_TERM scopes the sweep below (inside the transaction)
     // to non-archived terms, so a graduating member's final term is about to

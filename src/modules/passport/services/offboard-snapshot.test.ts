@@ -64,6 +64,24 @@ describe("offboarding snapshots the service record first", () => {
     expect(credential!.record.terms[0].termCode).toBe("SU26");
   });
 
+  it("keeps the original snapshot when an already-offboarded person is offboarded again", async () => {
+    const person = await seedActiveMember();
+
+    // 1. The real offboard. Captures SU26 and flips the membership to REMOVED.
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+    // 2. Reactivation is status-only and deliberately does NOT restore the
+    //    membership, so the person is now ACTIVE with nothing to compute from.
+    await setPersonStatusField(ACTOR, person.id, "ACTIVE");
+    // 3. A second offboard. Re-snapshotting here would upsert an EMPTY record
+    //    over the good one, and nothing can recompute SU26 -- step 1 already
+    //    set it to REMOVED.
+    await setPersonStatusField(ACTOR, person.id, "OFFBOARDED");
+
+    const credential = await getCredential(person.id);
+    expect(credential!.record.terms).toHaveLength(1);
+    expect(credential!.record.terms[0].termCode).toBe("SU26");
+  });
+
   it("does not issue a credential when the status change is not an offboard", async () => {
     const person = await seedActiveMember();
 

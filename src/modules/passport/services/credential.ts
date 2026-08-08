@@ -42,13 +42,17 @@ function toIssued(row: {
 }
 
 /**
- * Compute and freeze the member's record. Re-issuing updates the existing row in
- * place and deliberately preserves publicToken, so regenerating does not break a
- * link the member has already shared.
+ * Compute and freeze the member's record. Re-issuing UPSERTS the existing row in
+ * place (there is no history table, so the snapshot it overwrites is gone) and
+ * deliberately preserves publicToken, so regenerating does not break a link the
+ * member has already shared.
  *
- * Pass `client` to snapshot inside a caller's transaction (the offboard hook
- * does this, so a graduating member's final term is captured before their
- * membership is flipped to REMOVED).
+ * The offboard hook does NOT pass a client: it calls this against the singleton,
+ * BEFORE and outside its own transaction, so a graduating member's final term is
+ * captured while the membership is still ACTIVE without the audit write being
+ * able to poison the offboard transaction (see src/platform/people.ts). Passing
+ * a transaction client is supported for callers that already own one, but do not
+ * reintroduce it on the offboard path.
  */
 export async function issueServiceCredential(
   personId: string,

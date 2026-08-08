@@ -21,7 +21,7 @@ const createPassMock = vi.mocked(createPass);
 const revokePassMock = vi.mocked(revokePass);
 const isWalletEnabledMock = vi.mocked(isWalletEnabled);
 
-async function seedActiveMember() {
+async function seedActiveMember(termEndDate: Date = new Date("2099-08-31T12:00:00Z")) {
   const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
   const dept = await prisma.department.upsert({
     where: { code: "ITCM" },
@@ -33,7 +33,7 @@ async function seedActiveMember() {
       code: "SU26",
       name: "Summer 2026",
       startDate: new Date("2026-05-01T12:00:00Z"),
-      endDate: new Date("2099-08-31T12:00:00Z"),
+      endDate: termEndDate,
       status: "ACTIVE",
     },
   });
@@ -83,6 +83,16 @@ describe("issueWalletPass", () => {
     const input = createPassMock.mock.calls[0][0];
     expect(input.expirationDays).toBeGreaterThan(0);
     expect(input.expirationDays).toBeLessThanOrEqual(3650);
+  });
+
+  it("clamps expirationDays to 1 when the term end date is in the past", async () => {
+    const { person } = await seedActiveMember(new Date("2020-01-01T12:00:00Z"));
+    createPassMock.mockResolvedValue(CREATED);
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.expirationDays).toBe(1);
   });
 
   it("puts the role, department, term, and member-since year on the pass", async () => {

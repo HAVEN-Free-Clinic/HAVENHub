@@ -28,6 +28,8 @@ import {
   getCredential,
   type IssuedCredential,
 } from "@/modules/passport/services/credential";
+import { issueWalletPass } from "@/modules/passport/services/wallet-pass";
+import { isWalletEnabled } from "@/modules/passport/services/wallet-client";
 import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
 
 type PageProps = {
@@ -53,6 +55,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       getSetting<string>("app.baseUrl"),
     ]);
   const { activeTerm } = myInfo;
+
+  // Resolved on the server so the card can omit the wallet section entirely
+  // when no vendor key is configured, rather than rendering a button that
+  // would always come back null.
+  const walletEnabled = isWalletEnabled();
 
   // Server actions
   async function updateAction(formData: FormData) {
@@ -132,6 +139,17 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     "use server";
     const session = await requireModuleAccess("my-info");
     await unpublishCredential(session.personId);
+  }
+
+  // Zero-argument, same as the three actions above: personId always comes from
+  // the session, never a client-supplied value, so a member can never mint a
+  // badge in someone else's name. issueWalletPass is best-effort and returns
+  // null (not a throw) whenever the wallet feature is off or the vendor call
+  // fails, which the card renders as a calm, expected state.
+  async function issueWalletPassAction(): Promise<{ googleSaveUrl: string; shareUrl: string } | null> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return issueWalletPass(session.personId);
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -219,6 +237,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             issue={issueAction}
             publish={publishAction}
             unpublish={unpublishAction}
+            walletEnabled={walletEnabled}
+            issueWalletPass={issueWalletPassAction}
           />
         </section>
       </div>

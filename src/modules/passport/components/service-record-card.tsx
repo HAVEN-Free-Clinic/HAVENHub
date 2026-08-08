@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { Alert } from "@/platform/ui/alert";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import type { IssuedCredential } from "../services/credential";
+
+type WalletPassLinks = { googleSaveUrl: string; shareUrl: string };
 
 export function ServiceRecordCard({
   orgName,
@@ -14,6 +16,8 @@ export function ServiceRecordCard({
   issue,
   publish,
   unpublish,
+  walletEnabled,
+  issueWalletPass,
 }: {
   orgName: string;
   brandColor: string;
@@ -26,11 +30,18 @@ export function ServiceRecordCard({
   publish: () => Promise<string>;
   /** Server action: retracts the public link. */
   unpublish: () => Promise<void>;
+  /** Resolved on the server: false when no vendor key is configured, in which case the section is not rendered at all. */
+  walletEnabled: boolean;
+  /** Server action: mints a wallet badge. Null is the normal, expected result when the vendor call fails, not an error. */
+  issueWalletPass: () => Promise<WalletPassLinks | null>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(initialToken);
   const [publishBusy, setPublishBusy] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletPass, setWalletPass] = useState<WalletPassLinks | null>(null);
+  const [walletUnavailable, setWalletUnavailable] = useState(false);
 
   async function download() {
     setBusy(true);
@@ -89,6 +100,25 @@ export function ServiceRecordCard({
     }
   }
 
+  // A null result is the vendor being off or unreachable, which is expected and
+  // must not read as an error: the certificate above still works either way.
+  async function addToWallet() {
+    setWalletBusy(true);
+    setWalletUnavailable(false);
+    try {
+      const result = await issueWalletPass();
+      if (result) {
+        setWalletPass(result);
+      } else {
+        setWalletUnavailable(true);
+      }
+    } catch {
+      setWalletUnavailable(true);
+    } finally {
+      setWalletBusy(false);
+    }
+  }
+
   return (
     <Card>
       <h2 className="text-lg font-semibold">Service record</h2>
@@ -133,6 +163,48 @@ export function ServiceRecordCard({
           </>
         )}
       </div>
+
+      {walletEnabled ? (
+        <div className="mt-4 border-t border-border-subtle pt-4">
+          <h3 className="text-sm font-medium">Wallet badge</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add a badge to your phone&apos;s wallet for quick ID at clinic. It expires
+            automatically at the end of the term.
+          </p>
+          {walletPass ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a
+                className={buttonClasses("outline")}
+                href={walletPass.googleSaveUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Add to Google Wallet
+              </a>
+              <a
+                className={buttonClasses("outline")}
+                href={walletPass.shareUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Add to Apple Wallet
+              </a>
+            </div>
+          ) : (
+            <>
+              <Button className="mt-3" variant="outline" onClick={addToWallet} disabled={walletBusy}>
+                {walletBusy ? "Working..." : "Add to wallet"}
+              </Button>
+              {walletUnavailable ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  The wallet badge is not available right now. Your certificate above is
+                  unaffected.
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
     </Card>
   );
 }

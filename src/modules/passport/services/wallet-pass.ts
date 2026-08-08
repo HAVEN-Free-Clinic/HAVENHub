@@ -34,7 +34,7 @@ export async function issueWalletPass(
 
   const membership = await prisma.termMembership.findFirst({
     where: { personId, termId: term.id, status: "ACTIVE" },
-    select: { kind: true, department: { select: { name: true } }, person: { select: { name: true } } },
+    select: { kind: true, department: { select: { name: true } } },
   });
   if (!membership) return null;
 

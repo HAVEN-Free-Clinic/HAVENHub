@@ -31,7 +31,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await req.json()) as { scope?: string; personIds?: string[] };
+  let body: { scope?: string; personIds?: string[] };
+  try {
+    body = (await req.json()) as { scope?: string; personIds?: string[] };
+  } catch {
+    return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
+  }
 
   let input: ExportRequest;
   if (body.scope === "offboarded-term") {

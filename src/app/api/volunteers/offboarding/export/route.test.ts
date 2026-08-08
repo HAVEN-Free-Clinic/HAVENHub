@@ -25,6 +25,13 @@ function request(body: unknown): Request {
   });
 }
 
+function malformedRequest(): Request {
+  return new Request("http://localhost/api/volunteers/offboarding/export", {
+    method: "POST",
+    body: "{not valid json",
+  });
+}
+
 beforeEach(() => {
   auth.mockReset().mockResolvedValue({ personId: "p1" });
   getActivePerson.mockReset().mockResolvedValue({ id: "p1" });
@@ -59,6 +66,12 @@ describe("POST /api/volunteers/offboarding/export", () => {
   it("returns 400 for a selection with no person ids", async () => {
     const res = await POST(request({ scope: "selection", personIds: [] }));
     expect(res.status).toBe(400);
+  });
+
+  it("returns 400, not a raw 500, for a malformed request body", async () => {
+    const res = await POST(malformedRequest());
+    expect(res.status).toBe(400);
+    expect(buildOffboardingCsv).not.toHaveBeenCalled();
   });
 
   it("serves the CSV as an attachment for the offboarded-term scope", async () => {

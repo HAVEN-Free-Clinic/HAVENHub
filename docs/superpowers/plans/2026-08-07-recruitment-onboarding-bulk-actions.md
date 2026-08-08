@@ -1404,9 +1404,13 @@ function toggleAll() {
 }
 
 function toggleRow(acceptanceId: string, shiftKey: boolean) {
+  // Capture the anchor BEFORE scheduling the update. React may run the updater
+  // after this function body has already advanced anchorRef to the clicked row,
+  // in which case the range would start and end on the same row and shift-click
+  // would silently degrade to a single-row toggle.
+  const anchor = anchorRef.current;
   setSelected((prev) => {
     const next = new Set(prev);
-    const anchor = anchorRef.current;
     // Shift-click extends from the anchor across the visible order, selecting
     // the whole span rather than toggling each member.
     if (shiftKey && anchor !== null) {

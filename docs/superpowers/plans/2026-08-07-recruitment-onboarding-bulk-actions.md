@@ -18,6 +18,7 @@
   `TEST_DATABASE_URL='postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_bulkactions' BLOB_READ_WRITE_TOKEN=''`
   This worktree owns that database. Without it, tests contend with other worktrees and fail spuriously.
 - **Never trust client-supplied eligibility.** Every server action re-reads state from the database and scopes every query to the cycle in the URL.
+- **A submit button cannot have BOTH `formAction={fn}` and a `name`/`value`.** React 19 drops the button's name/value in that case: in `react-dom-client`, when the submitter carries its own `formAction`, React adopts that action and then sets `submitter = null`, so `createFormDataWithSubmitter` never runs and the pair never reaches the FormData. A button that must submit its own `name`/`value` therefore has to ride the form's default `action`. This is why `withdraw` is the `<form action>` and only `sendLinks`/`promote` use `formAction`. Discovered during Task 5 and verified against the React source.
 
 ## Shared test seeding
 
@@ -1457,10 +1458,11 @@ Replace the action bar with the live version:
   <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled={counts.promote === 0}>
     Promote ({counts.promote})
   </SubmitButton>
+  {/* No formAction: this rides the form's default action (withdraw). See the
+      submit-button constraint in Global Constraints. */}
   <ConfirmButton
     label={`Withdraw (${counts.withdraw})`}
     size="sm"
-    formAction={withdraw}
     disabled={counts.withdraw === 0}
     confirmLabel={
       submittedInSelection > 0

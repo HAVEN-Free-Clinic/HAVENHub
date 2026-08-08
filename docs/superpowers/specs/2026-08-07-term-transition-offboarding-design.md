@@ -275,7 +275,9 @@ Against the project test database ([[test-db]]).
 - Pure unit tests: commas, embedded quotes, newlines, empty list, blank email.
 
 **Export route**
-- 403 without `volunteers.manage_offboarding`.
+- 401 without `volunteers.manage_offboarding`. Every other API route in this codebase
+  (`support/epic/generate`, `learning/upload-url`) returns 401 for both unauthenticated and
+  unauthorized, so this one does too rather than becoming the lone 403.
 - Both scopes produce the expected rows.
 - Audit row written.
 

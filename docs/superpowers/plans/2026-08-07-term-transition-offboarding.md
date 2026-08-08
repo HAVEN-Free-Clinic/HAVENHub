@@ -1859,7 +1859,6 @@ import {
   OffboardForbiddenError,
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
-import { getNextTerm } from "@/platform/terms/next-term";
 import { DepartmentTab } from "@/modules/volunteers/components/department-tab";
 import { FlaggedTab } from "@/modules/volunteers/components/flagged-tab";
 import { LastAdminError } from "@/platform/rbac/last-admin";
@@ -1872,7 +1871,8 @@ import { redirect } from "next/navigation";
 
 const BASE = "/volunteers/offboarding";
 
-type OffboardingTab = "transition" | "departments" | "flagged";
+// Task 6 widens this with "transition" when it adds that tab.
+type OffboardingTab = "departments" | "flagged";
 
 export default async function OffboardingPage({
   searchParams,
@@ -1883,20 +1883,15 @@ export default async function OffboardingPage({
   const { tab: rawTab } = await searchParams;
 
   const { departments, flagged } = await offboardingView(viewer.personId);
-  const nextTerm = await getNextTerm();
 
-  // Default to the transition report during a rollover, and to today's
-  // department cards the rest of the year, so the page behaves as it always has
-  // when no next term is in planning.
-  const fallback: OffboardingTab = nextTerm ? "transition" : "departments";
+  // Task 6 adds the Transition tab and makes it the default during a rollover.
+  // This task is a pure refactor, so the landing tab stays the department cards
+  // the page has always opened on.
   const requested = rawTab as OffboardingTab | undefined;
   const tab: OffboardingTab =
-    requested === "transition" || requested === "departments" || requested === "flagged"
-      ? requested
-      : fallback;
+    requested === "departments" || requested === "flagged" ? requested : "departments";
 
   const items = [
-    { label: "Transition", href: `${BASE}?tab=transition` },
     { label: "By department", href: `${BASE}?tab=departments` },
     // The flagged queue is executor-only, exactly as the old inline section was:
     // offboardingView returns null for a viewer without manage_offboarding.
@@ -2000,15 +1995,12 @@ export default async function OffboardingPage({
         />
       )}
 
-      {tab === "transition" && (
-        <p className="mt-8 text-sm text-muted-foreground">Transition report coming in Task 6.</p>
-      )}
     </div>
   );
 }
 ```
 
-Note: the transition placeholder is replaced in Task 6. It exists only so this task compiles and runs on its own.
+This task adds no new surface: the same two sections the page already rendered, now behind a tab row, opening on the same one. Task 6 adds the third tab.
 
 - [ ] **Step 4: Update the existing Playwright spec for the tabs**
 

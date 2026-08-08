@@ -2,11 +2,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { PageHeader } from "@/platform/ui/page-header";
-import { SectionHeader } from "@/platform/ui/section-header";
-import { Badge } from "@/platform/ui/badge";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Input } from "@/platform/ui/input";
+import { TabRow } from "@/platform/ui/tab-row";
 import {
   offboardingView,
   flagForOffboarding,
@@ -15,23 +11,44 @@ import {
   OffboardForbiddenError,
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
+import { DepartmentTab } from "@/modules/volunteers/components/department-tab";
+import { FlaggedTab } from "@/modules/volunteers/components/flagged-tab";
 import { LastAdminError } from "@/platform/rbac/last-admin";
 import { revalidatePath } from "next/cache";
-import { DateOnly } from "@/platform/dates/display";
 import { redirect } from "next/navigation";
 
 // The volunteers layout gates module access. Here we additionally require
 // volunteers.view for the page render and use volunteers.manage_offboarding
 // defense-in-depth in the execute action, matching /volunteers/page.tsx pattern.
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
+const BASE = "/volunteers/offboarding";
 
-export default async function OffboardingPage() {
+// Task 6 widens this with "transition" when it adds that tab.
+type OffboardingTab = "departments" | "flagged";
+
+export default async function OffboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; error?: string }>;
+}) {
   const viewer = await requirePermission("volunteers.view");
+  const { tab: rawTab } = await searchParams;
 
   const { departments, flagged } = await offboardingView(viewer.personId);
+
+  // Task 6 adds the Transition tab and makes it the default during a rollover.
+  // This task is a pure refactor, so the landing tab stays the department cards
+  // the page has always opened on.
+  const requested = rawTab as OffboardingTab | undefined;
+  const tab: OffboardingTab =
+    requested === "departments" || requested === "flagged" ? requested : "departments";
+
+  const items = [
+    { label: "By department", href: `${BASE}?tab=departments` },
+    // The flagged queue is executor-only, exactly as the old inline section was:
+    // offboardingView returns null for a viewer without manage_offboarding.
+    ...(flagged !== null ? [{ label: "Flagged", href: `${BASE}?tab=flagged` }] : []),
+  ];
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -47,11 +64,11 @@ export default async function OffboardingPage() {
       await flagForOffboarding(actor.personId, personId, note);
     } catch (err) {
       if (err instanceof OffboardForbiddenError) {
-        redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);
+        redirect(`${BASE}?tab=departments&error=${encodeURIComponent(err.message)}`);
       }
       throw err;
     }
-    revalidatePath("/volunteers/offboarding");
+    revalidatePath(BASE);
   }
 
   async function unflagAction(formData: FormData) {
@@ -63,11 +80,11 @@ export default async function OffboardingPage() {
       await unflag(actor.personId, personId);
     } catch (err) {
       if (err instanceof OffboardForbiddenError || err instanceof OffboardNotFoundError) {
-        redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);
+        redirect(`${BASE}?tab=departments&error=${encodeURIComponent(err.message)}`);
       }
       throw err;
     }
-    revalidatePath("/volunteers/offboarding");
+    revalidatePath(BASE);
   }
 
   async function executeOffboardAction(formData: FormData) {
@@ -88,11 +105,11 @@ export default async function OffboardingPage() {
       // it escaped to the error boundary as a 500 instead of the page's inline
       // amber alert. Mirror admin/people/[id]/page.tsx, which already catches it.
       if (err instanceof OffboardForbiddenError || err instanceof LastAdminError) {
-        redirect(`/volunteers/offboarding?error=${encodeURIComponent(err.message)}`);
+        redirect(`${BASE}?tab=flagged&error=${encodeURIComponent(err.message)}`);
       }
       throw err;
     }
-    revalidatePath("/volunteers/offboarding");
+    revalidatePath(BASE);
   }
 
   // ---------------------------------------------------------------------------
@@ -106,137 +123,30 @@ export default async function OffboardingPage() {
         description="Flag and process volunteer offboarding."
       />
 
-      {/* Director section: one card per manageable department */}
-      {departments.length === 0 ? (
-        <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-          <p>No departments to review.</p>
-        </div>
-      ) : (
-        <div className="mt-8 flex flex-col gap-10">
-          {departments.map(({ department, members }) => (
-            <section key={department.id}>
-              <SectionHeader level="title" className="mb-3">
-                {department.code} · {department.name}
-              </SectionHeader>
+      <div className="mt-6">
+        <TabRow
+          items={items}
+          label="Offboarding sections"
+          isActive={(item) => item.href === `${BASE}?tab=${tab}`}
+        />
+      </div>
 
-              <Table>
-                <THead>
-                  <TR>
-                    <TH>Name</TH>
-                    <TH>Role</TH>
-                    <TH>Status</TH>
-                    <TH>Note</TH>
-                    <TH><span className="sr-only">Actions</span></TH>
-                  </TR>
-                </THead>
-                <tbody>
-                  {members.map((m) => (
-                    <TR key={m.person.id}>
-                      <TD className="font-medium">{m.person.name}</TD>
-                      <TD>
-                        <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
-                          {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}
-                        </Badge>
-                      </TD>
-                      <TD>
-                        {m.flag ? (
-                          <Badge tone="warning">Flagged</Badge>
-                        ) : (
-                          <Badge tone="default">Active</Badge>
-                        )}
-                      </TD>
-                      <TD className="text-muted-foreground text-sm">
-                        {m.flag?.note ?? "-"}
-                      </TD>
-                      <TD>
-                        <div className="flex items-center gap-2">
-                          {m.flag ? (
-                            /* Unflag */
-                            <form action={unflagAction}>
-                              <input type="hidden" name="personId" value={m.person.id} />
-                              <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
-                            </form>
-                          ) : (
-                            /* Flag with optional note */
-                            <form action={flagAction} className="flex items-center gap-2">
-                              <input type="hidden" name="personId" value={m.person.id} />
-                              <Input
-                                name="note"
-                                placeholder="Note (optional)"
-                                aria-label="Note (optional)"
-                                className="w-40 text-xs py-1"
-                              />
-                              <ConfirmButton label="Flag" confirmLabel="Confirm?" />
-                            </form>
-                          )}
-                        </div>
-                      </TD>
-                    </TR>
-                  ))}
-                </tbody>
-              </Table>
-            </section>
-          ))}
-        </div>
+      {tab === "departments" && (
+        <DepartmentTab
+          departments={departments}
+          flagAction={flagAction}
+          unflagAction={unflagAction}
+        />
       )}
 
-      {/* Executor section: only shown when viewer has manage_offboarding */}
-      {flagged !== null && (
-        <section className="mt-12">
-          <SectionHeader level="title" className="mb-3">Flagged for offboarding</SectionHeader>
-
-          <Table>
-            <THead>
-              <TR>
-                <TH>Name</TH>
-                <TH>Departments</TH>
-                <TH>Flagged by</TH>
-                <TH>Flagged date</TH>
-                <TH>Note</TH>
-                <TH><span className="sr-only">Actions</span></TH>
-              </TR>
-            </THead>
-            <tbody>
-              {flagged.length === 0 ? (
-                <TR>
-                  <TD colSpan={6} className="text-center text-subtle-foreground text-sm py-6">
-                    No one is flagged.
-                  </TD>
-                </TR>
-              ) : (
-                flagged.map(({ flag, person, flaggedByName, departmentNames }) => (
-                  <TR key={flag.id}>
-                    <TD className="font-medium">{person.name}</TD>
-                    <TD className="text-foreground-soft text-sm">
-                      {departmentNames.join(", ") || "-"}
-                    </TD>
-                    <TD className="text-foreground-soft text-sm">{flaggedByName ?? "-"}</TD>
-                    <TD className="text-foreground-soft tabular-nums text-sm">
-                      <DateOnly value={flag.createdAt} />
-                    </TD>
-                    <TD className="text-muted-foreground text-sm">{flag.note ?? "-"}</TD>
-                    <TD>
-                      <div className="flex items-center gap-2">
-                        <form action={unflagAction}>
-                          <input type="hidden" name="personId" value={person.id} />
-                          <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
-                        </form>
-                        <form action={executeOffboardAction}>
-                          <input type="hidden" name="personId" value={person.id} />
-                          <ConfirmButton
-                            label="Offboard"
-                            confirmLabel={`Offboard ${person.name}? This removes all their active memberships.`}
-                          />
-                        </form>
-                      </div>
-                    </TD>
-                  </TR>
-                ))
-              )}
-            </tbody>
-          </Table>
-        </section>
+      {tab === "flagged" && flagged !== null && (
+        <FlaggedTab
+          flagged={flagged}
+          unflagAction={unflagAction}
+          executeOffboardAction={executeOffboardAction}
+        />
       )}
+
     </div>
   );
 }

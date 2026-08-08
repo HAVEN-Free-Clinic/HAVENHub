@@ -871,7 +871,12 @@ export async function getContractHipaa(contractId: string) {
  * Authorization is checked once up front so a caller without the permission gets
  * a hard error rather than a silent all-skipped result. Past that, a contract
  * that is already promoted or already gone is a benign skip, not a failure: the
- * batch keeps going and the caller reports the split.
+ * batch keeps going and the caller reports the split. withdrawContract also
+ * re-checks the permission on every call, so if the actor's authorization is
+ * revoked mid-batch (a narrow but real window: deletes are sequential with blob
+ * I/O per item), that RecruitmentAuthError is re-thrown rather than absorbed as
+ * a skip or a failure -- it aborts the whole batch instead of quietly deleting
+ * further contracts under an actor who no longer holds the permission.
  */
 export async function withdrawContracts(
   contractIds: string[],
@@ -886,6 +891,7 @@ export async function withdrawContracts(
       await withdrawContract(id, actorId);
       withdrawn += 1;
     } catch (err) {
+      if (err instanceof RecruitmentAuthError) throw err;
       if (err instanceof ContractError) { skipped += 1; continue; }
       failed += 1;
     }

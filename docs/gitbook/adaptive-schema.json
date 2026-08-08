@@ -140,6 +140,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.edit_own_dept permission in HAVEN Hub."
             },
+            "manage_attendance": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.manage_attendance permission in HAVEN Hub."
+            },
             "manage_requests": {
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.manage_requests permission in HAVEN Hub."

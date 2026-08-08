@@ -12,6 +12,7 @@ const SCHEDULE_KEYS = [
   "schedule-request-denied",
   "schedule-request-cancelled-partner",
   "schedule-request-submitted-director",
+  "clinic-checkin-invite",
 ] as const;
 
 describe("schedule request templates", () => {

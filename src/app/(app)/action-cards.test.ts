@@ -118,4 +118,14 @@ describe("buildActionCards", () => {
     expect(swap?.priority).toBe(40);
     expect(swap?.sub).toBe("1 pending");
   });
+
+  it("never puts clinic check-in in this feed", () => {
+    // Check-in used to be a card here, but in the tile grid it rendered
+    // identically to the navigation shortcuts, so the one time-sensitive action
+    // on a clinic morning read as another shortcut. It now has its own banner
+    // above the feed. This guards against it being reintroduced as a tile, which
+    // would put the same action on screen twice.
+    const cards = buildActionCards({ ...base, hasScheduleAccess: true });
+    expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
+  });
 });

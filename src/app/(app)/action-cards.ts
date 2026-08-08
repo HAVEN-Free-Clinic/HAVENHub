@@ -84,6 +84,11 @@ function swapCard(input: ActionCardInput): ActionCard {
 export function buildActionCards(input: ActionCardInput): ActionCard[] {
   const cards: ActionCard[] = [];
 
+  // Clinic check-in is deliberately NOT a card here. In this grid it rendered
+  // identically to the navigation shortcuts, so the one time-sensitive action on
+  // a clinic morning read as another shortcut. It now has its own banner above
+  // the feed (see src/app/(app)/page.tsx).
+
   if (input.pendingApprovals > 0) {
     cards.push({
       key: "approvals",

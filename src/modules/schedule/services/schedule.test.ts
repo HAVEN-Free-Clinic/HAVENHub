@@ -666,6 +666,7 @@ describe("fullSchedule", () => {
     expect(result.clinicDates).toHaveLength(0);
     expect(result.selectedDate).toBeNull();
     expect(result.departments).toHaveLength(0);
+    expect(result.attendance.size).toBe(0);
   });
 
   // #62: offboarding / removeMembership leave the ShiftAssignment row, so the
@@ -686,6 +687,72 @@ describe("fullSchedule", () => {
     const result = await fullSchedule(isoDateKey(dates[0]));
     const names = result.departments.flatMap((d) => d.volunteers.map((v) => v.name));
     expect(names).toEqual(["Active Vol"]);
+  });
+
+  it("returns attendance for the selected date alongside the roster", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Attendee");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    await prisma.clinicAttendance.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        personId: person.id,
+        method: "STAFF",
+      },
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    expect(result.attendance.get(person.id)?.method).toBe("STAFF");
+  });
+
+  it("returns an empty attendance map when nobody has checked in", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("NoShow");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    expect(result.attendance.size).toBe(0);
+  });
+
+  // fullSchedule filters a REMOVED member out of the visible roster (#62 above),
+  // but attendanceForDate is keyed purely off ClinicAttendance rows, independent
+  // of TermMembership status. Guards against a tempting-but-wrong "fix" that
+  // filters the attendance map by the same active-member set as the roster: the
+  // page only ever looks up attendance for people it already lists, so a stray
+  // record for a departed person must stay retrievable rather than be silently
+  // dropped by an over-eager filter here.
+  it("does not filter the attendance map by roster membership", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("AABB");
+    const departed = await createPerson("Departed Vol");
+
+    await createMembership(departed.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, departed.id, dates[0], "VOLUNTEER");
+    await prisma.clinicAttendance.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        personId: departed.id,
+        method: "STAFF",
+      },
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+
+    // Roster excludes the departed volunteer entirely (no department shows up,
+    // since their assignment was the only one on this date).
+    expect(result.departments).toHaveLength(0);
+    // But the attendance map itself is untouched by the roster filter.
+    expect(result.attendance.has(departed.id)).toBe(true);
   });
 });
 

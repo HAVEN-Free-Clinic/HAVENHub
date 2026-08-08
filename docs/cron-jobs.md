@@ -26,6 +26,7 @@ the job below silently stops running with no in-repo error.
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 | `/api/cron/recruitment-review-digest` | External (cron-job.org) | daily | `0 14 * * *` | Notifies each active department director who has applications awaiting review (volunteer routed-undecided + director-track undecided) in their department(s). Enqueue-only; skips directors with nothing to review. | Directors get no daily reminder of applications waiting on their review (they can still reach them via the roster). |
 | `/api/cron/schedule-reminders` | External (cron-job.org) | daily | `0 15 * * *` | Reminds a department's shift-request approvers (`schedule.manage_requests` holders) of drop/swap requests still pending, throttled so the same approver is not re-notified every day. Enqueue-only. | Pending shift drop/swap requests are never chased; approvers may never notice a request awaiting their decision. |
+| `/api/cron/clinic-checkin-invites` | External (cron-job.org) | daily | `0 11 * * *` | Queues the morning-of check-in link to everyone assigned to today's clinic; no-ops on non-clinic days. Enqueue-only, one email per person even if assigned to multiple departments that day. | Volunteers get no check-in link and must be checked in manually by a director. |
 
 Notes:
 
@@ -38,10 +39,14 @@ Notes:
   kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
   regardless of how often a drain is triggered; a permanently-failed row (FAILED
   after 8 attempts) releases its lock so an admin retry is immediately claimable.
-- The `reminders`, `shift-reminders`, and `recruitment-review-digest` jobs still
-  only **enqueue**; their mail is delivered by the enqueue flush after they run, or
-  by this backstop tick. Each is idempotent per (person, day) via
-  `claimReminderDispatch`, so an at-least-once retry never double-sends.
+- The `reminders`, `shift-reminders`, `recruitment-review-digest`, and
+  `clinic-checkin-invites` jobs still only **enqueue**; their mail is delivered by
+  the enqueue flush after they run, or by this backstop tick. Each is idempotent
+  per (person, day) via `claimReminderDispatch`, so an at-least-once retry (a
+  cron-job.org timeout/5xx re-fire, or a manual re-run) never double-sends.
+  `clinic-checkin-invites` claims under its own dispatch kind
+  (`clinic-checkin-invite`), keyed by clinic date, so it cannot collide with the
+  weekly `shift-reminders` claims even for the same person on the same day.
 - The weekly clearance digest rides the daily `reminders` job rather than its own
   schedule. Its periodKey is the ISO week, so the first daily run of a week sends and
   the rest skip. That means one fewer external schedule to lose on re-provision, and

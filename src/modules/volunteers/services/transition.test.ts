@@ -77,7 +77,7 @@ async function createApplication(opts: {
   termId: string;
   email: string;
   applicantPersonId: string | null;
-  status: "DRAFT" | "SUBMITTED";
+  status: "DRAFT" | "SUBMITTED" | "WITHDRAWN";
   slug: string;
   /** RecruitmentCycle.createdById is required with a Restrict relation to Person. */
   createdById: string;
@@ -196,6 +196,31 @@ describe("transitionView", () => {
     expect(row?.bucket).toBe("PENDING");
   });
 
+  it("buckets a submitted application matched only by contactEmail as PENDING", async () => {
+    const active = await createTerm("ACTIVE", "FA25", "2025-08-01");
+    const next = await createTerm("PLANNING", "SP26", "2026-01-01");
+    const dept = await createDepartment("ITCM");
+    const viewer = await createPerson("Exec", "exec01");
+    await grantPermission(viewer.id, "volunteers.manage_offboarding");
+    // No netId, so the only match path is the roster member's contactEmail
+    // (never the derived Yale address), isolating that fallback branch.
+    const member = await createPerson("NoNetId", undefined, "nonetid@example.com");
+    await createMembership(member.id, active.id, dept.id);
+    await createApplication({
+      termId: next.id,
+      email: "NoNetId@Example.com",
+      applicantPersonId: null,
+      status: "SUBMITTED",
+      slug: "contact-email",
+      createdById: viewer.id,
+    });
+
+    const view = await transitionView(viewer.id);
+
+    const row = view.rows.find((r) => r.personId === member.id);
+    expect(row?.bucket).toBe("PENDING");
+  });
+
   it("buckets a draft application as NOT_RETURNING and sets the draft chip", async () => {
     const active = await createTerm("ACTIVE", "FA25", "2025-08-01");
     const next = await createTerm("PLANNING", "SP26", "2026-01-01");
@@ -218,6 +243,32 @@ describe("transitionView", () => {
     const row = view.rows.find((r) => r.personId === member.id);
     expect(row?.bucket).toBe("NOT_RETURNING");
     expect(row?.hasDraftApplication).toBe(true);
+    expect(row?.withdrewApplication).toBe(false);
+  });
+
+  it("buckets a withdrawn application as NOT_RETURNING with the withdrawn chip, not the draft chip", async () => {
+    const active = await createTerm("ACTIVE", "FA25", "2025-08-01");
+    const next = await createTerm("PLANNING", "SP26", "2026-01-01");
+    const dept = await createDepartment("ITCM");
+    const viewer = await createPerson("Exec", "exec01");
+    await grantPermission(viewer.id, "volunteers.manage_offboarding");
+    const member = await createPerson("Withdrawer", "wdr01", "wdr01@yale.edu");
+    await createMembership(member.id, active.id, dept.id);
+    await createApplication({
+      termId: next.id,
+      email: "wdr01@yale.edu",
+      applicantPersonId: member.id,
+      status: "WITHDRAWN",
+      slug: "withdrawn",
+      createdById: viewer.id,
+    });
+
+    const view = await transitionView(viewer.id);
+
+    const row = view.rows.find((r) => r.personId === member.id);
+    expect(row?.bucket).toBe("NOT_RETURNING");
+    expect(row?.withdrewApplication).toBe(true);
+    expect(row?.hasDraftApplication).toBe(false);
   });
 
   it("buckets a person with neither signal as NOT_RETURNING", async () => {

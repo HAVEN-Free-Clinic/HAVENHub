@@ -37,6 +37,13 @@ export type TransitionRow = {
   bucket: TransitionBucket;
   /** A DRAFT application exists for the next term. Does not change the bucket. */
   hasDraftApplication: boolean;
+  /**
+   * A WITHDRAWN application exists for the next term. Kept separate from
+   * hasDraftApplication: someone who applied and then withdrew is a confirmed
+   * departure, which is stronger evidence than never applying, and calling that
+   * a draft in progress would say the opposite of what happened.
+   */
+  withdrewApplication: boolean;
   /** An OffboardFlag already exists for this person in the current term. */
   flagged: boolean;
   /** That flag was raised by the person themselves (self-withdrawal). */
@@ -140,6 +147,7 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
 
   const submittedIds = new Set<string>();
   const draftIds = new Set<string>();
+  const withdrawnIds = new Set<string>();
   for (const app of applications) {
     // applicantPersonId is the clean link and is always set for RENEWAL and
     // TRANSFER (both gate on being signed in). emailLower is the fallback for an
@@ -148,8 +156,12 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
     const personId =
       app.applicant.applicantPersonId ?? personByEmail.get(app.applicant.emailLower) ?? null;
     if (!personId) continue;
+    // Explicit per status rather than an else: ApplicationStatus is
+    // DRAFT | SUBMITTED | WITHDRAWN, and lumping WITHDRAWN in with DRAFT would
+    // tell a director that a confirmed departure is still mid-application.
     if (app.status === "SUBMITTED") submittedIds.add(personId);
-    else draftIds.add(personId);
+    else if (app.status === "DRAFT") draftIds.add(personId);
+    else if (app.status === "WITHDRAWN") withdrawnIds.add(personId);
   }
 
   const flagByPersonId = new Map(flags.map((f) => [f.personId, f]));
@@ -187,6 +199,7 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
       role: personMemberships.some((m) => m.kind === "DIRECTOR") ? "DIRECTOR" : "VOLUNTEER",
       bucket,
       hasDraftApplication: draftIds.has(personId),
+      withdrewApplication: withdrawnIds.has(personId),
       flagged: flag !== null,
       selfWithdrew: flag?.flaggedById === personId,
       selectable: bucket !== "RETURNING",

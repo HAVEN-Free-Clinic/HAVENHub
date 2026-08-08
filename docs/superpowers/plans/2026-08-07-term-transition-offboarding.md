@@ -282,6 +282,8 @@ async function createApplication(opts: {
   applicantPersonId: string | null;
   status: "DRAFT" | "SUBMITTED";
   slug: string;
+  /** RecruitmentCycle.createdById is required with a Restrict relation to Person. */
+  createdById: string;
 }) {
   const cycle = await prisma.recruitmentCycle.create({
     data: {
@@ -290,6 +292,7 @@ async function createApplication(opts: {
       title: `Cycle ${opts.slug}`,
       publicSlug: opts.slug,
       departments: [],
+      createdById: opts.createdById,
     },
   });
   const applicant = await prisma.applicant.create({
@@ -361,6 +364,7 @@ describe("transitionView", () => {
       applicantPersonId: member.id,
       status: "SUBMITTED",
       slug: "linked",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);
@@ -386,6 +390,7 @@ describe("transitionView", () => {
       applicantPersonId: null,
       status: "SUBMITTED",
       slug: "anon",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);
@@ -408,6 +413,7 @@ describe("transitionView", () => {
       applicantPersonId: member.id,
       status: "DRAFT",
       slug: "draft",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);

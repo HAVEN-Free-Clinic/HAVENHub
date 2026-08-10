@@ -46,4 +46,11 @@ describe("trackerStageFor", () => {
     expect(statusOf(s.nodes.map((n) => n.status))).toBe("done,done,done,done");
     expect(s.terminal).toBe("not_selected");
   });
+
+  it("WITHDRAWN hides the tracker", () => {
+    const s = trackerStageFor("WITHDRAWN");
+    expect(s.showTracker).toBe(false);
+    expect(s.nodes).toEqual([]);
+    expect(s.terminal).toBeNull();
+  });
 });

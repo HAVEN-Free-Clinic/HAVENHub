@@ -60,12 +60,18 @@ export async function releaseSummary(cycleId: string): Promise<{
 export async function sendAcceptanceEmail(
   applicationId: string,
   departmentCode: string,
-): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" }> {
+): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" | "withdrawn" }> {
   const acc = await prisma.acceptance.findUnique({
     where: { applicationId_departmentCode: { applicationId, departmentCode } },
     include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true } } } } },
   });
   if (!acc) return { sent: false, reason: "not_found" };
+  // Withdrawal never deletes the Acceptance (see services/withdraw.ts), so the
+  // row alone does not mean the applicant is still in play. Reading the
+  // application's status is the only thing standing between a withdrawn
+  // applicant and a live offer email, and the emailedAt stamp that would follow
+  // it can then only be cleared through revokeAcceptance.
+  if (acc.application.status === "WITHDRAWN") return { sent: false, reason: "withdrawn" };
   if (acc.emailedAt) return { sent: false, reason: "already_emailed" };
   // Conflict = this application accepted by more than one distinct department
   // (the single-application case of findAcceptanceConflicts). Don't notify until
@@ -102,8 +108,13 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
     throw new AcceptanceError("Decisions can only be released for an open or closed cycle.");
   }
 
+  // Exclude withdrawn applicants. Their Acceptance row survives the withdrawal
+  // by design (services/withdraw.ts never tears one down), so filtering on the
+  // Acceptance alone would email a live offer to somebody who already declined,
+  // and stamp emailedAt on the way out. Application.status is a non-nullable
+  // enum with a default, so `not` cannot silently drop rows here.
   const acceptances = await prisma.acceptance.findMany({
-    where: { application: { cycleId } },
+    where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
     include: { application: { include: { applicant: true } } },
   });
 

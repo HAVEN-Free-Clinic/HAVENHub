@@ -22,6 +22,7 @@ describe("notification registry", () => {
         "incidents.strike_issued",
         "incidents.strike_issued_directors",
         "incidents.strike_requested",
+        "recruitment.applicant_withdrew",
         "recruitment.interview_assignment",
         "recruitment.review_digest",
         "support.ticket_submitted",
@@ -31,6 +32,7 @@ describe("notification registry", () => {
         "support.comment_added",
         "support.request_resolved",
         "shift-reminder",
+        "clinic-checkin-invite",
         "volunteers.self_withdrawal",
       ].sort()
     );

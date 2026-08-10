@@ -4,6 +4,7 @@ import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
 import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
 import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
+import { isClinicDayToday } from "@/modules/schedule/services/attendance";
 import { ModuleNav } from "@/platform/ui/module-nav";
 import { moduleMetadata } from "@/platform/branding/metadata";
 
@@ -25,27 +26,35 @@ export function generateMetadata() {
 // enforce per-item permissions, so resolve the page's exact gate here and drop
 // the tab when the viewer can approve nothing.
 //
-// All three carry `dynamicGate: true` in the registry, which keeps them out of
+// Check in is a fourth, differently-shaped case: it's not a per-person capability
+// but a calendar fact, "is today a clinic day" -- resolved by isClinicDayToday,
+// the same service that owns every other check-in decision. Shown to everyone
+// once true, since anyone with module access can check themselves in.
+//
+// All four carry `dynamicGate: true` in the registry, which keeps them out of
 // the *global* nav's Schedule dropdown (it cannot run these checks). This layout
 // remains the only place that decides whether they appear in the tab row.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
 const APPROVALS_HREF = "/schedule/requests";
+const CHECK_IN_HREF = "/schedule/check-in";
 
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, canManageAttendings, requestDeptIds] = await Promise.all([
+  const [canBuild, canManageAttendings, requestDeptIds, isClinicDay] = await Promise.all([
     canManageAnyScheduleDept(personId),
     canManageAnyRhdDept(personId),
     manageableRequestDepartmentIds(personId),
+    isClinicDayToday(),
   ]);
   const canApprove = requestDeptIds.length > 0;
   const items = mod.nav.filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
       (item.href !== ATTENDINGS_HREF || canManageAttendings) &&
-      (item.href !== APPROVALS_HREF || canApprove),
+      (item.href !== APPROVALS_HREF || canApprove) &&
+      (item.href !== CHECK_IN_HREF || isClinicDay),
   );
   return (
     <>

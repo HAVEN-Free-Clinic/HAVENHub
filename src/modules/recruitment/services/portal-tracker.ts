@@ -30,6 +30,10 @@ export function trackerStageFor(state: ApplicantStatusView["state"]): TrackerSta
   switch (state) {
     case "DRAFT":
       return { showTracker: false, nodes: [], terminal: null };
+    case "WITHDRAWN":
+      // No progress rail on a withdrawn application: running "Submitted, In
+      // review, Interview, Decision" past it would imply movement that stopped.
+      return { showTracker: false, nodes: [], terminal: null };
     case "SUBMITTED":
       return build(["done", "current", "upcoming", "upcoming"], null);
     case "INTERVIEW":

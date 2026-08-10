@@ -150,6 +150,35 @@ describe("getApplicantHistory", () => {
     expect(liveIds).not.toContain(`/recruitment/cycles/${current.cycleId}/applicants/${current.id}`);
   });
 
+  it("reports a withdrawn application as withdrawn, not accepted", async () => {
+    // The acceptance row survives a withdrawal by design (services/withdraw.ts
+    // never tears one down), so without reading Application.status this entry
+    // renders "Accepted" on the applicant detail card, the history browser, and
+    // the admin person profile -- the exact surfaces a reviewer reads when
+    // weighing a returning applicant who in fact declined.
+    const { current } = await seedTwoLiveApplications("ada@yale.edu");
+    const srr = await prisma.person.findFirstOrThrow({ where: { name: "HTEST SRR" } });
+    await prisma.acceptance.create({
+      data: { applicationId: current.id, departmentCode: "HTEST", approvedById: srr.id },
+    });
+    const entryFor = async (id: string) =>
+      (await getApplicantHistory({ emails: ["ada@yale.edu"] })).entries.find((e) => e.href?.endsWith(`/${id}`))!;
+
+    // Control: while the acceptance stands, the row is genuinely ACCEPTED.
+    const accepted = await entryFor(current.id);
+    expect(accepted.outcome).toBe("ACCEPTED");
+    expect(accepted.furthestStage).toBe("ACCEPTED");
+
+    await prisma.application.update({
+      where: { id: current.id },
+      data: { status: "WITHDRAWN", withdrawnAt: new Date() },
+    });
+
+    const withdrawn = await entryFor(current.id);
+    expect(withdrawn.outcome).toBe("WITHDRAWN");
+    expect(withdrawn.furthestStage).toBe("APPLIED");
+  });
+
   it("includes interest-form entries, distinctly from applications", async () => {
     const applicant = await seedArchive("ada@yale.edu");
     await prisma.historicalInterest.create({

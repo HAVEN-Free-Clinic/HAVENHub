@@ -59,6 +59,9 @@ function define<T>(def: SettingDef<T>): SettingDef<unknown> {
   return def as unknown as SettingDef<unknown>;
 }
 
+/** 24-hour HH:MM, 00:00 through 23:59. */
+const TIME_OF_DAY = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour HH:MM, for example 08:00");
+
 /**
  * Every admin-editable setting, declared exactly once. Adding a setting here is
  * all that is required for it to appear (auto-rendered) in /admin/settings.
@@ -108,6 +111,46 @@ export const SETTINGS: SettingDef<unknown>[] = [
     input: { type: "number", min: 1 },
     schema: z.number().int().positive(),
     envDefault: () => config.ONBOARDING_REMINDER_INTERVAL_DAYS,
+    secret: false,
+  }),
+  define<number>({
+    key: "clinic.checkInLatitude",
+    category: "Operations",
+    label: "Clinic check-in latitude",
+    help: "Latitude of the clinic check-in geofence centre. Confirm this against the actual entrance: a centre even fifty metres off will fail volunteers standing at the door.",
+    input: { type: "number" },
+    schema: z.number().min(-90).max(90),
+    envDefault: () => config.CLINIC_CHECKIN_LATITUDE,
+    secret: false,
+  }),
+  define<number>({
+    key: "clinic.checkInLongitude",
+    category: "Operations",
+    label: "Clinic check-in longitude",
+    help: "Longitude of the clinic check-in geofence centre.",
+    input: { type: "number" },
+    schema: z.number().min(-180).max(180),
+    envDefault: () => config.CLINIC_CHECKIN_LONGITUDE,
+    secret: false,
+  }),
+  define<number>({
+    key: "clinic.checkInRadiusMeters",
+    category: "Operations",
+    label: "Clinic check-in radius (metres)",
+    help: "How near the clinic a volunteer must be to check themselves in. Location accuracy indoors is poor, so this is a deterrent rather than proof of presence; a director can always check someone in manually.",
+    input: { type: "number", min: 10 },
+    schema: z.number().int().min(10),
+    envDefault: () => config.CLINIC_CHECKIN_RADIUS_METERS,
+    secret: false,
+  }),
+  define<number>({
+    key: "clinic.checkInMaxAccuracyMeters",
+    category: "Operations",
+    label: "Clinic check-in accuracy limit (metres)",
+    help: "Location fixes less precise than this are rejected as unusable rather than guessed at, and the volunteer is asked to see a director. Raise it if too many on-site volunteers are being turned away.",
+    input: { type: "number", min: 10 },
+    schema: z.number().int().min(10),
+    envDefault: () => config.CLINIC_CHECKIN_MAX_ACCURACY_METERS,
     secret: false,
   }),
   define<string>({
@@ -312,6 +355,46 @@ export const SETTINGS: SettingDef<unknown>[] = [
     input: { type: "select", options: US_TIME_ZONES.map((tz) => ({ value: tz.value, label: tz.label })) },
     schema: z.enum(US_TIME_ZONE_IDS),
     envDefault: () => config.DISPLAY_TIME_ZONE,
+    secret: false,
+  }),
+  define<string>({
+    key: "schedule.clinicStartTime",
+    category: "Operations",
+    label: "Clinic start time",
+    help: "When a clinic day begins, in the display time zone. Shifts are date-only in the Hub, so exported calendar events use this window.",
+    input: { type: "text" },
+    schema: TIME_OF_DAY,
+    envDefault: () => "08:00",
+    secret: false,
+    validate: async (value, ctx) => {
+      const end = await ctx.getSetting<string>("schedule.clinicEndTime");
+      return value < end ? null : "Start time must be earlier than the clinic end time.";
+    },
+  }),
+  define<string>({
+    key: "schedule.clinicEndTime",
+    category: "Operations",
+    label: "Clinic end time",
+    help: "When a clinic day ends, in the display time zone. Must be later than the start time.",
+    input: { type: "text" },
+    schema: TIME_OF_DAY,
+    envDefault: () => "13:00",
+    secret: false,
+    validate: async (value, ctx) => {
+      const start = await ctx.getSetting<string>("schedule.clinicStartTime");
+      return value > start ? null : "End time must be later than the clinic start time.";
+    },
+  }),
+  define<string>({
+    key: "schedule.clinicAddress",
+    category: "Operations",
+    label: "Clinic address",
+    help: "Street address of the clinic, used as the location on exported calendar events so members can tap through to directions. Leave blank to omit the location. Shifts marked remote never carry it.",
+    input: { type: "text" },
+    // Deliberately permissive, including empty: an address is free-form, and a
+    // blank value is the documented way to turn the location off.
+    schema: z.string(),
+    envDefault: () => "800 Howard Ave, New Haven, CT (Yale Physicians Building)",
     secret: false,
   }),
 ];

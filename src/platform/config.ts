@@ -151,6 +151,75 @@ const schema = z
           }
         })
       ),
+    // Clinic check-in geofence centre latitude. MUST be confirmed against the
+    // actual clinic entrance before production use: a centre fifty metres off is
+    // a fence that fails people at the door.
+    CLINIC_CHECKIN_LATITUDE: z
+      .string()
+      .default("41.3025")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val < -90 || val > 90) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_LATITUDE must be between -90 and 90",
+            });
+          }
+        })
+      ),
+    // Clinic check-in geofence centre longitude. See CLINIC_CHECKIN_LATITUDE.
+    CLINIC_CHECKIN_LONGITUDE: z
+      .string()
+      .default("-72.937")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val < -180 || val > 180) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_LONGITUDE must be between -180 and 180",
+            });
+          }
+        })
+      ),
+    // How near the geofence centre a volunteer must be to self check in, in metres.
+    // Rejected if not a positive finite number.
+    CLINIC_CHECKIN_RADIUS_METERS: z
+      .string()
+      .default("250")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_RADIUS_METERS must be a positive number",
+            });
+          }
+        })
+      ),
+    // Location fixes less precise than this (coords.accuracy, in metres) are
+    // rejected as unusable rather than guessed at. Rejected if not a positive
+    // finite number.
+    CLINIC_CHECKIN_MAX_ACCURACY_METERS: z
+      .string()
+      .default("200")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_MAX_ACCURACY_METERS must be a positive number",
+            });
+          }
+        })
+      ),
     // IANA display time zone for rendering real timestamps. Deploy-time seed;
     // admins can override live via the display.timeZone setting.
     DISPLAY_TIME_ZONE: z.string().default("America/New_York"),

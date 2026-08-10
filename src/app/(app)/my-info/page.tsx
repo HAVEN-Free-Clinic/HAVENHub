@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -31,6 +32,8 @@ import {
 import { issueWalletPass } from "@/modules/passport/services/wallet-pass";
 import { isWalletEnabled } from "@/modules/passport/services/wallet-client";
 import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
+import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
+import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
 type PageProps = {
   searchParams: Promise<{
@@ -117,6 +120,24 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
+  }
+
+  // The card also renders on /schedule, so both paths are revalidated: a member
+  // who generates the link here must not find a stale empty card over there.
+  async function generateFeedAction() {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await issueAuditedFeedToken(session.personId, "issue");
+    revalidatePath("/my-info");
+    revalidatePath("/schedule");
+  }
+
+  async function resetFeedAction() {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await issueAuditedFeedToken(session.personId, "reset");
+    revalidatePath("/my-info");
+    revalidatePath("/schedule");
   }
 
   async function issueAction(): Promise<IssuedCredential> {
@@ -224,6 +245,16 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             // already-onboarded member (the usual case here) has only non-blocking,
             // coordinator-recorded items left, and /get-started just redirects home.
             finishHref={onboarding.onboarded ? undefined : "/get-started"}
+          />
+        </section>
+
+        {/* Calendar subscription */}
+        <section>
+          <SectionHeader className="mb-4">Calendar</SectionHeader>
+          <CalendarSubscribeSection
+            personId={person.personId}
+            generateAction={generateFeedAction}
+            resetAction={resetFeedAction}
           />
         </section>
 

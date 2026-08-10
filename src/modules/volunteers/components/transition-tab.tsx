@@ -7,7 +7,9 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { BulkResultAlert, downloadCsv } from "@/modules/volunteers/components/offboarding-shared";
 import type { TransitionRow, TransitionView } from "@/modules/volunteers/services/transition";
 // Type-only, so the server module is erased at compile time and never bundled.
 import type { BulkResult } from "@/modules/volunteers/services/transition-actions";
@@ -55,10 +57,7 @@ export function TransitionTab({
   );
   const [exportError, setExportError] = useState<string | null>(null);
   const [flagResult, flagFormAction, flagPending] = useActionState(bulkFlagAction, null);
-  const [offboardResult, offboardFormAction, offboardPending] = useActionState(
-    bulkOffboardAction,
-    null,
-  );
+  const [offboardResult, offboardFormAction] = useActionState(bulkOffboardAction, null);
 
   if (!view.nextTerm) {
     return (
@@ -95,25 +94,21 @@ export function TransitionTab({
 
   async function exportCsv() {
     setExportError(null);
-    const res = await fetch("/api/volunteers/offboarding/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope: "selection", personIds: [...selected] }),
-    });
-    if (!res.ok) {
+    try {
+      await downloadCsv({ scope: "selection", personIds: selectedIds });
+    } catch {
       setExportError("Export failed. Refresh and try again.");
-      return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filenameFrom(res.headers.get("Content-Disposition"));
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
-  const selectedIds = [...selected];
+  // Derived from the rows actually on the page, not raw state: revalidatePath
+  // re-renders this component with fresh props but never remounts it, so the
+  // `selected` Set survives a successful bulk offboard even though the people
+  // in it just dropped out of view.rows. Submitting the stale ids would rerun
+  // executeOffboard on already-offboarded people. Filtering against the live
+  // rows here means the header count, the button labels, the cap check, and
+  // the hidden inputs all agree with what is actually still selectable.
+  const selectedIds = view.rows.filter((r) => r.selectable && selected.has(r.personId)).map((r) => r.personId);
   const overCap = selectedIds.length > MAX_BULK_OFFBOARD;
 
   return (
@@ -148,13 +143,11 @@ export function TransitionTab({
             {selectedIds.map((id) => (
               <input key={id} type="hidden" name="personId" value={id} />
             ))}
-            <Button
-              type="submit"
-              variant="danger"
-              disabled={offboardPending || selectedIds.length === 0 || overCap}
-            >
-              {offboardPending ? "Offboarding..." : `Offboard ${selectedIds.length}`}
-            </Button>
+            <ConfirmButton
+              label={`Offboard ${selectedIds.length}`}
+              confirmLabel={`Offboard ${selectedIds.length} people? This removes all their active memberships.`}
+              disabled={selectedIds.length === 0 || overCap}
+            />
           </form>
         )}
 
@@ -252,39 +245,4 @@ export function TransitionTab({
       })}
     </div>
   );
-}
-
-/**
- * Alert renders a <p>, whose content model is phrasing content only, so the
- * skip list below cannot be a <ul> (a <ul> is flow content; a browser would
- * auto-close the <p> in front of it, splitting the icon and text out of
- * Alert's bordered box). Each skip reason renders as a block-level <span>
- * instead, which is still phrasing content by tag even though it displays on
- * its own line.
- */
-function BulkResultAlert({ verb, result }: { verb: string; result: BulkResult | null }) {
-  if (!result) return null;
-  const tone = result.skipped.length > 0 ? "warning" : "success";
-  return (
-    <Alert tone={tone}>
-      {result.succeeded.length} {verb}
-      {result.skipped.length > 0 && (
-        <>
-          {", "}
-          {result.skipped.length} skipped:
-          {result.skipped.map((s) => (
-            <span key={s.personId} className="mt-1 block pl-3 text-xs">
-              {s.name}: {s.reason}
-            </span>
-          ))}
-        </>
-      )}
-    </Alert>
-  );
-}
-
-/** Pull the filename out of a Content-Disposition header, with a safe default. */
-function filenameFrom(header: string | null): string {
-  const match = header?.match(/filename="([^"]+)"/);
-  return match?.[1] ?? "offboarding.csv";
 }

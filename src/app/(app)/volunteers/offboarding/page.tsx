@@ -1,5 +1,5 @@
 import { requirePermission } from "@/platform/auth/session";
-import { captureEvent } from "@/platform/posthog/capture";
+import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { PageHeader } from "@/platform/ui/page-header";
 import { TabRow } from "@/platform/ui/tab-row";
@@ -24,6 +24,7 @@ import {
   type BulkResult,
 } from "@/modules/volunteers/services/transition-actions";
 import { TransitionTab } from "@/modules/volunteers/components/transition-tab";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { can } from "@/platform/rbac/engine";
 
@@ -43,11 +44,10 @@ export default async function OffboardingPage({
   const viewer = await requirePermission("volunteers.view");
   const { tab: rawTab } = await searchParams;
 
-  const { departments, flagged } = await offboardingView(viewer.personId);
-
-  const [nextTerm, canExecute] = await Promise.all([
+  const [nextTerm, canExecute, activeTerm] = await Promise.all([
     getNextTerm(),
     can(viewer.personId, "volunteers.manage_offboarding"),
+    getActiveTerm(),
   ]);
 
   // Default to the transition report while a term is being prepared, and to the
@@ -60,16 +60,23 @@ export default async function OffboardingPage({
       ? requested
       : fallback;
 
-  // Only the active tab's data is queried, so a director opening Flagged does
-  // not pay for the transition roll-up.
+  // Only the active tab's data is queried: the Transition tab has its own
+  // roll-up (transitionView) below and never needs offboardingView's
+  // department cards or flagged queue, so a director opening Transition
+  // during a rollover, now the default tab, does not pay for that query.
+  const { departments, flagged } =
+    tab === "transition" ? { departments: [], flagged: null } : await offboardingView(viewer.personId);
   const transition = tab === "transition" ? await transitionView(viewer.personId) : null;
 
   const items = [
     { label: "Transition", href: `${BASE}?tab=transition` },
     { label: "By department", href: `${BASE}?tab=departments` },
-    // The flagged queue is executor-only, exactly as the old inline section was:
-    // offboardingView returns null for a viewer without manage_offboarding.
-    ...(flagged !== null ? [{ label: "Flagged", href: `${BASE}?tab=flagged` }] : []),
+    // The flagged queue is executor-only AND active-term-only: offboardingView
+    // returns flagged: null both for a viewer without manage_offboarding and
+    // whenever there is no ACTIVE term, so flagged !== null is not the same
+    // check as canExecute alone. Gating on canExecute alone would offer an
+    // empty Flagged tab out of season (an executor, but no active term).
+    ...(canExecute && activeTerm ? [{ label: "Flagged", href: `${BASE}?tab=flagged` }] : []),
   ];
 
   // ---------------------------------------------------------------------------
@@ -184,7 +191,11 @@ export default async function OffboardingPage({
       throw err;
     }
 
-    // Analytics per person, matching the single-person execute action.
+    // Analytics per person, matching the single-person execute action. Each
+    // capture skips its own flush (flush: false) so a 25-person batch does not
+    // pay for 25 sequential bounded flushes (up to 3000ms each); one
+    // flushEvents() after the loop drains the whole batch instead. Matches the
+    // pattern in shift-reminders.ts, enrollment.ts, and promotion.ts.
     const groups = await activeTermGroup();
     for (const person of result.succeeded) {
       await captureEvent({
@@ -192,8 +203,10 @@ export default async function OffboardingPage({
         event: "volunteer_offboarded",
         properties: { offboarded_person_id: person.personId, bulk: true },
         groups,
+        flush: false,
       });
     }
+    if (result.succeeded.length > 0) await flushEvents();
 
     revalidatePath(BASE);
     return result;
@@ -243,7 +256,6 @@ export default async function OffboardingPage({
           bulkOffboardAction={bulkOffboardAction}
         />
       )}
-
     </div>
   );
 }

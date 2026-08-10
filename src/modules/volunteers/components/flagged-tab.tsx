@@ -9,6 +9,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { formatDateOnly } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
+import { BulkResultAlert, downloadCsv } from "@/modules/volunteers/components/offboarding-shared";
 import type { FlaggedRow } from "@/modules/volunteers/services/offboarding";
 // Type-only, so the server module is erased at compile time and never bundled.
 import type { BulkResult } from "@/modules/volunteers/services/transition-actions";
@@ -41,10 +42,7 @@ export function FlaggedTab({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exportError, setExportError] = useState<string | null>(null);
-  const [offboardResult, offboardFormAction, offboardPending] = useActionState(
-    bulkOffboardAction,
-    null,
-  );
+  const [offboardResult, offboardFormAction] = useActionState(bulkOffboardAction, null);
   const zone = useTimeZone();
 
   function toggle(personId: string) {
@@ -58,26 +56,22 @@ export function FlaggedTab({
 
   async function exportOffboardedCsv() {
     setExportError(null);
-    const res = await fetch("/api/volunteers/offboarding/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope: "offboarded-term" }),
-    });
-    if (!res.ok) {
+    try {
+      await downloadCsv({ scope: "offboarded-term" });
+    } catch {
       setExportError("Export failed. Refresh and try again.");
-      return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    const match = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/);
-    link.download = match?.[1] ?? "offboarding.csv";
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
-  const selectedIds = [...selected];
+  // Derived from the rows actually on the page, not raw state: revalidatePath
+  // re-renders this component with fresh props but never remounts it, so the
+  // `selected` Set survives a successful bulk offboard even though the people
+  // in it just dropped out of `flagged` (executeOffboard deletes the flag).
+  // Submitting the stale ids would rerun executeOffboard on already-offboarded
+  // people. Filtering against the live rows here means the button label, the
+  // cap check, and the hidden inputs all agree with what is actually still
+  // in the queue.
+  const selectedIds = flagged.filter((f) => selected.has(f.person.id)).map((f) => f.person.id);
   const overCap = selectedIds.length > MAX_BULK_OFFBOARD;
   const allSelected = flagged.length > 0 && flagged.every((f) => selected.has(f.person.id));
 
@@ -93,13 +87,11 @@ export function FlaggedTab({
           {selectedIds.map((id) => (
             <input key={id} type="hidden" name="personId" value={id} />
           ))}
-          <Button
-            type="submit"
-            variant="danger"
-            disabled={offboardPending || selectedIds.length === 0 || overCap}
-          >
-            {offboardPending ? "Offboarding..." : `Offboard ${selectedIds.length}`}
-          </Button>
+          <ConfirmButton
+            label={`Offboard ${selectedIds.length}`}
+            confirmLabel={`Offboard ${selectedIds.length} people? This removes all their active memberships.`}
+            disabled={selectedIds.length === 0 || overCap}
+          />
         </form>
 
         <Button type="button" variant="outline" onClick={exportOffboardedCsv}>
@@ -116,32 +108,7 @@ export function FlaggedTab({
 
       {exportError && <Alert tone="error" className="mb-4">{exportError}</Alert>}
 
-      {offboardResult && (
-        <Alert
-          tone={offboardResult.skipped.length > 0 ? "warning" : "success"}
-          className="mb-4"
-        >
-          <span>
-            {offboardResult.succeeded.length} offboarded
-            {offboardResult.skipped.length > 0 && (
-              <>
-                {", "}
-                {offboardResult.skipped.length} skipped:
-                {/* Block spans, not a list. Alert renders a <p>, and a <ul>
-                    inside a paragraph is invalid: the browser auto-closes the
-                    <p>, so the server and client trees disagree and React
-                    throws a hydration mismatch. Task 6 hit this first; match
-                    the shape it settled on in transition-tab.tsx. */}
-                {offboardResult.skipped.map((s) => (
-                  <span key={s.personId} className="mt-1 block pl-3 text-xs">
-                    {s.name}: {s.reason}
-                  </span>
-                ))}
-              </>
-            )}
-          </span>
-        </Alert>
-      )}
+      <BulkResultAlert verb="offboarded" result={offboardResult} className="mb-4" />
 
       <Table>
         <THead>

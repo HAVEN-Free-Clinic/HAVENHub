@@ -116,7 +116,11 @@ export async function buildOffboardingCsv(
 
   return {
     filename: `haven-offboarding-${activeTerm?.code ?? "no-term"}-${day}.csv`,
-    csv: toCsv(HEADERS, rows),
+    // Person.name and Person.contactEmail are user-supplied (the apply wizard
+    // takes names from anonymous applicants; /my-info lets members edit their
+    // own record) and this file is opened in Excel, so guard against
+    // spreadsheet formula injection.
+    csv: toCsv(HEADERS, rows, { neutralizeFormulas: true }),
     rowCount: rows.length,
   };
 }

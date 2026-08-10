@@ -1996,19 +1996,28 @@ model HistoricalInterest {
 /// never surface a record the member did not publish (a corrected term, a
 /// department they left, a shift count that moved).
 model ServiceCredential {
-  id          String    @id @default(cuid())
-  personId    String    @unique
+  id            String    @id @default(cuid())
+  personId      String    @unique
   /// Unguessable public token. Null until the member opts into publishing, and
   /// nulled again on unpublish, which is what makes the public page 404.
-  publicToken String?   @unique
+  publicToken   String?   @unique
+  /// When the member last retracted their public page. Distinguishes "never
+  /// published" (null) from "published, then chose not to be" (set), which
+  /// publicToken alone cannot express because both leave it null.
+  ///
+  /// Adding a wallet badge auto-publishes so the badge can carry a verifiable
+  /// QR, but ONLY when this is null. Without it, a member who unpublished would
+  /// be silently re-published by their next badge refresh, overriding a choice
+  /// they made deliberately.
+  unpublishedAt DateTime?
   /// The full ServiceRecord as issued. Never recomputed on read.
-  record      Json
-  issuedAt    DateTime  @default(now())
+  record        Json
+  issuedAt      DateTime  @default(now())
   /// Set only by a deliberate admin revocation (falsified service, record issued
   /// in error). Offboarding does NOT set this: the credential is a past-tense
   /// claim and a member who graduates normally did serve those terms.
-  revokedAt   DateTime?
-  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  revokedAt     DateTime?
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
 /// A term-scoped wallet badge. One per person per term, expiring at term end.

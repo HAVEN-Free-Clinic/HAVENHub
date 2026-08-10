@@ -146,21 +146,45 @@ describe("issueWalletPass", () => {
     expect(row!.serialNumber).toBe("ser_1");
   });
 
-  it("puts the published credential URL in the QR, and no barcode when unpublished", async () => {
+  it("auto-publishes on first badge so the QR always resolves", async () => {
     const { person } = await seedActiveMember();
     createPassMock.mockResolvedValue(CREATED);
 
-    // Unpublished: no credential row at all.
     await issueWalletPass(person.id);
-    expect(createPassMock.mock.calls[0][0].barcodeValue).toBeNull();
 
-    // Published: the QR resolves to the page a third party can actually check.
+    const cred = await prisma.serviceCredential.findUnique({ where: { personId: person.id } });
+    expect(cred!.publicToken).toBeTruthy();
+    expect(createPassMock.mock.calls[0][0].barcodeValue).toContain(
+      `/credential/${cred!.publicToken}`,
+    );
+  });
+
+  it("reuses an already-published token rather than minting a second one", async () => {
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
     await prisma.serviceCredential.create({
-      data: { personId: person.id, record: {}, publicToken: "tok_abc" },
+      data: { personId: person.id, record: {}, publicToken: "tok_existing" },
     });
-    await prisma.walletPass.deleteMany({ where: { personId: person.id } });
+
     await issueWalletPass(person.id);
-    expect(createPassMock.mock.calls[1][0].barcodeValue).toContain("/credential/tok_abc");
+
+    expect(createPassMock.mock.calls[0][0].barcodeValue).toContain("/credential/tok_existing");
+  });
+
+  it("does NOT republish a member who deliberately unpublished", async () => {
+    // The whole reason unpublishedAt exists. Auto-publish must not quietly undo
+    // a retraction on the member's next badge refresh.
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+    await prisma.serviceCredential.create({
+      data: { personId: person.id, record: {}, publicToken: null, unpublishedAt: new Date() },
+    });
+
+    await issueWalletPass(person.id);
+
+    const cred = await prisma.serviceCredential.findUnique({ where: { personId: person.id } });
+    expect(cred!.publicToken).toBeNull();
+    expect(createPassMock.mock.calls[0][0].barcodeValue).toBeNull();
   });
 
   it("gives a revoked credential no barcode, so the QR never resolves to a 404", async () => {
@@ -192,8 +216,22 @@ describe("issueWalletPass", () => {
     await issueWalletPass(person.id);
 
     const input = createPassMock.mock.calls[0][0];
-    expect(input.logoText).toBe("Director Identification");
+    // Short on purpose: "Director Identification" truncated to "Director Iden..."
+    // in the narrow strip beside the logo on a real card.
+    expect(input.logoText).toBe("Director ID");
     expect(input.primaryFields[0].value).toBe("Director");
+  });
+
+  it("sends the department CODE, which fits the card, not the full name", async () => {
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+
+    await issueWalletPass(person.id);
+
+    const dept = createPassMock.mock.calls[0][0].secondaryFields.find(
+      (f) => f.key === "department",
+    );
+    expect(dept!.value).toBe("ITCM");
   });
 
   it("persists the install URLs at creation, because a refresh cannot return them", async () => {

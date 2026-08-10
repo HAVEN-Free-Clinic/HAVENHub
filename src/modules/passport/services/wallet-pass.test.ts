@@ -219,7 +219,7 @@ describe("issueWalletPass", () => {
     // Short on purpose: "Director Identification" truncated to "Director Iden..."
     // in the narrow strip beside the logo on a real card.
     expect(input.logoText).toBe("Director ID");
-    expect(input.primaryFields[0].value).toBe("Director");
+    expect(input.secondaryFields.find((f) => f.key === "role")!.value).toBe("Director");
   });
 
   it("sends the department CODE, which fits the card, not the full name", async () => {
@@ -301,18 +301,21 @@ describe("issueWalletPass", () => {
     expect(row!.revokedAt).toBeNull();
   });
 
-  it("puts the role, department, term, and member-since year on the pass", async () => {
+  it("puts the name, role, department and term on the face of the card", async () => {
     const { person } = await seedActiveMember();
     createPassMock.mockResolvedValue(CREATED);
 
     await issueWalletPass(person.id);
 
     const input = createPassMock.mock.calls[0][0];
-    expect(input.primaryFields[0].value).toBe("Volunteer");
+    // Name is primary; it is an identification badge before it is anything else.
+    expect(input.primaryFields[0].value).toBe("Ada Lovelace");
     const labels = input.secondaryFields.map((f) => f.label);
+    expect(labels).toContain("Role");
     expect(labels).toContain("Department");
     expect(labels).toContain("Term");
-    expect(labels).toContain("Member since");
+    // "Member since" moved to the back to make room for the role on the face.
+    expect(input.backFields!.map((f) => f.label)).toContain("Member since");
   });
 
   it("returns null and stores nothing when the vendor fails", async () => {
@@ -453,5 +456,66 @@ describe("a pass that no longer exists at the vendor", () => {
     const row = await prisma.walletPass.findFirst({ where: { personId: person.id } });
     expect(row!.serialNumber).toBe("ser_1");
     expect(row!.revokedAt).toBeNull();
+  });
+});
+
+describe("who the badge says it belongs to", () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.clearAllMocks();
+    isWalletEnabledMock.mockReturnValue(true);
+    createPassMock.mockResolvedValue(CREATED);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("puts the member's name in the primary slot", async () => {
+    // The first real card shipped with ROLE as the large field and the holder's
+    // name nowhere on it, which is not an identification badge.
+    const { person } = await seedActiveMember();
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.primaryFields[0].value).toBe("Ada Lovelace");
+  });
+
+  it("carries the netId on the back, not the face", async () => {
+    const { person } = await seedActiveMember();
+    await prisma.person.update({ where: { id: person.id }, data: { netId: "abc123" } });
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.backFields!.find((f) => f.key === "netid")!.value).toBe("abc123");
+    // Never on the front: it is a lookup key, not something needed to recognise
+    // the person in front of you, and the face is the surface that gets read
+    // over a shoulder.
+    const front = [...input.primaryFields, ...input.secondaryFields];
+    expect(front.some((f) => f.value === "abc123")).toBe(false);
+  });
+
+  it("omits the netId row for a member who has none", async () => {
+    // Non-Yale members are matched by contact email and never given a netId.
+    const { person } = await seedActiveMember();
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.backFields!.some((f) => f.key === "netid")).toBe(false);
+  });
+
+  it("keeps the full department name on the back where there is room", async () => {
+    const { person } = await seedActiveMember();
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.secondaryFields.find((f) => f.key === "department")!.value).toBe("ITCM");
+    expect(input.backFields!.find((f) => f.key === "department-full")!.value).toBe(
+      "Internal Medicine",
+    );
   });
 });

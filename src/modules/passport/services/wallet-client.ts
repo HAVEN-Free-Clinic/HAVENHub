@@ -50,6 +50,8 @@ export type PassInput = {
   expirationDays: number;
   primaryFields: PassField[];
   secondaryFields: PassField[];
+  /** Rendered on the back of the pass, reached by tapping the (i). */
+  backFields?: PassField[];
   /** QR target, or null for a pass with no barcode. */
   barcodeValue: string | null;
   /**
@@ -115,6 +117,7 @@ function body(input: PassInput): Record<string, unknown> {
     expirationDays: input.expirationDays,
     primaryFields: input.primaryFields,
     secondaryFields: input.secondaryFields,
+    ...(input.backFields?.length ? { backFields: input.backFields } : {}),
     // Always sent, Pro or not: it is the free tier's only styling, and it is
     // what the card falls back to the day the Pro trial lapses.
     colorPreset: "blue",

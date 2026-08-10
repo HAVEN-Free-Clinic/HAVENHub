@@ -66,7 +66,15 @@ export async function issueWalletPass(
 
   const membership = await prisma.termMembership.findFirst({
     where: { personId, termId: term.id, status: "ACTIVE" },
-    select: { kind: true, department: { select: { name: true, code: true } } },
+    select: {
+      kind: true,
+      department: { select: { name: true, code: true } },
+      // The badge is an identification card, so it has to name its holder.
+      // netId is nullable: non-Yale members are matched by contact email and
+      // never given one (see the non-Yale member login rules), so it is only
+      // rendered when present.
+      person: { select: { name: true, netId: true } },
+    },
   });
   if (!membership) return null;
 
@@ -91,10 +99,19 @@ export async function issueWalletPass(
   // prior unpublish and a revoked credential, both of which yield null and a
   // badge with no barcode rather than one pointing at a 404.
   const token = await autoPublishForBadge(personId);
-  const barcodeValue = token ? `${baseUrl}/credential/${token}` : null;
+  const credentialUrl = token ? `${baseUrl}/credential/${token}` : null;
+  const barcodeValue = credentialUrl;
 
   const role = membership.kind === "DIRECTOR" ? "Director" : "Volunteer";
+
+  // The NAME takes the primary slot, which is the large line on the card. An
+  // identification badge whose most prominent field was the holder's role told
+  // you what they do and never who they are; the first real card issued had no
+  // name on it anywhere.
+  const primaryFields = [{ key: "name", label: "Name", value: membership.person.name }];
+
   const secondaryFields = [
+    { key: "role", label: "Role", value: role },
     // The CODE, not the name. A card issued with the full name rendered
     // "Information Technology and Communications" shrunk to fit beside two other
     // fields; the code is what members say aloud anyway. The full name still
@@ -102,13 +119,29 @@ export async function issueWalletPass(
     { key: "department", label: "Department", value: membership.department.code },
     { key: "term", label: "Term", value: term.name },
   ];
-  if (record.memberSince) {
-    secondaryFields.push({
-      key: "since",
-      label: "Member since",
-      value: shortenSince(record.memberSince.label),
-    });
-  }
+
+  // The back holds what supports a lookup rather than a glance. netId lives here
+  // rather than on the face: it identifies the member in Yale's systems, it is
+  // not needed to recognise someone standing in front of you, and the front of a
+  // badge is the surface most likely to be read over a shoulder or photographed.
+  const backFields = [
+    ...(membership.person.netId
+      ? [{ key: "netid", label: "NetID", value: membership.person.netId }]
+      : []),
+    ...(record.memberSince
+      ? [
+          {
+            key: "since",
+            label: "Member since",
+            value: shortenSince(record.memberSince.label),
+          },
+        ]
+      : []),
+    { key: "department-full", label: "Department", value: membership.department.name },
+    // The same target the QR encodes, in text, so the badge is still verifiable
+    // by someone who cannot scan it.
+    ...(credentialUrl ? [{ key: "verify", label: "Verify", value: credentialUrl }] : []),
+  ];
 
   const input: PassInput = {
     organizationName: orgName,
@@ -119,8 +152,9 @@ export async function issueWalletPass(
     logoText: `${role} ID`,
     description: `${orgName} ${role.toLowerCase()} badge`,
     expirationDays: expirationDays(term.endDate),
-    primaryFields: [{ key: "role", label: "Role", value: role }],
+    primaryFields,
     secondaryFields,
+    backFields,
     barcodeValue,
     // Pro-tier only; wallet-client drops these when the trial has lapsed.
     // Data URIs, NOT URLs: the vendor fetches a URL from its own infrastructure

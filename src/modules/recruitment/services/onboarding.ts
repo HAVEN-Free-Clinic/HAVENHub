@@ -22,6 +22,8 @@ import { buildOnboardingNextSteps } from "../onboarding-next-steps";
 import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
+import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
+import { resolveCustomAnswers } from "../contract/custom-answers";
 
 /**
  * How long an onboarding link stays usable after a send. The link is a standing
@@ -741,9 +743,19 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
 
   // Delete the row first (the authoritative action). Blob cleanup is best-effort:
   // a leaked blob is a minor storage cost, whereas deleting blobs before a failed
-  // row delete would leave a live contract pointing at missing signatures.
+  // row delete would leave a live contract pointing at missing signatures. Each
+  // deleteObject is wrapped so a store outage does not make an already-completed
+  // withdraw escape as a thrown error: withdrawContracts would otherwise count a
+  // contract that is in fact gone as `failed`, and a retry would then report it
+  // as not eligible (the row no longer exists).
   await prisma.onboardingContract.delete({ where: { id: contractId } });
-  for (const key of blobKeys) await deleteObject(key);
+  for (const key of blobKeys) {
+    try {
+      await deleteObject(key);
+    } catch (err) {
+      log.error("[onboarding] best-effort blob cleanup failed after a withdraw", errorAttrs(err, { contractId, key }));
+    }
+  }
 
   await recordAudit({
     actorPersonId: actorId,
@@ -774,6 +786,38 @@ export async function listOnboarding(cycleId: string) {
     rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
   );
   return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
+}
+
+/**
+ * Project this cycle's acceptances into the narrow row DTO the onboarding table
+ * renders.
+ *
+ * listOnboarding returns whole OnboardingContract rows, which carry the link
+ * token (a standing credential), date of birth, phone, signature records, and
+ * HIPAA file metadata. The table is a client component, so anything returned
+ * here is serialized into the RSC payload and shipped to the browser. Only the
+ * fields below cross that boundary.
+ *
+ * `now` is a parameter so expiry is resolved once, here, rather than during
+ * client render.
+ */
+export async function listOnboardingRows(
+  cycleId: string,
+  now: Date = new Date(),
+): Promise<OnboardingRow[]> {
+  const rows = await listOnboarding(cycleId);
+  return rows.map((r) => ({
+    acceptanceId: r.id,
+    contractId: r.contract?.id ?? null,
+    firstName: r.application.applicant.firstName,
+    lastName: r.application.applicant.lastName,
+    departmentCode: r.departmentCode,
+    state: deriveRowState({ conflicted: r.conflicted, contract: r.contract, now }),
+    onRoster: r.contract?.promotedPersonId != null,
+    customAnswers: r.contract
+      ? resolveCustomAnswers(r.contract.templateSnapshot, r.contract.customAnswers)
+      : [],
+  }));
 }
 
 /** Load a submitted contract for the admin signed-contract view, with the owning
@@ -829,4 +873,38 @@ export async function getContractHipaa(contractId: string) {
     where: { id: contractId },
     select: { hipaaStoredName: true, hipaaFileName: true, hipaaMimeType: true },
   });
+}
+
+/**
+ * Withdraw a batch of onboarding contracts.
+ *
+ * Authorization is checked once up front so a caller without the permission gets
+ * a hard error rather than a silent all-skipped result. Past that, a contract
+ * that is already promoted or already gone is a benign skip, not a failure: the
+ * batch keeps going and the caller reports the split. withdrawContract also
+ * re-checks the permission on every call, so if the actor's authorization is
+ * revoked mid-batch (a narrow but real window: deletes are sequential with blob
+ * I/O per item), that RecruitmentAuthError is re-thrown rather than absorbed as
+ * a skip or a failure -- it aborts the whole batch instead of quietly deleting
+ * further contracts under an actor who no longer holds the permission.
+ */
+export async function withdrawContracts(
+  contractIds: string[],
+  actorId: string,
+): Promise<{ withdrawn: number; skipped: number; failed: number }> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
+  }
+  let withdrawn = 0, skipped = 0, failed = 0;
+  for (const id of contractIds) {
+    try {
+      await withdrawContract(id, actorId);
+      withdrawn += 1;
+    } catch (err) {
+      if (err instanceof RecruitmentAuthError) throw err;
+      if (err instanceof ContractError) { skipped += 1; continue; }
+      failed += 1;
+    }
+  }
+  return { withdrawn, skipped, failed };
 }

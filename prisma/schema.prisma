@@ -229,6 +229,8 @@ model Person {
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
   calendarFeedToken              CalendarFeedToken?
+  serviceCredential              ServiceCredential?
+  walletPasses                   WalletPass[]
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -279,6 +281,7 @@ model Term {
   scoProgress          ScoProgress[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+  walletPasses         WalletPass[]
 }
 
 /// Per-term override of the onboarding checklist. A missing row for a given kind
@@ -1983,4 +1986,57 @@ model HistoricalInterest {
 
   @@unique([sourceBaseId, sourceTableId, sourceRecordId])
   @@index([applicantId])
+}
+
+/// A member's service record, frozen at issuance. One row per person, re-issued
+/// in place when the member regenerates.
+///
+/// The record is stored rather than recomputed on read so that the certificate
+/// PDF and the public credential page always agree, and so a public URL can
+/// never surface a record the member did not publish (a corrected term, a
+/// department they left, a shift count that moved).
+model ServiceCredential {
+  id          String    @id @default(cuid())
+  personId    String    @unique
+  /// Unguessable public token. Null until the member opts into publishing, and
+  /// nulled again on unpublish, which is what makes the public page 404.
+  publicToken String?   @unique
+  /// The full ServiceRecord as issued. Never recomputed on read.
+  record      Json
+  issuedAt    DateTime  @default(now())
+  /// Set only by a deliberate admin revocation (falsified service, record issued
+  /// in error). Offboarding does NOT set this: the credential is a past-tense
+  /// claim and a member who graduates normally did serve those terms.
+  revokedAt   DateTime?
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+/// A term-scoped wallet badge. One per person per term, expiring at term end.
+///
+/// The pass asserts PRESENT standing, which is why it is term-scoped and revoked
+/// on offboard, unlike ServiceCredential (a past-tense record that survives
+/// offboarding). serialNumber is the vendor's handle for update and revoke.
+model WalletPass {
+  id            String    @id @default(cuid())
+  personId      String
+  termId        String
+  serialNumber  String    @unique
+  /// Google's "Save to Wallet" link. Persisted because it is a SIGNED JWT that
+  /// cannot be reconstructed from the serial, and the vendor's PUT (refresh)
+  /// response returns only {serialNumber, lastUpdated, notifiedDevices,
+  /// unchanged} -- verified against the live API on 2026-08-10. Without storing
+  /// it, a re-issue has no link to hand back.
+  googleSaveUrl String?
+  /// The vendor's hosted install page (Add to Apple / Add to Google). Currently
+  /// deterministic from the serial, but stored rather than derived so a change
+  /// to their URL shape cannot silently break every existing badge.
+  shareUrl      String?
+  issuedAt      DateTime  @default(now())
+  revokedAt     DateTime?
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// Restrict: a term with issued badges must not be deletable out from under them.
+  term          Term      @relation(fields: [termId], references: [id], onDelete: Restrict)
+
+  @@unique([personId, termId])
+  @@index([personId])
 }

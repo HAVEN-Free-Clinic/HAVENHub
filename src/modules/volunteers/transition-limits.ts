@@ -10,19 +10,22 @@
 /**
  * The largest batch bulkExecuteOffboard will accept.
  *
- * Two reasons, one present and one imminent.
+ * Two reasons.
  *
- * Present: each person is offboarded in its own transaction with real side
+ * Blast radius: each person is offboarded in its own transaction with real side
  * effects (memberships removed, Epic requests cancelled and enqueued, shift
- * requests cancelled). Bounding the batch bounds the blast radius of a
- * mis-click on a destructive action.
+ * requests cancelled). Bounding the batch bounds the damage of a mis-click on a
+ * destructive action that reactivation cannot undo.
  *
- * Imminent: the volunteer-passport work, in flight on its own branch, adds
- * revokeWalletPasses to this exact path with an 8s vendor timeout per pass,
- * outside the offboard transaction. Once that merges, a wallet outage during a
- * 38-person batch would spend past the 300s function limit in that loop alone
- * and lose its tail. 25 bounds that worst case near 225s with headroom, and
- * choosing it now means the limit is already correct when the path changes.
+ * Wall clock: setPersonStatusField calls revokeWalletPasses outside the offboard
+ * transaction, with an 8s vendor timeout PER PASS. During a wallet outage an
+ * unbounded 38-person batch would spend past the 300s function limit in that loop
+ * alone and silently lose its tail. 25 bounds the worst case near 225s, leaving
+ * headroom for the rest of each offboard.
+ *
+ * That second reason is why this number is load-bearing rather than cosmetic: it
+ * is sized against a real vendor timeout in the call path, so raising it needs a
+ * new calculation, not just a bigger number.
  *
  * The UI enforces the same number on selection, so nothing is silently
  * truncated.

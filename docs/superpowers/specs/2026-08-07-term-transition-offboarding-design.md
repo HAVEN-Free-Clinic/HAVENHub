@@ -144,22 +144,24 @@ A try/catch per iteration, mapping typed errors to readable reasons:
 | `PersonNotFoundError` | "Person no longer exists." |
 | anything else | `log.error` with `errorAttrs`, row reads "Unexpected error, see logs" |
 
-The loop always continues. Successes stand. Repeat execution is safe: `setPersonStatusField` gates
-its membership sweep against an already-empty set and guards duplicate `DEACTIVATE`
-creation, so a person offboarded twice is a no-op with an extra audit row.
+The loop always continues. Successes stand. Repeat execution is safe: `setPersonStatusField` re-runs
+its membership sweep against an already-empty set, guards duplicate `DEACTIVATE` creation, and gates
+the passport credential snapshot on a real ACTIVE to OFFBOARDED transition. So a person offboarded
+twice costs an extra audit row and nothing else, and in particular cannot have their frozen service
+record overwritten with an empty one.
 
 ### The batch cap
 
 `bulkExecuteOffboard` refuses more than 25 person ids per call, throwing
 `TransitionBatchTooLargeError`.
 
-Two reasons. Today, each person is offboarded in its own transaction with real side effects, so
-bounding the batch bounds the blast radius of a mis-click on a destructive action. Soon, the
-volunteer-passport work in flight on its own branch adds `revokeWalletPasses` to this exact path
-with an 8s per-call vendor timeout per pass, outside the offboard transaction; once that merges, a
-wallet outage during a 38-person batch would spend over 300s in that loop alone and lose its tail
-to the function limit. 25 bounds that worst case near 225s with headroom and is already correct
-when the path changes. The UI states the cap and
+Two reasons. Each person is offboarded in its own transaction with real side effects, so bounding
+the batch bounds the damage of a mis-click on an action reactivation cannot undo. And
+`setPersonStatusField` calls `revokeWalletPasses` outside the offboard transaction with an 8s
+vendor timeout per pass, so during a wallet outage an unbounded 38-person batch would spend over
+300s in that loop alone and silently lose its tail to the function limit. 25 bounds that worst case
+near 225s, leaving headroom for the rest of each offboard, which makes the number load-bearing
+rather than cosmetic: raising it needs a new calculation. The UI states the cap and
 enforces it on selection; nothing is silently truncated.
 
 The cap lives in the service, so it applies to every caller: the Transition tab and the Flagged

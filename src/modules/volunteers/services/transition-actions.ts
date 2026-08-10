@@ -9,8 +9,10 @@
  *
  * Failure is isolated per person. One refusal never blocks the rest of the
  * batch, and the successes stand. Repeat execution is safe: setPersonStatusField
- * re-runs its membership sweep against an already-empty set and guards duplicate
- * DEACTIVATE creation, so a second offboard is a no-op plus an audit row.
+ * re-runs its membership sweep against an already-empty set, guards duplicate
+ * DEACTIVATE creation, and gates the passport credential snapshot on a real
+ * ACTIVE to OFFBOARDED transition, so a second offboard is a no-op plus an audit
+ * row rather than an overwritten service record.
  *
  * Analytics deliberately live at the call site, not here, matching the
  * single-person page action which owns its own captureEvent.

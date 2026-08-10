@@ -223,6 +223,18 @@ const schema = z
     // IANA display time zone for rendering real timestamps. Deploy-time seed;
     // admins can override live via the display.timeZone setting.
     DISPLAY_TIME_ZONE: z.string().default("America/New_York"),
+    // walletwallet.dev API key for issuing Apple/Google Wallet passes (volunteer
+    // passport). Optional: when unset, the wallet feature is off and no HTTP
+    // call is ever attempted (see src/modules/passport/services/wallet-client.ts).
+    WALLETWALLET_API_KEY: z.string().optional(),
+    /// Pro tier unlocks the brand colour and the logo/icon/strip images. The
+    /// clinic is on a time-limited trial, so this is a separate switch from the
+    /// key: when the trial lapses, set it false and branded fields stop being
+    /// sent, with the card falling back to the free tier's colorPreset. No code
+    /// change, and no branded fields sent to an account that ignores them.
+    WALLETWALLET_PRO: z
+      .preprocess((v) => (v === "" || v === undefined ? false : v === "true" || v === true), z.boolean())
+      .default(false),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;

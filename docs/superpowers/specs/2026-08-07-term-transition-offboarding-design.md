@@ -80,6 +80,10 @@ Bucket is one axis; these render as badges on the row and do not change the buck
 
 - **draft application** when a DRAFT application exists for the next term's cycle. A draft does not
   count as renewing, but the human should see it before flagging.
+- **withdrew application** when a WITHDRAWN application exists for the next term's cycle. Tracked
+  separately from the draft chip: someone who applied and then withdrew is a confirmed departure,
+  stronger evidence than never having applied, and labelling it a draft would say the opposite of
+  what happened.
 - **flagged** when an `OffboardFlag` already exists for this person in the active term.
 - **self-withdrew** when that flag was raised by the person themselves
   ([[offboard-convergence]] covers the withdrawal path).
@@ -140,18 +144,24 @@ A try/catch per iteration, mapping typed errors to readable reasons:
 | `PersonNotFoundError` | "Person no longer exists." |
 | anything else | `log.error` with `errorAttrs`, row reads "Unexpected error, see logs" |
 
-The loop always continues. Successes stand. Repeat execution is safe: `setPersonStatusField` gates
-the credential snapshot on a real ACTIVE to OFFBOARDED transition and guards duplicate `DEACTIVATE`
-creation, so a person offboarded twice is a no-op with an extra audit row.
+The loop always continues. Successes stand. Repeat execution is safe: `setPersonStatusField` re-runs
+its membership sweep against an already-empty set, guards duplicate `DEACTIVATE` creation, and gates
+the passport credential snapshot on a real ACTIVE to OFFBOARDED transition. So a person offboarded
+twice costs an extra audit row and nothing else, and in particular cannot have their frozen service
+record overwritten with an empty one.
 
 ### The batch cap
 
 `bulkExecuteOffboard` refuses more than 25 person ids per call, throwing
 `TransitionBatchTooLargeError`.
 
-`revokeWalletPasses` runs an 8s per-call vendor timeout per pass, outside the offboard transaction.
-During a wallet outage a 38-person batch would spend over 300s in that loop alone and lose its tail
-to the function limit. 25 bounds the worst case near 225s with headroom. The UI states the cap and
+Two reasons. Each person is offboarded in its own transaction with real side effects, so bounding
+the batch bounds the damage of a mis-click on an action reactivation cannot undo. And
+`setPersonStatusField` calls `revokeWalletPasses` outside the offboard transaction with an 8s
+vendor timeout per pass, so during a wallet outage an unbounded 38-person batch would spend over
+300s in that loop alone and silently lose its tail to the function limit. 25 bounds that worst case
+near 225s, leaving headroom for the rest of each offboard, which makes the number load-bearing
+rather than cosmetic: raising it needs a new calculation. The UI states the cap and
 enforces it on selection; nothing is silently truncated.
 
 The cap lives in the service, so it applies to every caller: the Transition tab and the Flagged
@@ -275,7 +285,9 @@ Against the project test database ([[test-db]]).
 - Pure unit tests: commas, embedded quotes, newlines, empty list, blank email.
 
 **Export route**
-- 403 without `volunteers.manage_offboarding`.
+- 401 without `volunteers.manage_offboarding`. Every other API route in this codebase
+  (`support/epic/generate`, `learning/upload-url`) returns 401 for both unauthenticated and
+  unauthorized, so this one does too rather than becoming the lone 403.
 - Both scopes produce the expected rows.
 - Audit row written.
 

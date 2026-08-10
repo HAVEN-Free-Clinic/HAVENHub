@@ -282,6 +282,8 @@ async function createApplication(opts: {
   applicantPersonId: string | null;
   status: "DRAFT" | "SUBMITTED";
   slug: string;
+  /** RecruitmentCycle.createdById is required with a Restrict relation to Person. */
+  createdById: string;
 }) {
   const cycle = await prisma.recruitmentCycle.create({
     data: {
@@ -290,6 +292,7 @@ async function createApplication(opts: {
       title: `Cycle ${opts.slug}`,
       publicSlug: opts.slug,
       departments: [],
+      createdById: opts.createdById,
     },
   });
   const applicant = await prisma.applicant.create({
@@ -361,6 +364,7 @@ describe("transitionView", () => {
       applicantPersonId: member.id,
       status: "SUBMITTED",
       slug: "linked",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);
@@ -386,6 +390,7 @@ describe("transitionView", () => {
       applicantPersonId: null,
       status: "SUBMITTED",
       slug: "anon",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);
@@ -408,6 +413,7 @@ describe("transitionView", () => {
       applicantPersonId: member.id,
       status: "DRAFT",
       slug: "draft",
+      createdById: viewer.id,
     });
 
     const view = await transitionView(viewer.id);
@@ -560,6 +566,13 @@ export type TransitionRow = {
   bucket: TransitionBucket;
   /** A DRAFT application exists for the next term. Does not change the bucket. */
   hasDraftApplication: boolean;
+  /**
+   * A WITHDRAWN application exists for the next term. Kept separate from
+   * hasDraftApplication: someone who applied and then withdrew is a confirmed
+   * departure, which is stronger evidence than never applying, and calling that
+   * a draft in progress would say the opposite of what happened.
+   */
+  withdrewApplication: boolean;
   /** An OffboardFlag already exists for this person in the current term. */
   flagged: boolean;
   /** That flag was raised by the person themselves (self-withdrawal). */
@@ -663,6 +676,7 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
 
   const submittedIds = new Set<string>();
   const draftIds = new Set<string>();
+  const withdrawnIds = new Set<string>();
   for (const app of applications) {
     // applicantPersonId is the clean link and is always set for RENEWAL and
     // TRANSFER (both gate on being signed in). emailLower is the fallback for an
@@ -671,8 +685,12 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
     const personId =
       app.applicant.applicantPersonId ?? personByEmail.get(app.applicant.emailLower) ?? null;
     if (!personId) continue;
+    // Explicit per status rather than an else: ApplicationStatus is
+    // DRAFT | SUBMITTED | WITHDRAWN, and lumping WITHDRAWN in with DRAFT would
+    // tell a director that a confirmed departure is still mid-application.
     if (app.status === "SUBMITTED") submittedIds.add(personId);
-    else draftIds.add(personId);
+    else if (app.status === "DRAFT") draftIds.add(personId);
+    else if (app.status === "WITHDRAWN") withdrawnIds.add(personId);
   }
 
   const flagByPersonId = new Map(flags.map((f) => [f.personId, f]));
@@ -710,6 +728,7 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
       role: personMemberships.some((m) => m.kind === "DIRECTOR") ? "DIRECTOR" : "VOLUNTEER",
       bucket,
       hasDraftApplication: draftIds.has(personId),
+      withdrewApplication: withdrawnIds.has(personId),
       flagged: flag !== null,
       selfWithdrew: flag?.flaggedById === personId,
       selectable: bucket !== "RETURNING",
@@ -981,11 +1000,25 @@ Create `src/modules/volunteers/transition-limits.ts`:
 /**
  * The largest batch bulkExecuteOffboard will accept.
  *
- * revokeWalletPasses runs an 8s vendor timeout per pass, outside the offboard
- * transaction. During a wallet outage a 38-person batch would spend past the
- * 300s function limit in that loop alone and lose its tail. 25 bounds the worst
- * case near 225s with headroom. The UI enforces the same number on selection, so
- * nothing is silently truncated.
+ * Two reasons.
+ *
+ * Blast radius: each person is offboarded in its own transaction with real side
+ * effects (memberships removed, Epic requests cancelled and enqueued, shift
+ * requests cancelled). Bounding the batch bounds the damage of a mis-click on a
+ * destructive action that reactivation cannot undo.
+ *
+ * Wall clock: setPersonStatusField calls revokeWalletPasses outside the offboard
+ * transaction, with an 8s vendor timeout PER PASS. During a wallet outage an
+ * unbounded 38-person batch would spend past the 300s function limit in that loop
+ * alone and silently lose its tail. 25 bounds the worst case near 225s, leaving
+ * headroom for the rest of each offboard.
+ *
+ * That second reason is why this number is load-bearing rather than cosmetic: it
+ * is sized against a real vendor timeout in the call path, so raising it needs a
+ * new calculation, not just a bigger number.
+ *
+ * The UI enforces the same number on selection, so nothing is silently
+ * truncated.
  */
 export const MAX_BULK_OFFBOARD = 25;
 ```
@@ -1006,8 +1039,10 @@ Create `src/modules/volunteers/services/transition-actions.ts`:
  *
  * Failure is isolated per person. One refusal never blocks the rest of the
  * batch, and the successes stand. Repeat execution is safe: setPersonStatusField
- * gates the credential snapshot on a real ACTIVE to OFFBOARDED transition and
- * guards duplicate DEACTIVATE creation.
+ * re-runs its membership sweep against an already-empty set, guards duplicate
+ * DEACTIVATE creation, and gates the passport credential snapshot on a real
+ * ACTIVE to OFFBOARDED transition, so a second offboard is a no-op plus an audit
+ * row rather than an overwritten service record.
  *
  * Analytics deliberately live at the call site, not here, matching the
  * single-person page action which owns its own captureEvent.
@@ -1814,6 +1849,8 @@ export function FlaggedTab({
                   <div className="flex items-center gap-2">
                     <form action={unflagAction}>
                       <input type="hidden" name="personId" value={person.id} />
+                      {/* Tells unflagAction which tab to redirect back to on error. */}
+                      <input type="hidden" name="tab" value="flagged" />
                       <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                     </form>
                     <form action={executeOffboardAction}>
@@ -1853,7 +1890,6 @@ import {
   OffboardForbiddenError,
   OffboardNotFoundError,
 } from "@/modules/volunteers/services/offboarding";
-import { getNextTerm } from "@/platform/terms/next-term";
 import { DepartmentTab } from "@/modules/volunteers/components/department-tab";
 import { FlaggedTab } from "@/modules/volunteers/components/flagged-tab";
 import { LastAdminError } from "@/platform/rbac/last-admin";
@@ -1866,7 +1902,8 @@ import { redirect } from "next/navigation";
 
 const BASE = "/volunteers/offboarding";
 
-type OffboardingTab = "transition" | "departments" | "flagged";
+// Task 6 widens this with "transition" when it adds that tab.
+type OffboardingTab = "departments" | "flagged";
 
 export default async function OffboardingPage({
   searchParams,
@@ -1877,20 +1914,15 @@ export default async function OffboardingPage({
   const { tab: rawTab } = await searchParams;
 
   const { departments, flagged } = await offboardingView(viewer.personId);
-  const nextTerm = await getNextTerm();
 
-  // Default to the transition report during a rollover, and to today's
-  // department cards the rest of the year, so the page behaves as it always has
-  // when no next term is in planning.
-  const fallback: OffboardingTab = nextTerm ? "transition" : "departments";
+  // Task 6 adds the Transition tab and makes it the default during a rollover.
+  // This task is a pure refactor, so the landing tab stays the department cards
+  // the page has always opened on.
   const requested = rawTab as OffboardingTab | undefined;
   const tab: OffboardingTab =
-    requested === "transition" || requested === "departments" || requested === "flagged"
-      ? requested
-      : fallback;
+    requested === "departments" || requested === "flagged" ? requested : "departments";
 
   const items = [
-    { label: "Transition", href: `${BASE}?tab=transition` },
     { label: "By department", href: `${BASE}?tab=departments` },
     // The flagged queue is executor-only, exactly as the old inline section was:
     // offboardingView returns null for a viewer without manage_offboarding.
@@ -1994,15 +2026,12 @@ export default async function OffboardingPage({
         />
       )}
 
-      {tab === "transition" && (
-        <p className="mt-8 text-sm text-muted-foreground">Transition report coming in Task 6.</p>
-      )}
     </div>
   );
 }
 ```
 
-Note: the transition placeholder is replaced in Task 6. It exists only so this task compiles and runs on its own.
+This task adds no new surface: the same two sections the page already rendered, now behind a tab row, opening on the same one. Task 6 adds the third tab.
 
 - [ ] **Step 4: Update the existing Playwright spec for the tabs**
 
@@ -2300,6 +2329,7 @@ export function TransitionTab({
                         {row.flagged && <Badge tone="warning">Flagged</Badge>}
                         {row.selfWithdrew && <Badge tone="warning">Self-withdrew</Badge>}
                         {row.hasDraftApplication && <Badge tone="default">Draft application</Badge>}
+                        {row.withdrewApplication && <Badge tone="warning">Withdrew application</Badge>}
                       </div>
                     </TD>
                   </TR>
@@ -2361,23 +2391,63 @@ import {
   type BulkResult,
 } from "@/modules/volunteers/services/transition-actions";
 import { TransitionTab } from "@/modules/volunteers/components/transition-tab";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { can } from "@/platform/rbac/engine";
 ```
 
-Replace the `const nextTerm = await getNextTerm();` line with:
+Task 5 deliberately shipped only two tabs, so this step adds the third one end to
+end. Four edits to the page, in order.
+
+**(a) Widen the tab union.** Task 5 left a comment saying this step widens it:
+
+```tsx
+type OffboardingTab = "transition" | "departments" | "flagged";
+```
+
+**(b) Resolve the next term and the executor flag, then load the active tab's data.**
+This goes after the existing `offboardingView` call and before the `tab` is used.
+`offboardingView` stays unconditional, because the tab list needs its `flagged !==
+null` to decide whether the Flagged tab exists at all:
 
 ```tsx
   const [nextTerm, canExecute] = await Promise.all([
     getNextTerm(),
     can(viewer.personId, "volunteers.manage_offboarding"),
   ]);
+```
+
+**(c) Make Transition the default during a rollover, and add it to the tab list.**
+Replace Task 5's two-value `requested`/`tab` block and its `items` array with:
+
+```tsx
+  // Default to the transition report while a term is being prepared, and to the
+  // department cards the rest of the year, so the page opens where it always has
+  // when no rollover is in progress.
+  const fallback: OffboardingTab = nextTerm ? "transition" : "departments";
+  const requested = rawTab as OffboardingTab | undefined;
+  const tab: OffboardingTab =
+    requested === "transition" || requested === "departments" || requested === "flagged"
+      ? requested
+      : fallback;
 
   // Only the active tab's data is queried, so a director opening Flagged does
   // not pay for the transition roll-up.
   const transition = tab === "transition" ? await transitionView(viewer.personId) : null;
+
+  const items = [
+    { label: "Transition", href: `${BASE}?tab=transition` },
+    { label: "By department", href: `${BASE}?tab=departments` },
+    // The flagged queue is executor-only, exactly as the old inline section was:
+    // offboardingView returns null for a viewer without manage_offboarding.
+    ...(flagged !== null ? [{ label: "Flagged", href: `${BASE}?tab=flagged` }] : []),
+  ];
 ```
 
-Note that `tab` is computed above this line in the Task 5 version, so this assignment must sit after the `const tab: OffboardingTab = ...` block. Move the `offboardingView` call so it only runs for the other two tabs is NOT part of this task; leave it as is, since the tab list needs `flagged !== null` to decide whether to show the Flagged tab.
+The `transition` assignment must sit after `tab` is computed, since it reads it.
+
+**(d) Leave the existing three server actions alone.** `flagAction`, `unflagAction`,
+and `executeOffboardAction` are unchanged, including the validated origin-tab
+handling Task 5 added to `unflagAction`.
 
 Add the two bulk server actions alongside the existing three:
 
@@ -2437,7 +2507,8 @@ Add the two bulk server actions alongside the existing three:
   }
 ```
 
-Replace the Task 5 placeholder with:
+Add the render block. Task 5 shipped no placeholder for it, so this is a new
+branch alongside the existing `departments` and `flagged` ones:
 
 ```tsx
       {tab === "transition" && transition && (
@@ -2487,6 +2558,11 @@ git commit -m "feat(volunteers): add the term transition tab with bulk flag, bul
 Replace `src/modules/volunteers/components/flagged-tab.tsx` entirely. It becomes a client
 component: the per-person Unflag and Offboard forms are unchanged, and a selection column, a bulk
 bar, and the offboarded-this-term export are added around them.
+
+Two things Task 5 put in this file that the replacement below KEEPS, and that you must not drop:
+the hidden `tab` input on the Unflag form (it is what makes `unflagAction` redirect back to this
+tab instead of Departments when it errors), and the comment on the `<section>` explaining why the
+top margin is `mt-8`. Diff your result against the current file and confirm both survived.
 
 ```tsx
 "use client";
@@ -2571,6 +2647,9 @@ export function FlaggedTab({
   const allSelected = flagged.length > 0 && flagged.every((f) => selected.has(f.person.id));
 
   return (
+    // mt-8 matches DepartmentTab's top spacing: both tabs' content sits directly
+    // under the shared TabRow now, so their top margins must agree (was mt-12
+    // pre-tabs, when this section stacked below the department cards instead).
     <section className="mt-8">
       <SectionHeader level="title" className="mb-3">Flagged for offboarding</SectionHeader>
 
@@ -2611,14 +2690,18 @@ export function FlaggedTab({
             {offboardResult.succeeded.length} offboarded
             {offboardResult.skipped.length > 0 && (
               <>
-                , {offboardResult.skipped.length} skipped:
-                <ul className="mt-1 list-disc pl-5">
-                  {offboardResult.skipped.map((s) => (
-                    <li key={s.personId}>
-                      {s.name}: {s.reason}
-                    </li>
-                  ))}
-                </ul>
+                {", "}
+                {offboardResult.skipped.length} skipped:
+                {/* Block spans, not a list. Alert renders a <p>, and a <ul>
+                    inside a paragraph is invalid: the browser auto-closes the
+                    <p>, so the server and client trees disagree and React
+                    throws a hydration mismatch. Task 6 hit this first; match
+                    the shape it settled on in transition-tab.tsx. */}
+                {offboardResult.skipped.map((s) => (
+                  <span key={s.personId} className="mt-1 block pl-3 text-xs">
+                    {s.name}: {s.reason}
+                  </span>
+                ))}
               </>
             )}
           </span>
@@ -2676,6 +2759,8 @@ export function FlaggedTab({
                   <div className="flex items-center gap-2">
                     <form action={unflagAction}>
                       <input type="hidden" name="personId" value={person.id} />
+                      {/* Tells unflagAction which tab to redirect back to on error. */}
+                      <input type="hidden" name="tab" value="flagged" />
                       <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
                     </form>
                     <form action={executeOffboardAction}>

@@ -125,7 +125,7 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
   page,
 }) => {
   await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/volunteers/offboarding");
+  await page.goto("/volunteers/offboarding?tab=departments");
   await page.waitForURL((url) => url.pathname === "/volunteers/offboarding");
 
   // Page heading -- use exact: true to avoid matching "Flagged for offboarding" (h2)
@@ -148,6 +148,10 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
   // The row still contains the person's name; find the "Confirm?" button within it.
   const rowByName = itcmSection.locator("tr").filter({ hasText: personName }).first();
   await rowByName.getByRole("button").filter({ hasText: /\?/ }).first().click();
+
+  // The flagged queue is its own tab now, so hop to it before looking for the row.
+  await page.getByRole("link", { name: "Flagged", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("tab") === "flagged");
 
   // After the server action completes the page reloads. Wait for the "Flagged for
   // offboarding" section heading to appear (it renders when flagged !== null and >= 1 row).

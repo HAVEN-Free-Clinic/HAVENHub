@@ -39,6 +39,21 @@ export function netIdFromUpn(upn: string): string | null {
 }
 
 /**
+ * The Yale address for a NetID, which is the account a Yale-managed service
+ * (Teams, Entra) knows the person by.
+ *
+ * Lives here, next to netIdFromUpn, because this file already owns the
+ * NetID-to-address relationship. The domain was previously hardcoded in
+ * member-magic-link.ts and in the UPN parser above, do not add a fourth copy.
+ *
+ * Lowercased and trimmed so the result compares directly against stored
+ * lowercase columns such as Applicant.emailLower.
+ */
+export function yaleEmailForNetId(netId: string): string {
+  return `${netId.trim().toLowerCase()}@yale.edu`;
+}
+
+/**
  * The identity half of login resolution (spec §5), with NO status gate and NO
  * write of any kind: given a claim, which Person does it name?
  *

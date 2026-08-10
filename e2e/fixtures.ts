@@ -84,6 +84,33 @@ export async function seedComplianceMember(
   return { person, cleanup: () => cleanupPerson(person.id) };
 }
 
+/**
+ * A PLANNING term far enough in the future to win getNextTerm's
+ * `orderBy: { startDate: "desc" }`, so the transition report resolves to THIS
+ * term even on a dev database that already has one in planning.
+ */
+export async function seedPlanningTerm(code: string) {
+  const term = await prisma.term.create({
+    data: {
+      code,
+      name: `E2E Planning ${code}`,
+      startDate: new Date("2099-01-01"),
+      endDate: new Date("2099-05-01"),
+      status: "PLANNING",
+    },
+  });
+  return {
+    term,
+    cleanup: async () => {
+      await prisma.termMembership.deleteMany({ where: { termId: term.id } });
+      await prisma.offboardFlag.deleteMany({ where: { termId: term.id } });
+      await prisma.term.delete({ where: { id: term.id } }).catch((e) =>
+        console.warn("[e2e cleanup] term delete failed, row may be leaked:", e instanceof Error ? e.message : e),
+      );
+    },
+  };
+}
+
 export async function seedNotification(
   personId: string,
   opts: { type?: string; title?: string; body?: string; link?: string } = {}

@@ -9,6 +9,7 @@ const { mockConfig } = vi.hoisted(() => ({
 }));
 vi.mock("@/platform/config", () => ({ config: mockConfig }));
 
+import { log } from "@/platform/logging";
 import { createPass, revokePass, updatePass } from "./wallet-client";
 
 const OK = {
@@ -291,6 +292,53 @@ describe("createPass response validation", () => {
         ok: true,
         status: 200,
         json: async () => ({ serialNumber: "ser_123", notifiedDevices: 0, unchanged: false }),
+      }),
+    );
+
+    expect(await createPass(INPUT)).toBeNull();
+  });
+});
+
+describe("error diagnostics", () => {
+  beforeEach(() => {
+    mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+    mockConfig.WALLETWALLET_PRO = false;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs the vendor's explanation on a non-2xx, not just the status", async () => {
+    // The 400 that reached production said only `status: 400`. The reason was in
+    // a body we were discarding: {"error":"logoURL could not be fetched"}.
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => '{"error":"logoURL could not be fetched"}',
+      }),
+    );
+
+    expect(await createPass(INPUT)).toBeNull();
+
+    const call = errorSpy.mock.calls.find(([msg]) => msg === "[passport] wallet call failed");
+    expect(call).toBeDefined();
+    expect((call![1] as { detail?: string }).detail).toContain("logoURL could not be fetched");
+  });
+
+  it("still degrades to null when the error body itself cannot be read", async () => {
+    vi.spyOn(log, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => {
+          throw new Error("stream already consumed");
+        },
       }),
     );
 

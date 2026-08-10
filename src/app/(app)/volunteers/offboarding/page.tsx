@@ -240,6 +240,7 @@ export default async function OffboardingPage({
           flagged={flagged}
           unflagAction={unflagAction}
           executeOffboardAction={executeOffboardAction}
+          bulkOffboardAction={bulkOffboardAction}
         />
       )}
 

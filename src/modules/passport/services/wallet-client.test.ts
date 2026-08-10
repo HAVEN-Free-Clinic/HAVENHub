@@ -345,3 +345,53 @@ describe("error diagnostics", () => {
     expect(await createPass(INPUT)).toBeNull();
   });
 });
+
+describe("a vendor 404", () => {
+  beforeEach(() => {
+    mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+    mockConfig.WALLETWALLET_PRO = false;
+    vi.spyOn(log, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a refresh of a missing pass as GONE, distinctly from a failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => '{"error":"Pass not found"}',
+      }),
+    );
+
+    expect(await updatePass("ser_dead", INPUT)).toBe("GONE");
+  });
+
+  it("keeps every other refresh failure as null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "boom" }),
+    );
+
+    expect(await updatePass("ser_1", INPUT)).toBeNull();
+  });
+
+  it("counts revoking an already-missing pass as success", async () => {
+    // The sweep would otherwise retry that serial forever, and a pass the vendor
+    // does not have cannot be live on anyone's phone, which is what revocation
+    // is for.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => '{"error":"Pass not found"}',
+      }),
+    );
+
+    expect(await revokePass("ser_dead")).toBe(true);
+  });
+});

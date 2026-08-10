@@ -21,7 +21,15 @@
 import { config } from "@/platform/config";
 import { log, errorAttrs } from "@/platform/logging";
 
-const BASE = "https://www.walletwallet.dev";
+/**
+ * The API host, which is NOT the host the documentation is served from.
+ * www.walletwallet.dev is the marketing and docs site: a POST to
+ * www.walletwallet.dev/api/passes returns 405 Method Not Allowed, which is
+ * exactly what this file did in production on 2026-08-10 before it was
+ * corrected. The tests below assert the full origin, not just the path, because
+ * a "contains /api/passes" assertion passes against either host.
+ */
+const BASE = "https://api.walletwallet.dev";
 
 /**
  * "Never throws" is not "never hangs". Both a member's /my-info request and the

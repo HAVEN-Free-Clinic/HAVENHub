@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
@@ -8,6 +8,7 @@ import {
 import { revokeAcceptance, RecruitmentAuthError } from "./review";
 import type { ContractLayout } from "../contract/layout";
 import type { SignatureInput } from "../contract/signatures";
+import * as storage from "@/platform/storage";
 
 /** A minimal valid 1x1 PNG data URL: passes decodeSignaturePng's magic-byte check. */
 const REAL_SIG_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
@@ -545,5 +546,26 @@ describe("withdrawContract", () => {
   it("errors on an unknown contract id", async () => {
     const { srrId } = await seedPending({ deptCode: "SRHD" });
     await expect(withdrawContract("nope", srrId)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  // Blob cleanup is documented as best-effort: the contract row (the
+  // authoritative record) is already gone by the time deleteObject runs. A
+  // store outage on that best-effort step must not escape as a thrown error --
+  // otherwise withdrawContracts would count an already-completed withdraw as
+  // `failed`, and a retry would then report the (now nonexistent) contract as
+  // not eligible.
+  it("still completes the withdraw when blob deletion fails (best-effort cleanup)", async () => {
+    const { token, contractId, srrId } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    await submitContract(token, { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } });
+    const submitted = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contractId } });
+    expect(submitted.hipaaStoredName).not.toBeNull();
+
+    const spy = vi.spyOn(storage, "deleteObject").mockRejectedValue(new Error("blob store unreachable"));
+    try {
+      await expect(withdrawContract(contractId, srrId)).resolves.toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).toBeNull();
   });
 });

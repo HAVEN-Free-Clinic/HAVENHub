@@ -162,6 +162,14 @@ export async function reopenWithdrawnAction(cycleId: string, applicationId: stri
   const person = await requirePersonSession();
   try {
     await reopenWithdrawnApplication(applicationId, person.personId);
+    // The inverse of application_withdrawn. Without it a reversed withdrawal still
+    // counts as a permanent one in every trend, overstating the withdrawal rate.
+    await captureEvent({
+      distinctId: person.personId,
+      event: "application_withdrawal_reopened",
+      properties: { cycle_id: cycleId, application_id: applicationId },
+      groups: await termGroupForCycle(cycleId),
+    });
   } catch (err) {
     if (err instanceof WithdrawError) {
       redirect(bounce(cycleId, applicationId, { error: err.message }));

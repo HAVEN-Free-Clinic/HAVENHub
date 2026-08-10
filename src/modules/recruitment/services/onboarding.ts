@@ -743,9 +743,19 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
 
   // Delete the row first (the authoritative action). Blob cleanup is best-effort:
   // a leaked blob is a minor storage cost, whereas deleting blobs before a failed
-  // row delete would leave a live contract pointing at missing signatures.
+  // row delete would leave a live contract pointing at missing signatures. Each
+  // deleteObject is wrapped so a store outage does not make an already-completed
+  // withdraw escape as a thrown error: withdrawContracts would otherwise count a
+  // contract that is in fact gone as `failed`, and a retry would then report it
+  // as not eligible (the row no longer exists).
   await prisma.onboardingContract.delete({ where: { id: contractId } });
-  for (const key of blobKeys) await deleteObject(key);
+  for (const key of blobKeys) {
+    try {
+      await deleteObject(key);
+    } catch (err) {
+      log.error("[onboarding] best-effort blob cleanup failed after a withdraw", errorAttrs(err, { contractId, key }));
+    }
+  }
 
   await recordAudit({
     actorPersonId: actorId,

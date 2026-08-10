@@ -142,4 +142,28 @@ describe("OnboardingTable selection", () => {
     click(clear);
     expect(rowBoxes(c).some((b) => b.checked)).toBe(false);
   });
+
+  // The form now contains a text input, so a browser's HTML implicit
+  // submission would activate the form's first submit button in tree order
+  // (Send links) when Enter is pressed here -- an operator narrowing a wide
+  // selection with search and then hitting Enter out of habit would email
+  // links to everyone checked with no confirmation. jsdom does not simulate
+  // that native implicit-submission behavior, so this asserts the guard's own
+  // mechanism directly: the keydown handler must call preventDefault to stop
+  // it, and only for Enter.
+  it("prevents Enter in the search box from submitting the form", () => {
+    const c = mount(THREE);
+    const search = c.querySelector<HTMLInputElement>('input[aria-label="Search applicants by name"]')!;
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    act(() => { search.dispatchEvent(enter); });
+    expect(enter.defaultPrevented).toBe(true);
+  });
+
+  it("does not swallow other keys in the search box", () => {
+    const c = mount(THREE);
+    const search = c.querySelector<HTMLInputElement>('input[aria-label="Search applicants by name"]')!;
+    const letter = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true });
+    act(() => { search.dispatchEvent(letter); });
+    expect(letter.defaultPrevented).toBe(false);
+  });
 });

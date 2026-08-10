@@ -81,6 +81,18 @@ describe("OnboardingTable", () => {
     expect(html([row({ state: "PROMOTED" })])).not.toContain('name="onlyAcceptanceId"');
   });
 
+  // A second department can accept an applicant who already has a live
+  // contract, producing a CONFLICT row that still carries one. revokeAcceptance
+  // refuses to touch it until that contract is withdrawn here, so this row
+  // needs a way out even though CONFLICT is not (and must not become) an
+  // eligible bulk-withdraw state -- isSelectable derives from that same table,
+  // so a checkbox must still not appear.
+  it("renders a per-row withdraw but no checkbox for a conflicted row that carries a contract", () => {
+    const out = html([row({ state: "CONFLICT", contractId: "c9" })]);
+    expect(out).toContain('name="onlyAcceptanceId"');
+    expect(out).not.toContain('name="acceptanceId"');
+  });
+
   // Nothing is selected on first render, so the bulk actions all start at zero.
   it("starts every bulk action at a zero count", () => {
     const out = html([row({ state: "SUBMITTED" })]);

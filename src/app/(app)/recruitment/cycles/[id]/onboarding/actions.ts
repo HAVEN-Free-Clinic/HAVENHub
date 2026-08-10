@@ -48,6 +48,19 @@ function selectedIds(formData: FormData): string[] {
   return [...new Set(formData.getAll("acceptanceId").map(String))].filter((id) => id !== "");
 }
 
+/**
+ * True for a submission that is genuinely a withdraw click: either the bulk
+ * Withdraw button (carries bulkWithdraw="1") or a per-row Withdraw button
+ * (carries onlyAcceptanceId). withdrawAction is the form's default action (see
+ * onboarding-table.tsx), so any future submit button added to that form
+ * without its own formAction would otherwise ride this action too and delete
+ * whatever is checked with no confirmation. Neither marker present means the
+ * submission did not come from a real withdraw control.
+ */
+function isWithdrawSubmission(formData: FormData): boolean {
+  return formData.get("onlyAcceptanceId") != null || formData.get("bulkWithdraw") != null;
+}
+
 export async function sendLinksAction(cycleId: string, formData: FormData) {
   const person = await requirePersonSession();
   const ids = selectedIds(formData);
@@ -132,6 +145,11 @@ export async function promoteAction(cycleId: string, formData: FormData) {
 
 export async function withdrawAction(cycleId: string, formData: FormData) {
   const person = await requirePersonSession();
+  // Refuse a submission that is not actually a withdraw click (see
+  // isWithdrawSubmission) rather than hard-deleting whatever is checked.
+  if (!isWithdrawSubmission(formData)) {
+    redirect(bounce(cycleId, { err: "That control cannot withdraw applicants." }));
+  }
   const ids = selectedIds(formData);
   if (ids.length === 0) redirect(bounce(cycleId, { err: "Select at least one applicant." }));
 
@@ -149,10 +167,14 @@ export async function withdrawAction(cycleId: string, formData: FormData) {
     throw err;
   }
 
-  const msg = summarize(
-    `Withdrew ${res.withdrawn} onboarding contract(s). You can now change the decision or resend a fresh link.`,
-    notEligible + res.skipped,
-  );
+  // The resend/re-decide hint only makes sense when something was actually
+  // withdrawn; a selection that was entirely not-eligible or skipped changed
+  // nothing, and telling the operator to "change the decision" for that is
+  // misleading.
+  const withdrewBase = res.withdrawn > 0
+    ? `Withdrew ${res.withdrawn} onboarding contract(s). You can now change the decision or resend a fresh link.`
+    : `Withdrew ${res.withdrawn} onboarding contract(s).`;
+  const msg = summarize(withdrewBase, notEligible + res.skipped);
   redirect(bounce(cycleId, res.failed > 0
     ? { msg, err: `${res.failed} could not be withdrawn.` }
     : { msg }));

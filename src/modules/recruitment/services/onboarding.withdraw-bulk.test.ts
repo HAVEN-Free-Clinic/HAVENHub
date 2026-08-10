@@ -5,6 +5,7 @@ import { seedCycle } from "@/modules/recruitment/test/seed-cycle";
 import { withdrawContracts } from "./onboarding";
 import { RecruitmentAuthError } from "./review";
 import * as rbacEngine from "@/platform/rbac/engine";
+import * as storage from "@/platform/storage";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -45,6 +46,33 @@ describe("withdrawContracts", () => {
   it("returns a zero result for an empty batch", async () => {
     const { srrId } = await twoPending();
     expect(await withdrawContracts([], srrId)).toEqual({ withdrawn: 0, skipped: 0, failed: 0 });
+  });
+
+  // Blob cleanup is best-effort and must not surface as a batch failure: the
+  // contract row is already deleted (the authoritative action) by the time
+  // deleteObject runs. Before this, a store outage here escaped as a thrown
+  // error and withdrawContracts counted an already-completed withdraw as
+  // `failed`, so a retry then reported the (now nonexistent) contract as not
+  // eligible. This is also the only test in the suite that produces a genuine
+  // non-ContractError throw, so it is what exercises the `failed` counter at
+  // all on this path.
+  it("does not count a completed withdraw as failed when blob cleanup fails", async () => {
+    const { srrId, acceptances } = await twoPending();
+    const contractId = acceptances[0].contractId!;
+    // seedCycle's ContractSeed does not set hipaaStoredName, so give the
+    // contract a blob key directly to make deleteObject actually run.
+    await prisma.onboardingContract.update({
+      where: { id: contractId },
+      data: { hipaaStoredName: "cert.pdf" },
+    });
+    const spy = vi.spyOn(storage, "deleteObject").mockRejectedValue(new Error("blob store unreachable"));
+    try {
+      const res = await withdrawContracts([contractId], srrId);
+      expect(res).toEqual({ withdrawn: 1, skipped: 0, failed: 0 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prisma.onboardingContract.findUnique({ where: { id: contractId } })).toBeNull();
   });
 
   // Authorization is checked once for the batch, not per contract, so a caller

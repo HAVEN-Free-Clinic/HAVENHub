@@ -11,13 +11,13 @@ import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import {
-  countEligible, filterRows, isEligible, isSelectable,
+  countEligible, filterRows, isSelectable,
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
 } from "@/modules/recruitment/engine/onboarding-rows";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
-export const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = {
+const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = {
   NO_CONTRACT: { label: "No contract", tone: "default" },
   SENT: { label: "Sent", tone: "brand" },
   EXPIRED: { label: "Expired", tone: "critical" },
@@ -133,6 +133,14 @@ export function OnboardingTable({
             aria-label="Search applicants by name"
             value={filters.query}
             onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
+            // This is a text input inside a <form>, so pressing Enter here triggers
+            // HTML implicit submission, which activates the form's first submit
+            // button in tree order -- Send links. An operator narrowing a wide
+            // selection with the search box and then hitting Enter out of habit
+            // would otherwise email onboarding links to everyone checked, with no
+            // confirmation. There is nothing for this field to submit to, so Enter
+            // is simply swallowed here.
+            onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
           />
         </div>
         <div className="w-44">
@@ -228,7 +236,19 @@ export function OnboardingTable({
                       default action (withdraw) rather than its own formAction,
                       so its name/value pair renders literally instead of being
                       overridden by React's action-identification bookkeeping. */}
-                  {isEligible("withdraw", r.state) && (
+                  {/* Deliberately NOT isEligible("withdraw", r.state): CONFLICT is
+                      not (and must not become) an eligible withdraw state, since
+                      isSelectable derives from that same table and a conflicted
+                      row must never render a checkbox or enter bulk selection.
+                      But a second department can accept an applicant who already
+                      has a live contract, producing a CONFLICT row that still
+                      carries one -- and revokeAcceptance refuses to touch it
+                      until that contract is withdrawn "on the Onboarding page",
+                      which is exactly here. Gate on the contract's existence
+                      directly so that row keeps a way out. withdrawAction already
+                      accepts any selected acceptance whose contract is
+                      non-PROMOTED, so no server change is needed. */}
+                  {r.contractId != null && r.state !== "PROMOTED" && (
                     <ConfirmButton
                       label="Withdraw"
                       size="sm"
@@ -261,12 +281,18 @@ export function OnboardingTable({
         </SubmitButton>
         {/* No formAction: this rides the form's default action (withdraw). See the
             per-row comment above for why a button with its own name/value pair
-            cannot also carry a formAction. This bulk control has no name/value of
-            its own, so it does not need one; if it did, a bulk withdraw would
-            collapse to withdrawing whatever single value React attached. */}
+            cannot also carry a formAction. name="bulkWithdraw" value="1" marks this
+            as a deliberate bulk-withdraw click; withdrawAction refuses any
+            submission carrying neither this marker nor onlyAcceptanceId, so a
+            future submit button added to this form without its own formAction is
+            refused instead of silently deleting the whole selection. selectedIds
+            still checks onlyAcceptanceId first, so a per-row click keeps winning
+            outright even though both names could technically be present. */}
         <ConfirmButton
           label={`Withdraw (${counts.withdraw})`}
           size="sm"
+          name="bulkWithdraw"
+          value="1"
           disabled={counts.withdraw === 0}
           confirmLabel={
             submittedInSelection > 0

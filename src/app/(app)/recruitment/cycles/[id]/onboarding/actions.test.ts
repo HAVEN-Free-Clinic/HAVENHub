@@ -106,9 +106,42 @@ describe("onboarding bulk actions", () => {
       { contract: { status: "PENDING" } },
     ]);
     session.personId = srrId;
-    const url = await target(() =>
-      withdrawAction(cycleId, form(acceptances.map((a) => a.id))));
+    // bulkWithdraw="1" is what the real bulk Withdraw button submits, so it
+    // must be present for withdrawAction to treat this as a genuine withdraw.
+    const fd = form(acceptances.map((a) => a.id));
+    fd.set("bulkWithdraw", "1");
+    const url = await target(() => withdrawAction(cycleId, fd));
     expect(url).toContain("Withdrew 2");
+    expect(url).toContain("You can now change the decision or resend a fresh link");
+  });
+
+  // The resend/re-decide hint is misleading when nothing was actually
+  // withdrawn (e.g. the whole selection was already promoted).
+  it("omits the resend hint when nothing was withdrawn", async () => {
+    const { cycleId, srrId, acceptances } = await seedCycle([
+      { contract: { status: "PROMOTED" } },
+    ]);
+    session.personId = srrId;
+    const fd = form([acceptances[0].id]);
+    fd.set("bulkWithdraw", "1");
+    const url = await target(() => withdrawAction(cycleId, fd));
+    expect(url).toContain("Withdrew 0");
+    expect(url).not.toContain("You can now change the decision");
+  });
+
+  // The form's default action is withdraw (see onboarding-table.tsx), so any
+  // future submit button added there without its own formAction would ride
+  // this action too. Neither marker present must be refused, not treated as
+  // an implicit bulk withdraw of whatever happens to be checked.
+  it("refuses a submission carrying neither bulkWithdraw nor onlyAcceptanceId", async () => {
+    const { cycleId, srrId, acceptances } = await seedCycle([
+      { contract: { status: "PENDING" } },
+    ]);
+    session.personId = srrId;
+    const url = await target(() => withdrawAction(cycleId, form([acceptances[0].id])));
+    expect(url).toContain("err=");
+    expect(url).toContain("cannot withdraw");
+    expect(await prisma.onboardingContract.count()).toBe(1);
   });
 
   // The per-row Withdraw button rides in the same form as the checkboxes, so
@@ -131,7 +164,11 @@ describe("onboarding bulk actions", () => {
       { contract: { status: "PENDING" } },
     ]);
     session.personId = plainId;
-    const url = await target(() => withdrawAction(cycleId, form([acceptances[0].id])));
+    // Carries the marker so this test exercises the permission check inside
+    // withdrawContracts, not the isWithdrawSubmission guard above it.
+    const fd = form([acceptances[0].id]);
+    fd.set("bulkWithdraw", "1");
+    const url = await target(() => withdrawAction(cycleId, fd));
     expect(url).toContain("err=");
     expect(await prisma.onboardingContract.count()).toBe(1);
   });

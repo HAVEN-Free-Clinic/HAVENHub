@@ -156,29 +156,50 @@ export async function issueWalletPass(
 
   if (existing && !existing.revokedAt) {
     const refreshed = await updatePass(existing.serialNumber, input);
-    // No fallback to createPass on failure: a duplicate we cannot revoke is
-    // worse than no badge on this click. The member retries, or the pass they
-    // already installed keeps working until it expires at term end.
-    if (!refreshed) return null;
-    await prisma.walletPass.update({
-      where: { id: existing.id },
-      data: { issuedAt: new Date() },
-    });
-    // The install links come from the ROW, not the refresh response: a PUT
-    // returns only an acknowledgement (see RefreshResult). A row written before
-    // those columns existed has neither, so there is nothing to hand back and
-    // the caller renders the same "not available" state as a vendor failure;
-    // the pass the member already installed is untouched and still refreshed.
-    if (!existing.googleSaveUrl || !existing.shareUrl) {
-      log.error("[passport] refreshed a pass with no stored install URLs", {
+
+    // The vendor does not have this pass: it was revoked or deleted there, so
+    // our row is stale. Without this the member is stuck forever, because every
+    // click refreshes a serial that no longer exists (seen in production on
+    // 2026-08-10 after a pass was revoked vendor-side). Retire the row and fall
+    // through to create a replacement.
+    //
+    // This is the ONLY failure that earns a fallback to createPass. A 404 is
+    // unambiguous, so a replacement cannot orphan a live pass; an ambiguous
+    // failure (timeout, 500) might leave one behind that nothing could revoke.
+    if (refreshed === "GONE") {
+      await prisma.walletPass.update({
+        where: { id: existing.id },
+        data: { revokedAt: new Date() },
+      });
+      log.info("[passport] wallet pass was gone at the vendor, reissuing", {
         passId: existing.id,
       });
-      return null;
+    } else {
+      // No fallback to createPass on failure: a duplicate we cannot revoke is
+      // worse than no badge on this click. The member retries, or the pass they
+      // already installed keeps working until it expires at term end.
+      if (!refreshed) return null;
+      await prisma.walletPass.update({
+        where: { id: existing.id },
+        data: { issuedAt: new Date() },
+      });
+      // The install links come from the ROW, not the refresh response: a PUT
+      // returns only an acknowledgement (see RefreshResult). A row written
+      // before those columns existed has neither, so there is nothing to hand
+      // back and the caller renders the same "not available" state as a vendor
+      // failure; the pass the member already installed is untouched and still
+      // refreshed.
+      if (!existing.googleSaveUrl || !existing.shareUrl) {
+        log.error("[passport] refreshed a pass with no stored install URLs", {
+          passId: existing.id,
+        });
+        return null;
+      }
+      // The stored serial is deliberately NOT rewritten from the response: this
+      // row's serial is the only handle revocation has, and it is what the pass
+      // the member already installed was issued under.
+      return { googleSaveUrl: existing.googleSaveUrl, shareUrl: existing.shareUrl };
     }
-    // The stored serial is deliberately NOT rewritten from the response: this
-    // row's serial is the only handle revocation has, and it is what the pass
-    // the member already installed was issued under.
-    return { googleSaveUrl: existing.googleSaveUrl, shareUrl: existing.shareUrl };
   }
 
   const created = await createPass(input);

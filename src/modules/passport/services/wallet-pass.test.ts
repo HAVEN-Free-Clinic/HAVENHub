@@ -388,3 +388,70 @@ describe("shortenSince", () => {
     expect(shortenSince("Founding cohort")).toBe("Founding cohort");
   });
 });
+
+describe("a pass that no longer exists at the vendor", () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.clearAllMocks();
+    isWalletEnabledMock.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reissues when the refresh reports the pass is gone", async () => {
+    // Production, 2026-08-10: a pass revoked vendor-side left our row live, so
+    // every click PUT a serial that no longer existed and the member was stuck
+    // for good. A 404 is unambiguous, so a replacement cannot orphan anything.
+    const { person, term } = await seedActiveMember();
+    await prisma.walletPass.create({
+      data: {
+        personId: person.id,
+        termId: term.id,
+        serialNumber: "ser_dead",
+        googleSaveUrl: "https://old-g",
+        shareUrl: "https://old-s",
+      },
+    });
+    updatePassMock.mockResolvedValue("GONE");
+    createPassMock.mockResolvedValue({
+      serialNumber: "ser_new",
+      googleSaveUrl: "https://new-g",
+      applePass: "b64",
+      shareUrl: "https://new-s",
+    });
+
+    const result = await issueWalletPass(person.id);
+
+    expect(result).toEqual({ googleSaveUrl: "https://new-g", shareUrl: "https://new-s" });
+    expect(createPassMock).toHaveBeenCalledTimes(1);
+
+    // The row is replaced, not duplicated, and now carries the live serial.
+    expect(await prisma.walletPass.count()).toBe(1);
+    const row = await prisma.walletPass.findUnique({
+      where: { personId_termId: { personId: person.id, termId: term.id } },
+    });
+    expect(row!.serialNumber).toBe("ser_new");
+    expect(row!.revokedAt).toBeNull();
+    expect(row!.googleSaveUrl).toBe("https://new-g");
+  });
+
+  it("still refuses to reissue on an AMBIGUOUS refresh failure", async () => {
+    // The distinction that keeps the 404 fallback safe: a timeout or a 500 may
+    // leave a live pass behind, and a duplicate nothing can revoke is worse than
+    // no badge on this click.
+    const { person, term } = await seedActiveMember();
+    await prisma.walletPass.create({
+      data: { personId: person.id, termId: term.id, serialNumber: "ser_1" },
+    });
+    updatePassMock.mockResolvedValue(null);
+    createPassMock.mockResolvedValue(CREATED);
+
+    expect(await issueWalletPass(person.id)).toBeNull();
+    expect(createPassMock).not.toHaveBeenCalled();
+    const row = await prisma.walletPass.findFirst({ where: { personId: person.id } });
+    expect(row!.serialNumber).toBe("ser_1");
+    expect(row!.revokedAt).toBeNull();
+  });
+});

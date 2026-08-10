@@ -153,7 +153,24 @@ async function call(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
-      log.error("[passport] wallet call failed", { path, method, status: response.status });
+      // Read the error body, bounded. A bare status is close to undiagnosable:
+      // a 400 in production on 2026-08-10 took a manual curl to explain, and the
+      // answer was sitting in a body we were discarding
+      // ({"error":"logoURL could not be fetched"}). The body is the vendor's own
+      // validation message, not member data; it is truncated anyway so a verbose
+      // response cannot flood the logs, and reading it can never throw.
+      let detail: string | undefined;
+      try {
+        detail = (await response.text()).slice(0, 300);
+      } catch {
+        detail = undefined;
+      }
+      log.error("[passport] wallet call failed", {
+        path,
+        method,
+        status: response.status,
+        ...(detail ? { detail } : {}),
+      });
       return null;
     }
     return response;

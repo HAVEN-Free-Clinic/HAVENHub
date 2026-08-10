@@ -36,6 +36,7 @@ export const CRON_JOBS: { id: string; label: string; maxStaleMs: number }[] = [
   { id: "schedule-reminders", label: "Schedule reminders", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "shift-reminders", label: "Weekly shift reminders", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly
   { id: "clinic-checkin-invites", label: "Clinic check-in invites", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
+  { id: "wallet-passes", label: "Wallet badge reconciliation", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
 ];
 
 /** Record a successful cron run. Never throws -- a heartbeat failure must not fail

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { devLogin } from "./auth";
+import { devLogin, loginAs } from "./auth";
 
 test("admin login: hub My Info tile links to /my-info and page renders read-only rows and HIPAA section", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
@@ -65,4 +65,13 @@ test("Jack's HIPAA panel shows a real compliance status now that the backfill ha
   await expect(
     page.getByText(/Compliant through|Expires|Expired/i)
   ).toBeVisible();
+});
+
+test("a member can download their service record", async ({ page }) => {
+  await loginAs(page, "volunteer");
+  await page.goto("/my-info");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download certificate" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toContain("Service-record");
 });

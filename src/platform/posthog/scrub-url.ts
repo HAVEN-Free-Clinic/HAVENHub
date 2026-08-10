@@ -1,7 +1,7 @@
 /**
  * Redaction of credential-bearing URLs before they reach PostHog.
  *
- * Four routes carry a live, unconsumed credential in the URL itself, because
+ * Five routes carry a live, unconsumed credential in the URL itself, because
  * each deliberately renders a page (or, for the calendar feed, serves a
  * response) rather than consuming the token on GET:
  *
@@ -9,6 +9,7 @@
  *   /apply/verify?token=...   applicant portal link, grants a 7-day cookie
  *   /onboard/<token>          onboarding contract, 21 days, never consumed on view
  *   /api/calendar/<token>     personal calendar feed, NEVER expires, polled forever
+ *   /credential/<token>       published service record, no expiry until unpublished
  *
  * posthog-js captures `$current_url` (and friends) verbatim on every pageview,
  * so without this the raw token is written into the analytics project as an
@@ -23,7 +24,7 @@
 const SECRET_PARAMS = ["token"];
 
 /** Path prefixes whose NEXT segment is a credential, not an identifier. */
-const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/"];
+const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/", "/credential/"];
 
 const REDACTED = "[redacted]";
 

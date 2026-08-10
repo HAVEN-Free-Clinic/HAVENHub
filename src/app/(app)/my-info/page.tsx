@@ -21,6 +21,17 @@ import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-in
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getSetting } from "@/platform/settings/service";
+import {
+  issueServiceCredential,
+  publishCredential,
+  unpublishCredential,
+  getCredential,
+  type IssuedCredential,
+} from "@/modules/passport/services/credential";
+import { issueWalletPass } from "@/modules/passport/services/wallet-pass";
+import { isWalletEnabled } from "@/modules/passport/services/wallet-client";
+import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
 import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
 import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
@@ -36,12 +47,22 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems] = await Promise.all([
-    getMyInfo(person.personId),
-    listMyCertificates(person.personId),
-    getMyEhsStatus(person.personId),
-  ]);
+  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl] =
+    await Promise.all([
+      getMyInfo(person.personId),
+      listMyCertificates(person.personId),
+      getMyEhsStatus(person.personId),
+      getSetting<string>("branding.brandColor"),
+      getSetting<string>("branding.orgName"),
+      getCredential(person.personId),
+      getSetting<string>("app.baseUrl"),
+    ]);
   const { activeTerm } = myInfo;
+
+  // Resolved on the server so the card can omit the wallet section entirely
+  // when no vendor key is configured, rather than rendering a button that
+  // would always come back null.
+  const walletEnabled = isWalletEnabled();
 
   // Server actions
   async function updateAction(formData: FormData) {
@@ -117,6 +138,39 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     await issueAuditedFeedToken(session.personId, "reset");
     revalidatePath("/my-info");
     revalidatePath("/schedule");
+  }
+
+  async function issueAction(): Promise<IssuedCredential> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return issueServiceCredential(session.personId);
+  }
+
+  // Both actions derive personId from the session, never from an argument: this
+  // page is the only caller of publishCredential/unpublishCredential, and a
+  // client-suppliable person id would let any signed-in member publish someone
+  // else's record to the public internet.
+  async function publishAction(): Promise<string> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return publishCredential(session.personId);
+  }
+
+  async function unpublishAction(): Promise<void> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await unpublishCredential(session.personId);
+  }
+
+  // Zero-argument, same as the three actions above: personId always comes from
+  // the session, never a client-supplied value, so a member can never mint a
+  // badge in someone else's name. issueWalletPass is best-effort and returns
+  // null (not a throw) whenever the wallet feature is off or the vendor call
+  // fails, which the card renders as a calm, expected state.
+  async function issueWalletPassAction(): Promise<{ googleSaveUrl: string; shareUrl: string } | null> {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    return issueWalletPass(session.personId);
   }
 
   // Drive the HIPAA requirement row from the SAME rule as the clearance banner
@@ -201,6 +255,21 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             personId={person.personId}
             generateAction={generateFeedAction}
             resetAction={resetFeedAction}
+          />
+        </section>
+
+        {/* Service record */}
+        <section>
+          <ServiceRecordCard
+            orgName={orgName}
+            brandColor={brandColor}
+            baseUrl={baseUrl}
+            initialToken={existingCredential?.publicToken ?? null}
+            issue={issueAction}
+            publish={publishAction}
+            unpublish={unpublishAction}
+            walletEnabled={walletEnabled}
+            issueWalletPass={issueWalletPassAction}
           />
         </section>
       </div>

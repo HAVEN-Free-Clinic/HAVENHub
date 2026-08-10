@@ -171,6 +171,15 @@ export function ServiceRecordCard({
             Add a badge to your phone&apos;s wallet for quick ID at clinic. It expires
             automatically at the end of the term.
           </p>
+          {/* Adding a badge publishes the shareable link, because the badge's QR
+              code has to resolve to a page a scanner can actually read. Said
+              plainly and BEFORE the button, not discovered afterwards: it puts
+              this member's name and service history at a public URL. */}
+          <p className="mt-1 text-sm text-muted-foreground">
+            The badge carries a QR code, so adding one also publishes your shareable link
+            if it is not already public. You can unpublish it above at any time, and it
+            will not be republished.
+          </p>
           {walletPass ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <a

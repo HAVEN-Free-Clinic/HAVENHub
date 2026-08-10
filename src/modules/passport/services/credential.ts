@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import {
   computeServiceRecord,
   type PrismaClientOrTx,
@@ -131,7 +132,10 @@ export async function publishCredential(personId: string): Promise<string> {
 export async function unpublishCredential(personId: string): Promise<void> {
   await prisma.serviceCredential.updateMany({
     where: { personId },
-    data: { publicToken: null },
+    // unpublishedAt is stamped so this reads as a DECISION, not merely an absence.
+    // Adding a wallet badge auto-publishes, and without this marker the member's
+    // next badge refresh would quietly undo the retraction they just made.
+    data: { publicToken: null, unpublishedAt: new Date() },
   });
   await recordAudit({
     actorPersonId: personId,
@@ -155,4 +159,49 @@ export async function getCredentialByToken(token: string): Promise<IssuedCredent
   });
   if (!row || row.revokedAt) return null;
   return toIssued(row);
+}
+
+/**
+ * Publish the credential so a wallet badge can carry a verifiable QR, unless the
+ * member has already said no.
+ *
+ * Publishing is otherwise opt-in, and this is the one place it happens without
+ * an explicit click. The justification is narrow: a QR is only of use to someone
+ * who has a badge, so this reaches exactly the members who asked for one, and it
+ * publishes nothing about anyone who never touches the feature.
+ *
+ * Returns the token to encode, or null when there is nothing publishable. Never
+ * throws: badge issuance is best-effort, and a publishing failure must cost the
+ * QR, not the badge.
+ *
+ * Deliberately does NOT publish when:
+ *   - the member previously unpublished (unpublishedAt set). Re-publishing on
+ *     the next refresh would override a choice they made on purpose.
+ *   - the credential is revoked. A QR resolving to a 404 is worse than none.
+ */
+export async function autoPublishForBadge(personId: string): Promise<string | null> {
+  try {
+    const existing = await getCredential(personId);
+
+    // No record yet: issue one, since a badge holder demonstrably has service to
+    // show, then publish it.
+    if (!existing) {
+      await issueServiceCredential(personId);
+      return publishCredential(personId);
+    }
+
+    if (existing.revokedAt) return null;
+    if (existing.publicToken) return existing.publicToken;
+
+    const row = await prisma.serviceCredential.findUnique({
+      where: { personId },
+      select: { unpublishedAt: true },
+    });
+    if (row?.unpublishedAt) return null;
+
+    return await publishCredential(personId);
+  } catch (error) {
+    log.error("[passport] auto-publish for badge failed", errorAttrs(error, { personId }));
+    return null;
+  }
 }

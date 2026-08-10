@@ -31,14 +31,25 @@ import { log, errorAttrs } from "@/platform/logging";
  */
 const MAX_RAW_BYTES = 700 * 1024;
 
+/**
+ * The wide banner across the top of the card. Not a BrandingAssetName: the admin
+ * settings surface has no slot for it, so it is bundled-only. Drop a wide image
+ * (roughly 3:1, e.g. 1125x375) at public/brand/haven-wallet-strip.png and it is
+ * picked up automatically; absent, the pass simply issues without a banner.
+ */
+const STRIP_ASSET = "strip" as const;
+
+type ImageAsset = BrandingAssetName | typeof STRIP_ASSET;
+
 /** The bundled defaults the branding route falls back to when nothing is uploaded. */
-const BUNDLED: Record<BrandingAssetName, { file: string; contentType: string }> = {
+const BUNDLED: Record<ImageAsset, { file: string; contentType: string }> = {
   logo: { file: "brand/haven-logo-white.png", contentType: "image/png" },
   favicon: { file: "brand/haven-favicon.png", contentType: "image/png" },
+  strip: { file: "brand/haven-wallet-strip.png", contentType: "image/png" },
 };
 
 /** Resolved data URIs are stable for a process; recomputing per issued badge is waste. */
-const cache = new Map<BrandingAssetName, string | null>();
+const cache = new Map<ImageAsset, string | null>();
 
 function toDataUri(contentType: string, bytes: Buffer): string {
   return `data:${contentType};base64,${bytes.toString("base64")}`;
@@ -49,7 +60,7 @@ function toDataUri(contentType: string, bytes: Buffer): string {
  * default. Returns null when neither is available or the image is too large,
  * which callers treat as "issue the pass without this image".
  */
-export async function brandingDataUri(asset: BrandingAssetName): Promise<string | null> {
+export async function brandingDataUri(asset: ImageAsset): Promise<string | null> {
   const cached = cache.get(asset);
   if (cached !== undefined) return cached;
 
@@ -58,10 +69,11 @@ export async function brandingDataUri(asset: BrandingAssetName): Promise<string 
   return resolved;
 }
 
-async function resolve(asset: BrandingAssetName): Promise<string | null> {
+async function resolve(asset: ImageAsset): Promise<string | null> {
   // An admin upload wins, and its bytes are already in hand from object storage.
+  // The strip has no settings slot, so it skips straight to the bundled file.
   try {
-    const custom = await readBrandingAsset(asset);
+    const custom = asset === STRIP_ASSET ? null : await readBrandingAsset(asset);
     if (custom) {
       if (custom.bytes.byteLength > MAX_RAW_BYTES) {
         log.error("[passport] branding image too large for a wallet pass", {

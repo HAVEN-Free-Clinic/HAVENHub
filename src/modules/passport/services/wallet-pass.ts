@@ -30,6 +30,22 @@ function expirationDays(endDate: Date): number {
   return Math.min(3650, Math.max(1, days));
 }
 
+/**
+ * Shorten a service record's `memberSince.label` for a wallet field.
+ *
+ * A membership-derived label is already a term name ("Spring 2026"), but a
+ * RECRUITMENT-derived one is the cycle label ("Fall 2023 Volunteer
+ * Recruitment"), which overflows a secondary field on a card. Strip the
+ * recruitment boilerplate and keep the season and year.
+ */
+export function shortenSince(label: string): string {
+  const seasonYear = label.match(/\b(Spring|Summer|Fall|Autumn|Winter)\s+(\d{4})\b/i);
+  if (seasonYear) return `${seasonYear[1]} ${seasonYear[2]}`;
+  const year = label.match(/\b(\d{4})\b/);
+  if (year) return year[1];
+  return label;
+}
+
 export async function issueWalletPass(
   personId: string,
 ): Promise<{ googleSaveUrl: string; shareUrl: string } | null> {
@@ -56,9 +72,24 @@ export async function issueWalletPass(
   // cumulative shift total. The full history lives on the certificate and the
   // credential page, which are the artifacts that survive offboarding.
   const record = await computeServiceRecord(personId);
-  // Only the org name is read: custom color and logo are Pro-tier features, and
-  // the free tier takes a colorPreset (set in wallet-client.ts).
-  const orgName = await getSetting<string>("branding.orgName");
+  const [orgName, brandColor, baseUrl] = await Promise.all([
+    getSetting<string>("branding.orgName"),
+    getSetting<string>("branding.brandColor"),
+    getSetting<string>("app.baseUrl"),
+  ]);
+
+  // The QR resolves to the member's PUBLISHED credential page, which is the only
+  // thing worth scanning: a page a third party can check. An unpublished
+  // credential gets no barcode rather than a dead link, and publishing is
+  // opt-in, so most badges start without one and gain it on the next refresh.
+  const credential = await prisma.serviceCredential.findUnique({
+    where: { personId },
+    select: { publicToken: true, revokedAt: true },
+  });
+  const barcodeValue =
+    credential?.publicToken && !credential.revokedAt
+      ? `${baseUrl}/credential/${credential.publicToken}`
+      : null;
 
   const role = membership.kind === "DIRECTOR" ? "Director" : "Volunteer";
   const secondaryFields = [
@@ -69,18 +100,28 @@ export async function issueWalletPass(
     secondaryFields.push({
       key: "since",
       label: "Member since",
-      value: record.memberSince.label,
+      value: shortenSince(record.memberSince.label),
     });
   }
 
   const input: PassInput = {
     organizationName: orgName,
-    logoText: orgName,
-    description: `${role} badge`,
+    // The role is in logoText as well as primaryFields because logoText is the
+    // line that sits beside the logo on the card: a director's badge must not
+    // read "Volunteer Identification".
+    logoText: `${role} Identification`,
+    description: `${orgName} ${role.toLowerCase()} badge`,
     expirationDays: expirationDays(term.endDate),
     primaryFields: [{ key: "role", label: "Role", value: role }],
     secondaryFields,
-    barcodeValue: null,
+    barcodeValue,
+    // Pro-tier only; wallet-client drops these when the trial has lapsed. Served
+    // from our own public branding route rather than inlined as data URIs, so a
+    // logo change propagates to newly issued and refreshed passes without a
+    // deploy, and every request stays small.
+    brandColor,
+    logoUrl: `${baseUrl}/api/branding/logo`,
+    iconUrl: `${baseUrl}/api/branding/favicon`,
   };
 
   // Re-issue REFRESHES the live pass in place instead of minting a second one.
@@ -95,7 +136,13 @@ export async function issueWalletPass(
   // the vendor, so there is nothing to orphan and nothing to refresh.
   const existing = await prisma.walletPass.findUnique({
     where: { personId_termId: { personId, termId: term.id } },
-    select: { id: true, serialNumber: true, revokedAt: true },
+    select: {
+      id: true,
+      serialNumber: true,
+      revokedAt: true,
+      googleSaveUrl: true,
+      shareUrl: true,
+    },
   });
 
   if (existing && !existing.revokedAt) {
@@ -108,10 +155,21 @@ export async function issueWalletPass(
       where: { id: existing.id },
       data: { issuedAt: new Date() },
     });
+    // The install links come from the ROW, not the refresh response: a PUT
+    // returns only an acknowledgement (see RefreshResult). A row written before
+    // those columns existed has neither, so there is nothing to hand back and
+    // the caller renders the same "not available" state as a vendor failure;
+    // the pass the member already installed is untouched and still refreshed.
+    if (!existing.googleSaveUrl || !existing.shareUrl) {
+      log.error("[passport] refreshed a pass with no stored install URLs", {
+        passId: existing.id,
+      });
+      return null;
+    }
     // The stored serial is deliberately NOT rewritten from the response: this
     // row's serial is the only handle revocation has, and it is what the pass
     // the member already installed was issued under.
-    return { googleSaveUrl: refreshed.googleSaveUrl, shareUrl: refreshed.shareUrl };
+    return { googleSaveUrl: existing.googleSaveUrl, shareUrl: existing.shareUrl };
   }
 
   const created = await createPass(input);
@@ -119,8 +177,20 @@ export async function issueWalletPass(
 
   await prisma.walletPass.upsert({
     where: { personId_termId: { personId, termId: term.id } },
-    create: { personId, termId: term.id, serialNumber: created.serialNumber },
-    update: { serialNumber: created.serialNumber, issuedAt: new Date(), revokedAt: null },
+    create: {
+      personId,
+      termId: term.id,
+      serialNumber: created.serialNumber,
+      googleSaveUrl: created.googleSaveUrl,
+      shareUrl: created.shareUrl,
+    },
+    update: {
+      serialNumber: created.serialNumber,
+      googleSaveUrl: created.googleSaveUrl,
+      shareUrl: created.shareUrl,
+      issuedAt: new Date(),
+      revokedAt: null,
+    },
   });
 
   return { googleSaveUrl: created.googleSaveUrl, shareUrl: created.shareUrl };

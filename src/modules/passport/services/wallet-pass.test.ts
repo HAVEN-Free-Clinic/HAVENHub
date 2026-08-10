@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { issueWalletPass, revokeWalletPasses } from "./wallet-pass";
+import { issueWalletPass, revokeWalletPasses, shortenSince } from "./wallet-pass";
 import { createPass, isWalletEnabled, revokePass, updatePass } from "./wallet-client";
 
 // vi.mock, not vi.spyOn: wallet-pass.ts imports these as named bindings, and
@@ -118,7 +118,13 @@ describe("issueWalletPass", () => {
   it("refreshes the live pass in place on re-issue instead of minting a second one", async () => {
     const { person, term } = await seedActiveMember();
     createPassMock.mockResolvedValue(CREATED);
-    updatePassMock.mockResolvedValue({ ...CREATED, googleSaveUrl: "https://g2", shareUrl: "https://s2" });
+    // What the vendor ACTUALLY returns from a PUT, verified against the live API
+    // on 2026-08-10: an acknowledgement with no install URLs.
+    updatePassMock.mockResolvedValue({
+      serialNumber: "ser_1",
+      notifiedDevices: 2,
+      unchanged: false,
+    });
 
     await issueWalletPass(person.id);
     const second = await issueWalletPass(person.id);
@@ -128,13 +134,96 @@ describe("issueWalletPass", () => {
     expect(createPassMock).toHaveBeenCalledTimes(1);
     expect(updatePassMock).toHaveBeenCalledTimes(1);
     expect(updatePassMock).toHaveBeenCalledWith("ser_1", expect.anything());
-    expect(second).toEqual({ googleSaveUrl: "https://g2", shareUrl: "https://s2" });
+    // The links come from the stored row, since the refresh response has none.
+    // Before the URLs were persisted this returned {undefined, undefined} typed
+    // as string, and the card rendered links with undefined hrefs.
+    expect(second).toEqual({ googleSaveUrl: "https://g", shareUrl: "https://s" });
 
     expect(await prisma.walletPass.count()).toBe(1);
     const row = await prisma.walletPass.findUnique({
       where: { personId_termId: { personId: person.id, termId: term.id } },
     });
     expect(row!.serialNumber).toBe("ser_1");
+  });
+
+  it("puts the published credential URL in the QR, and no barcode when unpublished", async () => {
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+
+    // Unpublished: no credential row at all.
+    await issueWalletPass(person.id);
+    expect(createPassMock.mock.calls[0][0].barcodeValue).toBeNull();
+
+    // Published: the QR resolves to the page a third party can actually check.
+    await prisma.serviceCredential.create({
+      data: { personId: person.id, record: {}, publicToken: "tok_abc" },
+    });
+    await prisma.walletPass.deleteMany({ where: { personId: person.id } });
+    await issueWalletPass(person.id);
+    expect(createPassMock.mock.calls[1][0].barcodeValue).toContain("/credential/tok_abc");
+  });
+
+  it("gives a revoked credential no barcode, so the QR never resolves to a 404", async () => {
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+    await prisma.serviceCredential.create({
+      data: {
+        personId: person.id,
+        record: {},
+        publicToken: "tok_dead",
+        revokedAt: new Date(),
+      },
+    });
+
+    await issueWalletPass(person.id);
+
+    expect(createPassMock.mock.calls[0][0].barcodeValue).toBeNull();
+  });
+
+  it("names the role in logoText so a director's badge does not read Volunteer", async () => {
+    const { person, term } = await seedActiveMember();
+    const dept = await prisma.department.findUniqueOrThrow({ where: { code: "ITCM" } });
+    await prisma.termMembership.deleteMany({ where: { personId: person.id } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR" },
+    });
+    createPassMock.mockResolvedValue(CREATED);
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.logoText).toBe("Director Identification");
+    expect(input.primaryFields[0].value).toBe("Director");
+  });
+
+  it("persists the install URLs at creation, because a refresh cannot return them", async () => {
+    const { person, term } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+
+    await issueWalletPass(person.id);
+
+    const row = await prisma.walletPass.findUnique({
+      where: { personId_termId: { personId: person.id, termId: term.id } },
+    });
+    expect(row!.googleSaveUrl).toBe("https://g");
+    expect(row!.shareUrl).toBe("https://s");
+  });
+
+  it("returns null when a refreshed row predates the stored install URLs", async () => {
+    const { person, term } = await seedActiveMember();
+    // A row written before the columns existed: refreshable, but there is no
+    // link to hand back, so this degrades like any other unavailable badge.
+    await prisma.walletPass.create({
+      data: { personId: person.id, termId: term.id, serialNumber: "ser_old" },
+    });
+    updatePassMock.mockResolvedValue({
+      serialNumber: "ser_old",
+      notifiedDevices: 0,
+      unchanged: true,
+    });
+
+    expect(await issueWalletPass(person.id)).toBeNull();
+    expect(createPassMock).not.toHaveBeenCalled();
   });
 
   it("returns null rather than creating a duplicate when the refresh fails", async () => {
@@ -238,5 +327,26 @@ describe("revokeWalletPasses", () => {
     expect(await revokeWalletPasses(person.id)).toBe(0);
     const row = await prisma.walletPass.findFirst({ where: { personId: person.id } });
     expect(row!.revokedAt).toBeNull();
+  });
+});
+
+describe("shortenSince", () => {
+  it("keeps a term name as is", () => {
+    expect(shortenSince("Spring 2026")).toBe("Spring 2026");
+  });
+
+  it("strips the recruitment boilerplate a recruitment-derived label carries", () => {
+    // computeServiceRecord uses HistoricalApplication.cycleLabel for pre-roster
+    // terms, which is far too long for a secondary field on a card.
+    expect(shortenSince("Fall 2023 Volunteer Recruitment")).toBe("Fall 2023");
+    expect(shortenSince("Summer 2025 Director Recruitment")).toBe("Summer 2025");
+  });
+
+  it("falls back to the year when there is no season", () => {
+    expect(shortenSince("Cycle of 2022")).toBe("2022");
+  });
+
+  it("returns the label unchanged when it has no year at all", () => {
+    expect(shortenSince("Founding cohort")).toBe("Founding cohort");
   });
 });

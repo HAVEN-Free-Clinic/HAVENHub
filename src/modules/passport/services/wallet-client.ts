@@ -44,8 +44,19 @@ export type PassInput = {
   secondaryFields: PassField[];
   /** QR target, or null for a pass with no barcode. */
   barcodeValue: string | null;
+  /**
+   * Pro-tier branding. Sent only when the account is on Pro (see
+   * WALLETWALLET_PRO): on the free tier these fields are not honoured, and the
+   * card falls back to `colorPreset`. Absent means "free tier", never "no
+   * branding wanted".
+   */
+  brandColor?: string;
+  logoUrl?: string;
+  iconUrl?: string;
+  stripUrl?: string;
 };
 
+/** The POST response. Verified against the live API on 2026-08-10. */
 export type PassResult = {
   serialNumber: string;
   googleSaveUrl: string;
@@ -53,11 +64,42 @@ export type PassResult = {
   shareUrl: string;
 };
 
+/**
+ * The PUT response, which is a DIFFERENT shape from POST and deliberately typed
+ * separately. Verified against the live API on 2026-08-10, a refresh returns:
+ *
+ *   {"serialNumber":"...","lastUpdated":1786389325159,"notifiedDevices":0,"unchanged":false}
+ *
+ * No googleSaveUrl, no shareUrl, no applePass. Treating this as a PassResult
+ * (which an earlier revision did, because the shared parser only checked for a
+ * serialNumber, and PUT does return one) yielded an object whose URL fields were
+ * `undefined` while still typed `string`, so the caller handed the UI links with
+ * undefined hrefs. That is why the install URLs are persisted on WalletPass at
+ * creation instead of being read back from a refresh.
+ */
+export type RefreshResult = {
+  serialNumber: string;
+  notifiedDevices: number;
+  unchanged: boolean;
+};
+
 export function isWalletEnabled(): boolean {
   return Boolean(config.WALLETWALLET_API_KEY);
 }
 
+/**
+ * Whether the account is on the Pro tier, which is what makes `color` and the
+ * image URLs take effect. Deliberately a separate switch from the API key: the
+ * clinic is on a time-limited Pro trial, and when it lapses this flips to false
+ * WITHOUT a code change, so branded fields stop being sent rather than being
+ * sent to an account that no longer honours them.
+ */
+export function isWalletProTier(): boolean {
+  return config.WALLETWALLET_PRO === true;
+}
+
 function body(input: PassInput): Record<string, unknown> {
+  const pro = isWalletProTier();
   return {
     organizationName: input.organizationName,
     logoText: input.logoText,
@@ -65,8 +107,15 @@ function body(input: PassInput): Record<string, unknown> {
     expirationDays: input.expirationDays,
     primaryFields: input.primaryFields,
     secondaryFields: input.secondaryFields,
-    // Custom color and logo are Pro-only; the free tier gets a preset.
+    // Always sent, Pro or not: it is the free tier's only styling, and it is
+    // what the card falls back to the day the Pro trial lapses.
     colorPreset: "blue",
+    // Pro-only. Sending these on a free account is at best ignored, so they are
+    // gated rather than sent hopefully.
+    ...(pro && input.brandColor ? { color: input.brandColor } : {}),
+    ...(pro && input.logoUrl ? { logoURL: input.logoUrl } : {}),
+    ...(pro && input.iconUrl ? { iconURL: input.iconUrl } : {}),
+    ...(pro && input.stripUrl ? { stripURL: input.stripUrl } : {}),
     // Defaults true at the vendor, set explicitly so a default change cannot
     // silently make members' badges shareable.
     sharingProhibited: true,
@@ -137,6 +186,17 @@ async function readPass(
     });
     return null;
   }
+  // The install URLs are checked too, not just the serial. A serial-only body is
+  // exactly what a refresh returns, and accepting it here once produced a
+  // "successful" create whose URL fields were undefined while typed string.
+  if (typeof result.googleSaveUrl !== "string" || typeof result.shareUrl !== "string") {
+    log.error("[passport] wallet create returned no install URLs", {
+      path,
+      method,
+      status: response.status,
+    });
+    return null;
+  }
   return result as PassResult;
 }
 
@@ -157,11 +217,45 @@ export async function createPass(input: PassInput): Promise<PassResult | null> {
  * in our table, and the old serial is then referenced by nothing, so neither
  * revokeWalletPasses nor the sweep can ever kill it.
  */
-export async function updatePass(serial: string, input: PassInput): Promise<PassResult | null> {
+/**
+ * Refresh a live pass in place, pushing to every device that installed it.
+ *
+ * Returns the refresh acknowledgement, NOT the pass: the vendor's PUT response
+ * carries no install URLs (see RefreshResult). Callers that need those must read
+ * them from the stored WalletPass row.
+ */
+export async function updatePass(serial: string, input: PassInput): Promise<RefreshResult | null> {
   const path = `/api/passes/${encodeURIComponent(serial)}`;
   const response = await call(path, "PUT", body(input));
   if (!response) return null;
-  return readPass(response, path, "PUT");
+
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (error) {
+    log.error(
+      "[passport] wallet refresh returned invalid JSON",
+      errorAttrs(error, { path, method: "PUT", status: response.status }),
+    );
+    return null;
+  }
+
+  const result = parsed as Partial<RefreshResult> | null | undefined;
+  if (!result || typeof result.serialNumber !== "string" || result.serialNumber.length === 0) {
+    log.error("[passport] wallet refresh returned no serialNumber", {
+      path,
+      method: "PUT",
+      status: response.status,
+    });
+    return null;
+  }
+  return {
+    serialNumber: result.serialNumber,
+    // Both are informational and absent on some responses; default rather than
+    // reject, since the refresh itself already succeeded.
+    notifiedDevices: typeof result.notifiedDevices === "number" ? result.notifiedDevices : 0,
+    unchanged: result.unchanged === true,
+  };
 }
 
 /** Idempotent at the vendor: repeat deletes are documented no-ops. */

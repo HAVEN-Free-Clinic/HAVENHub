@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // reaches it. Mock the module instead with a mutable object, matching the
 // pattern in src/app/api/gitbook/embed-token/route.test.ts.
 const { mockConfig } = vi.hoisted(() => ({
-  mockConfig: {} as { WALLETWALLET_API_KEY?: string },
+  mockConfig: {} as { WALLETWALLET_API_KEY?: string; WALLETWALLET_PRO?: boolean },
 }));
 vi.mock("@/platform/config", () => ({ config: mockConfig }));
 
@@ -28,9 +28,17 @@ const INPUT = {
   barcodeValue: null,
 };
 
+const BRANDED = {
+  ...INPUT,
+  brandColor: "#00356b",
+  logoUrl: "https://hub.example.org/api/branding/logo",
+  iconUrl: "https://hub.example.org/api/branding/favicon",
+};
+
 describe("wallet client", () => {
   beforeEach(() => {
     mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+    mockConfig.WALLETWALLET_PRO = false;
   });
 
   afterEach(() => {
@@ -108,11 +116,27 @@ describe("wallet client", () => {
     expect(await revokePass("ser_123")).toBe(false);
   });
 
-  it("updates by serial and returns the refreshed pass", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => OK });
+  it("updates by serial and returns the refresh acknowledgement", async () => {
+    // NOT the pass: the vendor's PUT carries no install URLs, so updatePass
+    // deliberately returns a RefreshResult and callers read the URLs from the
+    // stored WalletPass row instead.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        serialNumber: "ser_123",
+        lastUpdated: 1786389325159,
+        notifiedDevices: 0,
+        unchanged: false,
+      }),
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await updatePass("ser_123", INPUT)).toEqual(OK);
+    expect(await updatePass("ser_123", INPUT)).toEqual({
+      serialNumber: "ser_123",
+      notifiedDevices: 0,
+      unchanged: false,
+    });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain("/api/passes/ser_123");
     expect(init.method).toBe("PUT");
@@ -152,5 +176,124 @@ describe("wallet client", () => {
     expect(await createPass(INPUT)).toBeNull();
     expect(await updatePass("ser_123", INPUT)).toBeNull();
     expect(await revokePass("ser_123")).toBe(false);
+  });
+});
+
+describe("Pro-tier branding gating", () => {
+  beforeEach(() => {
+    mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function sentBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+    return JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it("sends the brand colour and image URLs on Pro", async () => {
+    mockConfig.WALLETWALLET_PRO = true;
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => OK });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPass(BRANDED);
+
+    const sent = sentBody(fetchMock);
+    expect(sent.color).toBe("#00356b");
+    expect(sent.logoURL).toBe("https://hub.example.org/api/branding/logo");
+    expect(sent.iconURL).toBe("https://hub.example.org/api/branding/favicon");
+    // colorPreset rides along regardless: it is the free tier's fallback and
+    // costs nothing to keep, so a lapsed trial still yields a styled card.
+    expect(sent.colorPreset).toBe("blue");
+  });
+
+  it("drops every Pro field when the trial has lapsed, keeping the preset", async () => {
+    // This is the trial-expiry path. Sending Pro fields on a free account is at
+    // best ignored, so they must not be sent hopefully; the card degrades to the
+    // preset rather than the request changing behaviour silently.
+    mockConfig.WALLETWALLET_PRO = false;
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => OK });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPass(BRANDED);
+
+    const sent = sentBody(fetchMock);
+    expect(sent.color).toBeUndefined();
+    expect(sent.logoURL).toBeUndefined();
+    expect(sent.iconURL).toBeUndefined();
+    expect(sent.stripURL).toBeUndefined();
+    expect(sent.colorPreset).toBe("blue");
+  });
+});
+
+describe("updatePass response handling", () => {
+  beforeEach(() => {
+    mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+    mockConfig.WALLETWALLET_PRO = false;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("accepts the acknowledgement the vendor actually returns from a PUT", async () => {
+    // Verified against the live API on 2026-08-10: a refresh returns only
+    // {serialNumber, lastUpdated, notifiedDevices, unchanged}.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          serialNumber: "ser_123",
+          lastUpdated: 1786389325159,
+          notifiedDevices: 3,
+          unchanged: false,
+        }),
+      }),
+    );
+
+    expect(await updatePass("ser_123", INPUT)).toEqual({
+      serialNumber: "ser_123",
+      notifiedDevices: 3,
+      unchanged: false,
+    });
+  });
+
+  it("returns null when a refresh comes back with no serial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+    );
+
+    expect(await updatePass("ser_123", INPUT)).toBeNull();
+  });
+});
+
+describe("createPass response validation", () => {
+  beforeEach(() => {
+    mockConfig.WALLETWALLET_API_KEY = "ww_live_test";
+    mockConfig.WALLETWALLET_PRO = false;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rejects a create response shaped like a refresh acknowledgement", async () => {
+    // The bug this guards: a serial-only body passes a serial-only check, and
+    // the caller then reads googleSaveUrl/shareUrl off it as undefined while
+    // TypeScript still believes they are strings.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ serialNumber: "ser_123", notifiedDevices: 0, unchanged: false }),
+      }),
+    );
+
+    expect(await createPass(INPUT)).toBeNull();
   });
 });

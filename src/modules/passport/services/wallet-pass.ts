@@ -14,6 +14,7 @@ import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { computeServiceRecord } from "./service-record";
+import { brandingDataUri } from "./wallet-branding";
 import {
   createPass,
   isWalletEnabled,
@@ -72,10 +73,12 @@ export async function issueWalletPass(
   // cumulative shift total. The full history lives on the certificate and the
   // credential page, which are the artifacts that survive offboarding.
   const record = await computeServiceRecord(personId);
-  const [orgName, brandColor, baseUrl] = await Promise.all([
+  const [orgName, brandColor, baseUrl, logoUri, iconUri] = await Promise.all([
     getSetting<string>("branding.orgName"),
     getSetting<string>("branding.brandColor"),
     getSetting<string>("app.baseUrl"),
+    brandingDataUri("logo"),
+    brandingDataUri("favicon"),
   ]);
 
   // The QR resolves to the member's PUBLISHED credential page, which is the only
@@ -115,13 +118,14 @@ export async function issueWalletPass(
     primaryFields: [{ key: "role", label: "Role", value: role }],
     secondaryFields,
     barcodeValue,
-    // Pro-tier only; wallet-client drops these when the trial has lapsed. Served
-    // from our own public branding route rather than inlined as data URIs, so a
-    // logo change propagates to newly issued and refreshed passes without a
-    // deploy, and every request stays small.
+    // Pro-tier only; wallet-client drops these when the trial has lapsed.
+    // Data URIs, NOT URLs: the vendor fetches a URL from its own infrastructure
+    // and cannot reach this host, which returned a hard 400 in production
+    // ("logoURL could not be fetched"). See wallet-branding.ts. Either image
+    // resolving to null just means the pass issues without it.
     brandColor,
-    logoUrl: `${baseUrl}/api/branding/logo`,
-    iconUrl: `${baseUrl}/api/branding/favicon`,
+    logoUrl: logoUri ?? undefined,
+    iconUrl: iconUri ?? undefined,
   };
 
   // Re-issue REFRESHES the live pass in place instead of minting a second one.

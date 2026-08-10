@@ -15,6 +15,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { computeServiceRecord } from "./service-record";
 import { brandingDataUri } from "./wallet-branding";
+import { autoPublishForBadge } from "./credential";
 import {
   createPass,
   isWalletEnabled,
@@ -65,7 +66,7 @@ export async function issueWalletPass(
 
   const membership = await prisma.termMembership.findFirst({
     where: { personId, termId: term.id, status: "ACTIVE" },
-    select: { kind: true, department: { select: { name: true } } },
+    select: { kind: true, department: { select: { name: true, code: true } } },
   });
   if (!membership) return null;
 
@@ -73,30 +74,32 @@ export async function issueWalletPass(
   // cumulative shift total. The full history lives on the certificate and the
   // credential page, which are the artifacts that survive offboarding.
   const record = await computeServiceRecord(personId);
-  const [orgName, brandColor, baseUrl, logoUri, iconUri] = await Promise.all([
+  const [orgName, brandColor, baseUrl, logoUri, iconUri, stripUri] = await Promise.all([
     getSetting<string>("branding.orgName"),
     getSetting<string>("branding.brandColor"),
     getSetting<string>("app.baseUrl"),
     brandingDataUri("logo"),
     brandingDataUri("favicon"),
+    brandingDataUri("strip"),
   ]);
 
-  // The QR resolves to the member's PUBLISHED credential page, which is the only
-  // thing worth scanning: a page a third party can check. An unpublished
-  // credential gets no barcode rather than a dead link, and publishing is
-  // opt-in, so most badges start without one and gain it on the next refresh.
-  const credential = await prisma.serviceCredential.findUnique({
-    where: { personId },
-    select: { publicToken: true, revokedAt: true },
-  });
-  const barcodeValue =
-    credential?.publicToken && !credential.revokedAt
-      ? `${baseUrl}/credential/${credential.publicToken}`
-      : null;
+  // The QR resolves to the member's published credential page, which is the only
+  // thing worth scanning: a page a third party can actually check.
+  //
+  // Adding a badge auto-publishes (see autoPublishForBadge), so every badge
+  // carries a QR without the member hunting for a separate toggle. It respects a
+  // prior unpublish and a revoked credential, both of which yield null and a
+  // badge with no barcode rather than one pointing at a 404.
+  const token = await autoPublishForBadge(personId);
+  const barcodeValue = token ? `${baseUrl}/credential/${token}` : null;
 
   const role = membership.kind === "DIRECTOR" ? "Director" : "Volunteer";
   const secondaryFields = [
-    { key: "department", label: "Department", value: membership.department.name },
+    // The CODE, not the name. A card issued with the full name rendered
+    // "Information Technology and Communications" shrunk to fit beside two other
+    // fields; the code is what members say aloud anyway. The full name still
+    // appears on the certificate and the credential page, which have room.
+    { key: "department", label: "Department", value: membership.department.code },
     { key: "term", label: "Term", value: term.name },
   ];
   if (record.memberSince) {
@@ -109,10 +112,11 @@ export async function issueWalletPass(
 
   const input: PassInput = {
     organizationName: orgName,
-    // The role is in logoText as well as primaryFields because logoText is the
-    // line that sits beside the logo on the card: a director's badge must not
-    // read "Volunteer Identification".
-    logoText: `${role} Identification`,
+    // Short by necessity: this sits in a narrow strip beside a wide logo, and
+    // "Director Identification" truncated to "Director Iden..." on a real card.
+    // The logo image already carries the org name and the ROLE field is directly
+    // below, so this only needs to say which kind of badge it is.
+    logoText: `${role} ID`,
     description: `${orgName} ${role.toLowerCase()} badge`,
     expirationDays: expirationDays(term.endDate),
     primaryFields: [{ key: "role", label: "Role", value: role }],
@@ -126,6 +130,7 @@ export async function issueWalletPass(
     brandColor,
     logoUrl: logoUri ?? undefined,
     iconUrl: iconUri ?? undefined,
+    stripUrl: stripUri ?? undefined,
   };
 
   // Re-issue REFRESHES the live pass in place instead of minting a second one.

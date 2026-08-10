@@ -5,6 +5,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getCredentialByToken } from "@/modules/passport/services/credential";
 import { formatShifts, trackLabel } from "@/modules/passport/services/service-record";
 import { THead, TR, TH, TD } from "@/platform/ui/table";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,7 @@ export default async function CredentialPage({
         &quot;Not recorded&quot; predate {orgName}&apos;s scheduling records. Issued {issued} by{" "}
         {orgName}.
       </p>
+      <CopyrightNotice className="mt-6" />
     </main>
   );
 }

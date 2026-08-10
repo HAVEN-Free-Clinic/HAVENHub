@@ -9,6 +9,7 @@ import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 
 export default async function WelcomePage() {
   // Self-heal the promoted-applicant case (#65): a Yale-SSO applicant whose session
@@ -40,7 +41,7 @@ export default async function WelcomePage() {
     }),
   ]);
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted p-6">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-muted p-6">
       <Card pad={false} className="w-full max-w-md p-8">
         <HavenLogo className="h-10 text-brand-fg" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight">Welcome to {orgName}</h1>
@@ -73,6 +74,7 @@ export default async function WelcomePage() {
           <Button type="submit" variant="outline">Sign out</Button>
         </form>
       </Card>
+      <CopyrightNotice className="text-center" />
     </main>
   );
 }

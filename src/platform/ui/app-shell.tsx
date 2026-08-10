@@ -5,10 +5,11 @@ import { config } from "@/platform/config";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
-import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
+import { getOrgIdentity } from "@/platform/branding/org";
 import { TimeZoneProvider } from "@/platform/dates/client";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { HavenLogo } from "./haven-logo";
+import { AppFooter } from "./app-footer";
 import { GlobalNav } from "./global-nav";
 import { Breadcrumbs } from "./breadcrumbs";
 import { BreadcrumbProvider } from "./breadcrumb-context";
@@ -117,11 +118,7 @@ export async function AppShell({
         </BreadcrumbProvider>
       </TimeZoneProvider>
 
-      <footer className="border-t border-border-subtle">
-        <div className="mx-auto max-w-6xl px-6 py-8 text-xs text-subtle-foreground">
-          {formatOrgLine(org)}
-        </div>
-      </footer>
+      <AppFooter width="app" org={org} />
 
       {/* Persistent floating help bubble. Mounted OUTSIDE the glass-bar toolbar so its
           fixed positioning anchors to the viewport, not the toolbar's backdrop-filter

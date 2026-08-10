@@ -7,6 +7,7 @@ import { findReturningMember } from "@/modules/recruitment/services/returning-me
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { PortalShell } from "./portal-shell";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { StatusCard } from "./status-card";
 import { BrandBackdrop } from "@/platform/branding/brand-backdrop";
 import { HavenLogo } from "@/platform/ui/haven-logo";
@@ -37,7 +38,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     const safeNext = safeNextPath(next);
     const deepLink = safeNext === PORTAL_HOME ? undefined : safeNext;
     return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden p-6">
         <BrandBackdrop />
         <div className="glass-panel relative z-10 w-full max-w-md rounded-2xl p-8 shadow-xl">
           <HavenLogo className="mx-auto h-8 text-brand-fg" />
@@ -71,6 +72,8 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
             </p>
           )}
         </div>
+
+        <CopyrightNotice tone="onBrand" className="relative z-10 text-center" />
       </div>
     );
   }

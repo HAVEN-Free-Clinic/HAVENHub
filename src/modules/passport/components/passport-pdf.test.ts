@@ -45,7 +45,7 @@ function textOf(node: unknown): string {
   if (node === null || node === undefined || node === false || node === true) return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join(" ");
-  if (typeof node === "object" && node !== null && "props" in node) {
+  if (typeof node === "object" && "props" in node) {
     const children = (node as { props?: { children?: unknown } }).props?.children;
     return textOf(children);
   }

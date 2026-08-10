@@ -133,13 +133,20 @@ function body(input: PassInput): Record<string, unknown> {
   };
 }
 
+/**
+ * A failed call carries its status so callers can distinguish the one failure
+ * that is unambiguous. `status: null` means the request never produced a
+ * response at all (no key, network error, timeout).
+ */
+type CallResult = { ok: true; response: Response } | { ok: false; status: number | null };
+
 async function call(
   path: string,
   method: "POST" | "PUT" | "DELETE",
   payload?: Record<string, unknown>,
-): Promise<Response | null> {
+): Promise<CallResult> {
   const key = config.WALLETWALLET_API_KEY;
-  if (!key) return null;
+  if (!key) return { ok: false, status: null };
   try {
     const response = await fetch(`${BASE}${path}`, {
       method,
@@ -171,12 +178,12 @@ async function call(
         status: response.status,
         ...(detail ? { detail } : {}),
       });
-      return null;
+      return { ok: false, status: response.status };
     }
-    return response;
+    return { ok: true, response };
   } catch (error) {
     log.error("[passport] wallet call threw", errorAttrs(error, { path, method }));
-    return null;
+    return { ok: false, status: null };
   }
 }
 
@@ -226,9 +233,9 @@ async function readPass(
 }
 
 export async function createPass(input: PassInput): Promise<PassResult | null> {
-  const response = await call("/api/passes", "POST", body(input));
-  if (!response) return null;
-  return readPass(response, "/api/passes", "POST");
+  const result = await call("/api/passes", "POST", body(input));
+  if (!result.ok) return null;
+  return readPass(result.response, "/api/passes", "POST");
 }
 
 /**
@@ -249,10 +256,20 @@ export async function createPass(input: PassInput): Promise<PassResult | null> {
  * carries no install URLs (see RefreshResult). Callers that need those must read
  * them from the stored WalletPass row.
  */
-export async function updatePass(serial: string, input: PassInput): Promise<RefreshResult | null> {
+export async function updatePass(
+  serial: string,
+  input: PassInput,
+): Promise<RefreshResult | "GONE" | null> {
   const path = `/api/passes/${encodeURIComponent(serial)}`;
-  const response = await call(path, "PUT", body(input));
-  if (!response) return null;
+  const result = await call(path, "PUT", body(input));
+  // A 404 is the ONE failure that is unambiguous: the vendor does not have this
+  // pass, so it was revoked or deleted there. Reported distinctly because it is
+  // the only case where minting a replacement cannot orphan anything, there
+  // being nothing left to orphan. Every other failure stays null, because the
+  // pass may well still exist and a duplicate we cannot revoke is worse than no
+  // badge (see the caller).
+  if (!result.ok) return result.status === 404 ? "GONE" : null;
+  const response = result.response;
 
   let parsed: unknown;
   try {
@@ -265,8 +282,8 @@ export async function updatePass(serial: string, input: PassInput): Promise<Refr
     return null;
   }
 
-  const result = parsed as Partial<RefreshResult> | null | undefined;
-  if (!result || typeof result.serialNumber !== "string" || result.serialNumber.length === 0) {
+  const ack = parsed as Partial<RefreshResult> | null | undefined;
+  if (!ack || typeof ack.serialNumber !== "string" || ack.serialNumber.length === 0) {
     log.error("[passport] wallet refresh returned no serialNumber", {
       path,
       method: "PUT",
@@ -275,15 +292,19 @@ export async function updatePass(serial: string, input: PassInput): Promise<Refr
     return null;
   }
   return {
-    serialNumber: result.serialNumber,
+    serialNumber: ack.serialNumber,
     // Both are informational and absent on some responses; default rather than
     // reject, since the refresh itself already succeeded.
-    notifiedDevices: typeof result.notifiedDevices === "number" ? result.notifiedDevices : 0,
-    unchanged: result.unchanged === true,
+    notifiedDevices: typeof ack.notifiedDevices === "number" ? ack.notifiedDevices : 0,
+    unchanged: ack.unchanged === true,
   };
 }
 
 /** Idempotent at the vendor: repeat deletes are documented no-ops. */
 export async function revokePass(serial: string): Promise<boolean> {
-  return Boolean(await call(`/api/passes/${encodeURIComponent(serial)}`, "DELETE"));
+  const result = await call(`/api/passes/${encodeURIComponent(serial)}`, "DELETE");
+  // A pass the vendor does not have is a pass that cannot be live on anyone's
+  // phone, which is the outcome revocation exists to guarantee. Treating 404 as
+  // success stops the reconciliation sweep retrying a serial forever.
+  return result.ok || result.status === 404;
 }

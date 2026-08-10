@@ -4,14 +4,15 @@ import { revalidatePath } from "next/cache";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
+import { PageHeader } from "@/platform/ui/page-header";
+import { SectionHeader } from "@/platform/ui/section-header";
 import { fullSchedule } from "@/modules/schedule/services/schedule";
 import { markPresent, undoAttendance } from "@/modules/schedule/services/attendance";
 import { displayTodayKey } from "@/platform/dates/today";
 import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
 import { isoDateKey } from "@/modules/schedule/engine/map";
-import { displayDate } from "@/modules/schedule/engine/display";
+import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { formatCalendarDate } from "@/platform/dates";
-import Link from "next/link";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -109,18 +110,23 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
   return (
     <div>
-      {/* Hero */}
-      <div className="rounded-2xl bg-brand px-8 py-6 text-white mb-8">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/60 mb-1">Full Schedule</p>
-        <h1 className="text-2xl font-bold tracking-tight">{selectedDisplay ?? "Select a date"}</h1>
-        {selectedDate && departments.length > 0 && (
-          <p className="mt-1 text-sm text-white/70">
-            {totalDirectors} director{totalDirectors !== 1 ? "s" : ""} &middot;{" "}
-            {totalVolunteers} volunteer{totalVolunteers !== 1 ? "s" : ""} &middot;{" "}
-            {totalShadows} shadow{totalShadows !== 1 ? "s" : ""} &middot;{" "}
-            {departments.length} department{departments.length !== 1 ? "s" : ""}
-          </p>
-        )}
+      <div className="mb-8">
+        <PageHeader
+          title="Full Schedule"
+          description={
+            term
+              ? `${term.name}${
+                  selectedDate && departments.length > 0
+                    ? ` · ${totalDirectors} director${totalDirectors !== 1 ? "s" : ""}, ${totalVolunteers} volunteer${
+                        totalVolunteers !== 1 ? "s" : ""
+                      }, ${totalShadows} shadow${totalShadows !== 1 ? "s" : ""} across ${departments.length} department${
+                        departments.length !== 1 ? "s" : ""
+                      }`
+                    : ""
+                }`
+              : undefined
+          }
+        />
       </div>
 
       {!term ? (
@@ -128,28 +134,16 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
       ) : (
         <>
           {/* Date strip */}
-          {clinicDates.length > 0 && (
-            <nav className="mb-8 flex flex-wrap gap-2" aria-label="Schedule dates">
-              {clinicDates.map((d) => {
-                const key = isoDateKey(d);
-                const isSelected = key === selectedKey;
-                return (
-                  <Link
-                    key={key}
-                    href={`/schedule/full?date=${key}`}
-                    aria-current={isSelected ? "page" : undefined}
-                    className={
-                      isSelected
-                        ? "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-brand text-white"
-                        : "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium bg-muted text-foreground-soft hover:bg-muted-strong transition-colors"
-                    }
-                  >
-                    {displayDate(key)}
-                  </Link>
-                );
-              })}
-            </nav>
-          )}
+          <div className="mb-8">
+            <ClinicDateStrip
+              dates={clinicDates}
+              selectedKey={selectedKey}
+              hrefFor={(key) => `/schedule/full?date=${key}`}
+              ariaLabel="Schedule dates"
+            />
+          </div>
+
+          {selectedDisplay && <SectionHeader level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
 
           {/* Department cards */}
           {departments.length === 0 ? (
@@ -163,15 +157,18 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                   key={department.id}
                   className={`${cardClasses({ pad: false })} overflow-hidden`}
                 >
-                  {/* Card header */}
-                  <div className="bg-brand px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm font-black uppercase tracking-widest text-white">
-                      {department.code}
-                    </span>
-                    <div className="flex items-center gap-2 text-xs text-white">
-                      {directors.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{directors.length} {directors.length === 1 ? "director" : "directors"}</span>}
-                      {volunteers.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{volunteers.length} {volunteers.length === 1 ? "volunteer" : "volunteers"}</span>}
-                      {shadows.length > 0 && <span className="bg-white/20 rounded-full px-2 py-0.5 font-medium">{shadows.length} {shadows.length === 1 ? "shadow" : "shadows"}</span>}
+                  {/* Card header. Neutral surface, not bg-brand: the brand colour means
+                      "selected" everywhere else in this module, and a grid of brand-capped
+                      cards spends it on decoration. */}
+                  <div className="border-b border-border bg-muted px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                    <SectionHeader as="h3" level="title" className="min-w-0 truncate">
+                      {department.name}
+                    </SectionHeader>
+                    <div className="flex items-center gap-1.5">
+                      <Badge>{department.code}</Badge>
+                      {directors.length > 0 && <Badge tone="brand">{directors.length} director{directors.length === 1 ? "" : "s"}</Badge>}
+                      {volunteers.length > 0 && <Badge tone="success">{volunteers.length} volunteer{volunteers.length === 1 ? "" : "s"}</Badge>}
+                      {shadows.length > 0 && <Badge tone="warning">{shadows.length} shadow{shadows.length === 1 ? "" : "s"}</Badge>}
                     </div>
                   </div>
 
@@ -181,7 +178,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Directors */}
                     {directors.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Directors</p>
+                        <SectionHeader as="h4" className="mb-1.5">Directors</SectionHeader>
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
@@ -201,7 +198,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Volunteers */}
                     {volunteers.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Volunteers</p>
+                        <SectionHeader as="h4" className="mb-1.5">Volunteers</SectionHeader>
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
@@ -225,7 +222,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     {/* Shadows */}
                     {shadows.length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-subtle-foreground mb-1.5">Shadows</p>
+                        <SectionHeader as="h4" className="mb-1.5">Shadows</SectionHeader>
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">

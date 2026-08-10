@@ -75,7 +75,7 @@ export function ReadinessPanel({
 
   return (
     <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
-      <h2 className="text-sm font-semibold text-foreground-soft">RHD Clinic Readiness</h2>
+      <SectionHeader as="h2" level="title" className="text-sm">RHD Clinic Readiness</SectionHeader>
 
       {/* Clinic config form */}
       <form action={clinicAction} className="flex flex-col gap-3">

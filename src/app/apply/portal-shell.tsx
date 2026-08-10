@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { AppFooter } from "@/platform/ui/app-footer";
 import { getSetting } from "@/platform/settings/service";
 import { cx } from "@/platform/ui/cx";
 
@@ -58,6 +59,7 @@ export async function PortalShell({
       >
         {children}
       </main>
+      <AppFooter width={width === "wide" ? "wide" : "prose"} />
     </div>
   );
 }

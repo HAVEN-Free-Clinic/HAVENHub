@@ -3,6 +3,7 @@ import { getOrgIdentity, formatOrgLine } from "@/platform/branding/org";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 
 export default async function NotFound() {
   const [org, support] = await Promise.all([getOrgIdentity(), getSupportContact()]);
@@ -28,6 +29,7 @@ export default async function NotFound() {
         </Link>
       </div>
       <p className="mt-6 text-xs text-subtle-foreground">{formatOrgLine(org)}</p>
+      <CopyrightNotice className="mt-1 text-center" />
     </main>
   );
 }

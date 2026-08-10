@@ -7,6 +7,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
@@ -59,7 +60,7 @@ export default async function LoginPage({
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden p-6">
       {/* Full-bleed brand backdrop, softened to read airy rather than heavy */}
       <Image
         src="/brand/login-building.webp"
@@ -191,6 +192,8 @@ export default async function LoginPage({
           </form>
         )}
       </div>
+
+      <CopyrightNotice tone="onBrand" className="relative z-10 text-center" />
     </div>
   );
 }

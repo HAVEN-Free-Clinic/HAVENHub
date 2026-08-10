@@ -53,7 +53,7 @@ describe("wallet client", () => {
 
     expect(result).toEqual(OK);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain("/api/passes");
+    expect(url).toBe("https://api.walletwallet.dev/api/passes");
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer ww_live_test");
   });
@@ -106,7 +106,7 @@ describe("wallet client", () => {
 
     expect(await revokePass("ser_123")).toBe(true);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain("/api/passes/ser_123");
+    expect(url).toBe("https://api.walletwallet.dev/api/passes/ser_123");
     expect(init.method).toBe("DELETE");
   });
 
@@ -138,7 +138,7 @@ describe("wallet client", () => {
       unchanged: false,
     });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain("/api/passes/ser_123");
+    expect(url).toBe("https://api.walletwallet.dev/api/passes/ser_123");
     expect(init.method).toBe("PUT");
   });
 

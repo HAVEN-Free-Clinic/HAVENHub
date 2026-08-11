@@ -13,8 +13,10 @@ import {
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
 import { PersonConflictError } from "@/platform/people";
+import { PhotoError, removePhoto, setPhotoFromUpload } from "@/platform/photos";
 import { MyInfoForm } from "@/modules/my-info/components/my-info-form";
 import { MembershipsCard } from "@/modules/my-info/components/memberships-card";
+import { PhotoCard } from "@/modules/my-info/components/photo-card";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
@@ -47,7 +49,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl] =
+  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl, maxMb] =
     await Promise.all([
       getMyInfo(person.personId),
       listMyCertificates(person.personId),
@@ -56,6 +58,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       getSetting<string>("branding.orgName"),
       getCredential(person.personId),
       getSetting<string>("app.baseUrl"),
+      getSetting<number>("uploads.maxMb"),
     ]);
   const { activeTerm } = myInfo;
 
@@ -120,6 +123,50 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       throw err;
     }
     redirect("/my-info?certSaved=1");
+  }
+
+  async function photoUploadAction(formData: FormData) {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    const file = formData.get("photo");
+    if (!(file instanceof File) || file.size === 0) {
+      redirect("/my-info?photoError=Choose+an+image+file.");
+    }
+    try {
+      await setPhotoFromUpload(
+        session.personId,
+        { type: file.type, size: file.size, bytes: Buffer.from(await file.arrayBuffer()) },
+        await getSetting<number>("uploads.maxMb")
+      );
+    } catch (err) {
+      if (err instanceof PhotoError) {
+        redirect(`/my-info?photoError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    // The account menu (rendered by the (app) layout, on every authenticated
+    // page) reads photoVersion from the session and renders it into the photo
+    // URL's ?v= cache-buster. That layout persists across soft navigation, so
+    // without this the menu would keep the pre-upload ?v= for the rest of the
+    // session -- and since the route itself is served with a one-year
+    // immutable Cache-Control, the browser would also hold the old bytes at
+    // that exact URL. revalidatePath("/", "layout") busts the Router Cache for
+    // every layout in the tree, including (app)/layout.tsx, so the very next
+    // render re-reads the session and picks up the new version.
+    revalidatePath("/", "layout");
+    redirect("/my-info?photoSaved=1");
+  }
+
+  async function photoRemoveAction() {
+    "use server";
+    const session = await requireModuleAccess("my-info");
+    await removePhoto(session.personId);
+    // Same reasoning as photoUploadAction above: removal also bumps
+    // photoVersion (and drops photoKey), and the account menu needs that
+    // fresh version on its very next render, not whenever the layout
+    // happens to re-run on its own.
+    revalidatePath("/", "layout");
+    redirect("/my-info?photoRemoved=1");
   }
 
   // The card also renders on /schedule, so both paths are revalidated: a member
@@ -199,6 +246,22 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       />
 
       <div className="mt-8 space-y-10">
+        {/* Photo */}
+        <section>
+          <SectionHeader className="mb-4">Photo</SectionHeader>
+          <PhotoCard
+            person={{
+              id: person.personId,
+              name: person.name,
+              photoVersion: myInfo.person.photoVersion,
+              photoKey: myInfo.person.photoKey,
+            }}
+            maxMb={maxMb}
+            uploadAction={photoUploadAction}
+            removeAction={photoRemoveAction}
+          />
+        </section>
+
         {/* Profile form */}
         <section>
           <SectionHeader className="mb-4">Profile</SectionHeader>

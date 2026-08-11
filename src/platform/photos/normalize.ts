@@ -11,6 +11,7 @@
  */
 import sharp from "sharp";
 import { PHOTO_SIZE, PhotoError } from "./shared";
+import { log, errorAttrs } from "@/platform/logging";
 
 /**
  * Decode, auto-orient, centre-crop square, resize, and re-encode as WebP.
@@ -27,10 +28,11 @@ export async function normalizePhoto(input: Buffer): Promise<Buffer> {
       .webp({ quality: 82 })
       .toBuffer();
   } catch (err) {
-    throw new PhotoError(
-      `Could not read that image. Use a PNG, JPEG, or WebP file. (${
-        err instanceof Error ? err.message : "unknown error"
-      })`
-    );
+    // sharp's own message (e.g. "Input buffer contains unsupported image
+    // format") is a decode-library internal, not something a member on the
+    // my-info upload form can act on. Log the real detail for developers and
+    // keep the member-facing message plain and actionable.
+    log.error("[photos] normalizePhoto failed to decode image", errorAttrs(err));
+    throw new PhotoError("Could not read that image. Use a PNG, JPEG, or WebP file.");
   }
 }

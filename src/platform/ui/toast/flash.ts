@@ -629,6 +629,24 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Certificate uploaded successfully.",
   },
   {
+    // my-info/page.tsx's photoUploadAction, via photo-card.tsx's upload form.
+    // photoError (the failure sibling) is not a registry entry at all: it is a
+    // plain `*Error`-suffixed param, so the convention above claims it with the
+    // redirect's own message text, exactly like certError.
+    params: ["photoSaved"],
+    pathnames: ["/my-info"],
+    tone: "success",
+    message: () => "Photo updated.",
+  },
+  {
+    // my-info/page.tsx's photoRemoveAction, via photo-card.tsx's remove form --
+    // the opt-out control's own confirmation that the removal took.
+    params: ["photoRemoved"],
+    pathnames: ["/my-info"],
+    tone: "success",
+    message: () => "Photo removed.",
+  },
+  {
     // recruitment/cycles/[id]/page.tsx:113 and actions.ts:134 (setCycleDepartmentsAction).
     params: ["deptsaved"],
     pathnames: ["/recruitment/cycles/*"],

@@ -91,4 +91,22 @@ describe("shouldAttemptYaliesPull", () => {
 
     expect(shouldAttemptYaliesPull(person, NOW)).toBe(false);
   });
+
+  it("attempts exactly when the backoff window expires", () => {
+    const person = eligible({
+      photoSyncMisses: 1,
+      photoSyncedAt: new Date(NOW.getTime() - backoffMs(1)),
+    });
+
+    expect(shouldAttemptYaliesPull(person, NOW)).toBe(true);
+  });
+
+  it("refuses when the backoff window has not yet elapsed", () => {
+    const person = eligible({
+      photoSyncMisses: 1,
+      photoSyncedAt: new Date(NOW.getTime() - backoffMs(1) + 1),
+    });
+
+    expect(shouldAttemptYaliesPull(person, NOW)).toBe(false);
+  });
 });

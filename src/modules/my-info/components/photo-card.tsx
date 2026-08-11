@@ -1,5 +1,13 @@
 /**
- * PhotoCard: the member's own photo, with upload and remove.
+ * PhotoCard: a person's photo, with upload and remove.
+ *
+ * Rendered on two surfaces with two different audiences, distinguished by the
+ * `audience` prop:
+ *
+ * - "member" (default): /my-info, where the member is managing their OWN
+ *   photo.
+ * - "admin": the admin person-detail page, where a staff member is managing
+ *   SOMEONE ELSE's photo.
  *
  * Yale College photos are auto-sourced from Yalies without asking first, so the
  * remove control here is the opt-out that makes that real. It is rendered
@@ -9,13 +17,22 @@
  * first (contrast HipaaPanel's "Replace this certificate" `<details>`, which is
  * deliberately NOT the pattern here).
  *
- * Discoverability of the control is only half of consent: a member who does
- * not know the photo was pulled from Yale's directory cannot meaningfully
- * decide to opt out of it. So when photoSource is "yalies", a one-line notice
- * renders right beside the photo, above the upload form and the remove
- * control, so it is read before either. A self-uploaded photo (photoSource
- * "upload") gets no such notice: the member already knows where that one
+ * Discoverability of the control is only half of consent: someone who does not
+ * know the photo was pulled from Yale's directory cannot meaningfully decide
+ * to opt out of it. So when photoSource is "yalies", a one-line notice renders
+ * right beside the photo, above the upload form and the remove control, so it
+ * is read before either. A self-uploaded photo (photoSource "upload") gets no
+ * such notice: whoever is looking at the card already knows where that one
  * came from.
+ *
+ * That notice's WORDING depends on audience, because it is written in the
+ * second person ("...if you would rather show your initials instead") on the
+ * member surface, addressed to the member about their own photo. Rendered
+ * verbatim to an admin looking at someone else's record, "you" would wrongly
+ * claim the photo belongs to the admin. The admin variant states the same
+ * fact -- the photo came from Yale's directory, not an upload -- in the third
+ * person instead, because the provenance itself is still information the
+ * admin needs to decide whether removal is warranted; only the framing changes.
  *
  * The server action receives the formData, reads the File, converts to Buffer,
  * and calls setPhotoFromUpload. PhotoError is redirected back with
@@ -36,20 +53,40 @@ type PhotoCardProps = {
   maxMb: number;
   uploadAction: (formData: FormData) => Promise<void>;
   removeAction: () => Promise<void>;
+  /**
+   * Who is looking at this card: "member" (default) for /my-info, where the
+   * person is managing their own photo; "admin" for the admin person-detail
+   * page, where a staff member is managing someone else's. Only changes the
+   * Yalies-sourced notice's wording -- see the module doc comment.
+   */
+  audience?: "member" | "admin";
 };
 
-export function PhotoCard({ person, photoSource, maxMb, uploadAction, removeAction }: PhotoCardProps) {
+export function PhotoCard({
+  person,
+  photoSource,
+  maxMb,
+  uploadAction,
+  removeAction,
+  audience = "member",
+}: PhotoCardProps) {
   return (
     <Card className="flex flex-wrap items-center gap-6">
       <PersonPhoto person={person} size={96} />
       <div className="flex-1 space-y-3">
         {/* The consent-legibility half of the opt-out (see module doc comment):
-            without this, a member has a remove button but no reason to press
-            it. Shown only for a Yalies-sourced photo; a self-uploaded one
-            needs no explanation of where it came from. */}
+            without this, whoever is looking at the card has a remove button
+            but no reason to press it. Shown only for a Yalies-sourced photo; a
+            self-uploaded one needs no explanation of where it came from. Copy
+            branches on audience: the member version is second person ("your
+            initials"); the admin version states the same provenance fact in
+            the third person, since it would be wrong to tell an admin the
+            photo is theirs. */}
         {photoSource === "yalies" && (
           <p className="text-sm text-muted-foreground">
-            This photo is from Yale&apos;s directory. Remove it if you would rather show your initials instead.
+            {audience === "admin"
+              ? "This photo was sourced from Yale's directory rather than uploaded."
+              : "This photo is from Yale's directory. Remove it if you would rather show your initials instead."}
           </p>
         )}
         <form action={uploadAction}>

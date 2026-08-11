@@ -1,0 +1,67 @@
+/**
+ * GET /api/people/[personId]/photo -- in-app member photo serving.
+ *
+ * The seam that keeps the Yalies API off every render path. Pages emit an <img>
+ * pointing here and never await a third party themselves; a slow Yalies degrades
+ * to one slow-loading avatar instead of a slow page. This is also the only route
+ * that triggers a lazy Yalies pull. The public credential photo route
+ * deliberately does not.
+ *
+ * Uses auth()/can() rather than requirePermission because the session helpers
+ * redirect on denial, and an <img> request needs a status code.
+ */
+import { auth } from "@/platform/auth/auth";
+import { prisma } from "@/platform/db";
+import { initialsSvg, resolvePhoto } from "@/platform/photos";
+import { can } from "@/platform/rbac/engine";
+
+type RouteContext = { params: Promise<{ personId: string }> };
+
+/** Raster/SVG only, so nosniff plus a null CSP neutralizes any active content. */
+const IMAGE_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+};
+
+/** The initials placeholder, never cached so a real photo can replace it. */
+async function initialsResponse(personId: string): Promise<Response> {
+  const person = await prisma.person
+    .findUnique({ where: { id: personId }, select: { name: true } })
+    .catch(() => null);
+
+  return new Response(initialsSvg(person?.name ?? null), {
+    status: 200,
+    headers: {
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": "no-store",
+      ...IMAGE_SECURITY_HEADERS,
+    },
+  });
+}
+
+export async function GET(_request: Request, context: RouteContext): Promise<Response> {
+  const { personId } = await context.params;
+
+  const session = await auth();
+  if (!session?.personId) return new Response("Unauthorized", { status: 401 });
+
+  if (session.personId !== personId && !(await can(session.personId, "admin.manage_people"))) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  // A photo failure must never break the surface asking for it. Reads degrade to
+  // initials, consistent with the app's posture when the database is unreachable.
+  const photo = await resolvePhoto(personId).catch(() => null);
+  if (!photo) return initialsResponse(personId);
+
+  return new Response(new Uint8Array(photo.bytes), {
+    status: 200,
+    headers: {
+      "Content-Type": photo.contentType,
+      // Safe despite the long max-age: the URL carries ?v=<photoVersion>, which
+      // increments on every set and every removal.
+      "Cache-Control": "private, max-age=31536000, immutable",
+      ...IMAGE_SECURITY_HEADERS,
+    },
+  });
+}

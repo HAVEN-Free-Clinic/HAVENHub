@@ -108,15 +108,23 @@ src/platform/intercom/
   jwt.ts           # Messenger JWT minting (shipped)
   messenger.tsx    # client boot + refresh + shutdown (shipped)
   identity.ts      # resolve + verify a claimed Person.id
-  audit.ts         # tool-call audit wrapper
+  audit.ts         # tool-call audit recording
+src/app/api/mcp/
+  route.ts         # MCP transport endpoint
   tools/
-    index.ts       # registry
+    index.ts       # registry + the free-form-identity guard
     scheduling.ts
     compliance.ts
     roster.ts
     recruitment.ts
-src/app/api/mcp/route.ts   # MCP transport endpoint
 ```
+
+The tools live in the app layer, not under `src/platform/intercom/`, because
+`import/no-restricted-paths` forbids platform code from importing module code, and forbids modules
+from importing each other. A tool surface spanning schedule, compliance, roster, and recruitment can
+therefore only be composed where both are legal imports, which is `src/app` (the same freedom
+`(app)/layout.tsx` already uses). `identity.ts` and `audit.ts` stay in platform because they import
+nothing from `src/modules`.
 
 Tools are narrow verbs, never a generic query surface. There is no "run this query" tool and no tool
 that accepts a table or column name. This holds even though permissions are mirrored: an injected

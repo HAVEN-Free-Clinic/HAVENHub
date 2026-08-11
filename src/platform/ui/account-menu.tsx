@@ -3,16 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { UserRoundPen, GraduationCap, LogOut } from "lucide-react";
-
-/** First letters of the first and last name parts, e.g. "Maya Chen" -> "MC". */
-function toInitials(name: string | null): string {
-  if (!name) return "·";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "·";
-  const first = parts[0][0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
-  return (first + last).toUpperCase();
-}
+import { PersonPhoto } from "./person-photo";
 
 /**
  * The account disclosure in the toolbar: personal pages (My Info, Training) and
@@ -29,11 +20,11 @@ function toInitials(name: string | null): string {
  * never pulls the auth module into the browser bundle.
  */
 export function AccountMenu({
-  userName,
+  person,
   termLabel,
   signOutAction,
 }: {
-  userName: string | null;
+  person: { id: string; name: string | null; photoVersion: number };
   termLabel: string | null;
   signOutAction: () => Promise<void>;
 }) {
@@ -74,18 +65,13 @@ export function AccountMenu({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2.5 rounded-full p-0.5 transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        <span
-          aria-hidden
-          className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-xs font-semibold tracking-wide text-white"
-        >
-          {toInitials(userName)}
-        </span>
+        <PersonPhoto person={person} size={32} />
       </button>
 
       {open && (
         <div className="glass-panel absolute right-0 top-11 z-40 w-60 overflow-hidden rounded-xl p-1.5">
           <div className="border-b border-border-subtle px-2.5 pb-2.5 pt-1.5">
-            <p className="truncate text-sm font-semibold text-foreground">{userName ?? "Signed in"}</p>
+            <p className="truncate text-sm font-semibold text-foreground">{person.name ?? "Signed in"}</p>
             {termLabel && <p className="mt-0.5 text-xs text-muted-foreground">{termLabel}</p>}
           </div>
 

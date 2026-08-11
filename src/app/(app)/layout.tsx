@@ -47,6 +47,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         userName={person.name}
         termLabel={activeTerm?.name ?? null}
         personId={person.personId}
+        photoVersion={person.photoVersion}
         personThemePreference={person.themePreference}
         extraModuleIds={extraModuleIds}
         extraNavItems={extraNavItems}

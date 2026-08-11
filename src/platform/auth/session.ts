@@ -22,6 +22,7 @@ export type PersonSession = {
   name: string | null;
   email: string | null;
   themePreference: string | null;
+  photoVersion: number;
 };
 
 /**
@@ -108,6 +109,7 @@ export async function requirePersonSession(): Promise<PersonSession> {
     name: person.name,
     email: person.contactEmail ?? session.user?.email ?? null,
     themePreference: person.themePreference ?? null,
+    photoVersion: person.photoVersion,
   };
   await enforceOnboarding(person.id);
   return result;

@@ -12,7 +12,8 @@
  */
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
-import { prisma } from "@/platform/db";
+import { isDbUnreachableError, prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 import { initialsSvg, resolvePhoto } from "@/platform/photos";
 import { can } from "@/platform/rbac/engine";
 
@@ -49,7 +50,28 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   // The JWT lives 7 days and does not revalidate Person.status on its own, so an
   // offboarded person must be rejected here rather than trusted from the token.
   // Same convention as the other routes that combine auth() with can() directly.
-  const person = await getActivePerson(session.personId);
+  //
+  // This is the revocation check, so a database blip must never resolve as
+  // "still active" -- unlike resolvePhoto below, there is no safe fallback
+  // content here, only a safe status code. It also runs on every avatar on
+  // every page (this route has far more blast radius than the one-off
+  // routes this pattern is copied from), so an unguarded call would turn one
+  // Neon blip into a 500 storm across the whole app instead of one degraded
+  // response. The guard has to live here at the route boundary, not inside
+  // getActivePerson itself, because only the caller knows 503 is the right
+  // answer for this particular lookup; other callers of getActivePerson may
+  // want different handling. Non-connectivity errors still rethrow, so a
+  // real bug in the lookup stays visible instead of being swallowed as 503.
+  let person;
+  try {
+    person = await getActivePerson(session.personId);
+  } catch (err) {
+    if (isDbUnreachableError(err)) {
+      log.warn("[people-photo] database unreachable revalidating the caller", errorAttrs(err));
+      return new Response("Service Unavailable", { status: 503 });
+    }
+    throw err;
+  }
   if (!person) return new Response("Forbidden", { status: 403 });
 
   if (person.id !== personId && !(await can(person.id, "admin.manage_people"))) {

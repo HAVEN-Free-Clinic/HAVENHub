@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
@@ -7,9 +8,16 @@ vi.mock("@/platform/photos", () => ({
   resolvePhoto: vi.fn(),
   initialsSvg: vi.fn(() => "<svg></svg>"),
 }));
-vi.mock("@/platform/db", () => ({
-  prisma: { person: { findUnique: vi.fn(async () => ({ name: "Ada Lovelace" })) } },
-}));
+// Keep the real isDbUnreachableError (it's pure: an instanceof check against
+// Prisma's error classes) while replacing prisma itself with a manual mock.
+// Mirrors src/app/api/calendar/[token]/route.test.ts.
+vi.mock("@/platform/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/db")>();
+  return {
+    ...actual,
+    prisma: { person: { findUnique: vi.fn(async () => ({ name: "Ada Lovelace" })) } },
+  };
+});
 
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
@@ -70,6 +78,31 @@ describe("GET /api/people/[personId]/photo", () => {
 
     expect(res.status).toBe(403);
     expect(vi.mocked(resolvePhoto)).not.toHaveBeenCalled();
+  });
+
+  it("returns 503, not a crash, when the database is unreachable revalidating the person", async () => {
+    vi.mocked(getActivePerson).mockRejectedValue(
+      new Prisma.PrismaClientInitializationError(
+        "Can't reach database server at ep-broad-brook.neon.tech:5432",
+        "5.0.0"
+      )
+    );
+
+    const res = await GET(request(), context("p1"));
+
+    expect(res.status).toBe(503);
+    expect(vi.mocked(resolvePhoto)).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a non-connectivity error from the person lookup", async () => {
+    vi.mocked(getActivePerson).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "5.0.0",
+      })
+    );
+
+    await expect(GET(request(), context("p1"))).rejects.toThrow("Unique constraint failed");
   });
 
   it("refuses one member reading another's photo", async () => {

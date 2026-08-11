@@ -29,8 +29,39 @@ if (isUploadRef && !uploadSourcemaps) {
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  /**
+   * Files the build must ship that static tracing cannot discover on its own.
+   *
+   * `@img/**` is sharp's native payload, and it is here because sharp is split
+   * across two packages. The binding (`@img/sharp-<platform>/lib/*.node`) is
+   * require'd, so tracing finds it. The 17MB shared library it dlopens lives in
+   * the sibling `@img/sharp-libvips-<platform>`, whose entry point is literally
+   * `module.exports = __dirname`: the library is located by path at runtime and
+   * referenced by no import anywhere, so tracing ships the binding, drops the
+   * library, and the function dies on first use with
+   * "ERR_DLOPEN_FAILED: libvips-cpp.so.<version>: cannot open shared object file".
+   *
+   * Scoped to `sharp-libvips-*` rather than all of `@img/**` because that is the
+   * only genuine gap: the binding traces correctly on its own (verified by
+   * inspecting a build without this entry). npm installs only the current
+   * platform's optional packages, so this expands to one directory, not every
+   * architecture.
+   *
+   * Note for anyone here about bundle size: `@img/sharp-wasm32` is roughly 9MB
+   * and ships regardless of this entry, because sharp's own loader references it
+   * as a fallback and tracing follows that. Narrowing this glob does not remove
+   * it; that would need a different lever.
+   *
+   * Nothing in the test suite can catch a regression here, because tracing only
+   * happens at build time and `npm test` runs against an intact node_modules. To
+   * verify a change, run `next build` and confirm the library is present:
+   *   find .next/standalone -name "libvips-cpp*"
+   */
   outputFileTracingIncludes: {
-    "*": ["./node_modules/.prisma/client/**"],
+    "*": [
+      "./node_modules/.prisma/client/**",
+      "./node_modules/@img/sharp-libvips-*/**",
+    ],
   },
   experimental: {
     serverActions: {

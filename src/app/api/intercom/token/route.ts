@@ -4,6 +4,8 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { log, errorAttrs } from "@/platform/logging";
 import { isIntercomConfigured } from "@/platform/intercom/config";
 import { mintIntercomUserJwt, INTERCOM_TOKEN_TTL_SECONDS } from "@/platform/intercom/jwt";
+import { buildAudienceAttributes } from "@/platform/intercom/audience";
+import { getEffectivePermissions } from "@/platform/rbac/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,10 +47,16 @@ export async function GET(): Promise<Response> {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Audience flags ride on the token rather than being pushed to Intercom by a
+    // separate sync job, so they are recomputed from live permissions on every
+    // Messenger boot and cannot drift into a stale copy.
+    const perms = await getEffectivePermissions(person.id);
+
     const token = await mintIntercomUserJwt({
       personId: person.id,
       name: person.name,
       email: person.contactEmail ?? null,
+      audience: buildAudienceAttributes(perms),
     });
 
     return Response.json(

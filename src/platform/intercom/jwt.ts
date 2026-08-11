@@ -16,6 +16,13 @@ export type IntercomUserClaims = {
   personId: string;
   name: string | null;
   email: string | null;
+  /**
+   * Help-centre audience flags (see audience.ts). Required, not optional: an
+   * omitted attribute is not "unset" to Intercom, it keeps its previous value,
+   * so forgetting to pass these would silently leave revoked permissions
+   * granted on the contact.
+   */
+  audience: Record<string, boolean>;
 };
 
 /**
@@ -29,6 +36,10 @@ export type IntercomUserClaims = {
  *
  * Optional claims are omitted rather than sent as null: Intercom treats a
  * present-but-null attribute as an instruction to clear it on the contact.
+ *
+ * Audience flags are the deliberate exception to that rule and are always sent
+ * in full, false values included. See buildAudienceAttributes for why omitting
+ * one would leave a revoked permission granted.
  */
 export async function mintIntercomUserJwt(claims: IntercomUserClaims): Promise<string> {
   const secret = intercomMessengerSecret();
@@ -38,6 +49,7 @@ export async function mintIntercomUserJwt(claims: IntercomUserClaims): Promise<s
     user_id: claims.personId,
     ...(claims.email ? { email: claims.email } : {}),
     ...(claims.name ? { name: claims.name } : {}),
+    ...claims.audience,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()

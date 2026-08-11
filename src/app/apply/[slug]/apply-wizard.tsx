@@ -540,7 +540,11 @@ export function ApplyWizard({
             {renewalGate && (
               <Card className="space-y-3">
                 <p className="text-sm text-foreground">Returning {roleNoun}s sign in with Yale so we can verify your renewal and fill in your information.</p>
-                <YaleSignInButton next={`/apply/${def.slug}?type=renewal`} className="w-full sm:w-auto" />
+                {/* The button lives inside a <form> (block-level), so sm:w-auto
+                    would not shrink-wrap it the way it did on the old inline-flex
+                    <a>. sm:w-fit makes the block form hug the inner w-full
+                    Button's natural content width instead. */}
+                <YaleSignInButton next={`/apply/${def.slug}?type=renewal`} className="w-full sm:w-fit" />
               </Card>
             )}
           </>

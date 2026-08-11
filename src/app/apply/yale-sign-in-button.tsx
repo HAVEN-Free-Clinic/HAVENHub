@@ -30,7 +30,7 @@ function SubmitButton() {
   return (
     <Button type="submit" size="lg" disabled={pending} aria-busy={pending} className="w-full gap-2">
       {pending && <Spinner size="sm" />}
-      {pending ? "Signing in..." : "Sign in with Yale"}
+      {pending ? "Signing in…" : "Sign in with Yale"}
     </Button>
   );
 }

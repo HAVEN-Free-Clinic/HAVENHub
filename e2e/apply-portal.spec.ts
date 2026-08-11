@@ -13,6 +13,15 @@ test("apply portal: tab title uses the configurable portal title", async ({ page
   await expect(page).toHaveTitle(/HAVEN Application Portal/);
 });
 
+// apply/page.tsx inline-renders this Alert for error=signin (the Entra
+// callback's failure redirect) rather than routing it through the flash-toast
+// table like every other /apply error code. No auth or cycle fixture needed:
+// the signed-out portal home renders this for any visitor.
+test("apply portal: shows a sign-in failure alert for error=signin", async ({ page }) => {
+  await page.goto("/apply?error=signin");
+  await expect(page.getByText(/We couldn't sign you in with Yale\. Please try again\./)).toBeVisible();
+});
+
 test.setTimeout(120_000);
 
 async function devLogin(page: import("@playwright/test").Page, email: string) {

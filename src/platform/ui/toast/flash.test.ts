@@ -559,8 +559,10 @@ describe("classifyFlashParams", () => {
 
   // ---------------------------------------------------------------------------
   // /apply's one slug code: the public, unauthenticated first-touch surface.
-  // apply/verify/page.tsx:44 redirects to /apply?error=link; apply/page.tsx:54-56
-  // renders this exact text. Before this entry existed, the toast read "link".
+  // apply/verify/page.tsx:44 redirects to /apply?error=link. /apply inline-renders
+  // ONLY error=signin (its own Alert, unrelated to this code); error=link has no
+  // inline renderer there, so it must keep resolving through this table to a
+  // toast. Before this entry existed, the toast read "link".
   // ---------------------------------------------------------------------------
 
   it("resolves error=link on /apply to its real text", () => {

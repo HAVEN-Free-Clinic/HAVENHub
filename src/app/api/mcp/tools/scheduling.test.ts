@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/modules/schedule/services/schedule", () => ({ mySchedule: vi.fn() }));
+// displayTodayKey (platform/dates/today.ts) resolves "today" via getDisplayTimeZone,
+// which reads a DB-backed setting. Pin the zone so the day-key comparison under test
+// is deterministic and this stays a pure unit test, the same way dates/today.test.ts
+// and actions.posthog.test.ts stub this same dependency.
+vi.mock("@/platform/dates/resolve", () => ({
+  getDisplayTimeZone: vi.fn(async () => "America/New_York"),
+}));
 
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { myNextShiftTool } from "./scheduling";
@@ -81,5 +88,48 @@ describe("my_next_shift", () => {
 
   it("takes no input at all, so nothing about the request is model-chosen", () => {
     expect(Object.keys(myNextShiftTool.inputSchema.shape)).toEqual([]);
+  });
+
+  it("treats a same-day shift as upcoming, not past", async () => {
+    // 11am ET on the shift's own day. clinicDate is UTC midnight for that same
+    // day, so a raw `clinicDate >= now` comparison would already read this
+    // shift as in the past by this point in the morning.
+    vi.setSystemTime(new Date("2026-09-12T15:00:00Z"));
+    mocked(mySchedule).mockResolvedValue({
+      terms: [{ isLive: true, shifts: [shift("2026-09-12T00:00:00Z", "Triage")] }],
+    });
+
+    const text = await myNextShiftTool.run({ personId: "p1" }, {});
+
+    expect(text).not.toMatch(/no upcoming shifts/i);
+    expect(text).toContain("Triage");
+  });
+
+  it("finds a shift in a next (non-live) term when the live term is exhausted", async () => {
+    mocked(mySchedule).mockResolvedValue({
+      terms: [
+        { isLive: true, shifts: [shift("2026-09-01T00:00:00Z", "Triage")] },
+        { isLive: false, shifts: [shift("2026-09-20T00:00:00Z", "Internal Medicine")] },
+      ],
+    });
+
+    const text = await myNextShiftTool.run({ personId: "p1" }, {});
+
+    expect(text).toContain("Internal Medicine");
+    expect(text).not.toMatch(/no upcoming shifts/i);
+  });
+
+  it("picks the earliest shift across terms, not just the live term's", async () => {
+    mocked(mySchedule).mockResolvedValue({
+      terms: [
+        { isLive: true, shifts: [shift("2026-09-26T00:00:00Z", "Internal Medicine")] },
+        { isLive: false, shifts: [shift("2026-09-15T00:00:00Z", "Triage")] },
+      ],
+    });
+
+    const text = await myNextShiftTool.run({ personId: "p1" }, {});
+
+    expect(text).toContain("Triage");
+    expect(text).not.toContain("Internal Medicine");
   });
 });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { mySchedule } from "@/modules/schedule/services/schedule";
-import { formatCalendarDate } from "@/platform/dates";
+import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { displayTodayKey } from "@/platform/dates/today";
 import type { McpTool } from "./index";
 
 /**
@@ -20,12 +21,25 @@ export const myNextShiftTool: McpTool = {
   inputSchema: z.object({}),
   run: async (ctx) => {
     const { terms } = await mySchedule(ctx.personId);
-    const live = terms.find((t) => t.isLive);
-    if (!live) return "You have no upcoming shifts scheduled.";
 
     const now = new Date();
-    const upcoming = live.shifts
-      .filter((s) => s.clinicDate >= now)
+    // clinicDate is stored at UTC midnight, so comparing it against a raw
+    // wall-clock `now` (Date >= Date) misreads a shift as already "past" from
+    // roughly 8pm ET the evening before, straight through the entire day it
+    // actually happens -- exactly the window when a member is most likely to
+    // ask this. Compare by day key instead, anchored to the display-zone (ET)
+    // calendar day, the same fix fullSchedule and displayTodayKey both carry.
+    const todayKey = await displayTodayKey(now);
+
+    // Every term mySchedule returns is a real candidate, not just the live
+    // one: a member's next-term shifts are already visible once their
+    // department publishes, ahead of the live/next flip (see mySchedule's own
+    // doc comment). Restricting to the live term would wrongly report
+    // "nothing upcoming" for someone whose live-term shifts are exhausted but
+    // who already has a published next-term shift.
+    const upcoming = terms
+      .flatMap((t) => t.shifts)
+      .filter((s) => isoDateKey(s.clinicDate) >= todayKey)
       .sort((a, b) => a.clinicDate.getTime() - b.clinicDate.getTime());
 
     const next = upcoming[0];

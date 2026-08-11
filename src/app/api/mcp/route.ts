@@ -1,7 +1,8 @@
 import { createMcpHandler } from "mcp-handler";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { isMcpConfigured, mcpBearerToken } from "@/platform/intercom/config";
-import { resolveIntercomIdentity } from "@/platform/intercom/identity";
+import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { recordToolCall } from "@/platform/intercom/audit";
 import { constantTimeBearerMatch } from "@/platform/security";
 import { log, errorAttrs } from "@/platform/logging";
@@ -10,8 +11,21 @@ import { MCP_TOOLS } from "./tools";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Header Fin sets from the verified contact attribute. Never a tool argument. */
-const IDENTITY_HEADER = "X-Intercom-Person-Id";
+/**
+ * The one reserved tool input, bound in Intercom to the conversation attribute.
+ *
+ * This was a request header until production proved Fin cannot send one: every
+ * call 403'd because the header never arrived, while bearer auth passed. Fin's
+ * custom MCP connector can only populate tool inputs, so identity had to move
+ * into the schema.
+ *
+ * It carries a CONVERSATION id, never a person id, and that distinction is the
+ * whole safety argument. The model cannot assert who it is; it can only name a
+ * conversation, and the server asks Intercom who owns that conversation. A
+ * swapped value therefore has to be another member's real conversation id, not
+ * merely another member's id -- see resolveIdentityFromConversation.
+ */
+const CONVERSATION_ID_ARG = "conversation_id";
 
 /**
  * Fixed, non-revealing text returned to the member when a tool throws.
@@ -28,27 +42,77 @@ const TOOL_FAILURE_MESSAGE = "Sorry, I could not look that up right now.";
 const REQUEST_LEVEL_TOOL = "(request)";
 
 /**
- * Registers every tool against one request's MCP server, closing over the
- * personId `guard()` already verified for that request.
- *
- * mcp-handler's tool callback gets no access to the original request or its
- * headers (its second argument, `ServerContext`, carries protocol plumbing
- * only -- no `requestInfo`). So identity cannot be re-derived inside the
- * callback; it must already be in scope. Building the server fresh per
- * request and closing over `personId` here is what makes that structurally
- * true: there is no code path in which a tool sees an unverified caller,
- * because the only personId a tool can ever reach is the one guard() proved.
+ * Text returned when we cannot establish who is asking. Deliberately does not
+ * distinguish "no conversation id", "no such conversation", "that conversation
+ * has no contact", and "that contact is not an active member": telling a caller
+ * which of those it hit is a probe for enumerating real conversations.
  */
-function registerTools(server: McpServer, personId: string): void {
+const UNIDENTIFIED_MESSAGE =
+  "I could not confirm who you are, so I cannot look that up. Please contact a human on the team.";
+
+/**
+ * Registers every tool against one request's MCP server.
+ *
+ * Identity is resolved per call rather than per request, because the
+ * conversation id arrives inside the tool's own arguments and simply is not
+ * available earlier. `guard()` still runs first, but it can only prove the
+ * caller is our connector, not which member it is speaking for.
+ *
+ * The wrapper is the whole enforcement point. `tool.run` receives a personId
+ * only on the path where resolveIdentityFromConversation returned ok, so a tool
+ * cannot observe an unverified caller, and no tool implements identity handling
+ * itself. The reserved argument is stripped before `run` sees the rest, so
+ * tools never get the chance to use the raw conversation id for anything.
+ */
+function registerTools(server: McpServer): void {
   for (const tool of MCP_TOOLS) {
     server.registerTool(
       tool.name,
-      { title: tool.title, description: tool.description, inputSchema: tool.inputSchema },
+      {
+        title: tool.title,
+        description: tool.description,
+        // Injected here, centrally, rather than declared by each tool. A tool
+        // author cannot forget it, cannot name it something else, and cannot
+        // opt out -- and the registry's guard test keeps working unchanged,
+        // because tools' own schemas still declare no identity-shaped input.
+        inputSchema: tool.inputSchema.extend({
+          [CONVERSATION_ID_ARG]: z
+            .string()
+            .describe(
+              "The id of the current Intercom conversation. Bind this to the conversation attribute; never let the model choose it."
+            ),
+        }),
+      },
       async (args) => {
+        const { [CONVERSATION_ID_ARG]: conversationId, ...toolArgs } = (args ?? {}) as Record<
+          string,
+          unknown
+        >;
+
+        const identity =
+          typeof conversationId === "string" && conversationId.length > 0
+            ? await resolveIdentityFromConversation(conversationId)
+            : ({ ok: false, reason: "unverified" } as const);
+
+        if (!identity.ok) {
+          // Audited with a null actor: we genuinely do not know who this was,
+          // and a run of these is what an Intercom-side misconfiguration (an
+          // input left on "let Fin decide", or unbound entirely) looks like
+          // from here. See recordToolCall's doc comment.
+          await recordToolCall({
+            personId: null,
+            tool: tool.name,
+            args: toolArgs,
+            outcome: "unverified",
+          });
+          return { content: [{ type: "text" as const, text: UNIDENTIFIED_MESSAGE }] };
+        }
+
+        const personId = identity.personId;
         let outcome: "ok" | "denied" = "ok";
         let text: string;
         try {
-          text = await tool.run({ personId }, args);
+          text = await tool.run({ personId }, toolArgs);
         } catch (err) {
           // Never let the thrown error's message, stack, or cause reach the
           // returned content -- see TOOL_FAILURE_MESSAGE's doc comment for why.
@@ -58,7 +122,7 @@ function registerTools(server: McpServer, personId: string): void {
         } finally {
           // In finally so both success and failure get recorded -- a failing
           // tool call is exactly as important to audit as a succeeding one.
-          await recordToolCall({ personId, tool: tool.name, args, outcome });
+          await recordToolCall({ personId, tool: tool.name, args: toolArgs, outcome });
         }
         return { content: [{ type: "text" as const, text }] };
       }
@@ -67,16 +131,17 @@ function registerTools(server: McpServer, personId: string): void {
 }
 
 /**
- * Gate every request before it reaches the MCP machinery, and hand back the
- * identity it verified so the caller can build a server scoped to it.
+ * Gate every request before it reaches the MCP machinery.
  *
- * Bearer auth proves the caller is our Fin connector. The identity header
- * proves which member the conversation belongs to, and is verified against
- * Intercom rather than trusted. Both must pass; there is no anonymous or
- * reduced-scope path, because a caller we cannot identify is one we cannot
- * authorize.
+ * This proves the caller is our Fin connector and nothing more. It deliberately
+ * no longer decides WHO the request speaks for: that depends on the conversation
+ * id, which lives in a tool's arguments and is not visible at request level.
+ * Identity is enforced in the tool wrapper instead (see registerTools).
+ *
+ * The distinction matters when reading this file: passing guard() is not
+ * authorization, only authentication of the connector.
  */
-async function guard(request: Request): Promise<Response | { personId: string }> {
+async function guard(request: Request): Promise<Response | null> {
   if (!isMcpConfigured()) {
     return Response.json({ error: "Not Found" }, { status: 404 });
   }
@@ -90,36 +155,21 @@ async function guard(request: Request): Promise<Response | { personId: string }>
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const claimed = request.headers.get(IDENTITY_HEADER);
-  if (!claimed) {
-    // "Fin stopped sending the identity header" is precisely the Intercom-side
-    // misconfiguration recordToolCall exists to surface (see its doc comment),
-    // so this must be audited exactly like a claim that failed to verify.
-    await recordToolCall({ personId: null, tool: REQUEST_LEVEL_TOOL, args: {}, outcome: "unverified" });
-    return Response.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const identity = await resolveIntercomIdentity(claimed);
-  if (!identity.ok) {
-    await recordToolCall({ personId: null, tool: REQUEST_LEVEL_TOOL, args: {}, outcome: "unverified" });
-    return Response.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return { personId: identity.personId };
+  return null;
 }
 
 /**
  * mcp-handler documents its factory as building one fresh McpServer per HTTP
- * request under createMcpHandler. That is what makes it safe to construct
- * the handler here, inside the request path, after guard() has already
- * resolved identity -- each request gets its own server, tools, and closure,
- * so nothing from one caller's personId can leak into another's request.
+ * request under createMcpHandler, so each request gets its own server and
+ * tools. Nothing is closed over per-caller any more -- identity now resolves
+ * inside each tool call -- but building per request keeps that property true
+ * for anything added later.
  */
 async function handle(request: Request): Promise<Response> {
-  const gate = await guard(request);
-  if (gate instanceof Response) return gate;
+  const denied = await guard(request);
+  if (denied) return denied;
 
-  const handler = createMcpHandler((server) => registerTools(server, gate.personId));
+  const handler = createMcpHandler((server) => registerTools(server));
   return handler(request);
 }
 

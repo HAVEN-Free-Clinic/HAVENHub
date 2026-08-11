@@ -80,8 +80,27 @@ The chain runs:
 3. The MCP tool input for identity binds to that contact attribute, so Intercom supplies it.
 4. The MCP server receives a `Person.id` with cryptographic provenance.
 
-Step 3 is configuration rather than code, which is the weak link. So the server treats the incoming
-identifier as a **claim to verify, never as proof**:
+**Superseded 2026-08-11, by production evidence.** Steps 3 and 4 above described identity arriving
+in an `X-Intercom-Person-Id` request header, chosen so it stayed out of every tool schema. Fin
+cannot do that: once the connector was live, every call returned 403 because the header never
+arrived, while bearer auth passed. Fin's custom MCP connector can only populate tool *inputs*.
+
+Identity therefore travels as one reserved tool input, and it carries a **conversation id, not a
+person id**. That distinction is the safety argument. The model cannot assert "I am person X"; it
+can only name a conversation, and the server asks Intercom who owns it
+(`resolveIdentityFromConversation`). A swapped value has to be another member's real conversation
+id rather than merely another member's id, and the resolver fails closed on a conversation with no
+contacts or several. The reserved input is injected centrally by the route, so no tool declares it,
+no tool author can forget it, and the registry guard still holds that tools declare no
+identity-shaped input of their own. The raw conversation id is stripped before a tool's `run` sees
+its arguments.
+
+The older `resolveIntercomIdentity` (person-id based) is retained but is no longer on the request
+path. Its own doc comment records why it was never strong enough to carry this alone: keyed BY
+external_id, a 200 can only prove the supplied id names someone real.
+
+Step 3 remains configuration rather than code, which is still the weak link. So the server treats
+the incoming identifier as a **claim to verify, never as proof**:
 
 - Every tool call resolves the claimed `Person.id` through `getActivePerson()`. An offboarded or
   deleted person fails closed, exactly as the token route does.

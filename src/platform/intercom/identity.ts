@@ -20,6 +20,86 @@ export type ResolvedIdentity =
   | { ok: false; reason: "unverified" | "unknown_person" | "lookup_failed" };
 
 /**
+ * Resolves who is in an Intercom conversation, from the conversation id alone.
+ *
+ * This exists because Fin's custom MCP connector cannot set request headers.
+ * Confirmed in production: the endpoint returned 403 on every call because
+ * X-Intercom-Person-Id never arrived, while bearer auth passed. Identity
+ * therefore has to travel as a tool input, and that is a weaker position --
+ * anything the model can fill in, a prompt injection can try to steer.
+ *
+ * Taking the CONVERSATION id rather than a person id is what claws most of that
+ * back. The model never gets to assert "I am person X"; it can only name a
+ * conversation, and we ask Intercom who owns it. Compare resolveIntercomIdentity
+ * above, which can only confirm that a supplied id names someone real: this one
+ * derives the answer from Intercom's own record instead of taking it on trust,
+ * so a swapped value has to be another member's real conversation id rather
+ * than merely another member's id.
+ *
+ * Fails closed on anything ambiguous. A conversation with no contacts (Intercom
+ * returns these -- observed in this workspace) or with several is not something
+ * we can pin to one member, and guessing which is exactly the kind of judgement
+ * that turns into a cross-account read.
+ */
+export async function resolveIdentityFromConversation(
+  conversationId: string
+): Promise<ResolvedIdentity> {
+  const token = intercomAccessToken();
+  if (!token) return { ok: false, reason: "lookup_failed" };
+
+  const endpoint = "conversations/:id";
+  let contacts: Array<{ external_id?: string | null }> = [];
+  try {
+    const res = await fetch(
+      `${INTERCOM_API}/conversations/${encodeURIComponent(conversationId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Intercom-Version": INTERCOM_API_VERSION,
+        },
+        cache: "no-store",
+      }
+    );
+    // 404 means no such conversation in this workspace, which is what a made-up
+    // or swapped id looks like. Refusal, not an outage.
+    if (res.status === 404) return { ok: false, reason: "unverified" };
+    if (!res.ok) {
+      log.warn("[intercom-mcp] conversation lookup failed", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        status: res.status,
+      });
+      return { ok: false, reason: "lookup_failed" };
+    }
+    const body = (await res.json()) as {
+      contacts?: { contacts?: Array<{ external_id?: string | null }> };
+    };
+    contacts = body.contacts?.contacts ?? [];
+  } catch (err) {
+    log.warn(
+      "[intercom-mcp] conversation lookup failed",
+      errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
+    );
+    return { ok: false, reason: "lookup_failed" };
+  }
+
+  // Exactly one, or we cannot say who is asking.
+  if (contacts.length !== 1) return { ok: false, reason: "unverified" };
+
+  const externalId = contacts[0]?.external_id;
+  // A contact with no external_id never booted our Messenger (a lead, or an
+  // Intercom-native contact), so there is no Person behind it to authorize.
+  if (!externalId) return { ok: false, reason: "unverified" };
+
+  // Same revocation check as the id path: Intercom's record can outlive ours.
+  const person = await getActivePerson(externalId);
+  if (!person) return { ok: false, reason: "unknown_person" };
+
+  return { ok: true, personId: person.id, name: person.name };
+}
+
+/**
  * Turns a claimed Person id into a verified one, or refuses.
  *
  * What this actually proves: a user-role contact with this external_id exists

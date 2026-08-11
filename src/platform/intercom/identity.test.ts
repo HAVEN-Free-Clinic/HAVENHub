@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
 
 import { getActivePerson } from "@/platform/auth/match-person";
-import { resolveIntercomIdentity } from "./identity";
+import { resolveIntercomIdentity, resolveIdentityFromConversation } from "./identity";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -114,6 +114,112 @@ describe("resolveIntercomIdentity", () => {
 
     // Still fail-closed like any other lookup failure -- the distinction the
     // fix makes is in how it is logged (see identity.ts), not the outcome.
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
+});
+
+/** Conversation-shaped fetch stub: Intercom nests contacts one level deep. */
+function mockConversationOnce(status: number, contacts: Array<{ external_id?: string | null }>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => null },
+      json: async () => ({ contacts: { type: "contact.list", contacts } }),
+    })
+  );
+}
+
+describe("resolveIdentityFromConversation", () => {
+  it("resolves the member who owns the conversation", async () => {
+    mockConversationOnce(200, [{ external_id: "p1" }]);
+    mocked(getActivePerson).mockResolvedValue({ id: "p1", name: "Sam Rivera" });
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: true, personId: "p1", name: "Sam Rivera" });
+  });
+
+  it("asks Intercom who owns the conversation rather than trusting an asserted id", async () => {
+    mockConversationOnce(200, [{ external_id: "p1" }]);
+    mocked(getActivePerson).mockResolvedValue({ id: "p1", name: null });
+
+    await resolveIdentityFromConversation("conv_1");
+
+    const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/conversations/conv_1");
+    expect((init as RequestInit).headers).toMatchObject({ "Intercom-Version": "2.14" });
+  });
+
+  /**
+   * Intercom really does return conversations with no contacts (observed in the
+   * live workspace), so this is a routine input, not a hypothetical.
+   */
+  it("refuses a conversation with no contacts", async () => {
+    mockConversationOnce(200, []);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "unverified" });
+    expect(mocked(getActivePerson)).not.toHaveBeenCalled();
+  });
+
+  it("refuses a conversation with several contacts rather than guessing which one", async () => {
+    mockConversationOnce(200, [{ external_id: "p1" }, { external_id: "p2" }]);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "unverified" });
+    expect(mocked(getActivePerson)).not.toHaveBeenCalled();
+  });
+
+  it("refuses a contact that never booted our Messenger, so has no external_id", async () => {
+    mockConversationOnce(200, [{ external_id: null }]);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "unverified" });
+  });
+
+  it("refuses an unknown conversation, which is what a swapped id looks like", async () => {
+    mockConversationOnce(404, []);
+
+    const result = await resolveIdentityFromConversation("conv_nope");
+
+    expect(result).toEqual({ ok: false, reason: "unverified" });
+  });
+
+  it("refuses an offboarded member even though the conversation still resolves", async () => {
+    mockConversationOnce(200, [{ external_id: "p1" }]);
+    mocked(getActivePerson).mockResolvedValue(null);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "unknown_person" });
+  });
+
+  it("fails closed when the lookup errors", async () => {
+    mockConversationOnce(500, []);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
+
+  it("fails closed when the network throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
+
+  it("fails closed when no access token is configured", async () => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "");
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
     expect(result).toEqual({ ok: false, reason: "lookup_failed" });
   });
 });

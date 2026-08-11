@@ -1,17 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("@/platform/intercom/identity", () => ({ resolveIntercomIdentity: vi.fn() }));
+vi.mock("@/platform/intercom/identity", () => ({ resolveIdentityFromConversation: vi.fn() }));
 vi.mock("@/platform/intercom/audit", () => ({ recordToolCall: vi.fn() }));
 
+/**
+ * Shared holder so the hoisted mock factories below can reach values the tests
+ * control. vi.mock factories are hoisted above imports, so they cannot close
+ * over ordinary test-scope constants.
+ */
+const shared = vi.hoisted(() => ({
+  /** Arguments the fake SDK hands the captured tool callback. */
+  toolArgs: {} as Record<string, unknown>,
+  /** The fake tool's run, so tests can assert what it received. */
+  run: undefined as unknown as ReturnType<typeof vi.fn>,
+}));
+
 // Fakes mcp-handler's factory contract closely enough to prove the route wires
-// identity through it: capture the tool handler `registerTool` receives, then
-// invoke it exactly as the real SDK would -- with no per-call access to the
-// request. If a tool ever needs the caller's identity, it must already be
-// closed over by the time `registerTool` runs.
+// identity through it: capture the callback `registerTool` receives, then invoke
+// it exactly as the real SDK would -- with the tool's arguments and no access to
+// the original request. The route must therefore derive identity from those
+// arguments, which is the whole point of the conversation_id design.
 vi.mock("mcp-handler", () => ({
   createMcpHandler: vi.fn((initializeServer: (server: unknown) => void | Promise<void>) => {
     return async (_request: Request) => {
-      let capturedHandler: ((args: Record<string, unknown>, ctx: unknown) => Promise<unknown>) | undefined;
+      let capturedHandler:
+        | ((args: Record<string, unknown>, ctx: unknown) => Promise<unknown>)
+        | undefined;
       const fakeServer = {
         registerTool: (
           _name: string,
@@ -22,29 +36,33 @@ vi.mock("mcp-handler", () => ({
         },
       };
       await initializeServer(fakeServer);
-      const result = await capturedHandler?.({}, {});
+      const result = await capturedHandler?.(shared.toolArgs, {});
       return Response.json(result ?? {});
     };
   }),
 }));
 
-// A single fake tool so tests can assert exactly what personId it was called
-// with, without exercising the real my_next_shift tool's DB access.
-vi.mock("./tools", () => ({
-  MCP_TOOLS: [
-    {
-      name: "test_tool",
-      title: "Test Tool",
-      description: "A fake tool for route-level identity tests.",
-      inputSchema: {},
-      run: vi.fn().mockResolvedValue("test result"),
-    },
-  ],
-}));
+// A single fake tool, with a REAL zod schema so the route's central injection of
+// the reserved conversation_id argument is exercised rather than stubbed.
+vi.mock("./tools", async () => {
+  const { z } = await import("zod");
+  const { vi: vitest } = await import("vitest");
+  shared.run = vitest.fn().mockResolvedValue("test result");
+  return {
+    MCP_TOOLS: [
+      {
+        name: "test_tool",
+        title: "Test Tool",
+        description: "A fake tool for route-level identity tests.",
+        inputSchema: z.object({}),
+        run: shared.run,
+      },
+    ],
+  };
+});
 
-import { resolveIntercomIdentity } from "@/platform/intercom/identity";
+import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { recordToolCall } from "@/platform/intercom/audit";
-import { MCP_TOOLS } from "./tools";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -52,8 +70,12 @@ function req(headers: Record<string, string>) {
   return new Request("https://hub.test/api/mcp", { method: "POST", headers });
 }
 
+const AUTHED = { Authorization: "Bearer bearer-token" };
+
 beforeEach(() => {
-  vi.resetAllMocks();
+  vi.clearAllMocks();
+  shared.toolArgs = { conversation_id: "conv_123" };
+  shared.run?.mockResolvedValue("test result");
   vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
   vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
   vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
@@ -68,106 +90,95 @@ describe("POST /api/mcp", () => {
   it("404s when the MCP server is not configured", async () => {
     vi.stubEnv("INTERCOM_MCP_BEARER_TOKEN", "");
     const { POST } = await import("./route");
-    const res = await POST(req({}));
+    const res = await POST(req(AUTHED));
     expect(res.status).toBe(404);
   });
 
-  it("401s and audits without the bearer token", async () => {
+  it("401s without the bearer token", async () => {
     const { POST } = await import("./route");
-    const res = await POST(req({ "X-Intercom-Person-Id": "p1" }));
+    const res = await POST(req({}));
     expect(res.status).toBe(401);
-    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "denied", personId: null })
-    );
   });
 
-  it("401s and audits with the wrong bearer token", async () => {
+  it("401s with the wrong bearer token", async () => {
     const { POST } = await import("./route");
-    const res = await POST(
-      req({ Authorization: "Bearer wrong", "X-Intercom-Person-Id": "p1" })
-    );
+    const res = await POST(req({ Authorization: "Bearer wrong" }));
     expect(res.status).toBe(401);
-    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "denied", personId: null })
-    );
   });
 
-  it("403s and audits when the identity claim does not verify", async () => {
-    mocked(resolveIntercomIdentity).mockResolvedValue({ ok: false, reason: "unverified" });
+  it("refuses and audits when no conversation id is supplied", async () => {
+    shared.toolArgs = {};
     const { POST } = await import("./route");
 
-    const res = await POST(
-      req({ Authorization: "Bearer bearer-token", "X-Intercom-Person-Id": "p1" })
-    );
+    const res = await POST(req(AUTHED));
+    const body = await res.json();
 
-    expect(res.status).toBe(403);
+    expect(JSON.stringify(body)).toContain("could not confirm who you are");
+    expect(mocked(resolveIdentityFromConversation)).not.toHaveBeenCalled();
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "unverified", personId: null })
+      expect.objectContaining({ personId: null, outcome: "unverified" })
     );
+    expect(shared.run).not.toHaveBeenCalled();
   });
 
-  it("403s, audits, and never calls resolveIntercomIdentity when no identity header is present at all", async () => {
+  it("refuses and audits when the conversation does not resolve to a member", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "unverified" });
     const { POST } = await import("./route");
-    const res = await POST(req({ Authorization: "Bearer bearer-token" }));
-    expect(res.status).toBe(403);
-    expect(mocked(resolveIntercomIdentity)).not.toHaveBeenCalled();
+
+    const res = await POST(req(AUTHED));
+    const body = await res.json();
+
+    expect(JSON.stringify(body)).toContain("could not confirm who you are");
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "unverified", personId: null })
+      expect.objectContaining({ personId: null, outcome: "unverified" })
     );
+    expect(shared.run).not.toHaveBeenCalled();
   });
 
-  it("passes a tool the personId guard() verified, never a re-derived one", async () => {
-    // Echoes the claim back as the verified id, the same shape a real
-    // successful lookup takes (person.id resolves to the claimed id).
-    mocked(resolveIntercomIdentity).mockImplementation(async (claimed: string) => ({
+  /**
+   * The load-bearing one. A tool must receive the personId the server derived
+   * from Intercom's record of the conversation, and must never see the raw
+   * conversation id -- it is an identity credential, not tool input.
+   */
+  it("passes the tool the personId resolved from the conversation, and strips the raw id", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,
-      personId: claimed,
-      name: null,
-    }));
+      personId: "verified-person",
+      name: "Sam Rivera",
+    });
+    shared.toolArgs = { conversation_id: "conv_123", limit: 5 };
     const { POST } = await import("./route");
 
-    await POST(
-      req({ Authorization: "Bearer bearer-token", "X-Intercom-Person-Id": "verified-person" })
-    );
+    await POST(req(AUTHED));
 
-    const runMock = mocked((MCP_TOOLS[0] as { run: unknown }).run);
-    expect(runMock).toHaveBeenCalledWith(
-      expect.objectContaining({ personId: "verified-person" }),
-      expect.anything()
+    expect(mocked(resolveIdentityFromConversation)).toHaveBeenCalledWith("conv_123");
+    expect(shared.run).toHaveBeenCalledWith({ personId: "verified-person" }, { limit: 5 });
+    const passedArgs = shared.run.mock.calls[0][1] as Record<string, unknown>;
+    expect(passedArgs).not.toHaveProperty("conversation_id");
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ personId: "verified-person", outcome: "ok" })
     );
   });
 
-  it("never lets a thrown tool error reach the response, and still audits the call as denied", async () => {
-    mocked(resolveIntercomIdentity).mockImplementation(async (claimed: string) => ({
+  it("never lets a thrown tool error reach the response, and still audits it as denied", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,
-      personId: claimed,
+      personId: "verified-person",
       name: null,
-    }));
-    // A realistic leak: Prisma/pg errors against an unreachable DB name the
-    // Neon host (see db-unreachable-degradation), and the MCP SDK is documented
-    // to turn an uncaught tool exception into a 200 whose body echoes
-    // error.message straight back to Fin -- which Intercom may show the member.
-    const leakyError = new Error(
-      "connect ECONNREFUSED ep-dawn-mode-123.us-east-2.aws.neon.tech:5432 password=hunter2"
+    });
+    shared.run.mockRejectedValue(
+      new Error("Can't reach database server at ep-broad-brook.neon.tech:5432 password=hunter2")
     );
-    const runMock = mocked((MCP_TOOLS[0] as { run: unknown }).run);
-    runMock.mockRejectedValueOnce(leakyError);
-
     const { POST } = await import("./route");
-    const res = await POST(
-      req({ Authorization: "Bearer bearer-token", "X-Intercom-Person-Id": "verified-person" })
-    );
 
-    const body = (await res.json()) as { content?: { type: string; text: string }[] };
-    const text = body.content?.[0]?.text ?? "";
+    const res = await POST(req(AUTHED));
+    const body = JSON.stringify(await res.json());
 
-    expect(text).toBe("Sorry, I could not look that up right now.");
-    expect(text).not.toContain("ECONNREFUSED");
-    expect(text).not.toContain("neon.tech");
-    expect(text).not.toContain("hunter2");
-
+    expect(body).toContain("could not look that up");
+    expect(body).not.toContain("neon.tech");
+    expect(body).not.toContain("hunter2");
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ tool: "test_tool", outcome: "denied", personId: "verified-person" })
+      expect.objectContaining({ personId: "verified-person", outcome: "denied" })
     );
   });
 });

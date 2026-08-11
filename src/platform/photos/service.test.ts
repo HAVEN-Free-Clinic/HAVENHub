@@ -82,7 +82,12 @@ describe("resolvePhoto", () => {
 
   it("serves the stored photo without calling Yalies", async () => {
     const person = await seedPerson();
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      person.id
+    );
 
     const resolved = await resolvePhoto(person.id);
 
@@ -92,6 +97,40 @@ describe("resolvePhoto", () => {
 
   it("returns null for an unknown person", async () => {
     expect(await resolvePhoto("does-not-exist")).toBeNull();
+  });
+
+  it("pulls from Yalies when allowPull is true (the default for a self-view)", async () => {
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    const person = await seedPerson();
+
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
+
+    expect(resolved).not.toBeNull();
+    expect(vi.mocked(fetchYaliesPhoto)).toHaveBeenCalled();
+  });
+
+  it("never pulls from Yalies when allowPull is false, even inside the fetch window", async () => {
+    const person = await seedPerson();
+
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: false });
+
+    expect(resolved).toBeNull();
+    expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
+  });
+
+  it("still serves a stored photo when allowPull is false", async () => {
+    const person = await seedPerson();
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      person.id
+    );
+
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: false });
+
+    expect(resolved).not.toBeNull();
+    expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
   });
 
   it("records no miss when no API key is configured", async () => {
@@ -108,7 +147,12 @@ describe("resolvePhoto", () => {
 
   it("repairs a torn row when the stored object is gone, then re-attempts Yalies", async () => {
     const person = await seedPerson();
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      person.id
+    );
     const before = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(before.photoKey).toBe(`people/${person.id}`);
 
@@ -157,6 +201,35 @@ describe("resolvePhoto", () => {
     expect(after.photoSource).toBeNull();
     expect(after.photoSuppressed).toBe(true);
   });
+
+  it("does not let a Yalies pull clobber a photo the member uploaded during the pull window", async () => {
+    const person = await seedPerson();
+
+    // Simulate the member uploading their own photo WHILE this Yalies fetch is
+    // in flight: the mock runs the upload as a side effect before resolving,
+    // landing it squarely inside the fetch-then-normalize window that
+    // storePhoto's conditional claim exists to guard.
+    vi.mocked(fetchYaliesPhoto).mockImplementation(async () => {
+      await setPhotoFromUpload(
+        person.id,
+        { type: "image/png", size: 100, bytes: await pngBytes() },
+        4,
+        person.id
+      );
+      return await pngBytes();
+    });
+
+    const resolved = await resolvePhoto(person.id);
+
+    // The Yalies write must lose this race: photoKey was no longer null by
+    // the time its conditional claim ran, so it must fall back to initials
+    // rather than reporting success while having overwritten the member's
+    // own choice with the Yale photo.
+    expect(resolved).toBeNull();
+    const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(after.photoSource).toBe("upload");
+    expect(after.photoVersion).toBe(1);
+  });
 });
 
 describe("setPhotoFromUpload", () => {
@@ -167,7 +240,12 @@ describe("setPhotoFromUpload", () => {
   it("stores the photo and marks it upload-sourced", async () => {
     const person = await seedPerson();
 
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      person.id
+    );
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoSource).toBe("upload");
@@ -175,20 +253,51 @@ describe("setPhotoFromUpload", () => {
     expect(after.photoVersion).toBe(1);
   });
 
-  it("clears suppression", async () => {
+  it("clears suppression when the actor uploading is the target person themselves", async () => {
     const person = await seedPerson({ photoSuppressed: true });
 
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      person.id
+    );
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoSuppressed).toBe(false);
+  });
+
+  it("leaves an existing suppression untouched when an admin uploads on someone else's behalf", async () => {
+    // The failure this guards: an admin uploading a headshot for a member who
+    // previously opted out must NOT be treated as that member's own
+    // affirmative override. Only a matching actorId/personId may clear
+    // photoSuppressed (see storePhoto's doc comment).
+    const person = await seedPerson({ photoSuppressed: true });
+    const admin = await prisma.person.create({ data: { name: "Admin Person" } });
+
+    await setPhotoFromUpload(
+      person.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      admin.id
+    );
+
+    const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(after.photoSource).toBe("upload");
+    expect(after.photoKey).toBe(`people/${person.id}`);
+    expect(after.photoSuppressed).toBe(true);
   });
 
   it("rejects an unsupported type", async () => {
     const person = await seedPerson();
 
     await expect(
-      setPhotoFromUpload(person.id, { type: "application/pdf", size: 100, bytes: Buffer.from("x") }, 4)
+      setPhotoFromUpload(
+        person.id,
+        { type: "application/pdf", size: 100, bytes: Buffer.from("x") },
+        4,
+        person.id
+      )
     ).rejects.toBeInstanceOf(PhotoError);
   });
 
@@ -199,7 +308,8 @@ describe("setPhotoFromUpload", () => {
       setPhotoFromUpload(
         person.id,
         { type: "image/png", size: 9 * 1024 * 1024, bytes: await pngBytes() },
-        4
+        4,
+        person.id
       )
     ).rejects.toBeInstanceOf(PhotoError);
   });
@@ -215,7 +325,7 @@ describe("setPhotoFromUpload", () => {
     const oversized = Buffer.alloc(5 * 1024 * 1024);
 
     await expect(
-      setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: oversized }, 4)
+      setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: oversized }, 4, person.id)
     ).rejects.toThrow(/too large/);
   });
 
@@ -223,9 +333,9 @@ describe("setPhotoFromUpload", () => {
     const person = await seedPerson();
     const file = { type: "image/png", size: 100, bytes: await pngBytes() };
 
-    await setPhotoFromUpload(person.id, file, 4);
+    await setPhotoFromUpload(person.id, file, 4, person.id);
     await removePhoto(person.id);
-    await setPhotoFromUpload(person.id, file, 4);
+    await setPhotoFromUpload(person.id, file, 4, person.id);
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoVersion).toBe(3);
@@ -303,5 +413,54 @@ describe("removePhoto", () => {
     expect(afterSecond.photoSuppressed).toBe(true);
     // A true no-op: the second call must not have written the row at all.
     expect(afterSecond.photoVersion).toBe(afterFirst.photoVersion);
+  });
+});
+
+describe("an opt-out survives an admin re-upload and its own removal", () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.mocked(isYaliesEnabled).mockReturnValue(true);
+  });
+
+  it("stays suppressed through the full sequence: opt out, admin upload, member removes it, next render", async () => {
+    const jane = await seedPerson();
+    const admin = await prisma.person.create({ data: { name: "Admin Person" } });
+
+    // 1. Jane is auto-sourced, then removes it on /my-info. photoSuppressed
+    //    becomes true, photoSource/photoKey go back to null.
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    await resolvePhoto(jane.id);
+    await removePhoto(jane.id);
+    const afterOptOut = await prisma.person.findUniqueOrThrow({ where: { id: jane.id } });
+    expect(afterOptOut.photoSuppressed).toBe(true);
+    expect(afterOptOut.photoKey).toBeNull();
+
+    // 2. An admin (NOT Jane) uploads a headshot for her.
+    await setPhotoFromUpload(
+      jane.id,
+      { type: "image/png", size: 100, bytes: await pngBytes() },
+      4,
+      admin.id
+    );
+    const afterAdminUpload = await prisma.person.findUniqueOrThrow({ where: { id: jane.id } });
+    // The core of F1: an admin upload is not Jane's own affirmative
+    // override, so her opt-out must survive it untouched.
+    expect(afterAdminUpload.photoSource).toBe("upload");
+    expect(afterAdminUpload.photoSuppressed).toBe(true);
+
+    // 3. Jane removes that admin-uploaded photo. Source is "upload", not
+    //    "yalies", so removePhoto correctly leaves suppression as-is (still
+    //    true -- it was never false to begin with here).
+    await removePhoto(jane.id);
+    const afterRemoval = await prisma.person.findUniqueOrThrow({ where: { id: jane.id } });
+    expect(afterRemoval.photoKey).toBeNull();
+    expect(afterRemoval.photoSuppressed).toBe(true);
+
+    // 4. Her next render must NOT re-pull her Yale photo and must NOT
+    //    republish it to her public credential page.
+    vi.mocked(fetchYaliesPhoto).mockClear();
+    const resolved = await resolvePhoto(jane.id);
+    expect(resolved).toBeNull();
+    expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
   });
 });

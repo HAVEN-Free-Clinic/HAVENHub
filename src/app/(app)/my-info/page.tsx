@@ -136,7 +136,11 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       await setPhotoFromUpload(
         session.personId,
         { type: file.type, size: file.size, bytes: Buffer.from(await file.arrayBuffer()) },
-        await getSetting<number>("uploads.maxMb")
+        await getSetting<number>("uploads.maxMb"),
+        // Actor is the member themselves: this is their own affirmative
+        // override of any prior opt-out, so suppression clears (see
+        // setPhotoFromUpload's doc comment).
+        session.personId
       );
     } catch (err) {
       if (err instanceof PhotoError) {

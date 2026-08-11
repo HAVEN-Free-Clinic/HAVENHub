@@ -15,16 +15,20 @@ vi.mock("@/platform/db", async (importOriginal) => {
   };
 });
 
-// Keep the real PHOTO_CONTENT_TYPE (a plain string constant the route imports
-// directly) while replacing resolvePhoto with a spy this suite asserts against.
-vi.mock("@/platform/photos", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/platform/photos")>();
+// The route itself imports PHOTO_CONTENT_TYPE from "@/platform/photos/shared"
+// (the barrel-free leaf, so this anonymous route never bundles Prisma or
+// sharp -- see the route's own comment). Mocking resolvePhoto at its actual
+// home in service.ts, rather than at the barrel, keeps the "never triggers a
+// Yalies pull" guard below meaningful regardless of which path a future
+// regression imports it through.
+vi.mock("@/platform/photos/service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/photos/service")>();
   return { ...actual, resolvePhoto: vi.fn() };
 });
 
 import { prisma } from "@/platform/db";
 import { getObject } from "@/platform/storage";
-import { resolvePhoto } from "@/platform/photos";
+import { resolvePhoto } from "@/platform/photos/service";
 import { GET } from "./route";
 
 function request(): Request {
@@ -56,11 +60,15 @@ describe("GET /credential/[token]/photo", () => {
     expect(res.headers.get("Content-Type")).toBe("image/webp");
   });
 
-  it("caches publicly, since the URL is versioned", async () => {
+  it("caches publicly but revalidates quickly, so a removal or unpublish takes effect soon", async () => {
     const res = await GET(request(), context);
 
-    expect(res.headers.get("Cache-Control")).toContain("public");
-    expect(res.headers.get("Cache-Control")).toContain("immutable");
+    // Not the long immutable cache the in-app route uses: this response is
+    // public (unauthenticated, cacheable by anyone), so it must not let a
+    // browser or intermediate cache keep serving a photo long after the
+    // member removes it or unpublishes the credential. Matches the branding
+    // asset route's convention for a versioned public asset.
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=300, must-revalidate");
   });
 
   it("sets nosniff and a restrictive CSP", async () => {

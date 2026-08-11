@@ -4,8 +4,12 @@
  * The seam that keeps the Yalies API off every render path. Pages emit an <img>
  * pointing here and never await a third party themselves; a slow Yalies degrades
  * to one slow-loading avatar instead of a slow page. This is also the only route
- * that triggers a lazy Yalies pull. The public credential photo route
- * deliberately does not.
+ * that ever triggers a lazy Yalies pull, and even here only for a self-view (see
+ * the `allowPull` call below): an admin browsing the roster must not turn one
+ * page render into dozens of outbound calls to a third party with no published
+ * rate limit, on behalf of people who never asked to be looked at. The public
+ * credential photo route never triggers a pull at all, for the same reason in
+ * a more exposed (unauthenticated) setting.
  *
  * Uses auth()/can() rather than requirePermission because the session helpers
  * redirect on denial, and an <img> request needs a status code.
@@ -74,13 +78,20 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   }
   if (!person) return new Response("Forbidden", { status: 403 });
 
-  if (person.id !== personId && !(await can(person.id, "admin.manage_people"))) {
+  const isSelf = person.id === personId;
+  if (!isSelf && !(await can(person.id, "admin.manage_people"))) {
     return new Response("Forbidden", { status: 403 });
   }
 
   // A photo failure must never break the surface asking for it. Reads degrade to
   // initials, consistent with the app's posture when the database is unreachable.
-  const photo = await resolvePhoto(personId).catch(() => null);
+  // allowPull is restricted to self-views (see the route's own doc comment): an
+  // admin looking at someone else's photo gets whatever is already stored and
+  // never triggers an outbound Yalies call.
+  const photo = await resolvePhoto(personId, undefined, { allowPull: isSelf }).catch((err) => {
+    log.warn("[people-photo] resolvePhoto failed; degrading to initials", errorAttrs(err));
+    return null;
+  });
   if (!photo) return initialsResponse(personId);
 
   return new Response(new Uint8Array(photo.bytes), {

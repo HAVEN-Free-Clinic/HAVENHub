@@ -8,6 +8,7 @@
  */
 import { prisma } from "@/platform/db";
 import { deleteObject, getObject, putObject } from "@/platform/storage";
+import { getSetting } from "@/platform/settings/service";
 import { normalizePhoto } from "./normalize";
 import { PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
 import { shouldAttemptYaliesPull, type PhotoState } from "./policy";
@@ -33,19 +34,29 @@ function photoKeyFor(personId: string): string {
  * The two sources write the row differently, because they carry different
  * risk:
  *
- * - "upload" is an explicit, synchronous member or admin action. It always
- *   wins: the write is unconditional, including clearing photoSuppressed,
- *   because choosing to upload a photo is an affirmative override of any
- *   prior "do not use my Yale photo".
+ * - "upload" is an explicit, synchronous member or admin action. The bytes
+ *   and provenance write unconditionally either way, but whether the write
+ *   also clears photoSuppressed depends on WHO is uploading, via the
+ *   `clearSuppression` option: it should be true only when the actor is the
+ *   target person themselves, because only then is the upload that person's
+ *   own affirmative override of a prior "do not use my Yale photo". An admin
+ *   uploading a photo FOR someone else is not that -- it says nothing about
+ *   whether the member still wants their Yale photo pulled if this upload is
+ *   later removed, so it must leave an existing suppression exactly as it
+ *   was. See setPhotoFromUpload, the only caller, for how that boolean is
+ *   computed from the acting person's id.
  * - "yalies" is a background pull that holds pre-write state across a
  *   network fetch plus normalize, easily a couple of seconds. An
- *   unconditional write here could land after the member clicked Remove
- *   during that window, silently reverting their opt-out with no error. So
- *   the row write is a conditional claim, via updateMany with a where clause
- *   requiring photoSuppressed still be false: if a suppression landed in the
- *   meantime, zero rows match, and this deletes the bytes it just wrote and
- *   reports failure so the caller falls back to initials instead of quietly
- *   overwriting the member's choice.
+ *   unconditional write here could land after the member clicked Remove, or
+ *   uploaded their own photo, during that window -- either silently
+ *   reverting their opt-out, or silently replacing their chosen upload with
+ *   the Yale photo, with no error either way. So the row write is a
+ *   conditional claim, via updateMany with a where clause requiring BOTH
+ *   photoSuppressed still be false AND photoKey still be null: if a
+ *   suppression landed, or any photo (upload or a previous Yalies pull)
+ *   landed, in the meantime, zero rows match, and this deletes the bytes it
+ *   just wrote and reports failure so the caller falls back to initials
+ *   instead of quietly overwriting the member's choice.
  *
  * `syncedAt`, when given, is folded into this same write rather than left to
  * a separate update afterward, so a successful Yalies pull is exactly one
@@ -53,15 +64,16 @@ function photoKeyFor(personId: string): string {
  * storage by the time this runs; a second write failing after that must
  * never turn an otherwise-successful resolution into a thrown error.
  *
- * Returns false only when a Yalies write lost the suppression race above;
- * true in every other case.
+ * Returns false only when a Yalies write lost the race above; true in every
+ * other case.
  */
 async function storePhoto(
   personId: string,
   bytes: Buffer,
   source: "yalies" | "upload",
-  syncedAt?: Date
+  options: { syncedAt?: Date; clearSuppression?: boolean } = {}
 ): Promise<boolean> {
+  const { syncedAt, clearSuppression = false } = options;
   const key = photoKeyFor(personId);
   await putObject(key, bytes, PHOTO_CONTENT_TYPE);
 
@@ -78,13 +90,13 @@ async function storePhoto(
     if (source === "upload") {
       await prisma.person.update({
         where: { id: personId },
-        data: { ...data, photoSuppressed: false },
+        data: clearSuppression ? { ...data, photoSuppressed: false } : data,
       });
       return true;
     }
 
     const result = await prisma.person.updateMany({
-      where: { id: personId, photoSuppressed: false },
+      where: { id: personId, photoSuppressed: false, photoKey: null },
       data,
     });
     if (result.count === 0) {
@@ -148,8 +160,22 @@ async function repairTornRow(person: PersonPhotoRow): Promise<PersonPhotoRow> {
  *
  * Returns null when there is no photo, which callers render as initials. Never
  * throws on a Yalies failure: every one of those is recorded as a miss.
+ *
+ * `allowPull` (default true) additionally gates whether a Yalies fetch may
+ * happen at all, independent of the backoff policy below. The in-app photo
+ * route is the only caller and passes `allowPull: false` whenever the
+ * requesting person is not the target person: an admin viewing someone
+ * else's photo must only ever see what is already stored, never trigger an
+ * outbound call to a third party on that person's behalf. A stored photo is
+ * still served regardless of this flag; only the fetch-on-miss path is
+ * gated.
  */
-export async function resolvePhoto(personId: string, now: Date = new Date()): Promise<ResolvedPhoto> {
+export async function resolvePhoto(
+  personId: string,
+  now: Date = new Date(),
+  options: { allowPull?: boolean } = {}
+): Promise<ResolvedPhoto> {
+  const { allowPull = true } = options;
   let person = await prisma.person.findUnique({
     where: { id: personId },
     select: {
@@ -173,6 +199,12 @@ export async function resolvePhoto(personId: string, now: Date = new Date()): Pr
     person = await repairTornRow(person);
   }
 
+  // Bounds outbound Yalies traffic to self-driven views (see the doc comment
+  // above and the in-app route's own comment): checked before the backoff
+  // policy so a cross-view can never trigger a pull regardless of how stale
+  // photoSyncedAt is.
+  if (!allowPull) return null;
+
   if (!shouldAttemptYaliesPull(person, now)) return null;
 
   // Without an API key the feature is inert. Check before attempting rather than
@@ -191,7 +223,12 @@ export async function resolvePhoto(personId: string, now: Date = new Date()): Pr
   // type error and no test failure to catch it.
   if (!person.netId) return null;
 
-  const fetched = await fetchYaliesPhoto(person.netId);
+  // Bounds the Yalies image download the same way uploads.maxMb bounds a
+  // member's own upload (see yalies.ts's fetchYaliesPhoto, which enforces
+  // this against the response); resolved here rather than hardcoded in
+  // yalies.ts, which has no settings dependency of its own on purpose.
+  const maxMb = await getSetting<number>("uploads.maxMb");
+  const fetched = await fetchYaliesPhoto(person.netId, maxMb * 1024 * 1024);
   if (!fetched) {
     await prisma.person.update({
       where: { id: personId },
@@ -212,22 +249,33 @@ export async function resolvePhoto(personId: string, now: Date = new Date()): Pr
     return null;
   }
 
-  const stored = await storePhoto(personId, normalized, "yalies", now);
+  const stored = await storePhoto(personId, normalized, "yalies", { syncedAt: now });
   if (!stored) {
-    // Lost the race against a concurrent opt-out: someone suppressed this
-    // person between the Yalies fetch and this write. The bytes were already
+    // Lost the race above: a concurrent opt-out (photoSuppressed flipped to
+    // true) or a concurrent photo of either source (photoKey no longer null)
+    // landed between the Yalies fetch and this write. The bytes were already
     // deleted inside storePhoto. Fall back to initials rather than serving a
-    // photo the member just asked not to have.
+    // photo the member just asked not to have, or clobbering the photo they
+    // just chose themselves.
     return null;
   }
   return { bytes: normalized, contentType: PHOTO_CONTENT_TYPE };
 }
 
-/** Validate, normalize, and store a member- or admin-supplied photo. */
+/**
+ * Validate, normalize, and store a member- or admin-supplied photo.
+ *
+ * `actorId` is who is performing the upload, which may differ from
+ * `personId` when an admin uploads on someone else's behalf. Suppression is
+ * cleared only when they match -- an admin uploading FOR someone else must
+ * never silently undo that person's own opt-out. See storePhoto's doc
+ * comment for the full reasoning.
+ */
 export async function setPhotoFromUpload(
   personId: string,
   file: { type: string; size: number; bytes: Buffer },
-  maxMb: number
+  maxMb: number,
+  actorId: string
 ): Promise<void> {
   if (!ACCEPTED_UPLOAD_TYPES.has(file.type)) {
     throw new PhotoError(`Unsupported image type "${file.type}". Use PNG, JPEG, or WebP.`);
@@ -238,7 +286,9 @@ export async function setPhotoFromUpload(
   if (Math.max(file.size, file.bytes.length) > maxMb * 1024 * 1024) {
     throw new PhotoError(`Image too large; the limit is ${maxMb} MB.`);
   }
-  await storePhoto(personId, await normalizePhoto(file.bytes), "upload");
+  await storePhoto(personId, await normalizePhoto(file.bytes), "upload", {
+    clearSuppression: actorId === personId,
+  });
 }
 
 /**
@@ -263,7 +313,7 @@ export async function setPhotoFromUpload(
  *   leaves an existing suppression exactly as it was. "Leaves it untouched"
  *   has to mean literally untouched, not "writes back the value it probably
  *   already had" -- the schema's own comment promises suppression is cleared
- *   by an upload, and only by an upload.
+ *   only by the target person's own upload, never by this function.
  */
 export async function removePhoto(personId: string): Promise<void> {
   const person = await prisma.person.findUnique({

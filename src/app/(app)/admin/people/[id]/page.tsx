@@ -84,7 +84,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
   // anything the submitted request supplies.
   async function photoUploadAction(formData: FormData) {
     "use server";
-    await requirePermission("admin.manage_people");
+    const actorSession = await requirePermission("admin.manage_people");
     const file = formData.get("photo");
     if (!(file instanceof File) || file.size === 0) {
       redirect(`/admin/people/${id}?photoError=Choose+an+image+file.`);
@@ -93,7 +93,14 @@ export default async function PersonDetailPage({ params }: PageProps) {
       await setPhotoFromUpload(
         id,
         { type: file.type, size: file.size, bytes: Buffer.from(await file.arrayBuffer()) },
-        await getSetting<number>("uploads.maxMb")
+        await getSetting<number>("uploads.maxMb"),
+        // Actor is the ADMIN, not `id` (the target). Almost always
+        // different, so this upload must not silently clear a suppression
+        // the target person set for themselves -- see setPhotoFromUpload's
+        // doc comment. If the admin happens to be viewing their own record,
+        // actorSession.personId === id and it clears exactly as a self
+        // upload would.
+        actorSession.personId
       );
     } catch (err) {
       if (err instanceof PhotoError) {

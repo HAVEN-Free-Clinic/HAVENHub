@@ -143,7 +143,9 @@ model Person {
   photoVersion                   Int                        @default(0)
   photoUpdatedAt                 DateTime?
   /// Set by removing a Yalies-sourced photo, meaning "do not use my Yale photo".
-  /// Cleared by any upload. Removing a self-uploaded photo does NOT set it.
+  /// Cleared only by the target person's OWN upload, never by someone else's
+  /// (e.g. an admin) uploading on their behalf. Removing a self-uploaded photo
+  /// does NOT set it.
   photoSuppressed                Boolean                    @default(false)
   /// Last Yalies attempt, success or miss. Null means never attempted.
   photoSyncedAt                  DateTime?

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
@@ -23,6 +23,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
 import { resolvePhoto } from "@/platform/photos";
+import { log } from "@/platform/logging";
 import { GET } from "./route";
 
 function request(): Request {
@@ -43,6 +44,9 @@ describe("GET /api/people/[personId]/photo", () => {
       bytes: Buffer.from([1, 2, 3]),
       contentType: "image/webp",
     });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("serves a member their own photo", async () => {
@@ -117,6 +121,35 @@ describe("GET /api/people/[personId]/photo", () => {
 
     expect((await GET(request(), context("p2"))).status).toBe(200);
     expect(vi.mocked(can)).toHaveBeenCalledWith("p1", "admin.manage_people");
+  });
+
+  it("allows a self-view to pull from Yalies", async () => {
+    await GET(request(), context("p1"));
+
+    expect(vi.mocked(resolvePhoto)).toHaveBeenCalledWith("p1", undefined, { allowPull: true });
+  });
+
+  it("forbids an admin's cross-view from pulling, but still serves what is already stored", async () => {
+    vi.mocked(can).mockResolvedValue(true);
+
+    const res = await GET(request(), context("p2"));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(resolvePhoto)).toHaveBeenCalledWith("p2", undefined, { allowPull: false });
+  });
+
+  it("logs a warning before degrading to initials when the photo lookup throws", async () => {
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+    vi.mocked(resolvePhoto).mockRejectedValue(new Error("R2 outage"));
+
+    const res = await GET(request(), context("p1"));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("resolvePhoto failed"),
+      expect.objectContaining({ "error.message": "R2 outage" })
+    );
   });
 
   it("falls back to an initials SVG when there is no photo", async () => {

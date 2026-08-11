@@ -18,7 +18,11 @@
  */
 import { isDbUnreachableError, prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
-import { PHOTO_CONTENT_TYPE } from "@/platform/photos";
+// The shared leaf, not the "@/platform/photos" barrel: that barrel re-exports
+// service.ts (Prisma) and normalize.ts (sharp) alongside this constant, which
+// would bundle both a database client and a native image library into this
+// anonymous, unauthenticated route for a single string it never needs.
+import { PHOTO_CONTENT_TYPE } from "@/platform/photos/shared";
 import { getObject } from "@/platform/storage";
 
 type RouteContext = { params: Promise<{ token: string }> };
@@ -82,8 +86,16 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     status: 200,
     headers: {
       "Content-Type": PHOTO_CONTENT_TYPE,
-      // The page renders ?v=<photoVersion>, so a changed photo is a changed URL.
-      "Cache-Control": "public, max-age=31536000, immutable",
+      // NOT a long immutable cache, even though the URL carries ?v=<photoVersion>:
+      // this is a PUBLIC, unauthenticated response, so a long max-age would let
+      // any viewer's browser (or an intermediate cache) keep serving the photo
+      // long after the member removes it or unpublishes the credential entirely,
+      // which is exactly the removal this design's opt-out promises is real.
+      // Matches the branding asset route's convention for a versioned public
+      // asset (see src/app/api/branding/[asset]/route.ts) rather than the
+      // in-app photo route's, which is "private" (scoped to one already-viewing
+      // browser) and versioned the same way but does not carry this exposure.
+      "Cache-Control": "public, max-age=300, must-revalidate",
       ...IMAGE_SECURITY_HEADERS,
     },
   });

@@ -44,6 +44,8 @@ describe("initialsSvg", () => {
   });
 
   it("escapes characters that would break the markup", () => {
-    expect(initialsSvg("<script> Bad")).not.toContain("<script>");
+    const svg = initialsSvg("<script> Bad");
+    expect(svg).toContain("&lt;B");
+    expect(svg).not.toContain("<B");
   });
 });

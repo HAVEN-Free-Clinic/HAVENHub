@@ -161,21 +161,26 @@ async function repairTornRow(person: PersonPhotoRow): Promise<PersonPhotoRow> {
  * Returns null when there is no photo, which callers render as initials. Never
  * throws on a Yalies failure: every one of those is recorded as a miss.
  *
- * `allowPull` (default true) additionally gates whether a Yalies fetch may
- * happen at all, independent of the backoff policy below. The in-app photo
- * route is the only caller and passes `allowPull: false` whenever the
- * requesting person is not the target person: an admin viewing someone
- * else's photo must only ever see what is already stored, never trigger an
- * outbound call to a third party on that person's behalf. A stored photo is
- * still served regardless of this flag; only the fetch-on-miss path is
- * gated.
+ * `allowPull` additionally gates whether a Yalies fetch may happen at all,
+ * independent of the backoff policy below. Defaults to FALSE, not true: this
+ * is an amplification guard, so the safe direction on an omitted option is
+ * deny, not allow. A future caller that forgets the option gets the inert
+ * behavior (stored-or-null, never a third-party fetch) instead of silently
+ * reopening the 25-way outbound burst this option exists to close. The
+ * in-app photo route is the only production caller today and always passes
+ * it explicitly: `allowPull: true` for a self-view, `allowPull: false`
+ * whenever the requesting person is not the target person, because an admin
+ * viewing someone else's photo must only ever see what is already stored,
+ * never trigger an outbound call to a third party on that person's behalf.
+ * A stored photo is still served regardless of this flag; only the
+ * fetch-on-miss path is gated.
  */
 export async function resolvePhoto(
   personId: string,
   now: Date = new Date(),
   options: { allowPull?: boolean } = {}
 ): Promise<ResolvedPhoto> {
-  const { allowPull = true } = options;
+  const { allowPull = false } = options;
   let person = await prisma.person.findUnique({
     where: { id: personId },
     select: {

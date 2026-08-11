@@ -50,7 +50,7 @@ describe("resolvePhoto", () => {
       photoSyncedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
     });
 
-    const resolved = await resolvePhoto(person.id);
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     expect(resolved?.contentType).toBe("image/webp");
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
@@ -64,7 +64,7 @@ describe("resolvePhoto", () => {
   it("records a miss and returns null when Yalies has nothing", async () => {
     const person = await seedPerson();
 
-    expect(await resolvePhoto(person.id)).toBeNull();
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoKey).toBeNull();
@@ -75,7 +75,10 @@ describe("resolvePhoto", () => {
   it("does not call Yalies again inside the backoff window", async () => {
     const person = await seedPerson({ photoSyncMisses: 1, photoSyncedAt: new Date() });
 
-    await resolvePhoto(person.id);
+    // allowPull: true so this actually exercises the backoff check below it,
+    // rather than passing trivially because allowPull itself (now default
+    // false) already blocked the call for an unrelated reason.
+    await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
   });
@@ -99,7 +102,7 @@ describe("resolvePhoto", () => {
     expect(await resolvePhoto("does-not-exist")).toBeNull();
   });
 
-  it("pulls from Yalies when allowPull is true (the default for a self-view)", async () => {
+  it("pulls from Yalies when allowPull is explicitly true, as the route passes for a self-view", async () => {
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
     const person = await seedPerson();
 
@@ -113,6 +116,15 @@ describe("resolvePhoto", () => {
     const person = await seedPerson();
 
     const resolved = await resolvePhoto(person.id, new Date(), { allowPull: false });
+
+    expect(resolved).toBeNull();
+    expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
+  });
+
+  it("never pulls from Yalies when allowPull is omitted (default denies, the amplification guard)", async () => {
+    const person = await seedPerson();
+
+    const resolved = await resolvePhoto(person.id);
 
     expect(resolved).toBeNull();
     expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
@@ -137,7 +149,10 @@ describe("resolvePhoto", () => {
     vi.mocked(isYaliesEnabled).mockReturnValue(false);
     const person = await seedPerson();
 
-    expect(await resolvePhoto(person.id)).toBeNull();
+    // allowPull: true so this actually exercises the isYaliesEnabled check,
+    // not the allowPull gate that would otherwise block it first for an
+    // unrelated reason.
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoSyncMisses).toBe(0);
@@ -161,7 +176,7 @@ describe("resolvePhoto", () => {
     await deleteObject(`people/${person.id}`);
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
 
-    const resolved = await resolvePhoto(person.id);
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     // The repair clears photoKey/photoSource and bumps photoVersion, then
     // policy is re-evaluated against that repaired state in the same call, so
@@ -190,7 +205,9 @@ describe("resolvePhoto", () => {
     });
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(null);
 
-    expect(await resolvePhoto(person.id)).toBeNull();
+    // allowPull: true so this actually exercises the suppression check
+    // inside shouldAttemptYaliesPull, not the allowPull gate.
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
 
     // Suppressed, so the repaired (photoKey: null) state must never reach a
     // Yalies pull at all: shouldAttemptYaliesPull's suppression check must
@@ -219,7 +236,7 @@ describe("resolvePhoto", () => {
       return await pngBytes();
     });
 
-    const resolved = await resolvePhoto(person.id);
+    const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     // The Yalies write must lose this race: photoKey was no longer null by
     // the time its conditional claim ran, so it must fall back to initials
@@ -351,7 +368,7 @@ describe("removePhoto", () => {
 
   it("suppresses future pulls when removing a Yalies photo", async () => {
     const person = await seedPerson();
-    await resolvePhoto(person.id);
+    await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     await removePhoto(person.id);
 
@@ -388,17 +405,19 @@ describe("removePhoto", () => {
 
   it("leaves a suppressed person alone on a later resolve", async () => {
     const person = await seedPerson();
-    await resolvePhoto(person.id);
+    await resolvePhoto(person.id, new Date(), { allowPull: true });
     await removePhoto(person.id);
     vi.mocked(fetchYaliesPhoto).mockClear();
 
-    expect(await resolvePhoto(person.id)).toBeNull();
+    // allowPull: true here too: the point of this test is that suppression
+    // blocks the pull, not that the caller forgot to ask for one.
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
     expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
   });
 
   it("a second removePhoto call does not un-suppress an already-removed Yalies photo", async () => {
     const person = await seedPerson();
-    await resolvePhoto(person.id);
+    await resolvePhoto(person.id, new Date(), { allowPull: true });
 
     await removePhoto(person.id);
     const afterFirst = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
@@ -429,7 +448,7 @@ describe("an opt-out survives an admin re-upload and its own removal", () => {
     // 1. Jane is auto-sourced, then removes it on /my-info. photoSuppressed
     //    becomes true, photoSource/photoKey go back to null.
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
-    await resolvePhoto(jane.id);
+    await resolvePhoto(jane.id, new Date(), { allowPull: true });
     await removePhoto(jane.id);
     const afterOptOut = await prisma.person.findUniqueOrThrow({ where: { id: jane.id } });
     expect(afterOptOut.photoSuppressed).toBe(true);
@@ -457,9 +476,11 @@ describe("an opt-out survives an admin re-upload and its own removal", () => {
     expect(afterRemoval.photoSuppressed).toBe(true);
 
     // 4. Her next render must NOT re-pull her Yale photo and must NOT
-    //    republish it to her public credential page.
+    //    republish it to her public credential page. allowPull: true here
+    //    so this proves suppression is what blocks the pull, matching a
+    //    self-view where the route would actually allow one.
     vi.mocked(fetchYaliesPhoto).mockClear();
-    const resolved = await resolvePhoto(jane.id);
+    const resolved = await resolvePhoto(jane.id, new Date(), { allowPull: true });
     expect(resolved).toBeNull();
     expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
   });

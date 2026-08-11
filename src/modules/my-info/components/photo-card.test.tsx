@@ -27,6 +27,14 @@ describe("PhotoCard", () => {
       />
     );
 
+    // The disclosure itself, not just the second-person framing around it:
+    // without this, deleting "This photo is from Yale's directory." (the
+    // actual consent content) would leave "your initials" intact and this
+    // test green. See the module doc comment above.
+    // renderToStaticMarkup HTML-escapes the apostrophe ("'" -> "&#x27;"), so
+    // this is the literal substring that actually appears in the output, not
+    // "Yale's directory" verbatim.
+    expect(html).toContain("Yale&#x27;s directory");
     expect(html).toContain("your initials");
     expect(html).not.toContain("rather than uploaded");
   });
@@ -43,6 +51,12 @@ describe("PhotoCard", () => {
       />
     );
 
+    // Same reasoning as the member test above: assert the disclosure itself,
+    // not just the third-person framing around it.
+    // renderToStaticMarkup HTML-escapes the apostrophe ("'" -> "&#x27;"), so
+    // this is the literal substring that actually appears in the output, not
+    // "Yale's directory" verbatim.
+    expect(html).toContain("Yale&#x27;s directory");
     expect(html).toContain("rather than uploaded");
     expect(html).not.toContain("your initials");
   });

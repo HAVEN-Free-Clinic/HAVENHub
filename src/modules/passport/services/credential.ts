@@ -26,6 +26,16 @@ export type IssuedCredential = {
   revokedAt: string | null;
 };
 
+/**
+ * What getCredentialByToken returns: an IssuedCredential plus the LIVE photo
+ * fields off the person relation. record is a frozen snapshot and must never
+ * carry the photo, so the public page reads photoKey/photoVersion from here
+ * instead, which is what makes removing a photo take effect immediately.
+ */
+export type PublicCredential = IssuedCredential & {
+  person: { photoKey: string | null; photoVersion: number };
+};
+
 function toIssued(row: {
   id: string;
   record: Prisma.JsonValue;
@@ -151,14 +161,21 @@ export async function unpublishCredential(personId: string): Promise<void> {
  * those cases renders the same 404 and the page never distinguishes "wrong
  * token" from "retracted".
  */
-export async function getCredentialByToken(token: string): Promise<IssuedCredential | null> {
+export async function getCredentialByToken(token: string): Promise<PublicCredential | null> {
   if (!token) return null;
   const row = await prisma.serviceCredential.findUnique({
     where: { publicToken: token },
-    select: { id: true, record: true, publicToken: true, issuedAt: true, revokedAt: true },
+    select: {
+      id: true,
+      record: true,
+      publicToken: true,
+      issuedAt: true,
+      revokedAt: true,
+      person: { select: { photoKey: true, photoVersion: true } },
+    },
   });
   if (!row || row.revokedAt) return null;
-  return toIssued(row);
+  return { ...toIssued(row), person: row.person };
 }
 
 /**

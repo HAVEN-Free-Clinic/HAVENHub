@@ -77,6 +77,11 @@ const schema = z
     R2_ACCESS_KEY_ID: z.string().optional(),
     R2_SECRET_ACCESS_KEY: z.string().optional(),
     R2_BUCKET: z.string().optional(),
+    // Yalies API key (https://yalies.io/api), used to auto-source Yale College
+    // profile photos by netId. Optional: when unset, photo auto-sourcing is
+    // inert and only self-uploaded photos exist. Server-only, never logged.
+    // Requests MUST use https; Yalies revokes keys used over plain HTTP.
+    YALIES_API_KEY: z.string().optional(),
     // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
     // Default is 4 MB: every upload path except SCORM packages goes through a Server

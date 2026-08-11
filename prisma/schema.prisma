@@ -130,6 +130,27 @@ model Person {
   /// match the settings registry's string select and avoid a Prisma enum migration.
   themePreference                String?
   gradYear                       String?
+  /// Profile photo state. Bytes live in object storage under the fixed key
+  /// "people/<personId>"; photoKey is null when the person has no photo.
+  /// Auto-sourced from Yalies for Yale College students, or self-uploaded.
+  photoKey                       String?
+  /// "yalies" (auto-sourced) or "upload" (member or admin supplied). Decides
+  /// whether removing the photo suppresses future Yalies pulls.
+  photoSource                    String?
+  /// Monotonic cache-buster for the ?v= query param on both photo routes.
+  /// NEVER reset on removal: reusing a version pins browsers to a stale image
+  /// (the same trap documented in platform/branding/assets.ts).
+  photoVersion                   Int                        @default(0)
+  photoUpdatedAt                 DateTime?
+  /// Set by removing a Yalies-sourced photo, meaning "do not use my Yale photo".
+  /// Cleared only by the target person's OWN upload, never by someone else's
+  /// (e.g. an admin) uploading on their behalf. Removing a self-uploaded photo
+  /// does NOT set it.
+  photoSuppressed                Boolean                    @default(false)
+  /// Last Yalies attempt, success or miss. Null means never attempted.
+  photoSyncedAt                  DateTime?
+  /// Consecutive misses, driving the retry backoff. Reset to 0 on success.
+  photoSyncMisses                Int                        @default(0)
   status                         PersonStatus               @default(ACTIVE)
   /// Airtable record id this person was imported from. Retained for the
   /// read-only Airtable import scripts (see scripts/import-*.ts); the outbound

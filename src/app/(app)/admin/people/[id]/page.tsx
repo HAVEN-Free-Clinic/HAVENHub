@@ -17,6 +17,9 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
+import { PhotoError, removePhoto, setPhotoFromUpload } from "@/platform/photos";
+import { PhotoCard } from "@/modules/my-info/components/photo-card";
+import { getSetting } from "@/platform/settings/service";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -30,6 +33,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
   if (!person) notFound();
 
   const canManageRoster = await can(session.personId, "admin.manage_roster");
+  const maxMb = await getSetting<number>("uploads.maxMb");
 
   // Reuses the same reviewer-facing card from the application detail page (see
   // ApplicantHistory in the recruitment module), matched by netId/email/personId
@@ -66,6 +70,52 @@ export default async function PersonDetailPage({ params }: PageProps) {
       throw err;
     }
     redirect(`/admin/people/${id}?saved=1`);
+  }
+
+  // The target person id comes from `id`, closed over from the route param
+  // above (`params` on this dynamic segment), never read out of the
+  // submitted FormData. Both actions necessarily operate on someone OTHER
+  // than the signed-in admin -- unlike my-info's photo actions, which derive
+  // the person solely from the caller's own session and so can never be
+  // aimed elsewhere -- so which id they act on matters: a form field named
+  // e.g. "personId" could be forged by any client to retarget the action at
+  // an arbitrary person. Closing over the server-rendered route param instead
+  // means the target is fixed by which page rendered the form, not by
+  // anything the submitted request supplies.
+  async function photoUploadAction(formData: FormData) {
+    "use server";
+    const actorSession = await requirePermission("admin.manage_people");
+    const file = formData.get("photo");
+    if (!(file instanceof File) || file.size === 0) {
+      redirect(`/admin/people/${id}?photoError=Choose+an+image+file.`);
+    }
+    try {
+      await setPhotoFromUpload(
+        id,
+        { type: file.type, size: file.size, bytes: Buffer.from(await file.arrayBuffer()) },
+        await getSetting<number>("uploads.maxMb"),
+        // Actor is the ADMIN, not `id` (the target). Almost always
+        // different, so this upload must not silently clear a suppression
+        // the target person set for themselves -- see setPhotoFromUpload's
+        // doc comment. If the admin happens to be viewing their own record,
+        // actorSession.personId === id and it clears exactly as a self
+        // upload would.
+        actorSession.personId
+      );
+    } catch (err) {
+      if (err instanceof PhotoError) {
+        redirect(`/admin/people/${id}?photoError=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+    redirect(`/admin/people/${id}?photoSaved=1`);
+  }
+
+  async function photoRemoveAction() {
+    "use server";
+    await requirePermission("admin.manage_people");
+    await removePhoto(id);
+    redirect(`/admin/people/${id}?photoRemoved=1`);
   }
 
   async function offboardAction() {
@@ -119,6 +169,24 @@ export default async function PersonDetailPage({ params }: PageProps) {
           )
         }
       />
+
+      {/* Photo */}
+      <section>
+        <SectionHeader className="mb-4">Photo</SectionHeader>
+        <PhotoCard
+          person={{
+            id: person.id,
+            name: person.name,
+            photoVersion: person.photoVersion,
+            photoKey: person.photoKey,
+          }}
+          photoSource={person.photoSource}
+          maxMb={maxMb}
+          uploadAction={photoUploadAction}
+          removeAction={photoRemoveAction}
+          audience="admin"
+        />
+      </section>
 
       {/* Edit form */}
       <section>

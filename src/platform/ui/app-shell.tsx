@@ -25,6 +25,7 @@ export async function AppShell({
   userName,
   termLabel,
   personId,
+  photoVersion,
   personThemePreference,
   extraModuleIds,
   extraNavItems,
@@ -33,6 +34,9 @@ export async function AppShell({
   userName: string | null;
   termLabel?: string | null;
   personId: string;
+  /** Bumped on every photo set/removal; feeds the account menu's PersonPhoto so its
+   *  cache-busting URL changes exactly when the underlying image does. */
+  photoVersion: number;
   /** Raw person preference from the session (string | null). AppShell resolves this against the admin default. */
   personThemePreference: string | null;
   /** Module ids the user reaches by derived access (e.g. recruitment review scope)
@@ -93,7 +97,7 @@ export async function AppShell({
             <ThemeToggle initial={resolvedTheme} />
             <NotificationBell />
             <AccountMenu
-              userName={userName}
+              person={{ id: personId, name: userName, photoVersion }}
               termLabel={termLabel ?? null}
               signOutAction={async () => {
                 "use server";

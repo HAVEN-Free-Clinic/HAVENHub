@@ -28,3 +28,27 @@ export function intercomMessengerSecret(): string | null {
 export function isIntercomConfigured(): boolean {
   return intercomAppId() !== null && intercomMessengerSecret() !== null;
 }
+
+/**
+ * Access token for Intercom's REST API, used to verify that a claimed Person id
+ * really belongs to the contact in the conversation. Without it the MCP server
+ * would have to take the caller's word for who they are, so its absence turns
+ * the whole endpoint off.
+ */
+export function intercomAccessToken(): string | null {
+  return process.env.INTERCOM_ACCESS_TOKEN?.trim() || null;
+}
+
+/** Shared secret Fin presents to the MCP endpoint. Absent = endpoint off. */
+export function mcpBearerToken(): string | null {
+  return process.env.INTERCOM_MCP_BEARER_TOKEN?.trim() || null;
+}
+
+/**
+ * The MCP endpoint requires the Messenger to be configured as well: identity
+ * originates in the Messenger JWT, so an MCP server without it would be
+ * verifying contacts whose user_id nothing ever signed.
+ */
+export function isMcpConfigured(): boolean {
+  return isIntercomConfigured() && intercomAccessToken() !== null && mcpBearerToken() !== null;
+}

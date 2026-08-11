@@ -81,7 +81,7 @@ and is recorded here so it is not rediscovered as a defect.
 
 ## Data model
 
-Six additive columns on `Person`. No new table.
+Seven additive columns on `Person`. No new table.
 
 ```prisma
 photoKey        String?    // R2 object key; null = no photo
@@ -104,7 +104,7 @@ image.
 
 ## State machine
 
-`service.ts` is the sole writer of these six columns.
+`service.ts` is the sole writer of these seven columns.
 
 ### The pull predicate
 
@@ -148,7 +148,7 @@ reasoning `src/platform/affiliation.ts` records for its own placement.
 |---|---|
 | `yalies.ts` | netId to image bytes. 2s timeout via `AbortSignal`, no retries, no DB access. |
 | `normalize.ts` | sharp: center-crop square, resize to 512, strip EXIF, encode WebP. |
-| `service.ts` | The state machine. Sole writer of the six columns. |
+| `service.ts` | The state machine. Sole writer of the seven columns. |
 | `initials.ts` | Deterministic initials SVG, reusing the existing `toInitials`. |
 | `index.ts` | Public surface: `resolvePhoto`, `setPhotoFromUpload`, `removePhoto`, `photoUrl`. |
 
@@ -235,7 +235,7 @@ counts rather than by exit code.
 
 ## Scope
 
-**In:** the six columns and their migration, `src/platform/photos/`, the two routes, the shared
+**In:** the seven columns and their migration, `src/platform/photos/`, the two routes, the shared
 component, write controls on `/my-info` and admin person detail, and the public credential page.
 
 **Out:**

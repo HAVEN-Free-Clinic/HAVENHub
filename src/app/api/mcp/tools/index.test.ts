@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import { MCP_TOOLS, IDENTITY_ARGUMENT_PATTERN } from "./index";
+import { MCP_TOOLS, IDENTITY_ARGUMENT_PATTERN, FORBIDDEN_OUTPUT_PATTERN } from "./index";
 
 describe("MCP tool registry", () => {
   it("has unique tool names", () => {
@@ -26,7 +26,7 @@ describe("MCP tool registry", () => {
   });
 
   it("rejects identity-shaped keys and allows ordinary ones", () => {
-    const rejected = ["personId", "person_id", "userId", "netId", "memberEmail", "actorId", "requesterId"];
+    const rejected = ["personId", "person_id", "userId", "netId", "memberEmail", "actorId", "requesterId", "contactId", "identityId"];
     for (const key of rejected) {
       expect(IDENTITY_ARGUMENT_PATTERN.test(key), `${key} should be rejected`).toBe(true);
     }
@@ -40,5 +40,16 @@ describe("MCP tool registry", () => {
     const offender = z.object({ personId: z.string() });
     const violations = Object.keys(offender.shape).filter((k) => IDENTITY_ARGUMENT_PATTERN.test(k));
     expect(violations).toEqual(["personId"]);
+  });
+
+  it("forbids sensitive output fields and allows ordinary ones", () => {
+    const forbidden = ["govId", "dateOfBirth", "photoKey", "MemberLoginToken", "passwordHash", "storageKey", "scormBlobKey"];
+    for (const key of forbidden) {
+      expect(FORBIDDEN_OUTPUT_PATTERN.test(key), `${key} should be forbidden`).toBe(true);
+    }
+    const allowed = ["departmentName", "clinicDate", "cacheKey"];
+    for (const key of allowed) {
+      expect(FORBIDDEN_OUTPUT_PATTERN.test(key), `${key} should be allowed`).toBe(false);
+    }
   });
 });

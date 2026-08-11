@@ -18,7 +18,7 @@ export type McpTool = {
  * Kept deliberately broad: a false positive costs one rename, a false negative
  * costs the whole identity model. See the registry test.
  */
-export const IDENTITY_ARGUMENT_PATTERN = /person|people|user|member|netid|actor|requester|assignee|email/i;
+export const IDENTITY_ARGUMENT_PATTERN = /person|people|user|member|netid|actor|requester|assignee|email|contact|identity/i;
 
 /**
  * Field names that must never appear in tool output. Tool responses can be
@@ -26,7 +26,7 @@ export const IDENTITY_ARGUMENT_PATTERN = /person|people|user|member|netid|actor|
  * values the spec forbids leaving the Hub at all. Phase 2 and later tools assert
  * their rendered output against this.
  */
-export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginToken|passwordHash/i;
+export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginToken|passwordHash|storageKey|scormBlobKey/i;
 
 /**
  * Every tool Fin may call. Tools live here in the app layer rather than under

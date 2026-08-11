@@ -300,6 +300,36 @@ function isSuppressedErrorParam(pathname: string, name: string): boolean {
   return SUPPRESSED_ERROR_PARAMS.has(suppressionKey(pathname, name));
 }
 
+/**
+ * Precise (pathname, param, value) triples where the `error` convention must not fire for that
+ * ONE value, leaving every other value of the same param on the same pathname to resolve
+ * normally. This is `SUPPRESSED_ERROR_PARAMS`'s narrower sibling: that set suppresses a param
+ * unconditionally because the whole page owns its error vocabulary (`/login`'s NextAuth codes,
+ * the `/incidents` pages' mixed vocabulary); a blanket entry there would be wrong for a page that
+ * only inline-renders SOME of its error codes.
+ *
+ * `apply/page.tsx` renders its own inline `<Alert>` only for `error=signin` (a failed Yale
+ * sign-in). `error=link` is `/apply`'s OTHER error code (`apply/verify/page.tsx:44`'s
+ * expired/already-used magic-link redirect) and is NOT rendered inline anywhere -- it depends on
+ * this module popping a toast via the `ERROR_CODE_TABLE`'s `link` entry above. A blanket
+ * `["/apply", "error"]` entry in `SUPPRESSED_ERROR_PARAMS` would silently swallow that toast too
+ * (confirmed: it broke the "resolves error=link on /apply to its real text" test), so `signin`
+ * needs its own value-scoped suppression instead.
+ */
+const SUPPRESSED_ERROR_VALUES: ReadonlySet<string> = new Set(
+  ([["/apply", "error", "signin"]] as const).map(([pathname, name, value]) =>
+    suppressionValueKey(pathname, name, value),
+  ),
+);
+
+function suppressionValueKey(pathname: string, name: string, value: string): string {
+  return `${pathname} ${name} ${value}`;
+}
+
+function isSuppressedErrorValue(pathname: string, name: string, value: string): boolean {
+  return SUPPRESSED_ERROR_VALUES.has(suppressionValueKey(pathname, name, value));
+}
+
 type FlashRegistryEntry = {
   /** All of these params must be present for the entry to fire; all are stripped together. */
   params: readonly string[];
@@ -798,6 +828,7 @@ export function classifyFlashParams(params: URLSearchParams, rawPathname: string
     if (isSuppressedErrorParam(pathname, name)) continue;
 
     const ownValue = params.get(name) ?? "";
+    if (isSuppressedErrorValue(pathname, name, ownValue)) continue;
     const detail = name === ERROR_PARAM && hasValue(params, MESSAGE_PARAM) ? params.get(MESSAGE_PARAM) : null;
     const message = detail ?? (name === ERROR_PARAM ? resolveErrorValue(ownValue, pathname) : ownValue);
 

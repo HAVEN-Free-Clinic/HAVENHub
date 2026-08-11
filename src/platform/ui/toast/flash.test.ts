@@ -1004,4 +1004,15 @@ describe("classifyFlashParams", () => {
     expect(result.toasts).toEqual([]);
     expect(result.stripParams).toEqual([]);
   });
+
+  // ---------------------------------------------------------------------------
+  // Suppression: /apply renders its own inline <Alert> for error=signin (a
+  // failed Yale sign-in), the same reason /login opts out above.
+  // ---------------------------------------------------------------------------
+
+  it("suppresses error on /apply, ruled INLINE for the sign-in failure alert", () => {
+    const result = classifyFlashParams(paramsOf({ error: "signin" }), "/apply");
+    expect(result.toasts).toEqual([]);
+    expect(result.stripParams).toEqual([]);
+  });
 });

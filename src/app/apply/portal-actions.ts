@@ -2,8 +2,10 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { signOut } from "@/platform/auth/auth";
+import { AuthError } from "next-auth";
+import { signIn, signOut } from "@/platform/auth/auth";
 import { requestMagicLink, APPLICANT_COOKIE, getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 import { withdrawApplication, discardDraft, WithdrawError } from "@/modules/recruitment/services/withdraw";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycleSlug } from "@/platform/posthog/groups";
@@ -103,4 +105,30 @@ export async function discardDraftAction(
   }
   revalidatePath("/apply");
   return { error };
+}
+
+/**
+ * Start the Yale (Entra) sign-in from the portal itself, rather than linking to
+ * /login. Linking there served the hub's staff login page ON the portal host,
+ * so an applicant saw "Sign in to <app>" and had to press the same button a
+ * second time. This keeps the portal the only thing an applicant sees before
+ * Microsoft.
+ *
+ * `next` arrives in a form body on a public, unauthenticated page, so it is
+ * attacker-controlled and goes through safeNextPath before it is ever used.
+ */
+export async function portalYaleSignInAction(formData: FormData): Promise<void> {
+  const next = safeNextPath(String(formData.get("next") ?? ""));
+  try {
+    await signIn("microsoft-entra-id", { redirectTo: next });
+  } catch (error) {
+    // signIn signals SUCCESS by throwing NEXT_REDIRECT, so only a real AuthError
+    // may be translated here. Catching broadly would swallow the redirect and
+    // strand the applicant on a page that appears to do nothing.
+    if (error instanceof AuthError) {
+      const param = next === PORTAL_HOME ? "" : `&next=${encodeURIComponent(next)}`;
+      return redirect(`/apply?error=signin${param}`);
+    }
+    throw error;
+  }
 }

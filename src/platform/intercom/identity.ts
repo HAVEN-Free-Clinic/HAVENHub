@@ -35,9 +35,15 @@ export async function resolveIntercomIdentity(claimedPersonId: string): Promise<
         cache: "no-store",
       }
     );
-    // A miss (404) is a refusal, not an error: it means the id does not name a
-    // contact in this workspace, which is exactly what a forged claim looks like.
-    if (!res.ok) return { ok: false, reason: "unverified" };
+    // A 404 is a refusal, not an error: it means the id does not name a contact
+    // in this workspace, which is exactly what a forged claim looks like. Any
+    // other error status means our lookup broke (bad token, rate limit, outage),
+    // so we fail the same way as a fetch exception.
+    if (res.status === 404) return { ok: false, reason: "unverified" };
+    if (!res.ok) {
+      log.warn("[intercom-mcp] contact lookup failed", { status: res.status });
+      return { ok: false, reason: "lookup_failed" };
+    }
     contact = (await res.json()) as { external_id?: string };
   } catch (err) {
     log.warn("[intercom-mcp] contact lookup failed", errorAttrs(err));

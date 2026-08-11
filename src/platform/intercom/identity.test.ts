@@ -55,6 +55,14 @@ describe("resolveIntercomIdentity", () => {
     expect(result).toEqual({ ok: false, reason: "unverified" });
   });
 
+  it("fails closed when Intercom returns a non-404 error like 401 (revoked token)", async () => {
+    mockFetchOnce(401, {});
+
+    const result = await resolveIntercomIdentity("p1");
+
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
+
   it("refuses an offboarded person even though Intercom still knows the contact", async () => {
     mockFetchOnce(200, { external_id: "p1" });
     mocked(getActivePerson).mockResolvedValue(null);

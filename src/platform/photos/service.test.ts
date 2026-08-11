@@ -41,7 +41,14 @@ describe("resolvePhoto", () => {
 
   it("stores and returns a photo when Yalies has one", async () => {
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
-    const person = await seedPerson();
+    // Seeded away from the defaults (misses: 0, syncedAt: null) so the
+    // photoSyncMisses-resets-to-0 assertion below is load-bearing: a fresh
+    // person already reads 0, so it can't tell "reset" from "never touched".
+    // The old syncedAt clears the backoff window so the pull still fires.
+    const person = await seedPerson({
+      photoSyncMisses: 2,
+      photoSyncedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+    });
 
     const resolved = await resolvePhoto(person.id);
 
@@ -122,21 +129,33 @@ describe("resolvePhoto", () => {
     expect(after.photoSuppressed).toBe(false);
   });
 
-  it("repairs a torn row without suppressing, even when Yalies has nothing to backfill", async () => {
+  it("repairs a torn row without touching an existing suppression", async () => {
     const person = await seedPerson();
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
-    const before = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
-
-    await deleteObject(`people/${person.id}`);
+    const key = `people/${person.id}`;
+    // Seed a torn AND suppressed row directly, rather than via
+    // resolvePhoto/removePhoto: photoKey pointing at an object that was
+    // never actually written (getObject on it will miss, triggering
+    // repair), with photoSuppressed already true. Seeding false here (the
+    // column default) could not tell "repair leaves suppression alone" apart
+    // from "repair wrongly resets suppression to false": both read false
+    // either way. Only seeding true, and asserting it is STILL true
+    // afterward, actually exercises the "untouched" claim.
+    await prisma.person.update({
+      where: { id: person.id },
+      data: { photoKey: key, photoSource: "yalies", photoSuppressed: true },
+    });
     vi.mocked(fetchYaliesPhoto).mockResolvedValue(null);
 
     expect(await resolvePhoto(person.id)).toBeNull();
 
+    // Suppressed, so the repaired (photoKey: null) state must never reach a
+    // Yalies pull at all: shouldAttemptYaliesPull's suppression check must
+    // still see it as true.
+    expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoKey).toBeNull();
     expect(after.photoSource).toBeNull();
-    expect(after.photoVersion).toBe(before.photoVersion + 1);
-    expect(after.photoSuppressed).toBe(false);
+    expect(after.photoSuppressed).toBe(true);
   });
 });
 
@@ -185,6 +204,21 @@ describe("setPhotoFromUpload", () => {
     ).rejects.toBeInstanceOf(PhotoError);
   });
 
+  it("rejects a file whose actual bytes exceed the limit even when the declared size lies", async () => {
+    const person = await seedPerson();
+    // size claims small; the actual buffer is the thing that must be judged.
+    // Matching the specific "too large" message (rather than just
+    // PhotoError) matters: these bytes are not a decodable image either, so
+    // a validator that skipped this check would still reject them via
+    // normalizePhoto's decode failure, with a different message, and the
+    // test would pass for the wrong reason.
+    const oversized = Buffer.alloc(5 * 1024 * 1024);
+
+    await expect(
+      setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: oversized }, 4)
+    ).rejects.toThrow(/too large/);
+  });
+
   it("keeps the version monotonic across replacement", async () => {
     const person = await seedPerson();
     const file = { type: "image/png", size: 100, bytes: await pngBytes() };
@@ -217,15 +251,29 @@ describe("removePhoto", () => {
     expect(await getObject(`people/${person.id}`)).toBeNull();
   });
 
-  it("does not suppress when removing an uploaded photo", async () => {
+  it("does not suppress when removing an uploaded photo, even if already suppressed", async () => {
     const person = await seedPerson();
-    await setPhotoFromUpload(person.id, { type: "image/png", size: 100, bytes: await pngBytes() }, 4);
+    const key = `people/${person.id}`;
+    // Seed a state that the app's own functions cannot reach on their own
+    // (setPhotoFromUpload always clears suppression on the way in, per
+    // "clears suppression" above), but that the schema does not forbid:
+    // source "upload" with photoSuppressed already true. Seeding false here
+    // (the column default) could not distinguish "removePhoto correctly
+    // left it alone" from "removePhoto wrote false anyway": both read false
+    // either way, which is exactly the gap that let the absolute-value write
+    // in removePhoto through review undetected. Only seeding true, and
+    // asserting it survives, actually exercises "an uploaded-photo removal
+    // must not touch suppression in either direction."
+    await prisma.person.update({
+      where: { id: person.id },
+      data: { photoKey: key, photoSource: "upload", photoSuppressed: true },
+    });
 
     await removePhoto(person.id);
 
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoKey).toBeNull();
-    expect(after.photoSuppressed).toBe(false);
+    expect(after.photoSuppressed).toBe(true);
   });
 
   it("leaves a suppressed person alone on a later resolve", async () => {
@@ -236,5 +284,24 @@ describe("removePhoto", () => {
 
     expect(await resolvePhoto(person.id)).toBeNull();
     expect(vi.mocked(fetchYaliesPhoto)).not.toHaveBeenCalled();
+  });
+
+  it("a second removePhoto call does not un-suppress an already-removed Yalies photo", async () => {
+    const person = await seedPerson();
+    await resolvePhoto(person.id);
+
+    await removePhoto(person.id);
+    const afterFirst = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(afterFirst.photoSuppressed).toBe(true);
+
+    // Double-clicked remove button, a retried form post, or an admin
+    // removing a photo for someone who already removed it: photoKey is
+    // already null, so this call has nothing to do.
+    await removePhoto(person.id);
+
+    const afterSecond = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(afterSecond.photoSuppressed).toBe(true);
+    // A true no-op: the second call must not have written the row at all.
+    expect(afterSecond.photoVersion).toBe(afterFirst.photoVersion);
   });
 });

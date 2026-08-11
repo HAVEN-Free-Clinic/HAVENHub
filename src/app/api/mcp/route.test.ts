@@ -72,18 +72,24 @@ describe("POST /api/mcp", () => {
     expect(res.status).toBe(404);
   });
 
-  it("401s without the bearer token", async () => {
+  it("401s and audits without the bearer token", async () => {
     const { POST } = await import("./route");
     const res = await POST(req({ "X-Intercom-Person-Id": "p1" }));
     expect(res.status).toBe(401);
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "denied", personId: null })
+    );
   });
 
-  it("401s with the wrong bearer token", async () => {
+  it("401s and audits with the wrong bearer token", async () => {
     const { POST } = await import("./route");
     const res = await POST(
       req({ Authorization: "Bearer wrong", "X-Intercom-Person-Id": "p1" })
     );
     expect(res.status).toBe(401);
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "denied", personId: null })
+    );
   });
 
   it("403s and audits when the identity claim does not verify", async () => {
@@ -100,11 +106,14 @@ describe("POST /api/mcp", () => {
     );
   });
 
-  it("403s when no identity header is present at all", async () => {
+  it("403s, audits, and never calls resolveIntercomIdentity when no identity header is present at all", async () => {
     const { POST } = await import("./route");
     const res = await POST(req({ Authorization: "Bearer bearer-token" }));
     expect(res.status).toBe(403);
     expect(mocked(resolveIntercomIdentity)).not.toHaveBeenCalled();
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "unverified", personId: null })
+    );
   });
 
   it("passes a tool the personId guard() verified, never a re-derived one", async () => {
@@ -125,6 +134,40 @@ describe("POST /api/mcp", () => {
     expect(runMock).toHaveBeenCalledWith(
       expect.objectContaining({ personId: "verified-person" }),
       expect.anything()
+    );
+  });
+
+  it("never lets a thrown tool error reach the response, and still audits the call as denied", async () => {
+    mocked(resolveIntercomIdentity).mockImplementation(async (claimed: string) => ({
+      ok: true,
+      personId: claimed,
+      name: null,
+    }));
+    // A realistic leak: Prisma/pg errors against an unreachable DB name the
+    // Neon host (see db-unreachable-degradation), and the MCP SDK is documented
+    // to turn an uncaught tool exception into a 200 whose body echoes
+    // error.message straight back to Fin -- which Intercom may show the member.
+    const leakyError = new Error(
+      "connect ECONNREFUSED ep-dawn-mode-123.us-east-2.aws.neon.tech:5432 password=hunter2"
+    );
+    const runMock = mocked((MCP_TOOLS[0] as { run: unknown }).run);
+    runMock.mockRejectedValueOnce(leakyError);
+
+    const { POST } = await import("./route");
+    const res = await POST(
+      req({ Authorization: "Bearer bearer-token", "X-Intercom-Person-Id": "verified-person" })
+    );
+
+    const body = (await res.json()) as { content?: { type: string; text: string }[] };
+    const text = body.content?.[0]?.text ?? "";
+
+    expect(text).toBe("Sorry, I could not look that up right now.");
+    expect(text).not.toContain("ECONNREFUSED");
+    expect(text).not.toContain("neon.tech");
+    expect(text).not.toContain("hunter2");
+
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: "test_tool", outcome: "denied", personId: "verified-person" })
     );
   });
 });

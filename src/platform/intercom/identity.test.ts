@@ -87,4 +87,33 @@ describe("resolveIntercomIdentity", () => {
 
     expect(result).toEqual({ ok: false, reason: "lookup_failed" });
   });
+
+  it("pins an explicit Intercom-Version header rather than trusting the workspace default", async () => {
+    mockFetchOnce(200, { external_id: "p1" });
+    mocked(getActivePerson).mockResolvedValue({ id: "p1", name: "Sam Rivera" });
+
+    await resolveIntercomIdentity("p1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["Intercom-Version"]).toBe("2.14");
+  });
+
+  it("fails closed distinctly on a merged contact (410), rather than folding it into a generic lookup failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        headers: { get: (name: string) => (name.toLowerCase() === "link" ? '<https://api.intercom.io/contacts/canonical-id>; rel="canonical"' : null) },
+        json: async () => ({}),
+      })
+    );
+
+    const result = await resolveIntercomIdentity("p1");
+
+    // Still fail-closed like any other lookup failure -- the distinction the
+    // fix makes is in how it is logged (see identity.ts), not the outcome.
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
 });

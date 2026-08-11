@@ -906,8 +906,11 @@ Expected: FAIL, cannot find module `./route`.
 
 Create `src/app/api/mcp/route.ts`:
 
+**Correction (post-implementation):** the sketch originally here read the identity header off `ctx.requestInfo` inside the tool callback. That does not work and was abandoned during implementation: verified against the actual installed `mcp-handler` and `@modelcontextprotocol/server` packages, the tool handler's second argument carries protocol plumbing only -- there is no `requestInfo`, so a tool callback has no way to re-derive identity per call. What was actually built instead is a per-request-closure design: `guard()` resolves and verifies identity exactly once per request and returns `{ personId }`; `handle()` then calls `createMcpHandler` *inside the request path* (relying on mcp-handler building one fresh `McpServer` per HTTP request) with an `initializeServer` closure that registers every tool with `personId` already captured in scope. That closure is what makes it structurally impossible for a tool to see an unverified or wrong caller -- there is no per-call identity read to get wrong, because the only `personId` a tool can ever reach is the one already closed over when its handler was registered. The corrected sketch below matches the shipped `src/app/api/mcp/route.ts`; consult that file directly for the current implementation (it has since grown a try/catch/finally around each tool call -- see the design spec's follow-up on error handling).
+
 ```ts
 import { createMcpHandler } from "mcp-handler";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { isMcpConfigured, mcpBearerToken } from "@/platform/intercom/config";
 import { resolveIntercomIdentity } from "@/platform/intercom/identity";
 import { recordToolCall } from "@/platform/intercom/audit";
@@ -919,43 +922,28 @@ export const dynamic = "force-dynamic";
 /** Header Fin sets from the verified contact attribute. Never a tool argument. */
 const IDENTITY_HEADER = "X-Intercom-Person-Id";
 
-const mcpHandler = createMcpHandler((server) => {
+/**
+ * Registers every tool against one request's MCP server, closing over the
+ * personId `guard()` already verified for that request. This closure -- not a
+ * per-call header read -- is what binds a tool call to a verified identity.
+ */
+function registerTools(server: McpServer, personId: string): void {
   for (const tool of MCP_TOOLS) {
     server.registerTool(
       tool.name,
       { title: tool.title, description: tool.description, inputSchema: tool.inputSchema },
-      // Second argument is McpRequestContext: { era, authInfo?, requestInfo?: Request }.
-      // requestInfo is the original HTTP Request, so headers come off a real
-      // Headers object and the lookup is case-insensitive.
-      async (args, ctx) => {
-        const personId = ctx.requestInfo?.headers.get(IDENTITY_HEADER) ?? "";
-        const identity = await resolveIntercomIdentity(personId);
-        if (!identity.ok) {
-          await recordToolCall({ personId: null, tool: tool.name, args, outcome: "unverified" });
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "I could not confirm who you are, so I cannot look that up. Please contact a human on the team.",
-              },
-            ],
-          };
-        }
-        const text = await tool.run({ personId: identity.personId }, args);
-        await recordToolCall({
-          personId: identity.personId,
-          tool: tool.name,
-          args,
-          outcome: "ok",
-        });
+      async (args) => {
+        const text = await tool.run({ personId }, args);
+        await recordToolCall({ personId, tool: tool.name, args, outcome: "ok" });
         return { content: [{ type: "text" as const, text }] };
       }
     );
   }
-});
+}
 
 /**
- * Gate every request before it reaches the MCP machinery.
+ * Gate every request before it reaches the MCP machinery, and hand back the
+ * identity it verified so the caller can build a server scoped to it.
  *
  * Bearer auth proves the caller is our Fin connector. The identity header
  * proves which member the conversation belongs to, and is verified against
@@ -963,7 +951,7 @@ const mcpHandler = createMcpHandler((server) => {
  * reduced-scope path, because a caller we cannot identify is one we cannot
  * authorize.
  */
-async function guard(request: Request): Promise<Response | null> {
+async function guard(request: Request): Promise<Response | { personId: string }> {
   if (!isMcpConfigured()) {
     return Response.json({ error: "Not Found" }, { status: 404 });
   }
@@ -985,19 +973,26 @@ async function guard(request: Request): Promise<Response | null> {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return null;
+  return { personId: identity.personId };
+}
+
+async function handle(request: Request): Promise<Response> {
+  const gate = await guard(request);
+  if (gate instanceof Response) return gate;
+
+  // Built here, inside the request path, so every request gets its own
+  // McpServer and its own registerTools closure over gate.personId -- there
+  // is no module-level handler for one caller's identity to leak through.
+  const handler = createMcpHandler((server) => registerTools(server, gate.personId));
+  return handler(request);
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const denied = await guard(request);
-  if (denied) return denied;
-  return mcpHandler(request);
+  return handle(request);
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const denied = await guard(request);
-  if (denied) return denied;
-  return mcpHandler(request);
+  return handle(request);
 }
 ```
 
@@ -1006,7 +1001,7 @@ export async function GET(request: Request): Promise<Response> {
 Run: `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_intercomsupport" npx vitest run src/app/api/mcp/route.test.ts`
 Expected: PASS, 5 tests.
 
-Verified against `mcp-handler` 2.1.0 and `@modelcontextprotocol/server` 2.x: the tool handler's second argument is `McpRequestContext`, declared as `{ era: 'legacy' | 'modern'; authInfo?: AuthInfo; requestInfo?: Request }`. The per-tool identity read is defence in depth; `guard()` has already rejected unverified callers before any tool runs.
+Verified against the actual installed `mcp-handler` and `@modelcontextprotocol/server` packages: the tool handler's second argument is `ServerContext`, protocol plumbing only, with no `requestInfo`. There is no per-tool identity re-check "in defence in depth" -- `guard()` is the only place identity is ever resolved, and `registerTools()` merely closes over what it already proved.
 
 - [ ] **Step 5: Run the whole Intercom surface and verify**
 

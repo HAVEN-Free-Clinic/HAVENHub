@@ -8,7 +8,10 @@ import { recordAudit } from "@/platform/audit";
  * misconfigured in Intercom. A burst of `intercom_mcp.unverified` rows, or one
  * person appearing as the actor for implausibly many distinct calls, is what
  * that failure looks like from here -- nothing in the codebase can see the
- * Intercom-side setting directly.
+ * Intercom-side setting directly. That said, recordAudit is fire-and-forget on
+ * its default (singleton) path (see src/platform/audit.ts), so a DB blip can
+ * make a row silently never land; this mechanism detects a misconfiguration
+ * that keeps happening, not necessarily every single occurrence of it.
  */
 export async function recordToolCall(params: {
   personId: string | null;

@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { CircleHelp, X } from "lucide-react";
-import { seedForPathname } from "./help-context";
+import { seedForPathname, type HelpSeed } from "./help-context";
 
 // The embed touches window/document, so load it client-only.
 const GitBookProvider = dynamic(
@@ -20,6 +20,14 @@ const GitBookFrame = dynamic(
 /** Re-fetch the visitor token this many ms before it expires. */
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
+/**
+ * Module-level so the identity is stable across renders. GitBookFrame re-sends its whole
+ * `configure` message to the frame whenever any configuration prop changes identity, and the
+ * frame re-applies that configuration when it arrives; a fresh array literal per render would
+ * do that on every parent render.
+ */
+const HELP_TABS: ("assistant" | "search" | "docs")[] = ["assistant", "search", "docs"];
+
 type TokenState = { token: string; expiresAt: number } | null;
 
 export function HelpLauncher({
@@ -31,12 +39,26 @@ export function HelpLauncher({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // The panel is expensive to build: token round-trip -> lazy embed chunk -> cross-origin frame
+  // load, all serialized. It is created on first open and then kept mounted-but-hidden, so
+  // reopening is instant. Unmounting on close also left a stale bidc channel (and the permanent
+  // window "message" listener it registers) behind on every cycle.
+  const [everOpened, setEverOpened] = useState(false);
   const [tokenState, setTokenState] = useState<TokenState>(null);
   const [error, setError] = useState<string | null>(null);
   const [colorScheme, setColorScheme] = useState<"light" | "dark">("light");
+  // Snapshotted when the panel opens rather than tracked live: re-seeding a conversation that is
+  // already underway has no upside, and each change re-configures the frame underneath the user.
+  const [seed, setSeed] = useState<HelpSeed>(() =>
+    seedForPathname(pathname ?? "/", moduleLabels)
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const held = useRef<TokenState>(null);
+  const inFlight = useRef(false);
 
   const loadToken = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       const res = await fetch("/api/gitbook/embed-token", { cache: "no-store" });
       if (!res.ok) {
@@ -44,27 +66,49 @@ export function HelpLauncher({
           res.status === 401 ? "Please sign in to view help." : "Help is unavailable right now."
         );
         setTokenState(null);
+        held.current = null;
         return;
       }
       const json = (await res.json()) as { token: string; expiresAt: number };
       setError(null);
       setTokenState(json);
+      held.current = json;
     } catch {
       setError("Help is unavailable right now.");
       setTokenState(null);
+      held.current = null;
+    } finally {
+      inFlight.current = false;
     }
   }, []);
 
+  // Minting a token costs a session decode plus several queries, so only spend it when the one
+  // we hold is missing or close to expiry. Reopening the panel inside the hour is free.
+  const ensureToken = useCallback(() => {
+    const current = held.current;
+    if (current && current.expiresAt - Date.now() > REFRESH_SKEW_MS) return;
+    void loadToken();
+  }, [loadToken]);
+
+  // Warm both serial hops (token request, lazy chunk download) on intent rather than on click,
+  // so the click only pays for the frame itself.
+  const prefetch = useCallback(() => {
+    void import("@gitbook/embed/react");
+    ensureToken();
+  }, [ensureToken]);
+
   // Toggling is an event handler (not render/effect), so reading the DOM here is safe and
-  // avoids the react-hooks set-state-in-effect rule. Every open re-fetches a fresh token.
+  // avoids the react-hooks set-state-in-effect rule.
   function toggle() {
     const next = !open;
     setOpen(next);
     if (next) {
+      setEverOpened(true);
       setColorScheme(
         document.documentElement.classList.contains("dark") ? "dark" : "light"
       );
-      void loadToken();
+      setSeed(seedForPathname(pathname ?? "/", moduleLabels));
+      ensureToken();
     }
   }
 
@@ -80,6 +124,13 @@ export function HelpLauncher({
     };
   }, [open, tokenState, loadToken]);
 
+  // Stable identity per token: the frame derives its `src` from this object, so a fresh literal
+  // per render makes the embed's own memo recompute the URL on every parent render.
+  const visitor = useMemo(
+    () => (tokenState ? { token: tokenState.token } : null),
+    [tokenState]
+  );
+
   // Close on Escape.
   useEffect(() => {
     if (!open) return;
@@ -90,8 +141,6 @@ export function HelpLauncher({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const seed = seedForPathname(pathname ?? "/", moduleLabels);
-
   return (
     <>
       {/* Persistent floating help bubble, bottom-right on every authenticated page.
@@ -100,6 +149,9 @@ export function HelpLauncher({
       <button
         type="button"
         onClick={toggle}
+        onPointerEnter={prefetch}
+        onPointerDown={prefetch}
+        onFocus={prefetch}
         aria-label={open ? "Close help" : "Help and documentation"}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -113,14 +165,18 @@ export function HelpLauncher({
       </button>
 
       {/* Portal the panel to <body> so its `fixed` positioning is robust regardless of
-          any transformed/filtered ancestor. It floats just above the bubble. */}
-      {open &&
+          any transformed/filtered ancestor. It floats just above the bubble. Once built it
+          stays in the tree; closing hides it with `display:none`, which keeps the iframe's
+          document alive (only reparenting the element would reload it). */}
+      {everOpened &&
         typeof document !== "undefined" &&
         createPortal(
           <div
             role="dialog"
             aria-label="Help and documentation"
-            className="fixed bottom-24 left-4 right-4 z-50 sm:left-auto sm:right-6"
+            className={`fixed bottom-24 left-4 right-4 z-50 sm:left-auto sm:right-6 ${
+              open ? "" : "hidden"
+            }`}
           >
           <div className="glass-panel flex h-[70vh] max-h-[calc(100dvh-8rem)] w-full flex-col overflow-hidden rounded-2xl sm:h-[600px] sm:w-[400px]">
             <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
@@ -139,11 +195,11 @@ export function HelpLauncher({
                 <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
                   {error}
                 </div>
-              ) : tokenState ? (
+              ) : visitor ? (
                 <GitBookProvider siteURL={siteURL}>
                   <GitBookFrame
-                    visitor={{ token: tokenState.token }}
-                    tabs={["assistant", "search", "docs"]}
+                    visitor={visitor}
+                    tabs={HELP_TABS}
                     greeting={seed.greeting}
                     suggestions={seed.suggestions}
                     colorScheme={colorScheme}

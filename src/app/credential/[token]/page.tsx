@@ -14,6 +14,11 @@ export const dynamic = "force-dynamic";
  * Deliberately outside the (app) route group so it never inherits
  * requirePersonSession or the onboarding gate. Rendered from the SNAPSHOT, never
  * a live computation, so this URL can only ever show what the member published.
+ *
+ * The photo is the one exception: photoKey/photoVersion come from the LIVE
+ * person relation on credential, not from the frozen record, so a member who
+ * removes their photo stops seeing it here immediately instead of it lingering
+ * in a snapshot for the life of the credential.
  */
 export async function generateMetadata(): Promise<Metadata> {
   const base = await buildPageMetadata({
@@ -46,6 +51,16 @@ export default async function CredentialPage({
         {orgName}
       </p>
       <h1 className="mt-2 text-2xl font-semibold">Record of Service</h1>
+
+      {credential.person.photoKey ? (
+        <img
+          src={`/credential/${token}/photo?v=${credential.person.photoVersion}`}
+          alt={record.name}
+          width={128}
+          height={128}
+          className="mt-8 rounded-full object-cover"
+        />
+      ) : null}
 
       <p className="mt-8 text-lg">{record.name}</p>
       {record.memberSince ? (

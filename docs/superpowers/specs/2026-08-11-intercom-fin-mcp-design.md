@@ -212,6 +212,36 @@ Failures log through `@/platform/logging` and surface in PostHog like the rest o
    better vehicle for phase 1 than a custom MCP server. The identity mechanism is identical, so this
    is a delivery question, not a security one.
 
+## Relationship to the existing /support module
+
+The Hub already has support ticketing, and it is two systems wearing one coat.
+
+`TechRequest` is generic helpdesk: number, subject, description, priority, status, assignment, a
+PUBLIC/INTERNAL comment thread, attachments. `EpicRequest` into `YnhhTicket` into ITCM PDF
+generation, with term-batch rollup and live NEW/MODIFY/RENEW derivation, is a domain state machine
+producing artifacts for YNHH on their terms. Intercom does the first well and cannot do the second
+at all.
+
+The seam between them already exists: `EpicRequest.techRequestId` is nullable with `onDelete:
+SetNull`, and the schema comment records that detached requests are kept for YNHH and audit history.
+Epic requests are designed to outlive the ticket they arrived on, so the ticketing layer can move
+without disturbing the Epic layer.
+
+**Decision: `TechRequest` remains the system of record. Intercom is the conversational UI over it.**
+Fin is the front door and deflects what it can answer, including read-only status lookups through
+the MCP tools. When a conversation needs real work it creates a `TechRequest` and returns the
+number. Hub-side status changes push back into the Intercom conversation so the member sees updates
+where they asked.
+
+The hard constraint driving this: `TechRequest.govId` holds a government ID captured at submit for
+Epic promotion, alongside `netId` and the other Epic intake fields. **Government ID must never enter
+Intercom.** Epic and ITCM intake therefore always happens in a Hub form. Fin may route a member to
+that form and may report on a request's status, but must never collect its contents in chat. No MCP
+tool returns `govId` under any permission.
+
+The two-way ticket sync is a separate piece of work and gets its own spec. This section records the
+decision and the constraint so the MCP tool surface is designed against them.
+
 ## Out of scope
 
 - Any write path. Every tool is read-only. Fin does not book shifts, update records, or send email.

@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { myNextShiftTool } from "./scheduling";
 
 /** The verified caller. Populated by the route from resolveIntercomIdentity, never from tool input. */
 export type McpToolContext = { personId: string };
@@ -35,4 +36,4 @@ export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginT
  * other. A surface spanning schedule, compliance, roster, and recruitment can
  * only be composed where both are legal imports.
  */
-export const MCP_TOOLS: McpTool[] = [];
+export const MCP_TOOLS: McpTool[] = [myNextShiftTool];

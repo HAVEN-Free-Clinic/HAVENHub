@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { recordAudit } from "@/platform/audit";
 
 /**
@@ -15,11 +16,19 @@ export async function recordToolCall(params: {
   args: Record<string, unknown>;
   outcome: "ok" | "denied" | "unverified";
 }): Promise<void> {
+  // Tool arguments are JSON-serializable by construction: they arrive as JSON
+  // over the MCP transport, so we safely assert the payload to InputJsonValue.
+  const payload = {
+    tool: params.tool,
+    args: params.args,
+    outcome: params.outcome,
+  } as Prisma.InputJsonValue;
+
   await recordAudit({
     actorPersonId: params.personId,
     action: `intercom_mcp.${params.outcome}`,
     entityType: "IntercomMcpToolCall",
     entityId: params.tool,
-    after: { tool: params.tool, args: params.args, outcome: params.outcome },
+    after: payload,
   });
 }

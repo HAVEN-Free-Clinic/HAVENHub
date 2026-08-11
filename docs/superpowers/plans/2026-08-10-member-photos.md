@@ -20,6 +20,10 @@
 - **Photo size is 512x512 WebP.** Referenced by name as `PHOTO_SIZE` from Task 2 onward.
 - **`photoSource` values are the exact strings `"yalies"` and `"upload"`.**
 - **Never log `YALIES_API_KEY`,** and never call the Yalies API over plain HTTP. Their documented policy is immediate key revocation.
+- **Client components import `@/platform/photos/shared`, never `@/platform/photos`.** The barrel re-exports sharp and Prisma; `shared.ts` imports nothing. `src/platform/ui/account-menu.tsx` is a `"use client"` file, so this rule is load-bearing, not stylistic.
+- **Test commands need the worktree's own database**, because the repo `.env` points every database URL at production Neon. Prefix every test run with:
+  `TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_member_photos" BLOB_READ_WRITE_TOKEN=""`
+- **`UPLOAD_DIR` is a single shared `/tmp` path across all worktrees.** If a storage-touching test fails with ENOENT on a file another test wrote, that is the known shared-directory collision, not your code. Re-run the file alone before investigating.
 
 ---
 
@@ -97,12 +101,16 @@ git commit -m "feat(photos): add Person photo columns and YALIES_API_KEY config"
 ### Task 2: Image normalization
 
 **Files:**
+- Create: `src/platform/photos/shared.ts`
 - Create: `src/platform/photos/normalize.ts`
 - Create: `src/platform/photos/normalize.test.ts`
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `PHOTO_SIZE: 512`, `PHOTO_CONTENT_TYPE: "image/webp"`, `normalizePhoto(input: Buffer): Promise<Buffer>`, `class PhotoError extends Error`
+- Produces, from `shared.ts`: `PHOTO_SIZE: 512`, `PHOTO_CONTENT_TYPE: "image/webp"`, `class PhotoError extends Error`, `photoUrl(person: { id: string; photoVersion: number }): string`
+- Produces, from `normalize.ts`: `normalizePhoto(input: Buffer): Promise<Buffer>`
+
+**Why `shared.ts` exists.** `src/platform/ui/account-menu.tsx` is a `"use client"` component, and Task 9 renders a photo inside it. Anything a client component imports gets bundled for the browser. `normalize.ts` imports sharp and `service.ts` imports Prisma, so a client component that reaches either (directly or through the `index.ts` barrel) drags a native image library and a database client into the browser bundle. `shared.ts` holds exactly the values both sides need and imports nothing at all, so client components can import it safely. **Client components must import `@/platform/photos/shared`, never `@/platform/photos`.**
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -111,7 +119,8 @@ Create `src/platform/photos/normalize.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { normalizePhoto, PHOTO_SIZE, PhotoError } from "./normalize";
+import { normalizePhoto } from "./normalize";
+import { PHOTO_SIZE, PhotoError } from "./shared";
 
 /** A solid-colour test image of the given dimensions. */
 async function image(width: number, height: number): Promise<Buffer> {
@@ -171,7 +180,47 @@ describe("normalizePhoto", () => {
 Run: `npx vitest run src/platform/photos/normalize.test.ts`
 Expected: FAIL, cannot resolve `./normalize`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 3: Write the shared leaf module**
+
+Create `src/platform/photos/shared.ts`. It must import nothing, so client components can use it without pulling sharp or Prisma into the browser bundle:
+
+```ts
+/**
+ * Photo values shared by server and client code.
+ *
+ * This module imports NOTHING on purpose. normalize.ts pulls in sharp and
+ * service.ts pulls in Prisma, so any client component reaching those (or the
+ * index.ts barrel that re-exports them) would bundle a native image library and
+ * a database client into the browser. Client components import this file
+ * directly instead.
+ */
+
+/** Stored photos are square at this edge length, in pixels. */
+export const PHOTO_SIZE = 512;
+
+/** Every stored photo is WebP, regardless of what came in. */
+export const PHOTO_CONTENT_TYPE = "image/webp";
+
+/** Thrown when bytes cannot be decoded, or an upload fails validation. */
+export class PhotoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PhotoError";
+  }
+}
+
+/**
+ * The versioned URL an in-app <img> points at.
+ *
+ * The ?v= parameter is what makes the route's long immutable cache safe: it
+ * changes on every photo set and every removal.
+ */
+export function photoUrl(person: { id: string; photoVersion: number }): string {
+  return `/api/people/${person.id}/photo?v=${person.photoVersion}`;
+}
+```
+
+- [ ] **Step 4: Write the implementation**
 
 Create `src/platform/photos/normalize.ts`:
 
@@ -188,20 +237,7 @@ Create `src/platform/photos/normalize.ts`:
  * coordinates, which have no business on a public credential page.
  */
 import sharp from "sharp";
-
-/** Stored photos are square at this edge length, in pixels. */
-export const PHOTO_SIZE = 512;
-
-/** Every stored photo is WebP, regardless of what came in. */
-export const PHOTO_CONTENT_TYPE = "image/webp";
-
-/** Thrown when bytes cannot be decoded or normalized into a photo. */
-export class PhotoError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PhotoError";
-  }
-}
+import { PHOTO_SIZE, PhotoError } from "./shared";
 
 /**
  * Decode, auto-orient, centre-crop square, resize, and re-encode as WebP.
@@ -227,15 +263,15 @@ export async function normalizePhoto(input: Buffer): Promise<Buffer> {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run src/platform/photos/normalize.test.ts`
 Expected: 5 passed.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/platform/photos/normalize.ts src/platform/photos/normalize.test.ts
+git add src/platform/photos/shared.ts src/platform/photos/normalize.ts src/platform/photos/normalize.test.ts
 git commit -m "feat(photos): normalize photos to 512px square WebP with EXIF stripped"
 ```
 
@@ -473,18 +509,14 @@ git commit -m "feat(photos): add Yalies API client with timeout and host pinning
 - Create: `src/platform/photos/initials.test.ts`
 
 **Interfaces:**
-- Consumes: nothing
+- Consumes: `PHOTO_SIZE` (Task 2, from `./shared`)
 - Produces: `toInitials(name: string | null): string`, `initialsSvg(name: string | null): string`
 
-`toInitials` moves here from `src/platform/ui/account-menu.tsx` so the route and the component share one implementation. Task 9 updates the account menu to import it.
+`initials.ts` must import only from `./shared`, never from `./normalize` or `./service`, so it stays free of sharp and Prisma.
 
-- [ ] **Step 1: Read the existing implementation**
+`toInitials` is lifted from `src/platform/ui/account-menu.tsx`, preserving its existing behaviour exactly, including the middle-dot `"·"` placeholder for a missing name. Do not change it to `"?"`: that dot is what ships today. Task 9 deletes the copy in `account-menu.tsx`, which stops using it entirely.
 
-Run: `sed -n '1,20p' src/platform/ui/account-menu.tsx`
-
-Copy its `toInitials` logic exactly. The tests below assume it takes the first letter of the first and last whitespace-separated words, uppercased.
-
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 1: Write the failing tests**
 
 Create `src/platform/photos/initials.test.ts`:
 
@@ -505,12 +537,12 @@ describe("toInitials", () => {
     expect(toInitials("Ada Byron King Lovelace")).toBe("AL");
   });
 
-  it("returns a placeholder for null", () => {
-    expect(toInitials(null)).toBe("?");
+  it("returns the middle-dot placeholder for null", () => {
+    expect(toInitials(null)).toBe("·");
   });
 
-  it("returns a placeholder for an empty or whitespace name", () => {
-    expect(toInitials("   ")).toBe("?");
+  it("returns the middle-dot placeholder for an empty or whitespace name", () => {
+    expect(toInitials("   ")).toBe("·");
   });
 });
 
@@ -540,12 +572,12 @@ describe("initialsSvg", () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run src/platform/photos/initials.test.ts`
 Expected: FAIL, cannot resolve `./initials`.
 
-- [ ] **Step 4: Write the implementation**
+- [ ] **Step 3: Write the implementation**
 
 Create `src/platform/photos/initials.ts`:
 
@@ -557,15 +589,15 @@ Create `src/platform/photos/initials.ts`:
  * so <PersonPhoto> needs no fallback branch: it points an <img> at the route and
  * gets either a photo or this, with the same dimensions either way.
  */
-import { PHOTO_SIZE } from "./normalize";
+import { PHOTO_SIZE } from "./shared";
 
 /** Background hues, spaced around the wheel so adjacent names look distinct. */
 const HUES = [210, 340, 150, 30, 265, 190, 95, 15];
 
-/** Initials for a name: first and last word, uppercased. "?" when unusable. */
+/** Initials for a name: first and last word, uppercased. "·" when unusable. */
 export function toInitials(name: string | null): string {
   const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
+  if (words.length === 0) return "·";
   const first = words[0][0];
   const last = words.length > 1 ? words[words.length - 1][0] : "";
   return `${first}${last}`.toUpperCase();
@@ -598,12 +630,12 @@ export function initialsSvg(name: string | null): string {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/platform/photos/initials.test.ts`
 Expected: 10 passed.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/platform/photos/initials.ts src/platform/photos/initials.test.ts
@@ -1045,7 +1077,8 @@ Create `src/platform/photos/service.ts`:
  */
 import { prisma } from "@/platform/db";
 import { deleteObject, getObject, putObject } from "@/platform/storage";
-import { PHOTO_CONTENT_TYPE, PhotoError, normalizePhoto } from "./normalize";
+import { normalizePhoto } from "./normalize";
+import { PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
 import { shouldAttemptYaliesPull } from "./policy";
 import { fetchYaliesPhoto, isYaliesEnabled } from "./yalies";
 
@@ -1057,11 +1090,6 @@ export type ResolvedPhoto = { bytes: Buffer; contentType: string } | null;
 /** Object storage key for a person's photo. Fixed, so a new photo overwrites. */
 function photoKeyFor(personId: string): string {
   return `people/${personId}`;
-}
-
-/** The versioned URL an in-app <img> points at. */
-export function photoUrl(person: { id: string; photoVersion: number }): string {
-  return `/api/people/${person.id}/photo?v=${person.photoVersion}`;
 }
 
 /**
@@ -1211,11 +1239,18 @@ export async function removePhoto(personId: string): Promise<void> {
 Create `src/platform/photos/index.ts`:
 
 ```ts
-export { PHOTO_CONTENT_TYPE, PHOTO_SIZE, PhotoError } from "./normalize";
+/**
+ * Server-side barrel for the photos module.
+ *
+ * This re-exports service.ts (Prisma) and normalize.ts (sharp), so importing it
+ * from a "use client" component would bundle both for the browser. Client
+ * components import "@/platform/photos/shared" instead.
+ */
+export { PHOTO_CONTENT_TYPE, PHOTO_SIZE, PhotoError, photoUrl } from "./shared";
+export { normalizePhoto } from "./normalize";
 export { initialsSvg, toInitials } from "./initials";
 export {
   ACCEPTED_UPLOAD_TYPES,
-  photoUrl,
   removePhoto,
   resolvePhoto,
   setPhotoFromUpload,
@@ -1644,10 +1679,18 @@ git commit -m "feat(photos): add public credential photo route"
 - Modify: `src/platform/ui/account-menu.tsx` (remove the local `toInitials` at line 8, replace the initials div at line 81)
 
 **Interfaces:**
-- Consumes: `photoUrl` (Task 6), `toInitials` (Task 4)
+- Consumes: `photoUrl` (Task 2, from `@/platform/photos/shared`)
 - Produces: `<PersonPhoto person={{ id, name, photoVersion }} size={number} />`
 
 The component has no fallback branch. The route already returns initials when there is no photo, so `<img>` always resolves to something with the right dimensions.
+
+**Import discipline, and why it matters here.** `account-menu.tsx` carries `"use client"` at line 1, so everything it imports is bundled for the browser. `PersonPhoto` is rendered inside it, which makes `PersonPhoto`'s imports client imports too. Import `photoUrl` from `@/platform/photos/shared`, **never** from `@/platform/photos`: the barrel re-exports sharp and Prisma. Verify after wiring with:
+
+```bash
+grep -rn "@/platform/photos\"" src/platform/ui src/modules
+```
+
+Any hit in a file that carries `"use client"`, or in a file imported by one, is the bug this note exists to prevent.
 
 - [ ] **Step 1: Write the component**
 
@@ -1661,7 +1704,7 @@ Create `src/platform/ui/person-photo.tsx`:
  * initials SVG when a person has no photo, so this <img> always resolves to
  * something with the right dimensions and the component stays a one-liner.
  */
-import { photoUrl } from "@/platform/photos";
+import { photoUrl } from "@/platform/photos/shared";
 
 type PersonPhotoProps = {
   person: { id: string; name: string | null; photoVersion: number };
@@ -1686,26 +1729,30 @@ export function PersonPhoto({ person, size, className }: PersonPhotoProps) {
 }
 ```
 
-- [ ] **Step 2: Update the account menu to use the shared initials helper**
+- [ ] **Step 2: Render the photo in the account menu**
 
-In `src/platform/ui/account-menu.tsx`, delete the local `toInitials` function (around line 8) and import it instead:
-
-```tsx
-import { toInitials } from "@/platform/photos";
-```
-
-Then replace the initials element at line 81 with the photo component. Read the surrounding markup first with `sed -n '70,95p' src/platform/ui/account-menu.tsx` and keep the existing wrapper classes, substituting only the inner content:
+In `src/platform/ui/account-menu.tsx`, replace the initials element at line 81 with the photo component. Read the surrounding markup first with `sed -n '70,95p' src/platform/ui/account-menu.tsx` and keep the existing wrapper classes, substituting only the inner content:
 
 ```tsx
 <PersonPhoto person={person} size={32} />
 ```
 
-The menu's data loader must now select `id`, `name`, and `photoVersion` for the signed-in person. If it currently selects only a name, widen the query.
+Then delete the now-unused local `toInitials` function (around line 8). Do **not** replace it with an import: the route renders initials server-side, so the client no longer needs the helper at all. Task 4 already has its own copy for the route.
 
-- [ ] **Step 3: Verify types and lint**
+The menu's data loader must now supply `id`, `name`, and `photoVersion` for the signed-in person. If it currently supplies only a name, widen the query.
+
+- [ ] **Step 3: Verify types, lint, and the client-bundle boundary**
 
 Run: `npx tsc --noEmit && npx eslint src e2e`
-Expected: both clean. If `toInitials` was exported from `account-menu.tsx` and imported elsewhere, update those importers to `@/platform/photos`.
+Expected: both clean.
+
+Then confirm no client component reaches the server barrel:
+
+```bash
+grep -rn "@/platform/photos\"" src/platform/ui src/modules
+```
+
+Expected: no hits in any file carrying `"use client"`. If `toInitials` was exported from `account-menu.tsx` and imported elsewhere, point those importers at `@/platform/photos/initials`.
 
 - [ ] **Step 4: Run the full unit suite**
 

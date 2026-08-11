@@ -16,6 +16,19 @@ const RETRY_DELAY_SECONDS = 60;
 const INTERCOM_FALLBACK_TTL_SECONDS = 15 * 60;
 
 /**
+ * Deliberately does NOT contain the word "intercom".
+ *
+ * Ad blockers match on URL substrings, so a first-party path like
+ * /api/intercom/token is blocked by mainstream filter lists exactly as if it
+ * were a third-party tracker -- observed in practice, as Chrome reporting
+ * `(blocked:other)` against our own origin. The Messenger itself still loads
+ * from widget.intercom.io and is blockable no matter what we do, but there is
+ * no reason to hand the filter lists our own endpoint as well. Do not rename
+ * this back.
+ */
+const MESSENGER_TOKEN_PATH = "/api/support/messenger-token";
+
+/**
  * Boots the Intercom Messenger for the signed-in person with an identity
  * verification JWT, and keeps that token fresh for the life of the tab.
  *
@@ -44,7 +57,7 @@ export function IntercomMessenger({ appId }: { appId: string }) {
       let token: string | undefined;
       let ttl = INTERCOM_FALLBACK_TTL_SECONDS;
       try {
-        const res = await fetch("/api/intercom/token", { cache: "no-store" });
+        const res = await fetch(MESSENGER_TOKEN_PATH, { cache: "no-store" });
         if (!res.ok) {
           // 404 means the integration is switched off server-side, so there is
           // nothing to wait for. Anything else (401 mid-session, 503 DB blip)

@@ -73,7 +73,7 @@ This is the core of the design. Everything else follows from it.
 
 The chain runs:
 
-1. `/api/intercom/token` mints an HS256 JWT with `user_id` set to the signed-in `Person.id`, from
+1. `/api/support/messenger-token` mints an HS256 JWT with `user_id` set to the signed-in `Person.id`, from
    the server session and the live Person row. Shipped 2026-08-11.
 2. The Messenger boots with that JWT, so Intercom's contact record carries a `user_id` the browser
    cannot forge. This is what identity verification buys.

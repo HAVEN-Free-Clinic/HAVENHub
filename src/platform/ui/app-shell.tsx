@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { signOut } from "@/platform/auth/auth";
-import { config } from "@/platform/config";
 import { MODULES } from "@/platform/modules/registry";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getSetting } from "@/platform/settings/service";
@@ -18,7 +17,6 @@ import { ThemeToggle } from "./theme-toggle";
 import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
 import { AccountMenu } from "./account-menu";
-import { HelpLauncher } from "./help/help-launcher";
 import { CommandPalette } from "./command-palette";
 
 export async function AppShell({
@@ -59,10 +57,6 @@ export async function AppShell({
     title: m.title,
     nav: m.nav,
   }));
-  // Top-level route segment (== module id) -> human title, for the Help widget's
-  // context seeding. Built here so the client never imports the server registry.
-  const moduleLabels = Object.fromEntries(MODULES.map((m) => [m.id, m.title]));
-  const gitbookEnabled = Boolean(config.GITBOOK_SITE_URL && config.GITBOOK_JWT_KEY);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -124,12 +118,18 @@ export async function AppShell({
 
       <AppFooter width="app" org={org} />
 
-      {/* Persistent floating help bubble. Mounted OUTSIDE the glass-bar toolbar so its
-          fixed positioning anchors to the viewport, not the toolbar's backdrop-filter
-          containing block. Renders only when GitBook is configured. */}
-      {gitbookEnabled && (
-        <HelpLauncher siteURL={config.GITBOOK_SITE_URL as string} moduleLabels={moduleLabels} />
-      )}
+      {/* The GitBook help launcher used to mount here. It is retired in favour of the
+          Intercom Messenger, which the (app) layout mounts and which owns the same
+          bottom-right corner -- two floating AI assistants side by side was worse than
+          either alone.
+
+          Only the in-app bubble is gone. GitBook still serves docs.havenfreeclinic.org
+          with adaptive access, so /api/gitbook/auth and the whole src/platform/gitbook
+          layer stay live and must keep working; GITBOOK_SITE_URL and GITBOOK_JWT_KEY
+          stay set. src/platform/ui/help/ is left in place rather than deleted, because
+          Intercom's widget loads from widget.intercom.io and every mainstream ad blocker
+          blocks it, so restoring this bubble is the fallback if too many members turn
+          out to be shut out. */}
     </div>
   );
 }

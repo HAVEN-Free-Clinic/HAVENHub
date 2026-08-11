@@ -18,7 +18,7 @@ function configure() {
   vi.stubEnv("INTERCOM_MESSENGER_SECRET", SECRET);
 }
 
-describe("GET /api/intercom/token", () => {
+describe("GET /api/support/messenger-token", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     configure();

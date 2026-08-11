@@ -11,6 +11,7 @@
  * redirect on denial, and an <img> request needs a status code.
  */
 import { auth } from "@/platform/auth/auth";
+import { getActivePerson } from "@/platform/auth/match-person";
 import { prisma } from "@/platform/db";
 import { initialsSvg, resolvePhoto } from "@/platform/photos";
 import { can } from "@/platform/rbac/engine";
@@ -45,7 +46,13 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   const session = await auth();
   if (!session?.personId) return new Response("Unauthorized", { status: 401 });
 
-  if (session.personId !== personId && !(await can(session.personId, "admin.manage_people"))) {
+  // The JWT lives 7 days and does not revalidate Person.status on its own, so an
+  // offboarded person must be rejected here rather than trusted from the token.
+  // Same convention as the other routes that combine auth() with can() directly.
+  const person = await getActivePerson(session.personId);
+  if (!person) return new Response("Forbidden", { status: 403 });
+
+  if (person.id !== personId && !(await can(person.id, "admin.manage_people"))) {
     return new Response("Forbidden", { status: 403 });
   }
 

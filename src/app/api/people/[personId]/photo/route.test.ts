@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
 vi.mock("@/platform/rbac/engine", () => ({ can: vi.fn() }));
 vi.mock("@/platform/photos", () => ({
   resolvePhoto: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("@/platform/db", () => ({
 }));
 
 import { auth } from "@/platform/auth/auth";
+import { getActivePerson } from "@/platform/auth/match-person";
 import { can } from "@/platform/rbac/engine";
 import { resolvePhoto } from "@/platform/photos";
 import { GET } from "./route";
@@ -27,6 +29,7 @@ describe("GET /api/people/[personId]/photo", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(auth).mockResolvedValue({ personId: "p1" } as never);
+    vi.mocked(getActivePerson).mockResolvedValue({ id: "p1", status: "ACTIVE" } as never);
     vi.mocked(can).mockResolvedValue(false);
     vi.mocked(resolvePhoto).mockResolvedValue({
       bytes: Buffer.from([1, 2, 3]),
@@ -60,6 +63,15 @@ describe("GET /api/people/[personId]/photo", () => {
     expect((await GET(request(), context("p1"))).status).toBe(401);
   });
 
+  it("refuses a caller whose person is no longer active", async () => {
+    vi.mocked(getActivePerson).mockResolvedValue(null);
+
+    const res = await GET(request(), context("p1"));
+
+    expect(res.status).toBe(403);
+    expect(vi.mocked(resolvePhoto)).not.toHaveBeenCalled();
+  });
+
   it("refuses one member reading another's photo", async () => {
     const res = await GET(request(), context("p2"));
 
@@ -81,6 +93,8 @@ describe("GET /api/people/[personId]/photo", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
   });
 
   it("never caches the initials fallback", async () => {
@@ -98,5 +112,6 @@ describe("GET /api/people/[personId]/photo", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(vi.mocked(resolvePhoto)).toHaveBeenCalled();
   });
 });

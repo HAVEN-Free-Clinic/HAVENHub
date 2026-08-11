@@ -32,6 +32,13 @@ const IMAGE_SECURITY_HEADERS = {
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   const { token } = await context.params;
 
+  // Defensive: a Next.js dynamic segment cannot match an empty path today, so
+  // this cannot currently be reached with a falsy token. Kept anyway, mirroring
+  // getCredentialByToken's own guard, so a future refactor that reaches this
+  // handler by another path cannot pass an empty or undefined token into a
+  // unique lookup.
+  if (!token) return new Response("Not found", { status: 404 });
+
   // Mirrors the isDbUnreachableError -> 503 pattern in notifications/route.ts
   // and calendar/[token]/route.ts. A .catch(() => null) here would turn "we
   // cannot check right now" into "this credential does not exist", and a 404
@@ -56,9 +63,19 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     return new Response("Not found", { status: 404 });
   }
 
-  // Storage misses degrade to 404 rather than 503: a missing object is a data
-  // fact ("no photo here"), not a connectivity fact, so caching it is fine.
-  const bytes = await getObject(credential.person.photoKey).catch(() => null);
+  // getObject (see r2.ts) resolves null only for a genuine not-found -- NoSuchKey
+  // or a bare 404 -- and rethrows everything else on purpose, so a 500 or a
+  // credentials error is never mistaken for "file not found". A null return
+  // here is a data fact ("no photo here") and stays a 404; a thrown error is a
+  // connectivity fact and must not collapse into that same 404, for the same
+  // caching reason as the credential lookup above.
+  let bytes: Buffer | null;
+  try {
+    bytes = await getObject(credential.person.photoKey);
+  } catch (err) {
+    log.warn("[credential-photo] object storage unreachable reading photo", errorAttrs(err));
+    return new Response("Service Unavailable", { status: 503 });
+  }
   if (!bytes) return new Response("Not found", { status: 404 });
 
   return new Response(new Uint8Array(bytes), {

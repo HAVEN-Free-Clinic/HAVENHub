@@ -98,6 +98,19 @@ describe("GET /credential/[token]/photo", () => {
     expect((await GET(request(), context)).status).toBe(404);
   });
 
+  it("returns 503, not a 404, when the object store throws reading the photo", async () => {
+    // r2.ts's getObject resolves null only for a genuine not-found (NoSuchKey
+    // or a bare 404); anything else it rethrows, per its own doc comment: "a
+    // 500 or a credentials error must never be mistaken for file not found".
+    // This is that other case: a real storage outage, not a missing object.
+    vi.mocked(getObject).mockRejectedValue(new Error("R2 network error"));
+
+    const res = await GET(request(), context);
+
+    expect(res.status).toBe(503);
+    expect(res.status).not.toBe(404);
+  });
+
   it("never triggers a Yalies pull", async () => {
     await GET(request(), context);
 

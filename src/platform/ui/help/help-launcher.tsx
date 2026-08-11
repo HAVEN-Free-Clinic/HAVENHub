@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { CircleHelp, X } from "lucide-react";
+import { BookOpen, CircleHelp, X } from "lucide-react";
 import { seedForPathname, type HelpSeed } from "./help-context";
 
 // The embed touches window/document, so load it client-only.
@@ -25,8 +25,14 @@ const REFRESH_SKEW_MS = 5 * 60 * 1000;
  * `configure` message to the frame whenever any configuration prop changes identity, and the
  * frame re-applies that configuration when it arrives; a fresh array literal per render would
  * do that on every parent render.
+ *
+ * "docs" is deliberately absent. The tab list is a request, not a guarantee ("Tabs to display
+ * in the embed (if enabled on the site)") -- the frame renders whatever icons it is asked for,
+ * but docs.havenfreeclinic.org serves 404 for /~gitbook/embed/docs while /assistant and /search
+ * serve 200. Asking for it only produced a button that does nothing when clicked. The header
+ * link below covers the same need against a route that works.
  */
-const HELP_TABS: ("assistant" | "search" | "docs")[] = ["assistant", "search", "docs"];
+const HELP_TABS: ("assistant" | "search" | "docs")[] = ["assistant", "search"];
 
 type TokenState = { token: string; expiresAt: number } | null;
 
@@ -181,14 +187,29 @@ export function HelpLauncher({
           <div className="glass-panel flex h-[70vh] max-h-[calc(100dvh-8rem)] w-full flex-col overflow-hidden rounded-2xl sm:h-[600px] sm:w-[400px]">
             <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
               <span className="text-sm font-semibold text-foreground">Help</span>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close help"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-              >
-                <X aria-hidden className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Replaces the embed's docs tab. Opens top-level rather than in the frame:
+                    /api/gitbook/auth mints a fresh visitor token and redirects into the site,
+                    which is the same path GitBook itself falls back to. */}
+                <a
+                  href="/api/gitbook/auth"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <BookOpen aria-hidden className="h-3.5 w-3.5" />
+                  Docs
+                  <span className="sr-only">(opens in a new tab)</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label="Close help"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <X aria-hidden className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1">
               {error ? (

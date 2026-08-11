@@ -9,6 +9,14 @@
  * first (contrast HipaaPanel's "Replace this certificate" `<details>`, which is
  * deliberately NOT the pattern here).
  *
+ * Discoverability of the control is only half of consent: a member who does
+ * not know the photo was pulled from Yale's directory cannot meaningfully
+ * decide to opt out of it. So when photoSource is "yalies", a one-line notice
+ * renders right beside the photo, above the upload form and the remove
+ * control, so it is read before either. A self-uploaded photo (photoSource
+ * "upload") gets no such notice: the member already knows where that one
+ * came from.
+ *
  * The server action receives the formData, reads the File, converts to Buffer,
  * and calls setPhotoFromUpload. PhotoError is redirected back with
  * ?photoError=..., success with ?photoSaved=1 or ?photoRemoved=1, which pop a
@@ -23,16 +31,27 @@ import { FormActions } from "@/platform/ui/form";
 
 type PhotoCardProps = {
   person: { id: string; name: string | null; photoVersion: number; photoKey: string | null };
+  /** "yalies" | "upload" | null. Drives the Yale's-directory notice below; only "yalies" shows it. */
+  photoSource: string | null;
   maxMb: number;
   uploadAction: (formData: FormData) => Promise<void>;
   removeAction: () => Promise<void>;
 };
 
-export function PhotoCard({ person, maxMb, uploadAction, removeAction }: PhotoCardProps) {
+export function PhotoCard({ person, photoSource, maxMb, uploadAction, removeAction }: PhotoCardProps) {
   return (
     <Card className="flex flex-wrap items-center gap-6">
       <PersonPhoto person={person} size={96} />
       <div className="flex-1 space-y-3">
+        {/* The consent-legibility half of the opt-out (see module doc comment):
+            without this, a member has a remove button but no reason to press
+            it. Shown only for a Yalies-sourced photo; a self-uploaded one
+            needs no explanation of where it came from. */}
+        {photoSource === "yalies" && (
+          <p className="text-sm text-muted-foreground">
+            This photo is from Yale&apos;s directory. Remove it if you would rather show your initials instead.
+          </p>
+        )}
         <form action={uploadAction}>
           <Field
             label="Upload a new photo"

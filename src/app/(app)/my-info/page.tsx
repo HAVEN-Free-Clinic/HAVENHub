@@ -256,6 +256,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
               photoVersion: myInfo.person.photoVersion,
               photoKey: myInfo.person.photoKey,
             }}
+            photoSource={myInfo.person.photoSource}
             maxMb={maxMb}
             uploadAction={photoUploadAction}
             removeAction={photoRemoveAction}

@@ -2,9 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { deleteObject, getObject } from "@/platform/storage";
+import { deleteObject, getObject, putObject } from "@/platform/storage";
 import { PhotoError } from "./shared";
 import { removePhoto, resolvePhoto, setPhotoFromUpload } from "./service";
+
+// Storage stays REAL here: these tests assert that bytes actually round-trip
+// through it, which a blanket mock would make vacuous. Only putObject is
+// wrapped, so a single test can force a write failure with mockRejectedValueOnce
+// while every other test keeps hitting the real driver.
+vi.mock("@/platform/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/storage")>();
+  return { ...actual, putObject: vi.fn(actual.putObject) };
+});
 
 vi.mock("./yalies", async (importOriginal) => {
   // isPersonSpecificMiss stays REAL: it is the classifier under test in the
@@ -94,6 +103,28 @@ describe("resolvePhoto", () => {
     // The timestamp is still stamped, so a broken integration is not re-queried
     // on every single avatar render while it is down.
     expect(after.photoSyncedAt).not.toBeNull();
+  });
+
+  it("cools down rather than re-fetching forever when storage is unwritable", async () => {
+    // Seen in preview: R2 was unset, the storage layer fell back to its disk
+    // driver, and mkdir failed on the read-only serverless filesystem. Nothing
+    // was recorded, so every single view re-ran the whole Yalies round trip and
+    // failed at the same place. The pull must be gated even when the failure is
+    // ours rather than theirs.
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
+    vi.mocked(putObject).mockRejectedValueOnce(
+      new Error("ENOENT: no such file or directory, mkdir '/var/task/uploads'")
+    );
+    const person = await seedPerson();
+
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
+
+    const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(after.photoKey).toBeNull();
+    // Stamped, so the next view is gated by the transient cooldown...
+    expect(after.photoSyncedAt).not.toBeNull();
+    // ...but not counted against the person, since storage is our problem.
+    expect(after.photoSyncMisses).toBe(0);
   });
 
   it("does not call Yalies again inside the backoff window", async () => {

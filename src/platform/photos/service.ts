@@ -7,6 +7,7 @@
  * given that Yalies photos are applied without asking first.
  */
 import { prisma } from "@/platform/db";
+import { log, errorAttrs } from "@/platform/logging";
 import { deleteObject, getObject, putObject } from "@/platform/storage";
 import { getSetting } from "@/platform/settings/service";
 import { normalizePhoto } from "./normalize";
@@ -275,7 +276,24 @@ export async function resolvePhoto(
     return null;
   }
 
-  const stored = await storePhoto(personId, normalized, "yalies", { syncedAt: now });
+  // A storage failure is an integration failure, not a fact about this person,
+  // so it is recorded the same way an API outage is: stamp the timestamp for a
+  // short cooldown, leave the miss counter alone.
+  //
+  // Without this the pull is unbounded while storage is down. Nothing gets
+  // written, so nothing gates the next attempt, and every single view re-runs
+  // the whole Yalies round trip only to fail at the same place. That is the
+  // amplification the backoff exists to prevent, aimed at a third party with no
+  // published rate limit, and it is exactly what happened in preview when R2 was
+  // unset and the disk driver tried to mkdir on a read-only filesystem.
+  let stored: boolean;
+  try {
+    stored = await storePhoto(personId, normalized, "yalies", { syncedAt: now });
+  } catch (err) {
+    log.warn("[photos] storing a Yalies photo failed", errorAttrs(err));
+    await recordMiss(personId, now, false);
+    return null;
+  }
   if (!stored) {
     // Lost the race above: a concurrent opt-out (photoSuppressed flipped to
     // true) or a concurrent photo of either source (photoKey no longer null)

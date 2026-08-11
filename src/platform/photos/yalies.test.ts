@@ -23,7 +23,7 @@ function imageResponse(length?: number): Response {
   return new Response(bytes, { status: 200, headers });
 }
 
-const PHOTO_URL = "https://yalestudentphotos.s3.amazonaws.com/abc.jpg";
+const PHOTO_URL = "https://storage.googleapis.com/yalies-photos/541171.jpg";
 
 /** Generous enough that none of the small fixtures above trip it by accident. */
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -141,7 +141,9 @@ describe("fetchYaliesPhoto", () => {
     );
   });
 
-  it("refuses an image URL on an unexpected host and logs 'bad_host'", async () => {
+  it("refuses a non-https image URL and logs 'bad_protocol'", async () => {
+    // The cloud metadata endpoint is the canonical server-side request forgery
+    // target. It must be refused before the image fetch is ever issued.
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json([{ netid: "abc12", image: "http://169.254.169.254/latest/meta-data/" }])
     );
@@ -150,7 +152,66 @@ describe("fetchYaliesPhoto", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
-      expect.objectContaining({ reason: "bad_host" })
+      expect.objectContaining({ reason: "bad_protocol", host: "169.254.169.254" })
+    );
+  });
+
+  it("refuses an https image URL on an unexpected host and logs the host it saw", async () => {
+    // The logged host is the point of this test, not a nicety: a drifted image
+    // host is the likeliest cause of a total miss stream, and the log is the
+    // only place the new value can be learned without querying the API by hand.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([{ netid: "abc12", image: "https://cdn.example.com/photos/abc12.jpg" }])
+    );
+
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+      "[yalies] photo miss",
+      expect.objectContaining({ reason: "bad_host", host: "cdn.example.com" })
+    );
+  });
+
+  it("refuses a different bucket on the allowed Google Cloud Storage host", async () => {
+    // storage.googleapis.com is shared by every GCS bucket on the internet, so
+    // the hostname alone is not a boundary. Without the bucket-path pin this
+    // URL would be fetched, and this test is the only thing that says so.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        { netid: "abc12", image: "https://storage.googleapis.com/somebody-else/x.jpg" },
+      ])
+    );
+
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+      "[yalies] photo miss",
+      expect.objectContaining({ reason: "bad_host", bucket: "/somebody-else/" })
+    );
+  });
+
+  it("still accepts the legacy S3 host, so a reverted migration keeps working", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json([
+          { netid: "abc12", image: "https://yalestudentphotos.s3.amazonaws.com/abc.jpg" },
+        ])
+      )
+      .mockResolvedValueOnce(imageResponse());
+
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeInstanceOf(Buffer);
+  });
+
+  it("refuses an unparseable image value and logs 'unparseable_url'", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([{ netid: "abc12", image: "not a url at all" }])
+    );
+
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+      "[yalies] photo miss",
+      expect.objectContaining({ reason: "unparseable_url" })
     );
   });
 

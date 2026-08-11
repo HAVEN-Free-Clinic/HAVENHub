@@ -34,9 +34,20 @@ way.
 
 ### `image` is a URL, not bytes
 
-`app/models.py` declares `image = db.Column(db.String)`, and `sources/s3.py` builds it as
-`https://yalestudentphotos.s3.amazonaws.com/<filename>`. The object is publicly readable with no
+`app/models.py` declares `image = db.Column(db.String)`. The object is publicly readable with no
 auth. We fetch it once and re-host, rather than hotlinking a bucket we do not control.
+
+**Corrected 2026-08-11, from production.** This section originally recorded the host as
+`https://yalestudentphotos.s3.amazonaws.com/<filename>`, read from `sources/s3.py` in their
+published scraper. The live service had already migrated to Google Cloud Storage and serves
+`https://storage.googleapis.com/yalies-photos/<id>.jpg`; the scraper source was never updated to
+match. Every Yale College member missed silently until the miss log named the host.
+
+Two things follow, and both are now in the code. The allowed hosts are a list rather than a
+constant, because this contract has demonstrably drifted once and their source is not a reliable
+record of it. And each entry pins a bucket path as well as a hostname, because
+`storage.googleapis.com` is shared by every Google Cloud Storage bucket in existence, so a hostname
+match alone would accept any of them.
 
 ### netId is filterable, HTTPS is mandatory
 

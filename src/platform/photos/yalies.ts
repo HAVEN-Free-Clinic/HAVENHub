@@ -26,13 +26,37 @@ import { log, errorAttrs } from "@/platform/logging";
 const API_URL = "https://api.yalies.io/v2/people";
 
 /**
- * Yalies re-hosts scraped Face Book photos in one S3 bucket. Pinning the host
- * means a compromised or buggy API response cannot point our server-side fetch
- * at an arbitrary address, including cloud metadata endpoints. Both fetches
- * also disable automatic redirect following, since a followed redirect would
- * land on an unpinned host that is never checked against PHOTO_HOST.
+ * Where Yalies is allowed to serve a photo from.
+ *
+ * The `image` URL is third-party input that we fetch server-side, so it is
+ * checked against this list rather than trusted. Without that, a compromised or
+ * buggy response could point our server at an arbitrary address, including the
+ * cloud metadata endpoint. Both fetches also disable automatic redirect
+ * following, since a followed redirect would land on a host never checked here.
+ *
+ * A path prefix accompanies each host because the check is only as tight as its
+ * narrowest part. `storage.googleapis.com` is shared by every Google Cloud
+ * Storage bucket on the internet, so pinning the hostname alone would accept any
+ * of them; pinning the bucket path restores the specificity the old dedicated S3
+ * subdomain had for free.
+ *
+ * This is a list, not a constant, because it has already drifted once: Yalies
+ * migrated from S3 to Google Cloud Storage without updating the scraper source
+ * this was originally read from, and every Yale College member silently missed
+ * until the log named the new host. The S3 entry is retained so a partial or
+ * reverted migration does not break sourcing again.
  */
-const PHOTO_HOST = "yalestudentphotos.s3.amazonaws.com";
+const PHOTO_SOURCES: ReadonlyArray<{ host: string; prefix: string }> = [
+  { host: "storage.googleapis.com", prefix: "/yalies-photos/" },
+  { host: "yalestudentphotos.s3.amazonaws.com", prefix: "/" },
+];
+
+/** True when a parsed https URL points at an allowed bucket path. */
+function isAllowedPhotoUrl(parsed: URL): boolean {
+  return PHOTO_SOURCES.some(
+    (source) => parsed.hostname === source.host && parsed.pathname.startsWith(source.prefix)
+  );
+}
 
 /**
  * One attempt gets 2 seconds total, spanning both the person lookup and the
@@ -47,10 +71,31 @@ export function isYaliesEnabled(): boolean {
 }
 
 /** Why photoUrlFrom could not produce a usable URL, for the miss log below. */
-type PhotoUrlMiss = "no_match" | "no_image" | "bad_host";
+type PhotoUrlMiss =
+  | "no_match"
+  | "no_image"
+  | "unparseable_url"
+  | "bad_protocol"
+  | "bad_host";
 
-/** The photo URL if this response body carries a usable one, else why not. */
-function photoUrlFrom(body: unknown): { url: string } | { miss: PhotoUrlMiss } {
+/** A miss, plus whatever detail makes the next occurrence self-diagnosing. */
+type PhotoUrlResult = { url: string } | { miss: PhotoUrlMiss; detail?: Record<string, string> };
+
+/**
+ * The photo URL if this response body carries a usable one, else why not.
+ *
+ * The rejection reasons are deliberately split rather than collapsed into one
+ * "bad url". A drifted image host is the likeliest cause of a sudden total miss
+ * stream (it is the one part of the response contract we pin to a literal), and
+ * a log that says only "bad_host" leaves the reader with no way to learn the new
+ * value short of querying the API by hand. So the offending host travels with
+ * the miss.
+ *
+ * The HOSTNAME is safe to log; the full URL is not. Its path carries a
+ * per-person filename, which is exactly the sort of identifier that should not
+ * be sprayed into logs to diagnose a configuration problem.
+ */
+function photoUrlFrom(body: unknown): PhotoUrlResult {
   if (!Array.isArray(body) || body.length === 0) return { miss: "no_match" };
   const image = (body[0] as { image?: unknown }).image;
   if (typeof image !== "string" || image === "") return { miss: "no_image" };
@@ -59,9 +104,19 @@ function photoUrlFrom(body: unknown): { url: string } | { miss: PhotoUrlMiss } {
   try {
     parsed = new URL(image);
   } catch {
-    return { miss: "bad_host" };
+    return { miss: "unparseable_url" };
   }
-  if (parsed.protocol !== "https:" || parsed.hostname !== PHOTO_HOST) return { miss: "bad_host" };
+  if (parsed.protocol !== "https:") {
+    return { miss: "bad_protocol", detail: { protocol: parsed.protocol, host: parsed.hostname } };
+  }
+  if (!isAllowedPhotoUrl(parsed)) {
+    // Host and bucket segment travel with the miss, so a future migration is one
+    // log line to diagnose rather than a manual query against the API. The
+    // filename is deliberately dropped: it is per-person, and the bucket is the
+    // only part needed to update PHOTO_SOURCES.
+    const bucket = `/${parsed.pathname.split("/")[1] ?? ""}/`;
+    return { miss: "bad_host", detail: { host: parsed.hostname, bucket } };
+  }
   return { url: parsed.toString() };
 }
 
@@ -113,7 +168,7 @@ export async function fetchYaliesPhoto(netId: string, maxBytes: number): Promise
 
     const result = photoUrlFrom(await lookup.json());
     if ("miss" in result) {
-      logMiss(result.miss);
+      logMiss(result.miss, result.detail);
       return null;
     }
 

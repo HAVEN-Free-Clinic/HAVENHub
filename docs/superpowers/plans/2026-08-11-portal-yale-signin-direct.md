@@ -46,7 +46,7 @@ import { prisma } from "@/platform/db";
 
 // The server action module imports next/headers + auth at top level; mock them
 // so it imports cleanly in the node test env (the cookie/signOut paths are
-// exercised elsewhere; here we only drive requestMagicLinkAction).
+// exercised elsewhere).
 vi.mock("next/headers", () => ({ cookies: vi.fn(async () => ({ get: vi.fn(), set: vi.fn(), delete: vi.fn() })), headers: vi.fn(async () => ({ get: vi.fn(() => null) })) }));
 vi.mock("@/platform/auth/auth", () => ({ signOut: vi.fn(async () => {}), auth: vi.fn(async () => null), signIn: vi.fn(async () => {}) }));
 // Importing the real next-auth in the node test env fails resolving next/server,

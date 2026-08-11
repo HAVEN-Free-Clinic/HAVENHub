@@ -23,9 +23,31 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Wait after the Nth consecutive miss, in days. The last entry repeats forever. */
 const BACKOFF_DAYS = [1, 7, 30];
 
-/** How long to wait after `misses` consecutive misses before asking again. */
+/**
+ * How long to wait after an integration-level failure, as opposed to a miss that
+ * says something durable about the person.
+ *
+ * The caller only counts person-specific misses (nobody matched that netId, or
+ * that person has no Face Book photo) toward `photoSyncMisses`. A failure of the
+ * integration itself stamps the timestamp and leaves the counter alone, landing
+ * here. Minutes rather than days, because the condition is expected to be
+ * transient and is equally true of everyone: once it clears, members should
+ * recover on their next view instead of serving initials for a day.
+ */
+const TRANSIENT_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * How long to wait before asking again, given the consecutive person-specific
+ * miss count.
+ *
+ * Zero is not a degenerate case: it is the integration-failure path, and it
+ * deliberately returns minutes rather than the one-day first step. Collapsing
+ * the two is how a single bad deploy can leave an entire roster dark for a day,
+ * which is exactly what happened when the upstream image host moved.
+ */
 export function backoffMs(misses: number): number {
-  const index = Math.min(Math.max(misses - 1, 0), BACKOFF_DAYS.length - 1);
+  if (misses <= 0) return TRANSIENT_COOLDOWN_MS;
+  const index = Math.min(misses - 1, BACKOFF_DAYS.length - 1);
   return BACKOFF_DAYS[index] * DAY_MS;
 }
 

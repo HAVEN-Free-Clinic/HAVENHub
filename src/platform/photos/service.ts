@@ -12,12 +12,37 @@ import { getSetting } from "@/platform/settings/service";
 import { normalizePhoto } from "./normalize";
 import { PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
 import { shouldAttemptYaliesPull, type PhotoState } from "./policy";
-import { fetchYaliesPhoto, isYaliesEnabled } from "./yalies";
+import { fetchYaliesPhoto, isPersonSpecificMiss, isYaliesEnabled } from "./yalies";
 
 /** Upload types we accept. Everything is re-encoded to WebP regardless. */
 export const ACCEPTED_UPLOAD_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 export type ResolvedPhoto = { bytes: Buffer; contentType: string } | null;
+
+/**
+ * Stamp a failed pull, advancing the person's backoff only when the failure was
+ * actually about them.
+ *
+ * `photoSyncMisses` drives an escalating 1 / 7 / 30 day backoff, so what counts
+ * toward it matters. A person-specific miss (nobody matched that netId, or they
+ * have no Face Book photo) is a durable fact and should back off hard: those
+ * people are most of the roster and would otherwise be re-queried forever.
+ *
+ * An integration failure is not a fact about the person. Counting it means a
+ * single bad deploy silences everyone it touched for a day or more after the
+ * problem is fixed. The timestamp is still written, so a broken integration
+ * cannot be re-hit on every avatar render, but the counter stays put and the
+ * wait is the short transient cooldown instead.
+ */
+async function recordMiss(personId: string, now: Date, personSpecific: boolean): Promise<void> {
+  await prisma.person.update({
+    where: { id: personId },
+    data: {
+      photoSyncedAt: now,
+      ...(personSpecific ? { photoSyncMisses: { increment: 1 } } : {}),
+    },
+  });
+}
 
 /** Object storage key for a person's photo. Fixed, so a new photo overwrites. */
 function photoKeyFor(personId: string): string {
@@ -234,23 +259,19 @@ export async function resolvePhoto(
   // yalies.ts, which has no settings dependency of its own on purpose.
   const maxMb = await getSetting<number>("uploads.maxMb");
   const fetched = await fetchYaliesPhoto(person.netId, maxMb * 1024 * 1024);
-  if (!fetched) {
-    await prisma.person.update({
-      where: { id: personId },
-      data: { photoSyncedAt: now, photoSyncMisses: { increment: 1 } },
-    });
+  if ("miss" in fetched) {
+    await recordMiss(personId, now, isPersonSpecificMiss(fetched.miss));
     return null;
   }
 
   let normalized: Buffer;
   try {
-    normalized = await normalizePhoto(fetched);
+    normalized = await normalizePhoto(fetched.bytes);
   } catch {
-    // Yalies handed us bytes sharp cannot read. Their problem, our miss.
-    await prisma.person.update({
-      where: { id: personId },
-      data: { photoSyncedAt: now, photoSyncMisses: { increment: 1 } },
-    });
+    // Yalies handed us bytes sharp cannot read. That is a fact about their
+    // object, not about this person, so it does not advance the person's
+    // backoff any more than an API outage would.
+    await recordMiss(personId, now, false);
     return null;
   }
 

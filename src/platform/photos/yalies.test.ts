@@ -13,7 +13,7 @@ const { mockConfig } = vi.hoisted(() => ({
 vi.mock("@/platform/config", () => ({ config: mockConfig }));
 
 import { log } from "@/platform/logging";
-import { fetchYaliesPhoto, isYaliesEnabled } from "./yalies";
+import { fetchYaliesPhoto, isPersonSpecificMiss, isYaliesEnabled } from "./yalies";
 
 /** A PNG byte response the image fetch can return. */
 function imageResponse(length?: number): Response {
@@ -45,9 +45,9 @@ describe("fetchYaliesPhoto", () => {
       .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
       .mockResolvedValueOnce(imageResponse());
 
-    const bytes = await fetchYaliesPhoto("abc12", MAX_BYTES);
+    const result = await fetchYaliesPhoto("abc12", MAX_BYTES);
 
-    expect(bytes).toBeInstanceOf(Buffer);
+    expect(result).toEqual({ bytes: expect.any(Buffer) });
   });
 
   it("logs an info record with the byte count on success", async () => {
@@ -89,52 +89,52 @@ describe("fetchYaliesPhoto", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ filters: { netid: ["abc12"] } });
   });
 
-  it("returns null and logs 'no_image' when the person has no image", async () => {
+  it("misses and logs 'no_image' when the person has no image", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json([{ netid: "abc12", image: null }]));
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "no_image" })
     );
   });
 
-  it("returns null and logs 'no_match' when nobody matches the netid", async () => {
+  it("misses and logs 'no_match' when nobody matches the netid", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json([]));
 
-    expect(await fetchYaliesPhoto("nope99", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("nope99", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "no_match" })
     );
   });
 
-  it("returns null and logs 'lookup_not_ok' when the API errors", async () => {
+  it("misses and logs 'lookup_not_ok' when the API errors", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response("nope", { status: 500 }));
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "lookup_not_ok", status: 500 })
     );
   });
 
-  it("returns null and logs 'exception' when the API is unreachable", async () => {
+  it("misses and logs 'exception' when the API is unreachable", async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "exception", "error.message": "ECONNREFUSED" })
     );
   });
 
-  it("returns null and logs 'image_not_ok' when the image object is gone", async () => {
+  it("misses and logs 'image_not_ok' when the image object is gone", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
       .mockResolvedValueOnce(new Response("gone", { status: 404 }));
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "image_not_ok", status: 404 })
@@ -148,7 +148,7 @@ describe("fetchYaliesPhoto", () => {
       Response.json([{ netid: "abc12", image: "http://169.254.169.254/latest/meta-data/" }])
     );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -164,7 +164,7 @@ describe("fetchYaliesPhoto", () => {
       Response.json([{ netid: "abc12", image: "https://cdn.example.com/photos/abc12.jpg" }])
     );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -182,7 +182,7 @@ describe("fetchYaliesPhoto", () => {
       ])
     );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -199,7 +199,7 @@ describe("fetchYaliesPhoto", () => {
       )
       .mockResolvedValueOnce(imageResponse());
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeInstanceOf(Buffer);
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toEqual({ bytes: expect.any(Buffer) });
   });
 
   it("refuses an unparseable image value and logs 'unparseable_url'", async () => {
@@ -207,7 +207,7 @@ describe("fetchYaliesPhoto", () => {
       Response.json([{ netid: "abc12", image: "not a url at all" }])
     );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -222,7 +222,7 @@ describe("fetchYaliesPhoto", () => {
         new Response("<html>", { status: 200, headers: { "content-type": "text/html" } })
       );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "not_an_image" })
@@ -232,7 +232,7 @@ describe("fetchYaliesPhoto", () => {
   it("returns null, logs 'no_api_key', and never calls fetch when no API key is configured", async () => {
     mockConfig.YALIES_API_KEY = undefined;
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(0);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -250,7 +250,7 @@ describe("fetchYaliesPhoto", () => {
         })
       );
 
-    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", MAX_BYTES)).toHaveProperty("miss");
 
     const [, imageInit] = vi.mocked(fetch).mock.calls[1];
     expect(imageInit?.redirect).toBe("manual");
@@ -280,7 +280,7 @@ describe("fetchYaliesPhoto", () => {
         arrayBuffer: arrayBufferSpy,
       } as unknown as Response);
 
-    expect(await fetchYaliesPhoto("abc12", 100)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", 100)).toHaveProperty("miss");
     expect(arrayBufferSpy).not.toHaveBeenCalled();
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
@@ -296,7 +296,7 @@ describe("fetchYaliesPhoto", () => {
       .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
       .mockResolvedValueOnce(new Response(oversizedBody, { status: 200, headers: { "content-type": "image/png" } }));
 
-    expect(await fetchYaliesPhoto("abc12", 100)).toBeNull();
+    expect(await fetchYaliesPhoto("abc12", 100)).toHaveProperty("miss");
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       "[yalies] photo miss",
       expect.objectContaining({ reason: "too_large" })
@@ -308,7 +308,7 @@ describe("fetchYaliesPhoto", () => {
       .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
       .mockResolvedValueOnce(imageResponse(4));
 
-    expect(await fetchYaliesPhoto("abc12", 4)).toBeInstanceOf(Buffer);
+    expect(await fetchYaliesPhoto("abc12", 4)).toEqual({ bytes: expect.any(Buffer) });
   });
 });
 
@@ -323,5 +323,32 @@ describe("isYaliesEnabled", () => {
     mockConfig.YALIES_API_KEY = undefined;
 
     expect(isYaliesEnabled()).toBe(false);
+  });
+});
+
+describe("isPersonSpecificMiss", () => {
+  // This classifier decides whether a failed pull advances a person's backoff
+  // toward 30 days. Getting it wrong in the permissive direction is what let a
+  // single upstream host change silence every Yale College member for a day
+  // after the integration was already healthy again.
+  it("treats only no_match and no_image as facts about the person", () => {
+    expect(isPersonSpecificMiss("no_match")).toBe(true);
+    expect(isPersonSpecificMiss("no_image")).toBe(true);
+  });
+
+  it("treats every integration failure as saying nothing about the person", () => {
+    for (const reason of [
+      "no_api_key",
+      "lookup_not_ok",
+      "exception",
+      "unparseable_url",
+      "bad_protocol",
+      "bad_host",
+      "image_not_ok",
+      "not_an_image",
+      "too_large",
+    ] as const) {
+      expect(isPersonSpecificMiss(reason)).toBe(false);
+    }
   });
 });

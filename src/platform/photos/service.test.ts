@@ -6,10 +6,16 @@ import { deleteObject, getObject } from "@/platform/storage";
 import { PhotoError } from "./shared";
 import { removePhoto, resolvePhoto, setPhotoFromUpload } from "./service";
 
-vi.mock("./yalies", () => ({
-  isYaliesEnabled: vi.fn(() => true),
-  fetchYaliesPhoto: vi.fn(async () => null),
-}));
+vi.mock("./yalies", async (importOriginal) => {
+  // isPersonSpecificMiss stays REAL: it is the classifier under test in the
+  // backoff cases below, and mocking it would make those assertions vacuous.
+  const actual = await importOriginal<typeof import("./yalies")>();
+  return {
+    ...actual,
+    isYaliesEnabled: vi.fn(() => true),
+    fetchYaliesPhoto: vi.fn(async () => ({ miss: "no_image" }) as const),
+  };
+});
 
 import { fetchYaliesPhoto, isYaliesEnabled } from "./yalies";
 
@@ -33,14 +39,14 @@ describe("resolvePhoto", () => {
     await resetDb();
     // mockReturnValue survives clearAllMocks, so re-arm both every test.
     vi.mocked(isYaliesEnabled).mockReturnValue(true);
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(null);
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ miss: "no_image" });
   });
   afterEach(() => {
     vi.clearAllMocks();
   });
 
   it("stores and returns a photo when Yalies has one", async () => {
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
     // Seeded away from the defaults (misses: 0, syncedAt: null) so the
     // photoSyncMisses-resets-to-0 assertion below is load-bearing: a fresh
     // person already reads 0, so it can't tell "reset" from "never touched".
@@ -69,6 +75,24 @@ describe("resolvePhoto", () => {
     const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
     expect(after.photoKey).toBeNull();
     expect(after.photoSyncMisses).toBe(1);
+    expect(after.photoSyncedAt).not.toBeNull();
+  });
+
+  it("does not advance the person's backoff when the integration itself failed", async () => {
+    // The bug this guards, seen in production: the upstream image host moved, so
+    // every Yale College member took one bad_host miss. That incremented their
+    // counter into a one-day backoff, and the fix deployed within the hour still
+    // could not reach any of them until the next day. An integration failure is
+    // not a fact about a person and must not spend their retry budget.
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ miss: "bad_host" });
+    const person = await seedPerson();
+
+    expect(await resolvePhoto(person.id, new Date(), { allowPull: true })).toBeNull();
+
+    const after = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(after.photoSyncMisses).toBe(0);
+    // The timestamp is still stamped, so a broken integration is not re-queried
+    // on every single avatar render while it is down.
     expect(after.photoSyncedAt).not.toBeNull();
   });
 
@@ -103,7 +127,7 @@ describe("resolvePhoto", () => {
   });
 
   it("pulls from Yalies when allowPull is explicitly true, as the route passes for a self-view", async () => {
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
     const person = await seedPerson();
 
     const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
@@ -174,7 +198,7 @@ describe("resolvePhoto", () => {
     // Simulate the object storage losing the bytes out from under the row,
     // without going through removePhoto (which would update the row too).
     await deleteObject(`people/${person.id}`);
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
 
     const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
 
@@ -203,7 +227,7 @@ describe("resolvePhoto", () => {
       where: { id: person.id },
       data: { photoKey: key, photoSource: "yalies", photoSuppressed: true },
     });
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(null);
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ miss: "no_image" });
 
     // allowPull: true so this actually exercises the suppression check
     // inside shouldAttemptYaliesPull, not the allowPull gate.
@@ -233,7 +257,7 @@ describe("resolvePhoto", () => {
         4,
         person.id
       );
-      return await pngBytes();
+      return { bytes: await pngBytes() };
     });
 
     const resolved = await resolvePhoto(person.id, new Date(), { allowPull: true });
@@ -363,7 +387,7 @@ describe("removePhoto", () => {
   beforeEach(async () => {
     await resetDb();
     vi.mocked(isYaliesEnabled).mockReturnValue(true);
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
   });
 
   it("suppresses future pulls when removing a Yalies photo", async () => {
@@ -447,7 +471,7 @@ describe("an opt-out survives an admin re-upload and its own removal", () => {
 
     // 1. Jane is auto-sourced, then removes it on /my-info. photoSuppressed
     //    becomes true, photoSource/photoKey go back to null.
-    vi.mocked(fetchYaliesPhoto).mockResolvedValue(await pngBytes());
+    vi.mocked(fetchYaliesPhoto).mockResolvedValue({ bytes: await pngBytes() });
     await resolvePhoto(jane.id, new Date(), { allowPull: true });
     await removePhoto(jane.id);
     const afterOptOut = await prisma.person.findUniqueOrThrow({ where: { id: jane.id } });

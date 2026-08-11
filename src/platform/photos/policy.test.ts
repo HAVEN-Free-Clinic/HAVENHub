@@ -30,6 +30,15 @@ describe("backoffMs", () => {
     expect(backoffMs(3)).toBe(30 * DAY);
   });
 
+  it("returns a short transient cooldown, not a day, for zero misses", () => {
+    // Zero misses is the integration-failure path: the timestamp is stamped so a
+    // broken integration is not re-hit on every render, but the counter is left
+    // alone. It must NOT fall through to the one-day first step, or recovering
+    // from an outage still costs every affected member a day of initials.
+    expect(backoffMs(0)).toBeGreaterThan(0);
+    expect(backoffMs(0)).toBeLessThanOrEqual(15 * 60 * 1000);
+  });
+
   it("caps at a month thereafter", () => {
     expect(backoffMs(4)).toBe(30 * DAY);
     expect(backoffMs(99)).toBe(30 * DAY);

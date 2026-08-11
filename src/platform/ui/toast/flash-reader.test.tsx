@@ -120,6 +120,35 @@ describe("the applicant portal host's pathname resolution", () => {
   });
 });
 
+describe("suppressing error=signin on /apply for the inline sign-in alert", () => {
+  // portalYaleSignInAction (src/app/apply/portal-actions.ts) redirects a failed Yale
+  // sign-in to "/apply?error=signin", and apply/page.tsx renders its own inline
+  // <Alert> for that value (flash.ts's SUPPRESSED_ERROR_VALUES, value-scoped so
+  // error=link -- the OTHER /apply error code, above -- still pops a toast). Unlike
+  // the link tests above, the raw pathname here is "/apply" itself, not "/": "apply"
+  // is a reserved portal slug (portal-routing.ts's RESERVED_PORTAL_SLUGS), so on the
+  // portal host isPortalPassThrough treats a raw "/apply" as a pass-through and
+  // resolveEffectivePathname leaves it unrewritten -- converging with the hub host's
+  // own literal "/apply" on the same effective pathname either way.
+  it("suppresses error=signin on the hub host", () => {
+    mockPathname = "/apply";
+    mockSearch = "error=signin";
+    mount(/* isPortalHost */ false);
+
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
+    expect(replaceCalls).toHaveLength(0);
+  });
+
+  it("suppresses error=signin on the portal host too, since /apply is itself a reserved pass-through slug", () => {
+    mockPathname = "/apply";
+    mockSearch = "error=signin";
+    mount(/* isPortalHost */ true);
+
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
+    expect(replaceCalls).toHaveLength(0);
+  });
+});
+
 describe("param preservation", () => {
   it("strips only the flash param, preserving a filter param present alongside it", () => {
     mockPathname = "/admin/settings";

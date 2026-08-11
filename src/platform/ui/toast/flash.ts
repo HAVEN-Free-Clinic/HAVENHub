@@ -94,23 +94,38 @@
  *
  * ---
  *
- * **Suppression, keyed by (pathname, param) (added after Task 4's mounting plan surfaced a real
- * double-report).** The base `error`/`*Error` convention is otherwise pathname-blind: any page
- * whose URL carries `error` gets it classified, whether or not that page still renders its own
- * inline `<Alert>` for it. Three pages are ruled INLINE in the page inventory because they own
- * error-code vocabulary this module cannot safely resolve (a mix of shared and page-specific
- * codes it cannot split by value): `login/page.tsx` (NextAuth's own codes), `incidents/page.tsx`,
- * and `incidents/strikes/page.tsx`. Once a global reader mounts in the root layout, it would
- * otherwise pop a second, often wrongly-worded toast right alongside each of those pages' correct
- * inline renders -- the exact double-report the design spec's migration rule forbids.
+ * **Suppression (added after Task 4's mounting plan surfaced a real double-report).** The base
+ * `error`/`*Error` convention is otherwise pathname-blind: any page whose URL carries `error` gets
+ * it classified, whether or not that page still renders its own inline `<Alert>` for it. Once a
+ * global reader mounts in the root layout, an unsuppressed page would pop a second, often
+ * wrongly-worded toast right alongside its own correct inline render -- the exact double-report
+ * the design spec's migration rule forbids. There are two suppression mechanisms, chosen by how
+ * much of a pathname's `error` vocabulary the page renders inline itself:
  *
- * `SUPPRESSED_ERROR_PARAMS` lists the precise (pathname, param) pairs from the inventory's INLINE
- * rulings, not whole pages: `incidents/page.tsx` is INLINE only for its `error`/`message` pair,
- * and if it ever gains another flash param later, a whole-page opt-out would have silently
- * swallowed that too. A suppressed pair is left completely alone -- not claimed, not stripped, not
- * toasted -- exactly like a param nobody registered at all. `message` needs no separate
- * suppression entry: it is only ever claimed as `error`'s companion inside the same loop
- * iteration, so skipping `error` already leaves `message` untouched.
+ * 1. **Whole-param, `SUPPRESSED_ERROR_PARAMS`, keyed by (pathname, param).** For a page that owns
+ *    ALL of the error codes it can ever receive on that pathname, so the convention must never
+ *    fire there at all. Three pages are ruled INLINE in the page inventory for this reason, each
+ *    owning error-code vocabulary this module cannot safely resolve (a mix of shared and
+ *    page-specific codes it cannot split by value): `login/page.tsx` (NextAuth's own codes),
+ *    `incidents/page.tsx`, and `incidents/strikes/page.tsx`. `SUPPRESSED_ERROR_PARAMS` lists the
+ *    precise (pathname, param) pairs from the inventory's INLINE rulings, not whole pages:
+ *    `incidents/page.tsx` is INLINE only for its `error`/`message` pair, and if it ever gains
+ *    another flash param later, a whole-page opt-out would have silently swallowed that too. A
+ *    suppressed pair is left completely alone -- not claimed, not stripped, not toasted -- exactly
+ *    like a param nobody registered at all. `message` needs no separate suppression entry: it is
+ *    only ever claimed as `error`'s companion inside the same loop iteration, so skipping `error`
+ *    already leaves `message` untouched.
+ * 2. **Single-value, `SUPPRESSED_ERROR_VALUES`, keyed by (pathname, param, value).** For a page
+ *    that renders inline UI for only SOME of the codes a pathname can receive, and still needs the
+ *    toast for the rest. `apply/page.tsx` is the confirmed case: it renders its own inline
+ *    `<Alert>` for `error=signin` (a failed Yale sign-in) but has no inline handling for
+ *    `error=link` (`apply/verify/page.tsx`'s expired-magic-link redirect), which must keep
+ *    resolving through the `ERROR_CODE_TABLE`'s `link` entry and popping as a toast. A whole-param
+ *    entry for `("/apply", "error")` in `SUPPRESSED_ERROR_PARAMS` would suppress `link` too --
+ *    confirmed by a broken test when this was tried -- so `signin` is registered in
+ *    `SUPPRESSED_ERROR_VALUES` instead, leaving every other value of `error` on `/apply`
+ *    untouched. Reach for this form whenever a page's suppression need does not extend to every
+ *    code the pathname can produce.
  */
 
 /** Mirrors the tone vocabulary already established by `src/platform/ui/alert.tsx`. */

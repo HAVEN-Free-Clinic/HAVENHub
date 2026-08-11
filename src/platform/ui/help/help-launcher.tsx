@@ -21,18 +21,32 @@ const GitBookFrame = dynamic(
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 /**
- * Module-level so the identity is stable across renders. GitBookFrame re-sends its whole
- * `configure` message to the frame whenever any configuration prop changes identity, and the
- * frame re-applies that configuration when it arrives; a fresh array literal per render would
- * do that on every parent render.
+ * One tab, on purpose: switching tabs is broken in the embed, and a single tab cannot be
+ * switched away from. Observed on production, clicking the search icon:
  *
- * "docs" is deliberately absent. The tab list is a request, not a guarantee ("Tabs to display
- * in the embed (if enabled on the site)") -- the frame renders whatever icons it is asked for,
- * but docs.havenfreeclinic.org serves 404 for /~gitbook/embed/docs while /assistant and /search
- * serve 200. Asking for it only produced a button that does nothing when clicked. The header
- * link below covers the same need against a route that works.
+ *   [gitbook] create channel with parent window   <- a SECOND time, 18s after the first
+ *   Uncaught Error: Minified React error #418     <- hydration mismatch, from GitBook's bundle
+ *
+ * A second channel means the frame tore down its document and booted a new one. The tab rail
+ * exists only because this component posts `configure` over postMessage, @gitbook/embed sends
+ * that once at mount and never again, so the new document comes up unconfigured and the rail
+ * stops responding -- you can leave the assistant but you cannot get back. Each of those
+ * reboots also blocked the main thread for 2-3.5s (Vercel Toolbar INP), and because
+ * hub.* and docs.* are the same site they share a renderer process, so the freeze takes the
+ * whole app with it, not just the panel.
+ *
+ * None of that is ours to fix (it is GitBook's app, on 0.5.1, unchanged since May), but not
+ * offering the tabs avoids all of it. Search is reachable through the assistant, which
+ * searches the docs to answer, and the header link below covers browsing.
+ *
+ * "docs" was never viable regardless: docs.havenfreeclinic.org serves 404 for
+ * /~gitbook/embed/docs, so that icon did nothing at all.
+ *
+ * Module-level for stable identity: GitBookFrame re-sends its whole `configure` payload
+ * whenever any configuration prop changes identity, and a fresh array literal per render
+ * would do that on every parent render.
  */
-const HELP_TABS: ("assistant" | "search" | "docs")[] = ["assistant", "search"];
+const HELP_TABS: ("assistant" | "search" | "docs")[] = ["assistant"];
 
 type TokenState = { token: string; expiresAt: number } | null;
 

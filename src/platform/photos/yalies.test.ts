@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchYaliesPhoto } from "./yalies";
 
-vi.mock("@/platform/config", () => ({ config: { YALIES_API_KEY: "test-key" } }));
+// `config` is a singleton parsed from process.env at module load (see
+// src/platform/config.ts), so vi.stubEnv after that first import never
+// reaches it. Mock the module instead with a mutable object, matching the
+// pattern in src/modules/passport/services/wallet-client.test.ts. This lets
+// individual tests flip YALIES_API_KEY on and off instead of pinning it once
+// at module scope, which is required to exercise the no-key branch and
+// isYaliesEnabled() at all.
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {} as { YALIES_API_KEY?: string },
+}));
+vi.mock("@/platform/config", () => ({ config: mockConfig }));
+
+import { fetchYaliesPhoto, isYaliesEnabled } from "./yalies";
 
 /** A PNG byte response the image fetch can return. */
 function imageResponse(): Response {
@@ -15,6 +26,7 @@ const PHOTO_URL = "https://yalestudentphotos.s3.amazonaws.com/abc.jpg";
 
 describe("fetchYaliesPhoto", () => {
   beforeEach(() => {
+    mockConfig.YALIES_API_KEY = "test-key";
     vi.stubGlobal("fetch", vi.fn());
   });
   afterEach(() => {
@@ -93,5 +105,56 @@ describe("fetchYaliesPhoto", () => {
       );
 
     expect(await fetchYaliesPhoto("abc12")).toBeNull();
+  });
+
+  it("returns null and never calls fetch when no API key is configured", async () => {
+    mockConfig.YALIES_API_KEY = undefined;
+
+    expect(await fetchYaliesPhoto("abc12")).toBeNull();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(0);
+  });
+
+  it("does not follow a redirect on the image fetch", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { Location: "http://169.254.169.254/latest/meta-data/" },
+        })
+      );
+
+    expect(await fetchYaliesPhoto("abc12")).toBeNull();
+
+    const [, imageInit] = vi.mocked(fetch).mock.calls[1];
+    expect(imageInit?.redirect).toBe("manual");
+  });
+
+  it("bounds both fetch calls with one shared timeout signal, not one each", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json([{ netid: "abc12", image: PHOTO_URL }]))
+      .mockResolvedValueOnce(imageResponse());
+
+    await fetchYaliesPhoto("abc12");
+
+    const [, lookupInit] = vi.mocked(fetch).mock.calls[0];
+    const [, imageInit] = vi.mocked(fetch).mock.calls[1];
+    expect(lookupInit?.signal).toBeInstanceOf(AbortSignal);
+    expect(imageInit?.signal).toBeInstanceOf(AbortSignal);
+    expect(imageInit?.signal).toBe(lookupInit?.signal);
+  });
+});
+
+describe("isYaliesEnabled", () => {
+  it("returns true when an API key is configured", () => {
+    mockConfig.YALIES_API_KEY = "test-key";
+
+    expect(isYaliesEnabled()).toBe(true);
+  });
+
+  it("returns false when no API key is configured", () => {
+    mockConfig.YALIES_API_KEY = undefined;
+
+    expect(isYaliesEnabled()).toBe(false);
   });
 });

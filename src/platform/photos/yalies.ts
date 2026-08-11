@@ -18,11 +18,17 @@ const API_URL = "https://api.yalies.io/v2/people";
 /**
  * Yalies re-hosts scraped Face Book photos in one S3 bucket. Pinning the host
  * means a compromised or buggy API response cannot point our server-side fetch
- * at an arbitrary address, including cloud metadata endpoints.
+ * at an arbitrary address, including cloud metadata endpoints. Both fetches
+ * also disable automatic redirect following, since a followed redirect would
+ * land on an unpinned host that is never checked against PHOTO_HOST.
  */
 const PHOTO_HOST = "yalestudentphotos.s3.amazonaws.com";
 
-/** One attempt gets 2 seconds. A slow Yalies must never become a slow page. */
+/**
+ * One attempt gets 2 seconds total, spanning both the person lookup and the
+ * image download as a single deadline. A slow Yalies must never become a
+ * slow page.
+ */
 export const YALIES_TIMEOUT_MS = 2000;
 
 /** True when an API key is configured. Without one, auto-sourcing is inert. */
@@ -50,11 +56,17 @@ function photoUrlFrom(body: unknown): string | null {
  * Photo bytes for a netId, or null when there is no photo to be had.
  *
  * Null covers every failure: no API key, no match, no image on the record, a
- * non-2xx from either hop, an unexpected host, a non-image body, a timeout, and
- * an unreachable host. Callers cannot distinguish them and should not try.
+ * non-2xx from either hop, an unexpected host, a redirect, a non-image body, a
+ * timeout, and an unreachable host. Callers cannot distinguish them and should
+ * not try.
  */
 export async function fetchYaliesPhoto(netId: string): Promise<Buffer | null> {
   if (!config.YALIES_API_KEY) return null;
+
+  // One deadline for the whole operation, not one per hop: two independent
+  // 2-second timeouts would let a slow Yalies cost up to 4 seconds, breaking
+  // the promise on YALIES_TIMEOUT_MS above.
+  const signal = AbortSignal.timeout(YALIES_TIMEOUT_MS);
 
   try {
     const lookup = await fetch(API_URL, {
@@ -64,14 +76,18 @@ export async function fetchYaliesPhoto(netId: string): Promise<Buffer | null> {
         Authorization: `Bearer ${config.YALIES_API_KEY}`,
       },
       body: JSON.stringify({ filters: { netid: [netId] } }),
-      signal: AbortSignal.timeout(YALIES_TIMEOUT_MS),
+      signal,
+      redirect: "manual",
     });
     if (!lookup.ok) return null;
 
     const url = photoUrlFrom(await lookup.json());
     if (!url) return null;
 
-    const image = await fetch(url, { signal: AbortSignal.timeout(YALIES_TIMEOUT_MS) });
+    // redirect: "manual" keeps a followed redirect from ever landing on a
+    // host we have not pinned: a manual-mode redirect response comes back
+    // with an opaque, non-ok status instead of being followed transparently.
+    const image = await fetch(url, { signal, redirect: "manual" });
     if (!image.ok) return null;
     if (!(image.headers.get("content-type") ?? "").startsWith("image/")) return null;
 

@@ -78,16 +78,30 @@ In `src/platform/config.ts`, immediately after the `R2_BUCKET` line:
 
 - [ ] **Step 3: Generate the migration**
 
-Run: `npm run db:up && npx prisma migrate dev --name add_person_photo`
+**Do not run `npm run db:migrate` or a bare `prisma migrate dev`.** Prisma would resolve `DATABASE_URL` from the repo `.env`, which points at the production Neon database. Always pass the URL explicitly. The target below is this worktree's disposable, fully-migrated test database.
+
+```bash
+DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_member_photos" \
+DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_member_photos" \
+npx prisma migrate dev --name add_person_photo --create-only
+```
+
+`--create-only` writes the SQL without applying it, so you can inspect it first.
 
 - [ ] **Step 4: Trim the migration SQL**
 
-Open the generated `prisma/migrations/<timestamp>_add_person_photo/migration.sql`. It must contain only `ALTER TABLE "Person" ADD COLUMN` statements for the seven columns above. Delete any other statement: `prisma migrate dev` folds pre-existing schema drift into whatever migration you happen to be generating.
+Open the generated `prisma/migrations/<timestamp>_add_person_photo/migration.sql`. It must contain only `ALTER TABLE "Person" ADD COLUMN` statements for the seven columns above. Delete any other statement: `prisma migrate dev` folds pre-existing schema drift into whatever migration you happen to be generating. The target database is fully migrated, so a clean run should produce nothing else. If it does, that is drift, and it belongs to someone else's change.
 
-- [ ] **Step 5: Verify the schema applies cleanly**
+- [ ] **Step 5: Apply it and verify**
 
-Run: `npm run test:prepare && npx tsc --noEmit`
-Expected: migration applies, typecheck passes.
+```bash
+DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_member_photos" \
+DATABASE_URL_UNPOOLED="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_member_photos" \
+npx prisma migrate deploy
+```
+
+Then run `npx tsc --noEmit`.
+Expected: migration applies cleanly, typecheck passes with the new `Person` fields available on the Prisma client.
 
 - [ ] **Step 6: Commit**
 

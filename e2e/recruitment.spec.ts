@@ -112,7 +112,13 @@ test("recruitment: unknown apply slug redirects an anonymous visitor to portal s
   const page = await anon.newPage();
   await page.goto(`/apply/does-not-exist-${Date.now()}`);
   await expect(page).toHaveURL((url) => url.pathname === "/apply");
-  await expect(page.getByRole("link", { name: /Sign in with Yale/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Sign in with Yale/i })).toBeVisible();
+  // The portal now starts the Entra sign-in itself, so an applicant must never be
+  // handed the hub's staff login page. Regression guard for that detour returning.
+  // Scoped to the heading on purpose: the portal's own body copy reads "Sign in to
+  // start a new application...", so a bare text match on "Sign in to" matches the
+  // portal itself and fails on a correct page.
+  await expect(page.getByRole("heading", { name: /Sign in to/i })).toHaveCount(0);
   await expect(page.getByText(/Applications are closed/i)).toHaveCount(0);
   await anon.close();
 });

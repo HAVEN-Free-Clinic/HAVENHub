@@ -225,6 +225,15 @@ model Person {
   spanishVerifiedById            String?
   /// Self-reported RN licensure. No verification workflow.
   licensedRN                     Boolean                    @default(false)
+  /// Most recent successful sign-in. Last value only, never a history: enough
+  /// to spot a dormant account without keeping a movement log of a volunteer.
+  lastLoginAt                    DateTime?
+  /// Raw user agent from that sign-in. Parsed for display by describeUserAgent.
+  lastLoginUserAgent             String?
+  /// Coarse location from Vercel's geo headers. City and country only, never an
+  /// IP address. Absent outside Vercel, so null in local development.
+  lastLoginCity                  String?
+  lastLoginCountry               String?
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")

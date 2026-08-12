@@ -15,6 +15,7 @@ import { assertNotLastActiveAdminTx, LastAdminError } from "@/platform/rbac/last
 import { PersonMembershipsPanel } from "@/modules/admin/components/person-memberships-panel";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { LastLoginPanel } from "@/modules/admin/components/last-login-panel";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 
@@ -160,6 +161,14 @@ export default async function PersonDetailPage({ params }: PageProps) {
             <ConfirmButton label="Reactivate" confirmLabel="Confirm reactivation?" />
           </form>
         )}
+      </section>
+
+      {/* Admin-only. This page already requires admin.manage_people, so the
+          gating is inherited. Nothing here is shown to the member themselves or
+          to department directors. */}
+      <section>
+        <SectionHeader className="mb-4">Sign-in activity</SectionHeader>
+        <LastLoginPanel person={person} />
       </section>
     </div>
   );

@@ -1,5 +1,5 @@
 /**
- * TDD tests for the Intercom -> TechRequest.status sync (Direction 3, see
+ * TDD tests for the Intercom <-> TechRequest.status sync (Direction 3, see
  * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md):
  *
  * mapIntercomTicketStateToStatus / mapIntercomTicketTypeToCategory:
@@ -7,6 +7,9 @@
  *   - A status mapping miss returns null (reject, never guess); a category
  *     mapping miss falls back to OTHER (see intercom-sync.ts's doc comment
  *     for why the two differ).
+ *
+ * mapStatusToIntercomTicketState: the outbound mirror, used by
+ * notifications.ts's pushIntercomTicketState (tested in notifications.test.ts).
  *
  * applyIntercomTicketStateChange(intercomTicketId, internalLabel):
  *   - Unmapped state: refused and audited, ticket status unchanged.
@@ -17,16 +20,22 @@
  *   - Unlike manage.ts's setStatus, a TERMINAL current status does not block
  *     the transition -- Intercom is the control surface here.
  *   - The loop-suppression claim: applying an Intercom-origin change never
- *     calls anything that talks back to Intercom (no fetch call at all).
+ *     calls anything that talks back to Intercom (no fetch call at all) --
+ *     this covers BOTH outbound writes (the note in notifications.ts's
+ *     notifyIntercomStatusChange and the Ticket-state push in
+ *     pushIntercomTicketState), since applyIntercomTicketStateChange in this
+ *     module never imports notifications.ts at all.
  */
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import type { TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { createTechRequestFromConversation } from "./tech-request";
 import {
   mapIntercomTicketStateToStatus,
   mapIntercomTicketTypeToCategory,
+  mapStatusToIntercomTicketState,
   applyIntercomTicketStateChange,
 } from "./intercom-sync";
 
@@ -81,6 +90,41 @@ describe("mapIntercomTicketTypeToCategory", () => {
 
   it("falls back to OTHER when no ticket type name is available at all", () => {
     expect(mapIntercomTicketTypeToCategory(null)).toBe("OTHER");
+  });
+});
+
+describe("mapStatusToIntercomTicketState", () => {
+  it("maps a known TechRequestStatus to its Intercom state label, exact-case", () => {
+    expect(mapStatusToIntercomTicketState("SUBMITTED")).toBe("Submitted");
+    expect(mapStatusToIntercomTicketState("IN_PROGRESS")).toBe("In progress");
+    expect(mapStatusToIntercomTicketState("AWAITING_YNHH")).toBe("Awaiting YNHH");
+    expect(mapStatusToIntercomTicketState("RESOLVED")).toBe("Resolved");
+  });
+
+  it("round-trips with the inbound mapping for every known status", () => {
+    const statuses: TechRequestStatus[] = [
+      "SUBMITTED",
+      "IN_PROGRESS",
+      "AWAITING_REQUESTER",
+      "AWAITING_YNHH",
+      "RESOLVED",
+      "CLOSED",
+      "CANCELLED",
+    ];
+    for (const status of statuses) {
+      const label = mapStatusToIntercomTicketState(status);
+      expect(label).not.toBeNull();
+      expect(mapIntercomTicketStateToStatus(label as string)).toBe(status);
+    }
+  });
+
+  // A status added to the TechRequestStatus enum without an accompanying
+  // workspace state is exactly the drift this function must refuse to guess
+  // at. There is no legitimate TechRequestStatus this happens for today (the
+  // table is total), so the miss is simulated with a cast, the same
+  // technique the enum-exhaustiveness guard itself exists to cover.
+  it("returns null for a status with no mapped Intercom state, rather than guessing", () => {
+    expect(mapStatusToIntercomTicketState("SOME_FUTURE_STATUS" as TechRequestStatus)).toBeNull();
   });
 });
 
@@ -151,9 +195,13 @@ describe("applyIntercomTicketStateChange", () => {
   // ---------------------------------------------------------------------
   // Loop suppression: this is the test that would actually catch a loop,
   // not merely assert a guard exists. It proves applying an Intercom-origin
-  // status change never talks back to Intercom at all -- if a future edit
-  // wired this function to call notifyIntercomStatusChange "for
-  // completeness," this test fails because that call goes through fetch.
+  // status change never talks back to Intercom at all -- BOTH outbound
+  // writes: notifications.ts's notifyIntercomStatusChange (the conversation
+  // note, Direction 2) and pushIntercomTicketState (the Ticket state push,
+  // Direction 3's Hub-origin half) are only ever reachable via fetch, and
+  // this module imports neither notifications.ts function. If a future edit
+  // wired applyIntercomTicketStateChange to call either "for completeness,"
+  // this test fails because that call goes through fetch.
   // ---------------------------------------------------------------------
   describe("loop suppression", () => {
     beforeEach(() => {
@@ -171,6 +219,10 @@ describe("applyIntercomTicketStateChange", () => {
       const person = await createPerson("Alice");
       await createLinkedTicket(person.id, "ticket_1");
 
+      // "Awaiting YNHH" is a real transition (SUBMITTED -> AWAITING_YNHH),
+      // not a no-op, and it is a status with a mapped outbound Intercom
+      // state too -- if pushIntercomTicketState were ever wired into this
+      // path, this specific transition would have something to push.
       const result = await applyIntercomTicketStateChange("ticket_1", "Awaiting YNHH");
 
       expect(result.ok).toBe(true);

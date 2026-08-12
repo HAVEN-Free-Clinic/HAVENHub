@@ -312,9 +312,11 @@ describe("POST /api/support/tickets/events", () => {
 
     // The loop-suppression claim, exercised at the HTTP layer: applying a
     // status change that arrived FROM Intercom must never turn around and
-    // call Intercom back. The service-level version of this test
+    // call Intercom back -- neither the note (notifyIntercomStatusChange,
+    // Direction 2) nor the Ticket-state push (pushIntercomTicketState,
+    // Direction 3's Hub-origin half). The service-level version of this test
     // (intercom-sync.test.ts) is the one that would actually catch a
-    // regression that wires notifyIntercomStatusChange into
+    // regression that wires either of those into
     // applyIntercomTicketStateChange "for completeness" -- this one confirms
     // the route does not introduce its own additional outbound call either.
     it("does not call Intercom while applying an Intercom-originated status change", async () => {

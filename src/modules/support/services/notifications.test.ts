@@ -8,10 +8,15 @@
  *     ticket linked to an Intercom conversation.
  *
  * buildIntercomStatusMessage / isPublicComment / notifyIntercomStatusChange:
- *   the outbound Intercom sync's message-building and posting.
+ *   Direction 2's outbound sync -- message-building and posting the
+ *   staff-only conversation note.
+ *
+ * pushIntercomTicketState: Direction 3's Hub-origin outbound sync -- setting
+ * the linked Intercom TICKET's own state.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { createTechRequest } from "./tech-request";
@@ -20,6 +25,7 @@ import {
   buildIntercomStatusMessage,
   isPublicComment,
   notifyIntercomStatusChange,
+  pushIntercomTicketState,
 } from "./notifications";
 
 // ---------------------------------------------------------------------------
@@ -220,6 +226,86 @@ describe("notifyIntercomStatusChange", () => {
         status: "IN_PROGRESS",
         intercomConversationId: "conv_1",
       })
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("pushIntercomTicketState", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("pushes the mapped state for a ticket with an intercomTicketId", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
+      "SUBMITTED"
+    );
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("ticket_1");
+    const body = JSON.parse(init.body as string) as { state: string };
+    expect(body.state).toBe("In progress");
+  });
+
+  it("does not call Intercom at all for a ticket with no intercomTicketId", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: null },
+      "SUBMITTED"
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // Necessary but not sufficient for loop suppression on its own (see this
+  // function's doc comment) -- the structural module split is the primary
+  // defence -- but still required: a ticket already at its target status
+  // must not trigger a write.
+  it("does not call Intercom when the ticket is already in the target state", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
+      "IN_PROGRESS"
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // Simulated via a cast, same technique as intercom-sync.test.ts's matching
+  // test -- there is no legitimate TechRequestStatus this happens for today
+  // (mapStatusToIntercomTicketState is total over the real enum), but a
+  // future status added without an accompanying workspace state must be
+  // refused, not guessed at.
+  it("logs and writes nothing for a status with no mapped Intercom state", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "SOME_FUTURE_STATUS" as TechRequestStatus, intercomTicketId: "ticket_1" },
+      "SUBMITTED"
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when Intercom is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    await expect(
+      pushIntercomTicketState(
+        { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
+        "SUBMITTED"
+      )
     ).resolves.toBeUndefined();
   });
 });

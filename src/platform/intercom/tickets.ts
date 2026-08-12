@@ -90,3 +90,71 @@ export async function pushTicketNumber(ticketId: string, number: number): Promis
     clearTimeout(timeout);
   }
 }
+
+/**
+ * Writes a new state onto an Intercom Ticket (`PUT /tickets/{id}`, `state`).
+ *
+ * This is the outward half of Direction 3 (see
+ * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md): a Hub
+ * status change setting the Ticket's state so the member sees it in
+ * Intercom's own UI, natively, with no Hub-authored text crossing over. The
+ * inbound half reads a ticket's current state back out via the webhook's
+ * `ticket_state_internal_label` field (see intercom-sync.ts); this write
+ * targets that same state, taking the label directly rather than a separate
+ * numeric/opaque state id. Like pushTicketNumber above, this has not been
+ * verified against a live workspace -- confirming the write side of a custom
+ * ticket state accepts its label directly is the highest-value thing to
+ * check before this ships live.
+ *
+ * Deliberately generic: takes a plain string label, not a TechRequestStatus.
+ * Which label corresponds to which Hub status is a support-module concern
+ * (src/modules/support/services/intercom-sync.ts's mapStatusToIntercomTicketState),
+ * and src/platform must not import src/modules -- so the mapping happens one
+ * layer up, and this function only ever moves a string across the wire.
+ *
+ * Same fail-closed, never-throw posture and the same timeout budget as
+ * pushTicketNumber: unconfigured, network error, timeout, and non-2xx all
+ * resolve to `false` and are logged, never thrown -- a Hub status change must
+ * commit even when Intercom is unreachable.
+ */
+export async function pushTicketState(ticketId: string, stateLabel: string): Promise<boolean> {
+  const token = intercomAccessToken();
+  if (!token) return false;
+
+  const endpoint = "tickets/:id";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_TICKET_WRITE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${INTERCOM_API}/tickets/${encodeURIComponent(ticketId)}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "Intercom-Version": INTERCOM_API_VERSION,
+      },
+      body: JSON.stringify({ state: stateLabel }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      log.warn("[intercom] ticket state write-back failed", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        status: res.status,
+      });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    // Catches a network failure and an abort (the timeout above) alike -- see
+    // the matching comment in identity.ts.
+    log.warn(
+      "[intercom] ticket state write-back failed",
+      errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
+    );
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

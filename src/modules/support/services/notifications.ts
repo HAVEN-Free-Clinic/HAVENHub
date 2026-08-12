@@ -7,11 +7,21 @@
  * support.manage_requests (skipping the requester so a manager who files
  * their own ticket is not double-notified).
  *
- * notifyIntercomStatusChange is the outbound half of the Intercom sync (see
- * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md, Direction
- * 2): for a ticket linked to a conversation, a status change is told to the
- * member there instead of by email. manage.ts calls this in place of notify()
- * when a ticket has an intercomConversationId.
+ * notifyIntercomStatusChange is the Hub-origin outbound half of Direction 2
+ * (see docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md):
+ * for a ticket linked to a conversation, a status change is told to the
+ * member there instead of by email, as a staff-only note. manage.ts calls
+ * this in place of notify() when a ticket has an intercomConversationId.
+ *
+ * pushIntercomTicketState is the Hub-origin outbound half of Direction 3: it
+ * sets the linked Intercom TICKET's own state (a different object from the
+ * conversation notifyIntercomStatusChange posts into), which Intercom shows
+ * to the member natively. manage.ts calls this unconditionally alongside the
+ * note above whenever a linked ticket's status changes. See its own doc
+ * comment for the loop-suppression argument -- intercom-sync.ts's
+ * applyIntercomTicketStateChange (the Intercom-origin half) never calls this
+ * function, and that module split is what makes the loop structurally
+ * impossible rather than merely guarded against.
  */
 
 import type { Prisma, PrismaClient, TechRequest, TechRequestComment, TechRequestStatus, Person } from "@prisma/client";
@@ -20,10 +30,12 @@ import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { postConversationNote } from "@/platform/intercom/conversations";
+import { pushTicketState } from "@/platform/intercom/tickets";
 import { log } from "@/platform/logging";
 import { MANAGE } from "./tech-request";
 import { CATEGORY_LABELS } from "../labels";
 import { STATUS_LABELS } from "../components/status-badge";
+import { mapStatusToIntercomTicketState } from "./intercom-sync";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -124,6 +136,77 @@ export async function notifyIntercomStatusChange(
   const posted = await postConversationNote(req.intercomConversationId, message);
   if (!posted) {
     log.warn("[support] failed to post status update to Intercom conversation", {
+      ticketId: req.id,
+      ticketNumber: req.number,
+      status: req.status,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync (Direction 3, Hub-origin half)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pushes a Hub status change onto the linked Intercom Ticket's own state, so
+ * the member sees it in Intercom's UI natively -- see
+ * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+ * Direction 3. This is a DIFFERENT write from notifyIntercomStatusChange
+ * above: that one posts a staff-only note into the linked conversation; this
+ * one sets the linked Ticket's actual state, and no Hub-authored text
+ * crosses over at all.
+ *
+ * Deliberately lives here, in the Hub-origin outbound module, and not in
+ * intercom-sync.ts (the Intercom-origin inbound module that owns
+ * applyIntercomTicketStateChange). That module split IS the loop
+ * suppression: applyIntercomTicketStateChange never imports or calls this
+ * function, so an Intercom-driven status change can never trigger a push
+ * back to Intercom no matter what this function does internally -- the "did
+ * this change come from Intercom or the Hub" question is answered by which
+ * module's code is running, not by an inspectable flag on the row. manage.ts
+ * (setStatus, resolveRequest, cancelRequest, cancelOwnRequest) is this
+ * function's only call site, and every call there genuinely originates in
+ * the Hub (a manager action, a requester's own cancel, or a Hub workflow
+ * like the YNHH gate).
+ *
+ * No-op guard: skipped when previousStatus already equals req.status --
+ * necessary but not sufficient for loop suppression on its own (two changes
+ * racing in opposite directions could still ping-pong before converging),
+ * which is why the structural separation above is the primary defence, not
+ * this check.
+ *
+ * A TechRequestStatus with no mapped Intercom state
+ * (mapStatusToIntercomTicketState returns null) is logged and the ticket is
+ * left alone -- guessing the nearest-looking state is how a ticket ends up
+ * wrong in front of the member, and there is nothing time-sensitive enough
+ * here to justify the risk: the Hub row itself already carries the correct
+ * status regardless.
+ *
+ * Never throws: an unreachable Intercom, a non-2xx response, and a timeout
+ * all resolve through pushTicketState's own fail-closed `false`, logged
+ * there; this wrapper only adds which Hub ticket the failure was for, same
+ * shape as notifyIntercomStatusChange above.
+ */
+export async function pushIntercomTicketState(
+  req: Pick<TechRequest, "id" | "number" | "status" | "intercomTicketId">,
+  previousStatus: TechRequestStatus
+): Promise<void> {
+  if (!req.intercomTicketId) return;
+  if (req.status === previousStatus) return;
+
+  const state = mapStatusToIntercomTicketState(req.status);
+  if (!state) {
+    log.warn("[support] TechRequestStatus has no mapped Intercom ticket state; leaving the linked ticket alone", {
+      ticketId: req.id,
+      ticketNumber: req.number,
+      status: req.status,
+    });
+    return;
+  }
+
+  const pushed = await pushTicketState(req.intercomTicketId, state);
+  if (!pushed) {
+    log.warn("[support] failed to push status to the linked Intercom ticket", {
       ticketId: req.id,
       ticketNumber: req.number,
       status: req.status,

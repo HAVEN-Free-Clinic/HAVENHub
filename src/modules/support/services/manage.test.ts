@@ -54,6 +54,19 @@ async function linkToConversation(id: string, conversationId: string) {
   return prisma.techRequest.update({ where: { id }, data: { intercomConversationId: conversationId } });
 }
 
+/**
+ * Links both Intercom ids, matching how a real Ticket is created (same value
+ * for both -- see the design doc's Direction 1 note). Only tests that
+ * exercise the Direction 3 outward Ticket-state push need this; the plain
+ * linkToConversation above is enough for Direction 2's note-only tests.
+ */
+async function linkToTicket(id: string, ticketId: string) {
+  return prisma.techRequest.update({
+    where: { id },
+    data: { intercomConversationId: ticketId, intercomTicketId: ticketId },
+  });
+}
+
 beforeEach(resetDb);
 
 describe("assignRequest", () => {
@@ -519,5 +532,135 @@ describe("outbound Intercom sync", () => {
     const raw = init.body as string;
     expect(raw).not.toContain("INTERNAL-ONLY");
     expect(raw).not.toContain("escalation contact");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync (Direction 3, Hub-origin half): every
+// status-changing action here pushes the new status onto the linked
+// Intercom TICKET's own state (a different object from the conversation the
+// "outbound Intercom sync" tests above post a note into). See
+// docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+// Direction 3, and notifications.ts's pushIntercomTicketState.
+// ---------------------------------------------------------------------------
+
+describe("outbound Intercom ticket-state sync", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function ticketStateCalls(): [string, RequestInit][] {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    return (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) => url.includes("/tickets/"));
+  }
+
+  it("setStatus pushes the mapped state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const [url, init] = calls[0];
+    expect(url).toContain("ticket_1");
+    const body = JSON.parse(init.body as string) as { state: string };
+    expect(body.state).toBe("In progress");
+  });
+
+  it("resolveRequest pushes the RESOLVED state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0][1].body as string) as { state: string };
+    expect(body.state).toBe("Resolved");
+  });
+
+  it("cancelRequest pushes the CANCELLED state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await cancelRequest(mgr.id, req.id, "Duplicate ticket.");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0][1].body as string) as { state: string };
+    expect(body.state).toBe("Cancelled");
+  });
+
+  it("writes nothing to /tickets/ for a ticket with no intercomTicketId, even when linked to a conversation", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("writes nothing for a TechRequest with no Intercom link at all", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("writes nothing on a no-op (same-status) call, since manage.ts never even reaches the push for a no-op", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    // Fresh tickets start SUBMITTED; re-setting SUBMITTED is not a transition.
+    await setStatus(mgr.id, req.id, "SUBMITTED");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("commits the status change even when the Intercom ticket-state push fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    const updated = await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(updated.status).toBe("IN_PROGRESS");
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("IN_PROGRESS");
   });
 });

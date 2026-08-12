@@ -1,31 +1,40 @@
 /**
  * Direction 3 of the Intercom <-> TechRequest sync (see
- * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md): applying
- * an Intercom-driven ticket state change to the linked TechRequest.status.
- * The inbound half of the webhook receiver (src/app/api/support/tickets/events)
- * calls applyIntercomTicketStateChange below; the HTTP plumbing (signature
- * verification, envelope parsing, topic dispatch) lives in the route so this
- * module stays independently testable against a real database.
+ * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md): keeping
+ * TechRequest.status and an Intercom Ticket's state in sync, in both
+ * directions.
  *
- * Loop suppression, which is the reason this is its own module rather than a
- * branch inside manage.ts's setStatus: origin is carried by which function
- * performs a write, not by a persisted flag. manage.ts's setStatus and
- * resolveRequest are the Hub-origin half -- they call notifyIntercomStatusChange
- * unconditionally on every status change for a linked ticket, which is
- * correct, because every call to setStatus/resolveRequest genuinely
- * originates in the Hub (a manager action or a Hub workflow like the YNHH
- * gate). applyIntercomTicketStateChange below is the Intercom-origin half,
- * and it deliberately never calls notifyIntercomStatusChange: doing so would
- * post a note into Intercom's own conversation re-announcing a change
- * Intercom itself just made, which is the naive loop the design warns about.
- * Because these are two separate functions with two separate call sites
- * (a webhook route with no Person actor vs. an RBAC-gated manager action),
- * the "did this change come from Intercom or the Hub" question never has to
- * be answered by inspecting the row -- it is answered by which of these two
- * functions is running. See the webhook report for the fuller argument,
- * including why today's actual write surface (postConversationNote posts a
- * note, not a Ticket state mutation) cannot itself retrigger a
- * ticket.state.updated webhook.
+ * This module owns the INBOUND half: applying an Intercom-driven ticket
+ * state change to the linked TechRequest.status
+ * (applyIntercomTicketStateChange), and both mapping tables the two
+ * directions share (mapIntercomTicketStateToStatus for inbound,
+ * mapStatusToIntercomTicketState for outbound). The webhook receiver
+ * (src/app/api/support/tickets/events) calls applyIntercomTicketStateChange;
+ * the HTTP plumbing (signature verification, envelope parsing, topic
+ * dispatch) lives in the route so this module stays independently testable
+ * against a real database.
+ *
+ * The OUTBOUND half -- a Hub status change pushing a new state onto the
+ * linked Ticket -- lives in notifications.ts's pushIntercomTicketState, not
+ * here. That is a deliberate module split, and it is the loop suppression:
+ * origin is carried by which function performs a write, not by a persisted
+ * flag. manage.ts's setStatus and resolveRequest are the Hub-origin call
+ * sites -- they call notifyIntercomStatusChange (an internal note) and
+ * pushIntercomTicketState (the Ticket's actual state) unconditionally on
+ * every status change for a linked ticket, which is correct, because every
+ * call to setStatus/resolveRequest genuinely originates in the Hub (a
+ * manager action or a Hub workflow like the YNHH gate).
+ * applyIntercomTicketStateChange below is the Intercom-origin half, and it
+ * deliberately never calls notifyIntercomStatusChange or
+ * pushIntercomTicketState -- doing either would talk back to Intercom about
+ * a change Intercom itself just made, which is the naive loop the design
+ * warns about. Because these are two separate functions with two separate
+ * call sites (a webhook route with no Person actor vs. an RBAC-gated manager
+ * action) living in two separate modules that do not import each other's
+ * write path, the "did this change come from Intercom or the Hub" question
+ * never has to be answered by inspecting the row -- it is answered by which
+ * module's code is running, and a future edit cannot wire the two together
+ * "for completeness" without an import this module does not have.
  */
 
 import type { TechRequest, TechRequestCategory, TechRequestStatus } from "@prisma/client";
@@ -73,6 +82,50 @@ const INTERNAL_LABEL_TO_STATUS: Record<string, TechRequestStatus> = Object.fromE
  */
 export function mapIntercomTicketStateToStatus(internalLabel: string): TechRequestStatus | null {
   return INTERNAL_LABEL_TO_STATUS[internalLabel.trim().toLowerCase()] ?? null;
+}
+
+/**
+ * Outbound mirror of INTERNAL_LABEL_TO_STATUS above: which Intercom ticket
+ * state label to push when a TechRequestStatus changes in the Hub (Direction
+ * 3's Hub-origin half -- see notifications.ts's pushIntercomTicketState, the
+ * function that performs the actual write).
+ *
+ * Built from the same Object.entries(STATUS_LABELS) call that produces
+ * INTERNAL_LABEL_TO_STATUS, rather than a second hand-written label table:
+ * two independently maintained copies of "which label goes with which
+ * status" would drift, and the drift would be silent -- exactly the failure
+ * this module's inbound mapping exists to avoid in the other direction.
+ *
+ * Kept case-preserving (STATUS_LABELS' own casing), unlike
+ * INTERNAL_LABEL_TO_STATUS's lowercased keys -- those exist only to make
+ * INBOUND matching forgiving of a case difference in Intercom's UI. This is
+ * what gets WRITTEN back to Intercom, and the workspace's custom states were
+ * created to match STATUS_LABELS' exact strings (see the design doc's
+ * "Direction 3 / State mapping").
+ *
+ * Typed Partial, not Record, even though it is total today for every
+ * TechRequestStatus (STATUS_LABELS is itself a total Record) -- a status
+ * added to the schema without an accompanying workspace state is exactly the
+ * drift mapStatusToIntercomTicketState below must refuse to guess at, and a
+ * Partial type is what keeps that refusal a real, reachable branch rather
+ * than dead code the compiler could prove impossible.
+ */
+const STATUS_TO_INTERNAL_LABEL: Partial<Record<TechRequestStatus, string>> = Object.fromEntries(
+  (Object.entries(STATUS_LABELS) as [TechRequestStatus, string][]).map(([status, label]) => [status, label])
+);
+
+/**
+ * Maps a TechRequestStatus to the Intercom ticket state label to push when it
+ * changes in the Hub, or null when there is no mapped state.
+ *
+ * Explicit and total over every status STATUS_LABELS knows today, and
+ * refuses -- never guesses -- anything else: the outbound mirror of
+ * mapIntercomTicketStateToStatus above. The caller (pushIntercomTicketState
+ * in notifications.ts) logs and leaves the Intercom ticket untouched rather
+ * than pushing a nearest-looking state.
+ */
+export function mapStatusToIntercomTicketState(status: TechRequestStatus): string | null {
+  return STATUS_TO_INTERNAL_LABEL[status] ?? null;
 }
 
 // ---------------------------------------------------------------------------

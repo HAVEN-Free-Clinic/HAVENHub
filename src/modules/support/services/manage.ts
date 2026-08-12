@@ -25,13 +25,27 @@
  * recipient); setPriority and the two cancel paths are quiet administrative
  * actions with no notification, matching cancelRequest in epic.ts.
  *
- * Outbound Intercom sync (see docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
- * Direction 2): when setStatus or resolveRequest changes the status of a
+ * Outbound Intercom sync (see docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md):
+ *
+ * Direction 2: when setStatus or resolveRequest changes the status of a
  * ticket with an intercomConversationId, the requester-facing notify() call
  * is replaced with a post into that conversation instead -- the member hears
  * about the change where they are, rather than by email. cancelRequest and
- * cancelOwnRequest are unaffected: they never notified the requester at all,
- * and this sync only replaces an existing notification, it does not add one.
+ * cancelOwnRequest are unaffected by Direction 2: they never notified the
+ * requester at all, and that sync only replaces an existing notification, it
+ * does not add one.
+ *
+ * Direction 3 (Hub-origin half): every status-changing action here --
+ * setStatus, resolveRequest, cancelRequest, and cancelOwnRequest alike --
+ * also pushes the new status onto the linked Intercom TICKET's own state via
+ * notifications.ts's pushIntercomTicketState, whenever the ticket has an
+ * intercomTicketId. Unlike Direction 2, this is not scoped to "replaces an
+ * existing notification": it keeps Intercom's Ticket object (a different
+ * thing from the conversation Direction 2 posts into) honest about the
+ * Hub's status regardless of which action changed it, because Intercom's
+ * ticket state is what the member actually sees. pushIntercomTicketState is
+ * a no-op for a ticket with no intercomTicketId, so it is safe to call
+ * unconditionally.
  */
 
 import type { TechRequest, TechRequestStatus, TechRequestPriority } from "@prisma/client";
@@ -43,7 +57,7 @@ import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 import { STATUS_LABELS } from "../components/status-badge";
-import { notifyIntercomStatusChange } from "./notifications";
+import { notifyIntercomStatusChange, pushIntercomTicketState } from "./notifications";
 
 /** RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status transition, priority change, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button and the manager control panel. */
 export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
@@ -222,6 +236,14 @@ export async function setStatus(
         });
       }
     }
+
+    // Direction 3 (Hub-origin half): keep the linked Intercom Ticket's own
+    // state honest regardless of which branch above fired -- a no-op when
+    // the ticket has no intercomTicketId. Separate from the branch above
+    // because it targets a different Intercom object (the Ticket, not the
+    // conversation) and is not scoped to "replaces an existing
+    // notification" the way Direction 2 is.
+    await pushIntercomTicketState(updated, before.status);
   }
 
   return updated;
@@ -345,6 +367,9 @@ export async function resolveRequest(
     }
   }
 
+  // Direction 3 (Hub-origin half): see setStatus's matching comment.
+  await pushIntercomTicketState(updated, before.status);
+
   return updated;
 }
 
@@ -394,6 +419,12 @@ export async function cancelRequest(
     after: { status: "CANCELLED", reason: trimmed },
   });
 
+  // Direction 3 (Hub-origin half): see setStatus's matching comment. Unlike
+  // Direction 2's note, this is not scoped to "replaces an existing
+  // notification" -- a cancelled Hub ticket should read Cancelled in
+  // Intercom too, even though cancelRequest sends no requester notification.
+  await pushIntercomTicketState(updated, before.status);
+
   return updated;
 }
 
@@ -433,6 +464,9 @@ export async function cancelOwnRequest(actorPersonId: string, id: string): Promi
     before: { status: before.status },
     after: { status: "CANCELLED" },
   });
+
+  // Direction 3 (Hub-origin half): see cancelRequest's matching comment.
+  await pushIntercomTicketState(updated, before.status);
 
   return updated;
 }

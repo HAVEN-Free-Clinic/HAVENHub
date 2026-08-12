@@ -8,8 +8,16 @@
  *     mapping miss falls back to OTHER (see intercom-sync.ts's doc comment
  *     for why the two differ).
  *
- * mapStatusToIntercomTicketState: the outbound mirror, used by
+ * mapStatusToIntercomTicketState: the outbound direction, used by
  * notifications.ts's pushIntercomTicketState (tested in notifications.test.ts).
+ *
+ * The two directions are NOT mirrors and the tests below are written around
+ * that. The Hub's status vocabulary and the workspace's state vocabulary differ
+ * on purpose (ops writes the member-facing copy), and RESOLVED/CLOSED both map
+ * outbound to "Resolved" because ops treats them as one outcome. So the useful
+ * invariant is not "every status round-trips to itself" -- CLOSED cannot -- but
+ * "every label the Hub can push is a label the Hub can read back", which is what
+ * keeps a typo in either table from becoming silent one-way drift.
  *
  * applyIntercomTicketStateChange(intercomTicketId, internalLabel):
  *   - Unmapped state: refused and audited, ticket status unchanged.
@@ -57,20 +65,50 @@ async function createLinkedTicket(personId: string, ticketId: string) {
 beforeEach(resetDb);
 
 describe("mapIntercomTicketStateToStatus", () => {
-  it("maps a known internal label to its TechRequestStatus", () => {
+  // The exact internal labels the live workspace carries (GET /ticket_states,
+  // 2026-08-12). These are ops' strings, not the Hub's -- "Waiting on YNHH ITS"
+  // rather than the Hub's own "Awaiting YNHH" label -- which is the whole reason
+  // the two tables are written out separately instead of derived from each other.
+  it("maps each of the workspace's internal labels to its TechRequestStatus", () => {
+    expect(mapIntercomTicketStateToStatus("Submitted")).toBe("SUBMITTED");
     expect(mapIntercomTicketStateToStatus("In progress")).toBe("IN_PROGRESS");
-    expect(mapIntercomTicketStateToStatus("Awaiting YNHH")).toBe("AWAITING_YNHH");
+    expect(mapIntercomTicketStateToStatus("Awaiting user")).toBe("AWAITING_REQUESTER");
+    expect(mapIntercomTicketStateToStatus("Waiting on YNHH ITS")).toBe("AWAITING_YNHH");
     expect(mapIntercomTicketStateToStatus("Resolved")).toBe("RESOLVED");
+    expect(mapIntercomTicketStateToStatus("Cancelled")).toBe("CANCELLED");
+  });
+
+  // "Won't fix" is a real workspace state with no outbound counterpart. An agent
+  // can pick it, so refusing it would mean the Hub silently ignoring a terminal
+  // decision -- it lands on CLOSED, the Hub's quiet terminal status.
+  it("maps Won't fix to CLOSED, even though nothing ever pushes that label", () => {
+    expect(mapIntercomTicketStateToStatus("Won't fix")).toBe("CLOSED");
+  });
+
+  // That label is editable in Intercom's UI, and an editor that auto-substitutes
+  // quotes turns U+0027 into U+2019 -- indistinguishable in a log line, and a
+  // total lookup miss without this folding.
+  it("folds a typographic apostrophe, so a smart-quoted Won't fix still maps", () => {
+    expect(mapIntercomTicketStateToStatus("Won’t fix")).toBe("CLOSED");
   });
 
   it("is case-insensitive", () => {
     expect(mapIntercomTicketStateToStatus("in progress")).toBe("IN_PROGRESS");
     expect(mapIntercomTicketStateToStatus("RESOLVED")).toBe("RESOLVED");
-    expect(mapIntercomTicketStateToStatus("awaiting ynhh")).toBe("AWAITING_YNHH");
+    expect(mapIntercomTicketStateToStatus("waiting on ynhh its")).toBe("AWAITING_YNHH");
   });
 
   it("returns null for an unrecognized label rather than guessing", () => {
     expect(mapIntercomTicketStateToStatus("Some New State Nobody Mapped")).toBeNull();
+  });
+
+  // The Hub's OWN status labels are not Intercom's, and feeding one in must miss
+  // rather than quietly work. If this ever starts passing, someone has renamed a
+  // workspace state to match the Hub and the tables above need re-checking
+  // against the live workspace, not just against each other.
+  it("does not accept the Hub's own status label for a state ops named differently", () => {
+    expect(mapIntercomTicketStateToStatus("Awaiting YNHH")).toBeNull();
+    expect(mapIntercomTicketStateToStatus("Awaiting requester")).toBeNull();
   });
 });
 
@@ -93,29 +131,57 @@ describe("mapIntercomTicketTypeToCategory", () => {
   });
 });
 
+const ALL_STATUSES: TechRequestStatus[] = [
+  "SUBMITTED",
+  "IN_PROGRESS",
+  "AWAITING_REQUESTER",
+  "AWAITING_YNHH",
+  "RESOLVED",
+  "CLOSED",
+  "CANCELLED",
+];
+
 describe("mapStatusToIntercomTicketState", () => {
   it("maps a known TechRequestStatus to its Intercom state label, exact-case", () => {
     expect(mapStatusToIntercomTicketState("SUBMITTED")).toBe("Submitted");
     expect(mapStatusToIntercomTicketState("IN_PROGRESS")).toBe("In progress");
-    expect(mapStatusToIntercomTicketState("AWAITING_YNHH")).toBe("Awaiting YNHH");
+    expect(mapStatusToIntercomTicketState("AWAITING_REQUESTER")).toBe("Awaiting user");
+    expect(mapStatusToIntercomTicketState("AWAITING_YNHH")).toBe("Waiting on YNHH ITS");
+    expect(mapStatusToIntercomTicketState("RESOLVED")).toBe("Resolved");
+    expect(mapStatusToIntercomTicketState("CANCELLED")).toBe("Cancelled");
+  });
+
+  // Ops treats closed and resolved as one outcome and did not want a second
+  // terminal state in the member's view, so the mapping is deliberately
+  // many-to-one. Asserted explicitly because it is the one place the two
+  // directions cannot be mirrors, and a future reader "fixing" it by adding a
+  // Closed state would be undoing a decision rather than repairing a bug.
+  it("maps CLOSED onto the same Resolved state as RESOLVED", () => {
+    expect(mapStatusToIntercomTicketState("CLOSED")).toBe("Resolved");
     expect(mapStatusToIntercomTicketState("RESOLVED")).toBe("Resolved");
   });
 
-  it("round-trips with the inbound mapping for every known status", () => {
-    const statuses: TechRequestStatus[] = [
-      "SUBMITTED",
-      "IN_PROGRESS",
-      "AWAITING_REQUESTER",
-      "AWAITING_YNHH",
-      "RESOLVED",
-      "CLOSED",
-      "CANCELLED",
-    ];
-    for (const status of statuses) {
+  // The real invariant, replacing a round-trip test that could not survive the
+  // many-to-one mapping: anything the Hub can push must be something the Hub can
+  // read back. A typo in either table breaks this, and would otherwise only show
+  // up as one-way silent drift against the live workspace.
+  it("only ever emits labels the inbound table recognizes", () => {
+    for (const status of ALL_STATUSES) {
       const label = mapStatusToIntercomTicketState(status);
       expect(label).not.toBeNull();
+      expect(mapIntercomTicketStateToStatus(label as string)).not.toBeNull();
+    }
+  });
+
+  // Round-tripping holds for every status EXCEPT the collapsed pair, where
+  // "Resolved" comes back as RESOLVED by deliberate choice (it is the status the
+  // Hub's own resolve path sets).
+  it("round-trips every status except CLOSED, which returns as RESOLVED", () => {
+    for (const status of ALL_STATUSES.filter((s) => s !== "CLOSED")) {
+      const label = mapStatusToIntercomTicketState(status);
       expect(mapIntercomTicketStateToStatus(label as string)).toBe(status);
     }
+    expect(mapIntercomTicketStateToStatus(mapStatusToIntercomTicketState("CLOSED") as string)).toBe("RESOLVED");
   });
 
   // A status added to the TechRequestStatus enum without an accompanying
@@ -219,11 +285,11 @@ describe("applyIntercomTicketStateChange", () => {
       const person = await createPerson("Alice");
       await createLinkedTicket(person.id, "ticket_1");
 
-      // "Awaiting YNHH" is a real transition (SUBMITTED -> AWAITING_YNHH),
+      // "Waiting on YNHH ITS" is a real transition (SUBMITTED -> AWAITING_YNHH),
       // not a no-op, and it is a status with a mapped outbound Intercom
       // state too -- if pushIntercomTicketState were ever wired into this
       // path, this specific transition would have something to push.
-      const result = await applyIntercomTicketStateChange("ticket_1", "Awaiting YNHH");
+      const result = await applyIntercomTicketStateChange("ticket_1", "Waiting on YNHH ITS");
 
       expect(result.ok).toBe(true);
       expect(result.ok && result.changed).toBe(true);

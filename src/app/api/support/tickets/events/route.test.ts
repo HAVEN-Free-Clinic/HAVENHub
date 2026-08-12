@@ -366,7 +366,7 @@ describe("POST /api/support/tickets/events", () => {
       (fetch as unknown as ReturnType<typeof vi.fn>).mockClear();
 
       const { POST } = await import("./route");
-      await POST(signedReq(ticketStateUpdatedPayload("ticket_4", "Awaiting YNHH")));
+      await POST(signedReq(ticketStateUpdatedPayload("ticket_4", "Waiting on YNHH ITS")));
 
       expect(fetch).not.toHaveBeenCalled();
     });

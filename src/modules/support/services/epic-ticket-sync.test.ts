@@ -118,7 +118,9 @@ describe("onEpicSubmitted", () => {
     );
     expect(ticketStateCalls).toHaveLength(1);
     const body = JSON.parse(ticketStateCalls[0][1].body as string) as { state: string };
-    expect(body.state).toBe("Awaiting YNHH");
+    // Ops' workspace label, not the Hub's own "Awaiting YNHH" status label --
+    // see intercom-sync.ts on why the two vocabularies are kept separate.
+    expect(body.state).toBe("Waiting on YNHH ITS");
   });
 
   it("posts a note naming the Epic request and the YNHH ticket into the linked conversation", async () => {

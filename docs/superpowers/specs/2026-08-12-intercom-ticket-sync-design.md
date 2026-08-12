@@ -163,9 +163,24 @@ endpoint.
 
 ### State mapping
 
-Intercom's ticket states are configurable, which is what allows a 1:1 mapping instead of a lossy
-one. Every `TechRequestStatus` needs a corresponding state in the workspace; "Waiting on YNHH" was
-created for exactly this and stops being a nicety here.
+Intercom's ticket states are configurable, so every `TechRequestStatus` can reach a state in the
+workspace; "Waiting on YNHH ITS" was created for exactly this and stops being a nicety here.
+
+**Revised after building against the live workspace.** The original text here assumed a 1:1 mapping
+derived from the Hub's own `STATUS_LABELS`. Two things turned out to be false:
+
+- **The vocabularies differ on purpose.** `STATUS_LABELS` is Hub UI text written for managers; the
+  workspace's state labels are copy ops wrote for members, and read better ("Waiting on YNHH
+  Collaboration" to a member, versus the Hub's "Awaiting YNHH"). Deriving one from the other forced
+  them to be identical, so labels that differed failed to map in both directions, silently.
+- **The mapping is not 1:1.** Ops treats closed and resolved as one outcome and did not want a
+  second terminal state in the member's view, so `RESOLVED` and `CLOSED` both map outbound to
+  `Resolved`. `Resolved` maps back to `RESOLVED` (what the Hub's own resolve path sets).
+  `Won't fix` exists in the workspace with no outbound counterpart and maps inbound to `CLOSED`.
+
+So the two directions are **explicit tables, not mirrors** (`intercom-sync.ts`). The invariant worth
+testing is not "every status round-trips" -- `CLOSED` cannot -- but "every label the Hub can push is
+one the Hub can read back".
 
 A state arriving with no mapping must be **rejected and logged, not guessed**. Silently coercing an
 unknown state into the nearest-looking status is how a ticket ends up Resolved because somebody

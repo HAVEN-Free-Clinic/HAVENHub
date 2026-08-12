@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cx } from "@/platform/ui/cx";
 import { modalSizeClass, type ModalSize } from "@/platform/ui/modal-size";
+import { useFocusTrap } from "@/platform/ui/use-focus-trap";
 
 type ModalProps = {
   open: boolean;
@@ -41,42 +42,11 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Move focus into the dialog on open.
-    panelRef.current?.focus();
-
+    // Focus moves into the panel via useFocusTrap, which also owns Tab.
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      // Minimal focus trap: keep Tab within the panel.
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, iframe, [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusables || focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      // Focus escaped the panel: the browser blurs to <body> whenever the focused
-      // control is removed or becomes disabled -- which every in-flight action button
-      // in every modal does while its transition runs. Without this, Tab from <body>
-      // walks into the scroll-locked page behind the scrim (Skip-to-content, the roster
-      // behind a Speed score/route or Certificate viewer). Pull it straight back in
-      // before the browser default runs (#79).
-      if (!active || !panelRef.current?.contains(active)) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-        return;
-      }
-      if (e.shiftKey && (active === first || active === panelRef.current)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCloseRef.current();
     }
 
     document.addEventListener("keydown", onKeyDown, true);
@@ -86,6 +56,13 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
       previouslyFocused.current?.focus();
     };
   }, [open]);
+
+  // Must run after the effect above: React fires effects in declaration order,
+  // and this hook moves focus into the panel. If it ran first, the effect
+  // above would capture the panel itself (tabIndex={-1} makes it focusable)
+  // as previouslyFocused instead of the element that opened the dialog, and
+  // focus restore on close would silently do nothing.
+  useFocusTrap(panelRef, open);
 
   if (!open) return null;
 

@@ -122,4 +122,43 @@ describe("BlockerGate", () => {
     const link = document.querySelector('a[href^="mailto:"]');
     expect(link?.getAttribute("href")).toBe("mailto:help@example.org");
   });
+
+  it("probes exactly once per page load, even when visibilitychange fires again after it settles", async () => {
+    await mount();
+    // The initial mount effect has already run the probe once.
+    expect(probeCalls.count).toBe(1);
+
+    // A second visibilitychange after the probe has settled must be a no-op:
+    // this is the settled.current guard in blocker-gate.tsx, and the whole
+    // point of this test is to catch a regression that deletes it.
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(probeCalls.count).toBe(1);
+  });
+
+  it("defers the probe while the tab is hidden, then runs it exactly once after it becomes visible", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      await mount();
+      expect(probeCalls.count).toBe(0);
+
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      expect(probeCalls.count).toBe(1);
+    } finally {
+      // Fall back to jsdom's own prototype getter, which reports "visible".
+      delete (document as unknown as { visibilityState?: string }).visibilityState;
+    }
+  });
 });

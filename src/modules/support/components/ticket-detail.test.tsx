@@ -226,6 +226,40 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
     expect(html).not.toContain(">Cancel<");
   });
 
+  /**
+   * The Epic to YNHH to ITCM workflow never moved to Intercom, and every EPIC
+   * ticket now ARRIVES linked (created by the ticket.created webhook). So an
+   * attach form gated on being unlinked is one nobody can ever reach, and no
+   * EpicRequest could be raised at all. The page would still render fine --
+   * it would just have no way forward -- which is why this is asserted rather
+   * than left to the read-only rule's general shape.
+   */
+  it("keeps the Epic attach form on a linked EPIC ticket, since that workflow stays in the Hub", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+    const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123" });
+    const html = renderToStaticMarkup(
+      await TicketDetail({
+        detail,
+        canManage: true,
+        isRequester: false,
+        managers: [],
+        assignAction: noop,
+        setStatusAction: noop,
+        setPriorityAction: noop,
+        resolveAction: noop,
+        cancelAction: noop,
+        comments,
+        commentAction: noop,
+        attachEpicAction: noop,
+        cancelEpicAction: noop,
+        departments: [],
+      })
+    );
+
+    expect(html).toContain("epic-person-picker");
+  });
+
   it("keeps only the status control for a linked EPIC ticket", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");

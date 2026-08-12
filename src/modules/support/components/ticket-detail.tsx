@@ -172,7 +172,18 @@ export async function TicketDetail({
   // Every other manager mutation (assign, priority, resolve, cancel, close)
   // moves fully to Intercom for a linked ticket, no exceptions.
   const showManagerMutations = !isLinked;
-  const showEpicMutations = !isLinked;
+  // Epic mutations are NOT a link-conditional control, and this is not an
+  // exception to the read-only rule so much as the boundary of what that rule
+  // was ever about. Intercom took over the CONVERSATION; the Epic to YNHH to
+  // ITCM workflow never left the Hub, because Intercom cannot model it.
+  //
+  // Gating these on !isLinked strands the workflow completely now that Epic
+  // tickets originate in Intercom: every EPIC ticket arrives already linked
+  // via the ticket.created webhook, so an attach form hidden on linked
+  // tickets is an attach form nobody can ever reach, and no EpicRequest could
+  // be raised at all. The failure would be silent -- the page renders fine,
+  // it just has no way forward.
+  const showEpicMutations = detail.category === "EPIC";
   const showCommentForm = !isLinked;
   const showCancelOwn = !isLinked;
 

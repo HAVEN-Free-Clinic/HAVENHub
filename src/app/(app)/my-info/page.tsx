@@ -34,6 +34,10 @@ import {
 import { issueWalletPass } from "@/modules/passport/services/wallet-pass";
 import { isWalletEnabled } from "@/modules/passport/services/wallet-client";
 import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
+import { listMyStrikes } from "@/modules/incidents/services/disciplinary";
+import { StrikesPanel } from "./strikes-panel";
+import { languagesForPerson } from "@/platform/languages";
+import { LanguagesPanel } from "./languages-panel";
 import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
 import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
@@ -49,7 +53,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
   // Fetch all data in parallel where possible.
   // getMyInfo already loads the active term; reuse it to avoid a second query.
-  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl, maxMb] =
+  const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl, maxMb, myStrikes, myLanguages] =
     await Promise.all([
       getMyInfo(person.personId),
       listMyCertificates(person.personId),
@@ -59,6 +63,10 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       getCredential(person.personId),
       getSetting<string>("app.baseUrl"),
       getSetting<number>("uploads.maxMb"),
+      // Always the session's own person, never a client-supplied id, so this
+      // cannot be turned into a lookup of someone else's disciplinary record.
+      listMyStrikes(person.personId),
+      languagesForPerson(person.personId),
     ]);
   const { activeTerm } = myInfo;
 
@@ -314,6 +322,20 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             // coordinator-recorded items left, and /get-started just redirects home.
             finishHref={onboarding.onboarded ? undefined : "/get-started"}
           />
+        </section>
+
+        {/* Languages. Next to the other "what am I on record for" sections. */}
+        <section>
+          <SectionHeader className="mb-4">Languages</SectionHeader>
+          <LanguagesPanel languages={myLanguages} />
+        </section>
+
+        {/* Disciplinary record. Placed after Clearance because both answer
+            "where do I stand?", and before the outward-facing Calendar and
+            Service record sections. */}
+        <section>
+          <SectionHeader className="mb-4">Disciplinary record</SectionHeader>
+          <StrikesPanel strikes={myStrikes} />
         </section>
 
         {/* Calendar subscription */}

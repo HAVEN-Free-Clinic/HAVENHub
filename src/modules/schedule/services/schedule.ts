@@ -16,10 +16,12 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
-import { resolveAvailability } from "../engine/availability";
+import { resolveAvailability, isAvailabilityLocked } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { formatForDateInput } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { displayTodayKey } from "@/platform/dates/today";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
 import { attendanceForDate, type AttendanceRow } from "./attendance";
@@ -52,14 +54,27 @@ export type MyShift = {
 
 export type PersonLite = { id: string; name: string };
 
+/** Per-assignment shift flags. Set on EVERY role, not just volunteers: a
+ *  director can hold the triage post or work the day remotely just as a
+ *  volunteer can, and the full schedule is where the rest of the clinic looks
+ *  those up. */
+export type ShiftTags = { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+
+export type TaggedPerson = PersonLite & {
+  tags: ShiftTags;
+  /** Verified language codes, for the capability badges. Never self-reported. */
+  verifiedLanguages: string[];
+  licensedRN: boolean;
+};
+
 /** Department fields the full-schedule view needs (subset of Department). */
 export type DepartmentLite = { id: string; name: string; code: string };
 
 export type FullScheduleDepartment = {
   department: DepartmentLite;
-  directors: PersonLite[];
-  volunteers: Array<PersonLite & { tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } }>;
-  shadows: PersonLite[];
+  directors: TaggedPerson[];
+  volunteers: TaggedPerson[];
+  shadows: TaggedPerson[];
   /** Per-person same-day conflict map for the selected date. */
   conflicts: Map<string, string[]>;
 };
@@ -85,6 +100,10 @@ export type MyTermSchedule = {
    *  director-overridden, i.e. nothing they self-enter affects any department's
    *  scheduling. The editable form is withheld in that case. */
   allDepartmentsOverridden: boolean;
+  /** True once this term's clinics have started, after which availability is
+   *  read-only and changes go through swap/drop requests. See
+   *  isAvailabilityLocked. */
+  availabilityLocked: boolean;
   legacyNote: string | null;
   clinicDates: Date[];
   pendingRequests: Map<string, PendingRequest>;
@@ -203,7 +222,12 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     }
   }
 
-  return { term, isLive, shifts, availability, directorOverrides, allDepartmentsOverridden, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+  const availabilityLocked = isAvailabilityLocked({
+    clinicDateKeys: term.clinicDates.map(isoDateKey),
+    todayKey: await displayTodayKey(),
+  });
+
+  return { term, isLive, shifts, availability, directorOverrides, allDepartmentsOverridden, availabilityLocked, legacyNote, clinicDates: term.clinicDates, pendingRequests };
 }
 
 /**
@@ -302,7 +326,7 @@ export async function fullSchedule(
         walkin: true,
         cc: true,
         remote: true,
-        person: { select: { id: true, name: true } },
+        person: { select: { id: true, name: true, licensedRN: true } },
         department: { select: { id: true, name: true, code: true } },
       },
     }),
@@ -336,8 +360,6 @@ export async function fullSchedule(
   const allEntries = toScheduleEntries(engineRows);
 
   // Group assignments on the selected date by departmentId, then by role.
-  type TaggedPerson = PersonLite & { tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean } };
-
   const selectedAssignments = allAssignments.filter(
     (a) => isoDateKey(a.clinicDate) === selectedKey
   );
@@ -351,23 +373,37 @@ export async function fullSchedule(
 
   // Map departmentId -> lists of people by role.
   const byDept = new Map<string, {
-    directors: PersonLite[];
+    directors: TaggedPerson[];
     volunteers: TaggedPerson[];
-    shadows: PersonLite[];
+    shadows: TaggedPerson[];
   }>();
 
   for (const dept of scheduledDepartments) {
     byDept.set(dept.id, { directors: [], volunteers: [], shadows: [] });
   }
 
+  // Verified language capabilities for everyone on the selected date, in one
+  // query. This is what lets a volunteer on shift see who can interpret for a
+  // patient without asking around. Verified only: a self-reported claim is not
+  // a capability anyone should be relied on for at the point of care.
+  const scheduleLanguages = await verifiedLanguagesByPerson([
+    ...new Set(selectedAssignments.map((a) => a.personId)),
+  ]);
+
   for (const a of selectedAssignments) {
     const bucket = byDept.get(a.departmentId);
     if (!bucket) continue;
-    const person: PersonLite = { id: a.person.id, name: a.person.name };
+    const person: TaggedPerson = {
+      id: a.person.id,
+      name: a.person.name,
+      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
+      licensedRN: a.person.licensedRN,
+    };
     if (a.role === "DIRECTOR") {
       bucket.directors.push(person);
     } else if (a.role === "VOLUNTEER") {
-      bucket.volunteers.push({ ...person, tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote } });
+      bucket.volunteers.push(person);
     } else {
       bucket.shadows.push(person);
     }
@@ -386,7 +422,7 @@ export async function fullSchedule(
     const bucket = byDept.get(dept.id) ?? { directors: [], volunteers: [], shadows: [] };
 
     // Collect all person ids appearing in this department on the selected date.
-    const allPeopleOnDate: PersonLite[] = [
+    const allPeopleOnDate: TaggedPerson[] = [
       ...bucket.directors,
       ...bucket.volunteers,
       ...bucket.shadows,
@@ -469,6 +505,22 @@ export async function updateMyAvailability(
   // server-side backstop against a stale tab or crafted post.
   if (term.clinicDates.length === 0) {
     throw new AvailabilityValidationError("Clinic dates for this term have not been set yet.");
+  }
+
+  // Availability closes when the term's clinics start. After that the published
+  // schedule is live, so changes must go through the swap/drop request flow
+  // (director approval, partner notified) rather than a silent edit here. The
+  // page hides the form once locked; this is the server-side backstop against a
+  // stale tab or a crafted post.
+  if (
+    isAvailabilityLocked({
+      clinicDateKeys: term.clinicDates.map(isoDateKey),
+      todayKey: await displayTodayKey(now),
+    })
+  ) {
+    throw new AvailabilityValidationError(
+      "Availability is locked for this term because clinics have started. Submit a swap or drop request for the shift you need to change.",
+    );
   }
 
   // Build a map from day key -> canonical clinic date.

@@ -471,6 +471,36 @@ describe("fullSchedule", () => {
     expect(isoDateKey(result.selectedDate!)).toBe(key);
   });
 
+  // The language badges on /schedule/full are read at the point of care to
+  // decide who can interpret for a patient. A self-reported claim has not been
+  // assessed by the interpreting department, so surfacing it here would invite
+  // exactly the reliance the assessment exists to prevent. Only verified rows
+  // may appear; an assessed-and-declined row must not resurface either.
+  it("exposes verified languages only, never self-reported or declined ones", async () => {
+    const dates = saturdays("2026-05-30", 2);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Dana");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    await prisma.personLanguage.createMany({
+      data: [
+        // Verified: belongs on the schedule.
+        { personId: person.id, language: "ht", selfReported: true, verified: true, verifiedAt: new Date() },
+        // Claimed but never assessed.
+        { personId: person.id, language: "pt", selfReported: true, verified: false },
+        // Assessed and declined.
+        { personId: person.id, language: "fr", selfReported: true, verified: false, verifiedAt: new Date() },
+      ],
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const volunteer = result.departments[0].volunteers.find((v) => v.id === person.id)!;
+
+    expect(volunteer.verifiedLanguages).toEqual(["ht"]);
+  });
+
   it("default selects the next upcoming date when now is between two clinic dates", async () => {
     const dates = saturdays("2026-05-30", 3); // d[0], d[1], d[2]
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -533,6 +563,32 @@ describe("fullSchedule", () => {
 
     expect(deptResult.shadows).toHaveLength(1);
     expect(deptResult.shadows[0].name).toBe("Shadow");
+  });
+
+  // Shift flags used to be attached to VOLUNTEER rows only, so a director on the
+  // triage post was invisible to everyone reading the full schedule -- the exact
+  // lookup the page exists for. Every role now carries its assignment's tags.
+  it("exposes shift tags on director and shadow rows, not just volunteers", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+
+    const director = await createPerson("Tagged Director");
+    const shadow = await createPerson("Tagged Shadow");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(shadow.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, director.id, dates[0], "DIRECTOR", { triage: true });
+    await createShift(term.id, dept.id, shadow.id, dates[0], "SHADOW", { remote: true });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const deptResult = result.departments[0];
+
+    expect(deptResult.directors[0].tags.triage).toBe(true);
+    expect(deptResult.directors[0].tags.remote).toBe(false);
+    expect(deptResult.shadows[0].tags.remote).toBe(true);
+    expect(deptResult.shadows[0].tags.triage).toBe(false);
   });
 
   it("conflict: person in two depts on the SAME Saturday appears in both conflict maps", async () => {
@@ -757,6 +813,12 @@ describe("fullSchedule", () => {
 });
 
 describe("updateMyAvailability", () => {
+  // Availability closes on the term's first clinic date, so every test that
+  // expects a SUCCESSFUL save has to run before it. These fixtures use
+  // saturdays("2026-05-30", ...), which is in the past in real time, so `now`
+  // has to be pinned rather than left to the wall clock.
+  const BEFORE_CLINICS = utc(2026, 5, 1);
+
   it("happy path: updates both memberships of a two-dept person, clears acknowledgedAt, stores canonical noon-UTC dates, writes one audit row", async () => {
     const dates = saturdays("2026-05-30", 4);
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -777,7 +839,7 @@ describe("updateMyAvailability", () => {
       new Date(Date.UTC(2026, dates[2].getUTCMonth(), dates[2].getUTCDate(), 0, 0, 0)),
     ];
 
-    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates });
+    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates, now: BEFORE_CLINICS });
 
     const updatedA = await prisma.termMembership.findUniqueOrThrow({ where: { id: memA.id } });
     const updatedB = await prisma.termMembership.findUniqueOrThrow({ where: { id: memB.id } });
@@ -834,10 +896,10 @@ describe("updateMyAvailability", () => {
     const badDate = new Date(Date.UTC(2026, 6, 1, 0, 0, 0)); // 2026-07-01
 
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
     ).rejects.toThrow("2026-07-01");
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
     ).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 
@@ -866,7 +928,7 @@ describe("updateMyAvailability", () => {
     const midnight = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0));
     const noon = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 12));
 
-    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon] });
+    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon], now: BEFORE_CLINICS });
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(1);
@@ -884,13 +946,44 @@ describe("updateMyAvailability", () => {
     });
 
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [], now: BEFORE_CLINICS }),
     ).resolves.toBeUndefined();
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(0);
     expect(updated.availabilityUpdatedAt).not.toBeNull();
     expect(updated.availabilityAcknowledgedAt).toBeNull();
+  });
+
+  // Availability is the INPUT to building the schedule. Once clinics start the
+  // schedule is live and published, so a silent self-edit would desync the
+  // roster from what the clinic is working off; changes have to go through
+  // swap/drop, where a director approves and the partner is told.
+  it("refuses a save once the term's first clinic date has arrived", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Late Larry");
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", {
+      selfAvailabilityDates: [dates[0]],
+      availabilityUpdatedAt: utc(2026, 5, 1),
+    });
+
+    // The first clinic day itself, not the day after: the lock takes effect the
+    // moment the clinic is running.
+    const onFirstClinicDay = utc(2026, 5, 30);
+
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
+    ).rejects.toThrow(/locked/i);
+
+    // The rejected save wrote nothing: their original availability survives.
+    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
+    expect(after.selfAvailabilityDates).toHaveLength(1);
+    expect(isoDateKey(after.selfAvailabilityDates[0])).toBe(isoDateKey(dates[0]));
   });
 
   it("rejects an availability save for a term with no clinic dates, so an empty grid can't wipe the baseline (#90)", async () => {

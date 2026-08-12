@@ -80,4 +80,41 @@ export const volunteersDescriptors: TemplateDescriptor[] = [
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
+  {
+    // Sent to the MEMBER when the interpreting department assesses a language
+    // they claimed. Both outcomes are sent: a claim that was assessed and not
+    // confirmed leaves the queue silently otherwise, and the member would keep
+    // believing they are on record as a language provider when they are not.
+    //
+    // The two outcomes share one template and branch on `verified`, so the
+    // wording of the two cannot drift and an admin editing one sees both.
+    key: "volunteers.language_assessed",
+    name: "Volunteers: language assessment result",
+    category: "transactional",
+    group: "volunteers",
+    variables: [
+      { name: "firstName", label: "Member first name", sampleValue: "Sam" },
+      { name: "languageLabel", label: "Language assessed", sampleValue: "Spanish" },
+      { name: "verified", label: "True when confirmed", sampleValue: "true" },
+      { name: "note", label: "Assessor's note (empty when none)", sampleValue: "" },
+      { name: "hasNote", label: "True when a note was given", sampleValue: "false" },
+      {
+        name: "myInfoLink",
+        label: "Link to the member's own profile",
+        sampleValue: "https://hub.havenfreeclinic.org/my-info",
+      },
+    ],
+    defaultSubject: "[HAVEN] Your {{ languageLabel }} language assessment",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+{{#if verified}}<p>The interpreting department has confirmed your {{ languageLabel }}. You are now on record as a {{ languageLabel }} provider, and directors will see this when building the clinic schedule.</p>{{else}}<p>The interpreting department has reviewed your {{ languageLabel }} and has not confirmed it at this time. You are not on record as a {{ languageLabel }} provider, so you will not be scheduled in that role.</p>
+
+<p>This is not a mark against you and it can be revisited. If you would like to be reassessed, reply to this email or speak to the interpreting department.</p>{{/if}}
+
+{{#if hasNote}}<p>Note from the assessor: {{ note }}</p>{{/if}}
+
+<p>You can see your current record <a href="{{ myInfoLink }}">here</a>.</p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
 ];

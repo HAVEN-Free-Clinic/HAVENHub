@@ -257,13 +257,20 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     operators: ["isTrue", "isFalse"],
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
+  // Language capability moved off Person into PersonLanguage, so these compile
+  // to a relation filter. `isFalse` uses `none`, which correctly includes people
+  // with no language rows at all; a naive `some: { verified: false }` would only
+  // match people who were assessed and failed.
   {
     key: "spanishVerified",
     label: "Spanish-speaking (verified)",
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishVerified: cond.op === "isTrue" }),
+    compile: (cond) =>
+      cond.op === "isTrue"
+        ? { languages: { some: { language: "es", verified: true, verifiedAt: { not: null } } } }
+        : { languages: { none: { language: "es", verified: true, verifiedAt: { not: null } } } },
   },
   {
     key: "spanishSelfReported",
@@ -271,7 +278,10 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishSelfReported: cond.op === "isTrue" }),
+    compile: (cond) =>
+      cond.op === "isTrue"
+        ? { languages: { some: { language: "es", selfReported: true } } }
+        : { languages: { none: { language: "es", selfReported: true } } },
   },
   {
     key: "licensedRN",

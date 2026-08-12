@@ -168,13 +168,33 @@ describe("text operators", () => {
 });
 
 describe("booleans and relations", () => {
-  it("spanishVerified / spanishSelfReported / licensedRN -> direct boolean", () => {
-    expect(personFieldWhere({ field: "spanishVerified", op: "isTrue" }, ctx)).toEqual({ spanishVerified: true });
-    expect(personFieldWhere({ field: "spanishVerified", op: "isFalse" }, ctx)).toEqual({ spanishVerified: false });
-    expect(personFieldWhere({ field: "spanishSelfReported", op: "isTrue" }, ctx)).toEqual({ spanishSelfReported: true });
-    expect(personFieldWhere({ field: "spanishSelfReported", op: "isFalse" }, ctx)).toEqual({ spanishSelfReported: false });
+  it("licensedRN -> direct boolean", () => {
     expect(personFieldWhere({ field: "licensedRN", op: "isTrue" }, ctx)).toEqual({ licensedRN: true });
     expect(personFieldWhere({ field: "licensedRN", op: "isFalse" }, ctx)).toEqual({ licensedRN: false });
+  });
+
+  // Language capability moved off Person into PersonLanguage, so these compile
+  // to relation filters rather than column comparisons. The audience keys are
+  // unchanged, so campaigns saved before the move keep working.
+  it("spanishVerified -> some/none verified 'es' row", () => {
+    const verifiedEs = { language: "es", verified: true, verifiedAt: { not: null } };
+    expect(personFieldWhere({ field: "spanishVerified", op: "isTrue" }, ctx)).toEqual({
+      languages: { some: verifiedEs },
+    });
+    // `none`, not `some: { verified: false }`: the false case must include
+    // people with no language row at all, not only those assessed and failed.
+    expect(personFieldWhere({ field: "spanishVerified", op: "isFalse" }, ctx)).toEqual({
+      languages: { none: verifiedEs },
+    });
+  });
+
+  it("spanishSelfReported -> some/none self-reported 'es' row", () => {
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isTrue" }, ctx)).toEqual({
+      languages: { some: { language: "es", selfReported: true } },
+    });
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isFalse" }, ctx)).toEqual({
+      languages: { none: { language: "es", selfReported: true } },
+    });
   });
 
   // #68: "open" is PENDING or SUBMITTED everywhere else in the app; matching only

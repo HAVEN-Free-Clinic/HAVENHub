@@ -33,6 +33,7 @@ describe("notification registry", () => {
         "support.request_resolved",
         "shift-reminder",
         "clinic-checkin-invite",
+        "volunteers.language_assessed",
         "volunteers.self_withdrawal",
       ].sort()
     );

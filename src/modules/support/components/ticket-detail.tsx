@@ -43,8 +43,16 @@
  *     epic-ticket-sync.ts) whenever an attached Epic request is submitted to
  *     YNHH, and moves it back once none remain outstanding, so a linked EPIC
  *     ticket is read-only like any other linked ticket.
- *   - the Epic access section still shows the attached-request chain (part
- *     of "the record"), but its attach/cancel forms are hidden.
+ *   - the Epic access section keeps its attach/cancel forms on an EPIC
+ *     ticket, linked or not. This is the one place the read-only rule stops,
+ *     and it is a boundary rather than an exception: Intercom took over the
+ *     CONVERSATION, while the Epic to YNHH to ITCM workflow never left the
+ *     Hub because Intercom cannot model it. Gating these on linkage would
+ *     strand that workflow entirely now that every EPIC ticket arrives
+ *     already linked via the ticket.created webhook -- an attach form hidden
+ *     on linked tickets is one nobody can reach, so no EpicRequest could ever
+ *     be raised. That failure is silent: the page renders correctly and
+ *     simply has no way forward. See showEpicMutations below.
  *   - the comment thread still shows existing comments, but the reply form
  *     is hidden (CommentThread's showReplyForm prop) -- correspondence goes
  *     through the conversation instead.

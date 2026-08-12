@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { isMcpConfigured, intercomAccessToken, mcpBearerToken } from "./config";
+import { isMcpConfigured, intercomAccessToken, mcpBearerToken, intercomBotAdminId } from "./config";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -36,5 +36,13 @@ describe("MCP configuration", () => {
     configureAll();
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "");
     expect(isMcpConfigured()).toBe(false);
+  });
+});
+
+describe("intercomBotAdminId", () => {
+  it("is null when unset, and trimmed when set", () => {
+    expect(intercomBotAdminId()).toBeNull();
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "  admin-1  ");
+    expect(intercomBotAdminId()).toBe("admin-1");
   });
 });

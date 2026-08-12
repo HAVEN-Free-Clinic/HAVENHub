@@ -24,6 +24,14 @@
  * change), and resolveRequest also notify (render once, then notify the one
  * recipient); setPriority and the two cancel paths are quiet administrative
  * actions with no notification, matching cancelRequest in epic.ts.
+ *
+ * Outbound Intercom sync (see docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+ * Direction 2): when setStatus or resolveRequest changes the status of a
+ * ticket with an intercomConversationId, the requester-facing notify() call
+ * is replaced with a post into that conversation instead -- the member hears
+ * about the change where they are, rather than by email. cancelRequest and
+ * cancelOwnRequest are unaffected: they never notified the requester at all,
+ * and this sync only replaces an existing notification, it does not add one.
  */
 
 import type { TechRequest, TechRequestStatus, TechRequestPriority } from "@prisma/client";
@@ -35,6 +43,7 @@ import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 import { STATUS_LABELS } from "../components/status-badge";
+import { notifyIntercomStatusChange } from "./notifications";
 
 /** RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status transition, priority change, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button and the manager control panel. */
 export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
@@ -144,8 +153,10 @@ export async function assignRequest(
  * resolveRequest/cancelRequest, which require a reason and notify the
  * requester. Ticket must exist (SupportNotFoundError) and must not already
  * be terminal (SupportStateError). Any actual status change (before != after)
- * notifies the requester (support.status_changed); a no-op re-set of the
- * current status is silent.
+ * notifies the requester (support.status_changed) -- or, for a ticket linked
+ * to an Intercom conversation, posts the update there instead (see the
+ * module doc comment); a no-op re-set of the current status is silent either
+ * way.
  *
  * Audits "support.status_change" with before/after status.
  */
@@ -183,26 +194,33 @@ export async function setStatus(
   });
 
   if (before.status !== status) {
-    const requester = await prisma.person.findUnique({
-      where: { id: updated.requesterId },
-      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-    });
-    if (requester) {
-      const baseUrl = await resolveBaseUrl();
-      const link = `${baseUrl}/support/${id}`;
-      const rendered = await renderEmail("support.status_changed", {
-        ticketNumber: updated.number,
-        subject: updated.subject,
-        statusLabel: STATUS_LABELS[status],
-        link,
+    if (updated.intercomConversationId) {
+      // Linked ticket: tell the member through their conversation instead of
+      // by email. Never throws -- an unreachable Intercom must not turn an
+      // already-committed status change into a failed one.
+      await notifyIntercomStatusChange(updated);
+    } else {
+      const requester = await prisma.person.findUnique({
+        where: { id: updated.requesterId },
+        select: { id: true, name: true, entraObjectId: true, contactEmail: true },
       });
-      await notify(prisma, {
-        type: "support.status_changed",
-        person: requester,
-        email: { subject: rendered.subject, html: rendered.html },
-        teams: { title: `IT Support #${updated.number} update`, summary: updated.subject, link },
-        triggeredById: actorPersonId,
-      });
+      if (requester) {
+        const baseUrl = await resolveBaseUrl();
+        const link = `${baseUrl}/support/${id}`;
+        const rendered = await renderEmail("support.status_changed", {
+          ticketNumber: updated.number,
+          subject: updated.subject,
+          statusLabel: STATUS_LABELS[status],
+          link,
+        });
+        await notify(prisma, {
+          type: "support.status_changed",
+          person: requester,
+          email: { subject: rendered.subject, html: rendered.html },
+          teams: { title: `IT Support #${updated.number} update`, summary: updated.subject, link },
+          triggeredById: actorPersonId,
+        });
+      }
     }
   }
 
@@ -261,7 +279,9 @@ export async function setPriority(
  * Requires support.manage_requests. Ticket must exist (SupportNotFoundError)
  * and must not already be terminal (SupportStateError). resolution must be
  * non-blank (SupportStateError). Notifies the requester
- * (support.request_resolved).
+ * (support.request_resolved) -- or, for a ticket linked to an Intercom
+ * conversation, posts the resolution there instead (see the module doc
+ * comment).
  *
  * Audits "support.resolve" with before/after status.
  */
@@ -294,27 +314,35 @@ export async function resolveRequest(
     after: { status: "RESOLVED" },
   });
 
-  const requester = await prisma.person.findUnique({
-    where: { id: updated.requesterId },
-    select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-  });
-  if (requester) {
-    const baseUrl = await resolveBaseUrl();
-    const link = `${baseUrl}/support/${id}`;
-    const rendered = await renderEmail("support.request_resolved", {
-      ticketNumber: updated.number,
-      subject: updated.subject,
-      resolution: trimmed,
-      hasResolution: true,
-      link,
+  if (updated.intercomConversationId) {
+    // Linked ticket: tell the member through their conversation instead of
+    // by email, including the resolution note. Never throws -- an
+    // unreachable Intercom must not turn an already-committed resolve into a
+    // failed one.
+    await notifyIntercomStatusChange(updated, trimmed);
+  } else {
+    const requester = await prisma.person.findUnique({
+      where: { id: updated.requesterId },
+      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
     });
-    await notify(prisma, {
-      type: "support.request_resolved",
-      person: requester,
-      email: { subject: rendered.subject, html: rendered.html },
-      teams: { title: `IT Support #${updated.number} resolved`, summary: updated.subject, link },
-      triggeredById: actorPersonId,
-    });
+    if (requester) {
+      const baseUrl = await resolveBaseUrl();
+      const link = `${baseUrl}/support/${id}`;
+      const rendered = await renderEmail("support.request_resolved", {
+        ticketNumber: updated.number,
+        subject: updated.subject,
+        resolution: trimmed,
+        hasResolution: true,
+        link,
+      });
+      await notify(prisma, {
+        type: "support.request_resolved",
+        person: requester,
+        email: { subject: rendered.subject, html: rendered.html },
+        teams: { title: `IT Support #${updated.number} resolved`, summary: updated.subject, link },
+        triggeredById: actorPersonId,
+      });
+    }
   }
 
   return updated;

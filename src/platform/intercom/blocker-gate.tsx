@@ -185,7 +185,7 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
               <ShieldAlert aria-hidden className="mt-0.5 h-6 w-6 shrink-0 text-brand-fg" />
               <div className="min-w-0">
                 <h2 id={titleId} className="text-base font-semibold text-foreground">
-                  Turn off your content blocker to continue
+                  Turn off whatever is blocking this page to continue
                 </h2>
                 {/* Describes the symptom, not a diagnosis. We can see that the
                     request never left the browser; we cannot see what stopped

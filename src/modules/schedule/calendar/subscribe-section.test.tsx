@@ -50,7 +50,10 @@ describe("CalendarSubscribeSection", () => {
     const person = await makePerson();
     await issueFeedToken(person.id);
 
-    expect(await render(person.id)).toContain("its own timing");
+    // Matches "their own timing" (now that Outlook is offered alongside Google)
+    // and would still match a singular rewording. The disclosure existing at all
+    // is the point, not its exact phrasing.
+    expect(await render(person.id)).toContain("own timing");
   });
 
   it("shows one member's token and never another's", async () => {

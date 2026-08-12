@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CalendarSubscribeCard, googleCalendarUrl } from "./subscribe-card";
+import { CalendarSubscribeCard, googleCalendarUrl, outlookCalendarUrl } from "./subscribe-card";
+import { scrubUrl } from "@/platform/posthog/scrub-url";
 
 const noop = async () => {};
 const FEED_URL = "https://hub.example.org/api/calendar/abc.ics";
@@ -13,6 +14,7 @@ function html(overrides: Partial<Props> = {}): string {
       feedUrl={FEED_URL}
       lastFetchedAt={null}
       timeZone="America/New_York"
+      calendarName="HAVEN Free Clinic Shifts"
       generateAction={noop}
       resetAction={noop}
       {...overrides}
@@ -52,6 +54,33 @@ describe("googleCalendarUrl", () => {
   });
 });
 
+describe("outlookCalendarUrl", () => {
+  // The inverse of Google's quirk: Outlook's addfromweb reads `url` as an
+  // external ICS address, so the https feed URL is passed through untouched.
+  // Rewriting it to webcal (as the Google link must) would be wrong here.
+  it("passes the https feed URL through without a scheme rewrite", () => {
+    const url = new URL(outlookCalendarUrl(FEED_URL, "HAVEN Free Clinic Shifts"));
+    expect(url.origin + url.pathname).toBe("https://outlook.office.com/calendar/0/addfromweb");
+    expect(url.searchParams.get("url")).toBe(FEED_URL);
+  });
+
+  it("prefills the calendar name", () => {
+    const url = new URL(outlookCalendarUrl(FEED_URL, "HAVEN Free Clinic Shifts"));
+    expect(url.searchParams.get("name")).toBe("HAVEN Free Clinic Shifts");
+  });
+
+  // The feed token never expires, so a leak into analytics is a leak for good.
+  // scrub-url recurses into any query param that decodes to a URL, which is what
+  // makes this work without teaching it about Outlook specifically -- this test
+  // is here so that generality cannot regress unnoticed.
+  it("has its embedded feed token redacted by the PostHog scrub", () => {
+    const link = outlookCalendarUrl(FEED_URL, "HAVEN Free Clinic Shifts");
+    const scrubbed = scrubUrl(link);
+    expect(scrubbed).not.toContain("abc.ics");
+    expect(decodeURIComponent(scrubbed)).toContain("/api/calendar/[redacted]");
+  });
+});
+
 describe("CalendarSubscribeCard", () => {
   it("offers to generate a link when the member has none", () => {
     const markup = html({ feedUrl: null });
@@ -68,17 +97,19 @@ describe("CalendarSubscribeCard", () => {
     expect(markup).toContain(`value="${FEED_URL}"`);
     expect(markup).toContain("Reset link");
     expect(markup).toContain("Add to Google");
+    expect(markup).toContain("Add to Outlook");
   });
 
   it("links out to Google with the encoded feed URL", () => {
     expect(html()).toContain(googleCalendarUrl(FEED_URL).replace(/&/g, "&amp;"));
   });
 
-  it("marks the Google anchor ph-no-capture so its token-bearing href never reaches autocapture or replay", () => {
-    const markup = html();
-    const anchorStart = markup.indexOf("<a ");
-    const anchorEnd = markup.indexOf(">", anchorStart);
-    expect(markup.slice(anchorStart, anchorEnd)).toContain("ph-no-capture");
+  it("marks EVERY calendar anchor ph-no-capture so no token-bearing href reaches autocapture or replay", () => {
+    const openingTags = html().match(/<a [^>]*>/g) ?? [];
+    // Google and Outlook. A third provider added without ph-no-capture must
+    // fail here rather than silently ship the feed token to analytics.
+    expect(openingTags).toHaveLength(2);
+    for (const tag of openingTags) expect(tag).toContain("ph-no-capture");
   });
 
   it("wraps the feed URL field in ph-no-capture so its token value is out of autocapture and masked in replay", () => {
@@ -90,7 +121,7 @@ describe("CalendarSubscribeCard", () => {
   });
 
   it("always discloses that Google refreshes on its own schedule", () => {
-    expect(html()).toContain("its own timing");
+    expect(html()).toContain("own timing");
   });
 
   it("reports the last fetch when one has happened", () => {

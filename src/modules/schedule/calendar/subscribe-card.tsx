@@ -10,6 +10,9 @@ type Props = {
   feedUrl: string | null;
   lastFetchedAt: Date | null;
   timeZone: string;
+  /** Prefills the calendar's name in Outlook's add-by-URL dialog. Matches the
+   *  feed's own X-WR-CALNAME so the two agree whichever client subscribes. */
+  calendarName: string;
   generateAction: () => Promise<void>;
   resetAction: () => Promise<void>;
 };
@@ -31,7 +34,24 @@ export function googleCalendarUrl(feedUrl: string): string {
   return `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
 }
 
-export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, generateAction, resetAction }: Props) {
+/**
+ * Deep link that opens Outlook on the web's add-by-URL flow.
+ *
+ * Unlike the Google link above, this one takes the feed URL as-is: Outlook's
+ * `addfromweb` reads `url` as an external ICS address, so there is no
+ * https-means-something-else quirk to work around and no scheme rewrite.
+ *
+ * outlook.office.com is the work/school host, which is what a Yale account
+ * uses. A personal outlook.com account would need outlook.live.com; that case
+ * is served by copying the feed address out of the field beside this button,
+ * which works in every client.
+ */
+export function outlookCalendarUrl(feedUrl: string, calendarName: string): string {
+  const params = new URLSearchParams({ url: feedUrl, name: calendarName });
+  return `https://outlook.office.com/calendar/0/addfromweb?${params.toString()}`;
+}
+
+export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, calendarName, generateAction, resetAction }: Props) {
   return (
     <Card>
       <div className="flex items-start gap-3">
@@ -64,11 +84,21 @@ export function CalendarSubscribeCard({ feedUrl, lastFetchedAt, timeZone, genera
                 >
                   Add to Google
                 </a>
+                <a
+                  href={outlookCalendarUrl(feedUrl, calendarName)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  // ph-no-capture for the same reason as the Google anchor: the
+                  // href embeds the live, non-expiring feed token.
+                  className={buttonClasses("outline", "sm", "ph-no-capture")}
+                >
+                  Add to Outlook
+                </a>
               </div>
 
               <p className="mt-3 text-xs text-muted-foreground">
-                Google refreshes subscribed calendars on its own timing, usually within a day.
-                Check the Hub for the latest.
+                Google and Outlook refresh subscribed calendars on their own timing, usually
+                within a day. Check the Hub for the latest.
               </p>
               <p className="mt-1 text-xs text-subtle-foreground">
                 {lastFetchedAt

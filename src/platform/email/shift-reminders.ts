@@ -37,6 +37,14 @@ export type BuildShiftRemindersInput = {
   targetDate: Date;
   teamsChannelUrl: string;
   baseUrl: string;
+  /**
+   * Attending physician on duty for this clinic date, or "" when the clinic row
+   * has no attending assigned. Resolved by the caller (RhdClinic) rather than
+   * derived from `assignments`: an attending is not a Person and holds no
+   * ShiftAssignment, so unlike the EDs / Clinical Advisors / directors lists
+   * there is nothing in the assignment rows to derive it from.
+   */
+  attendingName: string;
 };
 
 function firstNameOf(name: string): string {
@@ -65,7 +73,7 @@ function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
  * choice deterministic regardless of the order the caller passes assignments.
  */
 export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedReminder[] {
-  const { assignments, targetDate, teamsChannelUrl, baseUrl } = input;
+  const { assignments, targetDate, teamsChannelUrl, baseUrl, attendingName } = input;
 
   const clinicDateLabel = formatCalendarDate(targetDate, {
     weekday: "long",
@@ -77,6 +85,11 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   const hipaaComplianceUrl = `${baseUrl}/my-info`;
   const shiftSwapUrl = `${baseUrl}/schedule`;
   const masterScheduleUrl = `${baseUrl}/schedule/full`;
+  // Epic problems now go through the Hub's own IT ticketing. This used to be a
+  // hardcoded Airtable form, so those tickets never entered the system built to
+  // track them. Built from baseUrl like every other link here, rather than a
+  // literal host, so it follows the deployment.
+  const helpDeskUrl = `${baseUrl}/support/new`;
 
   const edsOnShift = uniqueNamesById(
     assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person),
@@ -146,8 +159,10 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
         edsOnShift: edsOnShift.join(", "),
         deptDirectorsOnShift: deptDirectorsOnShift.join(", "),
         clinicalAdvisorsOnShift: clinicalAdvisorsOnShift.join(", "),
+        attendingOnShift: attendingName,
         teamsChannelUrl,
         hipaaComplianceUrl,
+        helpDeskUrl,
         shiftSwapUrl,
         masterScheduleUrl,
       }),
@@ -225,7 +240,30 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   const teamsChannelUrl = channelLink?.webUrl ?? "";
   const baseUrl = await getSetting<string>("app.baseUrl");
 
-  const prepared = buildShiftReminders({ assignments, targetDate, teamsChannelUrl, baseUrl });
+  // Attendings on duty for this clinic date, across every service line.
+  //
+  // findMany, not findUnique: the row is now unique on
+  // (termId, departmentId, clinicDate), so a Saturday can carry a reproductive
+  // health attending AND a primary care attending, and the reminder should name
+  // both. clinicDate is the same noon-UTC marker as Term.clinicDates, so
+  // targetDate matches directly.
+  //
+  // No row, no attending on the row, and a deactivated attending all collapse to
+  // "", which the template's {{#if}} hides rather than printing an empty line.
+  const clinics = await prisma.rhdClinic.findMany({
+    where: { termId: term.id, clinicDate: targetDate },
+    select: {
+      department: { select: { code: true } },
+      attending: { select: { fullName: true, isActive: true } },
+    },
+    orderBy: { department: { code: "asc" } },
+  });
+  const attendingName = clinics
+    .filter((c) => c.attending?.isActive)
+    .map((c) => `${c.attending!.fullName} (${c.department.code})`)
+    .join(", ");
+
+  const prepared = buildShiftReminders({ assignments, targetDate, teamsChannelUrl, baseUrl, attendingName });
 
   // Idempotency: skip anyone already sent a shift-reminder within the last 6
   // days, which scopes to the current clinic week so a re-fired Monday cron

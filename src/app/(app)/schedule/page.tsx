@@ -430,8 +430,10 @@ export default async function MySchedulePage() {
                 )}
               </section>
 
-              {/* My availability -- always editable pre-publish, regardless
-                  of whether this term's schedule grid is showing yet. */}
+              {/* My availability -- editable until this term's clinics start,
+                  regardless of whether the schedule grid is showing yet. From
+                  the first clinic date onward it goes read-only and changes run
+                  through swap/drop requests instead. */}
               <section className="mt-10">
                 <SectionHeader as="h2" level="title" className="mb-2">My availability</SectionHeader>
                 <p className="text-sm text-subtle-foreground mb-5">
@@ -488,6 +490,32 @@ export default async function MySchedulePage() {
                       // an empty save would wipe the application baseline to an empty
                       // SELF tier (#90). Explain instead of offering a destructive Save.
                       <p className="text-sm text-subtle-foreground">Clinic dates for this term haven&apos;t been set yet &mdash; check back once the calendar is published.</p>
+                    ) : t.availabilityLocked ? (
+                      // Clinics have started: the schedule built from this
+                      // availability is live, so a silent edit here would desync
+                      // it from the roster the clinic is working off. Show what
+                      // they submitted, read-only, and point at the flow that
+                      // does notify a director.
+                      <div>
+                        <div className="flex flex-wrap gap-2">
+                          {t.availability.dates.length === 0 ? (
+                            <p className="text-sm text-subtle-foreground">You marked yourself unavailable for every date.</p>
+                          ) : (
+                            t.availability.dates.map((d) => (
+                              <span
+                                key={isoDateKey(d)}
+                                className="flex items-center rounded-full border border-border px-3 py-1.5 text-xs whitespace-nowrap text-muted-foreground"
+                              >
+                                {displayDate(isoDateKey(d))}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                        <p className="mt-4 text-sm text-subtle-foreground">
+                          Availability is locked now that clinics have started. To change a shift you are
+                          already on, use the swap or drop request on that shift above.
+                        </p>
+                      </div>
                     ) : (
                       <form action={saveAvailabilityAction}>
                         <input type="hidden" name="termId" value={t.term.id} />

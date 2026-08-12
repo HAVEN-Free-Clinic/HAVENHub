@@ -5,7 +5,8 @@
  * The card is rendered on both My Info and My Schedule. Keeping the load here
  * rather than in each page means the two surfaces cannot drift apart, which
  * matters most for the refresh-lag disclosure: a member who only ever sees one
- * of the two pages still gets told that Google updates on its own timing.
+ * of the two pages still gets told that Google and Outlook update on their own
+ * timing.
  *
  * Authorization deliberately stays in the pages. The two pages gate on
  * different module permissions, so each supplies its own already-authorized
@@ -24,10 +25,11 @@ type Props = {
 };
 
 export async function CalendarSubscribeSection({ personId, generateAction, resetAction }: Props) {
-  const [feedToken, baseUrl, timeZone] = await Promise.all([
+  const [feedToken, baseUrl, timeZone, orgName] = await Promise.all([
     readFeedToken(personId),
     getSetting<string>("app.baseUrl"),
     getDisplayTimeZone(),
+    getSetting<string>("branding.orgName"),
   ]);
 
   return (
@@ -37,6 +39,9 @@ export async function CalendarSubscribeSection({ personId, generateAction, reset
       feedUrl={feedToken ? `${baseUrl}/api/calendar/${feedToken.token}.ics` : null}
       lastFetchedAt={feedToken?.lastFetchedAt ?? null}
       timeZone={timeZone}
+      // Same string buildFeed stamps into the feed's X-WR-CALNAME, so the name
+      // Outlook prefills matches what every other client shows.
+      calendarName={`${orgName} Shifts`}
       generateAction={generateAction}
       resetAction={resetAction}
     />

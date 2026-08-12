@@ -10,7 +10,7 @@ function d(year: number, month: number, day: number): Date {
 
 const member: BuilderMember = {
   membershipId: "mem-1",
-  person: { id: "p1", name: "Alice Volunteer", spanishVerified: false, licensedRN: false },
+  person: { id: "p1", name: "Alice Volunteer", verifiedLanguages: [], licensedRN: false },
   kind: "VOLUNTEER",
   availability: { tier: "SELF", dates: [] },
   overrideActive: false,

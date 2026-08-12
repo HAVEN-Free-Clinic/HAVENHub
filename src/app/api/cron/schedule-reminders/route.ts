@@ -1,7 +1,14 @@
 /**
  * Shift request pending reminders.
- * Finds PENDING shift requests older than 48 hours and re-notifies the
- * department's ACTUAL approvers so requests don't get forgotten.
+ * Finds PENDING shift requests that have aged into their reminder cadence and
+ * re-notifies the department's ACTUAL approvers so requests don't get forgotten.
+ *
+ * The cadence is urgency-aware (see engine/request-reminder-cadence.ts): a
+ * request for a clinic within the next week is remindable after 12 hours and
+ * re-sent daily, while everything else keeps the original 48-hour / 3-day
+ * spacing. This is what makes the job useful for last-minute drops, which the
+ * flat 48-hour rule reliably missed -- the clinic had already happened by the
+ * time the first reminder was due.
  *
  * Recipients come from requestApproverRecipients() -- the same set
  * createRequest/approveRequest/remindDirectors use (directors by ACTIVE
@@ -15,11 +22,15 @@
  * existing compliance reminders job.
  *
  * Emails go through the shared renderEmail path (branded layout + admin
- * override), and each approver is throttled: if they were already sent this
- * template within REMINDER_THROTTLE_MS they are skipped, so a daily cron cannot
- * re-notify the same approver every single day a request stays pending. The
- * throttle keys on the same template the original submission notice uses, so it
- * also spaces the first reminder off the initial notification.
+ * override), and each approver is throttled by their request's cadence: if they
+ * were already sent this template inside that window they are skipped, so the
+ * daily cron cannot re-notify the same approver more often than the cadence
+ * allows. The throttle keys on the same template the original submission notice
+ * uses, so it also spaces the first reminder off the initial notification.
+ *
+ * Requests are processed most-urgent-first because the per-day dispatch claim
+ * below admits at most ONE reminder per approver per day: the ordering decides
+ * which request that one email is about.
  *
  * Only enqueues emails - delivery is handled by the per-minute
  * /api/cron/email route.
@@ -31,7 +42,15 @@ import { log, flushLogs } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { requestApproverRecipients } from "@/modules/schedule/services/requests";
+import {
+  CADENCE,
+  byUrgencyThenDate,
+  cadenceFor,
+  isRemindable,
+  reminderUrgency,
+} from "@/modules/schedule/engine/request-reminder-cadence";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { displayTodayKey } from "@/platform/dates/today";
 import { claimReminderDispatch, releaseReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 export const runtime = "nodejs";
@@ -40,25 +59,26 @@ export const maxDuration = 300;
 
 const REMINDER_TEMPLATE = "schedule-request-submitted-director";
 
-// Skip re-reminding a director who was already sent this template within the
-// window. Mirrors the recent-EmailLog dedup in
-// src/platform/email/shift-reminders.ts. Three days collapses the daily cron's
-// would-be daily duplicates into at most one nudge every few days while a
-// request stays pending.
-const REMINDER_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
-
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
 
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  const throttleCutoff = new Date(Date.now() - REMINDER_THROTTLE_MS);
+  const now = Date.now();
+  // The LOOSEST age any cadence uses. Each request is then re-filtered against
+  // its own cadence below, so a normal-cadence request still waits its 48 hours.
+  const widestCutoff = new Date(
+    now - Math.min(...Object.values(CADENCE).map((c) => c.minAgeMs)),
+  );
   // UTC day key used as the atomic per-day claim scope (below).
   const todayKey = isoDateKey(new Date());
+  // Urgency is a calendar-day question ("is this clinic within a week?"), so it
+  // is measured in the DISPLAY zone. A raw UTC key rolls over around 8pm ET and
+  // would call a request urgent a few hours early each evening.
+  const displayToday = await displayTodayKey();
 
-  const pendingRequests = await prisma.shiftRequest.findMany({
+  const rawPending = await prisma.shiftRequest.findMany({
     where: {
       status: "PENDING",
-      createdAt: { lt: cutoff },
+      createdAt: { lt: widestCutoff },
       // A request whose term has been archived can no longer be decided anywhere
       // in the app (the approval surfaces span ACTIVE + published PLANNING), so
       // reminding approvers about it is a dead-end nag that recurs forever. Skip
@@ -72,6 +92,22 @@ export async function GET(req: Request): Promise<Response> {
       department: { select: { name: true } },
     },
   });
+
+  // Tag each request with its cadence, drop the ones not yet old enough for
+  // theirs, and put the most pressing first: the cron takes at most one per-day
+  // dispatch claim per approver, so whichever request reaches an approver first
+  // is the one they actually hear about today.
+  const pendingRequests = rawPending
+    .map((pending) => {
+      const requesterDateKey = isoDateKey(pending.requesterDate);
+      return {
+        pending,
+        requesterDateKey,
+        urgency: reminderUrgency({ requesterDateKey, todayKey: displayToday }),
+      };
+    })
+    .filter((r) => isRemindable({ urgency: r.urgency, ageMs: now - r.pending.createdAt.getTime() }))
+    .sort(byUrgencyThenDate);
 
   // Approver recipients are per-department and per-term, so memoize to avoid
   // re-running the (permission-checking) query for every pending request that
@@ -92,7 +128,8 @@ export async function GET(req: Request): Promise<Response> {
   let reminded = 0;
   let skipped = 0;
 
-  for (const pending of pendingRequests) {
+  for (const { pending, urgency } of pendingRequests) {
+    const throttleCutoff = new Date(now - cadenceFor(urgency).throttleMs);
     const isSwap = !!(pending.targetId && pending.targetDate);
     const requesterDateStr = formatCalendarDate(pending.requesterDate, {
       month: "long", day: "numeric", year: "numeric",

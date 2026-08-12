@@ -14,6 +14,9 @@ import { verifyAndConsumeMemberToken } from "./member-magic-link";
 import { recordAudit } from "@/platform/audit";
 import { prisma } from "@/platform/db";
 import { captureEvent, GROUP_TERM, type PersonProperties } from "@/platform/posthog/capture";
+import { headers } from "next/headers";
+import { log, errorAttrs } from "@/platform/logging";
+import { recordLoginContext } from "./login-record";
 
 type EntraClaims = {
   oid?: string;
@@ -160,6 +163,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         }
         if (personId) {
+          // Stamp the sign-in before the enrichment below, so a slow analytics
+          // call cannot delay it. headers() works here because this callback
+          // runs inside the auth route handler, and the whole thing is
+          // best-effort twice over: recordLoginContext swallows its own
+          // failures, and this catch covers headers() itself being unavailable.
+          // Nothing about recording a login may prevent one.
+          try {
+            await recordLoginContext(personId, await headers());
+          } catch (err) {
+            log.warn("[auth] could not read headers to record login", errorAttrs(err));
+          }
+
           // Enrich the person profile with their active-term departments and the
           // term name at login (low frequency). Best-effort: a query hiccup must
           // never block sign-in. A person can hold several departments in a term,

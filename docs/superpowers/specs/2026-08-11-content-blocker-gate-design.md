@@ -149,9 +149,17 @@ failure mode a purpose-built route would have had.
 ## The modal
 
 Portalled to `document.body`, for the reason `HelpLauncher` does the same:
-`backdrop-filter` ancestors trap `fixed` descendants. Rendered as a solid
-surface rather than glass, on canonical radii, layered above the help bubble
-and the toast viewport.
+`backdrop-filter` ancestors trap `fixed` descendants. Styled to match the
+existing `Modal` primitive (`glass-panel` on the panel, the fixed dark scrim
+behind it, canonical radii) so it reads as the same kind of object as every
+other dialog in the hub, and layered above the help bubble and the toast
+viewport.
+
+It does not reuse the `Modal` primitive itself. `Modal` renders an
+unconditional close button and calls `onClose` on Escape and backdrop click.
+Passing a no-op `onClose` would leave a dead X on screen, which reads as
+broken exactly when the user most needs to trust the page. The gate borrows
+`Modal`'s focus-trap and scroll-lock technique instead of its contract.
 
 It is a real block: full-viewport overlay, body scroll locked, focus trapped,
 `role="dialog"` with `aria-modal`, no close affordance, and Escape does

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
+import { can, hasPlatformScope, permissionDepartmentIds } from "@/platform/rbac/engine";
 import type { McpTool } from "./index";
 
 /**
@@ -42,6 +42,21 @@ import type { McpTool } from "./index";
  *
  * Neither tool renders a date, so the clinicDate/formatCalendarDate (UTC)
  * concern that applies elsewhere in this MCP surface does not apply here.
+ *
+ * A second authorization path, added alongside permissionDepartmentIds: a
+ * caller whose volunteers.view reaches them through a personId-targeted
+ * RoleAssignment (hasPlatformScope, see its doc comment in engine.ts) gets
+ * clinic-wide reach instead of being scoped to their own memberships. This
+ * closes two real gaps -- a platform admin (e.g. IT) with no clinical
+ * department membership got refused a roster the Hub itself shows them
+ * freely at /admin/people, and a clinic-wide role holder (e.g. Compliance
+ * Manager) got capped at "their own department" like a plain director. It is
+ * checked FIRST and ONLY widens when true; a caller who does not clear it
+ * falls through to permissionDepartmentIds exactly as before. It must never
+ * be satisfied by a department- or kind-targeted assignment -- that would
+ * turn every director's scoped grant into clinic-wide reach, the exact leak
+ * permissionDepartmentIds exists to prevent (see the "directs A, volunteers
+ * in B" test below, which is unaffected by this addition on purpose).
  */
 
 /**
@@ -157,10 +172,14 @@ export const departmentRosterTool: McpTool = {
     const term = await getActiveTerm();
     if (!term) return NO_ACTIVE_TERM_DEPARTMENT;
 
-    // The one authorization check. See the file-level comment for why this
-    // must be permissionDepartmentIds and not can(ctx.personId, "volunteers.view").
-    const visibleDeptIds = await permissionDepartmentIds(ctx.personId, "volunteers.view", term.id);
-    if (!visibleDeptIds.includes(department.id)) return DEPARTMENT_ACCESS_DENIED;
+    // The authorization check. See the file-level comment for why the
+    // fallback must be permissionDepartmentIds and not can(ctx.personId,
+    // "volunteers.view"), and for what hasPlatformScope must never do.
+    const platformScoped = await hasPlatformScope(ctx.personId, "volunteers.view", term.id);
+    if (!platformScoped) {
+      const visibleDeptIds = await permissionDepartmentIds(ctx.personId, "volunteers.view", term.id);
+      if (!visibleDeptIds.includes(department.id)) return DEPARTMENT_ACCESS_DENIED;
+    }
 
     const memberships = await prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: department.id, status: "ACTIVE" },
@@ -176,15 +195,19 @@ export const departmentRosterTool: McpTool = {
       .map((m) => m.person.name)
       .sort((a, b) => a.localeCompare(b));
 
-    // Cannot normally happen: permissionDepartmentIds only ever includes a
-    // department the caller is THEMSELVES an ACTIVE member of (department- and
-    // kind-targeted assignments are only fetched for departments/kinds present
-    // in the caller's own active memberships, and a person-targeted grant is
-    // explicitly scoped to "every department they are an active member of" --
-    // see its doc comment), so a department that clears the check above always
-    // has at least the caller's own row. Kept as a real branch, not an
-    // assertion, so a future change to that invariant fails toward an honest
-    // answer instead of an empty list read as "there is nobody here".
+    // A platform-scoped caller can legitimately land here for a department
+    // with nobody in it this term -- hasPlatformScope clears them for every
+    // department, not just ones they have a row in. For everyone else this
+    // still should not normally happen: permissionDepartmentIds only ever
+    // includes a department the caller is THEMSELVES an ACTIVE member of
+    // (department- and kind-targeted assignments are only fetched for
+    // departments/kinds present in the caller's own active memberships, and a
+    // person-targeted grant is explicitly scoped to "every department they
+    // are an active member of" -- see its doc comment), so a department that
+    // clears the check above always has at least the caller's own row. Kept
+    // as a real branch, not an assertion, so a future change to that
+    // invariant fails toward an honest answer instead of an empty list read
+    // as "there is nobody here".
     if (directors.length === 0 && volunteers.length === 0) {
       return `${department.name} has no active members this term.`;
     }
@@ -211,11 +234,18 @@ export const memberStatusTool: McpTool = {
     const term = await getActiveTerm();
     if (!term) return NO_ACTIVE_TERM_MEMBER;
 
-    // Deny-by-default, and cheaply: a caller with no departmental standing at
-    // all gets refused before this even looks up the name, and reads
-    // identically to every other refusal path below (see CANNOT_CONFIRM_MEMBERSHIP).
-    const visibleDeptIds = await permissionDepartmentIds(ctx.personId, "volunteers.view", term.id);
-    if (visibleDeptIds.length === 0) return CANNOT_CONFIRM_MEMBERSHIP;
+    // Deny-by-default, and cheaply for the non-platform-scoped case: a caller
+    // with no departmental standing AND no platform scope gets refused before
+    // this even looks up the name, and reads identically to every other
+    // refusal path below (see CANNOT_CONFIRM_MEMBERSHIP). A platform-scoped
+    // caller (see the file-level comment) skips this department-membership
+    // gate entirely -- that is the point of the widening -- so
+    // visibleDeptIds stays null for them rather than being computed.
+    const platformScoped = await hasPlatformScope(ctx.personId, "volunteers.view", term.id);
+    const visibleDeptIds: string[] | null = platformScoped
+      ? null
+      : await permissionDepartmentIds(ctx.personId, "volunteers.view", term.id);
+    if (visibleDeptIds !== null && visibleDeptIds.length === 0) return CANNOT_CONFIRM_MEMBERSHIP;
 
     const candidate = await resolvePerson(query);
     if (!candidate) return CANNOT_CONFIRM_MEMBERSHIP; // no match, or an ambiguous one -- never guess
@@ -224,7 +254,8 @@ export const memberStatusTool: McpTool = {
       where: { personId: candidate.id, termId: term.id, status: "ACTIVE" },
       select: { kind: true, department: { select: { id: true, name: true } } },
     });
-    const visible = memberships.filter((m) => visibleDeptIds.includes(m.department.id));
+    const visible =
+      visibleDeptIds === null ? memberships : memberships.filter((m) => visibleDeptIds.includes(m.department.id));
     // Same message whether the person does not exist, is not an active member
     // anywhere, or is active only in a department this caller cannot see --
     // the caller must not be able to tell those apart from the reply.

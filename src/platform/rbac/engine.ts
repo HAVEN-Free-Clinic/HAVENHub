@@ -148,6 +148,45 @@ export const permissionDepartmentIds = cache(
   },
 );
 
+/**
+ * Whether `permission` reaches `personId` through a RoleAssignment targeted
+ * at them directly -- a row with `personId` set, as opposed to one reaching
+ * them through a department or membership-kind match. This is the existing
+ * "platform" shape in the assignment model: {@link peopleWithAnyPermission}
+ * in holders.ts already treats personId-targeted rows as reaching that
+ * person unconditionally, with no TermMembership join at all, unlike
+ * department- and kind-targeted rows which only reach someone through an
+ * ACTIVE membership. A direct assignment was made to that individual, not
+ * through their standing in any one department, so nothing about it is
+ * department-scoped to begin with.
+ *
+ * This exists for callers like the roster MCP tools that need to widen
+ * permissionDepartmentIds() for platform-scoped admins (who may hold no
+ * departmental membership at all, so permissionDepartmentIds' own
+ * "memberships.length === 0 -> []" guard shuts them out) and clinic-wide
+ * role holders (whose person-targeted grant should not be capped at "every
+ * department they personally belong to").
+ *
+ * It must NEVER be satisfied by a department- or kind-targeted assignment.
+ * A kind-targeted Director grant is exactly the scoped case
+ * permissionDepartmentIds exists to keep scoped -- see its doc comment and
+ * the "directs A, volunteers in B" test in roster.test.ts -- so folding
+ * those into "platform" here would silently undo that protection and hand
+ * every director clinic-wide reach through the back door. Callers must treat
+ * this as an alternate, narrower-conditioned path alongside
+ * permissionDepartmentIds, never as a replacement for it.
+ */
+export const hasPlatformScope = cache(
+  async (personId: string, permission: string, termId?: string): Promise<boolean> => {
+    const { assignments } = await loadAssignmentContext(personId, termId ?? (await activeTermId()));
+    return assignments.some(
+      (a) =>
+        a.personId === personId &&
+        a.role.grants.some((g) => g.permission === permission || g.permission === "*"),
+    );
+  },
+);
+
 /** The one place the "*" wildcard rule lives. Use this on any Set from getEffectivePermissions. */
 export function hasPermission(perms: Set<string>, permission: string): boolean {
   return perms.has(permission) || perms.has("*");

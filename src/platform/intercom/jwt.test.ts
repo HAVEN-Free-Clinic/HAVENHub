@@ -63,6 +63,47 @@ describe("mintIntercomUserJwt", () => {
     expect(payload["Hub recruitment access"]).toBe(false);
   });
 
+  it("carries profile attributes into the signed payload when present", async () => {
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", SECRET);
+
+    const token = await mintIntercomUserJwt({
+      personId: "p1",
+      name: null,
+      email: null,
+      audience: {},
+      profile: { "Epic ID": "E12345", "Member status": "ACTIVE" },
+    });
+
+    const { payload } = await jwtVerify(token, key);
+    expect(payload["Epic ID"]).toBe("E12345");
+    expect(payload["Member status"]).toBe("ACTIVE");
+  });
+
+  it("omits a profile claim key entirely when it was never included, rather than sending it as null", async () => {
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", SECRET);
+
+    const token = await mintIntercomUserJwt({
+      personId: "p1",
+      name: null,
+      email: null,
+      audience: {},
+      profile: { "Member status": "ACTIVE" },
+    });
+
+    const { payload } = await jwtVerify(token, key);
+    expect("Epic ID" in payload).toBe(false);
+  });
+
+  it("mints a token with no profile claims at all when profile is omitted", async () => {
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", SECRET);
+
+    const token = await mintIntercomUserJwt({ personId: "p1", name: null, email: null, audience: {} });
+
+    const { payload } = await jwtVerify(token, key);
+    expect("Epic ID" in payload).toBe(false);
+    expect("Member status" in payload).toBe(false);
+  });
+
   it("cannot be verified with a different secret", async () => {
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", SECRET);
 

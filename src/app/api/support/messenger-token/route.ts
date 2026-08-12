@@ -1,11 +1,14 @@
 import { auth } from "@/platform/auth/auth";
-import { isDbUnreachableError } from "@/platform/db";
+import { prisma, isDbUnreachableError } from "@/platform/db";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { log, errorAttrs } from "@/platform/logging";
 import { isIntercomConfigured } from "@/platform/intercom/config";
 import { mintIntercomUserJwt, INTERCOM_TOKEN_TTL_SECONDS } from "@/platform/intercom/jwt";
 import { buildAudienceAttributes } from "@/platform/intercom/audience";
+import { buildProfileAttributes } from "@/platform/intercom/profile";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +31,18 @@ export const dynamic = "force-dynamic";
  * getting tokens even while their hub JWT is still valid -- so a DB blip
  * degrades to 503 rather than resolving as "still active". Same contract as
  * /api/notifications.
+ *
+ * Also assembles the `profile` claims (Epic ID, Yale NetID, Departments,
+ * Member status, Active term, Clearance at last sign-in) that give a human
+ * Intercom agent -- who has no MCP access, unlike Fin -- member context
+ * beyond a bare name. jwt.ts's buildProfileAttributes-consuming type lives in
+ * src/platform and must not import src/modules, so this route does the
+ * module-sourced lookups (getOnboardingStatus, the department query) itself
+ * and passes plain values in. Clearance specifically reuses getOnboardingStatus
+ * -- the same function the my_clearance_status MCP tool calls (see
+ * src/app/api/mcp/tools/compliance.ts) -- rather than re-deriving it, so a
+ * member is never told one thing by Fin/the dashboard and another by an
+ * Intercom agent reading this profile.
  */
 export async function GET(): Promise<Response> {
   // Feature off (either env var unset) looks like the route does not exist,
@@ -50,13 +65,44 @@ export async function GET(): Promise<Response> {
     // Audience flags ride on the token rather than being pushed to Intercom by a
     // separate sync job, so they are recomputed from live permissions on every
     // Messenger boot and cannot drift into a stale copy.
-    const perms = await getEffectivePermissions(person.id);
+    const [perms, onboarding, activeTerm] = await Promise.all([
+      getEffectivePermissions(person.id),
+      getOnboardingStatus(person.id),
+      getActiveTerm(),
+    ]);
+
+    // Active department memberships THIS TERM, same query shape as epic.ts's
+    // sendEpicEmail. Only meaningful alongside an active term, so it is left
+    // empty (and buildProfileAttributes omits "Departments") without one.
+    let departmentNames: string[] = [];
+    if (activeTerm) {
+      const memberships = await prisma.termMembership.findMany({
+        where: { personId: person.id, termId: activeTerm.id, status: "ACTIVE" },
+        include: { department: { select: { name: true } } },
+      });
+      departmentNames = memberships.map((m) => m.department.name).sort();
+    }
+
+    const profile = buildProfileAttributes({
+      epicId: person.epicId,
+      netId: person.netId,
+      departmentNames,
+      memberStatus: person.status,
+      // getOnboardingStatus returns cleared: true when there is no active
+      // term (a dormant, never-blocking status -- see its own doc comment),
+      // which would read as a misleadingly reassuring "Cleared" with no term
+      // to be cleared FOR. Gating on activeTerm here means Active term and
+      // Clearance at last sign-in are omitted together rather than sending
+      // that term-less "Cleared".
+      activeTerm: activeTerm ? { name: activeTerm.name, cleared: onboarding.cleared } : null,
+    });
 
     const token = await mintIntercomUserJwt({
       personId: person.id,
       name: person.name,
       email: person.contactEmail ?? null,
       audience: buildAudienceAttributes(perms),
+      profile,
     });
 
     return Response.json(

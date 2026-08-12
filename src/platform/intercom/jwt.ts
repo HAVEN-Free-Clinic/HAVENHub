@@ -23,6 +23,15 @@ export type IntercomUserClaims = {
    * granted on the contact.
    */
   audience: Record<string, boolean>;
+  /**
+   * Member-context attributes for the contact profile a human agent reads
+   * (see profile.ts) -- Epic ID, Yale NetID, Departments, Member status,
+   * Active term, Clearance at last sign-in. Optional, and each key is sent
+   * only when profile.ts resolved a value: unlike audience above, an absent
+   * key here is left alone deliberately (see mintIntercomUserJwt's doc
+   * comment for why the two claim groups use opposite rules).
+   */
+  profile?: Record<string, string>;
 };
 
 /**
@@ -37,9 +46,26 @@ export type IntercomUserClaims = {
  * Optional claims are omitted rather than sent as null: Intercom treats a
  * present-but-null attribute as an instruction to clear it on the contact.
  *
- * Audience flags are the deliberate exception to that rule and are always sent
- * in full, false values included. See buildAudienceAttributes for why omitting
- * one would leave a revoked permission granted.
+ * Two claim groups ride alongside the identity claims above, and they
+ * deliberately follow OPPOSITE rules -- both are assembled right here, so the
+ * asymmetry is explained once, at the one place it would otherwise look like
+ * an inconsistency:
+ *
+ *   - `audience` (see audience.ts) is always sent IN FULL, false values
+ *     included. Intercom MERGES custom attributes onto the contact rather
+ *     than replacing them, so an omitted flag keeps whatever value it had
+ *     before -- a demoted director whose flag simply stopped being sent would
+ *     keep seeing admin articles forever. Sending `false` explicitly is the
+ *     only thing that revokes access.
+ *   - `profile` (see profile.ts) is the reverse: a key is included only when
+ *     profile.ts resolved a value, and OMITTED rather than sent as null when
+ *     it did not. These attributes accumulate the Hub's best-known context
+ *     about a member (Epic ID, department, clearance) rather than toggle a
+ *     permission, and some of that context is deliberately retained after it
+ *     would otherwise look stale -- offboarding never clears Person.epicId,
+ *     for instance (see epic.ts's completeRequest). Sending null on absence
+ *     would erase something the Hub chose to keep, the opposite failure from
+ *     the one `audience` guards against.
  */
 export async function mintIntercomUserJwt(claims: IntercomUserClaims): Promise<string> {
   const secret = intercomMessengerSecret();
@@ -50,6 +76,7 @@ export async function mintIntercomUserJwt(claims: IntercomUserClaims): Promise<s
     ...(claims.email ? { email: claims.email } : {}),
     ...(claims.name ? { name: claims.name } : {}),
     ...claims.audience,
+    ...(claims.profile ?? {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()

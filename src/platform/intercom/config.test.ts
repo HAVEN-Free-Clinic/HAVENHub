@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { isMcpConfigured, intercomAccessToken, mcpBearerToken, intercomBotAdminId } from "./config";
+import {
+  isMcpConfigured,
+  isWebhookConfigured,
+  intercomAccessToken,
+  mcpBearerToken,
+  intercomBotAdminId,
+} from "./config";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -10,6 +16,13 @@ function configureAll() {
   vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
   vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
   vi.stubEnv("INTERCOM_MCP_BEARER_TOKEN", "bearer-token");
+}
+
+function configureWebhookAll() {
+  vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+  vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+  vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+  vi.stubEnv("INTERCOM_WEBHOOK_SECRET", "webhook-secret");
 }
 
 describe("MCP configuration", () => {
@@ -36,6 +49,36 @@ describe("MCP configuration", () => {
     configureAll();
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "");
     expect(isMcpConfigured()).toBe(false);
+  });
+});
+
+describe("webhook configuration", () => {
+  it("is configured only when the webhook secret, access token, and Messenger are all present", () => {
+    configureWebhookAll();
+    expect(isWebhookConfigured()).toBe(true);
+  });
+
+  it("is off without the webhook secret", () => {
+    configureWebhookAll();
+    vi.stubEnv("INTERCOM_WEBHOOK_SECRET", "");
+    expect(isWebhookConfigured()).toBe(false);
+  });
+
+  it("is off without the Intercom access token", () => {
+    configureWebhookAll();
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "");
+    expect(isWebhookConfigured()).toBe(false);
+  });
+
+  // Chains through isIntercomConfigured: without the Messenger, no contact
+  // ever gets an external_id, so resolveIdentityFromConversation could never
+  // succeed and ticket.created would 401 forever -- a partially-configured
+  // state that fails obscurely rather than staying off. See config.ts's doc
+  // comment on isWebhookConfigured.
+  it("is off when the Messenger itself is not configured, even with the webhook secret and access token set", () => {
+    configureWebhookAll();
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "");
+    expect(isWebhookConfigured()).toBe(false);
   });
 });
 

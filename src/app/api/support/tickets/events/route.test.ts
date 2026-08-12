@@ -39,8 +39,16 @@ function signedReq(bodyObj: unknown, secret: string = WEBHOOK_SECRET): Request {
   return rawReq(raw, { "Content-Type": "application/json", "X-Hub-Signature": sign(raw, secret) });
 }
 
-/** All values required to turn the webhook receiver on. */
+/**
+ * All values required to turn the webhook receiver on. Includes the Messenger
+ * pair (app id + secret) because isWebhookConfigured chains through
+ * isIntercomConfigured -- see config.ts's doc comment: without the Messenger,
+ * no contact ever gets an external_id, so resolveIdentityFromConversation
+ * could never succeed anyway.
+ */
 function configure() {
+  vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+  vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
   vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
   vi.stubEnv("INTERCOM_WEBHOOK_SECRET", WEBHOOK_SECRET);
   vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
@@ -113,6 +121,22 @@ describe("POST /api/support/tickets/events", () => {
       expect(await prisma.techRequest.count()).toBe(0);
     });
 
+    /**
+     * isWebhookConfigured chains through isIntercomConfigured (config.ts): a
+     * webhook secret and access token with no Messenger would 401 every
+     * single ticket.created forever, since resolveIdentityFromConversation
+     * can never find a contact with no external_id for the Messenger to have
+     * set. Staying off is the same "unset = feature off" posture as every
+     * other Intercom-facing route, rather than failing obscurely live.
+     */
+    it("404s when the webhook secret and access token are set but the Messenger is not", async () => {
+      vi.stubEnv("INTERCOM_MESSENGER_SECRET", "");
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(ticketCreatedPayload()));
+      expect(res.status).toBe(404);
+      expect(await prisma.techRequest.count()).toBe(0);
+    });
+
     it("401s and creates nothing when the signature header is missing", async () => {
       const { POST } = await import("./route");
       const raw = JSON.stringify(ticketCreatedPayload());
@@ -152,6 +176,22 @@ describe("POST /api/support/tickets/events", () => {
     it("200s and ignores a topic it does not handle, without touching the database", async () => {
       const { POST } = await import("./route");
       const res = await POST(signedReq({ topic: "conversation.admin.replied", data: { item: {} } }));
+
+      expect(res.status).toBe(200);
+      expect(await prisma.techRequest.count()).toBe(0);
+    });
+
+    /**
+     * WebhookEnvelopeSchema used to require data.item unconditionally, so this
+     * exact shape -- an unhandled topic with no item at all, which is what
+     * Intercom's own subscription-verification ping looks like -- 400'd
+     * instead of being ignored, and showed as a permanent delivery failure in
+     * Intercom's dashboard for traffic this endpoint was never meant to
+     * process.
+     */
+    it("200s and ignores an unhandled topic whose payload has no data.item at all", async () => {
+      const { POST } = await import("./route");
+      const res = await POST(signedReq({ topic: "ping", data: {} }));
 
       expect(res.status).toBe(200);
       expect(await prisma.techRequest.count()).toBe(0);

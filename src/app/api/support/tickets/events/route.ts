@@ -79,10 +79,10 @@ export async function POST(request: Request): Promise<Response> {
   const { topic, data } = parsed.data;
 
   if (topic === "ticket.created") {
-    return handleTicketCreated(data.item);
+    return handleTicketCreated(data.item ?? {});
   }
   if (topic === "ticket.state.updated") {
-    return handleTicketStateUpdated(data.item);
+    return handleTicketStateUpdated(data.item ?? {});
   }
 
   // Any other topic Intercom might send (its webhook-setup connectivity
@@ -101,11 +101,23 @@ export async function POST(request: Request): Promise<Response> {
  * specific fields it needs and defensively type-guards them, rather than
  * trusting a rigid schema that would reject a legitimate payload over an
  * unrelated field this endpoint does not use.
+ *
+ * `item` is optional, not required: requiring it meant the 200-and-ignore
+ * branch below (for a topic this endpoint does not act on) could only be
+ * reached AFTER a payload with an item parsed -- so anything without one,
+ * including Intercom's own subscription-verification ping, 400'd instead of
+ * being ignored, and showed as a permanent failure in Intercom's delivery
+ * dashboard for traffic this endpoint was never meant to handle. The two
+ * handlers that DO need item (handleTicketCreated, handleTicketStateUpdated)
+ * are unaffected: each already treats a missing field it needs (ticket id,
+ * state label) as an ordinary 400, so an item-less ticket.created or
+ * ticket.state.updated -- which is not a real Intercom payload -- still fails
+ * the same way, just via that per-field check instead of the schema.
  */
 const WebhookEnvelopeSchema = z.object({
   topic: z.string(),
   data: z.object({
-    item: z.record(z.string(), z.unknown()),
+    item: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 

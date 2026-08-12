@@ -73,9 +73,17 @@ export function intercomWebhookSecret(): string | null {
  * postConversationNote already uses. A webhook secret without it would 401
  * every signature check successfully and then fail every ticket.created,
  * which is a worse failure mode than staying off.
+ *
+ * Also chains through isIntercomConfigured, same reasoning as isMcpConfigured
+ * just above: resolveIdentityFromConversation only ever finds a contact by
+ * the external_id the Messenger's identity-verified boot sets, so a webhook
+ * receiver live without the Messenger would 401 every ticket.created
+ * forever, with nothing to fix it short of configuring the Messenger anyway.
+ * That is a partially-configured state that fails obscurely rather than
+ * staying off -- the exact posture every function in this file avoids.
  */
 export function isWebhookConfigured(): boolean {
-  return intercomWebhookSecret() !== null && intercomAccessToken() !== null;
+  return isIntercomConfigured() && intercomWebhookSecret() !== null && intercomAccessToken() !== null;
 }
 
 /**

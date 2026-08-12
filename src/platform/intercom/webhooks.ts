@@ -26,6 +26,26 @@ const SIGNATURE_PREFIX = "sha1=";
  * secret comparison in this codebase) so a forged signature cannot be
  * recovered byte-by-byte via response-timing differences the way a naive
  * `===` would allow.
+ *
+ * SHA-1 here is not a choice, and not a weakness. Intercom signs with
+ * HMAC-SHA1 and sends a `sha1=` prefix; it offers no SHA-256 variant, and
+ * their docs call this out explicitly ("match the algorithm exactly or the
+ * digest will never line up"). Verification must use whatever the sender
+ * used.
+ *
+ * A static analyser will flag `createHmac("sha1", ...)` on a generic
+ * "SHA-1 is broken" rule -- CodeQL raised exactly this as High on the PR
+ * that added this file. The rule does not distinguish HMAC from raw
+ * hashing, and the distinction is the whole point: SHA-1's practical break
+ * is COLLISION resistance, which HMAC's security does not rest on. HMAC-SHA1
+ * remains sound for message authentication and is still permitted by NIST
+ * for it.
+ *
+ * The suggested remediation -- accept `sha256=` and fall back to `sha1=` --
+ * should not be applied. The SHA-256 branch could never execute, because
+ * Intercom never sends that prefix, and it would make the digest algorithm
+ * selectable by an attacker-controlled header for no gain. If Intercom ever
+ * does add SHA-256, switch to it outright rather than accepting both.
  */
 export function verifyIntercomWebhookSignature(
   rawBody: string,

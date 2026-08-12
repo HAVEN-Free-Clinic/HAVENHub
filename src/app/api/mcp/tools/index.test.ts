@@ -72,6 +72,81 @@ describe("MCP tool registry", () => {
     expect(violations).toEqual([]);
   });
 
+  /**
+   * These six cases are the actual point of item 1: before this fix, a
+   * personId hidden inside any of ZodUnion, ZodDiscriminatedUnion,
+   * ZodIntersection, ZodLazy, ZodTuple, or a refined/piped wrapper fell
+   * through collectSchemaKeys' final `return []` with no error at all --
+   * worse than the z.record case above, which at least throws loudly.
+   */
+  describe("wrapper and composite schema types", () => {
+    it("catches a personId hidden inside a union", () => {
+      const offender = z.object({
+        choice: z.union([z.object({ a: z.string() }), z.object({ personId: z.string() })]),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("catches a personId hidden inside a discriminated union", () => {
+      const offender = z.object({
+        query: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("byDate"), date: z.string() }),
+          z.object({ kind: z.literal("byPerson"), personId: z.string() }),
+        ]),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("catches a personId hidden inside an intersection", () => {
+      const offender = z.object({
+        merged: z.intersection(z.object({ a: z.string() }), z.object({ personId: z.string() })),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("catches a personId hidden inside a lazy schema", () => {
+      const offender = z.object({
+        nested: z.lazy(() => z.object({ personId: z.string() })),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("catches a personId hidden inside a tuple", () => {
+      const offender = z.object({
+        pair: z.tuple([z.string(), z.object({ personId: z.string() })]),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("catches a personId hidden inside a refined/effects-wrapped object", () => {
+      // .transform() is what actually wraps the schema in zod v4 (v3's
+      // ZodEffects no longer exists); .refine() attaches a check in place and
+      // was already handled before this fix, so it is not the interesting case.
+      const offender = z.object({
+        payload: z.object({ personId: z.string() }).transform((v) => v.personId),
+      });
+      expect(collectSchemaKeys(offender)).toContain("personId");
+    });
+
+    it("still passes legitimately nested unions, intersections, and tuples with no identity-shaped keys", () => {
+      const innocuous = z.object({
+        choice: z.union([z.object({ a: z.string() }), z.object({ b: z.number() })]),
+        merged: z.intersection(z.object({ c: z.string() }), z.object({ d: z.boolean() })),
+        pair: z.tuple([z.string(), z.object({ e: z.number() })]),
+      });
+      const violations = collectSchemaKeys(innocuous).filter((k) => IDENTITY_ARGUMENT_PATTERN.test(k));
+      expect(violations).toEqual([]);
+    });
+
+    it("throws on an unrecognised or opaque schema type instead of silently returning no keys", () => {
+      // z.map, like z.record, admits arbitrary keys the guard cannot enumerate
+      // -- and unlike z.record, nothing in collectSchemaKeys names it
+      // specifically, so this exercises the generic "unrecognised type" throw.
+      const offender = z.object({ lookup: z.map(z.string(), z.object({ personId: z.string() })) });
+      expect(() => collectSchemaKeys(offender)).toThrow(/does not recognise/);
+    });
+  });
+
   it("forbids sensitive output fields and allows ordinary ones", () => {
     const forbidden = ["govId", "dateOfBirth", "photoKey", "MemberLoginToken", "passwordHash", "storageKey", "scormBlobKey"];
     for (const key of forbidden) {

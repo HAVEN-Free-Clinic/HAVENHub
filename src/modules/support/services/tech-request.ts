@@ -13,7 +13,8 @@
  *                         so a stranger cannot distinguish "not found" from
  *                         "exists but you can't see it".
  *
- *   TRUSTED, single caller (src/app/api/support/tickets/from-conversation):
+ *   TRUSTED callers (src/app/api/support/tickets/from-conversation and
+ *   src/app/api/support/tickets/events -- the ticket.created webhook):
  *     createTechRequestFromConversation - requesterPersonId must already be a
  *                         verified identity (resolveIdentityFromConversation),
  *                         never a value taken from a request body. This
@@ -150,6 +151,12 @@ export async function createTechRequest(
 
 export type CreateFromConversationInput = {
   intercomConversationId: string;
+  // Present only on the ticket.created webhook path (Direction 1's
+  // 2026-08-12 revision): the from-conversation route (Fin's custom action)
+  // never has a ticket id, since no Intercom Ticket exists at that point.
+  // See the field's doc comment on the TechRequest model for why this is a
+  // second, distinct column rather than folded into intercomConversationId.
+  intercomTicketId?: string;
   category: TechRequestCategory;
   subject: string;
   description: string;
@@ -159,17 +166,29 @@ export type CreateFromConversationInput = {
  * Idempotent create for a ticket opened from an Intercom conversation, rather
  * than the Hub submit form. See docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md.
  *
- * Looked up by intercomConversationId first. Intercom retries webhooks and
- * Fin can call the same action more than once in one turn, so sending the
- * same conversation id twice must land on the SAME ticket, not a second one
- * with a consecutive number -- returned unchanged, `created: false`. This is
- * deliberately not an error: a retry is normal, not a fault.
+ * Two callers, two idempotency keys:
+ *   - src/app/api/support/tickets/from-conversation/route.ts (Fin's custom
+ *     action) has only a conversation id, and looks up/collides on
+ *     intercomConversationId, exactly as before this function accepted a
+ *     ticket id at all.
+ *   - src/app/api/support/tickets/events/route.ts (the ticket.created
+ *     webhook) has both a conversation id and a real Intercom ticket id, and
+ *     that ticket id is the key Intercom repeats a retry on -- so when it is
+ *     present, the lookup checks it (OR'd with the conversation id, so a
+ *     conversation that already produced a ticket by the other path still
+ *     collides correctly) rather than the conversation id alone.
  *
- * The findUnique-then-create pair still leaves a race window between two
- * genuinely concurrent calls for the same conversation (both can pass the
- * lookup before either commits), so the create is wrapped in a catch for the
- * P2002 that then lands on the unique index: the loser re-reads and returns
- * the winner's row instead of surfacing a raw constraint violation as a 500.
+ * Either way this is deliberately not an error: an Intercom retry (of a
+ * webhook delivery or of a Fin tool call) is normal, not a fault, and must
+ * land on the SAME ticket, not a second one with a consecutive number --
+ * returned unchanged, `created: false`.
+ *
+ * The lookup-then-create pair still leaves a race window between two
+ * genuinely concurrent calls for the same conversation/ticket (both can pass
+ * the lookup before either commits), so the create is wrapped in a catch for
+ * the P2002 that then lands on one of the two unique indexes: the loser
+ * re-reads and returns the winner's row instead of surfacing a raw
+ * constraint violation as a 500.
  *
  * Deliberately narrow compared to CreateTechRequestInput: category, subject,
  * and description only. No Epic intake field (epicJobTitle, epicMirrorId,
@@ -189,9 +208,19 @@ export async function createTechRequestFromConversation(
   requesterPersonId: string,
   input: CreateFromConversationInput
 ): Promise<{ ticket: TechRequest; created: boolean }> {
-  const existing = await prisma.techRequest.findUnique({
-    where: { intercomConversationId: input.intercomConversationId },
-  });
+  // findUnique on intercomConversationId alone when there is no ticket id --
+  // the exact query the from-conversation route has always run, left
+  // untouched so that path's behavior (including what it looks like under a
+  // database outage, covered by that route's own test) does not change.
+  // findFirst-with-OR only kicks in for the ticket.created webhook path,
+  // which is the one caller that ever has a ticket id to check.
+  const existing = input.intercomTicketId
+    ? await prisma.techRequest.findFirst({
+        where: {
+          OR: [{ intercomTicketId: input.intercomTicketId }, { intercomConversationId: input.intercomConversationId }],
+        },
+      })
+    : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
   if (existing) return { ticket: existing, created: false };
 
   const subject = input.subject?.trim();
@@ -208,6 +237,7 @@ export async function createTechRequestFromConversation(
         description,
         status: "SUBMITTED",
         intercomConversationId: input.intercomConversationId,
+        intercomTicketId: input.intercomTicketId ?? null,
       },
     });
 
@@ -222,13 +252,20 @@ export async function createTechRequestFromConversation(
     return { ticket, created: true };
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      // Another call for the same conversation won the race between our
-      // findUnique above and this create. Its row is exactly what we would
+      // Another call for the same conversation/ticket won the race between
+      // our lookup above and this create. Its row is exactly what we would
       // have returned had we lost the race the other way, so hand it back
       // rather than letting the constraint violation surface as a 500.
-      const winner = await prisma.techRequest.findUnique({
-        where: { intercomConversationId: input.intercomConversationId },
-      });
+      const winner = input.intercomTicketId
+        ? await prisma.techRequest.findFirst({
+            where: {
+              OR: [
+                { intercomTicketId: input.intercomTicketId },
+                { intercomConversationId: input.intercomConversationId },
+              ],
+            },
+          })
+        : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
       if (winner) return { ticket: winner, created: false };
     }
     throw err;

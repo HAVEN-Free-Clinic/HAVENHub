@@ -54,6 +54,31 @@ export function isMcpConfigured(): boolean {
 }
 
 /**
+ * Shared secret used to verify Intercom's `X-Hub-Signature` header on the
+ * inbound ticket-sync webhook -- the app's client secret (Settings > Basic
+ * Info), NOT the API access token above. Two different credentials with two
+ * different blast radii: the access token reads/writes through Intercom's
+ * REST API, while this one only proves a request body was actually signed by
+ * Intercom. Absent = the webhook receiver 404s, same "unset = feature off"
+ * posture as the rest of this file.
+ */
+export function intercomWebhookSecret(): string | null {
+  return process.env.INTERCOM_WEBHOOK_SECRET?.trim() || null;
+}
+
+/**
+ * The webhook receiver also requires the access token: ticket.created
+ * resolves identity (resolveIdentityFromConversation) and writes the Hub
+ * ticket number back (pushTicketNumber), both through the same REST API
+ * postConversationNote already uses. A webhook secret without it would 401
+ * every signature check successfully and then fail every ticket.created,
+ * which is a worse failure mode than staying off.
+ */
+export function isWebhookConfigured(): boolean {
+  return intercomWebhookSecret() !== null && intercomAccessToken() !== null;
+}
+
+/**
  * The Intercom admin a HAVEN Hub status-change note is authored as. Intercom
  * requires an admin_id on every reply to a conversation, notes included --
  * there is no default or "system" author it will fall back to -- so posting is

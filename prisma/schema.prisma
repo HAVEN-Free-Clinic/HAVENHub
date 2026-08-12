@@ -734,6 +734,14 @@ model TechRequest {
   /// support chat rather than the Hub form. Unique: a conversation maps to at most one
   /// ticket, which is what makes the create path idempotent under Intercom retries.
   intercomConversationId String?             @unique
+  /// The Intercom Ticket this record is linked to, a DIFFERENT Intercom object from
+  /// intercomConversationId: the conversation resolves identity and receives internal
+  /// notes, while the ticket carries state (Direction 3's inbound sync) and the "Hub
+  /// ticket number" attribute (the write-back the conversation-only id could never
+  /// reach). Unique: a ticket maps to at most one TechRequest, which is what makes
+  /// ticket.created idempotent under Intercom's webhook retries. Collapsing these two
+  /// ids into one field is the mistake the design doc records costing an afternoon.
+  intercomTicketId       String?             @unique
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { pushTicketNumber, pushTicketState, INTERCOM_TICKET_WRITE_TIMEOUT_MS } from "./tickets";
+import {
+  pushTicketNumber,
+  pushTicketState,
+  fetchTicketState,
+  INTERCOM_TICKET_WRITE_TIMEOUT_MS,
+  INTERCOM_TICKET_READ_TIMEOUT_MS,
+} from "./tickets";
 
 function mockFetchOnce(status: number) {
   vi.stubGlobal(
@@ -172,6 +178,96 @@ describe("pushTicketState", () => {
     const result = await pending;
 
     expect(result).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+describe("fetchTicketState", () => {
+  function mockFetchOnceWithLabel(label: string | null) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ticket_state_internal_label: label }) })
+    );
+  }
+
+  it("GETs the ticket and returns its internal state label", async () => {
+    mockFetchOnceWithLabel("In progress");
+
+    const result = await fetchTicketState("ticket_1");
+
+    expect(result).toBe("In progress");
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/tickets/ticket_1");
+    expect(init.method).toBe("GET");
+  });
+
+  it("pins an explicit Intercom-Version header rather than trusting the workspace default", async () => {
+    mockFetchOnceWithLabel("In progress");
+
+    await fetchTicketState("ticket_1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["Intercom-Version"]).toBe("2.14");
+  });
+
+  it("returns null when the response has no label at all", async () => {
+    mockFetchOnceWithLabel(null);
+
+    const result = await fetchTicketState("ticket_1");
+
+    expect(result).toBeNull();
+  });
+
+  it("fails closed (returns null, does not throw) on a non-2xx response", async () => {
+    mockFetchOnce(422);
+
+    const result = await fetchTicketState("ticket_1");
+
+    expect(result).toBeNull();
+  });
+
+  it("fails closed when the network throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    const result = await fetchTicketState("ticket_1");
+
+    expect(result).toBeNull();
+  });
+
+  it("fails closed when no access token is configured", async () => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "");
+    vi.stubGlobal("fetch", vi.fn());
+
+    const result = await fetchTicketState("ticket_1");
+
+    expect(result).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  /** Same simulation approach as pushTicketNumber's timeout test above. */
+  it("fails closed when the fetch times out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              const err = new Error("This operation was aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          })
+      )
+    );
+
+    const pending = fetchTicketState("ticket_1");
+    await vi.advanceTimersByTimeAsync(INTERCOM_TICKET_READ_TIMEOUT_MS);
+    const result = await pending;
+
+    expect(result).toBeNull();
     vi.useRealTimers();
   });
 });

@@ -22,6 +22,15 @@ const INTERCOM_API_VERSION = "2.14";
 export const INTERCOM_TICKET_WRITE_TIMEOUT_MS = 5_000;
 
 /**
+ * Same budget as INTERCOM_TICKET_WRITE_TIMEOUT_MS, kept as its own constant
+ * because fetchTicketState below is called once per row inside the
+ * reconciliation cron's paged loop (src/app/api/cron/intercom-reconcile) --
+ * a batch of these adds up, unlike the one-off writes above -- so this name
+ * gives that call site room to tune its own budget independently later.
+ */
+export const INTERCOM_TICKET_READ_TIMEOUT_MS = 5_000;
+
+/**
  * The Intercom ticket-type attribute this write targets. Created 2026-08-11
  * on all six ticket types for exactly this purpose (see
  * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md).
@@ -154,6 +163,66 @@ export async function pushTicketState(ticketId: string, stateLabel: string): Pro
       errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
     );
     return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Reads an Intercom Ticket's current staff-facing state label
+ * (`ticket_state_internal_label`), the same field the ticket.state.updated
+ * webhook carries in its payload (see intercom-sync.ts's
+ * mapIntercomTicketStateToStatus, which this call site reuses to interpret
+ * the label the same way inbound and reconciliation do).
+ *
+ * This is the read half Direction 3's webhook never needed: a webhook either
+ * arrives or it does not, and when Intercom retries a failed delivery there is
+ * nothing more to poll for. A delivery that Intercom gives up on entirely (or
+ * an outage on our side at the moment it fired) leaves no further retry and no
+ * trace to notice the loss by -- that gap is what the reconciliation cron
+ * (src/app/api/cron/intercom-reconcile) exists to close, and it can only do
+ * that by asking Intercom directly instead of waiting for an event that may
+ * never come.
+ *
+ * Same fail-closed, never-throw posture as pushTicketNumber/pushTicketState
+ * above: unconfigured, network error, timeout, and non-2xx all resolve to
+ * `null` and are logged, never thrown. The cron treats `null` as "could not
+ * check this one right now" and skips it, never as evidence of drift --
+ * an unreachable Intercom must not manufacture a mismatch report.
+ */
+export async function fetchTicketState(ticketId: string): Promise<string | null> {
+  const token = intercomAccessToken();
+  if (!token) return null;
+
+  const endpoint = "tickets/:id";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_TICKET_READ_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${INTERCOM_API}/tickets/${encodeURIComponent(ticketId)}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Intercom-Version": INTERCOM_API_VERSION,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      log.warn("[intercom] ticket state read failed", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        status: res.status,
+      });
+      return null;
+    }
+    const body = (await res.json()) as { ticket_state_internal_label?: string | null };
+    return body.ticket_state_internal_label ?? null;
+  } catch (err) {
+    // Catches a network failure and an abort (the timeout above) alike -- see
+    // the matching comment in identity.ts.
+    log.warn("[intercom] ticket state read failed", errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION }));
+    return null;
   } finally {
     clearTimeout(timeout);
   }

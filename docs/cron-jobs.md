@@ -28,6 +28,7 @@ the job below silently stops running with no in-repo error.
 | `/api/cron/schedule-reminders` | External (cron-job.org) | daily | `0 15 * * *` | Reminds a department's shift-request approvers (`schedule.manage_requests` holders) of drop/swap requests still pending, throttled so the same approver is not re-notified every day. Enqueue-only. | Pending shift drop/swap requests are never chased; approvers may never notice a request awaiting their decision. |
 | `/api/cron/clinic-checkin-invites` | External (cron-job.org) | daily | `0 11 * * *` | Queues the morning-of check-in link to everyone assigned to today's clinic; no-ops on non-clinic days. Enqueue-only, one email per person even if assigned to multiple departments that day. | Volunteers get no check-in link and must be checked in manually by a director. |
 | `/api/cron/wallet-passes` | External (cron-job.org) | daily | `0 5 * * *` | Revoke expired and offboarded wallet badges: re-revokes at the vendor any badge whose term has ended or whose holder has been offboarded, since the vendor has no webhooks and every other revoke path is best-effort. | A badge already believed dead can stay live and scannable on a former volunteer's or expired-term member's phone indefinitely. |
+| `/api/cron/intercom-reconcile` | External (cron-job.org) | daily | `0 2 * * *` | Walks every `TechRequest` with a linked Intercom Ticket (paged, capped at 500/run), compares Hub status against Intercom's live ticket state, and audits every mismatch or unrecognized state. **Report-only**: never writes `TechRequest.status` -- see the service's doc comment for why the direction of truth cannot be inferred after the fact. No-ops (0 rows checked) when Intercom has no access token configured. | A webhook Intercom gave up retrying, or a Hub-origin push that failed while Intercom was unreachable, drifts the two systems permanently with nothing to notice it -- the Hub can read `IN_PROGRESS` while Intercom reads `Resolved`, silently, forever, until a human happens to compare them by hand. |
 
 Notes:
 
@@ -55,6 +56,12 @@ Notes:
 - `recruitment-drafts` used to be a Vercel Cron but was moved to the external
   scheduler for the same reason as the others (Vercel does not fire `vercel.json`
   crons on the current plan). `vercel.json` no longer declares any crons.
+- `intercom-reconcile` writes only `AuditLog` rows (never `TechRequest`), so a
+  re-run, a retried timeout, or two overlapping ticks are all safe: each pass
+  independently re-derives and re-audits whatever is still mismatched. It has no
+  persisted paging cursor between runs, so a backlog larger than 500 rows is swept
+  across more than one day rather than in one run -- acceptable for a reporting
+  job with no correctness deadline.
 
 ## Authorization
 

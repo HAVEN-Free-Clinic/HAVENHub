@@ -6,6 +6,8 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
+import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
+import { IntercomMessenger } from "@/platform/intercom/messenger";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -34,8 +36,13 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
     isReviewer: isRecruitmentReviewer,
     isPanelist,
   });
+  // Support Messenger, authenticated routes only. Gated on the secret being set
+  // too, so a workspace configured with just an app id stays off rather than
+  // booting an unverified (impersonatable) Messenger.
+  const supportAppId = isIntercomConfigured() ? intercomAppId() : null;
   return (
     <>
+      {supportAppId ? <IntercomMessenger appId={supportAppId} /> : null}
       <PostHogIdentify
         personId={person.personId}
         name={person.name}

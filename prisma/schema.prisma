@@ -685,6 +685,11 @@ enum TechRequestCategory {
   DUO_MFA
   GENERAL_IT
   TEAMS
+  /// Problems with HAVEN Hub itself (bugs, access, feature requests), as opposed
+  /// to the external systems the other categories cover. Added once Intercom
+  /// became the support front door and Hub reports needed somewhere to land
+  /// other than GENERAL_IT, where they were indistinguishable from Yale IT work.
+  HAVEN_HUB
   OTHER
 }
 
@@ -714,28 +719,32 @@ enum CommentVisibility {
 /// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
 /// requester (the subject of the request).
 model TechRequest {
-  id            String              @id @default(cuid())
-  number        Int                 @unique @default(autoincrement())
-  requesterId   String
-  category      TechRequestCategory
-  epicSubtype   EpicRequestKind?
-  subject       String
-  description   String
-  priority      TechRequestPriority @default(MEDIUM)
-  status        TechRequestStatus   @default(SUBMITTED)
-  assignedToId  String?
-  resolution    String?
-  resolvedAt    DateTime?
-  // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
-  epicJobTitle  String?
-  epicMirrorId  String?
-  epicStartDate DateTime?
-  epicEndDate   DateTime?
-  worksAtYnhh   Boolean?
-  govId         String?
-  netId         String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id                     String              @id @default(cuid())
+  number                 Int                 @unique @default(autoincrement())
+  requesterId            String
+  category               TechRequestCategory
+  epicSubtype            EpicRequestKind?
+  subject                String
+  description            String
+  priority               TechRequestPriority @default(MEDIUM)
+  status                 TechRequestStatus   @default(SUBMITTED)
+  assignedToId           String?
+  resolution             String?
+  resolvedAt             DateTime?
+  /// The Intercom conversation this ticket was opened from, when it came in through
+  /// support chat rather than the Hub form. Unique: a conversation maps to at most one
+  /// ticket, which is what makes the create path idempotent under Intercom retries.
+  intercomConversationId String?             @unique
+  /// The Intercom Ticket this record is linked to, a DIFFERENT Intercom object from
+  /// intercomConversationId: the conversation resolves identity and receives internal
+  /// notes, while the ticket carries state (Direction 3's inbound sync) and the "Hub
+  /// ticket number" attribute (the write-back the conversation-only id could never
+  /// reach). Unique: a ticket maps to at most one TechRequest, which is what makes
+  /// ticket.created idempotent under Intercom's webhook retries. Collapsing these two
+  /// ids into one field is the mistake the design doc records costing an afternoon.
+  intercomTicketId       String?             @unique
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   /// Subject of the request. Cascade: tickets belong to the requester.
   requester    Person        @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)

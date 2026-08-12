@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { can, getEffectivePermissions, hasPermission, permissionDepartmentIds } from "./engine";
+import { can, getEffectivePermissions, hasPermission, hasPlatformScope, permissionDepartmentIds } from "./engine";
 
 async function fixture() {
   const term = await prisma.term.create({
@@ -277,5 +277,88 @@ describe("permissionDepartmentIds", () => {
     expect(
       await permissionDepartmentIds(person.id, "schedule.manage_requests", f.oldTerm.id),
     ).toEqual([f.vadm.id]);
+  });
+});
+
+describe("hasPlatformScope", () => {
+  beforeEach(resetDb);
+
+  /** A fresh role granting exactly `permission`. */
+  async function roleGranting(permission: string) {
+    return prisma.role.create({
+      data: {
+        name: `R-${permission}-${Date.now()}-${Math.random()}`,
+        grants: { create: [{ permission }] },
+      },
+    });
+  }
+
+  it("is true for a permission granted through a personId-targeted assignment, even with zero memberships", async () => {
+    const f = await fixture();
+    // No TermMembership row at all -- the exact "platform admin with no
+    // departmental membership" shape the roster MCP tools need to widen for.
+    const person = await prisma.person.create({ data: { name: "NoMemberships" } });
+    const role = await roleGranting("volunteers.view");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id, termId: null } });
+
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(true);
+  });
+
+  it("is true when the personId-targeted assignment grants via the wildcard", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "WildcardPlatform" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.adminRole.id, personId: person.id, termId: null } });
+
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(true);
+  });
+
+  it("is false for a department-targeted assignment -- that is a department scope, not a platform one", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "DeptScoped" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "VOLUNTEER" },
+    });
+    const role = await roleGranting("volunteers.view");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, departmentId: f.itcm.id, termId: null } });
+
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(false);
+  });
+
+  /**
+   * The load-bearing case: the baseline Director role grants volunteers.view
+   * through a kind-targeted assignment, which makes can() return true
+   * department-blind. hasPlatformScope must NOT agree with can() here -- a
+   * kind-targeted grant is exactly the department/kind-scoped case
+   * permissionDepartmentIds exists to keep scoped, and folding it into
+   * "platform" would hand every director clinic-wide reach.
+   */
+  it("is false for a kind-targeted assignment, even though can() reports true department-blind", async () => {
+    const f = await fixture();
+    // fixture() already provisions the kind-targeted Director->DIRECTOR
+    // assignment (mirroring the real baseline); just add a DIRECTOR
+    // membership so it reaches this person.
+    const person = await prisma.person.create({ data: { name: "KindScopedDirector" } });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: f.term.id, departmentId: f.itcm.id, kind: "DIRECTOR" },
+    });
+
+    expect(await can(person.id, "volunteers.view")).toBe(true);
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(false);
+  });
+
+  it("is false when nobody grants the permission at all", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "NoGrantPlatform" } });
+
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(false);
+  });
+
+  it("is false when the person-targeted grant is for a different permission", async () => {
+    const f = await fixture();
+    const person = await prisma.person.create({ data: { name: "WrongPermission" } });
+    const role = await roleGranting("admin.manage_people");
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id, termId: null } });
+
+    expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(false);
   });
 });

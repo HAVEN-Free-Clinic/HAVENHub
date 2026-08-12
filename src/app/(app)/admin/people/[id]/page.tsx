@@ -16,6 +16,7 @@ import { PersonMembershipsPanel } from "@/modules/admin/components/person-member
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { LastLoginPanel } from "@/modules/admin/components/last-login-panel";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 
@@ -31,6 +32,11 @@ export default async function PersonDetailPage({ params }: PageProps) {
   if (!person) notFound();
 
   const canManageRoster = await can(session.personId, "admin.manage_roster");
+
+  // Resolved here rather than inside LastLoginPanel: that component stays
+  // synchronous so it can be tested with renderToStaticMarkup, and the zone
+  // lookup is async. getDisplayTimeZone is request-cached, so this is free.
+  const timeZone = await getDisplayTimeZone();
 
   // Reuses the same reviewer-facing card from the application detail page (see
   // ApplicantHistory in the recruitment module), matched by netId/email/personId
@@ -168,7 +174,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
           to department directors. */}
       <section>
         <SectionHeader className="mb-4">Sign-in activity</SectionHeader>
-        <LastLoginPanel person={person} />
+        <LastLoginPanel person={person} timeZone={timeZone} />
       </section>
     </div>
   );

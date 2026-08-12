@@ -1,4 +1,5 @@
 import { describeUserAgent } from "@/platform/auth/user-agent";
+import { formatDateTime } from "@/platform/dates/format";
 
 type LastLoginFields = {
   lastLoginAt: Date | null;
@@ -14,13 +15,21 @@ type LastLoginFields = {
  * the gating is inherited rather than reinvented. Nothing here appears on the
  * member's own page or to department directors.
  *
- * Synchronous on purpose: an async server component cannot be rendered by
- * renderToStaticMarkup, which is how this is tested. That rules out the async
- * DateTime helper in @/platform/dates/display, so the timestamp is formatted
- * inline in UTC rather than the configured display zone. Worth knowing before
- * "fixing" it to match other date rendering in the app.
+ * Synchronous on purpose, with the zone passed in rather than resolved here.
+ * The async DateTime server component in @/platform/dates/display cannot be
+ * rendered by renderToStaticMarkup, which is how this is tested, so the page
+ * (already async) resolves getDisplayTimeZone() and hands the zone down. That
+ * keeps the shared formatter, and its configured zone and 12-hour convention,
+ * without dragging the test into an async harness.
  */
-export function LastLoginPanel({ person }: { person: LastLoginFields }) {
+export function LastLoginPanel({
+  person,
+  timeZone,
+}: {
+  person: LastLoginFields;
+  /** From getDisplayTimeZone(). Resolved by the caller; see the note above. */
+  timeZone: string;
+}) {
   if (!person.lastLoginAt) {
     // Absence has a real meaning here (never signed in, or not since this
     // shipped), and a blank row would read like a bug.
@@ -35,7 +44,7 @@ export function LastLoginPanel({ person }: { person: LastLoginFields }) {
       <dt className="font-medium text-foreground">Last sign-in</dt>
       <dd className="text-muted-foreground">
         <time dateTime={person.lastLoginAt.toISOString()}>
-          {person.lastLoginAt.toISOString().replace("T", " ").slice(0, 16)} UTC
+          {formatDateTime(person.lastLoginAt, timeZone)}
         </time>
       </dd>
       {browser ? (

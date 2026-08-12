@@ -8,11 +8,12 @@ import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
-import { mintMessengerTokenForSession } from "@/platform/intercom/mint-token";
+import { mintMessengerTokenForSession, type MintResult } from "@/platform/intercom/mint-token";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { shouldMountBlockerGate } from "@/platform/intercom/gate-mount";
 import { getSupportContact } from "@/platform/branding/support";
 import { getSetting } from "@/platform/settings/service";
+import { log, errorAttrs } from "@/platform/logging";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -30,7 +31,24 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
       isInterviewPanelist(person.personId),
       getSupportContact(),
       getSetting<boolean>("support.blockerGateEnabled"),
-      mintMessengerTokenForSession(),
+      // mintMessengerTokenForSession only converts a recognized DB-unreachable
+      // shape into a clean refusal; everything else (an unrecognized DB error
+      // shape, a jose failure, a bug in getEffectivePermissions) rethrows. Its
+      // only caller used to be the token route, where an unhandled rejection
+      // is a contained 500 on /api/support/messenger-token alone. Its second
+      // caller is this Promise.all, where an unhandled rejection would reject
+      // the ENTIRE layout render for every signed-in member over a
+      // support-only failure. Contained here: log it and degrade to a
+      // token-less render, which IntercomMessenger already falls back to
+      // fetching for. Support degrading is acceptable; the hub failing to
+      // render is not.
+      mintMessengerTokenForSession().catch((err): MintResult => {
+        log.error(
+          "[intercom] layout mint failed unexpectedly; degrading to a token-less render",
+          errorAttrs(err)
+        );
+        return { ok: false, reason: "db_unreachable" };
+      }),
     ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav

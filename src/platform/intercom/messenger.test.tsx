@@ -44,6 +44,16 @@ afterEach(() => {
     container.remove();
     mounted = null;
   }
+  // Restored here (not at the end of the one test that fakes timers) so a
+  // failed assertion mid-test cannot leak fake timers into the rest of the
+  // file. Unmount must run first: its cleanup may call the captured
+  // setTimeout handle's clearTimeout while fake timers are still the active
+  // implementation.
+  vi.useRealTimers();
+  // React hoists these <link> tags into <head> and does not remove them on
+  // unmount in jsdom, so a later test's querySelectorAll would otherwise see
+  // every earlier mount's tags too.
+  document.querySelectorAll('link[rel="preconnect"]').forEach((el) => el.remove());
   vi.unstubAllGlobals();
 });
 
@@ -93,7 +103,52 @@ describe("IntercomMessenger", () => {
 
     expect(sdk.update).toHaveBeenCalledWith({ intercom_user_jwt: "refreshed.jwt" });
     expect(sdk.boot).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
+  });
+
+  /**
+   * The regression this guards: `mintIntercomUserJwt` calls `.setIssuedAt()`,
+   * so the token STRING is different on every mint, not just its wrapper
+   * object's identity. A server re-render of the (app) layout (a
+   * router.refresh(), a revalidating Server Action) re-mints and hands down a
+   * new string. If the effect depended on that string, React would see it
+   * change, tear the effect down (cleanup calls shutdown(), killing a live
+   * conversation), and rebuild it from a fresh closure with `booted` reset to
+   * false, calling Intercom() again instead of update(). The fix freezes the
+   * boot token in a ref so the effect has nothing to depend on but `appId`.
+   */
+  it("re-rendering with a different token neither shuts down nor re-boots", async () => {
+    await mount({ token: "server.jwt.mint1", expiresInSeconds: 900 });
+    expect(sdk.boot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      mounted?.root.render(
+        <IntercomMessenger
+          appId="abc123"
+          initialToken={{ token: "server.jwt.mint2", expiresInSeconds: 900 }}
+        />
+      );
+    });
+
+    expect(sdk.shutdown).not.toHaveBeenCalled();
+    expect(sdk.boot).toHaveBeenCalledTimes(1);
+    expect(sdk.update).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Without this, signing out (or switching accounts in the same browser)
+   * leaves the previous member's support session live for the next person.
+   * Deleting the shutdown() call from cleanup would leave every other case in
+   * this file green, since none of them unmount and then assert.
+   */
+  it("calls shutdown() on unmount", async () => {
+    await mount({ token: "server.jwt", expiresInSeconds: 900 });
+    expect(sdk.shutdown).not.toHaveBeenCalled();
+
+    act(() => mounted?.root.unmount());
+    mounted?.container.remove();
+    mounted = null;
+
+    expect(sdk.shutdown).toHaveBeenCalledTimes(1);
   });
 
   it("renders preconnect hints for the Intercom hosts", async () => {

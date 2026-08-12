@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Intercom, { shutdown, update } from "@intercom/messenger-js-sdk";
 
 /**
@@ -58,6 +58,21 @@ export function IntercomMessenger({
    */
   initialToken?: { token: string; expiresInSeconds: number } | null;
 }) {
+  // Freeze the token this instance boots with. The effect below only ever
+  // needs the FIRST token; every later one comes from its own fetch loop and
+  // is handed over with `update`.
+  //
+  // This is not just an object-identity guard. mintIntercomUserJwt calls
+  // .setIssuedAt(), so the STRING itself is different on every mint, not just
+  // its wrapper object. A live prop dependency (even `initialToken?.token`)
+  // would re-run this effect on every server re-render of the layout that
+  // re-mints -- a router.refresh(), a revalidating Server Action -- tearing
+  // down a live conversation via cleanup's shutdown() and then re-booting
+  // from a fresh closure with `booted` reset to false. useRef's initializer
+  // only runs once, on mount, so bootTokenRef.current can never change across
+  // renders and the effect has nothing to depend on but `appId`.
+  const bootTokenRef = useRef(initialToken);
+
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -109,14 +124,13 @@ export function IntercomMessenger({
       scheduleIn(Math.max(ttl - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS));
     }
 
-    if (initialToken) {
+    const bootToken = bootTokenRef.current;
+    if (bootToken) {
       // The fast path. applyToken sets `booted`, so the refresh below goes
       // through `update` and does not re-boot the widget under an open
       // conversation.
-      applyToken(initialToken.token);
-      scheduleIn(
-        Math.max(initialToken.expiresInSeconds - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS)
-      );
+      applyToken(bootToken.token);
+      scheduleIn(Math.max(bootToken.expiresInSeconds - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS));
     } else {
       void load();
     }
@@ -129,12 +143,10 @@ export function IntercomMessenger({
       // previous member's support session live for the next person.
       shutdown();
     };
-    // Depend on the token STRING, not the object. The prop is deserialized
-    // fresh across the RSC boundary, so an object dependency would have a new
-    // identity on every render and could re-run this effect, whose cleanup
-    // calls shutdown() and would tear down a live conversation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialToken (the object) is intentionally excluded; see the comment above.
-  }, [appId, initialToken?.token]);
+    // bootTokenRef is a ref object: reading .current inside the effect does
+    // not need to appear in the dependency array, so appId is the only real
+    // dependency.
+  }, [appId]);
 
   return (
     <>

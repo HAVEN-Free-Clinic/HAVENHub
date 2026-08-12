@@ -32,15 +32,32 @@ const MESSENGER_TOKEN_PATH = "/api/support/messenger-token";
  * Boots the Intercom Messenger for the signed-in person with an identity
  * verification JWT, and keeps that token fresh for the life of the tab.
  *
- * The token is fetched rather than passed as a prop so it can be re-minted: a
- * hub tab can outlive a short-lived JWT by many hours, and Intercom rejects
- * every request once it expires. Refreshing hands the new token to `update`,
- * which avoids tearing down an open conversation the way a re-boot would.
+ * The token is fetched (rather than only passed as a prop) so it can be
+ * re-minted: a hub tab can outlive a short-lived JWT by many hours, and
+ * Intercom rejects every request once it expires. Refreshing hands the new
+ * token to `update`, which avoids tearing down an open conversation the way a
+ * re-boot would.
  *
  * Mounted only from the (app) layout, so the Messenger is scoped to
  * authenticated hub routes and never boots on the public apply portal.
  */
-export function IntercomMessenger({ appId }: { appId: string }) {
+export function IntercomMessenger({
+  appId,
+  initialToken,
+}: {
+  appId: string;
+  /**
+   * Minted during the server render so the widget script can start loading the
+   * moment React hydrates, instead of after a round trip and the token route's
+   * database queries.
+   *
+   * Optional and nullable on purpose: a server mint legitimately returns
+   * nothing when the integration is off, the session resolves to no active
+   * Person, or the database is briefly unreachable. In each case this falls
+   * back to fetching rather than receiving a fabricated token.
+   */
+  initialToken?: { token: string; expiresInSeconds: number } | null;
+}) {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -49,6 +66,16 @@ export function IntercomMessenger({ appId }: { appId: string }) {
     const scheduleIn = (seconds: number) => {
       if (cancelled) return;
       timer = setTimeout(() => void load(), seconds * 1000);
+    };
+
+    /** Boot once, then hand over later tokens with `update`. */
+    const applyToken = (token: string) => {
+      if (booted) {
+        update({ intercom_user_jwt: token });
+        return;
+      }
+      Intercom({ app_id: appId, intercom_user_jwt: token });
+      booted = true;
     };
 
     async function load(): Promise<void> {
@@ -78,17 +105,21 @@ export function IntercomMessenger({ appId }: { appId: string }) {
         return;
       }
 
-      if (booted) {
-        update({ intercom_user_jwt: token });
-      } else {
-        Intercom({ app_id: appId, intercom_user_jwt: token });
-        booted = true;
-      }
-
+      applyToken(token);
       scheduleIn(Math.max(ttl - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS));
     }
 
-    void load();
+    if (initialToken) {
+      // The fast path. applyToken sets `booted`, so the refresh below goes
+      // through `update` and does not re-boot the widget under an open
+      // conversation.
+      applyToken(initialToken.token);
+      scheduleIn(
+        Math.max(initialToken.expiresInSeconds - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS)
+      );
+    } else {
+      void load();
+    }
 
     return () => {
       cancelled = true;
@@ -98,7 +129,20 @@ export function IntercomMessenger({ appId }: { appId: string }) {
       // previous member's support session live for the next person.
       shutdown();
     };
-  }, [appId]);
+    // Depend on the token STRING, not the object. The prop is deserialized
+    // fresh across the RSC boundary, so an object dependency would have a new
+    // identity on every render and could re-run this effect, whose cleanup
+    // calls shutdown() and would tear down a live conversation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialToken (the object) is intentionally excluded; see the comment above.
+  }, [appId, initialToken?.token]);
 
-  return null;
+  return (
+    <>
+      {/* Rendered here rather than in a layout so every surface that mounts the
+          Messenger gets them. React hoists these into <head>. They cut DNS and
+          the TLS handshake off the widget script's critical path. */}
+      <link rel="preconnect" href="https://widget.intercom.io" />
+      <link rel="preconnect" href="https://js.intercomcdn.com" crossOrigin="anonymous" />
+    </>
+  );
 }

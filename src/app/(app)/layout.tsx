@@ -8,6 +8,7 @@ import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
+import { mintMessengerTokenForSession } from "@/platform/intercom/mint-token";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { shouldMountBlockerGate } from "@/platform/intercom/gate-mount";
 import { getSupportContact } from "@/platform/branding/support";
@@ -22,13 +23,15 @@ import { getSetting } from "@/platform/settings/service";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled] = await Promise.all([
-    getActiveTerm(),
-    reviewScope(person.personId),
-    isInterviewPanelist(person.personId),
-    getSupportContact(),
-    getSetting<boolean>("support.blockerGateEnabled"),
-  ]);
+  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled, messengerToken] =
+    await Promise.all([
+      getActiveTerm(),
+      reviewScope(person.personId),
+      isInterviewPanelist(person.personId),
+      getSupportContact(),
+      getSetting<boolean>("support.blockerGateEnabled"),
+      mintMessengerTokenForSession(),
+    ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
   // for them too -- matching the dashboard tile and the recruitment layout, which
@@ -72,7 +75,12 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
           WITHOUT taking support away from the ones who can still reach it. The
           combined rule lives in shouldMountBlockerGate rather than here, so the
           three switches get names and tests instead of being ANDed inline. */}
-      {supportAppId ? <IntercomMessenger appId={supportAppId} /> : null}
+      {supportAppId ? (
+        <IntercomMessenger
+          appId={supportAppId}
+          initialToken={messengerToken.ok ? messengerToken : null}
+        />
+      ) : null}
       {mountBlockerGate && supportAppId ? (
         <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
       ) : null}

@@ -18,10 +18,28 @@ export type McpTool = {
 };
 
 /**
- * Input names that would let the model choose whose data is read.
+ * Input names that would let a tool's input ASSERT the caller's identity
+ * (a `name`, `netId`, or similar the model could fill in to claim to be
+ * looking up someone in particular), rather than merely read as an ordinary
+ * lookup argument.
+ *
+ * This is not the cross-person protection -- it never was, past phase 2.
+ * memberStatusTool's `name` input deliberately does NOT match this pattern:
+ * Phase 3 tools legitimately take a person's name or netId as a search term
+ * for someone OTHER than the caller (see roster.ts's file-level comment),
+ * and the real guard against a caller reading a person outside their scope
+ * is authorization -- hasPlatformScope/permissionDepartmentIds, checked
+ * inside each tool's run(). What this pattern actually catches is a tool
+ * whose schema takes an argument like `personId` or `actorId` that the
+ * caller's own identity is supposed to come from instead (always the
+ * verified conversation, never a tool argument -- see McpToolContext).
  *
  * Kept deliberately broad: a false positive costs one rename, a false negative
- * costs the whole identity model. See the registry test.
+ * costs the whole identity model. See the registry test. These patterns are
+ * CI-time assertions against the schemas tools declare today, not a runtime
+ * invariant enforced on every call -- a tool added later with a differently-
+ * named identity-assertion argument would need its own test coverage or a
+ * pattern update, not just reliance on this regex catching it automatically.
  */
 export const IDENTITY_ARGUMENT_PATTERN = /person|people|user|member|netid|actor|requester|assignee|email|contact|identity/i;
 
@@ -186,6 +204,17 @@ const DOB_VALUE_PATTERN = /\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b/;
  * the route wrapper (see registerTools in route.ts), so no tool can opt out
  * of it and no tool author has to remember to call it themselves.
  *
+ * FORBIDDEN_OUTPUT_PATTERN itself is checked here too, not just documented as
+ * a guard elsewhere -- it had no runtime call site before this, which meant an
+ * accidental `JSON.stringify(person)` (the exact shape it exists to catch)
+ * sailed through untouched: the value patterns above only cover a govId or a
+ * date of birth actually rendered into prose, and a raw DateTime field like
+ * `"dateOfBirth":"1998-04-12T00:00:00.000Z"` does not even match
+ * DOB_VALUE_PATTERN's `\b...\b` (the digits run straight into `T`, so there is
+ * no word boundary there). No false-positive risk: none of the seven field
+ * names it matches can appear in a department name, course title, cycle
+ * title, or status label -- the only kinds of prose these tools generate.
+ *
  * Throws rather than returning a boolean so the route wrapper can route a
  * trip through the exact same catch/audit path as a thrown tool error (see
  * TOOL_FAILURE_MESSAGE there) -- the offending text must never reach the
@@ -193,7 +222,11 @@ const DOB_VALUE_PATTERN = /\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b/;
  * only reports that the check tripped and never what tripped it.
  */
 export function assertSafeToolOutput(text: string): void {
-  if (GOV_ID_VALUE_PATTERN.test(text) || DOB_VALUE_PATTERN.test(text)) {
+  if (
+    FORBIDDEN_OUTPUT_PATTERN.test(text) ||
+    GOV_ID_VALUE_PATTERN.test(text) ||
+    DOB_VALUE_PATTERN.test(text)
+  ) {
     throw new Error("Tool output blocked by the value-level output guard.");
   }
 }

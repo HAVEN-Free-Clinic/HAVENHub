@@ -193,5 +193,24 @@ describe("MCP tool registry", () => {
     it("does not block plain prose with no digits at all", () => {
       expect(() => assertSafeToolOutput("You have no upcoming shifts scheduled.")).not.toThrow();
     });
+
+    /**
+     * FORBIDDEN_OUTPUT_PATTERN (field NAMES) had no runtime call site before
+     * this test existed -- it was asserted only against hand-built strings in
+     * the "forbids sensitive output fields" test above, never wired into the
+     * function that actually gates tool output. An accidental
+     * `JSON.stringify(person)` is exactly the shape it exists to catch, and it
+     * is also the shape DOB_VALUE_PATTERN misses: a serialized Prisma DateTime
+     * ("1998-04-12T00:00:00.000Z") runs straight into a `T`, so there is no
+     * `\b` word boundary for that pattern to match on.
+     */
+    it("blocks a serialized object carrying dateOfBirth and photoKey, which the value patterns alone miss", () => {
+      const dump = JSON.stringify({
+        name: "Jane",
+        dateOfBirth: "1998-04-12T00:00:00.000Z",
+        photoKey: "people/abc.jpg",
+      });
+      expect(() => assertSafeToolOutput(dump)).toThrow();
+    });
   });
 });

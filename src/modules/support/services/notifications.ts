@@ -16,12 +16,14 @@
  * pushIntercomTicketState is the Hub-origin outbound half of Direction 3: it
  * sets the linked Intercom TICKET's own state (a different object from the
  * conversation notifyIntercomStatusChange posts into), which Intercom shows
- * to the member natively. manage.ts calls this unconditionally alongside the
- * note above whenever a linked ticket's status changes. See its own doc
- * comment for the loop-suppression argument -- intercom-sync.ts's
- * applyIntercomTicketStateChange (the Intercom-origin half) never calls this
- * function, and that module split is what makes the loop structurally
- * impossible rather than merely guarded against.
+ * to the member natively. Every Hub-origin write that changes a linked
+ * ticket's status must call this -- manage.ts's setStatus, resolveRequest,
+ * cancelRequest, and cancelOwnRequest call it unconditionally alongside the
+ * note above, and comments.ts's addComment calls it from its requester-reply
+ * reopen branch. See its own doc comment for the loop-suppression argument --
+ * intercom-sync.ts's applyIntercomTicketStateChange (the Intercom-origin
+ * half) never calls this function, and that module split is what makes the
+ * loop structurally impossible rather than merely guarded against.
  */
 
 import type { Prisma, PrismaClient, TechRequest, TechRequestComment, TechRequestStatus, Person } from "@prisma/client";
@@ -169,11 +171,16 @@ export async function notifyIntercomStatusChange(
  * function, so an Intercom-driven status change can never trigger a push
  * back to Intercom no matter what this function does internally -- the "did
  * this change come from Intercom or the Hub" question is answered by which
- * module's code is running, not by an inspectable flag on the row. manage.ts
- * (setStatus, resolveRequest, cancelRequest, cancelOwnRequest) is this
- * function's only call site, and every call there genuinely originates in
- * the Hub (a manager action, a requester's own cancel, or a Hub workflow
- * like the YNHH gate).
+ * module's code is running, not by an inspectable flag on the row. Every call
+ * site genuinely originates in the Hub: manage.ts's setStatus, resolveRequest,
+ * cancelRequest, and cancelOwnRequest (a manager action, or a requester's own
+ * cancel), plus comments.ts's addComment reopen branch (a requester's public
+ * reply to a RESOLVED ticket). This list is not guaranteed exhaustive going
+ * forward -- read the call sites, do not assume this comment enumerates every
+ * one of them -- but every status-changing write anywhere in this module must
+ * call this function (or explain in its own doc comment why it is exempt),
+ * on pain of exactly the staleness bug that motivated writing this list out
+ * in the first place.
  *
  * No-op guard: skipped when previousStatus already equals req.status --
  * necessary but not sufficient for loop suppression on its own (two changes

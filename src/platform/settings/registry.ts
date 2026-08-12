@@ -183,6 +183,16 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => true,
     secret: false,
   }),
+  define<boolean>({
+    key: "support.blockerGateEnabled",
+    category: "Operations",
+    label: "Block the app when the support assistant will not load",
+    help: "When on, a member whose browser cannot load the support assistant is stopped by a message asking them to turn their content blocker off. TURN THIS OFF if support breaks for everyone at once: from the browser, an Intercom or network outage is indistinguishable from a content blocker, so an outage would otherwise lock every member out of the hub. Turning it off stops the app blocking anyone and leaves the support assistant itself running; it takes effect within 30 seconds, with no deploy. Leave it on when support is broken only for individuals, which is what a real content blocker looks like.",
+    input: { type: "boolean" },
+    schema: z.boolean(),
+    envDefault: () => true,
+    secret: false,
+  }),
   define<string>({
     key: "teams.clinicGroupId",
     category: "Integrations",

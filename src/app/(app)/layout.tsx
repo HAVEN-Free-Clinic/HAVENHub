@@ -10,6 +10,7 @@ import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config"
 import { IntercomMessenger } from "@/platform/intercom/messenger";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { getSupportContact } from "@/platform/branding/support";
+import { getSetting } from "@/platform/settings/service";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -20,11 +21,12 @@ import { getSupportContact } from "@/platform/branding/support";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope, isPanelist, supportContact] = await Promise.all([
+  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled] = await Promise.all([
     getActiveTerm(),
     reviewScope(person.personId),
     isInterviewPanelist(person.personId),
     getSupportContact(),
+    getSetting<boolean>("support.blockerGateEnabled"),
   ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
@@ -45,15 +47,26 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
   const supportAppId = isIntercomConfigured() ? intercomAppId() : null;
   return (
     <>
-      {/* Both gated on the same supportAppId, deliberately. The gate exists only to
-    protect the Messenger, so it must never outlive it: turning the integration
-    off turns the gate off in the same motion. That is also what keeps a hard
-    block out of CI, the e2e suite, preview, and demo, none of which set
-    NEXT_PUBLIC_INTERCOM_APP_ID. */}
+      {/* Both gated on supportAppId, deliberately: the gate exists only to protect
+          the Messenger, so it must never outlive it, and turning the integration off
+          turns the gate off in the same motion. That is also what keeps a hard block
+          out of CI, the e2e suite, preview, and demo, none of which set
+          NEXT_PUBLIC_INTERCOM_APP_ID.
+
+          The gate carries a second, one-way condition on top: the runtime kill
+          switch. A blocker and an Intercom outage at the network layer look the
+          same from the browser, so an outage would gate every member at once, and
+          NEXT_PUBLIC_INTERCOM_APP_ID is inlined at build time and cannot be
+          unset without a rebuild. The setting is read here through getSetting, so
+          flipping it off in /admin/settings stands the gate down within its 30s
+          cache. The condition is one-way on purpose: it stops the app blocking
+          people WITHOUT taking support away from the ones who can still reach it. */}
       {supportAppId ? (
         <>
           <IntercomMessenger appId={supportAppId} />
-          <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
+          {blockerGateEnabled ? (
+            <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
+          ) : null}
         </>
       ) : null}
       <PostHogIdentify

@@ -8,6 +8,8 @@ import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
+import { BlockerGate } from "@/platform/intercom/blocker-gate";
+import { getSupportContact } from "@/platform/branding/support";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -18,10 +20,11 @@ import { IntercomMessenger } from "@/platform/intercom/messenger";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope, isPanelist] = await Promise.all([
+  const [activeTerm, scope, isPanelist, supportContact] = await Promise.all([
     getActiveTerm(),
     reviewScope(person.personId),
     isInterviewPanelist(person.personId),
+    getSupportContact(),
   ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
@@ -42,7 +45,17 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
   const supportAppId = isIntercomConfigured() ? intercomAppId() : null;
   return (
     <>
-      {supportAppId ? <IntercomMessenger appId={supportAppId} /> : null}
+      {/* Both gated on the same supportAppId, deliberately. The gate exists only to
+    protect the Messenger, so it must never outlive it: turning the integration
+    off turns the gate off in the same motion. That is also what keeps a hard
+    block out of CI, the e2e suite, preview, and demo, none of which set
+    NEXT_PUBLIC_INTERCOM_APP_ID. */}
+      {supportAppId ? (
+        <>
+          <IntercomMessenger appId={supportAppId} />
+          <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
+        </>
+      ) : null}
       <PostHogIdentify
         personId={person.personId}
         name={person.name}

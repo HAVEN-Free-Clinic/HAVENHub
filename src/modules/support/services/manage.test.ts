@@ -76,7 +76,13 @@ describe("assignRequest", () => {
     await expect(assignRequest(p.id, req.id, p.id)).rejects.toThrow(/permission/i);
   });
 
-  it("sets assignedToId and notifies the new assignee", async () => {
+  // Assignment notifications were removed: managers work tickets in Intercom's
+  // inbox, which shows and notifies assignment natively. Asserted as "no email
+  // at all" rather than by dropping the old test, because the failure mode being
+  // guarded is a well-meaning restoration of the notify() call -- which would
+  // put Hub-authored support mail back in a member-adjacent channel that this
+  // whole stack moved to Intercom.
+  it("sets assignedToId and emails nobody", async () => {
     const owner = await createPerson("Owner");
     const mgr = await createPerson("Marla Manager", { contactEmail: "mgr@example.com" });
     await grantPermission(mgr.id, "support.manage_requests");
@@ -85,8 +91,8 @@ describe("assignRequest", () => {
     const updated = await assignRequest(mgr.id, req.id, mgr.id);
     expect(updated.assignedToId).toBe(mgr.id);
 
-    const logs = await prisma.emailLog.findMany({ where: { template: "support.request_assigned" } });
-    expect(logs.map((l) => l.toEmail)).toContain("mgr@example.com");
+    const logs = await prisma.emailLog.findMany({ where: { toEmail: "mgr@example.com" } });
+    expect(logs).toHaveLength(0);
   });
 
   it("refuses to assign to a person who is not a support manager (audit #26)", async () => {
@@ -101,7 +107,7 @@ describe("assignRequest", () => {
     expect(fresh.assignedToId).toBeNull();
   });
 
-  it("unassigns when given null and sends no notification", async () => {
+  it("unassigns when given null", async () => {
     const owner = await createPerson("Owner");
     const mgr = await createPerson("Marla Manager", { contactEmail: "mgr@example.com" });
     await grantPermission(mgr.id, "support.manage_requests");
@@ -111,8 +117,8 @@ describe("assignRequest", () => {
     const updated = await assignRequest(mgr.id, req.id, null);
     expect(updated.assignedToId).toBeNull();
 
-    const logs = await prisma.emailLog.findMany({ where: { template: "support.request_assigned" } });
-    expect(logs).toHaveLength(1); // only the earlier assignment, not the unassign
+    const logs = await prisma.emailLog.findMany({ where: { toEmail: "mgr@example.com" } });
+    expect(logs).toHaveLength(0);
   });
 
   it("refuses to reassign a resolved (terminal) ticket", async () => {

@@ -135,14 +135,21 @@ async function handleTicketCreated(item: Record<string, unknown>): Promise<Respo
   // The Intercom ticket id, per Intercom's own guidance: "id" is the object's
   // canonical identifier used across every API call; "ticket_id" is only the
   // human-readable number shown in Intercom's own Inbox/Messenger UI, and is
-  // documented as unusable for API operations. A ticket created via
-  // Intercom's "convert this conversation to a ticket" action keeps the same
-  // id as the conversation it came from (the endpoint is literally
+  // documented as unusable for API operations. A ticket created via Intercom's
+  // "convert this conversation to a ticket" action keeps the same id as the
+  // conversation it came from (the endpoint is literally
   // POST /conversations/{id}/convert -- a conversion in place, not a new
   // object), which is why the SAME value is used below for both
-  // intercomConversationId and intercomTicketId. This has not been verified
-  // against a live workspace -- see the webhook report's open questions --
-  // and is the single highest-value thing to confirm before this ships live.
+  // intercomConversationId and intercomTicketId.
+  //
+  // VERIFIED against the live workspace on 2026-08-12, not taken from the docs:
+  // ticket id 215475452769278 (ticket_id 124067269, the human-readable number)
+  // fetched as GET /conversations/215475452769278 returns 200 with
+  // type: "conversation" and the identical id, carrying exactly one contact
+  // whose external_id is a Person cuid. That is every link this handler depends
+  // on. Note the two ids are wildly different in shape -- 215475452769278 vs
+  // 124067269 -- so using "ticket_id" here would not merely be wrong, it would
+  // fail to resolve as a conversation at all.
   const ticketId = asString(item.id);
   if (!ticketId) {
     log.warn("[support] ticket.created webhook missing a ticket id");

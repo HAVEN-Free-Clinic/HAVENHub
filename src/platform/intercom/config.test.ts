@@ -5,6 +5,7 @@ import {
   intercomAccessToken,
   mcpBearerToken,
   intercomBotAdminId,
+  intercomConversationUrl,
 } from "./config";
 
 afterEach(() => {
@@ -87,5 +88,18 @@ describe("intercomBotAdminId", () => {
     expect(intercomBotAdminId()).toBeNull();
     vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "  admin-1  ");
     expect(intercomBotAdminId()).toBe("admin-1");
+  });
+});
+
+describe("intercomConversationUrl", () => {
+  it("is null when the app id is unset, so no page ever renders a broken link", () => {
+    expect(intercomConversationUrl("conv-1")).toBeNull();
+  });
+
+  it("builds the agent-inbox deep link once the app id is set", () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    expect(intercomConversationUrl("conv-1")).toBe(
+      "https://app.intercom.com/a/inbox/unyx5lb2/inbox/conversation/conv-1"
+    );
   });
 });

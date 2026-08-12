@@ -48,9 +48,22 @@
  *   - Unknown ticket number -> EpicStateError.
  *   - Missing epic request -> EpicNotFoundError.
  *   - No permission -> EpicForbiddenError.
+ *
+ * TechRequest.status sync (epic-ticket-sync.ts), exercised through the real
+ * entry points rather than the sync module directly (which has its own,
+ * finer-grained suite in epic-ticket-sync.test.ts):
+ *   - createTicket sets AWAITING_YNHH on a linked ticket's TechRequest and
+ *     fires the Intercom push.
+ *   - createTicket on an unlinked ticket still sets AWAITING_YNHH but makes
+ *     no Intercom call.
+ *   - completeRequest on one of two outstanding requests does NOT move the
+ *     ticket back.
+ *   - completeRequest on the last outstanding request does, and the posted
+ *     note names the YNHH ticket.
+ *   - Nothing ever auto-resolves; the ticket only ever lands on IN_PROGRESS.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as channel from "@/platform/notifications/channel";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
@@ -952,5 +965,177 @@ describe("linkEpicRequestToTicket", () => {
     await expect(linkEpicRequestToTicket(other.id, req.id, ticket.number)).rejects.toBeInstanceOf(
       EpicForbiddenError
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TechRequest.status sync (epic-ticket-sync.ts), exercised through the real
+// entry points -- see this file's module doc comment.
+// ---------------------------------------------------------------------------
+
+describe("createTicket drives TechRequest.status to AWAITING_YNHH", () => {
+  function mockFetchOk() {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("sets AWAITING_YNHH on the linked ticket and fires the Intercom push", async () => {
+    mockFetchOk();
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const requester = await createPerson("Requester", { netId: "req001" });
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const techRequest = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({
+      where: { id: techRequest.id },
+      data: { intercomConversationId: "conv_1", intercomTicketId: "conv_1" },
+    });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: actor.id, techRequestId: techRequest.id },
+    });
+
+    await createTicket(actor.id, { requestIds: [req.id] });
+
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("AWAITING_YNHH");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const ticketStateCalls = (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) =>
+      url.includes("/tickets/")
+    );
+    expect(ticketStateCalls.length).toBeGreaterThan(0);
+  });
+
+  it("an unlinked ticket's status still changes, but no Intercom call is made", async () => {
+    mockFetchOk();
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const requester = await createPerson("Requester", { netId: "req001" });
+    const target = await createPerson("Alice", { netId: "aaa001" });
+
+    const techRequest = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Epic access",
+      description: "d",
+    });
+
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: actor.id, techRequestId: techRequest.id },
+    });
+
+    await createTicket(actor.id, { requestIds: [req.id] });
+
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("AWAITING_YNHH");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("completeRequest and cancelEpicRequest drive TechRequest.status back to IN_PROGRESS", () => {
+  function mockFetchOk() {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  /** Sets up one linked, AWAITING_YNHH ticket with two SUBMITTED Epic requests attached. */
+  async function twoOutstandingRequests() {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const requester = await createPerson("Requester", { netId: "req001" });
+    const alice = await createPerson("Alice", { netId: "aaa001" });
+    const bob = await createPerson("Bob", { netId: "bbb001" });
+
+    const techRequest = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({
+      where: { id: techRequest.id },
+      data: { intercomConversationId: "conv_1", intercomTicketId: "conv_1" },
+    });
+
+    const aliceReq = await prisma.epicRequest.create({
+      data: { personId: alice.id, kind: "NEW", status: "PENDING", requestedById: actor.id, techRequestId: techRequest.id },
+    });
+    const bobReq = await prisma.epicRequest.create({
+      data: { personId: bob.id, kind: "RENEW", status: "PENDING", requestedById: actor.id, techRequestId: techRequest.id },
+    });
+
+    const ticket = await createTicket(actor.id, { requestIds: [aliceReq.id, bobReq.id] });
+    const afterSubmit = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(afterSubmit.status).toBe("AWAITING_YNHH"); // sanity check on the fixture
+
+    return { actor, techRequest, aliceReq, bobReq, ticket };
+  }
+
+  it("completing one of two outstanding requests does NOT move the ticket back", async () => {
+    mockFetchOk();
+    const { actor, techRequest, aliceReq } = await twoOutstandingRequests();
+
+    await completeRequest(actor.id, aliceReq.id, "E-ALICE");
+
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("AWAITING_YNHH");
+  });
+
+  it("completing the last outstanding request moves the ticket back to IN_PROGRESS, and the note names the YNHH ticket", async () => {
+    mockFetchOk();
+    const { actor, techRequest, aliceReq, bobReq, ticket } = await twoOutstandingRequests();
+    await prisma.ynhhTicket.update({ where: { id: ticket.id }, data: { serviceRequestNumber: "SR-7777" } });
+
+    await completeRequest(actor.id, aliceReq.id, "E-ALICE");
+    await completeRequest(actor.id, bobReq.id);
+
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("IN_PROGRESS");
+    // Nothing here ever auto-resolves the ticket.
+    expect(updated.status).not.toBe("RESOLVED");
+
+    // Filtered by endpoint path, not by id: the fixture links
+    // intercomConversationId and intercomTicketId to the same value, so a
+    // substring match on the id would also catch the Direction 3 ticket-state
+    // push, whose body has no `.body` field.
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const noteCalls = (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) => url.includes("/conversations/"));
+    const bodies = noteCalls.map(([, init]) => (JSON.parse(init.body as string) as { body: string }).body);
+    expect(bodies.some((b) => b.includes("SR-7777"))).toBe(true);
+  });
+
+  it("cancelling the last outstanding request also moves the ticket back to IN_PROGRESS", async () => {
+    mockFetchOk();
+    const { actor, techRequest, aliceReq, bobReq } = await twoOutstandingRequests();
+
+    await cancelEpicRequest(actor.id, aliceReq.id);
+    const midway = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(midway.status).toBe("AWAITING_YNHH"); // Bob's is still outstanding
+
+    await cancelEpicRequest(actor.id, bobReq.id);
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("IN_PROGRESS");
   });
 });

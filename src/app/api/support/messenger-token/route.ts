@@ -1,5 +1,4 @@
-import { log } from "@/platform/logging";
-import { mintMessengerTokenForSession } from "@/platform/intercom/mint-token";
+import { mintMessengerTokenForSession } from "@/modules/support/services/messenger-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,36 +6,45 @@ export const dynamic = "force-dynamic";
 /**
  * Mints the signed-in person's Intercom Messenger identity-verification JWT.
  *
- * Identity verification is the entire point of this route. Without it the
- * Messenger boots on browser-supplied attributes, so anyone could open devtools
- * and open a support conversation as another member. Every claim here is taken
- * from the server session and the live Person row; nothing comes from the
- * request body or query.
+ * Deliberately thin: every decision lives in mintMessengerTokenForSession (see
+ * its doc comment for identity verification, the offboarding revocation check,
+ * and the /apply membership rule), and this file only maps that result onto
+ * HTTP. The (app) layout calls the same function during its server render, so a
+ * first token and a refreshed token cannot drift apart in claims or TTL.
  *
- * Minting is shared with the (app) layout's server render (see
- * ./mint-token), which is what removes the token round trip from the
- * launcher's critical path. This route remains the endpoint a long-lived tab
- * calls for a fresh token, instead of booting once with one that silently dies
- * mid-session.
+ * Minting still needs an HTTP entry point even now that the layout can mint
+ * directly: a long-lived tab needs somewhere to go for a fresh token, rather
+ * than booting once with one that silently dies mid-session.
  *
- * The person lookup is the revocation check -- an offboarded member must stop
- * getting tokens even while their hub JWT is still valid -- so a DB blip
- * degrades to 503 rather than resolving as "still active". Same contract as
- * /api/notifications.
+ * `?requireActiveMembership=1` is the /apply portal's identity rule, enforced
+ * server-side rather than by whichever page decided to ask. The flag can only
+ * ADD that restriction on top of the checks in the mint, never remove any of
+ * them, so a caller cannot use it to get an identified boot it would not
+ * already be eligible for.
  */
-export async function GET(): Promise<Response> {
-  const result = await mintMessengerTokenForSession();
+export async function GET(request: Request): Promise<Response> {
+  const requireActiveMembership =
+    new URL(request.url).searchParams.get("requireActiveMembership") === "1";
+
+  const result = await mintMessengerTokenForSession({ requireActiveMembership });
 
   if (!result.ok) {
     switch (result.reason) {
-      // Feature off looks like the route does not exist, rather than
-      // advertising a half-configured integration.
       case "not_configured":
         return Response.json({ error: "Not Found" }, { status: 404 });
       case "unauthorized":
         return Response.json({ error: "Unauthorized" }, { status: 401 });
+      case "membership_required":
+        // Not a degraded state for the caller -- see IntercomMessenger's doc
+        // comment -- so 403 rather than 401: the session and Person are both
+        // fine, this specific boot just is not eligible for identity.
+        return Response.json(
+          { error: "Forbidden" },
+          { status: 403, headers: { "Cache-Control": "no-store" } }
+        );
       case "db_unreachable":
-        log.warn("[intercom] database unreachable minting messenger token");
+        // Same contract as /api/notifications: a DB blip degrades to 503 rather
+        // than resolving as "still active". Logged by the mint.
         return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
   }

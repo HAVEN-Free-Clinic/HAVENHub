@@ -26,6 +26,9 @@ import {
   isPublicComment,
   notifyIntercomStatusChange,
   pushIntercomTicketState,
+  buildEpicSubmissionNote,
+  buildEpicResolutionNote,
+  notifyEpicYnhhNote,
 } from "./notifications";
 
 // ---------------------------------------------------------------------------
@@ -320,6 +323,113 @@ describe("pushIntercomTicketState", () => {
         { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
         "SUBMITTED"
       )
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("buildEpicSubmissionNote", () => {
+  it("names the kind, person, and YNHH SR# when one is on file", () => {
+    const note = buildEpicSubmissionNote(
+      [{ kind: "NEW", personName: "Alice Volunteer" }],
+      { id: "ticket-1", serviceRequestNumber: "SR-9999" }
+    );
+    expect(note).toContain("New account for Alice Volunteer");
+    expect(note).toContain("YNHH SR# SR-9999");
+  });
+
+  it("falls back to the internal ticket id when no SR# has been set yet", () => {
+    const note = buildEpicSubmissionNote(
+      [{ kind: "MODIFY", personName: "Bob Volunteer" }],
+      { id: "ticket-2", serviceRequestNumber: null }
+    );
+    expect(note).toContain("ticket-2");
+    expect(note).toMatch(/no SR# on file yet/i);
+  });
+
+  it("names every request when several were submitted onto the same ticket", () => {
+    const note = buildEpicSubmissionNote(
+      [
+        { kind: "NEW", personName: "Alice Volunteer" },
+        { kind: "RENEW", personName: "Cara Director" },
+      ],
+      { id: "ticket-3", serviceRequestNumber: null }
+    );
+    expect(note).toContain("New account for Alice Volunteer");
+    expect(note).toContain("Renewal for Cara Director");
+  });
+});
+
+describe("buildEpicResolutionNote", () => {
+  it("names the completed request and the YNHH ticket it moved back off of", () => {
+    const note = buildEpicResolutionNote(
+      { kind: "NEW", personName: "Alice Volunteer", outcome: "COMPLETED" },
+      { id: "ticket-1", serviceRequestNumber: "SR-9999" }
+    );
+    expect(note).toContain("New account for Alice Volunteer");
+    expect(note).toContain("completed");
+    expect(note).toContain("SR-9999");
+    expect(note).toMatch(/In Progress/);
+  });
+
+  it("names a cancelled request distinctly from a completed one", () => {
+    const note = buildEpicResolutionNote(
+      { kind: "MODIFY", personName: "Bob Volunteer", outcome: "CANCELLED" },
+      { id: "ticket-2", serviceRequestNumber: null }
+    );
+    expect(note).toContain("cancelled");
+    expect(note).not.toContain("completed");
+  });
+
+  it("still names the request when it was never linked to a YNHH ticket", () => {
+    const note = buildEpicResolutionNote(
+      { kind: "RENEW", personName: "Cara Director", outcome: "CANCELLED" },
+      null
+    );
+    expect(note).toContain("Renewal for Cara Director");
+    expect(note).toContain("cancelled");
+  });
+});
+
+describe("notifyEpicYnhhNote", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("posts the given message into the conversation for a linked ticket", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+
+    await notifyEpicYnhhNote(
+      { id: "t1", number: 7, intercomConversationId: "conv_1" },
+      "Submitted to YNHH: New account for Alice. YNHH ticket ticket-1 (no SR# on file yet)."
+    );
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("conv_1");
+    const body = JSON.parse(init.body as string) as { body: string };
+    expect(body.body).toContain("New account for Alice");
+  });
+
+  it("does not call Intercom at all for an unlinked ticket", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    await notifyEpicYnhhNote({ id: "t1", number: 7, intercomConversationId: null }, "message");
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when Intercom is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    await expect(
+      notifyEpicYnhhNote({ id: "t1", number: 7, intercomConversationId: "conv_1" }, "message")
     ).resolves.toBeUndefined();
   });
 });

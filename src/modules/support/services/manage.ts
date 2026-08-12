@@ -93,8 +93,7 @@ async function resolveBaseUrl(): Promise<string> {
  *
  * Requires support.manage_requests. Ticket must exist (SupportNotFoundError)
  * and must not already be terminal (SupportStateError). When a non-null
- * assignee is set, notifies that assignee (support.request_assigned).
- * Clearing the assignee sends no notification.
+ * Notifies nobody: see the comment at the end of the function.
  *
  * Audits "support.assign" with before/after assignedToId.
  */
@@ -133,30 +132,12 @@ export async function assignRequest(
     after: { assignedToId: assigneeId },
   });
 
-  if (assigneeId) {
-    const assignee = await prisma.person.findUnique({
-      where: { id: assigneeId },
-      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-    });
-    if (assignee) {
-      const baseUrl = await resolveBaseUrl();
-      const link = `${baseUrl}/support/${id}`;
-      const rendered = await renderEmail("support.request_assigned", {
-        ticketNumber: updated.number,
-        subject: updated.subject,
-        assigneeName: assignee.name ?? "there",
-        link,
-      });
-      await notify(prisma, {
-        type: "support.request_assigned",
-        person: assignee,
-        email: { subject: rendered.subject, html: rendered.html },
-        teams: { title: `IT Support #${updated.number} assigned to you`, summary: updated.subject, link },
-        triggeredById: actorPersonId,
-      });
-    }
-  }
-
+  // No assignee notification. Assignment is triage bookkeeping between IT
+  // managers, and they now work tickets in Intercom's inbox, which shows
+  // assignment natively and notifies on its own. A second Hub-authored email
+  // saying the same thing is noise arriving in a channel nobody is watching for
+  // this any more. The requester is unaffected either way: assignment was never
+  // something they were told about.
   return updated;
 }
 

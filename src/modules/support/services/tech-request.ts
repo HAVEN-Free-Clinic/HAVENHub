@@ -271,6 +271,10 @@ const LIST_SELECT = {
   assignedToId: true,
   createdAt: true,
   updatedAt: true,
+  // Needed so the list views can offer the right Intercom affordance per row
+  // (continue in the Messenger, or deep-link into the agent inbox) without a
+  // second query -- see RequestList's intercomAction prop.
+  intercomConversationId: true,
   requester: { select: { id: true, name: true } },
   assignedTo: { select: { id: true, name: true } },
 } as const;
@@ -286,6 +290,7 @@ export type TechRequestListRow = {
   assignedToId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  intercomConversationId: string | null;
   requester: { id: string; name: string | null };
   assignedTo: { id: string; name: string | null } | null;
 };

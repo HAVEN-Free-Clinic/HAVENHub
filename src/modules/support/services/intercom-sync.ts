@@ -41,7 +41,6 @@ import type { TechRequest, TechRequestCategory, TechRequestStatus } from "@prism
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { log } from "@/platform/logging";
-import { STATUS_LABELS } from "../components/status-badge";
 import { CATEGORY_LABELS } from "../labels";
 
 // ---------------------------------------------------------------------------
@@ -49,83 +48,124 @@ import { CATEGORY_LABELS } from "../labels";
 // ---------------------------------------------------------------------------
 
 /**
- * Built from STATUS_LABELS rather than a second hand-written table, so the
- * Intercom-side mapping cannot silently drift from the Hub's own status
- * labels -- the workspace's custom ticket states were created to match these
- * exact strings (docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
- * "Direction 3 / State mapping": "Every TechRequestStatus needs a
- * corresponding state in the workspace").
+ * The Hub's status labels and Intercom's state labels are two DIFFERENT
+ * vocabularies, and this module is the only place that knows how they line up.
  *
- * Keyed lowercase so a case difference between what an admin typed in
- * Intercom's UI and STATUS_LABELS doesn't turn into a spurious "unmapped
- * state" refusal.
+ * An earlier version derived both directions from STATUS_LABELS, on the theory
+ * that a single table cannot drift from itself. The reasoning was sound and the
+ * conclusion was still wrong, in a way only the live workspace revealed:
+ * STATUS_LABELS is the Hub's own UI text, written for Hub managers, while the
+ * workspace's state labels are copy ops wrote for members ("Waiting on YNHH
+ * Collaboration" reads better to a member than "Awaiting YNHH"). Deriving one
+ * from the other silently REQUIRED the two to be identical, so the four labels
+ * that were not simply failed to map: outbound writes rejected by Intercom,
+ * inbound labels refused as unmapped, nothing raised on either side, and the
+ * two systems drifting apart in silence.
+ *
+ * The tables below are therefore explicit, and the two vocabularies are free to
+ * differ. What that gives up is the drift-proofing: they can now fall out of
+ * step with the WORKSPACE, which no unit test can observe. The comment below
+ * records what the workspace actually held when this was written, and the test
+ * file asserts the two directions still agree with each other.
+ *
+ * Workspace states, GET /ticket_states on 2026-08-12:
+ *   Submitted | In progress | Awaiting user | Resolved
+ *   Won't fix | Waiting on YNHH ITS | Cancelled
  */
-const INTERNAL_LABEL_TO_STATUS: Record<string, TechRequestStatus> = Object.fromEntries(
-  (Object.entries(STATUS_LABELS) as [TechRequestStatus, string][]).map(([status, label]) => [
-    label.trim().toLowerCase(),
-    status,
-  ])
-);
 
 /**
- * Maps an Intercom ticket's staff-facing state label (the webhook payload's
- * `ticket_state_internal_label`) to a TechRequestStatus, or null when the
- * label has no known mapping.
+ * Hub status -> the Intercom state label to write (outbound; Direction 3's
+ * Hub-origin half, performed by notifications.ts's pushIntercomTicketState).
  *
- * Explicit and total over every status this codebase knows (every
- * TechRequestStatus, via STATUS_LABELS) and refuses everything else --
- * deliberately not a fallback/nearest-match. A label with no mapping is
- * exactly what happens the day someone adds a new custom state in Intercom's
- * UI without a matching code change, and guessing which existing status it
- * is "closest to" is how a ticket ends up silently Resolved. The caller
- * (applyIntercomTicketStateChange) logs and refuses to apply, never guesses.
+ * Total over TechRequestStatus rather than Partial: a status added to the schema
+ * should be a compile error here, where someone has to decide which Intercom
+ * state it means, rather than a silent runtime no-op.
+ *
+ * RESOLVED and CLOSED both map to "Resolved" deliberately. Ops treats them as
+ * one outcome and did not want a second terminal state in the member's view.
+ * That makes this mapping many-to-one and therefore not invertible -- see the
+ * inbound table for which way "Resolved" comes back.
  */
-export function mapIntercomTicketStateToStatus(internalLabel: string): TechRequestStatus | null {
-  return INTERNAL_LABEL_TO_STATUS[internalLabel.trim().toLowerCase()] ?? null;
+const STATUS_TO_INTERCOM_STATE: Record<TechRequestStatus, string> = {
+  SUBMITTED: "Submitted",
+  IN_PROGRESS: "In progress",
+  AWAITING_REQUESTER: "Awaiting user",
+  AWAITING_YNHH: "Waiting on YNHH ITS",
+  RESOLVED: "Resolved",
+  CLOSED: "Resolved",
+  CANCELLED: "Cancelled",
+};
+
+/**
+ * Intercom state label -> Hub status (inbound), keyed by normalizeStateLabel.
+ *
+ * Deliberately NOT an inversion of STATUS_TO_INTERCOM_STATE. That map is
+ * many-to-one, so inverting it would resolve "Resolved" to whichever of
+ * RESOLVED/CLOSED happened to be enumerated last, making a correctness question
+ * turn on key order. RESOLVED is the explicit choice: it is what the Hub's own
+ * resolve path sets, so an Intercom-origin "Resolved" lands on exactly the
+ * status a Hub-origin resolve would have produced.
+ *
+ * "Won't fix" has no outbound counterpart at all. It exists in the workspace and
+ * an agent can pick it, so leaving it unmapped would mean the Hub silently
+ * ignoring a real terminal decision -- the exact failure this module's
+ * fail-closed posture exists to make loud everywhere else. It maps to CLOSED,
+ * the Hub's quiet terminal status. The asymmetry is intentional and one-way:
+ * such a ticket reads CLOSED in the Hub, and a later Hub-origin push of CLOSED
+ * would write back "Resolved", losing the nuance. That path is unreachable in
+ * practice, since a linked ticket's status is read-only in the Hub (see
+ * ticket-detail.tsx), and losing "Won't fix" would in any case be a far better
+ * outcome than the Hub never learning the ticket ended.
+ */
+const INTERCOM_STATE_TO_STATUS: Record<string, TechRequestStatus> = {
+  submitted: "SUBMITTED",
+  "in progress": "IN_PROGRESS",
+  "awaiting user": "AWAITING_REQUESTER",
+  "waiting on ynhh its": "AWAITING_YNHH",
+  resolved: "RESOLVED",
+  "won't fix": "CLOSED",
+  cancelled: "CANCELLED",
+};
+
+/**
+ * Trim, lowercase, and fold a typographic apostrophe to a straight one.
+ *
+ * The workspace's "Won't fix" uses U+0027 today, but that label is editable in
+ * Intercom's UI, and an editor that auto-substitutes quotes would turn it into
+ * U+2019 -- a label that looks identical in every log line and screenshot while
+ * missing the lookup entirely. Folding costs nothing and removes a debugging
+ * session nobody would enjoy.
+ */
+function normalizeStateLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/’/g, "'");
 }
 
 /**
- * Outbound mirror of INTERNAL_LABEL_TO_STATUS above: which Intercom ticket
- * state label to push when a TechRequestStatus changes in the Hub (Direction
- * 3's Hub-origin half -- see notifications.ts's pushIntercomTicketState, the
- * function that performs the actual write).
+ * Maps an Intercom ticket's staff-facing state label (the webhook payload's
+ * `ticket_state_internal_label`) to a TechRequestStatus, or null when the label
+ * has no known mapping.
  *
- * Built from the same Object.entries(STATUS_LABELS) call that produces
- * INTERNAL_LABEL_TO_STATUS, rather than a second hand-written label table:
- * two independently maintained copies of "which label goes with which
- * status" would drift, and the drift would be silent -- exactly the failure
- * this module's inbound mapping exists to avoid in the other direction.
- *
- * Kept case-preserving (STATUS_LABELS' own casing), unlike
- * INTERNAL_LABEL_TO_STATUS's lowercased keys -- those exist only to make
- * INBOUND matching forgiving of a case difference in Intercom's UI. This is
- * what gets WRITTEN back to Intercom, and the workspace's custom states were
- * created to match STATUS_LABELS' exact strings (see the design doc's
- * "Direction 3 / State mapping").
- *
- * Typed Partial, not Record, even though it is total today for every
- * TechRequestStatus (STATUS_LABELS is itself a total Record) -- a status
- * added to the schema without an accompanying workspace state is exactly the
- * drift mapStatusToIntercomTicketState below must refuse to guess at, and a
- * Partial type is what keeps that refusal a real, reachable branch rather
- * than dead code the compiler could prove impossible.
+ * Refuses everything it does not know rather than falling back to a
+ * nearest-match. An unmapped label is exactly what a new custom state added in
+ * Intercom's UI produces, and guessing which existing status it is "closest to"
+ * is how a ticket ends up silently Resolved. The caller
+ * (applyIntercomTicketStateChange) logs and refuses to apply, never guesses.
  */
-const STATUS_TO_INTERNAL_LABEL: Partial<Record<TechRequestStatus, string>> = Object.fromEntries(
-  (Object.entries(STATUS_LABELS) as [TechRequestStatus, string][]).map(([status, label]) => [status, label])
-);
+export function mapIntercomTicketStateToStatus(internalLabel: string): TechRequestStatus | null {
+  return INTERCOM_STATE_TO_STATUS[normalizeStateLabel(internalLabel)] ?? null;
+}
 
 /**
  * Maps a TechRequestStatus to the Intercom ticket state label to push when it
- * changes in the Hub, or null when there is no mapped state.
+ * changes in the Hub.
  *
- * Explicit and total over every status STATUS_LABELS knows today, and
- * refuses -- never guesses -- anything else: the outbound mirror of
- * mapIntercomTicketStateToStatus above. The caller (pushIntercomTicketState
- * in notifications.ts) logs and leaves the Intercom ticket untouched rather
- * than pushing a nearest-looking state.
+ * Total over TechRequestStatus, so this cannot actually return null today. The
+ * `| null` in the return type stays because pushIntercomTicketState already
+ * branches on it, and that branch is what would keep a future status without a
+ * mapping from pushing a nearest-looking state.
  */
 export function mapStatusToIntercomTicketState(status: TechRequestStatus): string | null {
-  return STATUS_TO_INTERNAL_LABEL[status] ?? null;
+  return STATUS_TO_INTERCOM_STATE[status] ?? null;
 }
 
 // ---------------------------------------------------------------------------

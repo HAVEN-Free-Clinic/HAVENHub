@@ -16,6 +16,7 @@
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
+import { isIntercomConfigured } from "@/platform/intercom/config";
 import { listAllRequests, PAGE_SIZE, MANAGE } from "@/modules/support/services/tech-request";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { RequestList } from "@/modules/support/components/request-list";
@@ -77,7 +78,14 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
         total={total}
         assignees={assignees.map((a) => ({ id: a.id, name: a.name }))}
       />
-      <RequestList rows={rows} hrefBase="/support" showRequester />
+      <RequestList
+        rows={rows}
+        hrefBase="/support"
+        showRequester
+        // "inbox": managers work tickets in Intercom's agent inbox, so a
+        // linked row deep-links there instead of opening the Messenger.
+        intercomAction={isIntercomConfigured() ? "inbox" : undefined}
+      />
       <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
     </div>
   );

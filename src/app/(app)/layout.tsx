@@ -6,9 +6,9 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
-import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
+import { resolveSupportAppId } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
-import { mintMessengerTokenForSession, type MintResult } from "@/platform/intercom/mint-token";
+import { mintMessengerTokenForSession, type MintResult } from "@/modules/support/services/messenger-token";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { shouldMountBlockerGate } from "@/platform/intercom/gate-mount";
 import { getSupportContact } from "@/platform/branding/support";
@@ -63,10 +63,13 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
     isReviewer: isRecruitmentReviewer,
     isPanelist,
   });
-  // Support Messenger, authenticated routes only. Gated on the secret being set
-  // too, so a workspace configured with just an app id stays off rather than
-  // booting an unverified (impersonatable) Messenger.
-  const supportAppId = isIntercomConfigured() ? intercomAppId() : null;
+  // Support Messenger, authenticated routes only. resolveSupportAppId() gates on
+  // the secret being set as well as the app id, so a workspace configured with
+  // only an app id stays off rather than booting an unverified (impersonatable)
+  // Messenger. It is a shared helper because the Messenger now mounts on six
+  // surfaces, and each re-deriving "is Intercom on" is how one of them ends up
+  // booting unverified.
+  const supportAppId = resolveSupportAppId();
   const mountBlockerGate = shouldMountBlockerGate({
     supportAppId,
     gateEnabled: blockerGateEnabled,
@@ -94,13 +97,34 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
           combined rule lives in shouldMountBlockerGate rather than here, so the
           three switches get names and tests instead of being ANDed inline. */}
       {supportAppId ? (
-        <IntercomMessenger
-          appId={supportAppId}
-          initialToken={messengerToken.ok ? messengerToken : null}
-        />
-      ) : null}
-      {mountBlockerGate && supportAppId ? (
-        <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
+        <>
+          {/* mode="identified", and NO requireActiveMembership: a member between
+              terms (no current ACTIVE TermMembership row) still signs into the
+              hub and must still be identified -- that carve-out is the whole
+              reason "between terms" is not an offboarded state (see
+              cross-term-overlap-model). The /apply portal is the one surface
+              that DOES add the active-membership restriction (see its layout
+              and the mint's doc comment), precisely because it is public-facing
+              and reachable by Yale accounts with no Person at all -- a case
+              that cannot arise here, behind requirePersonSession above.
+
+              That absence is also why passing initialToken is safe HERE and
+              nowhere else yet: a server-minted token sets `booted` at mount, so
+              IntercomMessenger's client-side 401/403-to-visitor fallback cannot
+              fire. With no gate on this surface there is nothing for it to
+              enforce. Wiring initialToken into a surface that DOES gate means
+              the gate must run at mint time, or a stranger boots identified. */}
+          <IntercomMessenger
+            appId={supportAppId}
+            mode="identified"
+            initialToken={messengerToken.ok ? messengerToken : null}
+          />
+          {/* shouldMountBlockerGate already returns false without an app id, so
+              the supportAppId check above is the only one this needs. */}
+          {mountBlockerGate ? (
+            <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
+          ) : null}
+        </>
       ) : null}
       <PostHogIdentify
         personId={person.personId}

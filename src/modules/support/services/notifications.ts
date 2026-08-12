@@ -20,13 +20,30 @@
  * ticket's status must call this -- manage.ts's setStatus, resolveRequest,
  * cancelRequest, and cancelOwnRequest call it unconditionally alongside the
  * note above, and comments.ts's addComment calls it from its requester-reply
- * reopen branch. See its own doc comment for the loop-suppression argument --
+ * reopen branch, and epic-ticket-sync.ts's onEpicSubmitted/onEpicResolved
+ * call it too (indirectly, by routing their AWAITING_YNHH/IN_PROGRESS writes
+ * through manage.ts's setStatus rather than writing TechRequest.status
+ * directly). See its own doc comment for the loop-suppression argument --
  * intercom-sync.ts's applyIntercomTicketStateChange (the Intercom-origin
  * half) never calls this function, and that module split is what makes the
  * loop structurally impossible rather than merely guarded against.
+ *
+ * buildEpicSubmissionNote / buildEpicResolutionNote / notifyEpicYnhhNote are
+ * a THIRD, narrower outbound note, posted by epic-ticket-sync.ts alongside
+ * (not instead of) the generic status-change note above: that one only ever
+ * carries the ticket number and the new status, never which EpicRequest or
+ * which YNHH ticket, and an agent acting on an AWAITING_YNHH hold needs both.
  */
 
-import type { Prisma, PrismaClient, TechRequest, TechRequestComment, TechRequestStatus, Person } from "@prisma/client";
+import type {
+  Prisma,
+  PrismaClient,
+  TechRequest,
+  TechRequestComment,
+  TechRequestStatus,
+  Person,
+  EpicRequestKind,
+} from "@prisma/client";
 import { notify } from "@/platform/notifications/notify";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
@@ -35,7 +52,7 @@ import { postConversationNote } from "@/platform/intercom/conversations";
 import { pushTicketState } from "@/platform/intercom/tickets";
 import { log } from "@/platform/logging";
 import { MANAGE } from "./tech-request";
-import { CATEGORY_LABELS } from "../labels";
+import { CATEGORY_LABELS, EPIC_KIND_LABELS } from "../labels";
 import { STATUS_LABELS } from "../components/status-badge";
 import { mapStatusToIntercomTicketState } from "./intercom-sync";
 
@@ -223,6 +240,78 @@ export async function pushIntercomTicketState(
       ticketId: req.id,
       ticketNumber: req.number,
       status: req.status,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync: Epic/YNHH detail note (epic-ticket-sync.ts-origin)
+// ---------------------------------------------------------------------------
+
+/** One YNHH ticket, identified for a note as its SR# when staff have set one, falling back to the internal id otherwise. */
+type YnhhTicketRef = { id: string; serviceRequestNumber: string | null };
+
+function ynhhTicketRef(ticket: YnhhTicketRef): string {
+  return ticket.serviceRequestNumber
+    ? `YNHH SR# ${ticket.serviceRequestNumber}`
+    : `YNHH ticket ${ticket.id} (no SR# on file yet)`;
+}
+
+/**
+ * Builds the staff-only note text for an Epic-to-YNHH SUBMISSION: which Epic
+ * request(s), for whom, went out under which YNHH ticket. Posted by
+ * epic-ticket-sync.ts's onEpicSubmitted alongside the AWAITING_YNHH
+ * transition it drives through manage.ts's setStatus.
+ *
+ * Epic identifiers (Person.epicId, when a MODIFY/RENEW entry carries one) are
+ * safe to fold in here specifically because this is a staff-only internal
+ * note (postConversationNote) -- never a customer-visible reply. Contrast
+ * epic.ts's sendEpicEmail, whose templates are member-facing and never
+ * surface a raw Epic ID for that reason.
+ */
+export function buildEpicSubmissionNote(
+  entries: { kind: EpicRequestKind; personName: string }[],
+  ynhhTicket: YnhhTicketRef
+): string {
+  const list = entries.map((e) => `${EPIC_KIND_LABELS[e.kind]} for ${e.personName}`).join("; ");
+  return `Submitted to YNHH: ${list}. ${ynhhTicketRef(ynhhTicket)}.`;
+}
+
+/**
+ * Builds the staff-only note text for the reverse transition: a single Epic
+ * request finishing (COMPLETED or CANCELLED) with no sibling request still
+ * outstanding, moving the linked ticket back to In Progress. ynhhTicket is
+ * null when the resolved request was never linked to one (e.g. cancelled
+ * before ever being submitted) -- the note still names the request so an
+ * agent is not left guessing what moved the ticket.
+ */
+export function buildEpicResolutionNote(
+  entry: { kind: EpicRequestKind; personName: string; outcome: "COMPLETED" | "CANCELLED" },
+  ynhhTicket: YnhhTicketRef | null
+): string {
+  const outcomeLabel = entry.outcome === "COMPLETED" ? "completed" : "cancelled";
+  const ticketRef = ynhhTicket ? ` (${ynhhTicketRef(ynhhTicket)})` : "";
+  return `${EPIC_KIND_LABELS[entry.kind]} for ${entry.personName} ${outcomeLabel}${ticketRef}. No other Epic request on this ticket is still with YNHH, so it moved back to In Progress.`;
+}
+
+/**
+ * Posts an Epic/YNHH detail note (see the two builders above) into a linked
+ * ticket's Intercom conversation. Same never-throws, fail-closed contract as
+ * notifyIntercomStatusChange -- the TechRequest.status write this accompanies
+ * has already committed via setStatus by the time epic-ticket-sync.ts calls
+ * this, and an unreachable Intercom must not turn that into a failed Epic
+ * submission or completion.
+ */
+export async function notifyEpicYnhhNote(
+  req: Pick<TechRequest, "id" | "number" | "intercomConversationId">,
+  message: string
+): Promise<void> {
+  if (!req.intercomConversationId) return;
+  const posted = await postConversationNote(req.intercomConversationId, message);
+  if (!posted) {
+    log.warn("[support] failed to post Epic/YNHH note to Intercom conversation", {
+      ticketId: req.id,
+      ticketNumber: req.number,
     });
   }
 }

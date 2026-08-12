@@ -14,6 +14,11 @@ describe("AppShell single-importer invariant", () => {
     // invariant fires on the test that exists to test the very layout it
     // protects, which teaches the next person to edit the invariant rather than
     // believe it.
+    //
+    // Narrowing a grep is how a guard quietly stops guarding, so the exclusion
+    // was checked against a probe: a throwaway file under src/app importing
+    // AppShell still fails this test, listed by name. It narrows the grep
+    // without disarming it.
     const out = execSync(
       'grep -rl "ui/app-shell" src/app --exclude="*.test.ts" --exclude="*.test.tsx" || true',
       { encoding: "utf8" }

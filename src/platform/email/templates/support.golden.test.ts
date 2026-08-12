@@ -59,19 +59,16 @@ describe("support templates via renderEmail (body inside branded layout)", () =>
   });
 
   // ---------------------------------------------------------------------------
-  // support.request_assigned
+  // support.request_assigned was REMOVED, not merely left unsent: managers work
+  // tickets in Intercom's inbox now, which shows and notifies assignment
+  // natively. Asserted rather than silently deleted, so that restoring the
+  // notify() call without restoring the descriptor fails loudly at render time
+  // instead of at whatever hour the first assignment happens in production.
   // ---------------------------------------------------------------------------
 
-  it("support.request_assigned names the assignee", async () => {
-    const out = await renderEmail("support.request_assigned", {
-      ticketNumber: TICKET_NUMBER,
-      subject: SUBJECT,
-      assigneeName: "Pat Manager",
-      link: LINK,
-    });
-    expect(out.subject).toBe("[HAVEN] IT Support ticket #42 assigned");
-    expect(out.html).toContain(
-      "<p>Hello,</p>\n\n<p>IT Support ticket <strong>#42: VPN access issue</strong> has been assigned to Pat Manager.</p>\n\n<p><a href=\"https://hub.havenfreeclinic.org/support/abc123\">View the ticket</a></p>\n\n<p>Thank you,<br>HAVEN IT Support</p>",
+  it("support.request_assigned no longer renders at all", async () => {
+    await expect(renderEmail("support.request_assigned", {})).rejects.toThrow(
+      /Unknown email template/i
     );
   });
 

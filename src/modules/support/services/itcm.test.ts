@@ -508,6 +508,43 @@ describe("submitEpicRequests", () => {
 
     expect(await prisma.ynhhTicket.count()).toBe(0);
   });
+
+  /**
+   * The adopted PENDING row is exactly what onEpicSubmitted (epic-ticket-sync.ts)
+   * looks for: an EpicRequest with a techRequestId that just moved to SUBMITTED.
+   * A term-wide batch usually has no such row (promotion-raised requests never
+   * carry one), but when one was attached to a support ticket first, that
+   * ticket must move to AWAITING_YNHH the same as one submitted through
+   * epic.ts's createTicket.
+   */
+  it("moves a support ticket attached to an adopted request to AWAITING_YNHH", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const requester = await createPerson("Requester");
+    const person = await createPerson("Alice");
+
+    const techRequest = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Epic access",
+      description: "d",
+    });
+    await prisma.epicRequest.create({
+      data: {
+        personId: person.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: actor.id,
+        techRequestId: techRequest.id,
+      },
+    });
+
+    await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
+      { personId: person.id, mirrorEpicId: null },
+    ]);
+
+    const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
+    expect(updated.status).toBe("AWAITING_YNHH");
+  });
 });
 
 describe("logYnhhIncident", () => {

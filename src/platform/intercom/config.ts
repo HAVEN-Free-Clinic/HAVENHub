@@ -30,6 +30,17 @@ export function isIntercomConfigured(): boolean {
 }
 
 /**
+ * The app id to mount the Messenger with, or null when the integration is off.
+ * Every mount site (the (app) layout, /apply, /login, /onboard, /get-started,
+ * /welcome) needs exactly this "configured ? id : null" check before rendering
+ * IntercomMessenger, so it lives here once rather than being re-derived at each
+ * call site.
+ */
+export function resolveSupportAppId(): string | null {
+  return isIntercomConfigured() ? intercomAppId() : null;
+}
+
+/**
  * Access token for Intercom's REST API, used to verify that a claimed Person id
  * really belongs to the contact in the conversation. Without it the MCP server
  * would have to take the caller's word for who they are, so its absence turns
@@ -84,6 +95,20 @@ export function intercomWebhookSecret(): string | null {
  */
 export function isWebhookConfigured(): boolean {
   return isIntercomConfigured() && intercomWebhookSecret() !== null && intercomAccessToken() !== null;
+}
+
+/**
+ * Deep link into Intercom's own agent inbox for a conversation, for staff who
+ * work the conversation in Intercom rather than in the Hub (see "Where the
+ * work happens" in docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md).
+ * Returns null when the app id is unset, so a caller renders no link rather
+ * than guessing at a URL for a workspace that may not even exist -- the same
+ * "unset = feature off" posture as the rest of this file.
+ */
+export function intercomConversationUrl(conversationId: string): string | null {
+  const appId = intercomAppId();
+  if (!appId) return null;
+  return `https://app.intercom.com/a/inbox/${appId}/inbox/conversation/${conversationId}`;
 }
 
 /**

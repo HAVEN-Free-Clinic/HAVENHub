@@ -3,6 +3,7 @@ import { myNextShiftTool } from "./scheduling";
 import { myClearanceStatusTool } from "./compliance";
 import { myOutstandingTrainingTool } from "./training";
 import { departmentRosterTool, memberStatusTool } from "./roster";
+import { recruitmentCycleStatusTool, myApplicationStatusTool } from "./recruitment";
 
 /** The verified caller. Populated by the route from resolveIntercomIdentity, never from tool input. */
 export type McpToolContext = { personId: string };
@@ -210,4 +211,6 @@ export const MCP_TOOLS: McpTool[] = [
   myOutstandingTrainingTool,
   departmentRosterTool,
   memberStatusTool,
+  recruitmentCycleStatusTool,
+  myApplicationStatusTool,
 ];

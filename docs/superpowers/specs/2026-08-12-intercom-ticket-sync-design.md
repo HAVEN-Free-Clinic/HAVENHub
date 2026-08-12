@@ -64,7 +64,28 @@ number` attribute, created 2026-08-11 for exactly this purpose.
 
 ## Direction 1: conversation into TechRequest
 
-A new authenticated endpoint, `POST /api/support/tickets/from-conversation`.
+**Revised 2026-08-12: an agent decides, not Fin.** Most conversations are a quick question that Fin
+answers and nobody needs to track. Auto-filing every one of them would fill the queue with things
+that are not work. So a `TechRequest` is created when an agent uses Intercom's native "create
+ticket" on a conversation, which fires a `ticket.created` webhook that this endpoint serves.
+
+Three consequences, all improvements:
+
+- Human judgement decides what is a ticket, rather than an AI inferring it. Fin needs no
+  ticket-creation action at all, which removes that connector configuration and the risk of the
+  model filing tickets on its own.
+- The webhook carries a real Intercom **ticket id**, which is what finally makes the `Hub ticket
+  number` write-back possible. The earlier attempt failed because this path only ever had a
+  conversation id, and that attribute lives on ticket types, a different object.
+- An Intercom Ticket now exists by construction, which Direction 3 needs: conversations have no
+  state to sync.
+
+`TechRequest` therefore carries **two** Intercom links, both unique and both nullable. They are
+different objects and are used for different things: `intercomConversationId` resolves identity and
+receives internal notes; `intercomTicketId` carries state and the number attribute. Collapsing them
+into one field is the mistake that cost an afternoon the first time.
+
+The endpoint itself is otherwise unchanged from what is described below.
 
 **Auth and identity reuse what the MCP server already does.** Bearer auth proves the caller is our
 Intercom connector; identity comes from `resolveIdentityFromConversation(conversationId)`, never
@@ -131,9 +152,14 @@ in Intercom's own UI. So the member sees "In progress" or "Waiting on Yale New H
 without any Hub-authored text reaching them, and the Hub's member-facing support pages stop being
 load-bearing.
 
-**This requires the escalation workflow to create an Intercom Ticket**, not merely a conversation.
-Conversations have no state to sync. That is also what makes the six ticket types and their `Hub
-ticket number` attribute meaningful rather than decorative.
+A Ticket exists by construction here, because Direction 1 is now driven by an agent creating one
+(see its 2026-08-12 revision). Conversations have no state to sync, so that revision is what makes
+this direction possible at all, and what makes the six ticket types and their `Hub ticket number`
+attribute meaningful rather than decorative.
+
+The webhook receiver therefore handles two event kinds: `ticket.created` opens the Hub record, and
+ticket state changes update its status. Same signature verification, same origin tagging, one
+endpoint.
 
 ### State mapping
 

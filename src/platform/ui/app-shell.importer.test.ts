@@ -7,13 +7,18 @@ describe("AppShell single-importer invariant", () => {
     // the shared route-group layout. Any other hit means a page/layout re-inlined
     // the shell, which reintroduces the cross-module remount this work removed.
     //
-    // Test files are excluded because a test naming the module in vi.mock() is
-    // the opposite of the thing this guards: it STUBS the shell out so an
-    // unrelated unit test does not drag in its import chain, and stubbing cannot
-    // reintroduce a remount. (app)/layout.test.tsx does exactly that. Without
-    // this exclusion the invariant fires on the test that exists to test the very
-    // layout it is protecting, which is a false positive that teaches people to
-    // edit the invariant rather than believe it.
+    // Test files are excluded because the thing being guarded against is a
+    // SHIPPED page or layout mounting a second shell. A test that stubs the
+    // shell (vi.mock("@/platform/ui/app-shell")) is the opposite: it never
+    // renders one, and it cannot cause a remount. Without this exclusion the
+    // invariant fires on the test that exists to test the very layout it
+    // protects, which teaches the next person to edit the invariant rather than
+    // believe it.
+    //
+    // Narrowing a grep is how a guard quietly stops guarding, so the exclusion
+    // was checked against a probe: a throwaway file under src/app importing
+    // AppShell still fails this test, listed by name. It narrows the grep
+    // without disarming it.
     const out = execSync(
       'grep -rl "ui/app-shell" src/app --exclude="*.test.ts" --exclude="*.test.tsx" || true',
       { encoding: "utf8" }

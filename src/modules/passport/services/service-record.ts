@@ -24,6 +24,7 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 /**
  * Either the singleton client or a transaction client.
@@ -50,6 +51,19 @@ export type ServiceTermRow = {
    * and this member had none there.
    */
   shifts: number | null;
+  /**
+   * Clinic dates served, ascending ISO day keys. null carries the same meaning
+   * as `shifts: null` (we were not counting); [] means we were, and they served
+   * none. Optional so an already-issued credential snapshot, which predates this
+   * field, still parses.
+   */
+  dates?: string[] | null;
+  /**
+   * shifts x the department's hoursPerShift. null whenever either is unknown,
+   * INCLUDING when the department has no hours configured. Never defaulted.
+   * Optional for the same snapshot-compatibility reason as `dates`.
+   */
+  hours?: number | null;
   source: "MEMBERSHIP" | "RECRUITMENT";
 };
 
@@ -59,7 +73,12 @@ export type ServiceRecord = {
   memberSince: { label: string; source: "MEMBERSHIP" | "RECRUITMENT" } | null;
   /** Ascending by term start. */
   terms: ServiceTermRow[];
-  capabilities: { spanishVerified: boolean; licensedRN: boolean };
+  capabilities: {
+    /** Verified language codes. Optional so credentials issued before languages
+     *  were generalized still parse; absent reads the same as none. */
+    verifiedLanguages?: string[];
+    licensedRN: boolean;
+  };
   /** Upgrades to "ATTENDED" only if attendance capture is ever built. */
   basis: "SCHEDULED";
   generatedAt: string;
@@ -87,15 +106,74 @@ export function trackLabel(track: ServiceTermRow["track"]): string {
   return track === "DIRECTOR" ? "Director" : "Volunteer";
 }
 
+/**
+ * Hours for a term row, or "Not recorded".
+ *
+ * Undefined and null read identically on purpose: undefined is an already-issued
+ * credential snapshot from before hours existed, null is a department with no
+ * hours configured, and neither is a claim about how long the member served.
+ *
+ * Whole numbers print without a decimal ("18 hours"), halves keep one ("16.5
+ * hours"), because a shift length of 5.5 is realistic and 5.50 reads oddly.
+ */
+export function formatHours(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined) return "Not recorded";
+  const rounded = Math.round(hours * 100) / 100;
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)} hours`;
+}
+
+/**
+ * Clinic dates served, compactly: "May 30, Jun 6, Jun 13".
+ *
+ * Returns "" for unknown (undefined snapshot or null) and for empty, because
+ * this renders as an optional sub-line that is simply omitted rather than a
+ * cell needing a placeholder. The shifts cell beside it already distinguishes
+ * "not recorded" from "0 scheduled", so repeating that here would be noise.
+ *
+ * Month and day only: the term name carries the year, and 18 four-digit years
+ * in one line is unreadable. Parsed as UTC, matching the noon-UTC calendar
+ * markers these keys come from; a local parse would shift every date back a day
+ * in US zones.
+ */
+export function formatServiceDates(dates: string[] | null | undefined): string {
+  if (!dates || dates.length === 0) return "";
+  return dates
+    .map((k) =>
+      new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(
+        new Date(`${k}T12:00:00Z`),
+      ),
+    )
+    .join(", ");
+}
+
+/**
+ * The shifts cell, with hours appended when both are known: "14 scheduled, 84
+ * hours". Falls back to formatShifts alone when hours are not recorded, so a
+ * department with no configured shift length reads exactly as it did before.
+ */
+export function formatShiftsAndHours(
+  shifts: number | null,
+  hours: number | null | undefined,
+): string {
+  const base = formatShifts(shifts);
+  if (hours === null || hours === undefined) return base;
+  return `${base}, ${formatHours(hours)}`;
+}
+
 export async function computeServiceRecord(
   personId: string,
   client: PrismaClientOrTx = prisma,
 ): Promise<ServiceRecord> {
   const person = await client.person.findUnique({
     where: { id: personId },
-    select: { name: true, spanishVerified: true, licensedRN: true },
+    select: { name: true, licensedRN: true },
   });
   if (!person) throw new Error(`No person ${personId}`);
+
+  // Verified languages only. A service record is a claim the member makes to a
+  // third party, so a self-reported language must never appear on it as though
+  // the clinic had confirmed it.
+  const verifiedLanguages = (await verifiedLanguagesByPerson([personId], client)).get(personId) ?? [];
 
   // A term that has not started yet is not service. This clinic deliberately
   // rosters the next term ahead of the ACTIVE flip (see the comment in
@@ -152,6 +230,43 @@ export async function computeServiceRecord(
         ).map((row) => [key(row.termId, row.departmentId), row._count._all] as const),
   );
 
+  // The member's own clinic dates per (term, department), so the record can list
+  // WHEN they served rather than only how often. Ascending, deduped: a member
+  // holding two assignments on one date served one day, not two.
+  const ownDates = new Map<string, string[]>();
+  if (!noProbe) {
+    const rows = await client.shiftAssignment.findMany({
+      where: { personId, ...probeWhere },
+      select: { termId: true, departmentId: true, clinicDate: true },
+      orderBy: { clinicDate: "asc" },
+    });
+    for (const r of rows) {
+      const pair = key(r.termId, r.departmentId);
+      // isoDateKey semantics inline: clinicDate is a noon-UTC calendar marker,
+      // so the UTC day IS the date, and any zone conversion would shift it.
+      const dayKey = r.clinicDate.toISOString().slice(0, 10);
+      const list = ownDates.get(pair) ?? [];
+      // The assignment unique key is (term, department, date, person), so a
+      // repeat within a pair cannot occur. Guarding anyway costs one comparison
+      // on an already-sorted list and keeps this correct if that key is ever
+      // widened (e.g. to include role).
+      if (list[list.length - 1] !== dayKey) list.push(dayKey);
+      ownDates.set(pair, list);
+    }
+  }
+
+  // Hours one shift is worth, per department. Absent means "not configured",
+  // which propagates to hours: null rather than defaulting to a number nobody
+  // agreed to.
+  const hoursByDepartment = new Map<string, number>();
+  if (departmentIds.length > 0) {
+    const depts = await client.department.findMany({
+      where: { id: { in: departmentIds }, hoursPerShift: { not: null } },
+      select: { id: true, hoursPerShift: true },
+    });
+    for (const d of depts) hoursByDepartment.set(d.id, Number(d.hoursPerShift));
+  }
+
   // At most one row per (term, department) reaches the output. `kind` is part of
   // the membership unique key, so a member can hold BOTH a VOLUNTEER and a
   // DIRECTOR row for the same term and department; emitting both would print the
@@ -163,13 +278,23 @@ export async function computeServiceRecord(
     const pair = key(m.term.id, m.departmentId);
     const existing = byTermDepartment.get(pair);
     if (existing && !(m.kind === "DIRECTOR" && existing.track !== "DIRECTOR")) continue;
+    const shifts = pairsWithData.has(pair) ? (ownCounts.get(pair) ?? 0) : null;
+    const perShift = hoursByDepartment.get(m.departmentId);
     byTermDepartment.set(pair, {
       termCode: m.term.code,
       termName: m.term.name,
       startDate: m.term.startDate.toISOString(),
       departmentName: m.department.name,
       track: m.kind,
-      shifts: pairsWithData.has(pair) ? (ownCounts.get(pair) ?? 0) : null,
+      shifts,
+      // Dates only where shift data exists at all. On a term we were not
+      // counting, an empty list would read as "served no days" rather than
+      // "not recorded", which is the same lie `shifts: null` exists to avoid.
+      dates: shifts === null ? null : (ownDates.get(pair) ?? []),
+      // Null whenever EITHER input is unknown. Never substitute a default: an
+      // invented hour total on a document a member submits with a residency
+      // application is worse than an honest omission.
+      hours: shifts === null || perShift === undefined ? null : shifts * perShift,
       source: "MEMBERSHIP" as const,
     });
   }
@@ -229,7 +354,12 @@ export async function computeServiceRecord(
         ? (departmentNames.get(h.resultDepartment) ?? h.resultDepartment)
         : "Department not recorded",
       track: h.track,
+      // A recruitment-sourced row is evidence of joining, not of duration: there
+      // is no shift data behind it, so dates and hours are unknown for the same
+      // reason shifts is.
       shifts: null,
+      dates: null,
+      hours: null,
       source: "RECRUITMENT",
     });
   }
@@ -252,7 +382,7 @@ export async function computeServiceRecord(
     memberSince: first ? { label: first.termName, source: first.source } : null,
     terms,
     capabilities: {
-      spanishVerified: person.spanishVerified,
+      verifiedLanguages,
       licensedRN: person.licensedRN,
     },
     basis: "SCHEDULED",

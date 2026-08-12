@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { getSetting } from "@/platform/settings/service";
 import { getCredentialByToken } from "@/modules/passport/services/credential";
-import { formatShifts, trackLabel } from "@/modules/passport/services/service-record";
+import { formatShiftsAndHours, formatServiceDates, trackLabel } from "@/modules/passport/services/service-record";
 import { THead, TR, TH, TD } from "@/platform/ui/table";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 
@@ -94,7 +94,18 @@ export default async function CredentialPage({
                 </TD>
                 <TD>{row.departmentName}</TD>
                 <TD>{trackLabel(row.track)}</TD>
-                <TD className="text-right">{formatShifts(row.shifts)}</TD>
+                <TD className="text-right">
+                  {formatShiftsAndHours(row.shifts, row.hours)}
+                  {/* Dates on their own line: they are long, and the cell above
+                      is the summary a reader scans first. Empty string when
+                      unknown, so the line disappears rather than needing a
+                      placeholder. */}
+                  {formatServiceDates(row.dates) && (
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                      {formatServiceDates(row.dates)}
+                    </span>
+                  )}
+                </TD>
               </TR>
             ))}
           </tbody>

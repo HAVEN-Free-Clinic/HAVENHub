@@ -2,7 +2,13 @@ import { createElement } from "react";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { describe, expect, it } from "vitest";
 import type { ReactElement } from "react";
-import { formatShifts, type ServiceRecord } from "../services/service-record";
+import {
+  formatShifts,
+  formatHours,
+  formatServiceDates,
+  formatShiftsAndHours,
+  type ServiceRecord,
+} from "../services/service-record";
 import { PassportDocument } from "./passport-pdf";
 
 const RECORD: ServiceRecord = {
@@ -28,7 +34,7 @@ const RECORD: ServiceRecord = {
       source: "MEMBERSHIP",
     },
   ],
-  capabilities: { spanishVerified: true, licensedRN: false },
+  capabilities: { verifiedLanguages: ["es"], licensedRN: false },
   basis: "SCHEDULED",
   generatedAt: "2026-08-07T12:00:00.000Z",
 };
@@ -66,6 +72,60 @@ describe("formatShifts", () => {
   });
 });
 
+describe("formatHours", () => {
+  it("drops the decimal on a whole number", () => {
+    expect(formatHours(18)).toBe("18 hours");
+  });
+
+  it("keeps one decimal on a half hour", () => {
+    expect(formatHours(16.5)).toBe("16.5 hours");
+  });
+
+  // null is a department with no configured shift length; undefined is a
+  // credential snapshot issued before hours existed. Neither is a claim about
+  // how long the member served, so both read the same.
+  it("reads unconfigured and pre-existing snapshots identically", () => {
+    expect(formatHours(null)).toBe("Not recorded");
+    expect(formatHours(undefined)).toBe("Not recorded");
+  });
+});
+
+describe("formatServiceDates", () => {
+  it("renders month and day, the year coming from the term", () => {
+    expect(formatServiceDates(["2026-06-03", "2026-06-10"])).toBe("Jun 3, Jun 10");
+  });
+
+  // The dates are noon-UTC calendar markers. A local-time parse would render
+  // Jun 3 as Jun 2 in every US zone, putting the credential a day out from the
+  // schedule it was built from.
+  it("does not shift dates backwards out of UTC", () => {
+    expect(formatServiceDates(["2026-01-01"])).toBe("Jan 1");
+  });
+
+  it("renders nothing when unknown or empty, so the line is simply omitted", () => {
+    expect(formatServiceDates(null)).toBe("");
+    expect(formatServiceDates(undefined)).toBe("");
+    expect(formatServiceDates([])).toBe("");
+  });
+});
+
+describe("formatShiftsAndHours", () => {
+  it("appends hours when both are known", () => {
+    expect(formatShiftsAndHours(3, 18)).toBe("3 scheduled, 18 hours");
+  });
+
+  // A department with no configured shift length must read exactly as it did
+  // before hours existed, rather than gaining a "Not recorded" suffix.
+  it("falls back to shifts alone when hours are unknown", () => {
+    expect(formatShiftsAndHours(3, null)).toBe("3 scheduled");
+    expect(formatShiftsAndHours(3, undefined)).toBe("3 scheduled");
+  });
+
+  it("keeps the not-recorded shift case intact", () => {
+    expect(formatShiftsAndHours(null, null)).toBe("Not recorded");
+  });
+});
+
 describe("PassportDocument", () => {
   it("renders to a PDF buffer", async () => {
     const buffer = await renderToBuffer(
@@ -99,7 +159,7 @@ describe("PassportDocument", () => {
       name: "New Member",
       memberSince: null,
       terms: [],
-      capabilities: { spanishVerified: false, licensedRN: false },
+      capabilities: { verifiedLanguages: [], licensedRN: false },
       basis: "SCHEDULED",
       generatedAt: "2026-08-07T12:00:00.000Z",
     };
@@ -185,7 +245,7 @@ describe("PassportDocument content", () => {
           source: "MEMBERSHIP",
         },
       ],
-      capabilities: { spanishVerified: false, licensedRN: false },
+      capabilities: { verifiedLanguages: [], licensedRN: false },
       basis: "SCHEDULED",
       generatedAt: "2026-08-07T12:00:00.000Z",
     };

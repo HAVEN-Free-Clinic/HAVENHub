@@ -79,7 +79,15 @@ function registerTools(server: McpServer): void {
           [CONVERSATION_ID_ARG]: z
             .string()
             .describe(
-              "The id of the current Intercom conversation. Bind this to the conversation attribute; never let the model choose it."
+              // Written AT the model, not at whoever configures the connector.
+              // The first wording explained the binding ("bind this to the
+              // conversation attribute"), and Fin responded by asking the
+              // member to supply their own conversation ID -- it read the field
+              // as something a human might know. A customer can never provide
+              // this, and asking makes the assistant look broken. If the input
+              // is left unbound the call should simply fail closed and be
+              // audited, which is what the server already does.
+              "Supplied automatically by the connector from the current conversation. Never ask the customer for this value, and never guess it. If it is not available, say you cannot look this up right now."
             ),
         }),
       },

@@ -135,6 +135,43 @@ describe("probeContentBlocker", () => {
     }
   });
 
+  it("does not gate when the control times out while token and widget reject, because a timed-out control has not proven the network works", async () => {
+    vi.useFakeTimers();
+    try {
+      // A firewall that drops the control's packets, so it hangs until our own
+      // deadline aborts it (same as the previous case), while token and widget
+      // reject outright on every round. `reached: true` is not enough proof
+      // here: unlike the token and widget probes, where a timeout deliberately
+      // means "not blocked", the control's whole job is to prove the network
+      // works, and a request that never got a response has proven nothing.
+      // Before the fix, `!control.reached` read this hung control as a
+      // SUCCESSFUL control and gated on the two rejections, on a network that
+      // never actually answered anything.
+      const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("haven-mark")) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const err = new Error("This operation was aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          });
+        }
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
+
+      const pending = probeContentBlocker(APP_ID, deps(fetchImpl as unknown as ReturnType<typeof stub>));
+      // Enough for both the initial control's deadline and a retry's, so a
+      // regression here fails on the assertion rather than by hanging.
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS * 3);
+
+      expect(await pending).toEqual({ blocked: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("requests the control and token URLs it documents", async () => {
     const fetchImpl = stub({});
     await probeContentBlocker(APP_ID, deps(fetchImpl));

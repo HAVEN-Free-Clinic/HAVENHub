@@ -154,6 +154,24 @@ firewall that drops rather than rejects packets (the usual corporate and clinic
 posture) would otherwise leave the fetch pending for minutes with the re-check
 button disabled throughout.
 
+**Exception, also 2026-08-12: a timed-out control is not proof the network
+works.** Rule 0 makes a timeout `reached: true` for every probe, including the
+control, so that a merely slow network can never gate anyone. But rules 3 and
+6 test `!control.reached` (now `!controlProvesNetwork(control)` in
+`blocker-probe.ts`) as the check for "the network is at fault, stand down".
+Those are two different questions answered by the same field. For the token
+and widget probes, a timeout deliberately means "not blocked". For the
+control, whose only job is to prove the network works, a timeout means the
+opposite: it proves nothing, because the request never actually got an
+answer. Treating `reached: true` on the control as sufficient would read a
+control that HANGS as a control that SUCCEEDED, so a network where the
+control times out while token and widget both reject on both rounds would
+gate the user on a network that never actually answered anything. Both
+control checks (the initial one and the one on the retry path) therefore
+require `status !== null` in addition to `reached`, via the
+`controlProvesNetwork` helper, so a timed-out control stands the gate down
+the same as an unreachable one.
+
 ### Why each guard exists
 
 - **The control probe** is what makes a hard block defensible. An offline

@@ -95,6 +95,23 @@ async function attempt(deps: ProbeDeps, url: string, init: RequestInit = {}): Pr
 
 const NOT_BLOCKED: ProbeResult = { blocked: false };
 
+/**
+ * Whether the control outcome actually PROVES the network works, which is a
+ * stricter bar than `reached`. For the token and widget probes, `reached:
+ * true` with `status: null` (a timeout) deliberately means "not blocked": a
+ * slow network must never gate anyone. The control's job is the opposite of
+ * those probes: it exists to prove the network is fine, and a request that
+ * never got a response, just sat pending until our own deadline fired, has
+ * proven nothing about that. Reusing `reached` here would read a control that
+ * HANGS as a control that SUCCEEDED, so a network where the control times out
+ * while token and widget both reject would gate the user on a network that
+ * never actually answered anything. This asymmetry with the other two probes
+ * is intentional, not a bug: do not "simplify" this back to `!control.reached`.
+ */
+function controlProvesNetwork(outcome: Outcome): boolean {
+  return outcome.reached && outcome.status !== null;
+}
+
 export async function probeContentBlocker(appId: string, deps: ProbeDeps): Promise<ProbeResult> {
   if (!deps.onLine()) return NOT_BLOCKED;
 
@@ -104,8 +121,10 @@ export async function probeContentBlocker(appId: string, deps: ProbeDeps): Promi
     attempt(deps, widgetUrl(appId), { mode: "no-cors" }),
   ]);
 
-  // The network or the server is at fault, not a blocker.
-  if (!control.reached) return NOT_BLOCKED;
+  // The network or the server is at fault, not a blocker. A timed-out control
+  // counts as unproven too, not just an outright rejection: see
+  // controlProvesNetwork.
+  if (!controlProvesNetwork(control)) return NOT_BLOCKED;
 
   // The integration is switched off server-side, so there is nothing to
   // protect. This is the rule messenger.tsx already applies to the same status.
@@ -118,11 +137,13 @@ export async function probeContentBlocker(appId: string, deps: ProbeDeps): Promi
 
   await deps.delay(RETRY_DELAY_MS);
 
-  // Re-check the control as well. If the network dropped between the two
-  // attempts, both probes would reject and we would gate on a network fault,
-  // which is the false positive this whole design exists to avoid.
+  // Re-check the control as well. If the network dropped (or started
+  // hanging) between the two attempts, both probes would reject and we would
+  // gate on a network fault, which is the false positive this whole design
+  // exists to avoid. Same stricter bar as the first check: a timed-out
+  // control is not proof either.
   const recheckControl = await attempt(deps, CONTROL_URL);
-  if (!recheckControl.reached) return NOT_BLOCKED;
+  if (!controlProvesNetwork(recheckControl)) return NOT_BLOCKED;
 
   const failed: BlockedProbe[] = [];
   for (const suspect of suspects) {

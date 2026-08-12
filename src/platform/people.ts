@@ -174,6 +174,7 @@ export async function createPersonRecord(
         spanishSelfReported: person.spanishSelfReported,
         spanishVerified: person.spanishVerified,
         licensedRN: person.licensedRN,
+        blockerGateExempt: person.blockerGateExempt,
       },
     });
 

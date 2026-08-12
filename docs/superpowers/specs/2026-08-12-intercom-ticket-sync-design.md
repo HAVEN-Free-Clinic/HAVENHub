@@ -10,6 +10,27 @@ leaves the member's Intercom thread silent.
 
 This spec connects them without moving the record.
 
+## Where the work happens (decided 2026-08-12)
+
+Staff work the conversation in **Intercom**, not in the Hub. `/support/[id]` stops being a
+workspace and becomes the record: status, assignment, priority, internal notes, and the Epic chain.
+Member-facing correspondence happens where the member already is.
+
+That decision has a corollary worth stating plainly, because it is the part that could be
+over-applied: **only support correspondence moves.** Recruitment decisions, shift reminders,
+compliance reminders, onboarding contract links, and campaigns keep sending through the existing
+Graph transport as `hfc.it@yale.edu`. They are not support conversations, and two facts make moving
+them actively harmful:
+
+- The Messenger only boots inside the authenticated `(app)` shell, so it **cannot reach an
+  applicant at all** -- confirmed while building `my_application_status`. A recruitment decision
+  delivered only through Intercom would never arrive.
+- Every mainstream ad blocker blocks `widget.intercom.io`. A member running one would silently miss
+  "you are not cleared for Saturday's clinic". Email has no such failure mode.
+
+Epic and ITCM keep their Hub steps regardless. Intake needs `govId`, and no part of that may be
+collected or displayed in chat.
+
 ## What stays where
 
 Restating the decision this builds on, because every rule below follows from it:
@@ -83,6 +104,12 @@ new one. There is already notification behaviour there; this joins it rather tha
 **What gets posted:** the new status in member-facing language, and the resolution text when there
 is one. Never internal comments. `TechRequestComment.visibility` already separates `PUBLIC` from
 `INTERNAL`, and only `PUBLIC` may cross.
+
+**This replaces the requester-facing support email, and only that.** `notifyTicketSubmitted` is the
+one support notification today; a linked ticket should tell the member through their conversation
+instead of emailing them. Staff-facing notification (telling IT a ticket arrived) is a different
+audience and is not member correspondence, so it keeps whatever channel it uses now. Do not widen
+this into the platform's other email paths.
 
 **`AWAITING_YNHH` is the one worth the effort.** It is the status Intercom has no native equivalent
 for, and it is the most useful thing a member can be told: the request is blocked on Yale New Haven

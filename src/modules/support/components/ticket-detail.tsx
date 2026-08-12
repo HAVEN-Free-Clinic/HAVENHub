@@ -35,9 +35,14 @@
  * rather than a workspace. Concretely that means, relative to the unlinked
  * behavior above:
  *   - the owner-facing cancel button is hidden (isLinked check below).
- *   - the manager control panel's assign / priority / resolve / cancel /
- *     close controls are hidden. The status control is the one exception --
- *     see `showStatusControl`'s own comment, just below the imports.
+ *   - the entire manager control panel (assign / status / priority /
+ *     resolve / cancel / close) is hidden, with no exception. A linked
+ *     EPIC ticket used to keep the status control alone, because epic.ts was
+ *     the only thing that could ever set AWAITING_YNHH and hiding it would
+ *     have stranded that state; now epic.ts drives AWAITING_YNHH itself (see
+ *     epic-ticket-sync.ts) whenever an attached Epic request is submitted to
+ *     YNHH, and moves it back once none remain outstanding, so a linked EPIC
+ *     ticket is read-only like any other linked ticket.
  *   - the Epic access section still shows the attached-request chain (part
  *     of "the record"), but its attach/cancel forms are hidden.
  *   - the comment thread still shows existing comments, but the reply form
@@ -46,10 +51,12 @@
  *   - a banner explains where the work happens and links into it, so a
  *     manager who used to work this ticket here is not left hunting for a
  *     disabled button.
- * None of this reruns server actions or deletes them -- setStatus in
- * particular stays wired for the EPIC exception and remains the documented
- * escape hatch for a ticket an agent moved to a terminal state in Intercom by
- * mistake. Only the UI affordances are removed.
+ * None of this reruns server actions or deletes them -- only the UI
+ * affordances are removed. A linked ticket an agent moves to (or out of) a
+ * terminal state does so through Intercom itself, not through this
+ * component: applyIntercomTicketStateChange (intercom-sync.ts) writes
+ * TechRequest.status directly from the inbound webhook, independent of
+ * whatever this page renders.
  */
 
 import { PageHeader } from "@/platform/ui/page-header";
@@ -157,20 +164,10 @@ export async function TicketDetail({
   // still lives in Intercom regardless.
   const isLinked = detail.intercomConversationId !== null;
 
-  // EPIC exception (temporary, narrower than the rest of this file): the
-  // Epic workflow (epic.ts) only ever writes EpicRequest.status /
-  // YnhhTicket.status, never TechRequest.status, so AWAITING_YNHH has
-  // exactly one origin in this codebase -- a manager picking it from this
-  // control. Hiding the status control for a linked EPIC ticket the way
-  // every other control is hidden would strand it: nobody could ever mark it
-  // Awaiting YNHH, the Direction-3 push to Intercom would never fire, and
-  // the member's Intercom ticket would sit unchanged for as long as the
-  // request is with Yale New Haven Health -- precisely the visibility the
-  // custom "Waiting on YNHH" state exists to provide. Drop this exception
-  // once epic.ts drives TechRequest.status itself.
-  const showStatusControl = !isLinked || detail.category === "EPIC";
-  // Every other manager mutation (assign, priority, resolve, cancel, close)
-  // moves fully to Intercom for a linked ticket, no exceptions.
+  // Every manager mutation (assign, status, priority, resolve, cancel,
+  // close) moves fully to Intercom for a linked ticket, no exceptions --
+  // epic.ts now drives AWAITING_YNHH itself (epic-ticket-sync.ts), so there
+  // is no longer a manual-status carve-out to make here.
   const showManagerMutations = !isLinked;
   // Epic mutations are NOT a link-conditional control, and this is not an
   // exception to the read-only rule so much as the boundary of what that rule
@@ -221,13 +218,6 @@ export async function TicketDetail({
                 {canManage
                   ? "Reply, reassign, and change its priority in the Intercom conversation -- the Hub shows this ticket as a record of it."
                   : "Reply and get updates in the conversation -- the Hub shows this ticket as a record of it."}
-                {showStatusControl && canManage && (
-                  <>
-                    {" "}
-                    Status stays adjustable below until Epic access requests drive it automatically -- see
-                    Manager controls.
-                  </>
-                )}
               </p>
             </div>
             {canManage
@@ -275,107 +265,81 @@ export async function TicketDetail({
         setPriorityAction &&
         resolveAction &&
         cancelAction &&
-        (showManagerMutations || showStatusControl) && (
+        showManagerMutations && (
           <section>
             <SectionHeader className="mb-2">Manager controls</SectionHeader>
             {isOpen ? (
               <Card className="space-y-6">
-                {showManagerMutations ? (
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <form action={assignAction} className="space-y-2">
-                      <Field label="Assignee">
-                        <Select name="assigneeId" defaultValue={detail.assignedToId ?? ""}>
-                          <option value="">Unassigned</option>
-                          {[...assigneeOptions].map(([id, name]) => (
-                            <option key={id} value={id}>
-                              {name ?? "Unknown"}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                        Update assignee
-                      </SubmitButton>
-                    </form>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <form action={assignAction} className="space-y-2">
+                    <Field label="Assignee">
+                      <Select name="assigneeId" defaultValue={detail.assignedToId ?? ""}>
+                        <option value="">Unassigned</option>
+                        {[...assigneeOptions].map(([id, name]) => (
+                          <option key={id} value={id}>
+                            {name ?? "Unknown"}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update assignee
+                    </SubmitButton>
+                  </form>
 
-                    <form action={setStatusAction} className="space-y-2">
-                      <Field label="Status">
-                        <Select name="status" defaultValue={detail.status}>
-                          {MANAGER_SETTABLE_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {STATUS_LABELS[s]}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                        Update status
-                      </SubmitButton>
-                    </form>
+                  <form action={setStatusAction} className="space-y-2">
+                    <Field label="Status">
+                      <Select name="status" defaultValue={detail.status}>
+                        {MANAGER_SETTABLE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {STATUS_LABELS[s]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update status
+                    </SubmitButton>
+                  </form>
 
-                    <form action={setPriorityAction} className="space-y-2">
-                      <Field label="Priority">
-                        <Select name="priority" defaultValue={detail.priority}>
-                          {ALL_PRIORITIES.map((p) => (
-                            <option key={p} value={p}>
-                              {PRIORITY_LABELS[p]}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                        Update priority
-                      </SubmitButton>
-                    </form>
-                  </div>
-                ) : (
-                  // Linked EPIC exception -- see showStatusControl's doc comment
-                  // above. Status only: assign/priority/resolve/cancel/close all
-                  // moved to Intercom, same as any other linked ticket.
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <form action={setStatusAction} className="space-y-2">
-                      <Field label="Status">
-                        <Select name="status" defaultValue={detail.status}>
-                          {MANAGER_SETTABLE_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {STATUS_LABELS[s]}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
-                        Update status
-                      </SubmitButton>
-                    </form>
-                  </div>
-                )}
+                  <form action={setPriorityAction} className="space-y-2">
+                    <Field label="Priority">
+                      <Select name="priority" defaultValue={detail.priority}>
+                        {ALL_PRIORITIES.map((p) => (
+                          <option key={p} value={p}>
+                            {PRIORITY_LABELS[p]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
+                      Update priority
+                    </SubmitButton>
+                  </form>
+                </div>
 
-                {showManagerMutations && (
-                  <>
-                    <form action={resolveAction} className="space-y-2 border-t border-border pt-4">
-                      <Field label="Resolution">
-                        <Textarea name="resolution" rows={3} placeholder="What fixed this?" required />
-                      </Field>
-                      <SubmitButton pendingLabel="Resolving…">Resolve ticket</SubmitButton>
-                    </form>
+                <form action={resolveAction} className="space-y-2 border-t border-border pt-4">
+                  <Field label="Resolution">
+                    <Textarea name="resolution" rows={3} placeholder="What fixed this?" required />
+                  </Field>
+                  <SubmitButton pendingLabel="Resolving…">Resolve ticket</SubmitButton>
+                </form>
 
-                    <form action={cancelAction} className="space-y-2 border-t border-border pt-4">
-                      <Field label="Cancel this ticket">
-                        <Textarea name="reason" rows={2} placeholder="Reason for cancelling…" required />
-                      </Field>
-                      <ConfirmButton label="Cancel ticket" confirmLabel="Confirm cancel?" />
-                    </form>
+                <form action={cancelAction} className="space-y-2 border-t border-border pt-4">
+                  <Field label="Cancel this ticket">
+                    <Textarea name="reason" rows={2} placeholder="Reason for cancelling…" required />
+                  </Field>
+                  <ConfirmButton label="Cancel ticket" confirmLabel="Confirm cancel?" />
+                </form>
 
-                    <form action={setStatusAction} className="space-y-2 border-t border-border pt-4">
-                      <input type="hidden" name="status" value="CLOSED" />
-                      <p className="text-sm font-medium text-foreground-soft">Close this ticket</p>
-                      <p className="text-xs text-muted-foreground">
-                        Closing is permanent: the ticket becomes read-only and cannot be reopened.
-                      </p>
-                      <ConfirmButton label="Close ticket" confirmLabel="Close permanently?" />
-                    </form>
-                  </>
-                )}
+                <form action={setStatusAction} className="space-y-2 border-t border-border pt-4">
+                  <input type="hidden" name="status" value="CLOSED" />
+                  <p className="text-sm font-medium text-foreground-soft">Close this ticket</p>
+                  <p className="text-xs text-muted-foreground">
+                    Closing is permanent: the ticket becomes read-only and cannot be reopened.
+                  </p>
+                  <ConfirmButton label="Close ticket" confirmLabel="Close permanently?" />
+                </form>
               </Card>
             ) : (
               <Card>

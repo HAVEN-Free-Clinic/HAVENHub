@@ -260,7 +260,14 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
     expect(html).toContain("epic-person-picker");
   });
 
-  it("keeps only the status control for a linked EPIC ticket", async () => {
+  /**
+   * The linked-EPIC status-control exception is gone now that epic.ts drives
+   * AWAITING_YNHH itself (epic-ticket-sync.ts) whenever an attached Epic
+   * request is submitted to or resolved with YNHH -- see ticket-detail.tsx's
+   * module doc comment. A linked EPIC ticket is read-only like any other
+   * linked ticket: no Manager controls section at all.
+   */
+  it("shows no Manager controls section for a linked EPIC ticket, same as any other linked ticket", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
     const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123" });
@@ -283,8 +290,8 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
       })
     );
 
-    expect(html).toContain("Manager controls");
-    expect(html).toContain("Update status");
+    expect(html).not.toContain("Manager controls");
+    expect(html).not.toContain("Update status");
     expect(html).not.toContain("Update assignee");
     expect(html).not.toContain("Update priority");
     expect(html).not.toContain("Resolve ticket");

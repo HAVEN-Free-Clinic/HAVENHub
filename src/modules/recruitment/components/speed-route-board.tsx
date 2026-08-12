@@ -41,7 +41,7 @@ function avgLabel(r: SpeedRouteRow) {
   return formatScoreSummary({ average: r.average, count: r.scoreCount });
 }
 
-function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom"; h: RowHandlers }) {
+function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom" | "returned"; h: RowHandlers }) {
   const routable = r.decision === "PENDING" && r.routedDepartmentCode == null;
   const decided = r.decision !== "PENDING";
   return (
@@ -88,7 +88,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
   );
 }
 
-function TierCard({ title, rows, kind, action, h }: { title: string; rows: SpeedRouteRow[]; kind: "top" | "middle" | "bottom"; action?: ReactNode; h: RowHandlers }) {
+function TierCard({ title, rows, kind, action, h }: { title: string; rows: SpeedRouteRow[]; kind: "top" | "middle" | "bottom" | "returned"; action?: ReactNode; h: RowHandlers }) {
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -109,6 +109,76 @@ function TierCard({ title, rows, kind, action, h }: { title: string; rows: Speed
   );
 }
 
+/**
+ * Applicants a department declined and handed back.
+ *
+ * Kept above the score tiers because this is the only bucket on the board where
+ * someone is actively waiting: the applicant has been through scoring and
+ * routing already, and a department has said no. Left inside their score tier
+ * they would sit among dozens of rows that need no action at all.
+ *
+ * Rows reuse RouteRow, which already offers the department picker and Reject for
+ * them: a returned application is PENDING with no routed department, which is
+ * exactly the routable shape.
+ */
+function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
+  if (rows.length === 0) return null;
+  return (
+    <Card>
+      <SectionHeader>Returned for re-routing ({rows.length})</SectionHeader>
+      <p className="mt-2 text-sm text-subtle-foreground">
+        A department declined these applicants as not a fit for them. Route each one somewhere else, or reject the application.
+      </p>
+      <Table>
+        <THead>
+          <tr><TH>Name</TH><TH>Committee avg</TH><TH>Returned by</TH><TH>Reason</TH><TH>Action</TH></tr>
+        </THead>
+        <tbody>
+          {rows.map((r) => (
+            <TR key={r.applicationId}>
+              <TD className="font-medium text-foreground">{r.name}</TD>
+              <TD className="text-foreground-soft">{avgLabel(r)}</TD>
+              <TD className="text-foreground-soft">{r.returnedFromDepartmentCode ?? "-"}</TD>
+              <TD className="text-foreground-soft">{r.returnedReason || "(none given)"}</TD>
+              <TD>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-32">
+                    <Select
+                      value={h.deptFor(r)}
+                      onChange={(e) => h.setDept(r.applicationId, e.target.value)}
+                      aria-label={`Re-route ${r.name} to`}
+                    >
+                      <option value="" disabled>Department…</option>
+                      {h.departments
+                        // The department that just declined them is not offered:
+                        // routing straight back is never the intended action and
+                        // would land the applicant in the same queue they left.
+                        .filter((d) => d !== r.returnedFromDepartmentCode)
+                        .map((d) => (
+                          <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}</option>
+                        ))}
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={h.busy || h.deptFor(r) === "" || h.deptFor(r) === r.returnedFromDepartmentCode}
+                    onClick={() => h.onRoute(r.applicationId, h.deptFor(r))}
+                  >
+                    Route
+                  </Button>
+                  <Button type="button" size="sm" variant="danger" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
+                </div>
+              </TD>
+            </TR>
+          ))}
+        </tbody>
+      </Table>
+    </Card>
+  );
+}
+
 export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop, onApplyBottom }: Props) {
   const router = useRouter();
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -120,6 +190,21 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
 
   const deptFor = (r: SpeedRouteRow) => overrides[r.applicationId] ?? r.proposedDepartmentCode ?? "";
   const refresh = () => router.refresh();
+
+  /**
+   * Rows a bulk tier action may touch.
+   *
+   * Excludes returned applicants even though they LOOK eligible (PENDING with no
+   * routed department, the same shape as a never-routed row). Two ways that goes
+   * wrong otherwise: "Apply top tier" routes on proposedDepartmentCode, which is
+   * their FIRST CHOICE, and that is frequently the department that just declined
+   * them, so the bulk action would hand them straight back; and "Apply bottom
+   * tier" would silently reject someone a department deliberately returned for
+   * re-routing rather than rejecting. Either way a human judgment already exists
+   * on these rows, so they belong to the Returned card's per-row controls.
+   */
+  const batchEligible = (r: SpeedRouteRow) =>
+    r.decision === "PENDING" && r.routedDepartmentCode == null && r.returnedFromDepartmentCode == null;
 
   function runSingle(fn: () => Promise<{ error?: string }>) {
     setError(null);
@@ -146,7 +231,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     setError(null);
     setNote(null);
     const entries = board.top
-      .filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null)
+      .filter(batchEligible)
       .map((r) => ({ applicationId: r.applicationId, departmentCode: deptFor(r) }))
       .filter((e) => e.departmentCode !== "");
     if (entries.length === 0) { setError("No top-tier rows have a department to route to."); return; }
@@ -165,9 +250,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     // Match `routable`/`applyTop`: never auto-reject an applicant a lead already
     // manually routed to a department, even if their committee average lands them
     // in the bottom bucket.
-    const ids = board.bottom
-      .filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null)
-      .map((r) => r.applicationId);
+    const ids = board.bottom.filter(batchEligible).map((r) => r.applicationId);
     if (ids.length === 0) { setError("No bottom-tier rows to reject."); return; }
     startBusy(async () => {
       const res = await onApplyBottom(ids);
@@ -182,15 +265,17 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   // department later removed from the cycle -- and no manual override). Counting the
   // unfiltered set made "Apply top tier (12)" route only the 9 with a department and
   // silently leave 3 unrouted with no explanation (#98).
-  const topPending = board.top.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null);
+  const topPending = board.top.filter(batchEligible);
   const topRoutable = topPending.filter((r) => deptFor(r) !== "").length;
   const topMissingDept = topPending.length - topRoutable;
-  const bottomPending = board.bottom.filter((r) => r.decision === "PENDING" && r.routedDepartmentCode == null).length;
+  const bottomPending = board.bottom.filter(batchEligible).length;
 
   return (
     <div className="space-y-5">
       {error && <Alert tone="error">{error}</Alert>}
       {note && <Alert tone="success">{note}</Alert>}
+
+      <ReturnedCard rows={board.returned} h={h} />
 
       <TierCard
         title="Top"

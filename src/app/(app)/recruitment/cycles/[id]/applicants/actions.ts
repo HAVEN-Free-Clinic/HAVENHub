@@ -7,7 +7,7 @@ import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
-import { routeApplication, decideRoutedApplication, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
+import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import { reopenWithdrawnApplication, WithdrawError } from "@/modules/recruitment/services/withdraw";
 
@@ -74,14 +74,22 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   const person = await requirePersonSession();
   const outcome = String(formData.get("outcome") ?? "");
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  if (!["ACCEPT", "REJECT", "WAITLIST"].includes(outcome)) {
+  // RETURN is not a decision: it hands the applicant back to the recruitment
+  // lead with the application still PENDING. It shares this action because it
+  // shares the form (one outcome picker, one notes box), but it routes to a
+  // different service function.
+  if (!["ACCEPT", "REJECT", "WAITLIST", "RETURN"].includes(outcome)) {
     redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
   }
   try {
-    await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+    if (outcome === "RETURN") {
+      await returnToRouting(applicationId, person.personId, notes);
+    } else {
+      await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+    }
     await captureEvent({
       distinctId: person.personId,
-      event: "application_decided",
+      event: outcome === "RETURN" ? "application_returned_to_routing" : "application_decided",
       properties: { cycle_id: cycleId, application_id: applicationId, outcome },
       groups: await termGroupForCycle(cycleId),
     });

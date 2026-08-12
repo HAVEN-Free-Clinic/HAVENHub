@@ -25,6 +25,7 @@ export type SortableApplicant = {
   applicantType: ApplicantType;
   committeeScores: { score: number }[];
   routedDepartmentCode: string | null;
+  returnedToRoutingAt?: Date | null;
   decision: Decision;
   interviews: { decision: Decision }[];
   acceptances: { departmentCode: string }[];
@@ -84,6 +85,7 @@ function rankFor(a: SortableApplicant, key: "stage" | "decision"): number {
       applicationStage({
         scoreCount: a.committeeScores.length,
         routedDepartmentCode: a.routedDepartmentCode,
+        returnedToRoutingAt: a.returnedToRoutingAt,
         applicationDecision: a.decision,
         interviews: a.interviews,
       }),

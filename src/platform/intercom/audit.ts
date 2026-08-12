@@ -18,7 +18,7 @@ export async function recordToolCall(params: {
   personId: string | null;
   tool: string;
   args: Record<string, unknown>;
-  outcome: "ok" | "denied" | "unverified";
+  outcome: "ok" | "denied" | "error" | "unverified";
   /**
    * Present only when outcome is "unverified". Threads the specific
    * IdentityFailureReason through into the row so the ways identity

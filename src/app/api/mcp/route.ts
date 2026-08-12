@@ -111,7 +111,18 @@ function registerTools(server: McpServer): void {
         }
 
         const personId = identity.personId;
-        let outcome: "ok" | "denied" = "ok";
+        // "denied" is reserved for an actual authorization refusal -- a tool
+        // that returns a plain refusal string (e.g. departmentRosterTool's
+        // DEPARTMENT_ACCESS_DENIED) never throws, so it audits "ok" like any
+        // other successful call; that string IS the outcome and this route
+        // has no way to distinguish it from a real answer without inspecting
+        // tool-specific text, which would be its own fragile coupling. "error"
+        // is for the one thing this route CAN prove unconditionally: the tool
+        // itself blew up. Collapsing that into "denied" (as it read before)
+        // meant the audit trail could not tell "the caller was refused" from
+        // "the tool crashed" -- see guard()'s own "denied" row for what a real
+        // refusal looks like here.
+        let outcome: "ok" | "denied" | "error" = "ok";
         let text: string;
         try {
           text = await tool.run({ personId }, toolArgs);
@@ -125,7 +136,7 @@ function registerTools(server: McpServer): void {
         } catch (err) {
           // Never let the thrown error's message, stack, or cause reach the
           // returned content -- see TOOL_FAILURE_MESSAGE's doc comment for why.
-          outcome = "denied";
+          outcome = "error";
           log.error("[intercom-mcp] tool call failed", errorAttrs(err, { tool: tool.name }));
           text = TOOL_FAILURE_MESSAGE;
         } finally {
@@ -156,11 +167,19 @@ async function guard(request: Request): Promise<Response | null> {
   }
 
   const expected = mcpBearerToken();
-  if (!expected || !constantTimeBearerMatch(request.headers.get("authorization"), expected)) {
-    // A wrong or absent shared secret is not a legitimate Fin request at all,
-    // but it is still worth a row: a run of these is what a misconfigured or
-    // stale connector looks like from here.
-    await recordToolCall({ personId: null, tool: REQUEST_LEVEL_TOOL, args: {}, outcome: "denied" });
+  const authHeader = request.headers.get("authorization");
+  if (!expected || !constantTimeBearerMatch(authHeader, expected)) {
+    // A wrong shared secret is not a legitimate Fin request at all, but it is
+    // still worth a row: a run of these is what a misconfigured or stale
+    // connector looks like from here. Only audited when a header was actually
+    // presented, though -- this endpoint is publicly reachable once
+    // configured, so a credential-free drive-by scanner would otherwise be
+    // able to grow AuditLog for free. The webhook route makes the same call
+    // for the same reason (see its rejected-signature branch: log.warn only,
+    // never an audit row).
+    if (authHeader) {
+      await recordToolCall({ personId: null, tool: REQUEST_LEVEL_TOOL, args: {}, outcome: "denied" });
+    }
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

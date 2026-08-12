@@ -4,7 +4,9 @@
 
 **Goal:** Block the authenticated hub with an undismissable modal when a content blocker is breaking the Intercom Messenger, so no member is silently left without a way to reach support.
 
-**Architecture:** A dependency-injected pure probe (`blocker-probe.ts`) decides whether a blocker is breaking either half of the Messenger, and a client component (`blocker-gate.tsx`) renders the gate and handles re-checking. Both mount from the `(app)` layout under the existing `supportAppId` guard, so the gate is inert wherever Intercom is unconfigured (local dev, CI, e2e, preview, demo).
+**Architecture:** A dependency-injected pure probe (`blocker-probe.ts`) decides whether a blocker is breaking either half of the Messenger, and a client component (`blocker-gate.tsx`) renders the gate and handles re-checking. Both mount from the `(app)` layout under the existing `supportAppId` guard, so the gate is inert wherever Intercom is unconfigured (local dev, CI, e2e, preview, demo). The gate's focus trap comes from a `useFocusTrap` hook extracted from the `Modal` primitive, so the two share one implementation rather than drifting apart.
+
+**Plan amendment (pre-flight ruling):** the original plan had `blocker-gate.tsx` duplicate roughly 25 lines of `Modal`'s focus trap verbatim, including the non-obvious blur-to-body fix from issue #79. That is real duplicated logic and a maintenance hazard: a later fix to Modal's trap would never reach the gate. Task 2 was inserted to extract the trap into a shared hook first. `Modal`'s public API and behavior do not change.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Vitest (jsdom for DOM tests), posthog-js, Tailwind.
 
@@ -320,14 +322,269 @@ mid-flight network drop cannot gate either."
 
 ---
 
-### Task 2: The gate component
+### Task 2: Extract the focus trap into a shared hook
+
+Pure refactor. `Modal`'s public API, props, and observable behavior must not
+change: every existing dialog in the hub uses it, and it has no direct test
+file, so the safety net here is the extracted hook's own tests plus the full
+suite.
+
+**Files:**
+- Create: `src/platform/ui/use-focus-trap.ts`
+- Test: `src/platform/ui/use-focus-trap.test.tsx`
+- Modify: `src/platform/ui/modal.tsx:26-88`
+
+**Interfaces:**
+- Consumes: nothing from earlier tasks.
+- Produces: `useFocusTrap(panelRef: RefObject<HTMLElement | null>, active: boolean): void`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/platform/ui/use-focus-trap.test.tsx`:
+
+```tsx
+// @vitest-environment jsdom
+/**
+ * Covers the trap extracted from Modal, which never had direct tests of its
+ * own. The blur-to-body case is the one that matters most: it is the #79 fix,
+ * and it is the reason this logic is shared rather than copied.
+ */
+import { afterEach, describe, expect, it } from "vitest";
+import { act, useRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { useFocusTrap } from "./use-focus-trap";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function Panel({ active }: { active: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, active);
+  return (
+    <div ref={ref} tabIndex={-1}>
+      <button type="button" data-testid="first">first</button>
+      <button type="button" data-testid="last">last</button>
+    </div>
+  );
+}
+
+let mounted: { container: HTMLDivElement; root: Root } | null = null;
+
+function mount(active: boolean) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => root.render(<Panel active={active} />));
+  mounted = { container, root };
+}
+
+function press(shiftKey: boolean) {
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true }));
+  });
+}
+
+const byId = (id: string) => document.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`);
+
+afterEach(() => {
+  if (mounted) {
+    const { container, root } = mounted;
+    act(() => root.unmount());
+    container.remove();
+    mounted = null;
+  }
+});
+
+describe("useFocusTrap", () => {
+  it("wraps Tab from the last focusable back to the first", () => {
+    mount(true);
+    byId("last")?.focus();
+    press(false);
+    expect(document.activeElement).toBe(byId("first"));
+  });
+
+  it("wraps Shift+Tab from the first focusable back to the last", () => {
+    mount(true);
+    byId("first")?.focus();
+    press(true);
+    expect(document.activeElement).toBe(byId("last"));
+  });
+
+  it("pulls focus back in when the browser has blurred to body (the #79 case)", () => {
+    mount(true);
+    // What happens when the focused control becomes disabled mid-transition.
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.focus();
+    press(false);
+    expect(document.activeElement).toBe(byId("first"));
+  });
+
+  it("does nothing while inactive, so a closed dialog does not capture Tab", () => {
+    mount(false);
+    byId("last")?.focus();
+    press(false);
+    expect(document.activeElement).toBe(byId("last"));
+  });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run:
+```bash
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_blockergate" npx vitest run src/platform/ui/use-focus-trap.test.tsx
+```
+Expected: FAIL, cannot resolve `./use-focus-trap`.
+
+- [ ] **Step 3: Create the hook**
+
+Create `src/platform/ui/use-focus-trap.ts`:
+
+```ts
+"use client";
+
+import { useEffect, type RefObject } from "react";
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea, input, select, iframe, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Keeps Tab inside `panelRef` while `active`, and moves focus into the panel
+ * when it becomes active.
+ *
+ * Shared by Modal and BlockerGate rather than copied into each, because it
+ * carries a fix that is not obvious from reading it (#79): the browser blurs
+ * to <body> whenever the focused control is removed or disabled, which every
+ * in-flight action button does while its transition runs. Without the
+ * pull-back below, Tab from <body> walks into the scroll-locked page behind
+ * the scrim. A second copy of this would not inherit the next such fix.
+ *
+ * Escape handling and scroll locking deliberately stay with the caller: Modal
+ * closes on Escape, and BlockerGate must not.
+ */
+export function useFocusTrap(panelRef: RefObject<HTMLElement | null>, active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+
+    panelRef.current?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
+      if (!focusables || focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const focused = document.activeElement;
+
+      // Focus escaped the panel: pull it straight back in before the browser
+      // default runs. See the #79 note above.
+      if (!focused || !panelRef.current?.contains(focused)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
+      if (e.shiftKey && (focused === first || focused === panelRef.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && focused === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [panelRef, active]);
+}
+```
+
+- [ ] **Step 4: Run the hook tests to verify they pass**
+
+Run:
+```bash
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_blockergate" npx vitest run src/platform/ui/use-focus-trap.test.tsx
+```
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Rewire Modal onto the hook**
+
+In `src/platform/ui/modal.tsx`, add the import:
+
+```tsx
+import { useFocusTrap } from "@/platform/ui/use-focus-trap";
+```
+
+Call it inside the component, next to the other hooks (before the existing `useEffect`):
+
+```tsx
+useFocusTrap(panelRef, open);
+```
+
+Then delete the Tab-handling half of the existing effect. Keep Escape, the
+scroll lock, and the focus restore. The effect becomes:
+
+```tsx
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    // Focus moves into the panel via useFocusTrap, which also owns Tab.
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCloseRef.current();
+    }
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = prevOverflow;
+      previouslyFocused.current?.focus();
+    };
+  }, [open]);
+```
+
+Note the two handlers now registered in capture phase (the hook's Tab handler
+and Modal's Escape handler) act on disjoint keys, so their registration order
+does not matter.
+
+- [ ] **Step 6: Run the full suite to prove no dialog regressed**
+
+This is the safety net for a refactor of a widely used primitive. Read the
+counts; do not pipe through `tail`.
+
+```bash
+TEST_DATABASE_URL="postgresql://haven:haven_dev@127.0.0.1:5434/havenhub_test_blockergate" BLOB_READ_WRITE_TOKEN="" npm test
+```
+Expected: no new failures against the branch baseline.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/platform/ui/use-focus-trap.ts src/platform/ui/use-focus-trap.test.tsx src/platform/ui/modal.tsx
+git commit -m "refactor(ui): extract Modal's focus trap into a shared hook
+
+The content blocker gate needs the same trap and must not copy it. The trap
+carries the #79 blur-to-body fix, which is not obvious from reading it, so a
+second copy would silently miss the next fix of that kind.
+
+Modal's API and behavior are unchanged. The hook also brings the trap its
+first direct tests, including the blur-to-body case."
+```
+
+---
+
+### Task 3: The gate component
 
 **Files:**
 - Create: `src/platform/intercom/blocker-gate.tsx`
 - Test: `src/platform/intercom/blocker-gate.test.tsx`
 
 **Interfaces:**
-- Consumes: `probeContentBlocker`, `browserProbeDeps`, `BlockedProbe` from Task 1.
+- Consumes: `probeContentBlocker`, `browserProbeDeps`, `BlockedProbe` from Task 1; `useFocusTrap` from Task 2.
 - Produces: `BlockerGate({ appId, supportEmail }: { appId: string; supportEmail: string })`, a client component rendering `null` when not gated.
 
 - [ ] **Step 1: Write the failing tests**
@@ -482,6 +739,7 @@ import { createPortal } from "react-dom";
 import { ShieldAlert } from "lucide-react";
 import posthog from "posthog-js";
 import { SupportLink } from "@/platform/branding/support-link";
+import { useFocusTrap } from "@/platform/ui/use-focus-trap";
 import { browserProbeDeps, probeContentBlocker, type BlockedProbe } from "./blocker-probe";
 
 /**
@@ -497,8 +755,8 @@ import { browserProbeDeps, probeContentBlocker, type BlockedProbe } from "./bloc
  * Does NOT reuse the Modal primitive. Modal renders an unconditional close
  * button and calls onClose on Escape and backdrop click; a no-op onClose would
  * leave a dead X on screen, which reads as broken exactly when the page most
- * needs to be trusted. The focus trap and scroll lock below are Modal's,
- * borrowed without its dismissal contract.
+ * needs to be trusted. It shares Modal's focus trap through useFocusTrap, and
+ * its scroll lock by construction, but not its dismissal contract.
  */
 export function BlockerGate({ appId, supportEmail }: { appId: string; supportEmail: string }) {
   const [failed, setFailed] = useState<BlockedProbe[] | null>(null);
@@ -557,43 +815,16 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
     return () => window.removeEventListener("focus", onFocus);
   }, [failed, recheck]);
 
-  // Scroll lock and focus trap, mirroring the Modal primitive. No Escape
-  // handler on purpose: Escape must do nothing.
+  // Shared with Modal. The re-check button disables itself while it runs, which
+  // blurs focus to <body>, so the hook's pull-back is load-bearing here.
+  useFocusTrap(panelRef, failed !== null);
+
+  // Scroll lock. No Escape handler on purpose: Escape must do nothing.
   useEffect(() => {
     if (!failed) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Tab") return;
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled])',
-      );
-      if (!focusables || focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      // The browser blurs to <body> whenever the focused control becomes
-      // disabled, which the re-check button does while it runs. Pull focus
-      // back in before the default runs, or Tab walks into the locked page.
-      if (!active || !panelRef.current?.contains(active)) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-        return;
-      }
-      if (e.shiftKey && (active === first || active === panelRef.current)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = prevOverflow;
     };
   }, [failed]);
@@ -694,13 +925,13 @@ that link is the only route those members have left."
 
 ---
 
-### Task 3: Mount the gate
+### Task 4: Mount the gate
 
 **Files:**
 - Modify: `src/app/(app)/layout.tsx`
 
 **Interfaces:**
-- Consumes: `BlockerGate` from Task 2, `getSupportContact` from `@/platform/branding/support`.
+- Consumes: `BlockerGate` from Task 3, `getSupportContact` from `@/platform/branding/support`.
 - Produces: nothing consumed by later tasks.
 
 - [ ] **Step 1: Add the imports**
@@ -774,7 +1005,7 @@ where a hard block would otherwise take the whole suite down."
 
 ---
 
-### Task 4: Verify against a real content blocker
+### Task 5: Verify against a real content blocker
 
 Tests cannot prove that the probes match what blockers actually do, because
 the gate is inert without `NEXT_PUBLIC_INTERCOM_APP_ID` and setting it in the
@@ -826,7 +1057,7 @@ weakening the check.
 
 - **The gate is inert locally.** Without `NEXT_PUBLIC_INTERCOM_APP_ID` and
   `INTERCOM_MESSENGER_SECRET`, `supportAppId` is null and `BlockerGate` never
-  mounts. That is intended, and it is why Task 4 exists.
+  mounts. That is intended, and it is why Task 5 exists.
 - **Do not add bait requests.** A `/ads.js`-style bait or a cosmetic-filter
   bait element would catch blockers that break nothing, and every one of those
   is a member locked out of clinic work for no reason. The spec rules this out

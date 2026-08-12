@@ -246,6 +246,10 @@ model Person {
   spanishVerifiedById            String?
   /// Self-reported RN licensure. No verification workflow.
   licensedRN                     Boolean                    @default(false)
+  /// Exempts this person from the content blocker gate. Set by an admin for
+  /// people on a managed device or network they cannot change themselves, who
+  /// are correctly detected as blocked and genuinely cannot comply.
+  blockerGateExempt              Boolean                    @default(false)
   /// Most recent successful sign-in. Last value only, never a history: enough
   /// to spot a dormant account without keeping a movement log of a volunteer.
   lastLoginAt                    DateTime?

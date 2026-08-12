@@ -104,6 +104,7 @@ export type PersonInput = {
   spanishSelfReported?: boolean;
   spanishVerified?: boolean;
   licensedRN?: boolean;
+  blockerGateExempt?: boolean;
 };
 
 /**
@@ -146,6 +147,7 @@ export async function createPersonRecord(
         spanishSelfReported: data.spanishSelfReported ?? false,
         spanishVerified: data.spanishVerified ?? false,
         licensedRN: data.licensedRN ?? false,
+        blockerGateExempt: data.blockerGateExempt ?? false,
         // An admin setting "verified" on create is itself a verification event.
         ...(data.spanishVerified
           ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
@@ -172,6 +174,7 @@ export async function createPersonRecord(
         spanishSelfReported: person.spanishSelfReported,
         spanishVerified: person.spanishVerified,
         licensedRN: person.licensedRN,
+        blockerGateExempt: person.blockerGateExempt,
       },
     });
 
@@ -200,6 +203,7 @@ export async function updatePersonFields(
     "spanishSelfReported",
     "spanishVerified",
     "licensedRN",
+    "blockerGateExempt",
   ];
 
   try {

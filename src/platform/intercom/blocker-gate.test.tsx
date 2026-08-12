@@ -5,14 +5,30 @@
  * own decision rule is blocker-probe.test.ts's job; this proves the wiring.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ProbeResult } from "./blocker-probe";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let probeResult: ProbeResult = { blocked: false };
+let probeError: Error | null = null;
 const probeCalls = { count: 0 };
+
+/**
+ * Set by deferNextProbe() to hold the NEXT probe open, so a test can act while
+ * one is genuinely in flight. Cleared as soon as it is handed out, so later
+ * probes settle immediately from probeResult as usual.
+ */
+let deferredProbe: Promise<ProbeResult> | null = null;
+
+function deferNextProbe(): (result: ProbeResult) => void {
+  let settle!: (result: ProbeResult) => void;
+  deferredProbe = new Promise<ProbeResult>((resolve) => {
+    settle = resolve;
+  });
+  return settle;
+}
 
 vi.mock("./blocker-probe", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./blocker-probe")>();
@@ -20,6 +36,12 @@ vi.mock("./blocker-probe", async (importOriginal) => {
     ...actual,
     probeContentBlocker: vi.fn(async () => {
       probeCalls.count += 1;
+      if (probeError) throw probeError;
+      if (deferredProbe) {
+        const pending = deferredProbe;
+        deferredProbe = null;
+        return pending;
+      }
       return probeResult;
     }),
   };
@@ -33,18 +55,24 @@ import { BlockerGate } from "./blocker-gate";
 
 let mounted: { container: HTMLDivElement; root: Root } | null = null;
 
-async function mount(supportEmail = "help@example.org") {
+const recheckButton = () =>
+  document.querySelector<HTMLButtonElement>('[data-testid="blocker-recheck"]');
+
+async function mount(supportEmail = "help@example.org", { strict = false } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const gate = <BlockerGate appId="abc123" supportEmail={supportEmail} />;
   await act(async () => {
-    root.render(<BlockerGate appId="abc123" supportEmail={supportEmail} />);
+    root.render(strict ? <StrictMode>{gate}</StrictMode> : gate);
   });
   mounted = { container, root };
 }
 
 beforeEach(() => {
   probeResult = { blocked: false };
+  probeError = null;
+  deferredProbe = null;
   probeCalls.count = 0;
 });
 
@@ -116,6 +144,79 @@ describe("BlockerGate", () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
+  it("ignores a competing re-check while one is in flight, so a stale result cannot land last", async () => {
+    probeResult = { blocked: true, failed: ["token"] };
+    await mount();
+    expect(probeCalls.count).toBe(1);
+
+    // The member presses the button while still blocked, and that probe hangs.
+    const settle = deferNextProbe();
+    await act(async () => {
+      recheckButton()?.click();
+    });
+    expect(probeCalls.count).toBe(2);
+
+    // Now they really do turn the blocker off, leave the tab, and come back.
+    // Before the fix the focus listener started a second probe and whichever
+    // settled last won: the stale "still blocked" one could land after the
+    // clean one and put the gate back on top of the page they had moved to.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(probeCalls.count).toBe(2);
+
+    await act(async () => {
+      settle({ blocked: true, failed: ["token"] });
+    });
+    expect(probeCalls.count).toBe(2);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    // The in-flight guard must not leave the only button disabled either.
+    expect(recheckButton()?.disabled).toBe(false);
+  });
+
+  it("announces every re-check outcome, because this dialog cannot be left", async () => {
+    probeResult = { blocked: true, failed: ["token"] };
+    await mount();
+    const live = document.querySelector('[role="status"]');
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+
+    const settle = deferNextProbe();
+    await act(async () => {
+      recheckButton()?.click();
+    });
+    expect(live?.textContent).toMatch(/checking/i);
+
+    await act(async () => {
+      settle({ blocked: true, failed: ["token"] });
+    });
+    expect(live?.textContent).toMatch(/still blocked/i);
+
+    probeResult = { blocked: false };
+    await act(async () => {
+      recheckButton()?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    // The same node, with new text. A screen reader announces a live region's
+    // text CHANGING, and a dialog that simply vanishes is no feedback at all to
+    // someone who cannot see it.
+    expect(document.querySelector('[role="status"]')).toBe(live);
+    expect(live?.textContent).toMatch(/loaded/i);
+  });
+
+  it("re-enables the button when a re-check throws, rather than stranding the only control", async () => {
+    probeResult = { blocked: true, failed: ["token"] };
+    await mount();
+    probeError = new Error("probe exploded");
+    await act(async () => {
+      recheckButton()?.click();
+    });
+    // A probe that could not finish proves nothing, so the gate stands, but the
+    // member must still be able to try again.
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(recheckButton()?.disabled).toBe(false);
+    expect(document.querySelector('[role="status"]')?.textContent).toMatch(/could not finish/i);
+  });
+
   it("offers a mailto escape for anyone who cannot turn their blocker off", async () => {
     probeResult = { blocked: true, failed: ["widget"] };
     await mount("help@example.org");
@@ -135,6 +236,18 @@ describe("BlockerGate", () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
 
+    expect(probeCalls.count).toBe(1);
+  });
+
+  it("still fires under StrictMode, and still probes only once", async () => {
+    // next dev and the Playwright web server both run StrictMode, which mounts,
+    // cleans up, and mounts again. Refs survive that cycle, so a boolean
+    // "already started" guard let the first mount claim the only probe and the
+    // cleanup discard its result: the gate never appeared in dev, and the
+    // manual verification step would have reported a false negative.
+    probeResult = { blocked: true, failed: ["widget"] };
+    await mount("help@example.org", { strict: true });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     expect(probeCalls.count).toBe(1);
   });
 

@@ -18,7 +18,7 @@ export async function recordToolCall(params: {
   personId: string | null;
   tool: string;
   args: Record<string, unknown>;
-  outcome: "ok" | "denied" | "unverified";
+  outcome: "ok" | "denied" | "error" | "unverified";
   /**
    * Present only when outcome is "unverified". Threads the specific
    * IdentityFailureReason through into the row so the ways identity
@@ -26,10 +26,11 @@ export async function recordToolCall(params: {
    * an unknown conversation, a conversation with no single resolvable
    * contact, a contact whose Person is not active, or the Intercom lookup
    * itself failing -- stay distinguishable here even though the caller-facing
-   * UNIDENTIFIED_MESSAGE (route.ts) deliberately keeps them indistinguishable.
-   * Without this, a burst of `intercom_mcp.unverified` rows cannot say which
-   * failure mode is actually happening, which is exactly the instrumentation
-   * this module's own doc comment says the audit trail is supposed to give.
+   * UNIDENTIFIED_MESSAGE (./identity.ts) deliberately keeps them
+   * indistinguishable. Without this, a burst of `intercom_mcp.unverified`
+   * rows cannot say which failure mode is actually happening, which is
+   * exactly the instrumentation this module's own doc comment says the audit
+   * trail is supposed to give.
    */
   reason?: IdentityFailureReason;
 }): Promise<void> {

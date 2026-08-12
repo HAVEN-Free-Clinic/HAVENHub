@@ -15,15 +15,42 @@
  * State machine:
  *   RESOLVED, CLOSED, and CANCELLED are terminal. assignRequest, setStatus,
  *   setPriority, resolveRequest, and cancelRequest/cancelOwnRequest all
- *   refuse to touch a ticket already in a terminal state (SupportStateError).
- *   setStatus additionally refuses RESOLVED/CANCELLED as a *target* status --
- *   those transitions only happen through resolveRequest/cancelRequest, which
- *   carry their own required-reason and notification behavior.
+ *   refuse to touch a ticket already in a terminal state (SupportStateError)
+ *   -- EXCEPT setStatus on a ticket with an intercomTicketId, which lets a
+ *   linked ticket move back out of terminal, because Intercom (not the Hub)
+ *   is Direction 3's control surface and can put a ticket there unilaterally;
+ *   see setStatus's own comment for why the guard cannot be unconditional for
+ *   a linked ticket without stranding it. setStatus additionally refuses
+ *   RESOLVED/CANCELLED as a *target* status -- those transitions only happen
+ *   through resolveRequest/cancelRequest, which carry their own
+ *   required-reason and notification behavior.
  *
  * Every mutation is audited. assignRequest, setStatus (on any actual status
  * change), and resolveRequest also notify (render once, then notify the one
  * recipient); setPriority and the two cancel paths are quiet administrative
  * actions with no notification, matching cancelRequest in epic.ts.
+ *
+ * Outbound Intercom sync (see docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md):
+ *
+ * Direction 2: when setStatus or resolveRequest changes the status of a
+ * ticket with an intercomConversationId, the requester-facing notify() call
+ * is replaced with a post into that conversation instead -- the member hears
+ * about the change where they are, rather than by email. cancelRequest and
+ * cancelOwnRequest are unaffected by Direction 2: they never notified the
+ * requester at all, and that sync only replaces an existing notification, it
+ * does not add one.
+ *
+ * Direction 3 (Hub-origin half): every status-changing action here --
+ * setStatus, resolveRequest, cancelRequest, and cancelOwnRequest alike --
+ * also pushes the new status onto the linked Intercom TICKET's own state via
+ * notifications.ts's pushIntercomTicketState, whenever the ticket has an
+ * intercomTicketId. Unlike Direction 2, this is not scoped to "replaces an
+ * existing notification": it keeps Intercom's Ticket object (a different
+ * thing from the conversation Direction 2 posts into) honest about the
+ * Hub's status regardless of which action changed it, because Intercom's
+ * ticket state is what the member actually sees. pushIntercomTicketState is
+ * a no-op for a ticket with no intercomTicketId, so it is safe to call
+ * unconditionally.
  */
 
 import type { TechRequest, TechRequestStatus, TechRequestPriority } from "@prisma/client";
@@ -35,6 +62,7 @@ import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 import { STATUS_LABELS } from "../components/status-badge";
+import { notifyIntercomStatusChange, pushIntercomTicketState } from "./notifications";
 
 /** RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status transition, priority change, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button and the manager control panel. */
 export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
@@ -144,8 +172,10 @@ export async function assignRequest(
  * resolveRequest/cancelRequest, which require a reason and notify the
  * requester. Ticket must exist (SupportNotFoundError) and must not already
  * be terminal (SupportStateError). Any actual status change (before != after)
- * notifies the requester (support.status_changed); a no-op re-set of the
- * current status is silent.
+ * notifies the requester (support.status_changed) -- or, for a ticket linked
+ * to an Intercom conversation, posts the update there instead (see the
+ * module doc comment); a no-op re-set of the current status is silent either
+ * way.
  *
  * Audits "support.status_change" with before/after status.
  */
@@ -164,7 +194,17 @@ export async function setStatus(
 
   const before = await loadOrThrow(id);
 
-  if (TERMINAL_STATUSES.includes(before.status)) {
+  // A linked ticket's terminal states are not absolute the way an unlinked
+  // ticket's are: applyIntercomTicketStateChange (intercom-sync.ts)
+  // deliberately lets Intercom move a ticket OUT of Resolved/Closed/Cancelled,
+  // because Intercom is Direction 3's control surface and an agent reopening
+  // a ticket there is an ordinary action. If the Hub's own terminal guard
+  // still applied unconditionally here, that same reopened ticket would be
+  // locked out of every Hub manager action -- a mis-click in Intercom's UI
+  // would strand it. So the guard only holds when the ticket has no
+  // intercomTicketId; an unlinked ticket has no other control surface, and
+  // its terminal lifecycle is unchanged. See manage.test.ts.
+  if (TERMINAL_STATUSES.includes(before.status) && !before.intercomTicketId) {
     throw new SupportStateError(`Cannot change the status of a ${before.status} ticket.`);
   }
 
@@ -183,27 +223,42 @@ export async function setStatus(
   });
 
   if (before.status !== status) {
-    const requester = await prisma.person.findUnique({
-      where: { id: updated.requesterId },
-      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-    });
-    if (requester) {
-      const baseUrl = await resolveBaseUrl();
-      const link = `${baseUrl}/support/${id}`;
-      const rendered = await renderEmail("support.status_changed", {
-        ticketNumber: updated.number,
-        subject: updated.subject,
-        statusLabel: STATUS_LABELS[status],
-        link,
+    if (updated.intercomConversationId) {
+      // Linked ticket: tell the member through their conversation instead of
+      // by email. Never throws -- an unreachable Intercom must not turn an
+      // already-committed status change into a failed one.
+      await notifyIntercomStatusChange(updated);
+    } else {
+      const requester = await prisma.person.findUnique({
+        where: { id: updated.requesterId },
+        select: { id: true, name: true, entraObjectId: true, contactEmail: true },
       });
-      await notify(prisma, {
-        type: "support.status_changed",
-        person: requester,
-        email: { subject: rendered.subject, html: rendered.html },
-        teams: { title: `IT Support #${updated.number} update`, summary: updated.subject, link },
-        triggeredById: actorPersonId,
-      });
+      if (requester) {
+        const baseUrl = await resolveBaseUrl();
+        const link = `${baseUrl}/support/${id}`;
+        const rendered = await renderEmail("support.status_changed", {
+          ticketNumber: updated.number,
+          subject: updated.subject,
+          statusLabel: STATUS_LABELS[status],
+          link,
+        });
+        await notify(prisma, {
+          type: "support.status_changed",
+          person: requester,
+          email: { subject: rendered.subject, html: rendered.html },
+          teams: { title: `IT Support #${updated.number} update`, summary: updated.subject, link },
+          triggeredById: actorPersonId,
+        });
+      }
     }
+
+    // Direction 3 (Hub-origin half): keep the linked Intercom Ticket's own
+    // state honest regardless of which branch above fired -- a no-op when
+    // the ticket has no intercomTicketId. Separate from the branch above
+    // because it targets a different Intercom object (the Ticket, not the
+    // conversation) and is not scoped to "replaces an existing
+    // notification" the way Direction 2 is.
+    await pushIntercomTicketState(updated, before.status);
   }
 
   return updated;
@@ -261,7 +316,9 @@ export async function setPriority(
  * Requires support.manage_requests. Ticket must exist (SupportNotFoundError)
  * and must not already be terminal (SupportStateError). resolution must be
  * non-blank (SupportStateError). Notifies the requester
- * (support.request_resolved).
+ * (support.request_resolved) -- or, for a ticket linked to an Intercom
+ * conversation, posts the resolution there instead (see the module doc
+ * comment).
  *
  * Audits "support.resolve" with before/after status.
  */
@@ -294,28 +351,39 @@ export async function resolveRequest(
     after: { status: "RESOLVED" },
   });
 
-  const requester = await prisma.person.findUnique({
-    where: { id: updated.requesterId },
-    select: { id: true, name: true, entraObjectId: true, contactEmail: true },
-  });
-  if (requester) {
-    const baseUrl = await resolveBaseUrl();
-    const link = `${baseUrl}/support/${id}`;
-    const rendered = await renderEmail("support.request_resolved", {
-      ticketNumber: updated.number,
-      subject: updated.subject,
-      resolution: trimmed,
-      hasResolution: true,
-      link,
+  if (updated.intercomConversationId) {
+    // Linked ticket: tell the member through their conversation instead of
+    // by email, including the resolution note. Never throws -- an
+    // unreachable Intercom must not turn an already-committed resolve into a
+    // failed one.
+    await notifyIntercomStatusChange(updated, trimmed);
+  } else {
+    const requester = await prisma.person.findUnique({
+      where: { id: updated.requesterId },
+      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
     });
-    await notify(prisma, {
-      type: "support.request_resolved",
-      person: requester,
-      email: { subject: rendered.subject, html: rendered.html },
-      teams: { title: `IT Support #${updated.number} resolved`, summary: updated.subject, link },
-      triggeredById: actorPersonId,
-    });
+    if (requester) {
+      const baseUrl = await resolveBaseUrl();
+      const link = `${baseUrl}/support/${id}`;
+      const rendered = await renderEmail("support.request_resolved", {
+        ticketNumber: updated.number,
+        subject: updated.subject,
+        resolution: trimmed,
+        hasResolution: true,
+        link,
+      });
+      await notify(prisma, {
+        type: "support.request_resolved",
+        person: requester,
+        email: { subject: rendered.subject, html: rendered.html },
+        teams: { title: `IT Support #${updated.number} resolved`, summary: updated.subject, link },
+        triggeredById: actorPersonId,
+      });
+    }
   }
+
+  // Direction 3 (Hub-origin half): see setStatus's matching comment.
+  await pushIntercomTicketState(updated, before.status);
 
   return updated;
 }
@@ -366,6 +434,12 @@ export async function cancelRequest(
     after: { status: "CANCELLED", reason: trimmed },
   });
 
+  // Direction 3 (Hub-origin half): see setStatus's matching comment. Unlike
+  // Direction 2's note, this is not scoped to "replaces an existing
+  // notification" -- a cancelled Hub ticket should read Cancelled in
+  // Intercom too, even though cancelRequest sends no requester notification.
+  await pushIntercomTicketState(updated, before.status);
+
   return updated;
 }
 
@@ -405,6 +479,9 @@ export async function cancelOwnRequest(actorPersonId: string, id: string): Promi
     before: { status: before.status },
     after: { status: "CANCELLED" },
   });
+
+  // Direction 3 (Hub-origin half): see cancelRequest's matching comment.
+  await pushIntercomTicketState(updated, before.status);
 
   return updated;
 }

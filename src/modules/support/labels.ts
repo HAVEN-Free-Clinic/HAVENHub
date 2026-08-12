@@ -8,6 +8,7 @@ export const CATEGORY_LABELS: Record<TechRequestCategory, string> = {
   DUO_MFA: "DUO MFA",
   GENERAL_IT: "General IT",
   TEAMS: "Teams access",
+  HAVEN_HUB: "HAVEN Hub",
   OTHER: "Other",
 };
 

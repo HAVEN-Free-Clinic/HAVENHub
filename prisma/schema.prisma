@@ -676,6 +676,11 @@ enum TechRequestCategory {
   DUO_MFA
   GENERAL_IT
   TEAMS
+  /// Problems with HAVEN Hub itself (bugs, access, feature requests), as opposed
+  /// to the external systems the other categories cover. Added once Intercom
+  /// became the support front door and Hub reports needed somewhere to land
+  /// other than GENERAL_IT, where they were indistinguishable from Yale IT work.
+  HAVEN_HUB
   OTHER
 }
 

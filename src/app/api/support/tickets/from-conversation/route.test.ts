@@ -214,7 +214,7 @@ describe("POST /api/support/tickets/from-conversation", () => {
     expect(ticket?.requesterId).not.toBe(impersonated.id);
   });
 
-  it("accepts EPIC as a category but never persists any Epic intake field from the body", async () => {
+  it("accepts EPIC as a category but never persists epicSubtype or any unrecognized field from the body", async () => {
     const person = await createPerson("Sam Rivera");
     mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,
@@ -229,13 +229,11 @@ describe("POST /api/support/tickets/from-conversation", () => {
         category: "EPIC",
         subject: "Need Epic access",
         description: "New volunteer starting Monday.",
-        govId: "123-45-6789",
-        netId: "abc12",
+        // Unrecognized keys a forged or stale client might send. zod strips
+        // these before parsing finishes, so they have nothing to bind to --
+        // structurally unable to reach createTechRequestFromConversation.
+        epicSubtype: "NEW",
         epicJobTitle: "Volunteer",
-        epicMirrorId: "MIRROR1",
-        epicStartDate: "2026-09-01",
-        epicEndDate: "2027-05-01",
-        worksAtYnhh: true,
       })
     );
     const json = await res.json();
@@ -243,13 +241,7 @@ describe("POST /api/support/tickets/from-conversation", () => {
     expect(res.status).toBe(200);
     const ticket = await prisma.techRequest.findUnique({ where: { number: json.number } });
     expect(ticket?.category).toBe("EPIC");
-    expect(ticket?.govId).toBeNull();
-    expect(ticket?.netId).toBeNull();
-    expect(ticket?.epicJobTitle).toBeNull();
-    expect(ticket?.epicMirrorId).toBeNull();
-    expect(ticket?.epicStartDate).toBeNull();
-    expect(ticket?.epicEndDate).toBeNull();
-    expect(ticket?.worksAtYnhh).toBeNull();
+    expect(ticket?.epicSubtype).toBeNull();
   });
 
   it("returns 503 when the database is unreachable", async () => {

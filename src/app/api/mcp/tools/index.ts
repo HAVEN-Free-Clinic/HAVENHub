@@ -172,6 +172,13 @@ export function collectSchemaKeys(schema: z.ZodTypeAny, path = ""): string[] {
  * rendered straight into the chat and shared with the member, and these are the
  * values the spec forbids leaving the Hub at all. Phase 2 and later tools assert
  * their rendered output against this.
+ *
+ * `govId` is no longer a column anywhere in the schema (TechRequest.govId was
+ * removed as dead: it was written in one place and nothing ever supplied it).
+ * The name-match stays in this pattern anyway -- it costs nothing, and a future
+ * field reintroducing that name (on TechRequest or elsewhere) is exactly the
+ * case this guard exists to catch without anyone having to remember to add it
+ * back.
  */
 export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginToken|passwordHash|storageKey|scormBlobKey/i;
 
@@ -183,6 +190,15 @@ export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginT
  * of the value is left to catch it. `\b...\b` matters here: without it,
  * `\d{9}` would also match nine digits out of a longer run, which is not
  * what an SSN-shaped value looks like.
+ *
+ * Kept even though TechRequest.govId itself has been removed as a dead column
+ * (it never held a value): this pattern guards the VALUE shape, not any one
+ * column, so it still catches an SSN-shaped string surfacing from any other
+ * source a future tool might render -- a date of birth, a different table, a
+ * comment someone pasted one into. The final review of this codebase found
+ * this and DOB_VALUE_PATTERN below to be the only thing standing between a
+ * serialized object and Fin, which is reason enough to keep both regardless
+ * of what govId's column status is at any given moment.
  */
 const GOV_ID_VALUE_PATTERN = /\b\d{9}\b|\b\d{3}-\d{2}-\d{4}\b/;
 

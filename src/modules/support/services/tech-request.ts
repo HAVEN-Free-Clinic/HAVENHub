@@ -85,13 +85,6 @@ export type CreateTechRequestInput = {
   description: string;
   // EPIC-only; ignored for other categories.
   epicSubtype?: EpicRequestKind | null;
-  epicJobTitle?: string | null;
-  epicMirrorId?: string | null;
-  epicStartDate?: Date | null;
-  epicEndDate?: Date | null;
-  worksAtYnhh?: boolean | null;
-  govId?: string | null;
-  netId?: string | null;
 };
 
 /**
@@ -99,8 +92,7 @@ export type CreateTechRequestInput = {
  *
  * subject and description must be non-blank (SupportStateError). An EPIC
  * ticket may be created with epicSubtype null: the request kind is chosen by
- * a manager at promotion time, not by the submitter. Other epic-only fields
- * are only persisted for EPIC and are ignored otherwise.
+ * a manager at promotion time, not by the submitter.
  *
  * Audits "support.request_create" with category and number in after.
  */
@@ -124,13 +116,6 @@ export async function createTechRequest(
       description,
       status: "SUBMITTED",
       epicSubtype,
-      epicJobTitle: isEpic ? input.epicJobTitle?.trim() || null : null,
-      epicMirrorId: isEpic ? input.epicMirrorId?.trim() || null : null,
-      epicStartDate: isEpic ? input.epicStartDate ?? null : null,
-      epicEndDate: isEpic ? input.epicEndDate ?? null : null,
-      worksAtYnhh: isEpic ? input.worksAtYnhh ?? null : null,
-      govId: isEpic ? input.govId?.trim() || null : null,
-      netId: isEpic ? input.netId?.trim() || null : null,
     },
   });
 
@@ -191,13 +176,12 @@ export type CreateFromConversationInput = {
  * constraint violation as a 500.
  *
  * Deliberately narrow compared to CreateTechRequestInput: category, subject,
- * and description only. No Epic intake field (epicJobTitle, epicMirrorId,
- * epicStartDate, epicEndDate, worksAtYnhh, govId, netId) is an accepted
- * parameter here at all, so one riding along in an HTTP body has nothing to
- * bind to -- structurally unable to be persisted, not merely unused. EPIC
- * remains an accepted category so the ticket still routes correctly; a
- * manager fills in the Epic-specific fields later, from the Hub form, the
- * only place govId may ever be typed.
+ * and description only. epicSubtype is not an accepted parameter here at
+ * all, so one riding along in an HTTP body has nothing to bind to --
+ * structurally unable to be persisted, not merely unused. EPIC remains an
+ * accepted category so the ticket still routes correctly; a manager chooses
+ * the request kind later, at promotion time, exactly as createTechRequest's
+ * own doc comment describes for a Hub-form submission.
  *
  * requesterPersonId is a parameter, never resolved here: the caller must
  * already have it from resolveIdentityFromConversation. A forged requester

@@ -471,36 +471,6 @@ describe("outbound Intercom sync", () => {
     expect(updated.resolution).toBe("Reset the account.");
   });
 
-  it("never includes govId, netId, or Epic intake fields in the Intercom payload", async () => {
-    mockFetchOk();
-    const owner = await createPerson("Owner");
-    const mgr = await createPerson("Manager");
-    await grantPermission(mgr.id, "support.manage_requests");
-    // Only the Hub form path (createTechRequest) can set Epic intake fields --
-    // an EPIC-category ticket carries exactly the sensitive fields the sync
-    // must never leak.
-    const req = await createTechRequest(owner.id, {
-      category: "EPIC",
-      subject: "New hire access",
-      description: "d",
-      govId: "999-00-1234",
-      netId: "abc123",
-      epicJobTitle: "Clinic Coordinator",
-      epicMirrorId: "mirror-42",
-    });
-    await linkToConversation(req.id, "conv_1");
-
-    await resolveRequest(mgr.id, req.id, "Provisioned Epic access.");
-
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const raw = init.body as string;
-    expect(raw).not.toContain("999-00-1234");
-    expect(raw).not.toContain("abc123");
-    expect(raw).not.toContain("Clinic Coordinator");
-    expect(raw).not.toContain("mirror-42");
-  });
-
   it("never includes an INTERNAL comment's content in the Intercom payload", async () => {
     mockFetchOk();
     const owner = await createPerson("Owner");

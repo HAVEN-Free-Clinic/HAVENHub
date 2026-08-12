@@ -15,9 +15,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Only category, subject, and description -- no Epic intake field
- * (govId, netId, epicJobTitle, epicMirrorId, epicStartDate, epicEndDate,
- * worksAtYnhh) and no requesterId. zod strips unrecognized keys by default
+ * Only category, subject, and description -- no Epic-specific field (e.g.
+ * epicSubtype) and no requesterId. zod strips unrecognized keys by default
  * (this object is never `.passthrough()`d), so any of those riding along in
  * a request body is dropped before parsing even finishes -- structurally
  * unable to reach createTechRequestFromConversation, not merely unused by it.

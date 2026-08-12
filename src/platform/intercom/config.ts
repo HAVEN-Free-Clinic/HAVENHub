@@ -87,6 +87,20 @@ export function isWebhookConfigured(): boolean {
 }
 
 /**
+ * Deep link into Intercom's own agent inbox for a conversation, for staff who
+ * work the conversation in Intercom rather than in the Hub (see "Where the
+ * work happens" in docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md).
+ * Returns null when the app id is unset, so a caller renders no link rather
+ * than guessing at a URL for a workspace that may not even exist -- the same
+ * "unset = feature off" posture as the rest of this file.
+ */
+export function intercomConversationUrl(conversationId: string): string | null {
+  const appId = intercomAppId();
+  if (!appId) return null;
+  return `https://app.intercom.com/a/inbox/${appId}/inbox/conversation/${conversationId}`;
+}
+
+/**
  * The Intercom admin a HAVEN Hub status-change note is authored as. Intercom
  * requires an admin_id on every reply to a conversation, notes included --
  * there is no default or "system" author it will fall back to -- so posting is

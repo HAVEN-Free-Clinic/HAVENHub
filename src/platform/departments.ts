@@ -74,6 +74,62 @@ export async function manageableDepartmentIds(personId: string): Promise<string[
 }
 
 /**
+ * Service lines: the departments that MANAGE at least one other department.
+ *
+ * A "service line" is not a separate concept in the schema; it is exactly a
+ * DepartmentDelegation manager. SRHD manages CCRH/JCTS/SCTS (reproductive
+ * health) and PCAR manages SCTP/JCTP (primary care), so those two ARE the
+ * service lines, and adding a third is an admin action rather than a deploy.
+ *
+ * This is what an attending roster and a per-Saturday attending assignment hang
+ * off (see RhdAttending.departmentId), which is why "which department" for an
+ * attending always means the managing one, never a member-facing department.
+ *
+ * Ordered by code for a stable UI. Returns [] when no delegations exist.
+ */
+export async function serviceLineDepartments(): Promise<
+  Array<{ id: string; code: string; name: string }>
+> {
+  const delegations = await prisma.departmentDelegation.findMany({
+    select: { managerDepartmentId: true },
+  });
+  const managerIds = [...new Set(delegations.map((d) => d.managerDepartmentId))];
+  if (managerIds.length === 0) return [];
+  return prisma.department.findMany({
+    where: { id: { in: managerIds }, isActive: true },
+    select: { id: true, code: true, name: true },
+    orderBy: { code: "asc" },
+  });
+}
+
+/**
+ * The service line a department belongs to, as a department id.
+ *
+ * A department that manages others IS a service line and maps to itself (asking
+ * "which line is SRHD in?" answers SRHD). Otherwise it maps to its one-hop
+ * delegation manager, so SCTS maps to SRHD and JCTP maps to PCAR.
+ *
+ * Returns null for a department that neither manages nor is managed, which has
+ * no attending roster to belong to. Where a department somehow has more than one
+ * manager, the lowest id wins so the answer is at least stable rather than
+ * order-dependent.
+ */
+export async function serviceLineForDepartment(departmentId: string): Promise<string | null> {
+  const manages = await prisma.departmentDelegation.findFirst({
+    where: { managerDepartmentId: departmentId },
+    select: { id: true },
+  });
+  if (manages) return departmentId;
+
+  const managedBy = await prisma.departmentDelegation.findMany({
+    where: { managedDepartmentId: departmentId },
+    select: { managerDepartmentId: true },
+    orderBy: { managerDepartmentId: "asc" },
+  });
+  return managedBy[0]?.managerDepartmentId ?? null;
+}
+
+/**
  * The inverse of {@link manageableDepartmentIds} for a single department: the ids
  * of people who oversee `departmentId` by MEMBERSHIP, namely
  *   - everyone with an ACTIVE DIRECTOR TermMembership in the department, PLUS

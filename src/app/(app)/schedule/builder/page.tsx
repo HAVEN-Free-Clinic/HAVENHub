@@ -34,11 +34,10 @@ import {
   setAvailabilityOverride,
   acknowledgeAvailability,
   setPatientsBooked,
-  upsertRhdClinic,
+  parseBookedCount,
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
-import { createAttending, AttendingValidationError, AttendingForbiddenError } from "@/modules/schedule/services/attendings";
 import {
   listDepartmentRequests,
   approveRequest,
@@ -77,14 +76,8 @@ import Link from "next/link";
  * BuilderValidationError (a domain error runAction turns into an inline error
  * redirect); call it inside an action's `work` closure so the throw is caught.
  */
-function parseBookedCount(raw: string, label: string): number | null {
-  if (raw.trim() === "") return null;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) {
-    throw new BuilderValidationError(`${label} must be a whole number of 0 or more.`);
-  }
-  return n;
-}
+// Moved to services/builder.ts so the attending grid validates the same way.
+// Re-exported name kept in scope via the import above.
 
 // ---------------------------------------------------------------------------
 // Page props
@@ -343,46 +336,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  async function rhdClinicAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const dateKey = (formData.get("dateKey") as string) ?? "";
-    const rawAttendingId = (formData.get("attendingId") as string) ?? "";
-    const rawDirectorName = (formData.get("directorName") as string) ?? "";
-    const rawProceduresBooked = (formData.get("proceduresBooked") as string) ?? "";
-    const attendingId = rawAttendingId === "" ? null : rawAttendingId;
-    const directorName = rawDirectorName.trim() === "" ? null : rawDirectorName.trim();
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
-    await runAction({
-      work: () =>
-        upsertRhdClinic(actor.personId, {
-          termId: workingTerm.id,
-          dateKey,
-          attendingId,
-          directorName,
-          proceduresBooked: parseBookedCount(rawProceduresBooked, "Procedures booked"),
-        }),
-      domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
-      revalidate: "/schedule/builder",
-      successRedirect: base,
-    });
-  }
-
-  async function addAttendingAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const scheduleName = ((formData.get("scheduleName") as string) ?? "").trim();
-    const fullName = ((formData.get("fullName") as string) ?? "").trim();
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
-    await runAction({
-      work: () => createAttending(actor.personId, { scheduleName, fullName: fullName || scheduleName }),
-      domainErrors: [AttendingValidationError, AttendingForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
-      revalidate: "/schedule/builder",
-      successRedirect: base,
-    });
-  }
+  // The attending assignment and the quick-add roster form used to live here.
+  // Both moved to /schedule/attendings, which now schedules attendings for every
+  // service line rather than reproductive health alone. The readiness panel below
+  // still SHOWS who is covering, because coverage is what it computes, but it is
+  // no longer a second place to set it: two forms writing the same RhdClinic row
+  // is exactly how the two drift apart.
 
   async function approveRequestAction(formData: FormData) {
     "use server";
@@ -635,13 +594,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                   // Same remount-on-date fix (#9): the Attending <select> and Procedures
                   // input otherwise kept the prior date's selection, silently overwriting
                   // the new date's real attending on Save.
-                  <ReadinessPanel
-                    key={selectedDateKey}
-                    rhd={data.rhd!}
-                    clinicAction={rhdClinicAction}
-                    addAttendingAction={addAttendingAction}
-                    dateKey={selectedDateKey!}
-                  />
+                  <ReadinessPanel rhd={data.rhd!} />
                 )}
                 {canManageRequests && (
                   <PendingRequests

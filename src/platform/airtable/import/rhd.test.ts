@@ -57,7 +57,25 @@ const BASE_OPTS: Omit<RhdImportOptions, "dryRun"> = {
 // Seed helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * The service line this importer writes into.
+ *
+ * Attendings and clinic rows are department-scoped since primary care was added,
+ * and this importer reads the legacy reproductive health sheet, so everything it
+ * creates belongs to SRHD. runRhdImport throws a readable error when SRHD is
+ * absent rather than writing unattributed rows, which is why every test here
+ * needs it seeded.
+ */
+async function seedServiceLine() {
+  return prisma.department.upsert({
+    where: { code: "SRHD" },
+    update: {},
+    create: { code: "SRHD", name: "Sexual and Reproductive Health" },
+  });
+}
+
 async function seedTerm() {
+  await seedServiceLine();
   return prisma.term.create({
     data: {
       code: TERM_CODE,
@@ -68,6 +86,11 @@ async function seedTerm() {
       clinicDates: [CLINIC_DATE_1, CLINIC_DATE_2],
     },
   });
+}
+
+/** The seeded service line's id, for tests that create rows directly. */
+async function serviceLineId() {
+  return (await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } })).id;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,8 +485,9 @@ describe("runRhdImport", () => {
   it("preserves a director-set attendingId when the Airtable link is present but unresolved (#120)", async () => {
     const term = await seedTerm();
     // A director already selected Dr Smith for the June 6 clinic in the builder.
-    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith" } });
-    await prisma.rhdClinic.create({ data: { termId: term.id, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+    const lineId = await serviceLineId();
+    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", departmentId: lineId } });
+    await prisma.rhdClinic.create({ data: { termId: term.id, departmentId: lineId, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
 
     // Airtable links June 6 to an attending the import cannot resolve (e.g. it was
     // skipped for a blank Schedule Name), so it never enters the resolve map.
@@ -482,8 +506,9 @@ describe("runRhdImport", () => {
 
   it("still clears attendingId when Airtable genuinely has no attending link", async () => {
     const term = await seedTerm();
-    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith" } });
-    await prisma.rhdClinic.create({ data: { termId: term.id, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+    const lineId = await serviceLineId();
+    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", departmentId: lineId } });
+    await prisma.rhdClinic.create({ data: { termId: term.id, departmentId: lineId, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
 
     // No attending link at all -> a real "Airtable has no attending", which should
     // still clear the field (this is the case the preserve guard must NOT swallow).

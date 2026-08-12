@@ -14,7 +14,8 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
-import { manageableDepartmentIds } from "@/platform/departments";
+import { manageableDepartmentIds, serviceLineForDepartment } from "@/platform/departments";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
@@ -515,30 +516,73 @@ export async function acknowledgeAvailability(
 }
 
 /**
- * Upserts the RhdClinic row for a term+date.
+ * Parse a booked-count field ("" -> null, else a non-negative integer).
  *
- * Actor must manage at least one RHD-family department (SCTS, JCTS, CCRH).
+ * Throws BuilderValidationError, which runAction turns into an inline error
+ * rather than a 500, so call it inside an action's `work` closure. Shared by the
+ * builder's patients-booked and the attending grid's procedures-booked, which
+ * must reject the same inputs -- a negative or fractional count reaching the
+ * column would make the readiness cap warning silently wrong.
+ */
+export function parseBookedCount(raw: string, label: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new BuilderValidationError(`${label} must be a whole number of 0 or more.`);
+  }
+  return n;
+}
+
+/**
+ * Upserts the attending assignment for one service line on one clinic date.
+ *
+ * `departmentId` is the MANAGING department that owns the service line (SRHD for
+ * reproductive health, PCAR for primary care), and the actor must manage THAT
+ * one specifically. A "manages any service line" check would let a primary care
+ * director set the reproductive health attending.
+ *
  * The dateKey must be a clinic date in the active term.
  */
 export async function upsertRhdClinic(
   actor: string,
   opts: {
     termId: string;
+    departmentId: string;
     dateKey: string;
     attendingId?: string | null;
     directorName?: string | null;
     proceduresBooked?: number | null;
   }
 ): Promise<void> {
-  // Scope: must manage at least one RHD department.
-  const manageable = await manageableScheduleDepartmentIds(actor);
-  const rhdDepts = await prisma.department.findMany({
-    where: { code: { in: [...RHD_CODES] } },
-    select: { id: true },
-  });
-  const rhdIds = new Set(rhdDepts.map((d) => d.id));
-  const hasRhd = manageable.some((id) => rhdIds.has(id));
-  if (!hasRhd) throw new BuilderForbiddenError("Actor does not manage any RHD-family department.");
+  // Scope: must manage THIS service line, either the managing department itself
+  // or a department inside it. The second half preserves the pre-split rule,
+  // where an SCTS director could set the reproductive health attending; the
+  // first stops a director of one line reaching another's.
+  const [manageable, memberIds] = await Promise.all([
+    manageableScheduleDepartmentIds(actor),
+    prisma.departmentDelegation.findMany({
+      where: { managerDepartmentId: opts.departmentId },
+      select: { managedDepartmentId: true },
+    }),
+  ]);
+
+  // departmentId must be a SERVICE LINE, meaning a department that manages
+  // others. A department manages others exactly when it has delegation edges, so
+  // an empty memberIds means this is not one.
+  //
+  // Load-bearing since the attendings page posts departmentId from the form.
+  // Without it, posting a member department id (SCTS rather than SRHD) passes
+  // the scope check below -- an SCTS director does manage SCTS -- and writes a
+  // clinic row keyed to a department no service line ever reads. The row would
+  // be invisible everywhere and the attending would silently not be scheduled.
+  if (memberIds.length === 0) {
+    throw new BuilderValidationError("That department is not a service line with an attending roster.");
+  }
+
+  const inScope = new Set([opts.departmentId, ...memberIds.map((m) => m.managedDepartmentId)]);
+  if (!manageable.some((id) => inScope.has(id))) {
+    throw new BuilderForbiddenError("Actor does not manage that service line.");
+  }
 
   const term = await loadEditableTerm(opts.termId);
 
@@ -559,14 +603,21 @@ export async function upsertRhdClinic(
   }
 
   const rhdClinicBefore = await prisma.rhdClinic.findFirst({
-    where: { termId: term.id, clinicDate },
+    where: { termId: term.id, departmentId: opts.departmentId, clinicDate },
     select: { attendingId: true, directorName: true, proceduresBooked: true },
   });
 
   const rhdClinicAfter = await prisma.rhdClinic.upsert({
-    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    where: {
+      termId_departmentId_clinicDate: {
+        termId: term.id,
+        departmentId: opts.departmentId,
+        clinicDate,
+      },
+    },
     create: {
       termId: term.id,
+      departmentId: opts.departmentId,
       clinicDate,
       attendingId: opts.attendingId ?? null,
       directorName: opts.directorName ?? null,
@@ -584,7 +635,7 @@ export async function upsertRhdClinic(
     actorPersonId: actor,
     action: "schedule.rhd_clinic",
     entityType: "RhdClinic",
-    entityId: `${term.id}|${opts.dateKey}`,
+    entityId: `${term.id}|${opts.departmentId}|${opts.dateKey}`,
     ...(rhdClinicBefore && {
       before: { attendingId: rhdClinicBefore.attendingId, directorName: rhdClinicBefore.directorName, proceduresBooked: rhdClinicBefore.proceduresBooked },
     }),
@@ -609,7 +660,7 @@ export type BuilderMemberIntake = {
 
 export type BuilderMember = {
   membershipId: string;
-  person: { id: string; name: string; spanishVerified: boolean; licensedRN: boolean };
+  person: { id: string; name: string; verifiedLanguages: string[]; licensedRN: boolean };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
   overrideActive: boolean;
@@ -641,7 +692,7 @@ export type BuilderAssignmentEntry = {
    * view instead of a raw personId cuid. Members are always in `members`; this is
    * the fallback source for everyone else.
    */
-  person: { name: string; spanishVerified: boolean; licensedRN: boolean };
+  person: { name: string; verifiedLanguages: string[]; licensedRN: boolean };
 };
 
 export type BuilderRhd = {
@@ -781,7 +832,7 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, spanishVerified: true, licensedRN: true } },
+        person: { select: { id: true, name: true, licensedRN: true } },
       },
     }),
     prisma.termMembership.findMany({
@@ -799,6 +850,13 @@ export async function builderView(
     }),
   ]);
 
+  // Verified language capabilities for everyone on this board, in one query.
+  // Only VERIFIED languages reach the builder: a self-reported claim is an
+  // intake signal and must not read as a capability a director can schedule on.
+  const languageMap = await verifiedLanguagesByPerson([
+    ...new Set([...allAssignments.map((a) => a.personId), ...members.map((m) => m.person.id)]),
+  ]);
+
   // Build assignmentsByDate.
   const assignmentsByDate: Record<string, Record<string, BuilderAssignmentEntry>> = {};
   for (const a of allAssignments) {
@@ -809,7 +867,7 @@ export async function builderView(
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
       person: {
         name: a.person.name,
-        spanishVerified: a.person.spanishVerified,
+        verifiedLanguages: languageMap.get(a.personId) ?? [],
         licensedRN: a.person.licensedRN,
       },
     };
@@ -850,7 +908,7 @@ export async function builderView(
       person: {
         id: m.person.id,
         name: m.person.name,
-        spanishVerified: m.person.spanishVerified,
+        verifiedLanguages: languageMap.get(m.person.id) ?? [],
         licensedRN: m.person.licensedRN,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
@@ -879,14 +937,14 @@ export async function builderView(
   const activeMemberIds = new Set(members.map((m) => m.person.id));
   const capacityAssignments = selectedAssignments.filter((a) => activeMemberIds.has(a.personId));
 
-  // Build a set of person details for spanish/RN counts.
-  const personById = new Map(members.map((m) => [m.person.id, m.person]));
-
   const onShiftPeople = capacityAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
-  const spanishCount = onShiftPeople.filter((a) => {
-    const p = personById.get(a.personId) ?? a.person;
-    return p.spanishVerified;
-  }).length;
+  // Spanish specifically: the capacity model asks how many Spanish speakers are
+  // on shift, because that is what bounds how many Spanish-speaking patients the
+  // clinic can see. Reads from the language map now rather than a Person column,
+  // so it counts a VERIFIED capability and nothing else.
+  const spanishCount = onShiftPeople.filter((a) =>
+    (languageMap.get(a.personId) ?? []).includes("es"),
+  ).length;
 
   const capacity = computeDayMetrics(
     {
@@ -969,10 +1027,15 @@ export async function builderView(
     }
   }
 
-  // RHD block.
+  // RHD block. Still reproductive-health-only: the readiness panel is about
+  // procedure coverage (IUD, Nexplanon), which no other service line has. What
+  // generalized is the attending ROSTER and the schedule view, not this panel.
   let rhd: BuilderRhd | null = null;
   if (RHD_CODES.has(selectedDept.code)) {
-    rhd = await buildRhdBlock(term, departments, selectedDateKey, allTermAssignments);
+    const serviceLineId = await serviceLineForDepartment(selectedDept.id);
+    if (serviceLineId) {
+      rhd = await buildRhdBlock(term, departments, selectedDateKey, allTermAssignments, serviceLineId);
+    }
   }
 
   return {
@@ -1019,7 +1082,9 @@ async function buildRhdBlock(
   term: { id: string; clinicDates: Date[] },
   departments: { id: string; code: string; name: string }[],
   selectedDateKey: string | null,
-  allTermAssignments: MinimalAssignment[]
+  allTermAssignments: MinimalAssignment[],
+  /** Managing department that owns this service line's roster and clinic rows. */
+  serviceLineId: string
 ): Promise<BuilderRhd | null> {
   if (!selectedDateKey) return null;
 
@@ -1047,12 +1112,12 @@ async function buildRhdBlock(
   // Fetch attending options and clinic (with attending included) in parallel.
   const [attendingOptions, clinic] = await Promise.all([
     prisma.rhdAttending.findMany({
-      where: { isActive: true },
+      where: { isActive: true, departmentId: serviceLineId },
       select: { id: true, scheduleName: true },
       orderBy: { scheduleName: "asc" },
     }),
     prisma.rhdClinic.findFirst({
-      where: { termId: term.id, clinicDate },
+      where: { termId: term.id, departmentId: serviceLineId, clinicDate },
       include: {
         attending: true,
       },
@@ -1088,12 +1153,15 @@ async function buildRhdBlock(
   );
 
   const personIds = [...new Set(selectedRhdAssignments.map((a) => a.personId))];
-  const persons = personIds.length > 0
-    ? await prisma.person.findMany({
-        where: { id: { in: personIds } },
-        select: { id: true, contactEmail: true, licensedRN: true, spanishVerified: true },
-      })
-    : [];
+  const [persons, rhdLanguages] = await Promise.all([
+    personIds.length > 0
+      ? prisma.person.findMany({
+          where: { id: { in: personIds } },
+          select: { id: true, contactEmail: true, licensedRN: true },
+        })
+      : Promise.resolve([]),
+    verifiedLanguagesByPerson(personIds),
+  ]);
   const personMap = new Map(persons.map((p) => [p.id, p]));
 
   function toRhdPerson(personId: string): RhdPersonLite {
@@ -1102,7 +1170,7 @@ async function buildRhdBlock(
       id: personId,
       email: p?.contactEmail ?? "",
       licensedRN: p?.licensedRN ?? false,
-      spanishVerified: p?.spanishVerified ?? false,
+      spanishVerified: (rhdLanguages.get(personId) ?? []).includes("es"),
     };
   }
 

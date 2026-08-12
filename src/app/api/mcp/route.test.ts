@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("@/platform/intercom/identity", () => ({ resolveIdentityFromConversation: vi.fn() }));
+// UNIDENTIFIED_MESSAGE is real (imported via importOriginal): the route reads it
+// as a plain module-level constant, not something a test needs to control, and
+// keeping it real is what lets tests below assert against the actual text
+// instead of a copy that could drift from it.
+vi.mock("@/platform/intercom/identity", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/intercom/identity")>();
+  return { ...actual, resolveIdentityFromConversation: vi.fn() };
+});
 vi.mock("@/platform/intercom/audit", () => ({ recordToolCall: vi.fn() }));
 
 /**
@@ -99,16 +106,26 @@ describe("POST /api/mcp", () => {
     expect(res.status).toBe(404);
   });
 
-  it("401s without the bearer token", async () => {
+  it("401s without the bearer token, and does not audit a credential-free request", async () => {
     const { POST } = await import("./route");
     const res = await POST(req({}));
     expect(res.status).toBe(401);
+    // No Authorization header at all reads as a drive-by scanner probing a
+    // publicly reachable URL, not a stale/misconfigured connector -- see
+    // guard()'s doc comment. Auditing it would let anyone who finds the URL
+    // grow AuditLog for free.
+    expect(mocked(recordToolCall)).not.toHaveBeenCalled();
   });
 
-  it("401s with the wrong bearer token", async () => {
+  it("401s with the wrong bearer token, and audits it since a credential was presented", async () => {
     const { POST } = await import("./route");
     const res = await POST(req({ Authorization: "Bearer wrong" }));
     expect(res.status).toBe(401);
+    // A wrong-but-present credential is what a stale or rotated connector
+    // looks like from here, which is exactly the signal worth a row.
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ personId: null, outcome: "denied" })
+    );
   });
 
   it("refuses and audits when no conversation id is supplied", async () => {
@@ -165,7 +182,7 @@ describe("POST /api/mcp", () => {
     );
   });
 
-  it("blocks a tool output containing an SSN-shaped value, and audits it as denied, exactly like a thrown tool error", async () => {
+  it("blocks a tool output containing an SSN-shaped value, and audits it as error, exactly like a thrown tool error", async () => {
     mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,
       personId: "verified-person",
@@ -180,7 +197,7 @@ describe("POST /api/mcp", () => {
     expect(body).toContain("could not look that up");
     expect(body).not.toContain("123-45-6789");
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ personId: "verified-person", outcome: "denied" })
+      expect.objectContaining({ personId: "verified-person", outcome: "error" })
     );
   });
 
@@ -266,7 +283,7 @@ describe("POST /api/mcp", () => {
     expect(new Set(bodies).size).toBe(1);
   });
 
-  it("never lets a thrown tool error reach the response, and still audits it as denied", async () => {
+  it("never lets a thrown tool error reach the response, and still audits it as error", async () => {
     mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,
       personId: "verified-person",
@@ -284,7 +301,33 @@ describe("POST /api/mcp", () => {
     expect(body).not.toContain("neon.tech");
     expect(body).not.toContain("hunter2");
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ personId: "verified-person", outcome: "denied" })
+      expect.objectContaining({ personId: "verified-person", outcome: "error" })
+    );
+  });
+
+  /**
+   * The taxonomy fix itself: a thrown tool error and an authorization refusal
+   * a tool returns as plain text must never collapse into the same outcome.
+   * Before this, both were "denied" -- anyone querying for actual refusals
+   * would find infrastructure failures mixed in. A refusal string is still
+   * indistinguishable from any other successful answer at this layer (see the
+   * outcome comment in route.ts), so this only asserts the half that route.ts
+   * CAN prove unconditionally: outcome "error" means the tool threw, and nothing
+   * that merely returns text -- refusal or otherwise -- ever lands there.
+   */
+  it("does not audit a tool's plain-text refusal as error -- only a thrown exception gets that outcome", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
+      ok: true,
+      personId: "verified-person",
+      name: null,
+    });
+    shared.run.mockResolvedValue("You do not have access to that department's roster.");
+    const { POST } = await import("./route");
+
+    await POST(req(AUTHED));
+
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ personId: "verified-person", outcome: "ok" })
     );
   });
 });

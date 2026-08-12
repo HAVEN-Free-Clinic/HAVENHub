@@ -1,7 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { constantTimeBearerMatch } from "./security";
+import { constantTimeBearerMatch, constantTimeEqual } from "./security";
 
 const SECRET = "s3cr3t-high-entropy-value";
+
+describe("constantTimeEqual", () => {
+  it("matches identical strings", () => {
+    expect(constantTimeEqual("sha1=abc123", "sha1=abc123")).toBe(true);
+  });
+
+  it("rejects a different string of the same length without throwing", () => {
+    expect(() => constantTimeEqual("sha1=abc123", "sha1=abc124")).not.toThrow();
+    expect(constantTimeEqual("sha1=abc123", "sha1=abc124")).toBe(false);
+  });
+
+  it("rejects strings of different length without throwing", () => {
+    expect(() => constantTimeEqual("short", "much-longer-value")).not.toThrow();
+    expect(constantTimeEqual("short", "much-longer-value")).toBe(false);
+  });
+
+  it("rejects an empty string against a non-empty one", () => {
+    expect(constantTimeEqual("", "x")).toBe(false);
+  });
+});
 
 describe("constantTimeBearerMatch", () => {
   it("matches the exact bearer header", () => {

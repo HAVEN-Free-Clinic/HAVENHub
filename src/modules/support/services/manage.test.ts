@@ -6,7 +6,7 @@
  * gated instead on requesterId === actor).
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { createTechRequest, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -47,6 +47,24 @@ async function grantPermission(personId: string, permission: string) {
     },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
+}
+
+/** Only createTechRequestFromConversation sets this in production; tests link a Hub-form ticket directly. */
+async function linkToConversation(id: string, conversationId: string) {
+  return prisma.techRequest.update({ where: { id }, data: { intercomConversationId: conversationId } });
+}
+
+/**
+ * Links both Intercom ids, matching how a real Ticket is created (same value
+ * for both -- see the design doc's Direction 1 note). Only tests that
+ * exercise the Direction 3 outward Ticket-state push need this; the plain
+ * linkToConversation above is enough for Direction 2's note-only tests.
+ */
+async function linkToTicket(id: string, ticketId: string) {
+  return prisma.techRequest.update({
+    where: { id },
+    data: { intercomConversationId: ticketId, intercomTicketId: ticketId },
+  });
 }
 
 beforeEach(resetDb);
@@ -332,5 +350,318 @@ describe("cancelOwnRequest", () => {
     const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
     await cancelOwnRequest(owner.id, req.id);
     await expect(cancelOwnRequest(owner.id, req.id)).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync: setStatus/resolveRequest on a ticket linked to a
+// conversation post there instead of emailing the requester. See
+// docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+// Direction 2.
+// ---------------------------------------------------------------------------
+
+function mockFetchOk() {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+}
+
+describe("outbound Intercom sync", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("setStatus posts to Intercom for a linked ticket and sends no email", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("conv_1");
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.status_changed" } });
+    expect(logs).toHaveLength(0);
+  });
+
+  it("setStatus does not call Intercom for an unlinked ticket and still emails as before", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(fetch).not.toHaveBeenCalled();
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.status_changed" } });
+    expect(logs.map((l) => l.toEmail)).toContain("owner@example.com");
+  });
+
+  it("AWAITING_YNHH posts wording that names YNHH", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    await setStatus(mgr.id, req.id, "AWAITING_YNHH");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { body: string };
+    expect(body.body).toMatch(/Yale New Haven Health|YNHH/);
+  });
+
+  it("resolveRequest posts the resolution text to Intercom for a linked ticket and sends no email", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    await resolveRequest(mgr.id, req.id, "Reset the WiFi adapter driver.");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { body: string };
+    expect(body.body).toContain("Reset the WiFi adapter driver.");
+    const logs = await prisma.emailLog.findMany({ where: { template: "support.request_resolved" } });
+    expect(logs).toHaveLength(0);
+  });
+
+  it("commits the status change even when Intercom is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    const updated = await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(updated.status).toBe("IN_PROGRESS");
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("IN_PROGRESS");
+  });
+
+  it("commits a resolve even when Intercom is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    const updated = await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    expect(updated.status).toBe("RESOLVED");
+    expect(updated.resolution).toBe("Reset the account.");
+  });
+
+  it("never includes an INTERNAL comment's content in the Intercom payload", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+    await prisma.techRequestComment.create({
+      data: {
+        requestId: req.id,
+        authorId: mgr.id,
+        body: "INTERNAL-ONLY: escalation contact is the VP of IT.",
+        visibility: "INTERNAL",
+      },
+    });
+    await prisma.techRequestComment.create({
+      data: {
+        requestId: req.id,
+        authorId: mgr.id,
+        body: "PUBLIC-VISIBLE: we are looking into this.",
+        visibility: "PUBLIC",
+      },
+    });
+
+    await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const raw = init.body as string;
+    expect(raw).not.toContain("INTERNAL-ONLY");
+    expect(raw).not.toContain("escalation contact");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync (Direction 3, Hub-origin half): every
+// status-changing action here pushes the new status onto the linked
+// Intercom TICKET's own state (a different object from the conversation the
+// "outbound Intercom sync" tests above post a note into). See
+// docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+// Direction 3, and notifications.ts's pushIntercomTicketState.
+// ---------------------------------------------------------------------------
+
+describe("outbound Intercom ticket-state sync", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function ticketStateCalls(): [string, RequestInit][] {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    return (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) => url.includes("/tickets/"));
+  }
+
+  it("setStatus pushes the mapped state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const [url, init] = calls[0];
+    expect(url).toContain("ticket_1");
+    const body = JSON.parse(init.body as string) as { state: string };
+    expect(body.state).toBe("In progress");
+  });
+
+  it("resolveRequest pushes the RESOLVED state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await resolveRequest(mgr.id, req.id, "Reset the account.");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0][1].body as string) as { state: string };
+    expect(body.state).toBe("Resolved");
+  });
+
+  it("cancelRequest pushes the CANCELLED state onto the linked Intercom ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    await cancelRequest(mgr.id, req.id, "Duplicate ticket.");
+
+    const calls = ticketStateCalls();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(calls[0][1].body as string) as { state: string };
+    expect(body.state).toBe("Cancelled");
+  });
+
+  it("writes nothing to /tickets/ for a ticket with no intercomTicketId, even when linked to a conversation", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToConversation(req.id, "conv_1");
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("writes nothing for a TechRequest with no Intercom link at all", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner", { contactEmail: "owner@example.com" });
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+
+    await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("writes nothing on a no-op (same-status) call, since manage.ts never even reaches the push for a no-op", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    // Fresh tickets start SUBMITTED; re-setting SUBMITTED is not a transition.
+    await setStatus(mgr.id, req.id, "SUBMITTED");
+
+    expect(ticketStateCalls()).toHaveLength(0);
+  });
+
+  it("commits the status change even when the Intercom ticket-state push fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await linkToTicket(req.id, "ticket_1");
+
+    const updated = await setStatus(mgr.id, req.id, "IN_PROGRESS");
+
+    expect(updated.status).toBe("IN_PROGRESS");
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("IN_PROGRESS");
+  });
+
+  // Intercom is Direction 3's control surface: applyIntercomTicketStateChange
+  // (intercom-sync.ts) lets an agent move a linked ticket OUT of a terminal
+  // state from Intercom's own UI, deliberately bypassing the Hub's terminal
+  // guard. setStatus must honor that same asymmetry, or a ticket an agent
+  // mis-clicked into Resolved in Intercom would be locked out of every Hub
+  // manager action even after Intercom itself moved it back.
+  describe("setStatus and a terminal ticket linked to Intercom", () => {
+    it("allows setStatus to move a linked ticket out of a terminal state", async () => {
+      mockFetchOk();
+      const owner = await createPerson("Owner");
+      const mgr = await createPerson("Manager");
+      await grantPermission(mgr.id, "support.manage_requests");
+      const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+      await linkToTicket(req.id, "ticket_1");
+      await cancelRequest(mgr.id, req.id, "No longer needed.");
+
+      const updated = await setStatus(mgr.id, req.id, "IN_PROGRESS");
+      expect(updated.status).toBe("IN_PROGRESS");
+    });
+
+    it("still blocks setStatus out of a terminal state for an UNLINKED ticket", async () => {
+      const owner = await createPerson("Owner");
+      const mgr = await createPerson("Manager");
+      await grantPermission(mgr.id, "support.manage_requests");
+      const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+      await cancelRequest(mgr.id, req.id, "No longer needed.");
+
+      await expect(setStatus(mgr.id, req.id, "IN_PROGRESS")).rejects.toThrow(SupportStateError);
+    });
   });
 });

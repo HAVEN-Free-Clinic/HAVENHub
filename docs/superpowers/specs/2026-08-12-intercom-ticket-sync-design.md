@@ -64,7 +64,28 @@ number` attribute, created 2026-08-11 for exactly this purpose.
 
 ## Direction 1: conversation into TechRequest
 
-A new authenticated endpoint, `POST /api/support/tickets/from-conversation`.
+**Revised 2026-08-12: an agent decides, not Fin.** Most conversations are a quick question that Fin
+answers and nobody needs to track. Auto-filing every one of them would fill the queue with things
+that are not work. So a `TechRequest` is created when an agent uses Intercom's native "create
+ticket" on a conversation, which fires a `ticket.created` webhook that this endpoint serves.
+
+Three consequences, all improvements:
+
+- Human judgement decides what is a ticket, rather than an AI inferring it. Fin needs no
+  ticket-creation action at all, which removes that connector configuration and the risk of the
+  model filing tickets on its own.
+- The webhook carries a real Intercom **ticket id**, which is what finally makes the `Hub ticket
+  number` write-back possible. The earlier attempt failed because this path only ever had a
+  conversation id, and that attribute lives on ticket types, a different object.
+- An Intercom Ticket now exists by construction, which Direction 3 needs: conversations have no
+  state to sync.
+
+`TechRequest` therefore carries **two** Intercom links, both unique and both nullable. They are
+different objects and are used for different things: `intercomConversationId` resolves identity and
+receives internal notes; `intercomTicketId` carries state and the number attribute. Collapsing them
+into one field is the mistake that cost an afternoon the first time.
+
+The endpoint itself is otherwise unchanged from what is described below.
 
 **Auth and identity reuse what the MCP server already does.** Bearer auth proves the caller is our
 Intercom connector; identity comes from `resolveIdentityFromConversation(conversationId)`, never
@@ -119,14 +140,64 @@ Health, not forgotten. It maps to the custom "Waiting on YNHH" state.
 This follows the same posture as `notify()` and the DB-unreachable degradation rule: the write of
 record succeeds, the outbound message is attempted and its failure logged.
 
+## Direction 3: Intercom ticket state into TechRequest.status
+
+Agents work the ticket in Intercom. When they change its state there, a webhook updates
+`TechRequest.status`. Intercom becomes the control surface; the Hub stays the record.
+
+This is what makes "managed in Intercom" true rather than aspirational, and it resolves a problem
+Direction 2 created on its own. Because Hub-written content posts as an internal note, a member
+cannot see status in a note. But an Intercom **Ticket** shows its state to the customer natively,
+in Intercom's own UI. So the member sees "In progress" or "Waiting on Yale New Haven Health"
+without any Hub-authored text reaching them, and the Hub's member-facing support pages stop being
+load-bearing.
+
+A Ticket exists by construction here, because Direction 1 is now driven by an agent creating one
+(see its 2026-08-12 revision). Conversations have no state to sync, so that revision is what makes
+this direction possible at all, and what makes the six ticket types and their `Hub ticket number`
+attribute meaningful rather than decorative.
+
+The webhook receiver therefore handles two event kinds: `ticket.created` opens the Hub record, and
+ticket state changes update its status. Same signature verification, same origin tagging, one
+endpoint.
+
+### State mapping
+
+Intercom's ticket states are configurable, which is what allows a 1:1 mapping instead of a lossy
+one. Every `TechRequestStatus` needs a corresponding state in the workspace; "Waiting on YNHH" was
+created for exactly this and stops being a nicety here.
+
+A state arriving with no mapping must be **rejected and logged, not guessed**. Silently coercing an
+unknown state into the nearest-looking status is how a ticket ends up Resolved because somebody
+added a state in the Intercom UI.
+
+### The loop, which is the part that bites
+
+Status will move in both directions. Intercom drives it normally, but Epic transitions originate in
+the Hub: `AWAITING_YNHH` comes from the YNHH workflow, not from an agent. Naively, a Hub write
+pushes to Intercom, Intercom's webhook fires back, and the Hub writes again.
+
+Suppression is required, not optional. Tag each change with its origin and do not echo a change
+back to the side it came from. A no-op guard alone (skip when the incoming status already matches)
+is necessary but not sufficient, because two changes racing in opposite directions can still
+ping-pong before converging.
+
+### Security
+
+The webhook is an unauthenticated-by-default write path into ticket status, so it must verify
+Intercom's request signature before doing anything. An unsigned or mis-signed payload is dropped
+and logged, never applied.
+
 ## What is deliberately not built
 
 - **No inbound message sync.** Intercom conversation messages do not become `TechRequestComment`
   rows. Two systems holding the same thread means two sources of truth for what was said, and the
   merge conflicts are unresolvable. The conversation lives in Intercom; the Hub holds the record.
-- **No status sync from Intercom into the Hub.** Direction 2 is one-way. An agent closing an
-  Intercom conversation does not resolve the `TechRequest`, because closing a chat and resolving an
-  IT request are genuinely different acts.
+- ~~**No status sync from Intercom into the Hub.**~~ **Reversed 2026-08-12.** This was the wrong
+  call for the actual goal. The original reasoning -- that closing a chat and resolving an IT
+  request are different acts -- is a reason to map states carefully, not a reason to refuse the
+  sync. Refusing it forced tickets to be tracked in the Hub and worked in Intercom, which is two
+  places for one thing. See "Direction 3" below.
 - **No Epic or ITCM writes.** Ever.
 
 ## Error handling

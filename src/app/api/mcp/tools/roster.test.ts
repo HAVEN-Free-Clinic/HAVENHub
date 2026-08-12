@@ -156,6 +156,121 @@ describe("phase 3 roster tools -- authorization", () => {
   });
 });
 
+describe("phase 3 roster tools -- platform-scope widening", () => {
+  /**
+   * THE load-bearing test for this change. Same shape as "directs A,
+   * volunteers in B" above, run again now that hasPlatformScope exists,
+   * to prove the new OR-branch never fires for a department/kind-scoped
+   * grant. If hasPlatformScope had been implemented as
+   * can(caller, "volunteers.view") (department-blind) instead of "reaches
+   * them via a personId-targeted RoleAssignment", this test would fail:
+   * can() returns true for this caller on volunteers.view purely because of
+   * the kind-targeted Director assignment, and Triage would wrongly open up
+   * -- exactly the leak permissionDepartmentIds exists to prevent, and
+   * exactly the failure mode this test exists to catch.
+   */
+  it("does not widen a caller who directs A and only volunteers in B -- their volunteers.view is entirely kind-targeted, never person-targeted", async () => {
+    const f = await fixture();
+    const caller = await createPerson("Not Platform Scoped");
+    await addMembership(caller.id, f.term.id, f.nursing.id, "DIRECTOR");
+    await addMembership(caller.id, f.term.id, f.triage.id, "VOLUNTEER");
+
+    const nursingVolunteer = await createPerson("Nell Nursing");
+    await addMembership(nursingVolunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+    const triageVolunteer = await createPerson("Tia Triage");
+    await addMembership(triageVolunteer.id, f.term.id, f.triage.id, "VOLUNTEER");
+
+    const nursingText = await departmentRosterTool.run({ personId: caller.id }, { department: "Nursing" });
+    expect(nursingText).toContain("Nell Nursing");
+    expect(nursingText).not.toMatch(/do not have access/i);
+
+    const triageText = await departmentRosterTool.run({ personId: caller.id }, { department: "Triage" });
+    expect(triageText).toMatch(/do not have access/i);
+    expect(triageText).not.toContain("Tia Triage");
+
+    const triageStatus = await memberStatusTool.run({ personId: caller.id }, { name: "Tia Triage" });
+    const nonexistentStatus = await memberStatusTool.run({ personId: caller.id }, { name: "Nobody Real Zzyzx3" });
+    expect(triageStatus).not.toContain("Tia Triage");
+    expect(triageStatus).toBe(nonexistentStatus);
+  });
+
+  it("grants clinic-wide reach to a platform-scoped admin with no departmental membership at all (the reported gap)", async () => {
+    const f = await fixture();
+    // Mirrors the real shape described in the bug report: an IT/super-admin
+    // holding a role assigned directly to them (a personId-targeted
+    // RoleAssignment), never a TermMembership of their own. Under the old
+    // permissionDepartmentIds-only check this person got nothing, because
+    // its "memberships.length === 0 -> []" guard fires before it even looks
+    // at assignments.
+    const platformRole = await prisma.role.create({
+      data: {
+        name: "IT Admin",
+        grants: { create: [{ permission: "volunteers.view" }, { permission: "admin.manage_people" }] },
+      },
+    });
+    const admin = await createPerson("IT Admin Caller");
+    await prisma.roleAssignment.create({ data: { roleId: platformRole.id, personId: admin.id, termId: null } });
+
+    const nursingVolunteer = await createPerson("Nia Nursing");
+    await addMembership(nursingVolunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+
+    const rosterText = await departmentRosterTool.run({ personId: admin.id }, { department: "Nursing" });
+    expect(rosterText).toContain("Nia Nursing");
+    expect(rosterText).not.toMatch(/do not have access/i);
+
+    const statusText = await memberStatusTool.run({ personId: admin.id }, { name: "Nia Nursing" });
+    expect(statusText).toContain("Nia Nursing");
+    expect(statusText).toContain("Nursing");
+  });
+
+  it("gives a clinic-wide role holder reach beyond their own department, unlike a plain director with the same memberships", async () => {
+    const f = await fixture();
+    // Compliance-Manager-shaped: volunteers.view granted via a
+    // person-targeted assignment (the real system role is assigned to
+    // individuals the same way), and this particular holder also happens to
+    // direct Nursing -- the exact "clinic-wide role holder" shape from the
+    // bug report. A plain Nursing director in this fixture cannot see
+    // Triage's roster (see the non-widening test above); this caller must.
+    const complianceRole = await prisma.role.create({
+      data: {
+        name: "Compliance Manager Test Role",
+        grants: { create: [{ permission: "volunteers.view" }, { permission: "volunteers.manage_compliance" }] },
+      },
+    });
+    const manager = await createPerson("Compliance Manager Caller");
+    await prisma.roleAssignment.create({ data: { roleId: complianceRole.id, personId: manager.id, termId: null } });
+    await addMembership(manager.id, f.term.id, f.nursing.id, "DIRECTOR");
+
+    const triageVolunteer = await createPerson("Toby Triage");
+    await addMembership(triageVolunteer.id, f.term.id, f.triage.id, "VOLUNTEER");
+
+    const triageText = await departmentRosterTool.run({ personId: manager.id }, { department: "Triage" });
+    expect(triageText).toContain("Toby Triage");
+    expect(triageText).not.toMatch(/do not have access/i);
+  });
+
+  it("still refuses a caller with a person-targeted grant of an unrelated permission and no departmental reach, not an empty list", async () => {
+    const f = await fixture();
+    const admin = await createPerson("People Admin Only, No Roster Access");
+    await prisma.roleAssignment.create({ data: { roleId: f.peopleAdminRole.id, personId: admin.id, termId: null } });
+    // No TermMembership at all, and admin.manage_people never implies
+    // volunteers.view -- hasPlatformScope is checked against the specific
+    // permission the roster tools need, not "holds some person-targeted
+    // grant of anything".
+
+    const realVolunteer = await createPerson("Real Volunteer 3");
+    await addMembership(realVolunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+
+    const rosterText = await departmentRosterTool.run({ personId: admin.id }, { department: "Nursing" });
+    expect(rosterText).toMatch(/do not have access/i);
+    expect(rosterText).not.toContain("Real Volunteer 3");
+
+    const statusText = await memberStatusTool.run({ personId: admin.id }, { name: "Real Volunteer 3" });
+    expect(statusText).toMatch(/could not confirm/i);
+    expect(statusText).not.toContain("Real Volunteer 3");
+  });
+});
+
 describe("department_roster", () => {
   it("says it could not find a department by an unrecognized name", async () => {
     const f = await fixture();

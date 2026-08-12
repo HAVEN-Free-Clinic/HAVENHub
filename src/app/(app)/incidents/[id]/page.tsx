@@ -23,12 +23,12 @@ import { requirePersonSession } from "@/platform/auth/session";
 import {
   getReport,
   CONCERN_TYPES,
+  incidentAudience,
   IncidentNotFoundError,
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
 import { reviewReportAction, decideStrikeAction } from "../actions";
-import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { detailReviewerDisclosure } from "../disclosure";
 import type {
   IncidentReportStatus,
@@ -126,14 +126,14 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
   // rethrow below, and getReport's own NotFound/Forbidden still resolve to
   // notFound() exactly as before.
   let result: Awaited<ReturnType<typeof getReport>>;
-  let reviewers: Awaited<ReturnType<typeof peopleWithAnyPermission>>;
+  let reviewers: Awaited<ReturnType<typeof incidentAudience>>;
   try {
     [result, reviewers] = await Promise.all([
       getReport(actor.personId, id),
-      // Same query notifyReviewersOfSubmission runs when a report is filed
-      // (report.ts), read live so the count reflects who currently holds
-      // incidents.manage rather than a value frozen at submission time.
-      peopleWithAnyPermission(["incidents.manage"]),
+      // Same audience notifyReviewersOfSubmission mails when a report is filed
+      // (report.ts), read live so the count reflects who currently receives
+      // reports rather than a value frozen at submission time.
+      incidentAudience(),
     ]);
   } catch (err) {
     if (err instanceof IncidentNotFoundError || err instanceof IncidentForbiddenError) {
@@ -260,6 +260,16 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
             <dt className="text-xs text-subtle-foreground">Anonymity</dt>
             <dd className="mt-0.5 text-sm text-foreground">
               {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
+              {/* The reporter's own words on why. Only ever set alongside an
+                  anonymity request (submitReport clears it otherwise), and this
+                  page is reachable only by the reporter and by reviewers who are
+                  not linked as subjects, so it never reaches the person the
+                  report is about. */}
+              {report.anonymous && report.anonymousReason && (
+                <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">
+                  &ldquo;{report.anonymousReason}&rdquo;
+                </p>
+              )}
               <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure(reviewers.length)}</p>
             </dd>
           </div>

@@ -23,17 +23,16 @@ import { formatForDateInput } from "@/platform/dates/format";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input, ReadonlyField, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Checkbox } from "@/platform/ui/checkbox";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
-import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
-import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { CONCERN_TYPES, listSubjectOptions, incidentAudience, externalEscalationEmails } from "@/modules/incidents/services/report";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
+import { AnonymityField } from "./anonymity-field";
 import { submitReportAction } from "./actions";
 import { formReviewerDisclosure } from "./disclosure";
 
@@ -94,7 +93,11 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   // excludes a report's linked subjects from the reviewer set, never the
   // reporter, so a reporter who holds incidents.manage is themselves part of
   // this count -- excluding them here would understate the real audience.
-  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
+  // Both halves of the audience: Hub reviewers, plus external clinical
+  // supervisors who receive the report by email. A reporter deciding whether it
+  // is safe to report a colleague is owed the real total, and the external half
+  // is the part they would least expect.
+  const [reviewers, externals] = await Promise.all([incidentAudience(), externalEscalationEmails()]);
 
   return (
     <div>
@@ -203,10 +206,10 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           <div className="space-y-3 border-t border-border pt-6">
             <h2 className="text-sm font-medium">10. Your information</h2>
             <ReadonlyField label="Your name" value={actor.name ?? ""} />
-            <p className="text-xs text-subtle-foreground">{formReviewerDisclosure(reviewers.length)}</p>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox name="anonymous" /> Do not share my name with the person I am reporting.
-            </label>
+            <p className="text-xs text-subtle-foreground">
+              {formReviewerDisclosure(reviewers.length, externals.length)}
+            </p>
+            <AnonymityField />
           </div>
 
           <FormActions>

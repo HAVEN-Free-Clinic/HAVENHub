@@ -15,10 +15,15 @@
  * State machine:
  *   RESOLVED, CLOSED, and CANCELLED are terminal. assignRequest, setStatus,
  *   setPriority, resolveRequest, and cancelRequest/cancelOwnRequest all
- *   refuse to touch a ticket already in a terminal state (SupportStateError).
- *   setStatus additionally refuses RESOLVED/CANCELLED as a *target* status --
- *   those transitions only happen through resolveRequest/cancelRequest, which
- *   carry their own required-reason and notification behavior.
+ *   refuse to touch a ticket already in a terminal state (SupportStateError)
+ *   -- EXCEPT setStatus on a ticket with an intercomTicketId, which lets a
+ *   linked ticket move back out of terminal, because Intercom (not the Hub)
+ *   is Direction 3's control surface and can put a ticket there unilaterally;
+ *   see setStatus's own comment for why the guard cannot be unconditional for
+ *   a linked ticket without stranding it. setStatus additionally refuses
+ *   RESOLVED/CANCELLED as a *target* status -- those transitions only happen
+ *   through resolveRequest/cancelRequest, which carry their own
+ *   required-reason and notification behavior.
  *
  * Every mutation is audited. assignRequest, setStatus (on any actual status
  * change), and resolveRequest also notify (render once, then notify the one
@@ -189,7 +194,17 @@ export async function setStatus(
 
   const before = await loadOrThrow(id);
 
-  if (TERMINAL_STATUSES.includes(before.status)) {
+  // A linked ticket's terminal states are not absolute the way an unlinked
+  // ticket's are: applyIntercomTicketStateChange (intercom-sync.ts)
+  // deliberately lets Intercom move a ticket OUT of Resolved/Closed/Cancelled,
+  // because Intercom is Direction 3's control surface and an agent reopening
+  // a ticket there is an ordinary action. If the Hub's own terminal guard
+  // still applied unconditionally here, that same reopened ticket would be
+  // locked out of every Hub manager action -- a mis-click in Intercom's UI
+  // would strand it. So the guard only holds when the ticket has no
+  // intercomTicketId; an unlinked ticket has no other control surface, and
+  // its terminal lifecycle is unchanged. See manage.test.ts.
+  if (TERMINAL_STATUSES.includes(before.status) && !before.intercomTicketId) {
     throw new SupportStateError(`Cannot change the status of a ${before.status} ticket.`);
   }
 

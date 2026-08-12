@@ -663,4 +663,35 @@ describe("outbound Intercom ticket-state sync", () => {
     const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
     expect(after.status).toBe("IN_PROGRESS");
   });
+
+  // Intercom is Direction 3's control surface: applyIntercomTicketStateChange
+  // (intercom-sync.ts) lets an agent move a linked ticket OUT of a terminal
+  // state from Intercom's own UI, deliberately bypassing the Hub's terminal
+  // guard. setStatus must honor that same asymmetry, or a ticket an agent
+  // mis-clicked into Resolved in Intercom would be locked out of every Hub
+  // manager action even after Intercom itself moved it back.
+  describe("setStatus and a terminal ticket linked to Intercom", () => {
+    it("allows setStatus to move a linked ticket out of a terminal state", async () => {
+      mockFetchOk();
+      const owner = await createPerson("Owner");
+      const mgr = await createPerson("Manager");
+      await grantPermission(mgr.id, "support.manage_requests");
+      const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+      await linkToTicket(req.id, "ticket_1");
+      await cancelRequest(mgr.id, req.id, "No longer needed.");
+
+      const updated = await setStatus(mgr.id, req.id, "IN_PROGRESS");
+      expect(updated.status).toBe("IN_PROGRESS");
+    });
+
+    it("still blocks setStatus out of a terminal state for an UNLINKED ticket", async () => {
+      const owner = await createPerson("Owner");
+      const mgr = await createPerson("Manager");
+      await grantPermission(mgr.id, "support.manage_requests");
+      const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+      await cancelRequest(mgr.id, req.id, "No longer needed.");
+
+      await expect(setStatus(mgr.id, req.id, "IN_PROGRESS")).rejects.toThrow(SupportStateError);
+    });
+  });
 });

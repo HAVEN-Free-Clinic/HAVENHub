@@ -3,7 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
 
 import { getActivePerson } from "@/platform/auth/match-person";
-import { resolveIntercomIdentity, resolveIdentityFromConversation } from "./identity";
+import {
+  resolveIntercomIdentity,
+  resolveIdentityFromConversation,
+  INTERCOM_LOOKUP_TIMEOUT_MS,
+} from "./identity";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -116,6 +120,36 @@ describe("resolveIntercomIdentity", () => {
     // fix makes is in how it is logged (see identity.ts), not the outcome.
     expect(result).toEqual({ ok: false, reason: "lookup_failed" });
   });
+
+  /**
+   * Fin waits on this call synchronously, so a hung Intercom request must not
+   * hang the whole tool call -- see INTERCOM_LOOKUP_TIMEOUT_MS's doc comment.
+   * A never-resolving fetch that honors its AbortSignal is the closest
+   * simulation of a genuinely stuck request without an actual network wait.
+   */
+  it("fails closed when the fetch times out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              const err = new Error("This operation was aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          })
+      )
+    );
+
+    const pending = resolveIntercomIdentity("p1");
+    await vi.advanceTimersByTimeAsync(INTERCOM_LOOKUP_TIMEOUT_MS);
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+    vi.useRealTimers();
+  });
 });
 
 /** Conversation-shaped fetch stub: Intercom nests contacts one level deep. */
@@ -224,5 +258,30 @@ describe("resolveIdentityFromConversation", () => {
     const result = await resolveIdentityFromConversation("conv_1");
 
     expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+  });
+
+  /** See the matching test on resolveIntercomIdentity for why this is simulated this way. */
+  it("fails closed when the fetch times out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              const err = new Error("This operation was aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          })
+      )
+    );
+
+    const pending = resolveIdentityFromConversation("conv_1");
+    await vi.advanceTimersByTimeAsync(INTERCOM_LOOKUP_TIMEOUT_MS);
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, reason: "lookup_failed" });
+    vi.useRealTimers();
   });
 });

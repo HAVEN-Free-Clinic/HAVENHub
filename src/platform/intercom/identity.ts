@@ -15,6 +15,17 @@ const INTERCOM_API = "https://api.intercom.io";
  */
 const INTERCOM_API_VERSION = "2.14";
 
+/**
+ * Ceiling on a single Intercom lookup. Fin is waiting on this call
+ * synchronously as part of answering the member, and neither fetch below used
+ * to set a timeout at all -- a hung Intercom request would block the tool
+ * call until the platform itself killed the function, which is a far worse
+ * failure mode than a fast, explicit refusal. A few seconds is generous for
+ * one REST call and still comfortably inside a serverless function's own
+ * timeout.
+ */
+export const INTERCOM_LOOKUP_TIMEOUT_MS = 5_000;
+
 export type ResolvedIdentity =
   | { ok: true; personId: string; name: string | null }
   | { ok: false; reason: IdentityFailureReason };
@@ -66,6 +77,8 @@ export async function resolveIdentityFromConversation(
 
   const endpoint = "conversations/:id";
   let contacts: Array<{ external_id?: string | null }> = [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_LOOKUP_TIMEOUT_MS);
   try {
     const res = await fetch(
       `${INTERCOM_API}/conversations/${encodeURIComponent(conversationId)}`,
@@ -76,6 +89,7 @@ export async function resolveIdentityFromConversation(
           "Intercom-Version": INTERCOM_API_VERSION,
         },
         cache: "no-store",
+        signal: controller.signal,
       }
     );
     // 404 means no such conversation in this workspace, which is what a made-up
@@ -94,11 +108,19 @@ export async function resolveIdentityFromConversation(
     };
     contacts = body.contacts?.contacts ?? [];
   } catch (err) {
+    // Catches a network failure and an abort (the timeout above) alike -- a
+    // timed-out lookup is exactly as unable to confirm identity as one that
+    // errored outright, so it fails closed the same way. Still logged with
+    // the endpoint, so a run of timeouts is distinguishable from a run of
+    // some other failure in the log line itself, even though both map to the
+    // same reason here.
     log.warn(
       "[intercom-mcp] conversation lookup failed",
       errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
     );
     return { ok: false, reason: "lookup_failed" };
+  } finally {
+    clearTimeout(timeout);
   }
 
   // Exactly one, or we cannot say who is asking.
@@ -147,6 +169,8 @@ export async function resolveIntercomIdentity(claimedPersonId: string): Promise<
   const endpoint = "contacts/find_by_external_id";
 
   let contact: { external_id?: string } | null = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_LOOKUP_TIMEOUT_MS);
   try {
     const res = await fetch(
       `${INTERCOM_API}/contacts/find_by_external_id/${encodeURIComponent(claimedPersonId)}`,
@@ -157,6 +181,7 @@ export async function resolveIntercomIdentity(claimedPersonId: string): Promise<
           "Intercom-Version": INTERCOM_API_VERSION,
         },
         cache: "no-store",
+        signal: controller.signal,
       }
     );
     // A 404 is a refusal, not an error: it means the id does not name a contact
@@ -189,8 +214,12 @@ export async function resolveIntercomIdentity(claimedPersonId: string): Promise<
     }
     contact = (await res.json()) as { external_id?: string };
   } catch (err) {
+    // Catches a network failure and an abort (the timeout above) alike -- see
+    // the matching comment in resolveIdentityFromConversation.
     log.warn("[intercom-mcp] contact lookup failed", errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION }));
     return { ok: false, reason: "lookup_failed" };
+  } finally {
+    clearTimeout(timeout);
   }
 
   // A 200 response is, by construction, echoing back the external_id we

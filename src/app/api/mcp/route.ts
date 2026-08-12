@@ -2,7 +2,7 @@ import { createMcpHandler } from "mcp-handler";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { isMcpConfigured, mcpBearerToken } from "@/platform/intercom/config";
-import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
+import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
 import { recordToolCall } from "@/platform/intercom/audit";
 import { constantTimeBearerMatch } from "@/platform/security";
 import { log, errorAttrs } from "@/platform/logging";
@@ -40,17 +40,6 @@ const TOOL_FAILURE_MESSAGE = "Sorry, I could not look that up right now.";
 
 /** Audit tool name for a request rejected before any specific tool ran (bad bearer, missing identity header). Distinguishes a request-level rejection from a named tool's own outcome. */
 const REQUEST_LEVEL_TOOL = "(request)";
-
-/**
- * Text returned when we cannot establish who is asking. Deliberately does not
- * distinguish "no conversation id", "no such conversation", "that conversation
- * has no contact", and "that contact is not an active member": telling a caller
- * which of those it hit is a probe for enumerating real conversations. This is
- * about what WE can see, not what Fin can -- the audit trail behind this route
- * does keep the four apart; see recordToolCall's `reason` param below.
- */
-const UNIDENTIFIED_MESSAGE =
-  "I could not confirm who you are, so I cannot look that up. Please contact a human on the team.";
 
 /**
  * Registers every tool against one request's MCP server.

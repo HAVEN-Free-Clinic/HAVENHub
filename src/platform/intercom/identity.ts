@@ -32,8 +32,8 @@ export type ResolvedIdentity =
 
 /**
  * Every distinct way identity resolution can fail to confirm a caller.
- * UNIDENTIFIED_MESSAGE (route.ts) deliberately returns the same refusal text
- * for all of these -- distinguishing them to the caller is a probe for
+ * UNIDENTIFIED_MESSAGE (below) deliberately returns the same refusal text for
+ * all of these -- distinguishing them to the caller is a probe for
  * enumerating real conversations -- but the audit trail is the one place that
  * is allowed to, and is documented as the primary way to detect an
  * Intercom-side misconfiguration (see recordToolCall in ./audit.ts). Without
@@ -46,6 +46,19 @@ export type IdentityFailureReason =
   | "no_contact" // the conversation resolved, but not to exactly one Messenger-linked contact
   | "unknown_person" // the contact resolved, but its Person is not active
   | "lookup_failed"; // the Intercom API call itself failed -- network, timeout, non-2xx, bad token
+
+/**
+ * Fixed, non-revealing text returned to a caller when identity does not
+ * resolve. Shared by every entry point built on resolveIdentityFromConversation
+ * (the MCP tool wrapper in ../../app/api/mcp/route.ts, and the ticket-sync
+ * endpoint at ../../app/api/support/tickets/from-conversation/route.ts) so a
+ * caller can never distinguish "no conversation id", "no such conversation",
+ * "that conversation has no contact", and "that contact is not an active
+ * member" by comparing wording across the two surfaces. Colocated here,
+ * next to IdentityFailureReason, rather than owned by either caller.
+ */
+export const UNIDENTIFIED_MESSAGE =
+  "I could not confirm who you are, so I cannot look that up. Please contact a human on the team.";
 
 /**
  * Resolves who is in an Intercom conversation, from the conversation id alone.

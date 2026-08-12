@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("@/platform/intercom/identity", () => ({ resolveIdentityFromConversation: vi.fn() }));
+// UNIDENTIFIED_MESSAGE is real (imported via importOriginal): the route reads it
+// as a plain module-level constant, not something a test needs to control, and
+// keeping it real is what lets tests below assert against the actual text
+// instead of a copy that could drift from it.
+vi.mock("@/platform/intercom/identity", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/intercom/identity")>();
+  return { ...actual, resolveIdentityFromConversation: vi.fn() };
+});
 vi.mock("@/platform/intercom/audit", () => ({ recordToolCall: vi.fn() }));
 
 /**

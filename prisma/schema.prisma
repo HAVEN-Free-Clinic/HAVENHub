@@ -710,28 +710,32 @@ enum CommentVisibility {
 /// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
 /// requester (the subject of the request).
 model TechRequest {
-  id            String              @id @default(cuid())
-  number        Int                 @unique @default(autoincrement())
-  requesterId   String
-  category      TechRequestCategory
-  epicSubtype   EpicRequestKind?
-  subject       String
-  description   String
-  priority      TechRequestPriority @default(MEDIUM)
-  status        TechRequestStatus   @default(SUBMITTED)
-  assignedToId  String?
-  resolution    String?
-  resolvedAt    DateTime?
+  id                     String              @id @default(cuid())
+  number                 Int                 @unique @default(autoincrement())
+  requesterId            String
+  category               TechRequestCategory
+  epicSubtype            EpicRequestKind?
+  subject                String
+  description            String
+  priority               TechRequestPriority @default(MEDIUM)
+  status                 TechRequestStatus   @default(SUBMITTED)
+  assignedToId           String?
+  resolution             String?
+  resolvedAt             DateTime?
   // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
-  epicJobTitle  String?
-  epicMirrorId  String?
-  epicStartDate DateTime?
-  epicEndDate   DateTime?
-  worksAtYnhh   Boolean?
-  govId         String?
-  netId         String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  epicJobTitle           String?
+  epicMirrorId           String?
+  epicStartDate          DateTime?
+  epicEndDate            DateTime?
+  worksAtYnhh            Boolean?
+  govId                  String?
+  netId                  String?
+  /// The Intercom conversation this ticket was opened from, when it came in through
+  /// support chat rather than the Hub form. Unique: a conversation maps to at most one
+  /// ticket, which is what makes the create path idempotent under Intercom retries.
+  intercomConversationId String?             @unique
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   /// Subject of the request. Cascade: tickets belong to the requester.
   requester    Person        @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)

@@ -12,10 +12,18 @@
  *                         SupportNotFoundError (not Forbidden) for anyone else
  *                         so a stranger cannot distinguish "not found" from
  *                         "exists but you can't see it".
+ *
+ *   TRUSTED, single caller (src/app/api/support/tickets/from-conversation):
+ *     createTechRequestFromConversation - requesterPersonId must already be a
+ *                         verified identity (resolveIdentityFromConversation),
+ *                         never a value taken from a request body. This
+ *                         function does not itself verify anything; it trusts
+ *                         its caller the same way createTechRequest trusts a
+ *                         signed-in session.
  */
 
 import type { TechRequest, TechRequestCategory, TechRequestStatus, EpicRequestKind } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 
@@ -134,6 +142,97 @@ export async function createTechRequest(
   });
 
   return req;
+}
+
+// ---------------------------------------------------------------------------
+// createTechRequestFromConversation
+// ---------------------------------------------------------------------------
+
+export type CreateFromConversationInput = {
+  intercomConversationId: string;
+  category: TechRequestCategory;
+  subject: string;
+  description: string;
+};
+
+/**
+ * Idempotent create for a ticket opened from an Intercom conversation, rather
+ * than the Hub submit form. See docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md.
+ *
+ * Looked up by intercomConversationId first. Intercom retries webhooks and
+ * Fin can call the same action more than once in one turn, so sending the
+ * same conversation id twice must land on the SAME ticket, not a second one
+ * with a consecutive number -- returned unchanged, `created: false`. This is
+ * deliberately not an error: a retry is normal, not a fault.
+ *
+ * The findUnique-then-create pair still leaves a race window between two
+ * genuinely concurrent calls for the same conversation (both can pass the
+ * lookup before either commits), so the create is wrapped in a catch for the
+ * P2002 that then lands on the unique index: the loser re-reads and returns
+ * the winner's row instead of surfacing a raw constraint violation as a 500.
+ *
+ * Deliberately narrow compared to CreateTechRequestInput: category, subject,
+ * and description only. No Epic intake field (epicJobTitle, epicMirrorId,
+ * epicStartDate, epicEndDate, worksAtYnhh, govId, netId) is an accepted
+ * parameter here at all, so one riding along in an HTTP body has nothing to
+ * bind to -- structurally unable to be persisted, not merely unused. EPIC
+ * remains an accepted category so the ticket still routes correctly; a
+ * manager fills in the Epic-specific fields later, from the Hub form, the
+ * only place govId may ever be typed.
+ *
+ * requesterPersonId is a parameter, never resolved here: the caller must
+ * already have it from resolveIdentityFromConversation. A forged requester
+ * would file a ticket as somebody else, and that check belongs where the
+ * request enters the system, not buried in this function's body.
+ */
+export async function createTechRequestFromConversation(
+  requesterPersonId: string,
+  input: CreateFromConversationInput
+): Promise<{ ticket: TechRequest; created: boolean }> {
+  const existing = await prisma.techRequest.findUnique({
+    where: { intercomConversationId: input.intercomConversationId },
+  });
+  if (existing) return { ticket: existing, created: false };
+
+  const subject = input.subject?.trim();
+  const description = input.description?.trim();
+  if (!subject) throw new SupportStateError("A subject is required.");
+  if (!description) throw new SupportStateError("A description is required.");
+
+  try {
+    const ticket = await prisma.techRequest.create({
+      data: {
+        requesterId: requesterPersonId,
+        category: input.category,
+        subject,
+        description,
+        status: "SUBMITTED",
+        intercomConversationId: input.intercomConversationId,
+      },
+    });
+
+    await recordAudit({
+      actorPersonId: requesterPersonId,
+      action: "support.request_create",
+      entityType: "TechRequest",
+      entityId: ticket.id,
+      after: { category: ticket.category, number: ticket.number, source: "intercom" },
+    });
+
+    return { ticket, created: true };
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      // Another call for the same conversation won the race between our
+      // findUnique above and this create. Its row is exactly what we would
+      // have returned had we lost the race the other way, so hand it back
+      // rather than letting the constraint violation surface as a 500.
+      const winner = await prisma.techRequest.findUnique({
+        where: { intercomConversationId: input.intercomConversationId },
+      });
+      if (winner) return { ticket: winner, created: false };
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

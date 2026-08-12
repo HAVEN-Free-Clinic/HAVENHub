@@ -1,12 +1,14 @@
 import { z } from "zod";
 import type { TechRequestCategory } from "@prisma/client";
-import { isDbUnreachableError } from "@/platform/db";
+import { isDbUnreachableError, prisma } from "@/platform/db";
+import { getActivePerson } from "@/platform/auth/match-person";
 import { isMcpConfigured, mcpBearerToken } from "@/platform/intercom/config";
 import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
 import { constantTimeBearerMatch } from "@/platform/security";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { createTechRequestFromConversation, SupportStateError } from "@/modules/support/services/tech-request";
+import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 import { ALL_CATEGORIES } from "@/modules/support/filter-options";
 
 export const runtime = "nodejs";
@@ -123,6 +125,28 @@ export async function POST(request: Request): Promise<Response> {
     // created and its number still gets returned to Fin either way, which is
     // the part the design calls the value that must never be sacrificed to
     // this step's best-effort attribute write.
+
+    // Tell IT a ticket arrived. Without this a chat-originated ticket reaches
+    // nobody: notifyTicketSubmitted was only ever called from the Hub form, so
+    // a ticket opened through Fin would sit in /support/all until somebody
+    // happened to look, which for a support queue is indistinguishable from
+    // losing it. The requester half is correctly suppressed inside that
+    // function for a linked ticket (they are in the conversation and will hear
+    // there); the manager alert is a different audience and still fires.
+    //
+    // Only on first creation. Intercom retries this endpoint, and idempotency
+    // that still re-alerted every manager on each retry would trade duplicate
+    // tickets for duplicate pages.
+    if (created) {
+      const requester = await getActivePerson(identity.personId);
+      // Already resolved once by resolveIdentityFromConversation, so a miss
+      // here means the person was deactivated in between. The ticket is
+      // already written; failing the response over a notification would lose
+      // the member's request for a cosmetic reason.
+      if (requester) {
+        await notifyTicketSubmitted(prisma, ticket, requester);
+      }
+    }
 
     return Response.json({ number: ticket.number, created });
   } catch (err) {

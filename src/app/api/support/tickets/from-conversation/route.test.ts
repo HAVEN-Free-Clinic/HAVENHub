@@ -12,7 +12,16 @@ vi.mock("@/platform/intercom/identity", async (importOriginal) => {
   return { ...actual, resolveIdentityFromConversation: vi.fn() };
 });
 
+// Stubbed so the notification fan-out can be asserted without rendering
+// templates or touching the email queue. Its own behaviour (which half is
+// suppressed for a linked ticket) is covered in notifications.test.ts; what
+// matters here is only that this route calls it at all.
+vi.mock("@/modules/support/services/notifications", () => ({
+  notifyTicketSubmitted: vi.fn(),
+}));
+
 import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
+import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -147,6 +156,43 @@ describe("POST /api/support/tickets/from-conversation", () => {
     expect(secondJson.created).toBe(false);
     expect(secondJson.number).toBe(firstJson.number);
     expect(await prisma.techRequest.count()).toBe(1);
+  });
+
+  /**
+   * Without this, a ticket opened through Fin reaches nobody in IT: the
+   * notification fan-out was wired only to the Hub form, so a chat-originated
+   * ticket would sit in /support/all until somebody happened to look, which
+   * for a support queue is indistinguishable from losing it.
+   */
+  it("tells IT a ticket arrived, so a chat-originated ticket is not silently queued", async () => {
+    const person = await createPerson("Sam Rivera");
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
+      ok: true,
+      personId: person.id,
+      name: person.name,
+    });
+
+    const { POST } = await import("./route");
+    await POST(req(VALID_BODY));
+
+    expect(mocked(notifyTicketSubmitted)).toHaveBeenCalledTimes(1);
+    const [, ticketArg] = mocked(notifyTicketSubmitted).mock.calls[0];
+    expect(ticketArg.intercomConversationId).toBe(VALID_BODY.conversationId);
+  });
+
+  it("does not re-alert on an idempotent retry, so Intercom retries cannot page IT repeatedly", async () => {
+    const person = await createPerson("Sam Rivera");
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
+      ok: true,
+      personId: person.id,
+      name: person.name,
+    });
+
+    const { POST } = await import("./route");
+    await POST(req(VALID_BODY));
+    await POST(req(VALID_BODY));
+
+    expect(mocked(notifyTicketSubmitted)).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a requester id carried in the body and uses the identity resolved from the conversation instead", async () => {

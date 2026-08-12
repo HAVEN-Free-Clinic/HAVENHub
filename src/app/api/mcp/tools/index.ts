@@ -154,6 +154,47 @@ export function collectSchemaKeys(schema: z.ZodTypeAny, path = ""): string[] {
 export const FORBIDDEN_OUTPUT_PATTERN = /govId|dateOfBirth|photoKey|MemberLoginToken|passwordHash|storageKey|scormBlobKey/i;
 
 /**
+ * Government-ID-shaped VALUES: a bare 9-digit run (an SSN with no separators)
+ * or the NNN-NN-NNNN dashed form. FORBIDDEN_OUTPUT_PATTERN, above, only
+ * matches field NAMES and would miss this entirely once a tool formats a
+ * govId into a sentence -- by then the field name is gone and only the shape
+ * of the value is left to catch it. `\b...\b` matters here: without it,
+ * `\d{9}` would also match nine digits out of a longer run, which is not
+ * what an SSN-shaped value looks like.
+ */
+const GOV_ID_VALUE_PATTERN = /\b\d{9}\b|\b\d{3}-\d{2}-\d{4}\b/;
+
+/**
+ * Date-of-birth-shaped VALUES: a plain ISO calendar date (YYYY-MM-DD).
+ * Deliberately narrower than "three dash-separated number groups" so it does
+ * not fire on the answers tools actually return: clinic dates render through
+ * formatCalendarDate as "Sep 12, 2026" (see myNextShiftTool), never as ISO,
+ * and ticket numbers are short bare integers with no dashes at all.
+ */
+const DOB_VALUE_PATTERN = /\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b/;
+
+/**
+ * Value-level companion to FORBIDDEN_OUTPUT_PATTERN. That check can only
+ * catch an accidental object dump, because it matches field NAMES -- it would
+ * wave straight through a tool that formats a real govId or date of birth
+ * into prose, which is the actual risk once a tool renders a record into a
+ * sentence instead of returning raw fields. Wired into every tool's output in
+ * the route wrapper (see registerTools in route.ts), so no tool can opt out
+ * of it and no tool author has to remember to call it themselves.
+ *
+ * Throws rather than returning a boolean so the route wrapper can route a
+ * trip through the exact same catch/audit path as a thrown tool error (see
+ * TOOL_FAILURE_MESSAGE there) -- the offending text must never reach the
+ * returned content, including inside a thrown error's own message, so this
+ * only reports that the check tripped and never what tripped it.
+ */
+export function assertSafeToolOutput(text: string): void {
+  if (GOV_ID_VALUE_PATTERN.test(text) || DOB_VALUE_PATTERN.test(text)) {
+    throw new Error("Tool output blocked by the value-level output guard.");
+  }
+}
+
+/**
  * Every tool Fin may call. Tools live here in the app layer rather than under
  * src/platform/intercom because import/no-restricted-paths forbids platform
  * code from importing src/modules, and forbids modules from importing each

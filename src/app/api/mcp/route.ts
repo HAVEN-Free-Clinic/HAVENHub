@@ -6,7 +6,7 @@ import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { recordToolCall } from "@/platform/intercom/audit";
 import { constantTimeBearerMatch } from "@/platform/security";
 import { log, errorAttrs } from "@/platform/logging";
-import { MCP_TOOLS } from "./tools";
+import { MCP_TOOLS, assertSafeToolOutput } from "./tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -121,6 +121,13 @@ function registerTools(server: McpServer): void {
         let text: string;
         try {
           text = await tool.run({ personId }, toolArgs);
+          // Value-level companion to the identity-argument guard above: proves
+          // the rendered text itself does not carry a government-ID- or
+          // date-of-birth-shaped value out to Fin, regardless of what field
+          // name (if any) it came from. A trip here is handled exactly like a
+          // thrown tool error -- same catch, same audit, same fixed message --
+          // so the offending text can never reach the return value.
+          assertSafeToolOutput(text);
         } catch (err) {
           // Never let the thrown error's message, stack, or cause reach the
           // returned content -- see TOOL_FAILURE_MESSAGE's doc comment for why.

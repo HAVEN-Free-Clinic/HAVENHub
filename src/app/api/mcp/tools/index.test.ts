@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import { MCP_TOOLS, IDENTITY_ARGUMENT_PATTERN, FORBIDDEN_OUTPUT_PATTERN, collectSchemaKeys } from "./index";
+import {
+  MCP_TOOLS,
+  IDENTITY_ARGUMENT_PATTERN,
+  FORBIDDEN_OUTPUT_PATTERN,
+  collectSchemaKeys,
+  assertSafeToolOutput,
+} from "./index";
 
 describe("MCP tool registry", () => {
   it("has unique tool names", () => {
@@ -156,5 +162,36 @@ describe("MCP tool registry", () => {
     for (const key of allowed) {
       expect(FORBIDDEN_OUTPUT_PATTERN.test(key), `${key} should be allowed`).toBe(false);
     }
+  });
+
+  /**
+   * FORBIDDEN_OUTPUT_PATTERN, above, only matches field NAMES and has no call
+   * sites -- it could never catch a govId or date of birth once a tool
+   * formats it into a sentence, since the field name is gone by then. This is
+   * the value-level control that actually gets wired into every tool's
+   * output (see route.ts).
+   */
+  describe("assertSafeToolOutput", () => {
+    it("blocks a bare 9-digit SSN-shaped value", () => {
+      expect(() => assertSafeToolOutput("Your SSN on file is 123456789.")).toThrow();
+    });
+
+    it("blocks a dashed NNN-NN-NNNN SSN-shaped value", () => {
+      expect(() => assertSafeToolOutput("Your SSN on file is 123-45-6789.")).toThrow();
+    });
+
+    it("blocks an ISO date-of-birth-shaped value", () => {
+      expect(() => assertSafeToolOutput("Date of birth on file: 1998-04-12.")).toThrow();
+    });
+
+    it("does not block a normal answer with a formatted clinic date and a ticket number", () => {
+      expect(() =>
+        assertSafeToolOutput("Your next shift is on Sep 12, 2026 with Nursing. Ticket #482 is closed.")
+      ).not.toThrow();
+    });
+
+    it("does not block plain prose with no digits at all", () => {
+      expect(() => assertSafeToolOutput("You have no upcoming shifts scheduled.")).not.toThrow();
+    });
   });
 });

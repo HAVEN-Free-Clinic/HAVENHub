@@ -44,11 +44,16 @@ vi.mock("mcp-handler", () => ({
 
 // A single fake tool, with a REAL zod schema so the route's central injection of
 // the reserved conversation_id argument is exercised rather than stubbed.
-vi.mock("./tools", async () => {
+// assertSafeToolOutput itself is left as the REAL implementation (via
+// importOriginal), not stubbed, so the value-level output guard tests below
+// exercise the actual regexes rather than a fake standing in for them.
+vi.mock("./tools", async (importOriginal) => {
   const { z } = await import("zod");
   const { vi: vitest } = await import("vitest");
+  const actual = await importOriginal<typeof import("./tools")>();
   shared.run = vitest.fn().mockResolvedValue("test result");
   return {
+    ...actual,
     MCP_TOOLS: [
       {
         name: "test_tool",
@@ -155,6 +160,44 @@ describe("POST /api/mcp", () => {
     expect(shared.run).toHaveBeenCalledWith({ personId: "verified-person" }, { limit: 5 });
     const passedArgs = shared.run.mock.calls[0][1] as Record<string, unknown>;
     expect(passedArgs).not.toHaveProperty("conversation_id");
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ personId: "verified-person", outcome: "ok" })
+    );
+  });
+
+  it("blocks a tool output containing an SSN-shaped value, and audits it as denied, exactly like a thrown tool error", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
+      ok: true,
+      personId: "verified-person",
+      name: null,
+    });
+    shared.run.mockResolvedValue("Your SSN on file is 123-45-6789.");
+    const { POST } = await import("./route");
+
+    const res = await POST(req(AUTHED));
+    const body = JSON.stringify(await res.json());
+
+    expect(body).toContain("could not look that up");
+    expect(body).not.toContain("123-45-6789");
+    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ personId: "verified-person", outcome: "denied" })
+    );
+  });
+
+  it("does not block a normal answer containing a formatted clinic date and a ticket number", async () => {
+    mocked(resolveIdentityFromConversation).mockResolvedValue({
+      ok: true,
+      personId: "verified-person",
+      name: null,
+    });
+    const answer = "Your next shift is on Sep 12, 2026 with Nursing. Ticket #482 is closed.";
+    shared.run.mockResolvedValue(answer);
+    const { POST } = await import("./route");
+
+    const res = await POST(req(AUTHED));
+    const body = JSON.stringify(await res.json());
+
+    expect(body).toContain(answer);
     expect(mocked(recordToolCall)).toHaveBeenCalledWith(
       expect.objectContaining({ personId: "verified-person", outcome: "ok" })
     );

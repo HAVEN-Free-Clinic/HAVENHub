@@ -25,6 +25,7 @@ export default async function NewPersonPage() {
         spanishSelfReported: formData.get("spanishSelfReported") === "on",
         spanishVerified: formData.get("spanishVerified") === "on",
         licensedRN: formData.get("licensedRN") === "on",
+        blockerGateExempt: formData.get("blockerGateExempt") === "on",
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

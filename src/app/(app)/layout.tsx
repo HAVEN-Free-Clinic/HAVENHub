@@ -9,6 +9,7 @@ import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { resolveSupportAppId } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
+import { shouldMountBlockerGate } from "@/platform/intercom/gate-mount";
 import { getSupportContact } from "@/platform/branding/support";
 import { getSetting } from "@/platform/settings/service";
 
@@ -41,26 +42,39 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
     isReviewer: isRecruitmentReviewer,
     isPanelist,
   });
-  // Support Messenger, authenticated routes only. Gated on the secret being set
-  // too, so a workspace configured with just an app id stays off rather than
-  // booting an unverified (impersonatable) Messenger.
+  // Support Messenger, authenticated routes only. resolveSupportAppId() gates on
+  // the secret being set as well as the app id, so a workspace configured with
+  // only an app id stays off rather than booting an unverified (impersonatable)
+  // Messenger. It is a shared helper because the Messenger now mounts on six
+  // surfaces, and each re-deriving "is Intercom on" is how one of them ends up
+  // booting unverified.
   const supportAppId = resolveSupportAppId();
+  const mountBlockerGate = shouldMountBlockerGate({
+    supportAppId,
+    gateEnabled: blockerGateEnabled,
+    personExempt: person.blockerGateExempt,
+  });
   return (
     <>
-      {/* Both gated on supportAppId, deliberately: the gate exists only to protect
+      {/* The Messenger mounts on supportAppId alone. The gate exists only to protect
           the Messenger, so it must never outlive it, and turning the integration off
           turns the gate off in the same motion. That is also what keeps a hard block
           out of CI, the e2e suite, preview, and demo, none of which set
           NEXT_PUBLIC_INTERCOM_APP_ID.
 
-          The gate carries a second, one-way condition on top: the runtime kill
-          switch. A blocker and an Intercom outage at the network layer look the
+          The gate carries two further, one-way conditions on top, both subtracting
+          only from the gate and never from the Messenger. First, the runtime kill
+          switch: a blocker and an Intercom outage at the network layer look the
           same from the browser, so an outage would gate every member at once, and
-          NEXT_PUBLIC_INTERCOM_APP_ID is inlined at build time and cannot be
-          unset without a rebuild. The setting is read here through getSetting, so
+          NEXT_PUBLIC_INTERCOM_APP_ID is inlined at build time and cannot be unset
+          without a rebuild. The setting is read here through getSetting, so
           flipping it off in /admin/settings stands the gate down within its 30s
-          cache. The condition is one-way on purpose: it stops the app blocking
-          people WITHOUT taking support away from the ones who can still reach it. */}
+          cache. Second, a per-person exemption, for someone correctly detected as
+          blocked who cannot comply (a device or network they do not control).
+          Both conditions are one-way on purpose: they stop the app blocking people
+          WITHOUT taking support away from the ones who can still reach it. The
+          combined rule lives in shouldMountBlockerGate rather than here, so the
+          three switches get names and tests instead of being ANDed inline. */}
       {supportAppId ? (
         <>
           {/* mode="identified", no requireActiveMembership: a member between
@@ -74,7 +88,9 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
               Person at all -- a case that cannot arise here, behind
               requirePersonSession above. */}
           <IntercomMessenger appId={supportAppId} mode="identified" />
-          {blockerGateEnabled ? (
+          {/* shouldMountBlockerGate already returns false without an app id, so
+              the supportAppId check above is the only one this needs. */}
+          {mountBlockerGate ? (
             <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
           ) : null}
         </>

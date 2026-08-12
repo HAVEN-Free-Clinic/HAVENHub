@@ -146,9 +146,23 @@ describe("buildIntercomStatusMessage", () => {
    * was sent to them at all.
    */
   it("addresses staff, not the member, since the note is never shown to them", () => {
-    const message = buildIntercomStatusMessage(42, "AWAITING_YNHH", null);
-    expect(message).not.toMatch(/\bwe will update you\b/i);
-    expect(message).not.toMatch(/\byour (request|ticket)\b/i);
+    // Every status, not just AWAITING_YNHH. Checking only that branch is how
+    // the generic fallback kept saying "Your IT Support ticket #N is now X"
+    // after these stopped being customer-visible replies.
+    const statuses: TechRequestStatus[] = [
+      "SUBMITTED",
+      "IN_PROGRESS",
+      "AWAITING_REQUESTER",
+      "AWAITING_YNHH",
+      "RESOLVED",
+      "CLOSED",
+      "CANCELLED",
+    ];
+    for (const status of statuses) {
+      const message = buildIntercomStatusMessage(42, status, null);
+      expect(message, `${status} addresses the member`).not.toMatch(/\bwe will update you\b/i);
+      expect(message, `${status} addresses the member`).not.toMatch(/\byour\b/i);
+    }
   });
 
   it("uses the member-facing status label for other statuses", () => {

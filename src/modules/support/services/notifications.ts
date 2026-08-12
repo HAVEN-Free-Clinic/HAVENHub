@@ -90,7 +90,13 @@ export function buildIntercomStatusMessage(
   const headline =
     status === "AWAITING_YNHH"
       ? AWAITING_YNHH_MESSAGE
-      : `Your IT Support ticket #${ticketNumber} is now ${STATUS_LABELS[status]}.`;
+      : // Third person, like the YNHH copy above. This branch read "Your IT
+        // Support ticket #N is now X" when these were customer-visible
+        // replies, and kept that phrasing after they became staff-only notes
+        // -- so an agent saw text addressed to the member for something the
+        // member was never sent. The test below covers this branch as well as
+        // the YNHH one now, since only the YNHH branch was asserted before.
+        `Ticket #${ticketNumber} status: ${STATUS_LABELS[status]}.`;
   return resolution ? `${headline}\n\n${resolution}` : headline;
 }
 

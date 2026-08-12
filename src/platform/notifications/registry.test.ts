@@ -27,7 +27,6 @@ describe("notification registry", () => {
         "recruitment.review_digest",
         "support.ticket_submitted",
         "support.ticket_manager_alert",
-        "support.request_assigned",
         "support.status_changed",
         "support.comment_added",
         "support.request_resolved",

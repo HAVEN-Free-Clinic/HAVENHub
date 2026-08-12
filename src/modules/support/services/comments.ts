@@ -171,6 +171,18 @@ export async function notifyCommentAdded(
 ): Promise<void> {
   if (comment.visibility === "INTERNAL") return;
 
+  // A linked ticket's conversation IS the channel, so the Hub must not also
+  // email about it -- the same branch setStatus and resolveRequest take, and
+  // for the same reason: support correspondence happens in one place.
+  //
+  // Today no UI path reaches here for a linked ticket, because the detail page
+  // renders read-only and hides the reply form (see ticket-detail.tsx). This
+  // guard is deliberately NOT relying on that. UI reachability is not an
+  // invariant: an API, a bulk action, or a script that posts a comment would
+  // email the member directly, breaking the one-channel rule with nothing
+  // failing and no way to notice short of a confused member.
+  if (req.intercomConversationId) return;
+
   const baseUrl = (await getSetting<string>("app.baseUrl")) ?? "";
   const link = `${baseUrl}/support/${req.id}`;
   const authorIsRequester = author.id === req.requesterId;

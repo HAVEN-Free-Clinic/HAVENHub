@@ -513,11 +513,19 @@ In `src/platform/ui/modal.tsx`, add the import:
 import { useFocusTrap } from "@/platform/ui/use-focus-trap";
 ```
 
-Call it inside the component, next to the other hooks (before the existing `useEffect`):
+Call it inside the component **after** the existing `useEffect`, not before it:
 
 ```tsx
 useFocusTrap(panelRef, open);
 ```
+
+The ordering is load-bearing and easy to get wrong. React runs effects in
+declaration order, and Modal's effect captures `previouslyFocused` from
+`document.activeElement`. If the hook ran first it would already have moved
+focus into the panel, so Modal would capture the panel itself rather than the
+element that opened the dialog, and focus restore on close would silently
+break in every dialog in the app. `modal.tsx` has no test file, so the suite
+does not catch this. Keep the original order: capture, lock, then focus.
 
 Then delete the Tab-handling half of the existing effect. Keep Escape, the
 scroll lock, and the focus restore. The effect becomes:

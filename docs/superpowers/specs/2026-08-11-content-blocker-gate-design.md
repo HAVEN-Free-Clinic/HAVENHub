@@ -79,6 +79,37 @@ Reusing that guard rather than adding a feature flag is load-bearing:
 `BlockerGate` as a prop, the same way other branding values reach client
 components.
 
+### Amendment, 2026-08-12: the runtime kill switch
+
+Everything above still holds; the `supportAppId` guard stays exactly as
+described. The gate carries one **additional** condition on top of it: the
+`support.blockerGateEnabled` setting (registry, category Operations, default
+true), read in the same server layout via `getSetting`.
+
+The reason is a case the detection cannot answer, raised by the final review.
+An Intercom outage at the *network* layer (DNS, TCP, or TLS failure rather than
+an HTTP 503) rejects the widget fetch exactly the way a content blocker does,
+while the control probe still passes, because our own origin is fine. Detection
+cannot tell those apart from inside the browser, so such an outage would gate
+every member at once. The only recovery available was unsetting
+`NEXT_PUBLIC_INTERCOM_APP_ID`, which is inlined at build time and therefore
+needs a full rebuild, and which takes the Messenger down as well.
+
+The condition is deliberately one-way: `IntercomMessenger` still mounts on
+`supportAppId` alone, so standing the gate down stops the app blocking anyone
+without removing support from the members who can still reach it. A flip takes
+effect inside `getSetting`'s 30 second cache, with no deploy.
+
+The setting is read in the server layout, so it applies on a member's next full
+page load rather than mid-session. That is the right granularity here: the probe
+itself runs once per page load, and a member already stuck behind the modal
+cannot navigate anyway, so reloading (the obvious thing to do when a page seems
+stuck) is what picks the change up. The help text says so.
+
+This does not weaken "the gate cannot outlive the feature it protects": the
+setting can only ever subtract the gate, never add it where the Messenger is
+absent.
+
 ## Detection
 
 Three fetches, issued together, once the tab is visible and `navigator.onLine`
@@ -114,6 +145,14 @@ Evaluated in order:
    once after 2 seconds. If the rejection repeats, gate. The delay is long
    enough to clear a momentary fault and short enough that a genuinely blocked
    member is not left staring at a working-looking app.
+
+Rule 0, added 2026-08-12: every request is bounded by a 5 second
+`AbortController` deadline, matching `INTERCOM_LOOKUP_TIMEOUT_MS`. A timeout
+counts as **reached**, never as blocked. A blocker rejects immediately, so a
+request still in flight after the deadline is evidence of a slow network, and a
+firewall that drops rather than rejects packets (the usual corporate and clinic
+posture) would otherwise leave the fetch pending for minutes with the re-check
+button disabled throughout.
 
 ### Why each guard exists
 

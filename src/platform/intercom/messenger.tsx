@@ -67,27 +67,59 @@ export type IntercomMessengerMode = "identified" | "visitor";
  * identified with nothing erroring anywhere. Stated again at the /apply call
  * site and in the mint itself, because no one of the three can enforce it.
  */
+/**
+ * A token minted during the server render, so the widget can boot without
+ * waiting for a round trip. Null or absent whenever the server declined to mint
+ * (integration off, no active Person, database briefly unreachable) or the
+ * surface never mints one; in every such case the component falls back to
+ * fetching rather than booting on a fabricated token.
+ */
+type ServerMintedToken = { token: string; expiresInSeconds: number };
+
+/**
+ * Deliberately a union rather than one object with four optional fields, so
+ * that the invariant in the doc comment above is a COMPILE ERROR rather than a
+ * comment three files have to agree to honour.
+ *
+ * The forbidden combination is `requireActiveMembership` together with
+ * `initialToken`: the gate's client-side half cannot fire on a tab that booted
+ * from a server-minted token, so passing both silently reduces a real gate to
+ * nothing. `initialToken?: never` on that member is what makes it unsayable.
+ *
+ * If a gated surface ever genuinely needs a server-minted token, the fix is NOT
+ * to widen this type in isolation. It is to mint with
+ * `mintMessengerTokenForSession({ requireActiveMembership: true })` at that call
+ * site, so the gate runs server-side where it still means something, and only
+ * then to widen this type with that requirement written down. Whoever does that
+ * should have to read this paragraph first, which is the entire point of making
+ * it a type error.
+ */
+type IntercomMessengerProps =
+  | {
+      appId: string;
+      mode: "visitor";
+      requireActiveMembership?: never;
+      initialToken?: never;
+    }
+  | {
+      appId: string;
+      mode: "identified";
+      requireActiveMembership?: false;
+      initialToken?: ServerMintedToken | null;
+    }
+  | {
+      appId: string;
+      mode: "identified";
+      requireActiveMembership: true;
+      initialToken?: never;
+    };
+
 export function IntercomMessenger({
   appId,
   mode,
   requireActiveMembership = false,
   initialToken,
-}: {
-  appId: string;
-  mode: IntercomMessengerMode;
-  /** Only meaningful when mode is "identified". See the doc comment above. */
-  requireActiveMembership?: boolean;
-  /**
-   * A token minted during the server render, so the widget can boot without
-   * waiting for a round trip. Null or absent whenever the server declined to
-   * mint (integration off, no active Person, database briefly unreachable) or
-   * the surface never mints one; in every such case this falls back to fetching
-   * rather than booting on a fabricated token.
-   *
-   * Meaningless in visitor mode, which boots with no token at all.
-   */
-  initialToken?: { token: string; expiresInSeconds: number } | null;
-}) {
+}: IntercomMessengerProps) {
   // Freeze the token this instance boots with. The effect below only ever needs
   // the FIRST token; every later one comes from its own fetch loop and is
   // handed over with `update`.

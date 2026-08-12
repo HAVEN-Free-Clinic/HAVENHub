@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 /**
@@ -20,6 +20,12 @@ describe("no raw locale date formatting outside src/platform/dates", () => {
 
     const offenders: string[] = [];
     for (const f of files) {
+      // git ls-files reads the INDEX, not the working tree, so a file deleted
+      // but not yet staged is still listed here. Skip anything that no longer
+      // exists on disk: a deleted file has no code left to offend, and without
+      // this the guard throws ENOENT mid-rename and reports as a date-format
+      // failure, which is a confusing way to learn you have an unstaged delete.
+      if (!existsSync(f)) continue;
       const src = readFileSync(f, "utf8");
       if (/\.toLocaleDateString\(|\.toLocaleTimeString\(/.test(src)) offenders.push(f);
     }

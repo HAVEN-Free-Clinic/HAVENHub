@@ -45,7 +45,9 @@ const REQUEST_LEVEL_TOOL = "(request)";
  * Text returned when we cannot establish who is asking. Deliberately does not
  * distinguish "no conversation id", "no such conversation", "that conversation
  * has no contact", and "that contact is not an active member": telling a caller
- * which of those it hit is a probe for enumerating real conversations.
+ * which of those it hit is a probe for enumerating real conversations. This is
+ * about what WE can see, not what Fin can -- the audit trail behind this route
+ * does keep the four apart; see recordToolCall's `reason` param below.
  */
 const UNIDENTIFIED_MESSAGE =
   "I could not confirm who you are, so I cannot look that up. Please contact a human on the team.";
@@ -100,18 +102,21 @@ function registerTools(server: McpServer): void {
         const identity =
           typeof conversationId === "string" && conversationId.length > 0
             ? await resolveIdentityFromConversation(conversationId)
-            : ({ ok: false, reason: "unverified" } as const);
+            : ({ ok: false, reason: "no_conversation_id" } as const);
 
         if (!identity.ok) {
           // Audited with a null actor: we genuinely do not know who this was,
           // and a run of these is what an Intercom-side misconfiguration (an
           // input left on "let Fin decide", or unbound entirely) looks like
-          // from here. See recordToolCall's doc comment.
+          // from here. The specific reason travels into the row too -- see
+          // recordToolCall's doc comment for why that distinction matters
+          // here even though UNIDENTIFIED_MESSAGE deliberately erases it.
           await recordToolCall({
             personId: null,
             tool: tool.name,
             args: toolArgs,
             outcome: "unverified",
+            reason: identity.reason,
           });
           return { content: [{ type: "text" as const, text: UNIDENTIFIED_MESSAGE }] };
         }

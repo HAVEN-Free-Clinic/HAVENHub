@@ -17,7 +17,24 @@ const INTERCOM_API_VERSION = "2.14";
 
 export type ResolvedIdentity =
   | { ok: true; personId: string; name: string | null }
-  | { ok: false; reason: "unverified" | "unknown_person" | "lookup_failed" };
+  | { ok: false; reason: IdentityFailureReason };
+
+/**
+ * Every distinct way identity resolution can fail to confirm a caller.
+ * UNIDENTIFIED_MESSAGE (route.ts) deliberately returns the same refusal text
+ * for all of these -- distinguishing them to the caller is a probe for
+ * enumerating real conversations -- but the audit trail is the one place that
+ * is allowed to, and is documented as the primary way to detect an
+ * Intercom-side misconfiguration (see recordToolCall in ./audit.ts). Without
+ * this, a burst of refusals cannot say which failure mode is actually
+ * happening.
+ */
+export type IdentityFailureReason =
+  | "no_conversation_id" // the tool call carried no conversation id at all
+  | "unverified" // the claimed id or conversation does not check out
+  | "no_contact" // the conversation resolved, but not to exactly one Messenger-linked contact
+  | "unknown_person" // the contact resolved, but its Person is not active
+  | "lookup_failed"; // the Intercom API call itself failed -- network, timeout, non-2xx, bad token
 
 /**
  * Resolves who is in an Intercom conversation, from the conversation id alone.
@@ -85,12 +102,12 @@ export async function resolveIdentityFromConversation(
   }
 
   // Exactly one, or we cannot say who is asking.
-  if (contacts.length !== 1) return { ok: false, reason: "unverified" };
+  if (contacts.length !== 1) return { ok: false, reason: "no_contact" };
 
   const externalId = contacts[0]?.external_id;
   // A contact with no external_id never booted our Messenger (a lead, or an
   // Intercom-native contact), so there is no Person behind it to authorize.
-  if (!externalId) return { ok: false, reason: "unverified" };
+  if (!externalId) return { ok: false, reason: "no_contact" };
 
   // Same revocation check as the id path: Intercom's record can outlive ours.
   const person = await getActivePerson(externalId);

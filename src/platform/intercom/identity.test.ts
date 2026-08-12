@@ -154,14 +154,17 @@ describe("resolveIdentityFromConversation", () => {
 
   /**
    * Intercom really does return conversations with no contacts (observed in the
-   * live workspace), so this is a routine input, not a hypothetical.
+   * live workspace), so this is a routine input, not a hypothetical. The reason
+   * is "no_contact", distinct from "unverified" (the 404 case below), so the
+   * audit trail can tell "no such conversation" apart from "conversation
+   * exists but has no single resolvable contact" -- see recordToolCall.
    */
   it("refuses a conversation with no contacts", async () => {
     mockConversationOnce(200, []);
 
     const result = await resolveIdentityFromConversation("conv_1");
 
-    expect(result).toEqual({ ok: false, reason: "unverified" });
+    expect(result).toEqual({ ok: false, reason: "no_contact" });
     expect(mocked(getActivePerson)).not.toHaveBeenCalled();
   });
 
@@ -170,7 +173,7 @@ describe("resolveIdentityFromConversation", () => {
 
     const result = await resolveIdentityFromConversation("conv_1");
 
-    expect(result).toEqual({ ok: false, reason: "unverified" });
+    expect(result).toEqual({ ok: false, reason: "no_contact" });
     expect(mocked(getActivePerson)).not.toHaveBeenCalled();
   });
 
@@ -179,7 +182,7 @@ describe("resolveIdentityFromConversation", () => {
 
     const result = await resolveIdentityFromConversation("conv_1");
 
-    expect(result).toEqual({ ok: false, reason: "unverified" });
+    expect(result).toEqual({ ok: false, reason: "no_contact" });
   });
 
   it("refuses an unknown conversation, which is what a swapped id looks like", async () => {

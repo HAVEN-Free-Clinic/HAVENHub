@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { recordAudit } from "@/platform/audit";
+import type { IdentityFailureReason } from "./identity";
 
 /**
  * One audit row per MCP tool call.
@@ -18,6 +19,19 @@ export async function recordToolCall(params: {
   tool: string;
   args: Record<string, unknown>;
   outcome: "ok" | "denied" | "unverified";
+  /**
+   * Present only when outcome is "unverified". Threads the specific
+   * IdentityFailureReason through into the row so the ways identity
+   * resolution can fail to confirm a caller -- no conversation id supplied,
+   * an unknown conversation, a conversation with no single resolvable
+   * contact, a contact whose Person is not active, or the Intercom lookup
+   * itself failing -- stay distinguishable here even though the caller-facing
+   * UNIDENTIFIED_MESSAGE (route.ts) deliberately keeps them indistinguishable.
+   * Without this, a burst of `intercom_mcp.unverified` rows cannot say which
+   * failure mode is actually happening, which is exactly the instrumentation
+   * this module's own doc comment says the audit trail is supposed to give.
+   */
+  reason?: IdentityFailureReason;
 }): Promise<void> {
   // Tool arguments are JSON-serializable by construction: they arrive as JSON
   // over the MCP transport, so we safely assert the payload to InputJsonValue.
@@ -25,6 +39,7 @@ export async function recordToolCall(params: {
     tool: params.tool,
     args: params.args,
     outcome: params.outcome,
+    ...(params.reason ? { reason: params.reason } : {}),
   } as Prisma.InputJsonValue;
 
   await recordAudit({

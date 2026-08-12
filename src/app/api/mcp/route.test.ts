@@ -203,6 +203,69 @@ describe("POST /api/mcp", () => {
     );
   });
 
+  /**
+   * The audit trail is documented as the primary way to detect an
+   * Intercom-side misconfiguration (see recordToolCall's doc comment), and it
+   * cannot do that job if all four ways identity resolution can fail collapse
+   * into the same row. The caller-facing text must not follow suit --
+   * distinguishing them to Fin is a probe for enumerating real conversations
+   * (see UNIDENTIFIED_MESSAGE) -- so this asserts both halves at once: the
+   * audit reason differs every time, and the response body never does.
+   */
+  it("distinguishes all four identity-failure causes in the audit reason, while returning byte-identical response text", async () => {
+    const scenarios: Array<{ label: string; reason: string; setup: () => void }> = [
+      {
+        label: "no conversation id supplied",
+        reason: "no_conversation_id",
+        setup: () => {
+          shared.toolArgs = {};
+        },
+      },
+      {
+        label: "unknown conversation",
+        reason: "unverified",
+        setup: () => {
+          mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "unverified" });
+        },
+      },
+      {
+        label: "conversation with no resolvable contact",
+        reason: "no_contact",
+        setup: () => {
+          mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "no_contact" });
+        },
+      },
+      {
+        label: "contact whose Person is not active",
+        reason: "unknown_person",
+        setup: () => {
+          mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "unknown_person" });
+        },
+      },
+    ];
+
+    const bodies: string[] = [];
+    for (const scenario of scenarios) {
+      vi.clearAllMocks();
+      shared.toolArgs = { conversation_id: "conv_123" };
+      scenario.setup();
+      const { POST } = await import("./route");
+
+      const res = await POST(req(AUTHED));
+      bodies.push(JSON.stringify(await res.json()));
+
+      expect(
+        mocked(recordToolCall),
+        `${scenario.label} should audit with reason "${scenario.reason}"`
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ personId: null, outcome: "unverified", reason: scenario.reason })
+      );
+    }
+
+    // All four causes must produce the exact same text to the caller.
+    expect(new Set(bodies).size).toBe(1);
+  });
+
   it("never lets a thrown tool error reach the response, and still audits it as denied", async () => {
     mocked(resolveIdentityFromConversation).mockResolvedValue({
       ok: true,

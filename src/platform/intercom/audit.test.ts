@@ -42,6 +42,42 @@ describe("recordToolCall", () => {
     );
   });
 
+  /**
+   * The load-bearing case for #370's fix: recordToolCall used to hardcode
+   * "unverified" for every identity failure regardless of WHY, so the row
+   * could never tell "no conversation id" apart from "conversation with no
+   * resolvable contact" apart from "contact whose Person is not active".
+   * The reason now travels into the row's payload.
+   */
+  it("carries the specific identity-failure reason into the row's payload", async () => {
+    await recordToolCall({
+      personId: null,
+      tool: "my_next_shift",
+      args: {},
+      outcome: "unverified",
+      reason: "no_contact",
+    });
+
+    expect(mocked(recordAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "intercom_mcp.unverified",
+        after: { tool: "my_next_shift", args: {}, outcome: "unverified", reason: "no_contact" },
+      })
+    );
+  });
+
+  it("omits the reason field entirely when none is given, rather than writing it as undefined", async () => {
+    await recordToolCall({
+      personId: null,
+      tool: "my_next_shift",
+      args: {},
+      outcome: "unverified",
+    });
+
+    const call = mocked(recordAudit).mock.calls[0][0] as { after: Record<string, unknown> };
+    expect(call.after).not.toHaveProperty("reason");
+  });
+
   it("records a denial distinctly from a success", async () => {
     await recordToolCall({ personId: "p1", tool: "my_next_shift", args: {}, outcome: "denied" });
 

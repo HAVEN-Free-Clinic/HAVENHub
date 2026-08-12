@@ -101,8 +101,6 @@ export type PersonInput = {
   yaleAffiliation?: string | null;
   gradYear?: string | null;
   dietaryRestrictions?: string | null;
-  spanishSelfReported?: boolean;
-  spanishVerified?: boolean;
   licensedRN?: boolean;
 };
 
@@ -143,13 +141,7 @@ export async function createPersonRecord(
         epicId: data.epicId ?? null,
         yaleAffiliation: data.yaleAffiliation ?? null,
         gradYear: data.gradYear ?? null,
-        spanishSelfReported: data.spanishSelfReported ?? false,
-        spanishVerified: data.spanishVerified ?? false,
         licensedRN: data.licensedRN ?? false,
-        // An admin setting "verified" on create is itself a verification event.
-        ...(data.spanishVerified
-          ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
-          : {}),
       },
     });
 
@@ -169,8 +161,6 @@ export async function createPersonRecord(
         epicId: person.epicId,
         yaleAffiliation: person.yaleAffiliation,
         gradYear: person.gradYear,
-        spanishSelfReported: person.spanishSelfReported,
-        spanishVerified: person.spanishVerified,
         licensedRN: person.licensedRN,
       },
     });
@@ -197,8 +187,6 @@ export async function updatePersonFields(
     "yaleAffiliation",
     "gradYear",
     "dietaryRestrictions",
-    "spanishSelfReported",
-    "spanishVerified",
     "licensedRN",
   ];
 
@@ -236,18 +224,9 @@ export async function updatePersonFields(
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
       }
-      // Verification stamping: setting verified true records who/when; clearing
-      // it returns the person to the interpreting-department review queue.
-      if (changedKeys.includes("spanishVerified")) {
-        if (data.spanishVerified) {
-          updateData.spanishVerifiedAt = new Date();
-          updateData.spanishVerifiedById = actorPersonId;
-        } else {
-          updateData.spanishVerifiedAt = null;
-          updateData.spanishVerifiedById = null;
-        }
-      }
-
+      // Language capability is no longer a Person column: it lives in
+      // PersonLanguage and is set through recordLanguageAssessment, which stamps
+      // the assessor and timestamp itself. There is nothing to mirror here.
       const updated = await tx.person.update({ where: { id: personId }, data: updateData });
       return { updated, changedKeys, beforeSnapshot };
     });

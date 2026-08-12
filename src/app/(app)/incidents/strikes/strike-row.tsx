@@ -36,7 +36,12 @@ export type StrikeRowProps = {
   };
   personName: string;
   issuedByName: string;
+  /** The person's visible total. */
   strikes: number;
+  /** Where this row falls in that person's sequence (1 = their first). */
+  ordinal: number;
+  /** Total at or above which clinic policy considers the limit reached. */
+  strikeThreshold: number;
   canManageAll: boolean;
   /** Report options for the link control. Empty for non-central viewers. */
   reportOptions: Array<{ value: string; label: string }>;
@@ -49,6 +54,8 @@ export function StrikeRow({
   personName,
   issuedByName,
   strikes,
+  ordinal,
+  strikeThreshold,
   canManageAll,
   reportOptions,
   deleteAction,
@@ -91,7 +98,20 @@ export function StrikeRow({
             {action.patientInvolved && <Badge tone="critical">Patient</Badge>}
           </div>
         </TD>
-        <TD className="tabular-nums text-sm font-medium text-foreground-soft">{strikes}</TD>
+        {/* "2 of 4" reads as: this was their 2nd strike, and they have 4 now.
+            The bare total that used to sit here was identical on every row for
+            the same person, so a strike from two years ago displayed as their
+            CURRENT count with nothing to say otherwise. */}
+        <TD className="tabular-nums text-sm font-medium text-foreground-soft whitespace-nowrap">
+          <span>
+            {ordinal} of {strikes}
+          </span>
+          {strikes >= strikeThreshold && (
+            <Badge tone="critical" className="ml-1.5">
+              Limit reached
+            </Badge>
+          )}
+        </TD>
         {canManageAll && (
           <TD>
             <form action={deleteAction}>

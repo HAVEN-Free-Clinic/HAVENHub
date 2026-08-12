@@ -13,7 +13,8 @@ import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { PersonPhoto } from "@/platform/ui/person-photo";
 
-type Row = Person & { _membershipCount?: number };
+/** Verified language codes, resolved by the page (see verifiedLanguagesByPerson). */
+type Row = Person & { _membershipCount?: number; verifiedLanguages: string[] };
 
 export function PeopleTable({ rows }: { rows: Row[] }) {
   if (rows.length === 0) {
@@ -64,7 +65,9 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
             </TD>
             <TD>
               <span className="flex flex-wrap gap-1">
-                {person.spanishVerified && <Badge tone="default">ES</Badge>}
+                {person.verifiedLanguages.map((code) => (
+                  <Badge key={code} tone="default">{code.toUpperCase()}</Badge>
+                ))}
                 {person.licensedRN && <Badge tone="default">RN</Badge>}
               </span>
             </TD>

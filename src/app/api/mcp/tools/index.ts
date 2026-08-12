@@ -2,6 +2,7 @@ import { z } from "zod";
 import { myNextShiftTool } from "./scheduling";
 import { myClearanceStatusTool } from "./compliance";
 import { myOutstandingTrainingTool } from "./training";
+import { departmentRosterTool, memberStatusTool } from "./roster";
 
 /** The verified caller. Populated by the route from resolveIntercomIdentity, never from tool input. */
 export type McpToolContext = { personId: string };
@@ -203,4 +204,10 @@ export function assertSafeToolOutput(text: string): void {
  * other. A surface spanning schedule, compliance, roster, and recruitment can
  * only be composed where both are legal imports.
  */
-export const MCP_TOOLS: McpTool[] = [myNextShiftTool, myClearanceStatusTool, myOutstandingTrainingTool];
+export const MCP_TOOLS: McpTool[] = [
+  myNextShiftTool,
+  myClearanceStatusTool,
+  myOutstandingTrainingTool,
+  departmentRosterTool,
+  memberStatusTool,
+];

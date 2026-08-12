@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   probeContentBlocker,
   CONTROL_URL,
+  PROBE_TIMEOUT_MS,
   TOKEN_URL,
   type ProbeDeps,
 } from "./blocker-probe";
@@ -101,6 +102,37 @@ describe("probeContentBlocker", () => {
     const result = await probeContentBlocker(APP_ID, deps(fetchImpl, false));
     expect(result).toEqual({ blocked: false });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not gate when a probe times out, because a slow network is not a blocker", async () => {
+    vi.useFakeTimers();
+    try {
+      // A firewall that DROPS rather than rejects: no response, no rejection,
+      // just silence until something gives up. Only our own deadline ever does.
+      const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).includes("messenger-token")) {
+          return Promise.resolve(new Response(null, { status: 200 }));
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("This operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+
+      const pending = probeContentBlocker(APP_ID, deps(fetchImpl as unknown as ReturnType<typeof stub>));
+      // Enough for the retry's deadline too, so a regression that reads a
+      // timeout as a block fails this on the assertion rather than by hanging.
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS * 3);
+
+      // The point of the deadline is the disabled button behind it, not the
+      // verdict: the verdict must stay "no gate" however long the wait was.
+      expect(await pending).toEqual({ blocked: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("requests the control and token URLs it documents", async () => {

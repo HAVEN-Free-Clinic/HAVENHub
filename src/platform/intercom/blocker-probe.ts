@@ -51,20 +51,45 @@ export function widgetUrl(appId: string): string {
 export const RETRY_DELAY_MS = 2000;
 
 /**
- * `reached: true` means a response came back, whatever its status. Only a
- * rejected promise (ERR_BLOCKED_BY_CLIENT, a DNS failure, offline) is a
- * candidate block.
+ * Ceiling on one probe request, matching INTERCOM_LOOKUP_TIMEOUT_MS in
+ * ./identity. Without it a firewall that DROPS rather than rejects packets (the
+ * usual corporate and clinic posture, so exactly the population most likely to
+ * be gated) leaves the fetch pending for the browser's own connection timeout,
+ * on the order of minutes, with the re-check button disabled the whole time.
  */
-type Outcome = { reached: true; status: number } | { reached: false };
+export const PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * `reached: true` means the request was not blocked. That covers a response of
+ * any status (`status` is the number) and our own timeout (`status` is null):
+ * a blocker rejects immediately, so a request still in flight after the
+ * deadline is evidence of a slow network, never of blocking. Only a genuine
+ * rejection (ERR_BLOCKED_BY_CLIENT, a DNS failure, offline) is a candidate
+ * block, because gating a slow network is the false positive this whole design
+ * exists to avoid.
+ */
+type Outcome = { reached: true; status: number | null } | { reached: false };
 
 async function attempt(deps: ProbeDeps, url: string, init: RequestInit = {}): Promise<Outcome> {
+  const controller = new AbortController();
+  // Our own flag rather than sniffing err.name: an AbortError could equally
+  // come from somewhere else, and only this one is allowed to mean "slow".
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, PROBE_TIMEOUT_MS);
   try {
-    // cache last so a caller's init cannot accidentally reintroduce caching:
-    // a cached 200 from before the blocker was installed would hide it.
-    const res = await deps.fetch(url, { ...init, cache: "no-store" });
+    // cache and signal last so a caller's init cannot accidentally reintroduce
+    // caching (a cached 200 from before the blocker was installed would hide
+    // it) or drop the deadline.
+    const res = await deps.fetch(url, { ...init, cache: "no-store", signal: controller.signal });
     return { reached: true, status: res.status };
   } catch {
+    if (timedOut) return { reached: true, status: null };
     return { reached: false };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -43,13 +43,26 @@ export const dynamic = "force-dynamic";
  * src/app/api/mcp/tools/compliance.ts) -- rather than re-deriving it, so a
  * member is never told one thing by Fin/the dashboard and another by an
  * Intercom agent reading this profile.
+ *
+ * `?requireActiveMembership=1` is the /apply portal's identity rule, enforced
+ * HERE rather than by whichever page decided to ask: the query flag can only
+ * ADD this restriction on top of the checks above, never remove any of them,
+ * so a caller cannot use it to get an identified boot it would not already be
+ * eligible for. The hub deliberately does not send it -- a member between
+ * terms still has no row in the query below, but still signs into the hub and
+ * must still be identified there (see the (app) layout's own comment on this
+ * split) -- so the flag's absence is what keeps that case working, not a gap
+ * in enforcement. Reuses the department-membership query already needed for
+ * the `Departments` profile claim below rather than issuing a second one.
  */
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   // Feature off (either env var unset) looks like the route does not exist,
   // rather than advertising a half-configured integration.
   if (!isIntercomConfigured()) {
     return Response.json({ error: "Not Found" }, { status: 404 });
   }
+
+  const requireActiveMembership = new URL(request.url).searchParams.get("requireActiveMembership") === "1";
 
   const session = await auth();
   if (!session?.personId) {
@@ -75,12 +88,24 @@ export async function GET(): Promise<Response> {
     // sendEpicEmail. Only meaningful alongside an active term, so it is left
     // empty (and buildProfileAttributes omits "Departments") without one.
     let departmentNames: string[] = [];
+    let hasActiveMembership = false;
     if (activeTerm) {
       const memberships = await prisma.termMembership.findMany({
         where: { personId: person.id, termId: activeTerm.id, status: "ACTIVE" },
         include: { department: { select: { name: true } } },
       });
       departmentNames = memberships.map((m) => m.department.name).sort();
+      hasActiveMembership = memberships.length > 0;
+    }
+
+    if (requireActiveMembership && !hasActiveMembership) {
+      // Not a degraded state for the caller -- see IntercomMessenger's doc
+      // comment -- so 403 rather than 401: the session and Person are both
+      // fine, this specific boot just is not eligible for identity.
+      return Response.json(
+        { error: "Forbidden" },
+        { status: 403, headers: { "Cache-Control": "no-store" } }
+      );
     }
 
     const profile = buildProfileAttributes({

@@ -30,6 +30,17 @@ export function isIntercomConfigured(): boolean {
 }
 
 /**
+ * The app id to mount the Messenger with, or null when the integration is off.
+ * Every mount site (the (app) layout, /apply, /login, /onboard, /get-started,
+ * /welcome) needs exactly this "configured ? id : null" check before rendering
+ * IntercomMessenger, so it lives here once rather than being re-derived at each
+ * call site.
+ */
+export function resolveSupportAppId(): string | null {
+  return isIntercomConfigured() ? intercomAppId() : null;
+}
+
+/**
  * Access token for Intercom's REST API, used to verify that a claimed Person id
  * really belongs to the contact in the conversation. Without it the MCP server
  * would have to take the caller's word for who they are, so its absence turns

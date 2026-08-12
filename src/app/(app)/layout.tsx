@@ -6,7 +6,7 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
-import { intercomAppId, isIntercomConfigured } from "@/platform/intercom/config";
+import { resolveSupportAppId } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { getSupportContact } from "@/platform/branding/support";
@@ -44,7 +44,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
   // Support Messenger, authenticated routes only. Gated on the secret being set
   // too, so a workspace configured with just an app id stays off rather than
   // booting an unverified (impersonatable) Messenger.
-  const supportAppId = isIntercomConfigured() ? intercomAppId() : null;
+  const supportAppId = resolveSupportAppId();
   return (
     <>
       {/* Both gated on supportAppId, deliberately: the gate exists only to protect
@@ -63,7 +63,17 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
           people WITHOUT taking support away from the ones who can still reach it. */}
       {supportAppId ? (
         <>
-          <IntercomMessenger appId={supportAppId} />
+          {/* mode="identified", no requireActiveMembership: a member between
+              terms (no current ACTIVE TermMembership row) still signs into
+              the hub and must still be identified -- that carve-out is the
+              whole reason "between terms" is not an offboarded state (see
+              cross-term-overlap-model). The /apply portal is the one surface
+              that DOES add the active-membership restriction (see its layout
+              and messenger-token/route.ts's doc comment), precisely because
+              it is public-facing and reachable by Yale accounts with no
+              Person at all -- a case that cannot arise here, behind
+              requirePersonSession above. */}
+          <IntercomMessenger appId={supportAppId} mode="identified" />
           {blockerGateEnabled ? (
             <BlockerGate appId={supportAppId} supportEmail={supportContact.email} />
           ) : null}

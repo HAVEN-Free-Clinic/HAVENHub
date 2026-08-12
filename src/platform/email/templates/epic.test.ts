@@ -274,9 +274,28 @@ describe("epic-password-reset", () => {
     expect(out.html).toContain("pending assignment");
   });
 
-  it("html mentions the temporary password", async () => {
-    const out = await renderEmail("epic-password-reset", epicPasswordResetContext(baseline()));
-    expect(out.html).toContain("SecureCare4u#25");
+  // The password is no longer baked into the template: it comes from the
+  // epic.temporaryPassword setting, so IT can rotate it when YNHH does without a
+  // deploy. These two pin the behaviour that matters: the supplied value is what
+  // ships, and an unset setting omits the clause rather than announcing an empty
+  // password or a stale hardcoded one.
+  it("html carries whatever temporary password was supplied", async () => {
+    const out = await renderEmail(
+      "epic-password-reset",
+      epicPasswordResetContext(baseline({ temporaryPassword: "RotatedValue#99" })),
+    );
+    expect(out.html).toContain("RotatedValue#99");
+    expect(out.html).toContain("Your temporary password:");
+  });
+
+  it("omits the password clause entirely when the setting is unset", async () => {
+    const out = await renderEmail(
+      "epic-password-reset",
+      epicPasswordResetContext(baseline({ temporaryPassword: "" })),
+    );
+    expect(out.html).not.toContain("Your temporary password:");
+    // The surrounding sentence must still read correctly with the clause gone.
+    expect(out.html).toContain("your password has been reset due to inactivity");
   });
 
   it("html contains key access instructions", async () => {

@@ -424,6 +424,10 @@ export async function sendEpicEmail(
     // DEACTIVATE has no onboarding/activation/renewal email variant, so it maps
     // to undefined here (the epic email templates only model NEW/MODIFY/RENEW).
     kind: req.kind === "DEACTIVATE" ? undefined : req.kind,
+    // Read at send time, not baked into the template, so IT can update it the
+    // moment YNHH rotates it instead of waiting on a deploy. Only the activation
+    // email uses it; the other two context builders ignore it.
+    temporaryPassword: await getSetting<string>("epic.temporaryPassword"),
   };
 
   const contextBuilders: Record<EpicTemplateKey, (p: EpicEmailParams) => Record<string, unknown>> = {

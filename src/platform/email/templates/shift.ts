@@ -23,8 +23,12 @@ export type ShiftReminderParams = {
   edsOnShift: string;
   deptDirectorsOnShift: string;
   clinicalAdvisorsOnShift: string;
+  /** Attending physician on duty for this clinic date, or "" when none is set. */
+  attendingOnShift: string;
   teamsChannelUrl: string;
   hipaaComplianceUrl: string;
+  /** Hub IT ticketing, for Epic access problems. */
+  helpDeskUrl: string;
   shiftSwapUrl: string;
   masterScheduleUrl: string;
 };
@@ -36,14 +40,13 @@ export function shiftReminderContext(p: ShiftReminderParams): Record<string, unk
 const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
 <p>This is a friendly reminder that you are scheduled for a <strong>{{ roleLabel }}</strong> Shift in the <strong>{{ departmentName }}</strong> department at HAVEN Free Clinic this {{ clinicDateLabel }}.</p>
 {{{ additionalShifts }}}
-<p>As we move into the summer, we are piloting a more centralized process for clinic-day reminders and volunteer communication. We appreciate your patience as we refine this process through trial and error. Our goal is to improve consistency, accountability, and communication across the clinic.</p>
 <h2>Shift Details</h2>
 <p><strong>Date:</strong> {{ clinicDateLabel }}<br/>
 <strong>Time:</strong> 8:00 AM to 2:00 PM<br/>
 <strong>Location:</strong> Yale Physicians Building, 800 Howard Avenue, Floor 1, New Haven, CT 06519 (there is free parking on Saturdays)</p>
 <h2>Before Your Shift</h2>
 <ul>
-<li>Please verify your Epic access by Wednesday before your shift. If you are experiencing issues, submit a Help Desk ticket <a href="https://airtable.com/appkxTQ19GmaHgW1O/pag0u41BHqicULzXQ/form">here</a> as soon as possible. We are unable to accommodate Epic-related requests submitted after Wednesday, so please plan ahead.</li>
+<li>Please verify your Epic access by Wednesday before your shift. If you are experiencing issues, submit a Help Desk ticket <a href="{{ helpDeskUrl }}">here</a> as soon as possible. We are unable to accommodate Epic-related requests submitted after Wednesday, so please plan ahead.</li>
 <li>Review the HAVEN Resource Guide <a href="https://yaleedu.sharepoint.com/:w:/s/HAVENFreeClinic/IQD9rSYTQa15QYspDXCXzDqEAaf9R-gN8Yr43oy6sxuLK5o?e=1Qk44n">here</a>.</li>
 <li>Confirm your HIPAA and compliance requirements are up to date <a href="{{ hipaaComplianceUrl }}">here</a>.</li>
 </ul>
@@ -63,6 +66,7 @@ const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
 <h2>Questions?</h2>
 <p>For urgent clinic-day concerns, please contact {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{#if deptDirectorsOnShift}}, or your department director(s) on shift, <strong>{{ deptDirectorsOnShift }}</strong>{{/if}}{{else}}{{#if deptDirectorsOnShift}}your department director(s) on shift, <strong>{{ deptDirectorsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}{{/if}}.</p>
 {{#if clinicalAdvisorsOnShift}}<p>Clinical Advisor(s) on shift: <strong>{{ clinicalAdvisorsOnShift }}</strong></p>{{/if}}
+{{#if attendingOnShift}}<p>Attending on shift: <strong>{{ attendingOnShift }}</strong></p>{{/if}}
 <p>The master schedule can be found <a href="{{ masterScheduleUrl }}">here</a>.</p>
 <p>Thank you for your commitment to our patients and to HAVEN. We look forward to seeing you on Saturday!</p>`;
 
@@ -81,8 +85,10 @@ export const shiftDescriptors: TemplateDescriptor[] = [
       { name: "edsOnShift", label: "Executive Directors on shift (names)", sampleValue: "Jordan Blake, Riley Chen" },
       { name: "deptDirectorsOnShift", label: "Department directors on shift (names)", sampleValue: "Alex Rivera" },
       { name: "clinicalAdvisorsOnShift", label: "Clinical Advisors on shift (names)", sampleValue: "Dr. Pat Lee" },
+      { name: "attendingOnShift", label: "Attending physician on shift (name)", sampleValue: "Dr. Morgan Ellis" },
       { name: "teamsChannelUrl", label: "This week's Teams channel link", sampleValue: "https://teams.microsoft.com/l/channel/example" },
       { name: "hipaaComplianceUrl", label: "HIPAA / compliance page link", sampleValue: "https://hub.example.org/my-info" },
+      { name: "helpDeskUrl", label: "IT help desk ticket link (Epic issues)", sampleValue: "https://hub.example.org/support/new" },
       { name: "shiftSwapUrl", label: "Shift swap / coverage request link", sampleValue: "https://hub.example.org/schedule" },
       { name: "masterScheduleUrl", label: "Master schedule link", sampleValue: "https://hub.example.org/schedule/full" },
     ],

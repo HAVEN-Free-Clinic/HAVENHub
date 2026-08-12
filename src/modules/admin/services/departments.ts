@@ -74,6 +74,11 @@ export async function createDepartment(
     // (see contract/epic-requirement.ts). Absent → NONE, matching the column default.
     requiresEpicDirector?: EpicRequirement;
     requiresEpicVolunteer?: EpicRequirement;
+    /** Absent → false, matching the column default: a new department never
+     *  silently bypasses committee scoring. */
+    autoRouteApplicants?: boolean;
+    /** Absent → null ("not recorded"), never a guessed default. */
+    hoursPerShift?: number | null;
   }
 ): Promise<Department> {
   const code = input.code.trim().toUpperCase();
@@ -103,6 +108,8 @@ export async function createDepartment(
       data: {
         code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider,
         requiresEpicDirector, requiresEpicVolunteer,
+        autoRouteApplicants: input.autoRouteApplicants ?? false,
+        hoursPerShift: input.hoursPerShift ?? null,
       },
     });
   } catch (err) {
@@ -144,6 +151,12 @@ export async function updateDepartment(
     // values rather than resetting them to NONE.
     requiresEpicDirector?: EpicRequirement;
     requiresEpicVolunteer?: EpicRequirement;
+    /** Optional for the same reason as the Epic values: an update that does not
+     *  touch it must preserve it rather than silently turning it off. */
+    autoRouteApplicants?: boolean;
+    /** Hours one shift is worth, for service records. Explicit null clears it
+     *  back to "not recorded"; undefined leaves it untouched. */
+    hoursPerShift?: number | null;
   }
 ): Promise<Department> {
   const before = await prisma.department.findUnique({ where: { id } });
@@ -158,10 +171,17 @@ export async function updateDepartment(
   );
   const requiresEpicDirector = input.requiresEpicDirector ?? before.requiresEpicDirector;
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? before.requiresEpicVolunteer;
+  const autoRouteApplicants = input.autoRouteApplicants ?? before.autoRouteApplicants;
+  // Explicit null clears; undefined preserves. A negative value is rejected
+  // rather than stored: a service record must never claim negative hours.
+  if (input.hoursPerShift !== undefined && input.hoursPerShift !== null && input.hoursPerShift < 0) {
+    throw new DepartmentValidationError("Hours per shift cannot be negative.");
+  }
+  const hoursPerShift = input.hoursPerShift === undefined ? before.hoursPerShift : input.hoursPerShift;
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, hoursPerShift },
   });
 
   await recordAudit({
@@ -176,6 +196,7 @@ export async function updateDepartment(
       patientCapacityPerProvider: before.patientCapacityPerProvider,
       requiresEpicDirector: before.requiresEpicDirector,
       requiresEpicVolunteer: before.requiresEpicVolunteer,
+      autoRouteApplicants: before.autoRouteApplicants,
     },
     after: {
       name: dept.name,
@@ -184,6 +205,7 @@ export async function updateDepartment(
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
+      autoRouteApplicants: dept.autoRouteApplicants,
     },
   });
   return dept;

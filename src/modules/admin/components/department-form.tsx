@@ -11,7 +11,15 @@ type DepartmentFormProps = {
   mode: "create" | "edit";
   department?: Pick<
     Department,
-    "code" | "name" | "isActive" | "idealHeadcount" | "patientCapacityPerProvider" | "requiresEpicDirector" | "requiresEpicVolunteer"
+    | "code"
+    | "name"
+    | "isActive"
+    | "idealHeadcount"
+    | "patientCapacityPerProvider"
+    | "requiresEpicDirector"
+    | "requiresEpicVolunteer"
+    | "autoRouteApplicants"
+    | "hoursPerShift"
   >;
 };
 
@@ -58,6 +66,19 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
               defaultValue={String(department?.patientCapacityPerProvider ?? "")}
             />
           </Field>
+
+          <Field
+            label="Hours per shift"
+            hint="Used for volunteer service records. Leave blank if unknown: blank reads as 'not recorded' rather than zero hours."
+          >
+            <Input
+              name="hoursPerShift"
+              type="number"
+              min="0"
+              step="0.25"
+              defaultValue={department?.hoursPerShift != null ? String(department.hoursPerShift) : ""}
+            />
+          </Field>
         </div>
 
         <div className="space-y-3">
@@ -89,6 +110,19 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
               </Select>
             </Field>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="autoRouteApplicants" defaultChecked={department?.autoRouteApplicants ?? false} />
+            Skip committee scoring for applicants who rank this department first
+          </label>
+          <p className="text-xs text-muted-foreground">
+            For clinical teams where the department verifies credentials rather than the committee judging fit.
+            New and transfer applicants whose FIRST choice is this department are routed straight here at submit,
+            with no committee score. Returning members already skip scoring for their own department regardless of
+            this setting.
+          </p>
         </div>
 
         <label className="flex items-center gap-2 text-sm">

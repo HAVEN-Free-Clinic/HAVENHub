@@ -24,6 +24,8 @@ export default async function NewDepartmentPage() {
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
         requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
+        autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
+        hoursPerShift: optionalInt(formData.get("hoursPerShift")),
       });
       redirect(`/admin/departments/${dept.id}?saved=1`);
     } catch (err) {

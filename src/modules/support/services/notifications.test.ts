@@ -121,10 +121,28 @@ describe("notifyTicketSubmitted", () => {
 });
 
 describe("buildIntercomStatusMessage", () => {
+  /**
+   * AWAITING_YNHH is the status Intercom has no native equivalent for, and the
+   * one an agent most needs spelled out: it means blocked on an external body,
+   * not waiting on the member and not sitting unworked by HAVEN IT. A generic
+   * "on hold" would lose exactly that.
+   */
   it("names YNHH explicitly for AWAITING_YNHH rather than something generic", () => {
     const message = buildIntercomStatusMessage(42, "AWAITING_YNHH", null);
     expect(message).toMatch(/Yale New Haven Health|YNHH/);
-    expect(message).toMatch(/not.*forgotten/i);
+    expect(message).toMatch(/blocked|external/i);
+  });
+
+  /**
+   * These are internal notes, not replies (see postConversationNote), so the
+   * text must read to the agent working the ticket. Second-person phrasing
+   * would look like something the member had already been told, when nothing
+   * was sent to them at all.
+   */
+  it("addresses staff, not the member, since the note is never shown to them", () => {
+    const message = buildIntercomStatusMessage(42, "AWAITING_YNHH", null);
+    expect(message).not.toMatch(/\bwe will update you\b/i);
+    expect(message).not.toMatch(/\byour (request|ticket)\b/i);
   });
 
   it("uses the member-facing status label for other statuses", () => {

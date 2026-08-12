@@ -54,14 +54,13 @@ export function isMcpConfigured(): boolean {
 }
 
 /**
- * The Intercom admin a HAVEN Hub status-change reply is authored as. Intercom
- * requires an admin_id on every customer-visible ("comment") reply -- there is
- * no default or "system" author it will fall back to -- so posting into a
- * conversation is impossible without one. A dedicated bot/workflow admin in
- * the workspace (rather than a real staff member's id) keeps the reply's
- * author stable regardless of who is on the IT team this term. Absent = the
- * outbound conversation sync is off, same "unset = feature off" posture as
- * the rest of this file.
+ * The Intercom admin a HAVEN Hub status-change note is authored as. Intercom
+ * requires an admin_id on every reply to a conversation, notes included --
+ * there is no default or "system" author it will fall back to -- so posting is
+ * impossible without one. A dedicated bot/workflow admin in the workspace
+ * (rather than a real staff member's id) keeps the author stable regardless of
+ * who is on the IT team this term. Absent = the outbound conversation sync is
+ * off, same "unset = feature off" posture as the rest of this file.
  */
 export function intercomBotAdminId(): string | null {
   return process.env.INTERCOM_BOT_ADMIN_ID?.trim() || null;

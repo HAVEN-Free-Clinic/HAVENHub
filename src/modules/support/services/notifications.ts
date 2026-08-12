@@ -19,7 +19,7 @@ import { notify } from "@/platform/notifications/notify";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import { postConversationReply } from "@/platform/intercom/conversations";
+import { postConversationNote } from "@/platform/intercom/conversations";
 import { log } from "@/platform/logging";
 import { MANAGE } from "./tech-request";
 import { CATEGORY_LABELS } from "../labels";
@@ -47,10 +47,15 @@ async function resolveBaseUrl(): Promise<string> {
  * Every other status falls back to the generic STATUS_LABELS phrasing below.
  */
 const AWAITING_YNHH_MESSAGE =
-  "This request is on hold while we wait to hear back from Yale New Haven Health (YNHH). It has not been forgotten -- we will update you here as soon as YNHH responds.";
+  "On hold pending Yale New Haven Health (YNHH). Blocked externally, not waiting on the member or on HAVEN IT.";
 
 /**
- * Builds the member-facing text posted into Intercom for a status change.
+ * Builds the staff-facing note text posted into Intercom for a status change.
+ *
+ * Written for the agent reading the conversation, not for the member: these
+ * are internal notes (see postConversationNote), so second-person phrasing
+ * like "we will update you here" would read as though it had been sent to the
+ * member when it never was. The agent decides what to relay and in what words.
  * Only ever sees the ticket number, the new status, and the resolution field
  * -- never a TechRequestComment row, so an INTERNAL comment cannot reach this
  * function to begin with (comments have their own, separate notification
@@ -103,7 +108,7 @@ export function isPublicComment(comment: Pick<TechRequestComment, "visibility">)
  * branches on this before deciding whether to call notify() at all, but this
  * guards independently so the function is safe to call unconditionally too.
  *
- * Never throws. postConversationReply already fails closed (unconfigured,
+ * Never throws. postConversationNote already fails closed (unconfigured,
  * timeout, network error, and non-2xx all resolve to `false`, logged there
  * with the Intercom-facing detail). This wrapper adds the one piece of
  * context a bare Intercom-side log line cannot carry -- which Hub ticket this
@@ -116,7 +121,7 @@ export async function notifyIntercomStatusChange(
 ): Promise<void> {
   if (!req.intercomConversationId) return;
   const message = buildIntercomStatusMessage(req.number, req.status, resolution);
-  const posted = await postConversationReply(req.intercomConversationId, message);
+  const posted = await postConversationNote(req.intercomConversationId, message);
   if (!posted) {
     log.warn("[support] failed to post status update to Intercom conversation", {
       ticketId: req.id,

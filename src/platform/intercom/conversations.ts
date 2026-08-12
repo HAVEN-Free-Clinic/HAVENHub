@@ -25,8 +25,21 @@ const INTERCOM_API_VERSION = "2.14";
 export const INTERCOM_REPLY_TIMEOUT_MS = 5_000;
 
 /**
- * Posts a customer-visible reply into an Intercom conversation, authored as
- * the configured bot/workflow admin (see intercomBotAdminId).
+ * Posts an INTERNAL NOTE into an Intercom conversation, authored as the
+ * configured bot/workflow admin (see intercomBotAdminId).
+ *
+ * A note, deliberately, not a customer-visible reply. Hub-written content must
+ * never render to a member: everything crossing this boundary is assembled
+ * from database records, and Intercom shows tool and reply content straight to
+ * the customer. Keeping it staff-only means a formatting mistake, an
+ * unexpected field, or a future caller passing richer text is a leak to the
+ * agent working the ticket rather than to the member.
+ *
+ * The consequence is real and intended: the member is NOT told when their
+ * ticket changes status. An agent reads the note and decides what, if
+ * anything, to relay in their own words. If automatic member-facing updates
+ * are ever wanted, that is a separate decision about a separate message, not a
+ * flag on this one.
  *
  * Never throws. Every failure -- unconfigured, network error, timeout,
  * non-2xx -- resolves to `false` and is logged (fail-closed logging, same
@@ -35,7 +48,7 @@ export const INTERCOM_REPLY_TIMEOUT_MS = 5_000;
  * is unreachable": the DB write of record has already committed by the time
  * this runs, and nothing here may turn that into a failed request.
  */
-export async function postConversationReply(conversationId: string, body: string): Promise<boolean> {
+export async function postConversationNote(conversationId: string, body: string): Promise<boolean> {
   const token = intercomAccessToken();
   const adminId = intercomBotAdminId();
   if (!token || !adminId) return false;
@@ -52,12 +65,12 @@ export async function postConversationReply(conversationId: string, body: string
         "Content-Type": "application/json",
         "Intercom-Version": INTERCOM_API_VERSION,
       },
-      // type: "admin" + message_type: "comment" is Intercom's customer-visible
-      // reply -- the member sees this in the same thread they used, which is
-      // the entire point (vs. message_type: "note", which is staff-only and
-      // would silently not reach them).
+      // message_type: "note" is staff-only. "comment" would be the
+      // customer-visible reply, and switching this one string is the whole
+      // difference between an internal annotation and publishing Hub data to
+      // the member -- so it is not a knob to make configurable.
       body: JSON.stringify({
-        message_type: "comment",
+        message_type: "note",
         type: "admin",
         admin_id: adminId,
         body,

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { postConversationReply, INTERCOM_REPLY_TIMEOUT_MS } from "./conversations";
+import { postConversationNote, INTERCOM_REPLY_TIMEOUT_MS } from "./conversations";
 
 function mockFetchOnce(status: number) {
   vi.stubGlobal(
@@ -23,11 +23,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("postConversationReply", () => {
-  it("posts a customer-visible admin comment and returns true on success", async () => {
+describe("postConversationNote", () => {
+  /**
+   * message_type is the single string separating an internal annotation from
+   * publishing Hub data to the member, so it is asserted exactly rather than
+   * loosely. Everything crossing this boundary is assembled from database
+   * records; "note" keeps a formatting mistake or an unexpected field visible
+   * to the agent working the ticket instead of to the customer.
+   */
+  it("posts a staff-only note, never a customer-visible comment", async () => {
     mockFetchOnce(200);
 
-    const result = await postConversationReply("conv_1", "Your ticket is now In progress.");
+    const result = await postConversationNote("conv_1", "Status is now In progress.");
 
     expect(result).toBe(true);
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
@@ -36,17 +43,18 @@ describe("postConversationReply", () => {
     expect(init.method).toBe("POST");
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body).toEqual({
-      message_type: "comment",
+      message_type: "note",
       type: "admin",
       admin_id: "admin-1",
-      body: "Your ticket is now In progress.",
+      body: "Status is now In progress.",
     });
+    expect(body.message_type).not.toBe("comment");
   });
 
   it("pins an explicit Intercom-Version header rather than trusting the workspace default", async () => {
     mockFetchOnce(200);
 
-    await postConversationReply("conv_1", "hi");
+    await postConversationNote("conv_1", "hi");
 
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -56,7 +64,7 @@ describe("postConversationReply", () => {
   it("fails closed (returns false, does not throw) on a non-2xx response", async () => {
     mockFetchOnce(422);
 
-    const result = await postConversationReply("conv_1", "hi");
+    const result = await postConversationNote("conv_1", "hi");
 
     expect(result).toBe(false);
   });
@@ -64,7 +72,7 @@ describe("postConversationReply", () => {
   it("fails closed when the network throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
 
-    const result = await postConversationReply("conv_1", "hi");
+    const result = await postConversationNote("conv_1", "hi");
 
     expect(result).toBe(false);
   });
@@ -73,7 +81,7 @@ describe("postConversationReply", () => {
     vi.stubEnv("INTERCOM_ACCESS_TOKEN", "");
     vi.stubGlobal("fetch", vi.fn());
 
-    const result = await postConversationReply("conv_1", "hi");
+    const result = await postConversationNote("conv_1", "hi");
 
     expect(result).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
@@ -83,7 +91,7 @@ describe("postConversationReply", () => {
     vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "");
     vi.stubGlobal("fetch", vi.fn());
 
-    const result = await postConversationReply("conv_1", "hi");
+    const result = await postConversationNote("conv_1", "hi");
 
     expect(result).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
@@ -106,7 +114,7 @@ describe("postConversationReply", () => {
       )
     );
 
-    const pending = postConversationReply("conv_1", "hi");
+    const pending = postConversationNote("conv_1", "hi");
     await vi.advanceTimersByTimeAsync(INTERCOM_REPLY_TIMEOUT_MS);
     const result = await pending;
 

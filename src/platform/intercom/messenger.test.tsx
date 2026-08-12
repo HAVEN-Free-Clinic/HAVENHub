@@ -2,11 +2,17 @@
 /**
  * Mounts IntercomMessenger with the SDK and fetch mocked, following
  * blocker-gate.test.tsx's approach: a bare createRoot + act() mount, no
- * testing-library. Proves the two modes boot the SDK with the right
- * arguments, and that identified mode's refusal handling (401/403 -> visitor,
- * 404 -> nothing, 5xx -> keep retrying) is what every mount site (the (app)
- * layout, /apply, /login, /onboard, /get-started, /welcome) actually relies
- * on, not just the happy path.
+ * testing-library. Proves the two modes boot the SDK with the right arguments,
+ * and that identified mode's refusal handling (401/403 -> visitor, 404 ->
+ * nothing, 5xx -> keep retrying) is what every mount site (the (app) layout,
+ * /apply, /login, /onboard, /get-started, /welcome) actually relies on, not
+ * just the happy path.
+ *
+ * The SDK is mocked so these can assert on WHICH SDK call happens. That
+ * distinction is the point of the server-minted-token cases at the bottom:
+ * `update` hands over a new token without tearing down an open conversation,
+ * and a second `Intercom()` re-boots the widget underneath a member who may be
+ * mid-conversation. Neither throws, so only the call shape catches it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
@@ -28,6 +34,9 @@ const { IntercomMessenger } = await import("./messenger");
 
 let mounted: { container: HTMLDivElement; root: Root } | null = null;
 
+// Takes a whole element rather than just an initialToken: the component has
+// four props now (appId, mode, requireActiveMembership, initialToken) and the
+// mode cases below need to vary more than one of them.
 async function mount(node: React.ReactElement) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -64,6 +73,15 @@ beforeEach(() => {
 afterEach(() => {
   unmount();
   vi.clearAllMocks();
+  // Restored here (not at the end of the one test that fakes timers) so a
+  // failed assertion mid-test cannot leak fake timers into the rest of the
+  // file. Unmount must run first: its cleanup may call the captured setTimeout
+  // handle's clearTimeout while fake timers are still the active implementation.
+  vi.useRealTimers();
+  // React hoists these <link> tags into <head> and does not remove them on
+  // unmount in jsdom, so a later test's querySelectorAll would otherwise see
+  // every earlier mount's tags too.
+  document.querySelectorAll('link[rel="preconnect"]').forEach((el) => el.remove());
   vi.unstubAllGlobals();
 });
 
@@ -159,5 +177,133 @@ describe("IntercomMessenger", () => {
       expect(bootIntercom).toHaveBeenCalledTimes(1);
       expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123" });
     });
+  });
+
+  describe("identified mode -- server-minted initialToken", () => {
+    it("boots immediately from a server-minted token, without fetching", async () => {
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          initialToken={{ token: "server.jwt", expiresInSeconds: 900 }}
+        />
+      );
+
+      expect(bootIntercom).toHaveBeenCalledWith({
+        app_id: "abc123",
+        intercom_user_jwt: "server.jwt",
+      });
+      // The whole point of the change: no round trip on the critical path.
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("falls back to fetching when no token was server-minted", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { token: "fetched.jwt", expiresInSeconds: 900 }));
+
+      await mount(<IntercomMessenger appId="abc123" mode="identified" initialToken={null} />);
+
+      expect(fetchMock).toHaveBeenCalled();
+      expect(bootIntercom).toHaveBeenCalledWith({
+        app_id: "abc123",
+        intercom_user_jwt: "fetched.jwt",
+      });
+    });
+
+  /**
+   * The regression this guards: booting from the prop without setting `booted`
+   * makes the first refresh call Intercom() again instead of update(), which
+   * re-boots the widget under a member who may be mid-conversation. Nothing
+   * throws, so only asserting on which SDK function ran can catch it.
+   */
+    it("refreshes with update, not a second boot, after starting from the prop", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(jsonResponse(200, { token: "refreshed.jwt", expiresInSeconds: 900 }));
+
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          initialToken={{ token: "server.jwt", expiresInSeconds: 900 }}
+        />
+      );
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+
+      // Advance past the scheduled refresh (TTL minus the 5 minute margin).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(601 * 1000);
+      });
+
+      expect(update).toHaveBeenCalledWith({ intercom_user_jwt: "refreshed.jwt" });
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+    });
+
+  /**
+   * The regression this guards: `mintIntercomUserJwt` calls `.setIssuedAt()`,
+   * so the token STRING is different on every mint, not just its wrapper
+   * object's identity. A server re-render of the (app) layout (a
+   * router.refresh(), a revalidating Server Action) re-mints and hands down a
+   * new string. If the effect depended on that string, React would see it
+   * change, tear the effect down (cleanup calls shutdown(), killing a live
+   * conversation), and rebuild it from a fresh closure with `booted` reset to
+   * false, calling Intercom() again instead of update(). The fix freezes the
+   * boot token in a ref so the effect has nothing to depend on but `appId`.
+   */
+    it("re-rendering with a different token neither shuts down nor re-boots", async () => {
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          initialToken={{ token: "server.jwt.mint1", expiresInSeconds: 900 }}
+        />
+      );
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        mounted?.root.render(
+          <IntercomMessenger
+            appId="abc123"
+            mode="identified"
+            initialToken={{ token: "server.jwt.mint2", expiresInSeconds: 900 }}
+          />
+        );
+      });
+
+      expect(shutdown).not.toHaveBeenCalled();
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+  /**
+   * Without this, signing out (or switching accounts in the same browser)
+   * leaves the previous member's support session live for the next person.
+   * Deleting the shutdown() call from cleanup would leave every other case in
+   * this file green, since none of them unmount and then assert.
+   */
+    it("calls shutdown() on unmount", async () => {
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          initialToken={{ token: "server.jwt", expiresInSeconds: 900 }}
+        />
+      );
+      expect(shutdown).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(shutdown).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Rendered by the component in BOTH modes, so this asserts against a visitor
+  // mount: /login is the surface where they matter most, having no session work
+  // to overlap the handshake with.
+  it("renders preconnect hints for the Intercom hosts, including in visitor mode", async () => {
+    await mount(<IntercomMessenger appId="abc123" mode="visitor" />);
+    const hrefs = Array.from(document.querySelectorAll('link[rel="preconnect"]')).map((l) =>
+      l.getAttribute("href")
+    );
+    expect(hrefs).toContain("https://widget.intercom.io");
+    expect(hrefs).toContain("https://js.intercomcdn.com");
   });
 });

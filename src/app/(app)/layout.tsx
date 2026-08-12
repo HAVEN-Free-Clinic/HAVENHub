@@ -8,10 +8,12 @@ import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { resolveSupportAppId } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
+import { mintMessengerTokenForSession, type MintResult } from "@/modules/support/services/messenger-token";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
 import { shouldMountBlockerGate } from "@/platform/intercom/gate-mount";
 import { getSupportContact } from "@/platform/branding/support";
 import { getSetting } from "@/platform/settings/service";
+import { log, errorAttrs } from "@/platform/logging";
 
 /**
  * Shared shell for every authenticated route. Owns the toolbar (AppShell) so it
@@ -22,13 +24,32 @@ import { getSetting } from "@/platform/settings/service";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled] = await Promise.all([
-    getActiveTerm(),
-    reviewScope(person.personId),
-    isInterviewPanelist(person.personId),
-    getSupportContact(),
-    getSetting<boolean>("support.blockerGateEnabled"),
-  ]);
+  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled, messengerToken] =
+    await Promise.all([
+      getActiveTerm(),
+      reviewScope(person.personId),
+      isInterviewPanelist(person.personId),
+      getSupportContact(),
+      getSetting<boolean>("support.blockerGateEnabled"),
+      // mintMessengerTokenForSession only converts a recognized DB-unreachable
+      // shape into a clean refusal; everything else (an unrecognized DB error
+      // shape, a jose failure, a bug in getEffectivePermissions) rethrows. Its
+      // only caller used to be the token route, where an unhandled rejection
+      // is a contained 500 on /api/support/messenger-token alone. Its second
+      // caller is this Promise.all, where an unhandled rejection would reject
+      // the ENTIRE layout render for every signed-in member over a
+      // support-only failure. Contained here: log it and degrade to a
+      // token-less render, which IntercomMessenger already falls back to
+      // fetching for. Support degrading is acceptable; the hub failing to
+      // render is not.
+      mintMessengerTokenForSession().catch((err): MintResult => {
+        log.error(
+          "[intercom] layout mint failed unexpectedly; degrading to a token-less render",
+          errorAttrs(err)
+        );
+        return { ok: false, reason: "db_unreachable" };
+      }),
+    ]);
   // A department director reviews recruitment by scope (a derived directorship,
   // not a recruitment permission), so surface the Recruitment tab in the top nav
   // for them too -- matching the dashboard tile and the recruitment layout, which
@@ -77,17 +98,27 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
           three switches get names and tests instead of being ANDed inline. */}
       {supportAppId ? (
         <>
-          {/* mode="identified", no requireActiveMembership: a member between
-              terms (no current ACTIVE TermMembership row) still signs into
-              the hub and must still be identified -- that carve-out is the
-              whole reason "between terms" is not an offboarded state (see
+          {/* mode="identified", and NO requireActiveMembership: a member between
+              terms (no current ACTIVE TermMembership row) still signs into the
+              hub and must still be identified -- that carve-out is the whole
+              reason "between terms" is not an offboarded state (see
               cross-term-overlap-model). The /apply portal is the one surface
               that DOES add the active-membership restriction (see its layout
-              and messenger-token/route.ts's doc comment), precisely because
-              it is public-facing and reachable by Yale accounts with no
-              Person at all -- a case that cannot arise here, behind
-              requirePersonSession above. */}
-          <IntercomMessenger appId={supportAppId} mode="identified" />
+              and the mint's doc comment), precisely because it is public-facing
+              and reachable by Yale accounts with no Person at all -- a case
+              that cannot arise here, behind requirePersonSession above.
+
+              That absence is also why passing initialToken is safe HERE and
+              nowhere else yet: a server-minted token sets `booted` at mount, so
+              IntercomMessenger's client-side 401/403-to-visitor fallback cannot
+              fire. With no gate on this surface there is nothing for it to
+              enforce. Wiring initialToken into a surface that DOES gate means
+              the gate must run at mint time, or a stranger boots identified. */}
+          <IntercomMessenger
+            appId={supportAppId}
+            mode="identified"
+            initialToken={messengerToken.ok ? messengerToken : null}
+          />
           {/* shouldMountBlockerGate already returns false without an app id, so
               the supportAppId check above is the only one this needs. */}
           {mountBlockerGate ? (

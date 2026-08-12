@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Intercom, { shutdown, update } from "@intercom/messenger-js-sdk";
 
 /**
@@ -35,37 +35,74 @@ export type IntercomMessengerMode = "identified" | "visitor";
  * fork per surface, because the two modes share every timing and cleanup
  * concern below and only differ in what they hand Intercom:
  *
- *   - "identified" mints a signed identity-verification JWT from the caller's
- *     session (see jwt.ts) and keeps it fresh for the life of the tab. This is
- *     the only mode that can ever attach a Person's identity to the Messenger;
- *     nothing here decides WHO gets identified, that is entirely the token
- *     route's call (see messenger-token/route.ts) -- this component only ever
+ *   - "identified" attaches a signed identity-verification JWT (see jwt.ts) and
+ *     keeps it fresh for the life of the tab. This is the only mode that can
+ *     ever attach a Person's identity to the Messenger; nothing here decides
+ *     WHO gets identified, that is entirely the mint's call (see
+ *     modules/support/services/messenger-token.ts) -- this component only ever
  *     asks and reacts to the answer.
  *   - "visitor" calls `Intercom({ app_id })` with no JWT and no user_id at
  *     all, which Intercom boots as an anonymous contact. No token, no fetch,
  *     no refresh loop -- there is nothing to keep fresh.
  *
  * `requireActiveMembership` is forwarded to the token route as a request flag,
- * not evaluated here: it tells the route to also require a current ACTIVE term
- * membership before minting (the /apply portal's rule -- see the route's doc
+ * not evaluated here: it tells the server to also require a current ACTIVE term
+ * membership before minting (the /apply portal's rule -- see the mint's doc
  * comment for why the hub does not carry the same restriction). Whatever the
- * route decides, this component just reacts: a refusal (401 = no session/no
+ * server decides, this component just reacts: a refusal (401 = no session/no
  * eligible Person, 403 = signed in but the membership check failed) before the
  * first successful boot settles the tab into visitor mode. That is the correct
  * steady state for an applicant or a bare Yale account with no Person -- not a
  * degraded fallback, the designed answer -- so it is terminal for the tab
  * rather than something to keep retrying.
+ *
+ * THE ONE INVARIANT THIS FILE CANNOT ENFORCE: that 401/403 fallback is guarded
+ * on `!booted`, and `initialToken` sets `booted` at mount. So on any surface
+ * passing `initialToken`, the client-side fallback is unreachable by
+ * construction -- it cannot fire, because the tab has already booted. That is
+ * correct today only because (app)/layout.tsx is the sole caller passing one
+ * and the hub has no membership gate. If `initialToken` is ever wired into a
+ * surface that DOES gate (the /apply portal), the gate MUST run server-side at
+ * mint time: this fallback will silently not run, and a stranger will boot
+ * identified with nothing erroring anywhere. Stated again at the /apply call
+ * site and in the mint itself, because no one of the three can enforce it.
  */
 export function IntercomMessenger({
   appId,
   mode,
   requireActiveMembership = false,
+  initialToken,
 }: {
   appId: string;
   mode: IntercomMessengerMode;
   /** Only meaningful when mode is "identified". See the doc comment above. */
   requireActiveMembership?: boolean;
+  /**
+   * A token minted during the server render, so the widget can boot without
+   * waiting for a round trip. Null or absent whenever the server declined to
+   * mint (integration off, no active Person, database briefly unreachable) or
+   * the surface never mints one; in every such case this falls back to fetching
+   * rather than booting on a fabricated token.
+   *
+   * Meaningless in visitor mode, which boots with no token at all.
+   */
+  initialToken?: { token: string; expiresInSeconds: number } | null;
 }) {
+  // Freeze the token this instance boots with. The effect below only ever needs
+  // the FIRST token; every later one comes from its own fetch loop and is
+  // handed over with `update`.
+  //
+  // This is not merely an object-identity guard. mintIntercomUserJwt calls
+  // .setIssuedAt(), so the STRING itself differs on every mint, not just its
+  // wrapper object. A live prop dependency (even `initialToken?.token`) would
+  // re-run this effect on every server re-render that re-mints -- a
+  // router.refresh(), a revalidating Server Action -- tearing down a live
+  // conversation via cleanup's shutdown() and re-booting from a fresh closure
+  // with `booted` reset to false. useRef's initializer runs once, on mount, so
+  // bootTokenRef.current cannot change across renders and the effect has
+  // nothing to depend on but the scalars below.
+  const bootTokenRef = useRef(initialToken);
+
   useEffect(() => {
     if (mode === "visitor") {
       Intercom({ app_id: appId });
@@ -79,6 +116,23 @@ export function IntercomMessenger({
     const scheduleIn = (seconds: number) => {
       if (cancelled) return;
       timer = setTimeout(() => void load(), seconds * 1000);
+    };
+
+    /**
+     * Boot once, then hand over later tokens with `update`.
+     *
+     * The only place `booted` flips on a token boot, so the server-minted fast
+     * path and the fetch path cannot diverge. Splitting them is how a refresh
+     * becomes a second Intercom() call, re-booting the widget underneath an
+     * open conversation instead of quietly swapping the token.
+     */
+    const applyToken = (token: string) => {
+      if (booted) {
+        update({ intercom_user_jwt: token });
+        return;
+      }
+      Intercom({ app_id: appId, intercom_user_jwt: token });
+      booted = true;
     };
 
     const tokenUrl = requireActiveMembership
@@ -105,6 +159,9 @@ export function IntercomMessenger({
           // 401/403 after that (session revoked under an open tab) keeps the
           // existing retry behavior rather than yanking an open conversation
           // over to an anonymous one.
+          //
+          // Deliberately not routed through applyToken: this is the one boot
+          // that carries no token.
           if ((res.status === 401 || res.status === 403) && !booted) {
             Intercom({ app_id: appId });
             booted = true;
@@ -126,17 +183,20 @@ export function IntercomMessenger({
         return;
       }
 
-      if (booted) {
-        update({ intercom_user_jwt: token });
-      } else {
-        Intercom({ app_id: appId, intercom_user_jwt: token });
-        booted = true;
-      }
-
+      applyToken(token);
       scheduleIn(Math.max(ttl - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS));
     }
 
-    void load();
+    const bootToken = bootTokenRef.current;
+    if (bootToken) {
+      // The fast path. applyToken sets `booted`, so the refresh scheduled below
+      // goes through `update` and does not re-boot the widget under an open
+      // conversation.
+      applyToken(bootToken.token);
+      scheduleIn(Math.max(bootToken.expiresInSeconds - REFRESH_MARGIN_SECONDS, RETRY_DELAY_SECONDS));
+    } else {
+      void load();
+    }
 
     return () => {
       cancelled = true;
@@ -146,7 +206,21 @@ export function IntercomMessenger({
       // previous member's support session live for the next person.
       shutdown();
     };
+    // Every dependency here is a stable scalar. bootTokenRef is a ref object:
+    // reading .current inside the effect does not belong in this array, and
+    // putting the token in it (in any form) is the re-boot bug described above.
   }, [appId, mode, requireActiveMembership]);
 
-  return null;
+  return (
+    <>
+      {/* Rendered here rather than in a layout so every surface that mounts the
+          Messenger gets them, including the visitor-mode ones. React hoists
+          these into <head>. They cut DNS and the TLS handshake off the widget
+          script's critical path -- which matters most on a visitor surface like
+          /login, where there is no session work to overlap them with and the
+          script is the entire critical path. */}
+      <link rel="preconnect" href="https://widget.intercom.io" />
+      <link rel="preconnect" href="https://js.intercomcdn.com" crossOrigin="anonymous" />
+    </>
+  );
 }

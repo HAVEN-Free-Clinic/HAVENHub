@@ -59,20 +59,35 @@ Three things the shared function must carry, each of which is a real defect if
 dropped. All three were identified by the session working downstream on
 `feat/support-ui`, which has since extended the Messenger to five more surfaces.
 
-### It must take `requireActiveMembership`
+### The membership gate: a hazard for downstream, NOT a parameter to add here
 
-This is the one place this refactor could introduce a **security regression**.
+Corrected after checking this branch's actual code rather than trusting the
+description of it.
 
-The route enforces the applicant portal's identity rule server-side via
-`?requireActiveMembership=1`: identify the person only if they hold a current
-ACTIVE term membership, otherwise 403 and fall back to visitor mode. If the
-shared function does not carry that flag, then whoever later wires
-`initialToken` into the portal's layout will server-mint without the gate and
-identify an applicant who has no membership.
+The downstream `feat/support-ui` session reported that the route enforces the
+applicant portal's identity rule via `?requireActiveMembership=1`, and advised
+carrying that flag through the shared mint function so a future portal wiring
+cannot server-mint past the gate.
 
-It would not surface in any `(app)` testing, because `(app)` always passes
-false. So the parameter exists from the start, even though its only caller today
-passes false.
+**That gate does not exist on this branch.** `GET()` here takes no request
+argument, reads no query parameter, and never returns 403. Its only outcomes are
+404, 401, 503, and success. The gate, the 403, and the visitor fallback are all
+additions on `feat/support-ui`, which is downstream of this branch.
+
+So adding a `requireActiveMembership` parameter here would be a dead argument
+gating nothing, and it would rightly be flagged as speculative generality.
+
+The underlying hazard is real, but it belongs to whoever owns the gate. Stated
+plainly so it survives the merge:
+
+> When `feat/support-ui` merges this forward, its membership gate must be
+> threaded through the shared mint function. Otherwise a later wiring of
+> `initialToken` into the applicant portal's layout would server-mint without
+> the gate and identify an applicant holding no ACTIVE membership. It would not
+> surface in `(app)` testing, because `(app)` has no gate to trip.
+
+The discriminated result below is shaped so adding that outcome is additive: a
+new variant, not a change to the existing ones.
 
 ### It must return a discriminated result, not `string | null`
 
@@ -83,8 +98,10 @@ something specific:
 | --- | --- |
 | 404 | The integration is off, so the route looks absent rather than half-configured |
 | 401 | No session, or a session resolving to no active Person. **This is the offboarding revocation check**: an offboarded member must stop getting tokens while their hub JWT is still valid |
-| 403 | The membership gate above |
 | 503 | `isDbUnreachableError`, so a database blip degrades rather than resolving as "still active" |
+
+(No 403 on this branch. See the membership-gate note above: that outcome
+belongs to `feat/support-ui` and is additive when it lands.)
 
 A `string | null` return collapses all of that, forcing the layout either to
 re-derive it or to skip it silently. The function returns a discriminated union;
@@ -105,10 +122,19 @@ which is a guess rather than the truth. `initialToken` carries
 ## The component
 
 `initialToken` is **optional and nullable**, and that is not defensive
-programming. The Messenger now mounts on six surfaces, and on `/login` there is
-never a token, while on `/apply`, `/onboard`, and `/welcome` there legitimately
-is none whenever the surface resolves to visitor mode. Visitor mode boots with
-`Intercom({ app_id })` and no token at all.
+programming.
+
+On this branch it is nullable because a server-side mint can legitimately return
+nothing: the integration is off, the session resolves to no active Person, or
+the database is briefly unreachable. In each case the component must fall back,
+not receive a fabricated token.
+
+It matters more downstream. `feat/support-ui` mounts the Messenger on six
+surfaces, and on `/login` there is never a token, while on `/apply`, `/onboard`,
+and `/welcome` there legitimately is none whenever the surface resolves to
+visitor mode, which boots with `Intercom({ app_id })` and no token at all. A
+required or non-nullable `initialToken` would break every one of those. It stays
+optional here so it does not have to be widened there.
 
 When `initialToken` is present the component boots from it immediately. When it
 is absent it falls back to today's fetch, so a server-side mint failure degrades
@@ -116,26 +142,37 @@ to current behavior rather than losing support.
 
 ### Booting from the prop must set `booted = true`
 
-This is the subtle one, and it fails silently.
+This is the subtle one, and it fails silently. The downstream session flagged it;
+the reason differs on this branch, and the requirement is the same.
 
-The identified path carries a `booted` flag guarding a terminal 401/403 fallback
-to visitor mode. That guard exists so a mid-session 401 (a session revoked under
-an open tab) keeps retrying rather than yanking an identified tab with a live
-conversation over to anonymous.
+Downstream, `booted` guards a terminal 401/403 fallback to visitor mode. On this
+branch there is no visitor mode, and `booted` does something simpler and just as
+load-bearing: it selects `update()` over a fresh `Intercom()` call on refresh.
+The existing comment says why, and it is the whole point of the flag: `update`
+hands over a new token without tearing down an open conversation, which
+re-booting would.
 
-If booting from `initialToken` does not flip `booted`, the first refresh that
-401s downgrades an open conversation to a visitor one. Nothing throws. The
-member simply loses their history.
+So if booting from `initialToken` does not flip `booted`, the first refresh calls
+`Intercom()` again instead of `update()`, re-booting the widget underneath a
+member who may be mid-conversation. Nothing throws.
+
+Same requirement either way, which is why it is worth stating rather than
+inheriting: set `booted = true` when booting from the prop.
 
 ## Preconnect
 
 Rendered from `IntercomMessenger` itself, not from `(app)/layout.tsx`.
 
 The component already returns `null`, so returning two `<link rel="preconnect">`
-tags from it is a smaller change than touching six layouts, and React 19 hoists
-them into `<head>`. It also covers visitor mode, which is where boot latency
-matters most: a stranger on `/login` has no session work to wait on, so the
-widget script is the *entire* critical path.
+tags from it costs nothing structurally, and React 19 hoists them into `<head>`.
+
+On this branch the Messenger mounts in exactly one place, so putting the tags in
+`(app)/layout.tsx` would work equally well today. Putting them in the component
+is chosen for where this is going: downstream mounts it on six surfaces, and
+that placement covers all of them without editing six layouts, including the
+visitor surfaces where boot latency matters most. A stranger on `/login` has no
+session work to wait on, so the widget script is the *entire* critical path
+there.
 
 ```
 https://widget.intercom.io
@@ -168,20 +205,20 @@ reasoned its way to the wrong conclusion.
 
 ## Testing
 
-- The shared mint returns each discriminated outcome: off, no session, no active
-  person, membership gate failing when required, database unreachable, success.
-- `requireActiveMembership: true` refuses a person with no ACTIVE membership,
-  and the route still maps that to 403. This is the security-relevant case and
-  it needs a test even though `(app)` never triggers it.
-- The route's existing tests keep passing unchanged, which is the real proof the
-  refactor preserved its contract.
-- The component boots from `initialToken` without fetching, and schedules the
-  refresh from the supplied TTL.
-- The component falls back to fetching when `initialToken` is null.
-- **Booting from `initialToken` sets `booted`**, proven by a test where a
-  subsequent 401 does NOT downgrade to visitor mode. Written so it fails if the
-  flag is not set.
-- Visitor mode is unaffected: no token, no fetch, no refresh.
+- The shared mint returns each discriminated outcome: integration off, no
+  session, no active person (the revocation check), database unreachable, and
+  success carrying both token and TTL.
+- **The route's existing tests keep passing completely unchanged.** That is the
+  real proof the refactor preserved its contract, and it is worth more than any
+  new test written alongside the new code. If a route test needs editing, the
+  refactor changed behavior and something is wrong.
+- The component boots from `initialToken` without fetching at all, and schedules
+  its refresh from the supplied TTL rather than the 15 minute fallback guess.
+- The component falls back to fetching when `initialToken` is null or absent.
+- **Booting from `initialToken` sets `booted`**, proven by a test asserting the
+  first refresh calls `update()` and not `Intercom()`. It must be written so it
+  fails when the flag is not set: assert on which SDK function was called, not
+  merely that the component survived.
 
 ## Coordination
 

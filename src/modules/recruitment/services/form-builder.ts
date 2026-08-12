@@ -43,6 +43,16 @@ export async function addField(
   input: {
     label: string; type: FieldType; required: boolean; helpText?: string; options?: unknown; validation?: unknown;
     correctValue?: string | null; visibleWhen?: unknown | null;
+    /**
+     * Explicit key, for SYSTEM fields whose key other code depends on (the
+     * standard language question, see LANGUAGES_FIELD_KEY). Normally omitted, so
+     * the key is derived from the label.
+     *
+     * Without this, deleting the seeded language question would be
+     * unrecoverable through the UI: re-adding it would derive a key from the
+     * label, which would not match, and the cycle could never be published.
+     */
+    key?: string;
   }
 ): Promise<FormField> {
   const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
@@ -52,7 +62,10 @@ export async function addField(
   await assertCycleEditable(section.cycleId, structural);
 
   const existing = await prisma.formField.findMany({ where: { cycleId: section.cycleId }, select: { key: true } });
-  const key = uniqueKey(input.label, existing.map((f) => f.key));
+  if (input.key && existing.some((f) => f.key === input.key)) {
+    throw new FormEditError(`A field with the key "${input.key}" already exists on this cycle.`);
+  }
+  const key = input.key ?? uniqueKey(input.label, existing.map((f) => f.key));
   const count = await prisma.formField.count({ where: { sectionId } });
 
   return prisma.formField.create({

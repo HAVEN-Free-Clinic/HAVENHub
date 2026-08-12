@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getApplicationTemplate } from "./index";
+import { LANGUAGES_FIELD_KEY } from "@/platform/languages";
 
 const dates = [{ label: "May 30", value: "2026-05-30" }];
 
@@ -56,19 +57,31 @@ describe("getApplicationTemplate", () => {
   it("VOLUNTEER template carries visibleWhen conditions on the gated fields", () => {
     const fields = getApplicationTemplate("VOLUNTEER", [], dates).flatMap((s) => s.fields);
     const byKey = (key: string) => fields.find((f) => f.key === key)!;
-    expect(byKey("other_languages_detail").visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
     expect(byKey("medical_certifications").visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
     expect(byKey("medical_details").visibleWhen).toEqual({ field: "licensed_professional", op: "is", value: "yes" });
     expect(byKey("yale_affiliation_other").visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
   });
 
-  it("DIRECTOR template carries the shared identity/language visibleWhen conditions (no eligibilitySection)", () => {
+  it("DIRECTOR template carries the shared identity visibleWhen conditions (no eligibilitySection)", () => {
     const fields = getApplicationTemplate("DIRECTOR", [], dates).flatMap((s) => s.fields);
     const byKey = (key: string) => fields.find((f) => f.key === key)!;
-    expect(byKey("other_languages_detail").visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
     expect(byKey("yale_affiliation_other").visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
     expect(fields.find((f) => f.key === "medical_certifications")).toBeUndefined();
   });
+
+  // The language question has to reach EVERY applicant type, not just
+  // volunteers: a director who speaks Haitian Creole should land in the
+  // interpreting department's queue the same way. This is the template half of
+  // "standard and locked"; publishCycle enforces the per-cycle half.
+  it.each(["VOLUNTEER", "DIRECTOR"] as const)(
+    "%s template carries the standard language question",
+    (kind) => {
+      const fields = getApplicationTemplate(kind, [], dates).flatMap((s) => s.fields);
+      const field = fields.find((f) => f.key === LANGUAGES_FIELD_KEY)!;
+      expect(field).toBeDefined();
+      expect(field.type).toBe("MULTI_SELECT");
+    }
+  );
 
   it("scopes the department choice to new applicants but keeps the switch-departments question for renewals", () => {
     const t = getApplicationTemplate("VOLUNTEER", [], dates);

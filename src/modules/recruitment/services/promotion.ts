@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { claimLanguage } from "@/platform/languages";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { isoDateKey } from "@/platform/dates";
@@ -155,7 +156,6 @@ export async function promoteContracts(
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
               gradYear: person.gradYear ?? contract.gradYear,
               epicId: person.epicId ?? contract.existingEpicId,
-              spanishSelfReported: person.spanishSelfReported || contract.spanishSelfReported,
               licensedRN: person.licensedRN || contract.licensedRN,
               // Carry onboarding-collected member data (don't clobber an existing value).
               dateOfBirth: person.dateOfBirth ?? contract.dateOfBirth,
@@ -172,7 +172,6 @@ export async function promoteContracts(
               netId: normNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
-              spanishSelfReported: contract.spanishSelfReported,
               licensedRN: contract.licensedRN,
               dateOfBirth: contract.dateOfBirth,
               dietaryRestrictions: contract.dietaryRestrictions,
@@ -182,6 +181,22 @@ export async function promoteContracts(
           });
         }
         const effectiveEpicId = person.epicId ?? contract.existingEpicId ?? null;
+
+        // Language claims become self-reported PersonLanguage rows, which is
+        // what puts the new member into the interpreting department's review
+        // queue. These are CLAIMS: nothing here marks anything verified, so they
+        // gate no scheduling until a human assesses them.
+        //
+        // Two sources, unioned:
+        //   - the APPLICATION's standard language question (any language), and
+        //   - the onboarding contract's Spanish checkbox, kept because it is a
+        //     separate later statement and an applicant may have skipped the
+        //     application question.
+        const claimedLanguages = new Set<string>(application?.languagesClaimed ?? []);
+        if (contract.spanishSelfReported) claimedLanguages.add("es");
+        for (const code of claimedLanguages) {
+          await claimLanguage(person.id, code, tx);
+        }
 
         // One ACTIVE membership per (person, term, department) is the intended
         // state: changeMembershipKind soft-removes the old row when swapping

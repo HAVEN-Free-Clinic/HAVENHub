@@ -200,7 +200,7 @@ describe("BlockerGate", () => {
     // text CHANGING, and a dialog that simply vanishes is no feedback at all to
     // someone who cannot see it.
     expect(document.querySelector('[role="status"]')).toBe(live);
-    expect(live?.textContent).toMatch(/loaded/i);
+    expect(live?.textContent).toMatch(/nothing is blocked/i);
   });
 
   it("re-enables the button when a re-check throws, rather than stranding the only control", async () => {

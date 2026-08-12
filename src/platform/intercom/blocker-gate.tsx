@@ -18,9 +18,9 @@ import {
  * button label and, on success, a dialog that simply vanishes, which is nothing
  * at all to someone who cannot see it, in the one dialog they cannot leave.
  */
-const CHECKING_MESSAGE = "Checking whether the support assistant can load.";
-const STILL_BLOCKED_MESSAGE = "Still blocked. The support assistant still cannot load.";
-const CLEARED_MESSAGE = "The support assistant loaded. You can carry on.";
+const CHECKING_MESSAGE = "Checking whether HAVEN Hub is still blocked.";
+const STILL_BLOCKED_MESSAGE = "Still blocked. Parts of HAVEN Hub cannot load.";
+const CLEARED_MESSAGE = "Nothing is blocked now. You can carry on.";
 const CHECK_FAILED_MESSAGE = "That check could not finish. Try again.";
 
 /**
@@ -189,11 +189,19 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
                 </h2>
                 {/* Describes the symptom, not a diagnosis. We can see that the
                     request never left the browser; we cannot see what stopped
-                    it, and a blocker is only the likeliest cause. */}
+                    it, and a blocker is only the likeliest cause.
+
+                    Deliberately broader than what the probe measures. Detection
+                    only proves the Messenger is broken, but naming support
+                    alone invites "I do not need support right now" and makes a
+                    hard block look disproportionate. What the member actually
+                    faces is an app they cannot use, so the copy speaks to that.
+                    Anything aggressive enough to kill the Messenger is
+                    routinely killing other requests too. */}
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Something on this browser or network is blocking HAVEN Hub&apos;s support
-                  assistant, so you would have no way to reach anyone for help. A content
-                  blocker is the usual cause. Turn it off for this site to continue.
+                  Something on this browser or network is blocking HAVEN Hub, so critical
+                  parts of the app will not work. A content blocker is the usual cause.
+                  Turn it off for this site to continue.
                 </p>
               </div>
             </div>

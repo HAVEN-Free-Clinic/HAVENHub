@@ -225,8 +225,18 @@ nothing.
 Content, in order:
 
 1. A heading naming the cause plainly.
-2. One line on what is broken: the support assistant cannot load, so there is
-   no way to reach anyone for help.
+2. One line on what is broken: something is blocking HAVEN Hub, so critical
+   parts of the app will not work.
+
+   Amended 2026-08-12. This deliberately claims more than the probe measures,
+   which only proves the Messenger is broken. Naming support alone invited the
+   reasonable reply "I do not need support right now", which makes a block with
+   no way past it look disproportionate and arbitrary. What the member is
+   actually facing is an app they cannot use, and anything aggressive enough to
+   kill the Messenger is routinely killing other requests too. The line is kept
+   symptom-level ("something is blocking") rather than diagnostic for the same
+   reason the heading is: an Intercom network outage produces this signal too,
+   and the copy must not assert a cause we cannot prove.
 3. How to fix it, covering more than browser extensions, because the detection
    catches all of them: the extension icon and disabling for this site, Brave
    Shields, Safari content blockers, and an acknowledgement of network-level

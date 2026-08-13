@@ -46,10 +46,21 @@ The consequence is the important part: **splitting into two releases does not on
 own save you.** In release N the field is still in `schema.prisma` (it has to be, or
 the `DROP` migration would already be written), so release N's client still emits it,
 and release N is exactly what is serving traffic when release N+1's migration lands.
-An earlier version of this runbook claimed otherwise, and a real incident followed it:
-commit `2ce40c15` dropped seven `TechRequest` columns, and `/support/[id]` (an
-`include:` query) plus the Intercom `ticket.created` webhook (no projection) 500'd for
-the whole build window.
+An earlier version of this runbook claimed otherwise, and it has already cost two
+incidents in two days:
+
+- `2ce40c15` dropped seven `TechRequest` columns. `/support/[id]` (an `include:`
+  query) and the Intercom `ticket.created` webhook (no projection) 500'd for the
+  whole build window.
+- `20260812232000_person_languages` dropped `Person.spanishSelfReported`. Because
+  `getActivePerson` runs on **every authenticated request** for session validation
+  and had no projection, this was not one module, it was the whole authenticated
+  app. Production filed it as
+  `PrismaClientKnownRequestError: The column Person.spanishSelfReported does not
+  exist in the current database` from `prisma.person.findUnique()` (issues #597,
+  #598, 2026-08-13).
+
+Both read paths are now projected (`PERSON_SCALARS`, `TICKET_SCALARS`).
 
 Rule:
 

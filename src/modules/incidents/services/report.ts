@@ -579,7 +579,12 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
 
   // Every linked person must exist.
   for (const s of subjects) {
-    const person = await prisma.person.findUnique({ where: { id: s.personId } });
+    // Existence check only, so it selects the id alone rather than the row.
+    // Narrower than PERSON_SCALARS and inherently immune to a dropped column.
+    const person = await prisma.person.findUnique({
+      where: { id: s.personId },
+      select: { id: true },
+    });
     if (!person) throw new IncidentNotFoundError(`Subject ${s.personId} not found.`);
   }
 

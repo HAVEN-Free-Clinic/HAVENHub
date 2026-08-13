@@ -195,6 +195,31 @@ async function main() {
     update: { phone: "203-555-0142" },
     create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456", phone: "203-555-0142" },
   });
+  // A support auditor: holds support.view_all_requests and nothing else, so the
+  // e2e suite can prove the read-only grant really is read-only. Deliberately
+  // NOT a SYSTEM_ROLE -- adding one would oblige a production backfill migration
+  // for a role nobody has been granted yet, and the whole point of this
+  // permission is that it is assigned by hand to the few people who need it.
+  const auditor = await prisma.person.upsert({
+    where: { contactEmail: "dev.support-auditor@yale.edu" },
+    update: { phone: "203-555-0153" },
+    create: {
+      name: "Dev Support Auditor",
+      contactEmail: "dev.support-auditor@yale.edu",
+      netId: "dsa789",
+      phone: "203-555-0153",
+    },
+  });
+  const auditorRole = await prisma.role.upsert({
+    where: { name: "IT Support Auditor" },
+    update: { description: "Read-only view of every IT Support request" },
+    create: { name: "IT Support Auditor", description: "Read-only view of every IT Support request" },
+  });
+  await prisma.roleGrant.upsert({
+    where: { roleId_permission: { roleId: auditorRole.id, permission: "support.view_all_requests" } },
+    update: {},
+    create: { roleId: auditorRole.id, permission: "support.view_all_requests" },
+  });
 
   const membership = (personId: string, departmentId: string, kind: "DIRECTOR" | "VOLUNTEER") =>
     prisma.termMembership.upsert({
@@ -213,6 +238,7 @@ async function main() {
   await membership(jack.id, itcm.id, "DIRECTOR");
   await membership(director.id, vadm.id, "DIRECTOR");
   await membership(volunteer.id, vadm.id, "VOLUNTEER");
+  await membership(auditor.id, vadm.id, "VOLUNTEER");
 
   // A verified, currently-valid HIPAA cert clears the onboarding "hipaa" task for
   // the dev director and volunteer. Idempotent: skip if the person already has one.
@@ -237,6 +263,7 @@ async function main() {
   await ensureHipaaCert(jack.id);
   await ensureHipaaCert(director.id);
   await ensureHipaaCert(volunteer.id);
+  await ensureHipaaCert(auditor.id);
 
   const existingAssignment = await prisma.roleAssignment.findFirst({
     where: { roleId: adminRole.id, personId: jack.id, termId: null },
@@ -244,6 +271,15 @@ async function main() {
   if (!existingAssignment) {
     await prisma.roleAssignment.create({
       data: { roleId: adminRole.id, personId: jack.id, termId: null },
+    });
+  }
+
+  const existingAuditorAssignment = await prisma.roleAssignment.findFirst({
+    where: { roleId: auditorRole.id, personId: auditor.id, termId: null },
+  });
+  if (!existingAuditorAssignment) {
+    await prisma.roleAssignment.create({
+      data: { roleId: auditorRole.id, personId: auditor.id, termId: null },
     });
   }
 

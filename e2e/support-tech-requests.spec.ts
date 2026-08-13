@@ -236,3 +236,56 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   await expect(attachedList.getByText("Pending", { exact: true })).toHaveCount(0);
   await expect(attachedList.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 });
+
+test("support: a view-only auditor sees every request and a ticket's status, but no conversation, no manager controls, and no Epic tools", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const t = tag();
+  const subject = `E2E Auditor View ${t}`;
+
+  // A volunteer files a ticket, so the auditor has a real conversation section
+  // that must stay hidden from them.
+  await devLogin(page, "dev.volunteer@yale.edu");
+  await page.goto("/support/new");
+  await page.waitForURL((url) => url.pathname === "/support/new");
+  await page.getByLabel("Subject").fill(subject);
+  await page.getByLabel("Description").fill("Auditor visibility check.");
+  await page.getByRole("button", { name: "Submit request" }).click();
+  await page.waitForURL((url) => /^\/support\/(?!new$)[^/]+$/.test(url.pathname));
+  await page.waitForLoadState("networkidle");
+  const id = new URL(page.url()).pathname.split("/").pop()!;
+
+  // --- The auditor: /support/all is reachable and lists everyone's tickets ---
+  await page.context().clearCookies();
+  await devLogin(page, "dev.support-auditor@yale.edu");
+  await page.goto("/support/all");
+  // Not /no-access: requireAnyPermission admits support.view_all_requests. This
+  // assertion is the reason the test exists -- a permission-gated href that
+  // bounces is invisible to every other test layer.
+  await page.waitForURL((url) => url.pathname === "/support/all");
+  await expect(page.getByRole("heading", { name: "All requests" })).toBeVisible();
+
+  // The Epic / YNHH tab is the module's one destructive surface (it submits real
+  // access requests) and must never be offered to a read-only viewer.
+  await expect(page.getByRole("link", { name: "Epic / YNHH tools" })).toHaveCount(0);
+
+  await page.getByPlaceholder("Subject, requester, or ticket #").fill(subject);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") === subject);
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("link", { name: subject }).click();
+  await page.waitForURL((url) => url.pathname === `/support/${id}`);
+  await page.waitForLoadState("networkidle");
+
+  // The ticket renders at all. The regression this guards is a 500: listComments
+  // throws SupportNotFoundError for a viewer who is neither requester nor
+  // manager, so the page must not call it for an auditor.
+  await expect(page.getByRole("heading", { name: subject })).toBeVisible();
+
+  // ...but none of the correspondence, and none of the manager controls.
+  await expect(page.getByRole("heading", { name: "Conversation" })).toHaveCount(0);
+  await expect(page.getByPlaceholder(/Reply to the requester/)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Attachments" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Epic access", exact: true })).toHaveCount(0);
+});

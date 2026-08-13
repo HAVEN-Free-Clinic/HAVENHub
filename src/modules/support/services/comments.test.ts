@@ -126,6 +126,19 @@ describe("comments visibility", () => {
     const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
     await expect(listComments(stranger.id, req.id)).rejects.toThrow(SupportNotFoundError);
   });
+
+  it("a support.view_all_requests auditor cannot list a ticket's comments", async () => {
+    // Correspondence is deliberately outside the read-only grant: the auditor
+    // may see that a ticket exists and where it stands (getTechRequest and
+    // listAllRequests admit them) but not read the conversation. If this ever
+    // starts passing, the ticket page's showCorrespondence gate is the only
+    // thing left standing between an auditor and every internal note.
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await expect(listComments(auditor.id, req.id)).rejects.toThrow(SupportNotFoundError);
+  });
 });
 
 describe("notifyCommentAdded", () => {

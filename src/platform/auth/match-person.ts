@@ -1,5 +1,5 @@
 import { cache } from "react";
-import type { Person } from "@prisma/client";
+import type { Person, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 
 /**
@@ -138,6 +138,29 @@ export async function findMemberRecordByClaim(
 }
 
 /**
+ * The Person columns this guard and its callers read. An explicit select keeps
+ * the per-request query off every other column, so a destructive migration that
+ * drops an unrelated column (run against the database before the new build is
+ * promoted) cannot make the still-live client SELECT a column that no longer
+ * exists. Without this, one DROP COLUMN turns the session guard into an app-wide
+ * 500 for the whole deploy window. Add a column here only when a caller reads it.
+ */
+const activePersonSelect = {
+  id: true,
+  status: true,
+  name: true,
+  contactEmail: true,
+  entraObjectId: true,
+  epicId: true,
+  netId: true,
+  themePreference: true,
+  photoVersion: true,
+  blockerGateExempt: true,
+} satisfies Prisma.PersonSelect;
+
+export type ActivePerson = Prisma.PersonGetPayload<{ select: typeof activePersonSelect }>;
+
+/**
  * Per-request person lookup for session validation: a person who has been
  * OFFBOARDED (or deleted) after sign-in must lose access immediately, not
  * when their JWT expires (spec §5 "revocations take effect immediately").
@@ -146,8 +169,11 @@ export async function findMemberRecordByClaim(
  * per-request, so a status change still takes effect on the next navigation.
  */
 export const getActivePerson = cache(
-  async (personId: string): Promise<Person | null> => {
-    const person = await prisma.person.findUnique({ where: { id: personId } });
+  async (personId: string): Promise<ActivePerson | null> => {
+    const person = await prisma.person.findUnique({
+      where: { id: personId },
+      select: activePersonSelect,
+    });
     if (!person || person.status !== "ACTIVE") return null;
     return person;
   }

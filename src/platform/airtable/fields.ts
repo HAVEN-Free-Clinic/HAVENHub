@@ -68,3 +68,57 @@ export const EHS_CHECKBOX_FIELDS: { fieldId: string; trainingName: string }[] = 
   { fieldId: "fld8KiByAuWEUKnoj", trainingName: "TB Baseline Screening" },
   { fieldId: "fld56ALUQbZUfCpWi", trainingName: "Physical Safety - Respiration" },
 ];
+
+/**
+ * Tech Requests table id (tblZOA1uId5SIhn2W). The IT Support ticket log kept in
+ * Airtable before the hub's /support module took over. Imported read-only by
+ * scripts/import-support-history.ts.
+ */
+export const TECH_REQUESTS_TABLE_ID = "tblZOA1uId5SIhn2W";
+
+/** Tech Requests (tblZOA1uId5SIhn2W) field ids. */
+export const TECH_REQUEST_FIELDS = {
+  /** autoNumber, reused verbatim as TechRequest.number so ops keep their references. */
+  requestId: "fldHfxuwZZQS4O1ek",
+  /** Link to All People; resolved against Person.airtableRecordId. */
+  requester: "fldBN4EvKK2yONAVB",
+  assignedTo: "fldQgoyk1U6LrLNnv",
+  status: "fld5OguML9qlNG3Ot",
+  requestType: "fldvHNuz0zX7uiQ77",
+  epicIssueType: "fldzwoSntBbyR6z3h",
+  description: "fld1LCqFCGhIZdP3t",
+  modificationDescription: "fldNFE9A1OfVY6xqy",
+  priority: "fldOxAQEOVU4bVJPg",
+  resolutionDetails: "fld0yygRYSHDXZ3dO",
+  /** Free-text RITM number typed inline, used before the YNHH Ticket Tracker existed. */
+  ynhhTicketNumber: "fldtXHeONnoyUCTjZ",
+  dateSubmitted: "fldXUDgaBcDh1jtpW",
+  dateResolved: "fldEtixHeQqEGs7WW",
+  lastModified: "fld14bJ51hWQ2ASgY",
+  attachments: "fldwp4zBpd8oHInb9",
+  netId: "fldLykNfCDpBqtcsX",
+  jobTitle: "fld55x9V3Z3dAxmme",
+  startDate: "fldjMycjIuSFfzgP6",
+  endDate: "fldWPcJjLmh0OzfiW",
+  worksAtYnhh: "fldU1owsQY844cTm8",
+  governmentId: "fldlevNCWr2Li17ub",
+  epicIdToMirror: "fldImajvqy8Uxcigv",
+} as const;
+
+/**
+ * YNHH Ticket Tracker table id (tbln8k6QWnff3EmoX). One row per person per
+ * service request; several rows can share a Service Request number, which is
+ * exactly the hub's one-YnhhTicket-to-many-EpicRequest shape.
+ */
+export const YNHH_TRACKER_TABLE_ID = "tbln8k6QWnff3EmoX";
+
+/** YNHH Ticket Tracker (tbln8k6QWnff3EmoX) field ids. */
+export const YNHH_TRACKER_FIELDS = {
+  dateSubmitted: "fldEo7BklYb5IWANt",
+  briefDescription: "fldAaCT2YYi9bldgk",
+  submitter: "fld7zu34NYMn0OWVI",
+  ticketStatus: "fldBhBHjwRd4RzSDq",
+  serviceRequestNumber: "fldcKZrBvMboObuKS",
+  dateClosed: "fldOjcujWPaM1K5uz",
+  ticketNotes: "fldc59tylZwo1itTC",
+} as const;

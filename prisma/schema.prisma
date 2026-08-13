@@ -664,6 +664,10 @@ model EpicRequest {
 model YnhhTicket {
   id                   String                  @id @default(cuid())
   serviceRequestNumber String?
+  /// Airtable "YNHH Ticket Tracker" record this ticket was imported from.
+  /// Null for tickets opened natively in the hub. See
+  /// scripts/import-support-history.ts.
+  airtableRecordId     String?                 @unique
   description          String?
   /// One-off incident subject. Set for standalone YNHH incidents logged directly (not Epic batches).
   subject              String?
@@ -725,6 +729,10 @@ enum CommentVisibility {
 model TechRequest {
   id                     String              @id @default(cuid())
   number                 Int                 @unique @default(autoincrement())
+  /// Airtable "Tech Requests" record this ticket was imported from. Null for
+  /// tickets submitted natively in the hub. See
+  /// scripts/import-support-history.ts.
+  airtableRecordId       String?             @unique
   requesterId            String
   category               TechRequestCategory
   epicSubtype            EpicRequestKind?

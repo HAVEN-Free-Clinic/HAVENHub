@@ -8,6 +8,24 @@
  * Stripping EXIF is not only hygiene: an uploaded phone photo carries
  * orientation (which would render sideways without .rotate()) and often GPS
  * coordinates, which have no business on a public credential page.
+ *
+ * This is the only import of sharp in the app, and the reason package.json
+ * lists it under BOTH `dependencies` and `overrides`, which is worth explaining
+ * because it looks redundant:
+ *
+ * - `dependencies` is what makes the import legitimate. sharp was previously
+ *   reaching us only as an OPTIONAL dependency of next (`^0.34.5`), so every
+ *   photo route was resting on a package this repo never asked for -- one
+ *   `--omit=optional` install, one failed optional build, or next dropping the
+ *   dep, and normalizePhoto throws at runtime with nothing in the manifest to
+ *   explain why.
+ * - `overrides` keeps that from costing a second copy. Declaring `^0.35.3`
+ *   directly no longer satisfies next's `^0.34.5`, so npm would otherwise
+ *   install a nested sharp 0.34 (plus its ~17MB libvips) under next. The
+ *   override forces one 0.35.3 everywhere; keep the two ranges equal.
+ *
+ * The native library that sharp dlopens also has to be traced into the
+ * standalone build by hand -- see outputFileTracingIncludes in next.config.ts.
  */
 import sharp from "sharp";
 import { PHOTO_SIZE, PhotoError } from "./shared";

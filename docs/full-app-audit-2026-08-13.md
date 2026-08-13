@@ -268,6 +268,43 @@ Single session, static reading plus the automated baseline above, on a dedicated
 </content>
 </invoke>
 
+## Addendum: finding 2 is worse than reported, and was already live
+
+Found after the report was written, by reading the repository's open
+auto-filed issues rather than its code. That is a method gap worth naming: this
+audit swept the source and CI but never looked at production telemetry, which is
+where the evidence was sitting the whole time.
+
+**Issues #597 and #598**, filed automatically at 2026-08-13T01:40Z:
+
+```
+Invalid `prisma.person.findUnique()` invocation:
+The column `Person.spanishSelfReported` does not exist in the current database.
+```
+
+`prisma/migrations/20260812232000_person_languages/migration.sql:59` performs
+`ALTER TABLE "Person" DROP COLUMN "spanishSelfReported"`, and
+`src/platform/auth/match-person.ts:150` was an unprojected
+`prisma.person.findUnique({ where: { id: personId } })`. That function is
+`getActivePerson`, which runs on **every authenticated request** for session
+validation.
+
+So finding 2 was not a one-off on a low-traffic table. It recurred the next day on
+the hottest table in the app, and on `Person` the blast radius is not one module,
+it is every authenticated page for the length of a build. This is the app-wide
+case DEPLOY.md names, observed rather than predicted.
+
+Six further unprojected `Person` reads existed alongside it (`people.ts:316`,
+`epic.ts:120`, `epic.ts:328`, `report.ts:582`, `importer.ts:41`, `importer.ts:45`).
+All are now projected. `report.ts:582` is an existence check and takes
+`select: { id: true }` instead, which is narrower still.
+
+The projection lives in `src/platform/person-scalars.ts` and cannot drift:
+`satisfies Prisma.PersonSelect` rejects a removed column, `getActivePerson`'s
+`Promise<Person | null>` annotation rejects a missing one, and
+`person-scalars.test.ts` asserts the same against Prisma's DMMF so the failure
+names the field.
+
 ## Fixes applied
 
 All three findings are fixed on `worktree-audit-13-prelaunch`.
@@ -276,6 +313,7 @@ All three findings are fixed on `worktree-audit-13-prelaunch`.
 | --- | --- |
 | 1 | `config.ts` gains a fourth `superRefine`: production, non-demo, outside the build phase now requires `R2_BUCKET`. Five tests cover the guard, the DEMO_MODE exemption, the `NEXT_PHASE` carve-out, and that local disk still works in development. |
 | 2 | DEPLOY.md §1 rewritten around the measured mechanism, including the query-shape table and the note that two releases alone do not help. `tech-request.ts` gains a shared `TICKET_SCALARS` projection, applied to `loadDetail` and to the three unprojected reads plus the create on the Intercom webhook path. Listing every scalar keeps the result assignable to `TechRequest`, so there is no type churn at the call sites, and `tsc` now catches the next narrowing at the call site instead of production catching it. |
+| 2b | `PERSON_SCALARS` added and applied to `getActivePerson` plus the six other unprojected `Person` reads, closing the app-wide case that issues #597/#598 recorded in production. Three guard tests pin the list against Prisma's DMMF. |
 | 3 | `SupportHistoryNotificationError` takes the disposition from the path: it claims a rollback only on the dry run, and on the apply path states that rows are committed and names what to inspect. Four tests pin it, including the negative assertion that the apply path never says "rolled back". |
 
 **Verification after the fixes:** `tsc --noEmit` clean; `eslint src e2e scripts`

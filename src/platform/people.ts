@@ -35,6 +35,7 @@ import { log, errorAttrs } from "@/platform/logging";
 import { issueServiceCredential } from "@/modules/passport/services/credential";
 // eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
 import { revokeWalletPasses } from "@/modules/passport/services/wallet-pass";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 
 /**
  * The terms an offboard is allowed to touch: everything except ARCHIVED.
@@ -313,7 +314,10 @@ export async function setPersonStatusField(
   status: "ACTIVE" | "OFFBOARDED",
   opts: SetPersonStatusOptions = {}
 ): Promise<Person> {
-  const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
+  const existingOrNull = await prisma.person.findUnique({
+    where: { id: personId },
+    select: PERSON_SCALARS,
+  });
   if (!existingOrNull) throw new PersonNotFoundError(personId);
   const existing = existingOrNull;
 

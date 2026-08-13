@@ -23,6 +23,7 @@ import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
+import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -165,120 +166,131 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
             )}
           </Card>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <THead>
-                <TR>
-                  <TH>Date</TH>
-                  <TH>On call</TH>
-                  {schedule.slots.map((s) => (
-                    <TH key={s.id}>
-                      {s.label}
-                      <span className="block text-xs font-normal text-subtle-foreground">
-                        {s.startTime}-{s.endTime}
-                      </span>
-                    </TH>
-                  ))}
-                  <TH>Specialty</TH>
-                  <TH>Director / procedures</TH>
-                  <TH><span className="sr-only">Save</span></TH>
-                </TR>
-              </THead>
-              <tbody>
-                {schedule.rows.map((row) => (
-                  <TR key={row.dateKey}>
-                    <TD className="whitespace-nowrap align-top text-sm text-foreground-soft">
-                      <form action={saveRowAction} id={`row-${row.dateKey}`}>
-                        <input type="hidden" name="termId" value={schedule.termId ?? ""} />
-                        <input type="hidden" name="dateKey" value={row.dateKey} />
-                      </form>
-                      {formatCalendarDate(row.clinicDate, { month: "short", day: "numeric", year: "numeric" })}
-                      <label className="mt-1 flex items-center gap-1.5 text-xs text-subtle-foreground">
-                        <Checkbox name="isClosed" form={`row-${row.dateKey}`} defaultChecked={row.isClosed} />
-                        Closed
-                      </label>
-                    </TD>
+          /* One card per clinic date, each its own form.
+           *
+           * Deliberately NOT a table row per date. A <form> cannot legally wrap
+           * <td>s, so a table forces the controls outside the form and
+           * associated by `form=` id -- and a server action serialises only the
+           * form's DESCENDANTS, so every one of those controls is silently
+           * dropped on submit. The day row saved and its attendings did not.
+           */
+          <div className="space-y-3">
+            {schedule.rows.map((row) => (
+              <Card key={row.dateKey} className="space-y-3">
+                <form action={saveRowAction} className="space-y-3">
+                  <input type="hidden" name="termId" value={schedule.termId ?? ""} />
+                  <input type="hidden" name="dateKey" value={row.dateKey} />
 
-                    <TD className="align-top text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-base font-bold text-foreground tabular-nums">
+                      {formatCalendarDate(row.clinicDate, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </h3>
+                    <label className="flex items-center gap-2 text-sm text-foreground-soft">
+                      <Checkbox name="isClosed" defaultChecked={row.isClosed} />
+                      Clinic closed
+                    </label>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {schedule.slots.map((slot) => (
+                      <div key={slot.id} className="space-y-1">
+                        <span className="block text-xs font-medium text-foreground-soft">
+                          {slot.label}
+                          <span className="ml-1 font-normal text-subtle-foreground">
+                            {slot.startTime}-{slot.endTime}
+                          </span>
+                        </span>
+                        <AttendingCell
+                          slot={slot}
+                          coverage={row.slots.find((c) => c.slotId === slot.id)}
+                          dateKey={row.dateKey}
+                          canEdit
+                          isClosed={row.isClosed}
+                          options={schedule.options}
+                        />
+                      </div>
+                    ))}
+
+                    <div className="space-y-1">
                       {/* On call covers the week LEADING UP TO the next clinic
-                          day, which is why it sits on this row but is not one of
-                          the day's slots. */}
+                          day, which is why it sits on this date but is not one
+                          of the day's slots. */}
+                      <span className="block text-xs font-medium text-foreground-soft">
+                        On call
+                        <span className="ml-1 font-normal text-subtle-foreground">next week</span>
+                      </span>
                       <Select
                         name="onCallAttendingId"
-                        form={`row-${row.dateKey}`}
                         defaultValue={row.onCallAttendingId ?? ""}
                         aria-label={`On-call attending for the week after ${row.dateKey}`}
                         className="text-sm"
                       >
-                        <option value="">&mdash;</option>
+                        <option value="">Not set</option>
                         {schedule.options.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.isActive ? a.scheduleName : `${a.scheduleName} (inactive)`}
                           </option>
                         ))}
                       </Select>
-                    </TD>
+                    </div>
 
-                    {schedule.slots.map((slot) => (
-                      <TD key={slot.id} className="align-top text-sm">
-                        <div data-slot-cell={slot.id}>
-                          <AttendingCell
-                            slot={slot}
-                            coverage={row.slots.find((c) => c.slotId === slot.id)}
-                            dateKey={row.dateKey}
-                            canEdit
-                            isClosed={row.isClosed}
-                            options={schedule.options}
-                          />
-                        </div>
-                      </TD>
-                    ))}
-
-                    <TD className="align-top text-sm">
+                    <div className="space-y-1">
+                      <span className="block text-xs font-medium text-foreground-soft">
+                        Specialty clinic
+                      </span>
                       <Select
                         name="specialtyId"
-                        form={`row-${row.dateKey}`}
                         defaultValue={row.specialtyId ?? ""}
                         aria-label={`Specialty clinic on ${row.dateKey}`}
                         className="text-sm"
                       >
-                        <option value="">&mdash;</option>
-                        {specialtyClinicOptions.map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
+                        <option value="">None</option>
+                        {specialtyClinicOptions.map((sp) => (
+                          <option key={sp.id} value={sp.id}>{sp.name}</option>
                         ))}
                       </Select>
-                    </TD>
+                    </div>
 
-                    <TD className="align-top text-sm">
+                    <div className="space-y-1">
+                      <span className="block text-xs font-medium text-foreground-soft">
+                        Director on point
+                      </span>
                       <Input
                         name="directorName"
-                        form={`row-${row.dateKey}`}
                         defaultValue={row.directorName ?? ""}
-                        placeholder="Director on point"
+                        placeholder="Optional"
                         aria-label={`Director on point for ${row.dateKey}`}
                         className="text-sm"
                       />
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="block text-xs font-medium text-foreground-soft">
+                        Procedures booked
+                      </span>
                       <Input
                         name="proceduresBooked"
-                        form={`row-${row.dateKey}`}
                         type="number"
                         min={0}
                         defaultValue={row.proceduresBooked ?? ""}
-                        placeholder="Procedures"
+                        placeholder="Optional"
                         aria-label={`Procedures booked for ${row.dateKey}`}
-                        className="mt-1 text-sm"
+                        className="text-sm"
                       />
-                    </TD>
+                    </div>
+                  </div>
 
-                    <TD className="align-top">
-                      <Button type="submit" form={`row-${row.dateKey}`} variant="outline" size="sm">
-                        Save
-                      </Button>
-                    </TD>
-                  </TR>
-                ))}
-              </tbody>
-            </Table>
+                  <FormActions>
+                    <Button type="submit" variant="outline" size="sm">Save</Button>
+                  </FormActions>
+                </form>
+              </Card>
+            ))}
           </div>
         )}
       </section>

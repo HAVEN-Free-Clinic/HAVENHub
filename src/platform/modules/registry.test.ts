@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODULES } from "./registry";
+import { filterNavItems } from "./access";
 
 describe("module registry", () => {
   it("has unique module ids", () => {
@@ -95,6 +96,19 @@ describe("module registry", () => {
       m.nav.filter((n) => n.dynamicGate).map((n) => `${m.id}:${n.href}`),
     );
     expect(gated.every((h) => h.startsWith("schedule:"))).toBe(true);
+  });
+
+  it("offers a support view-only auditor the All requests tab but not the Epic tools tab", () => {
+    // The Epic / YNHH tab is the one destructive surface in the module (it
+    // generates and submits access requests), so the read-only grant must never
+    // reach it. Asserting both halves here keeps the two tabs from being
+    // widened together by a careless edit to the manifest.
+    const support = MODULES.find((m) => m.id === "support")!;
+    const labels = filterNavItems(support.nav, new Set(["support.view_all_requests"])).map(
+      (i) => i.label
+    );
+    expect(labels).toContain("All requests");
+    expect(labels).not.toContain("Epic / YNHH tools");
   });
 
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {

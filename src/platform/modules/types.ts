@@ -11,8 +11,15 @@ export type ModuleNavItem = {
    * requirePermission(...) call so the nav never shows a tab that would bounce
    * the viewer. Omit when the page gates on module access only (the tab is then
    * shown to anyone who can enter the module).
+   *
+   * An array means ANY ONE of the listed permissions admits the viewer, and
+   * MUST mirror a page gating on requireAnyPermission(...). It exists for tabs
+   * serving two audiences at different strengths -- support "All requests" is
+   * open both to a manager and to a view-only auditor -- where a single string
+   * would force the weaker audience out of the nav even though the page admits
+   * them.
    */
-  permission?: string;
+  permission?: string | string[];
   /**
    * True when the destination's real gate is a data-driven capability that no
    * permission string can express (e.g. "manages at least one schedule

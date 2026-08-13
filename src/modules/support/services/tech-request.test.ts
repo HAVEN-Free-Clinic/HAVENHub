@@ -21,6 +21,7 @@ import {
   listMyRequests,
   getTechRequest,
   listAllRequests,
+  isManager,
   SupportNotFoundError,
   SupportStateError,
 } from "./tech-request";
@@ -179,5 +180,32 @@ describe("read access", () => {
   it("listAllRequests requires the manage permission", async () => {
     const p = await createPerson("Alice");
     await expect(listAllRequests(p.id, {})).rejects.toThrow(/permission/i);
+  });
+
+  it("listAllRequests admits a view-only holder", async () => {
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    const { rows } = await listAllRequests(auditor.id, {});
+    expect(rows.map((r) => r.subject)).toEqual(["S"]);
+  });
+
+  it("getTechRequest lets a view-only holder read any ticket", async () => {
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    const detail = await getTechRequest(auditor.id, req.id);
+    expect(detail.id).toBe(req.id);
+  });
+
+  it("view-only alone does not make someone a manager", async () => {
+    // The distinction the whole permission rests on: read paths widen, every
+    // write path (assignment, status, comments, Epic tools) keeps gating on
+    // isManager, so granting view-only must never satisfy it.
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    expect(await isManager(auditor.id)).toBe(false);
   });
 });

@@ -27,6 +27,13 @@ type CommentThreadProps = {
   /** True when the caller holds support.manage_requests. */
   canManage: boolean;
   action: (formData: FormData) => Promise<void>;
+  /**
+   * False hides the Reply section entirely -- a ticket linked to Intercom
+   * shows its existing comments (the record) but replies happen in the
+   * conversation instead, per ticket-detail.tsx. Defaults true so every
+   * unlinked-ticket caller is unaffected.
+   */
+  showReplyForm?: boolean;
 };
 
 function CommentCard({ comment, internal }: { comment: CommentRow; internal?: boolean }) {
@@ -45,7 +52,7 @@ function CommentCard({ comment, internal }: { comment: CommentRow; internal?: bo
   );
 }
 
-export function CommentThread({ comments, canManage, action }: CommentThreadProps) {
+export function CommentThread({ comments, canManage, action, showReplyForm = true }: CommentThreadProps) {
   const publicComments = comments.filter((c) => c.visibility === "PUBLIC");
   const internalComments = comments.filter((c) => c.visibility === "INTERNAL");
 
@@ -77,36 +84,38 @@ export function CommentThread({ comments, canManage, action }: CommentThreadProp
         </section>
       )}
 
-      <section>
-        <SectionHeader className="mb-2">Reply</SectionHeader>
-        <form action={action}>
-          <Card className="space-y-4">
-            <Textarea
-              name="body"
-              rows={3}
-              placeholder={
-                canManage ? "Reply to the requester, or leave an internal note…" : "Add an update…"
-              }
-              required
-            />
-            {canManage ? (
-              <RadioGroup legend="Visibility">
-                <Radio name="visibility" value="PUBLIC" label="Public reply" defaultChecked />
-                <Radio name="visibility" value="INTERNAL" label="Internal note" />
-              </RadioGroup>
-            ) : (
-              <input type="hidden" name="visibility" value="PUBLIC" />
-            )}
-            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
-            <input type="file" name="attachments" multiple accept={SUPPORT_UPLOAD_ACCEPT} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
-            <FormActions>
-              <SubmitButton variant="primary" pendingLabel="Posting…">
-                Post
-              </SubmitButton>
-            </FormActions>
-          </Card>
-        </form>
-      </section>
+      {showReplyForm && (
+        <section>
+          <SectionHeader className="mb-2">Reply</SectionHeader>
+          <form action={action}>
+            <Card className="space-y-4">
+              <Textarea
+                name="body"
+                rows={3}
+                placeholder={
+                  canManage ? "Reply to the requester, or leave an internal note…" : "Add an update…"
+                }
+                required
+              />
+              {canManage ? (
+                <RadioGroup legend="Visibility">
+                  <Radio name="visibility" value="PUBLIC" label="Public reply" defaultChecked />
+                  <Radio name="visibility" value="INTERNAL" label="Internal note" />
+                </RadioGroup>
+              ) : (
+                <input type="hidden" name="visibility" value="PUBLIC" />
+              )}
+              {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
+              <input type="file" name="attachments" multiple accept={SUPPORT_UPLOAD_ACCEPT} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+              <FormActions>
+                <SubmitButton variant="primary" pendingLabel="Posting…">
+                  Post
+                </SubmitButton>
+              </FormActions>
+            </Card>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { onEpicSubmitted } from "./epic-ticket-sync";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -606,13 +607,19 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
  * Creates the YnhhTicket INSIDE the same transaction as the request links and
  * returns it (mirrors submitEpicRequests), so a mid-batch failure rolls the ticket
  * back too instead of committing an OPEN ticket with zero linked requests (F18).
+ *
+ * After the transaction commits, onEpicSubmitted (epic-ticket-sync.ts) moves
+ * any support ticket among the adopted requests to AWAITING_YNHH -- rare here
+ * (a DEACTIVATE is usually offboard-queued, not attached to a support
+ * ticket), but an adopted PENDING row can carry a techRequestId if one was
+ * linked before this ran, and that ticket deserves the same sync as any other.
  */
 export async function reconcileDeactivationRequests(
   actorPersonId: string,
   personIds: string[],
   ticketDescription: string
 ): Promise<YnhhTicket> {
-  return prisma.$transaction(async (tx) => {
+  const ticket = await prisma.$transaction(async (tx) => {
     // Classify each person's existing open DEACTIVATE request first. A request
     // already SUBMITTED onto a ticket is in flight; re-pointing it to a fresh
     // ticket would strip it from -- and orphan -- its current one (e.g. a manager
@@ -661,6 +668,10 @@ export async function reconcileDeactivationRequests(
     }
     return ticket;
   });
+
+  await onEpicSubmitted(actorPersonId, ticket.id);
+
+  return ticket;
 }
 
 /**
@@ -689,6 +700,14 @@ export async function reconcileDeactivationRequests(
  *
  * Trusts its caller for permissions: the generate route gates on
  * support.manage_requests. Returns the created ticket.
+ *
+ * After the transaction commits, onEpicSubmitted (epic-ticket-sync.ts) moves
+ * any support ticket among the adopted requests to AWAITING_YNHH. Rows this
+ * call CREATES fresh never carry a techRequestId (this path has no notion of
+ * a support ticket to attach one to), but an ADOPTED PENDING row can -- e.g.
+ * one an agent attached to a ticket via the Epic access section before ITCM
+ * happened to batch that same person into a term-wide submission -- and that
+ * ticket deserves the same sync as one submitted through createTicket.
  */
 export async function submitEpicRequests(
   actorPersonId: string,
@@ -698,7 +717,7 @@ export async function submitEpicRequests(
 ): Promise<YnhhTicket> {
   const personIds = requests.map((r) => r.personId);
 
-  return prisma.$transaction(async (tx) => {
+  const ticket = await prisma.$transaction(async (tx) => {
     const people = await tx.person.findMany({
       where: { id: { in: personIds } },
       select: { id: true, name: true, status: true, epicId: true },
@@ -792,6 +811,10 @@ export async function submitEpicRequests(
 
     return ticket;
   }, { timeout: 30_000, maxWait: 10_000 });
+
+  await onEpicSubmitted(actorPersonId, ticket.id);
+
+  return ticket;
 }
 
 // ---------------------------------------------------------------------------

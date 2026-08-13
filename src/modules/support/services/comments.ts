@@ -14,6 +14,14 @@
  *                  attempt on their own ticket).
  *   listComments - same read gate as getTechRequest (requester or manager);
  *                  INTERNAL rows are filtered out for non-managers.
+ *
+ * Outbound Intercom sync (Direction 3, Hub-origin half -- see
+ * docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md and
+ * notifications.ts's pushIntercomTicketState): addComment's requester-reply
+ * reopen (RESOLVED -> IN_PROGRESS) is a Hub-origin status change exactly like
+ * manage.ts's setStatus, so it pushes the new status onto a linked Intercom
+ * Ticket the same way. Without this, a ticket reopened by a requester's reply
+ * would leave Intercom reading Resolved forever.
  */
 
 import type {
@@ -33,6 +41,7 @@ import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { pushIntercomTicketState } from "./notifications";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -82,7 +91,7 @@ export async function addComment(
   // requester comment). CLOSED and CANCELLED are left terminal: no email invites
   // a reply there, and a manager's own note must not reopen the ticket.
   const reopens = !manager && input.visibility === "PUBLIC" && req.status === "RESOLVED";
-  await prisma.techRequest.update({
+  const updated = await prisma.techRequest.update({
     where: { id: requestId },
     data: { updatedAt: new Date(), ...(reopens ? { status: "IN_PROGRESS", resolvedAt: null } : {}) },
   });
@@ -102,6 +111,14 @@ export async function addComment(
       before: { status: "RESOLVED" },
       after: { status: "IN_PROGRESS" },
     });
+    // This is a Hub-origin status change exactly like setStatus/resolveRequest
+    // in manage.ts, and Direction 3 requires every one of those to push onto
+    // the linked Intercom Ticket's own state (see pushIntercomTicketState's
+    // doc comment) -- without this, a ticket reopened by a requester's reply
+    // leaves the Hub reading IN_PROGRESS while Intercom still reads Resolved,
+    // permanently. Never throws (pushIntercomTicketState's own posture), so a
+    // failed push cannot fail an already-committed comment.
+    await pushIntercomTicketState(updated, req.status);
   }
   return comment;
 }
@@ -153,6 +170,18 @@ export async function notifyCommentAdded(
   author: Pick<Person, "id" | "name">
 ): Promise<void> {
   if (comment.visibility === "INTERNAL") return;
+
+  // A linked ticket's conversation IS the channel, so the Hub must not also
+  // email about it -- the same branch setStatus and resolveRequest take, and
+  // for the same reason: support correspondence happens in one place.
+  //
+  // Today no UI path reaches here for a linked ticket, because the detail page
+  // renders read-only and hides the reply form (see ticket-detail.tsx). This
+  // guard is deliberately NOT relying on that. UI reachability is not an
+  // invariant: an API, a bulk action, or a script that posts a comment would
+  // email the member directly, breaking the one-channel rule with nothing
+  // failing and no way to notice short of a confused member.
+  if (req.intercomConversationId) return;
 
   const baseUrl = (await getSetting<string>("app.baseUrl")) ?? "";
   const link = `${baseUrl}/support/${req.id}`;

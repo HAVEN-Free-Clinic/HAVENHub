@@ -27,7 +27,6 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "recruitment.applicant_withdrew", label: "Recruitment: applicant withdrew (panel + directors)", defaultChannel: "email" },
   { key: "support.ticket_submitted", label: "IT Support: ticket received (requester)", defaultChannel: "email" },
   { key: "support.ticket_manager_alert", label: "IT Support: new-ticket alert (managers)", defaultChannel: "email" },
-  { key: "support.request_assigned", label: "IT Support: request assigned", defaultChannel: "email" },
   { key: "support.status_changed", label: "IT Support: status changed", defaultChannel: "email" },
   { key: "support.comment_added", label: "IT Support: new comment", defaultChannel: "email" },
   { key: "support.request_resolved", label: "IT Support: request resolved", defaultChannel: "email" },

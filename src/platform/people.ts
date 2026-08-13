@@ -102,6 +102,7 @@ export type PersonInput = {
   gradYear?: string | null;
   dietaryRestrictions?: string | null;
   licensedRN?: boolean;
+  blockerGateExempt?: boolean;
 };
 
 /**
@@ -142,6 +143,12 @@ export async function createPersonRecord(
         yaleAffiliation: data.yaleAffiliation ?? null,
         gradYear: data.gradYear ?? null,
         licensedRN: data.licensedRN ?? false,
+        blockerGateExempt: data.blockerGateExempt ?? false,
+        // The spanishVerified-on-create branch that used to sit here is gone
+        // with the columns. A language is now a PersonLanguage row, and an
+        // admin creating a person does not assess one: recordLanguageAssessment
+        // is the only path that stamps a verification, so it stays attributable
+        // to the interpreting department rather than to whoever typed the form.
       },
     });
 
@@ -162,6 +169,7 @@ export async function createPersonRecord(
         yaleAffiliation: person.yaleAffiliation,
         gradYear: person.gradYear,
         licensedRN: person.licensedRN,
+        blockerGateExempt: person.blockerGateExempt,
       },
     });
 
@@ -188,6 +196,7 @@ export async function updatePersonFields(
     "gradYear",
     "dietaryRestrictions",
     "licensedRN",
+    "blockerGateExempt",
   ];
 
   try {

@@ -28,6 +28,7 @@ type PersonFormProps = {
     | "yaleAffiliation"
     | "gradYear"
     | "licensedRN"
+    | "blockerGateExempt"
   >;
   /** Extra content to render after the submit button (e.g. status actions). */
   children?: ReactNode;
@@ -119,6 +120,20 @@ export function PersonForm({ action, person, children }: PersonFormProps) {
           <p className="text-xs text-subtle-foreground">
             Language capabilities are recorded and verified in Volunteers &gt; Language review.
           </p>
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm text-foreground-soft">
+              <Checkbox
+                name="blockerGateExempt"
+                defaultChecked={person?.blockerGateExempt ?? false}
+              />
+              Skip the content blocker check
+            </label>
+            <p className="text-xs text-subtle-foreground">
+              This person can use the hub without turning off their content blocker.
+              Support may not reach them, so use this for people on a managed device or
+              network they cannot change themselves.
+            </p>
+          </div>
         </div>
 
         <FormActions>

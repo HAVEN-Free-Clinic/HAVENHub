@@ -13,6 +13,14 @@
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
+ *
+ * createTicket, completeRequest, and cancelEpicRequest also call into
+ * epic-ticket-sync.ts (onEpicSubmitted / onEpicResolved) once their own write
+ * has committed: any EpicRequest attached to a support ticket
+ * (EpicRequest.techRequestId) drives that TechRequest's status to
+ * AWAITING_YNHH on submission and back to IN_PROGRESS once nothing on it is
+ * still with YNHH. See that module's doc comment for the full transition
+ * rules -- this file never writes TechRequest.status directly.
  */
 
 import type { EpicRequest, YnhhTicket } from "@prisma/client";
@@ -32,6 +40,7 @@ import {
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { onEpicSubmitted, onEpicResolved } from "./epic-ticket-sync";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -232,6 +241,12 @@ export async function createTicket(
     after: { requestIds: input.requestIds },
   });
 
+  // See epic-ticket-sync.ts: moves every linked TechRequest among these
+  // requests to AWAITING_YNHH. Runs after the transaction above has
+  // committed, matching the rest of this file's "side effects after the
+  // write" ordering.
+  await onEpicSubmitted(actorPersonId, ticket.id);
+
   return ticket;
 }
 
@@ -368,6 +383,10 @@ export async function completeRequest(
     // For NEW/MODIFY record the epicId actually written; for RENEW and DEACTIVATE omit it (no write occurred).
     after: { kind: req.kind, epicId: writtenEpicId },
   });
+
+  // See epic-ticket-sync.ts: moves the linked TechRequest back to IN_PROGRESS
+  // once nothing attached to it is still SUBMITTED. Never auto-resolves.
+  await onEpicResolved(actorPersonId, requestId, "COMPLETED");
 }
 
 /**
@@ -507,6 +526,10 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
     entityId: requestId,
     after: { status: "CANCELLED" },
   });
+
+  // See epic-ticket-sync.ts: moves the linked TechRequest back to IN_PROGRESS
+  // once nothing attached to it is still SUBMITTED. Never auto-resolves.
+  await onEpicResolved(actorPersonId, requestId, "CANCELLED");
 }
 
 /**

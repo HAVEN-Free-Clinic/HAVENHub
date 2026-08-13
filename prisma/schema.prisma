@@ -258,9 +258,22 @@ model Person {
   /// reason; the setter and timestamp are kept so the flag is attributable.
   doNotRehire                    Boolean                    @default(false)
   doNotRehireNote                String?
-  /// Bare id (no FK), mirroring spanishVerifiedById.
+  /// Bare id (no FK), mirroring the other verifier/setter columns.
   doNotRehireSetById             String?
   doNotRehireSetAt               DateTime?
+  /// Exempts this person from the content blocker gate. Set by an admin for
+  /// people on a managed device or network they cannot change themselves, who
+  /// are correctly detected as blocked and genuinely cannot comply.
+  blockerGateExempt              Boolean                    @default(false)
+  /// Most recent successful sign-in. Last value only, never a history: enough
+  /// to spot a dormant account without keeping a movement log of a volunteer.
+  lastLoginAt                    DateTime?
+  /// Raw user agent from that sign-in. Parsed for display by describeUserAgent.
+  lastLoginUserAgent             String?
+  /// Coarse location from Vercel's geo headers. City and country only, never an
+  /// IP address. Absent outside Vercel, so null in local development.
+  lastLoginCity                  String?
+  lastLoginCountry               String?
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
@@ -714,6 +727,11 @@ enum TechRequestCategory {
   DUO_MFA
   GENERAL_IT
   TEAMS
+  /// Problems with HAVEN Hub itself (bugs, access, feature requests), as opposed
+  /// to the external systems the other categories cover. Added once Intercom
+  /// became the support front door and Hub reports needed somewhere to land
+  /// other than GENERAL_IT, where they were indistinguishable from Yale IT work.
+  HAVEN_HUB
   OTHER
 }
 
@@ -743,28 +761,32 @@ enum CommentVisibility {
 /// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
 /// requester (the subject of the request).
 model TechRequest {
-  id            String              @id @default(cuid())
-  number        Int                 @unique @default(autoincrement())
-  requesterId   String
-  category      TechRequestCategory
-  epicSubtype   EpicRequestKind?
-  subject       String
-  description   String
-  priority      TechRequestPriority @default(MEDIUM)
-  status        TechRequestStatus   @default(SUBMITTED)
-  assignedToId  String?
-  resolution    String?
-  resolvedAt    DateTime?
-  // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
-  epicJobTitle  String?
-  epicMirrorId  String?
-  epicStartDate DateTime?
-  epicEndDate   DateTime?
-  worksAtYnhh   Boolean?
-  govId         String?
-  netId         String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id                     String              @id @default(cuid())
+  number                 Int                 @unique @default(autoincrement())
+  requesterId            String
+  category               TechRequestCategory
+  epicSubtype            EpicRequestKind?
+  subject                String
+  description            String
+  priority               TechRequestPriority @default(MEDIUM)
+  status                 TechRequestStatus   @default(SUBMITTED)
+  assignedToId           String?
+  resolution             String?
+  resolvedAt             DateTime?
+  /// The Intercom conversation this ticket was opened from, when it came in through
+  /// support chat rather than the Hub form. Unique: a conversation maps to at most one
+  /// ticket, which is what makes the create path idempotent under Intercom retries.
+  intercomConversationId String?             @unique
+  /// The Intercom Ticket this record is linked to, a DIFFERENT Intercom object from
+  /// intercomConversationId: the conversation resolves identity and receives internal
+  /// notes, while the ticket carries state (Direction 3's inbound sync) and the "Hub
+  /// ticket number" attribute (the write-back the conversation-only id could never
+  /// reach). Unique: a ticket maps to at most one TechRequest, which is what makes
+  /// ticket.created idempotent under Intercom's webhook retries. Collapsing these two
+  /// ids into one field is the mistake the design doc records costing an afternoon.
+  intercomTicketId       String?             @unique
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   /// Subject of the request. Cascade: tickets belong to the requester.
   requester    Person        @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
@@ -1589,31 +1611,31 @@ model Applicant {
 }
 
 model Application {
-  id                       String            @id @default(cuid())
-  cycleId                  String
-  applicantId              String
-  answers                  Json
-  applicantType            ApplicantType     @default(NEW)
-  departmentChoices        String[]
-  renewalDepartment        String?
+  id                         String            @id @default(cuid())
+  cycleId                    String
+  applicantId                String
+  answers                    Json
+  applicantType              ApplicantType     @default(NEW)
+  departmentChoices          String[]
+  renewalDepartment          String?
   // For a TRANSFER applicant: a snapshot of the department codes they were an
   // active member of at submit time (where they are coming from). Empty for
   // NEW and RENEWAL.
-  transferFromDepartments  String[]          @default([])
+  transferFromDepartments    String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
-  subcommitteeRanking      String[]
+  subcommitteeRanking        String[]
   /// Language CODES the applicant said they speak, hoisted at submit from the
   /// standard languages question (see LANGUAGES_FIELD_KEY). Hoisted rather than
   /// left in `answers` so promotion can turn them into PersonLanguage claims
   /// without re-parsing a JSON blob whose field key a cycle could have changed.
-  languagesClaimed         String[]
-  assignedSubcommitteeId   String?
-  assignedSubcommitteeById String?
-  assignedSubcommitteeAt   DateTime?
-  routedDepartmentCode     String?
-  routedById               String?
-  routedAt                 DateTime?
+  languagesClaimed           String[]
+  assignedSubcommitteeId     String?
+  assignedSubcommitteeById   String?
+  assignedSubcommitteeAt     DateTime?
+  routedDepartmentCode       String?
+  routedById                 String?
+  routedAt                   DateTime?
   // Second-choice discretion. A department that decides an applicant is not a fit
   // for THEM, rather than not a fit for the clinic, returns the application to the
   // recruitment lead instead of rejecting it. The three fields below are set
@@ -1624,24 +1646,24 @@ model Application {
   // out of their own review queue), so the department that declined is recorded
   // here instead. Only the MOST RECENT return is kept; the full decline history
   // lives in the audit log under recruitment.return_to_routing.
-  returnedToRoutingAt      DateTime?
+  returnedToRoutingAt        DateTime?
   returnedFromDepartmentCode String?
-  returnedById             String?
-  returnedReason           String?
+  returnedById               String?
+  returnedReason             String?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
-  decision                 InterviewDecision @default(PENDING)
-  decidedById              String?
-  decidedAt                DateTime?
-  decisionNotes            String?
-  status                   ApplicationStatus @default(SUBMITTED)
+  decision                   InterviewDecision @default(PENDING)
+  decidedById                String?
+  decidedAt                  DateTime?
+  decisionNotes              String?
+  status                     ApplicationStatus @default(SUBMITTED)
   /// Set when the applicant removed themselves through the portal. Null on every
   /// other row. Withdrawal is a declaration only: it never deletes acceptances,
   /// interviews, or onboarding contracts, which have their own guarded teardown.
-  withdrawnAt              DateTime?
-  submittedAt              DateTime?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  withdrawnAt                DateTime?
+  submittedAt                DateTime?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
 
   cycle                  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   applicant              Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)

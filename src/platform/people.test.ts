@@ -165,6 +165,34 @@ describe("updatePersonFields", () => {
     const created = await createPersonRecord(ACTOR, { name: "No Languages" });
     expect(await prisma.personLanguage.count({ where: { personId: created.id } })).toBe(0);
   });
+
+  it("persists and audits the blocker gate exemption when an admin sets it", async () => {
+    const person = await createPersonRecord(ACTOR, { name: "Managed Laptop", netId: "mgd1" });
+    await prisma.auditLog.deleteMany();
+
+    const updated = await updatePersonFields(ACTOR, person.id, { blockerGateExempt: true });
+    expect(updated.blockerGateExempt).toBe(true);
+
+    // The exemption is a bypass of a control that otherwise cannot be dismissed,
+    // so who granted it has to be recoverable.
+    const logs = await prisma.auditLog.findMany({ where: { action: "person.update" } });
+    expect(logs).toHaveLength(1);
+    expect((logs[0].before as Record<string, unknown>).blockerGateExempt).toBe(false);
+    expect((logs[0].after as Record<string, unknown>).blockerGateExempt).toBe(true);
+  });
+
+  it("leaves an existing exemption alone when the key is absent from the input", async () => {
+    const person = await createPersonRecord(ACTOR, {
+      name: "Already Exempt",
+      netId: "mgd2",
+      blockerGateExempt: true,
+    });
+    await prisma.auditLog.deleteMany();
+
+    // An unrelated edit from the same admin form must not silently revoke it.
+    const updated = await updatePersonFields(ACTOR, person.id, { name: "Renamed Person" });
+    expect(updated.blockerGateExempt).toBe(true);
+  });
 });
 
 describe("setPersonStatusField", () => {

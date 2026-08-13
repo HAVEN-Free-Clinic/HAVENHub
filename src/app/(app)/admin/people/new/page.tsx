@@ -23,6 +23,7 @@ export default async function NewPersonPage() {
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
         licensedRN: formData.get("licensedRN") === "on",
+        blockerGateExempt: formData.get("blockerGateExempt") === "on",
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

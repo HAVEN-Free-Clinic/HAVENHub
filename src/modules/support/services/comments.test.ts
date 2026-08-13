@@ -11,7 +11,7 @@
  *   - INTERNAL rows are filtered out for the requester; a manager sees all.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { createTechRequest, SupportForbiddenError, SupportNotFoundError } from "./tech-request";
@@ -250,5 +250,79 @@ describe("addComment reopen on requester reply", () => {
     await prisma.techRequest.update({ where: { id: req.id }, data: { status: "CANCELLED" } });
     await addComment(owner.id, req.id, { body: "hello?", visibility: "PUBLIC" });
     expect((await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("CANCELLED");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound Intercom sync (Direction 3, Hub-origin half): the requester-reply
+// reopen is a Hub-origin status change exactly like manage.ts's setStatus, so
+// it must push the new status onto a linked Intercom Ticket too -- otherwise
+// the ticket reads Resolved in Intercom forever after a reopen in the Hub.
+// See docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md,
+// Direction 3, and notifications.ts's pushIntercomTicketState.
+// ---------------------------------------------------------------------------
+
+describe("addComment reopen pushes the linked Intercom ticket's state", () => {
+  function mockFetchOk() {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function resolvedLinkedTicket() {
+    const owner = await createPerson("Owner");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await prisma.techRequest.update({
+      where: { id: req.id },
+      data: {
+        status: "RESOLVED",
+        resolvedAt: new Date(),
+        intercomConversationId: "ticket_1",
+        intercomTicketId: "ticket_1",
+      },
+    });
+    return { owner, req };
+  }
+
+  it("pushes IN_PROGRESS onto the linked Intercom ticket when a requester reply reopens it", async () => {
+    mockFetchOk();
+    const { owner, req } = await resolvedLinkedTicket();
+
+    await addComment(owner.id, req.id, { body: "still broken", visibility: "PUBLIC" });
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const ticketCalls = (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) => url.includes("/tickets/"));
+    expect(ticketCalls).toHaveLength(1);
+    const body = JSON.parse(ticketCalls[0][1].body as string) as { state: string };
+    expect(body.state).toBe("In progress");
+  });
+
+  it("commits the reopen even when the Intercom ticket-state push fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const { owner, req } = await resolvedLinkedTicket();
+
+    await addComment(owner.id, req.id, { body: "still broken", visibility: "PUBLIC" });
+
+    const after = await prisma.techRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("IN_PROGRESS");
+  });
+
+  it("does not push to Intercom when a reopen happens on an unlinked ticket", async () => {
+    mockFetchOk();
+    const owner = await createPerson("Owner");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    await prisma.techRequest.update({ where: { id: req.id }, data: { status: "RESOLVED", resolvedAt: new Date() } });
+
+    await addComment(owner.id, req.id, { body: "still broken", visibility: "PUBLIC" });
+
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

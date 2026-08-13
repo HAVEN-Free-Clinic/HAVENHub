@@ -7,6 +7,22 @@ const base = {
   NODE_ENV: "development",
 };
 
+/**
+ * The extra variables a real production boot must carry: Azure for sign-in and
+ * an R2 bucket for object storage. Spread alongside `base` by any test asserting
+ * something OTHER than those two production requirements, so adding a third one
+ * later does not send a dozen unrelated tests red.
+ */
+const prodExtras = {
+  AZURE_AD_CLIENT_ID: "id",
+  AZURE_AD_CLIENT_SECRET: "secret",
+  AZURE_AD_TENANT_ID: "tenant",
+  R2_ACCOUNT_ID: "acct123",
+  R2_ACCESS_KEY_ID: "akid",
+  R2_SECRET_ACCESS_KEY: "secret",
+  R2_BUCKET: "havenhub-uploads",
+};
+
 describe("loadConfig", () => {
   it("accepts a valid development env without Azure vars", () => {
     const config = loadConfig(base);
@@ -46,10 +62,8 @@ describe("loadConfig", () => {
   it("accepts production env when Azure variables are present", () => {
     const config = loadConfig({
       ...base,
+      ...prodExtras,
       NODE_ENV: "production",
-      AZURE_AD_CLIENT_ID: "id",
-      AZURE_AD_CLIENT_SECRET: "secret",
-      AZURE_AD_TENANT_ID: "tenant",
     });
     expect(config.AZURE_AD_TENANT_ID).toBe("tenant");
   });
@@ -309,6 +323,58 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, ...partial })).toThrowError(
       /R2_SECRET_ACCESS_KEY/
     );
+  });
+
+  it("rejects a production env with NO R2 variables at all (audit13 finding 1)", () => {
+    // The all-or-nothing check above only fires once SOME R2_* var is set, so
+    // this case -- the one an operator actually reaches by forgetting the whole
+    // block -- used to validate cleanly and silently select the local-disk
+    // driver. That is the invisible failure: a deployed host's filesystem is
+    // read-only or ephemeral, so every upload path in the app breaks at once and
+    // only at the moment a real user tries.
+    const prodNoR2 = {
+      ...base,
+      NODE_ENV: "production",
+      AZURE_AD_CLIENT_ID: "id",
+      AZURE_AD_CLIENT_SECRET: "secret",
+      AZURE_AD_TENANT_ID: "tenant",
+    };
+    expect(() => loadConfig(prodNoR2)).toThrowError(/R2_BUCKET/);
+  });
+
+  it("accepts a production env with a complete R2 configuration", () => {
+    const config = loadConfig({ ...base, ...prodExtras, NODE_ENV: "production" });
+    expect(config.R2_BUCKET).toBe("havenhub-uploads");
+  });
+
+  it("still allows local disk in development", () => {
+    // Local dev, CI, and the test suite all run on the disk driver by design.
+    expect(() => loadConfig(base)).not.toThrow();
+  });
+
+  it("exempts a DEMO_MODE production deploy from the R2 requirement", () => {
+    // DEMO_MODE is the documented escape hatch for running without the full
+    // infrastructure and never holds live volunteer data, so it keeps the
+    // local-disk fallback. The real production deploy runs with it off.
+    const config = loadConfig({
+      ...base,
+      NODE_ENV: "production",
+      DEMO_MODE: "true",
+    });
+    expect(config.R2_BUCKET).toBeUndefined();
+  });
+
+  it("skips the R2 requirement during next build (NEXT_PHASE)", () => {
+    // Same carve-out and same reason as the Azure block: `next build` runs with
+    // NODE_ENV=production but without runtime secrets, so this is a boot-time
+    // check, not a build-time one.
+    process.env.NEXT_PHASE = "phase-production-build";
+    try {
+      const config = loadConfig({ ...base, NODE_ENV: "production" });
+      expect(config.R2_BUCKET).toBeUndefined();
+    } finally {
+      delete process.env.NEXT_PHASE;
+    }
   });
 
   it("rejects a lone R2_ACCOUNT_ID rather than silently using local disk", () => {

@@ -28,13 +28,28 @@ export type SupportHistoryImportOptions = {
   putObject?: (key: string, bytes: Buffer, contentType: string) => Promise<void>;
 };
 
-/** Raised when the import would have queued a message, which it must never do. */
+/**
+ * Raised when the import would have queued a message, which it must never do.
+ *
+ * The message is taken from the path, not hardcoded. This check runs after BOTH
+ * paths, but only the dry run has actually rolled anything back: on the apply
+ * path the transaction committed before we got here, and attachments were
+ * uploaded after it. Claiming a rollback there told an operator mid-cutover that
+ * nothing was written when in fact every ticket row and every attachment was,
+ * and the natural response to that (re-run the import) is taken on a false
+ * premise.
+ */
 export class SupportHistoryNotificationError extends Error {
-  constructor(deltas: string) {
+  constructor(deltas: string, dryRun: boolean) {
+    const disposition = dryRun
+      ? `The dry run's transaction was rolled back, so nothing was written.`
+      : `THE ROWS ARE ALREADY COMMITTED and any attachments are already uploaded: ` +
+        `this check runs after the transaction, not inside it. Do not re-run before ` +
+        `inspecting EmailLog, TeamsMessage, and Notification for the rows counted above.`;
     super(
       `The support history import queued outbound messages (${deltas}). It writes through ` +
-        `prisma only and must never reach notify() or queueEmail(); the transaction was ` +
-        `rolled back. Investigate before re-running.`,
+        `prisma only and must never reach notify() or queueEmail(). ${disposition} ` +
+        `Investigate before re-running.`,
     );
     this.name = "SupportHistoryNotificationError";
   }
@@ -185,7 +200,7 @@ export async function runSupportHistoryImport(
 
   const after = await countQueuedMessages();
   const deltas = describeDeltas(before, after);
-  if (deltas) throw new SupportHistoryNotificationError(deltas);
+  if (deltas) throw new SupportHistoryNotificationError(deltas, options.dryRun);
 
   return report;
 }

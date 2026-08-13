@@ -5,6 +5,7 @@
 **Scope:** correctness and go-live readiness across the platform. 1,236 TS/TSX files, 101 pages, 30 API routes, 75 server-action modules, 125 migrations
 **Method:** single-session static audit plus a full automated baseline. No parallel agent fleet (unlike passes 11 and 12).
 **Result:** 3 findings (1 high, 1 medium, 1 low). No critical. No auth bypass, no data-exposure hole, no data-loss path.
+**Status:** all three fixed on `worktree-audit-13-prelaunch`. See "Fixes applied" at the end.
 
 ## Executive summary
 
@@ -115,11 +116,29 @@ so there is no live bug. It is reported because **nothing prevents a recurrence*
 and more schema changes will land before go-live. The rule exists only as prose
 in a runbook.
 
-**Fix.** Either add a CI check that fails when a migration containing
-`DROP COLUMN`/`DROP TABLE`/`RENAME` appears in the same commit as a
-`schema.prisma` field removal, or make the rule a required item on the release
-checklist. Independently, switching `loadDetail` from `include:` to an explicit
-`select:` would have made this particular change survivable.
+**Correction, found while fixing this.** The recommendation above (a CI check on
+"destructive migration plus code change in one commit") rested on an incomplete
+model, and so does DEPLOY.md's own rule. Prisma builds its column list from
+`schema.prisma`, not from what the application code touches. In release N the
+field is still declared in `schema.prisma` (it has to be, or the `DROP` migration
+would already be written), so release N's client still emits it, and release N is
+exactly what serves traffic when release N+1's migration lands. **Splitting into
+two releases does not on its own save you.**
+
+Measured against a database with a column dropped and a client that still
+declares it:
+
+| Query shape | Result |
+| --- | --- |
+| `findFirst({ where })`, no projection | fails, 42703 |
+| `findFirst({ where, include: {...} })` | fails, 42703 (`include` names relations; every scalar is still emitted) |
+| `findFirst({ where, select: {...} })` | survives |
+| `count()` | survives |
+
+**Fix.** An explicit `select:` is the only thing in reach that actually closes
+the window rather than shortening it. Applied to the queries that broke, and
+DEPLOY.md §1 corrected to state the real mechanism, since the rule as written
+gave false confidence.
 
 ### 3. The support-history import reports a rollback that did not happen (LOW)
 
@@ -248,3 +267,24 @@ Single session, static reading plus the automated baseline above, on a dedicated
   question only the Vercel project can answer.
 </content>
 </invoke>
+
+## Fixes applied
+
+All three findings are fixed on `worktree-audit-13-prelaunch`.
+
+| # | Change |
+| --- | --- |
+| 1 | `config.ts` gains a fourth `superRefine`: production, non-demo, outside the build phase now requires `R2_BUCKET`. Five tests cover the guard, the DEMO_MODE exemption, the `NEXT_PHASE` carve-out, and that local disk still works in development. |
+| 2 | DEPLOY.md §1 rewritten around the measured mechanism, including the query-shape table and the note that two releases alone do not help. `tech-request.ts` gains a shared `TICKET_SCALARS` projection, applied to `loadDetail` and to the three unprojected reads plus the create on the Intercom webhook path. Listing every scalar keeps the result assignable to `TechRequest`, so there is no type churn at the call sites, and `tsc` now catches the next narrowing at the call site instead of production catching it. |
+| 3 | `SupportHistoryNotificationError` takes the disposition from the path: it claims a rollback only on the dry run, and on the apply path states that rows are committed and names what to inspect. Four tests pin it, including the negative assertion that the apply path never says "rolled back". |
+
+**Verification after the fixes:** `tsc --noEmit` clean; `eslint src e2e scripts`
+0 errors; `next build` succeeds with no `R2_*` set, which is the regression that
+mattered most (it confirms the `NEXT_PHASE` carve-out); 520 tests pass across the
+24 support, config, and import test files, plus the 4 new ones.
+
+Not done, and deliberately: moving `prisma migrate deploy` out of `buildCommand`.
+That would remove the deploy window entirely rather than narrowing it, but it
+trades for a deployment that can go live before its schema does, and it is not a
+change to make unreviewed days before go-live. The tradeoff is now recorded in
+DEPLOY.md §1 so it is a decision rather than an oversight.

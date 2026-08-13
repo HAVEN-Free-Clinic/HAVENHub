@@ -26,6 +26,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { intercomStateId, stubIntercomFetch } from "@/platform/test/intercom";
 import { createTechRequest } from "./tech-request";
 import { onEpicSubmitted, onEpicResolved } from "./epic-ticket-sync";
 
@@ -74,7 +75,9 @@ async function submittedEpicRequest(
 }
 
 function mockFetchOk() {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+  // Answers GET /ticket_states as well: an outbound state push resolves the
+  // label to a state id there before writing. See @/platform/test/intercom.
+  stubIntercomFetch();
 }
 
 beforeEach(resetDb);
@@ -117,10 +120,11 @@ describe("onEpicSubmitted", () => {
       url.includes("/tickets/")
     );
     expect(ticketStateCalls).toHaveLength(1);
-    const body = JSON.parse(ticketStateCalls[0][1].body as string) as { state: string };
-    // Ops' workspace label, not the Hub's own "Awaiting YNHH" status label --
-    // see intercom-sync.ts on why the two vocabularies are kept separate.
-    expect(body.state).toBe("Waiting on YNHH ITS");
+    const body = JSON.parse(ticketStateCalls[0][1].body as string) as Record<string, unknown>;
+    // The id of ops' workspace state, resolved from ops' own label rather than
+    // from the Hub's "Awaiting YNHH" status label -- see intercom-sync.ts on why
+    // the two vocabularies are kept separate.
+    expect(body).toEqual({ ticket_state_id: intercomStateId("Waiting on YNHH ITS") });
   });
 
   it("posts a note naming the Epic request and the YNHH ticket into the linked conversation", async () => {

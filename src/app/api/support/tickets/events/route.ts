@@ -4,7 +4,7 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { isWebhookConfigured, intercomWebhookSecret } from "@/platform/intercom/config";
 import { verifyIntercomWebhookSignature } from "@/platform/intercom/webhooks";
 import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
-import { pushTicketNumber } from "@/platform/intercom/tickets";
+import { extractTicketStateInternalLabel, pushTicketNumber } from "@/platform/intercom/tickets";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { createTechRequestFromConversation, SupportStateError } from "@/modules/support/services/tech-request";
@@ -243,9 +243,21 @@ function extractTicketTypeName(item: Record<string, unknown>): string | null {
 
 async function handleTicketStateUpdated(item: Record<string, unknown>): Promise<Response> {
   const ticketId = asString(item.id);
-  const internalLabel = asString(item.ticket_state_internal_label);
+  // Shared with fetchTicketState's read of the same value, deliberately: the
+  // field's shape changed at API 2.12 and this handler read only the pre-2.12
+  // one, so every real delivery landed on the 400 below. See
+  // extractTicketStateInternalLabel for both shapes and why a webhook must
+  // accept either.
+  const internalLabel = extractTicketStateInternalLabel(item);
   if (!ticketId || !internalLabel) {
-    log.warn("[support] ticket.state.updated webhook missing a ticket id or state label");
+    // Logs the keys, never the values: this is the branch someone debugs a
+    // silent sync from, and "which fields did Intercom actually send" is the
+    // one question the old message could not answer. Ticket payloads carry
+    // member-authored subject and description text, so the keys are the most
+    // that can be logged here.
+    log.warn("[support] ticket.state.updated webhook missing a ticket id or state label", {
+      itemKeys: Object.keys(item).sort().join(","),
+    });
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 

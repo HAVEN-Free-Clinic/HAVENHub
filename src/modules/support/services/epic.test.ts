@@ -67,6 +67,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as channel from "@/platform/notifications/channel";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { stubIntercomFetch } from "@/platform/test/intercom";
 import {
   createEpicRequest,
   createTicket,
@@ -975,7 +976,9 @@ describe("linkEpicRequestToTicket", () => {
 
 describe("createTicket drives TechRequest.status to AWAITING_YNHH", () => {
   function mockFetchOk() {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+    // Answers GET /ticket_states as well: an outbound state push resolves the
+    // label to a state id there before writing. See @/platform/test/intercom.
+    stubIntercomFetch();
   }
 
   beforeEach(() => {
@@ -1048,7 +1051,9 @@ describe("createTicket drives TechRequest.status to AWAITING_YNHH", () => {
 
 describe("completeRequest and cancelEpicRequest drive TechRequest.status back to IN_PROGRESS", () => {
   function mockFetchOk() {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+    // Answers GET /ticket_states as well: an outbound state push resolves the
+    // label to a state id there before writing. See @/platform/test/intercom.
+    stubIntercomFetch();
   }
 
   beforeEach(() => {

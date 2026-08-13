@@ -186,6 +186,34 @@ A state arriving with no mapping must be **rejected and logged, not guessed**. S
 unknown state into the nearest-looking status is how a ticket ends up Resolved because somebody
 added a state in the Intercom UI.
 
+**Revised 2026-08-13, after both directions were found dead in production.** The two tables above
+were right; the wire format on either side of them was not. Intercom changed how a ticket's state
+is carried at API **2.12**, and this integration was built to the pre-2.12 contract while pinning
+2.14 on every call:
+
+| | 2.11 and earlier | 2.12 and later |
+| --- | --- | --- |
+| Reading a state | `ticket_state_internal_label: "Resolved"` | `ticket_state: { internal_label: "Resolved", ... }` |
+| Writing a state | `PUT /tickets/{id} {"state": "<label>"}` | `PUT /tickets/{id} {"ticket_state_id": "<id>"}` |
+
+Both failures were quiet in different ways, and neither was caught by a test, because the fixtures
+were written from the same misread docs as the code. Inbound, the webhook 400'd every delivery and
+`fetchTicketState` returned null for every ticket -- which the reconciliation cron reads as
+"Intercom unreachable" and skips, so the safety net built to catch a missed sync reported nothing
+while checking nothing. Outbound was worse: Intercom ignores unrecognized body properties rather
+than rejecting them, so the write returned 200, `pushTicketState` returned true, and the ticket's
+state never moved.
+
+Two rules came out of it. **Reads accept both shapes**, because a webhook payload is serialized at
+whatever version the app is set to in the Developer Hub -- a dashboard setting this codebase does
+not control and that can move backwards as easily as forwards. **Writes target one**, because the
+version of an outbound call is a constant in this repo. Writing now costs a `GET /ticket_states`
+lookup to turn a label into a state id; it is cached per process, and matched on `internal_label`
+rather than on `category` for the same reason the reader refuses a category outright. The
+workspace's seven states collapse into four categories: `Resolved`, `Won't fix`, and `Cancelled`
+are all `resolved`, and `In progress` and `Waiting on YNHH ITS` are both `in_progress`. Matching on
+category could therefore write a member's cancelled ticket to Resolved.
+
 ### The loop, which is the part that bites
 
 Status will move in both directions. Intercom drives it normally, but Epic transitions originate in

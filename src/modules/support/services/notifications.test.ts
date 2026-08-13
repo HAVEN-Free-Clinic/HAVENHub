@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { intercomStateId, intercomWriteBody, intercomWriteCalls, stubIntercomFetch } from "@/platform/test/intercom";
 import { createTechRequest } from "./tech-request";
 import {
   notifyTicketSubmitted,
@@ -258,19 +259,20 @@ describe("pushIntercomTicketState", () => {
   });
 
   it("pushes the mapped state for a ticket with an intercomTicketId", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+    const fetchMock = stubIntercomFetch();
 
     await pushIntercomTicketState(
       { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
       "SUBMITTED"
     );
 
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain("ticket_1");
-    const body = JSON.parse(init.body as string) as { state: string };
-    expect(body.state).toBe("In progress");
+    // Two requests, not one: the state label is resolved through
+    // GET /ticket_states before the write, because from API 2.12 the
+    // update-ticket endpoint takes an id rather than a label.
+    const writes = intercomWriteCalls(fetchMock);
+    expect(writes).toHaveLength(1);
+    expect(writes[0][0]).toContain("ticket_1");
+    expect(intercomWriteBody(fetchMock)).toEqual({ ticket_state_id: intercomStateId("In progress") });
   });
 
   it("does not call Intercom at all for a ticket with no intercomTicketId", async () => {

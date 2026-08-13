@@ -13,7 +13,7 @@ import {
   personIdsVerifiedIn,
   languageCodeFromAnswer,
   LanguageValidationError,
-} from "./languages";
+} from "./index";
 
 const ACTOR = "lang-actor";
 

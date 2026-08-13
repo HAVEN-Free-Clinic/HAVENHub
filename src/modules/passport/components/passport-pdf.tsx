@@ -1,7 +1,15 @@
 import { Fragment } from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { formatShiftsAndHours, formatServiceDates, trackLabel, type ServiceRecord } from "../services/service-record";
-import { languageLabel } from "@/platform/languages";
+// ../services/service-record-format, not ../services/service-record: this
+// component renders through a "use client" card, so a runtime import from the
+// service module would pull prisma and the notification sender into the browser
+// bundle. Only `next build` catches that; typecheck and vitest pass.
+import { formatShiftsAndHours, formatServiceDates, trackLabel, type ServiceRecord } from "../services/service-record-format";
+// ./catalog, not "@/platform/languages": this component is reached from a
+// "use client" card (service-record-card), and the index module imports prisma
+// and notify. Importing it here pulls the whole server graph into the browser
+// bundle, which typecheck and vitest both pass but `next build` rejects.
+import { languageLabel } from "@/platform/languages/catalog";
 
 const INK = "#1c2b2d";
 const MUTED = "#5c7073";

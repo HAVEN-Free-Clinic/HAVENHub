@@ -41,6 +41,7 @@ import type { TechRequest, TechRequestCategory, TechRequestStatus } from "@prism
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { log } from "@/platform/logging";
+import { normalizeTicketStateLabel } from "@/platform/intercom/tickets";
 import { CATEGORY_LABELS } from "../labels";
 
 // ---------------------------------------------------------------------------
@@ -130,15 +131,14 @@ const INTERCOM_STATE_TO_STATUS: Record<string, TechRequestStatus> = {
 /**
  * Trim, lowercase, and fold a typographic apostrophe to a straight one.
  *
- * The workspace's "Won't fix" uses U+0027 today, but that label is editable in
- * Intercom's UI, and an editor that auto-substitutes quotes would turn it into
- * U+2019 -- a label that looks identical in every log line and screenshot while
- * missing the lookup entirely. Folding costs nothing and removes a debugging
- * session nobody would enjoy.
+ * Moved to src/platform/intercom/tickets.ts on 2026-08-13 and imported back
+ * under its old local name, because the outbound half now folds the SAME label
+ * before matching it against the workspace's state list (see that function's
+ * doc comment). src/platform cannot import src/modules, so the shared piece has
+ * to live over there; keeping the local alias leaves this file's call sites
+ * reading exactly as they did.
  */
-function normalizeStateLabel(label: string): string {
-  return label.trim().toLowerCase().replace(/’/g, "'");
-}
+const normalizeStateLabel = normalizeTicketStateLabel;
 
 /**
  * Maps an Intercom ticket's staff-facing state label (the webhook payload's

@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { intercomStateId, stubIntercomFetch } from "@/platform/test/intercom";
 import { createTechRequest, SupportForbiddenError, SupportNotFoundError } from "./tech-request";
 import { addComment, listComments, notifyCommentAdded } from "./comments";
 
@@ -264,7 +265,9 @@ describe("addComment reopen on requester reply", () => {
 
 describe("addComment reopen pushes the linked Intercom ticket's state", () => {
   function mockFetchOk() {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+    // Answers GET /ticket_states as well: an outbound state push resolves the
+    // label to a state id there before writing. See @/platform/test/intercom.
+    stubIntercomFetch();
   }
 
   beforeEach(() => {
@@ -301,8 +304,10 @@ describe("addComment reopen pushes the linked Intercom ticket's state", () => {
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     const ticketCalls = (fetchMock.mock.calls as [string, RequestInit][]).filter(([url]) => url.includes("/tickets/"));
     expect(ticketCalls).toHaveLength(1);
-    const body = JSON.parse(ticketCalls[0][1].body as string) as { state: string };
-    expect(body.state).toBe("In progress");
+    // An id, not the label: from API 2.12 the update-ticket endpoint takes
+    // `ticket_state_id`, and quietly ignores the `state` key this used to send.
+    const body = JSON.parse(ticketCalls[0][1].body as string) as Record<string, unknown>;
+    expect(body).toEqual({ ticket_state_id: intercomStateId("In progress") });
   });
 
   it("commits the reopen even when the Intercom ticket-state push fails", async () => {

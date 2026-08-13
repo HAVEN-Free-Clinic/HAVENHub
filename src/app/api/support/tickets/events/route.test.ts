@@ -78,6 +78,18 @@ function ticketCreatedPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * The state block Intercom actually sends on API 2.12 and later, captured from
+ * the live workspace on 2026-08-13 (GET /tickets/215475467632476 at 2.14).
+ *
+ * These tests used to build the PRE-2.12 shape -- a flat
+ * `ticket_state_internal_label` on the item -- which is the same shape the
+ * handler read, so the suite passed green while every real delivery 400'd. The
+ * fixture, not the assertion, was the thing that could not fail. Anything
+ * asserting the sync works must be built from a payload Intercom would really
+ * send; the legacy shape keeps its own explicit test below rather than being
+ * the default here.
+ */
 function ticketStateUpdatedPayload(ticketId: string, internalLabel: string) {
   return {
     topic: "ticket.state.updated",
@@ -85,8 +97,24 @@ function ticketStateUpdatedPayload(ticketId: string, internalLabel: string) {
       item: {
         type: "ticket",
         id: ticketId,
-        ticket_state_internal_label: internalLabel,
+        ticket_state: {
+          type: "ticket_state",
+          id: "4706544",
+          category: "in_progress",
+          internal_label: internalLabel,
+          external_label: internalLabel,
+        },
       },
+    },
+  };
+}
+
+/** The pre-2.12 serialization, still accepted. See ticketStateUpdatedPayload. */
+function legacyTicketStateUpdatedPayload(ticketId: string, internalLabel: string) {
+  return {
+    topic: "ticket.state.updated",
+    data: {
+      item: { type: "ticket", id: ticketId, ticket_state_internal_label: internalLabel },
     },
   };
 }
@@ -348,6 +376,46 @@ describe("POST /api/support/tickets/events", () => {
       const res = await POST(signedReq(ticketStateUpdatedPayload("never-created", "In progress")));
 
       expect(res.status).toBe(404);
+    });
+
+    // A webhook payload is serialized at whatever API version the Intercom app
+    // is set to in the Developer Hub -- a dashboard setting this codebase does
+    // not control, and one that can move backwards as easily as forwards. Both
+    // shapes must therefore work, so this asserts the pre-2.12 one still does.
+    it("also accepts the pre-2.12 flat state label", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: true, personId: person.id, name: person.name });
+      await seedLinkedTicket("ticket_5");
+
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(legacyTicketStateUpdatedPayload("ticket_5", "In progress")));
+
+      expect(res.status).toBe(200);
+      const ticket = await prisma.techRequest.findUnique({ where: { intercomTicketId: "ticket_5" } });
+      expect(ticket?.status).toBe("IN_PROGRESS");
+    });
+
+    // The state's CATEGORY is not its label: this workspace's "Resolved",
+    // "Won't fix", and "Cancelled" all report category `resolved` while mapping
+    // to three different Hub statuses. A payload carrying only the category
+    // must refuse rather than resolve to whichever status happens to sit
+    // nearest, which is the guess intercom-sync.ts is built to never make.
+    it("refuses a payload carrying only the state category, and leaves status unchanged", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: true, personId: person.id, name: person.name });
+      await seedLinkedTicket("ticket_6");
+
+      const { POST } = await import("./route");
+      const res = await POST(
+        signedReq({
+          topic: "ticket.state.updated",
+          data: { item: { type: "ticket", id: "ticket_6", ticket_state: "resolved" } },
+        })
+      );
+
+      expect(res.status).toBe(400);
+      const ticket = await prisma.techRequest.findUnique({ where: { intercomTicketId: "ticket_6" } });
+      expect(ticket?.status).toBe("SUBMITTED");
     });
 
     // The loop-suppression claim, exercised at the HTTP layer: applying a

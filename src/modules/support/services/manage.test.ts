@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { intercomStateId, stubIntercomFetch } from "@/platform/test/intercom";
 import { createTechRequest, SupportNotFoundError, SupportStateError } from "./tech-request";
 import {
   assignRequest,
@@ -367,7 +368,9 @@ describe("cancelOwnRequest", () => {
 // ---------------------------------------------------------------------------
 
 function mockFetchOk() {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+  // Answers GET /ticket_states as well: an outbound state push resolves the
+  // label to a state id there before writing. See @/platform/test/intercom.
+  stubIntercomFetch();
 }
 
 describe("outbound Intercom sync", () => {
@@ -550,8 +553,10 @@ describe("outbound Intercom ticket-state sync", () => {
     expect(calls).toHaveLength(1);
     const [url, init] = calls[0];
     expect(url).toContain("ticket_1");
-    const body = JSON.parse(init.body as string) as { state: string };
-    expect(body.state).toBe("In progress");
+    // An id, not the label: from API 2.12 the update-ticket endpoint takes
+    // `ticket_state_id`, and quietly ignores the `state` key this used to send.
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ ticket_state_id: intercomStateId("In progress") });
   });
 
   it("resolveRequest pushes the RESOLVED state onto the linked Intercom ticket", async () => {
@@ -566,8 +571,8 @@ describe("outbound Intercom ticket-state sync", () => {
 
     const calls = ticketStateCalls();
     expect(calls).toHaveLength(1);
-    const body = JSON.parse(calls[0][1].body as string) as { state: string };
-    expect(body.state).toBe("Resolved");
+    const body = JSON.parse(calls[0][1].body as string) as Record<string, unknown>;
+    expect(body).toEqual({ ticket_state_id: intercomStateId("Resolved") });
   });
 
   it("cancelRequest pushes the CANCELLED state onto the linked Intercom ticket", async () => {
@@ -582,8 +587,8 @@ describe("outbound Intercom ticket-state sync", () => {
 
     const calls = ticketStateCalls();
     expect(calls).toHaveLength(1);
-    const body = JSON.parse(calls[0][1].body as string) as { state: string };
-    expect(body.state).toBe("Cancelled");
+    const body = JSON.parse(calls[0][1].body as string) as Record<string, unknown>;
+    expect(body).toEqual({ ticket_state_id: intercomStateId("Cancelled") });
   });
 
   it("writes nothing to /tickets/ for a ticket with no intercomTicketId, even when linked to a conversation", async () => {

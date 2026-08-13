@@ -1,6 +1,15 @@
 import { Fragment } from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { formatShifts, trackLabel, type ServiceRecord } from "../services/service-record";
+// ../services/service-record-format, not ../services/service-record: this
+// component renders through a "use client" card, so a runtime import from the
+// service module would pull prisma and the notification sender into the browser
+// bundle. Only `next build` catches that; typecheck and vitest pass.
+import { formatShiftsAndHours, formatServiceDates, trackLabel, type ServiceRecord } from "../services/service-record-format";
+// ./catalog, not "@/platform/languages": this component is reached from a
+// "use client" card (service-record-card), and the index module imports prisma
+// and notify. Importing it here pulls the whole server graph into the browser
+// bundle, which typecheck and vitest both pass but `next build` rejects.
+import { languageLabel } from "@/platform/languages/catalog";
 
 const INK = "#1c2b2d";
 const MUTED = "#5c7073";
@@ -37,7 +46,11 @@ export function PassportDocument({
 }) {
   const issued = new Date(record.generatedAt).toISOString().slice(0, 10);
   const capabilities = [
-    record.capabilities.spanishVerified ? "Spanish (verified by the interpreting department)" : null,
+    // One line per verified language. Absent on credentials issued before
+    // languages were generalized, which reads the same as none.
+    ...(record.capabilities.verifiedLanguages ?? []).map(
+      (code) => `${languageLabel(code)} (verified by the interpreting department)`,
+    ),
     record.capabilities.licensedRN ? "Licensed RN (self-reported)" : null,
   ].filter((c): c is string => Boolean(c));
 
@@ -74,10 +87,16 @@ export function PassportDocument({
                   {row.source === "RECRUITMENT" ? (
                     <Text style={styles.provenance}>Joined via recruitment</Text>
                   ) : null}
+                  {/* Dates hang under the term, where the column is widest.
+                      Reuses the provenance style: same role, a quiet secondary
+                      line. Empty string when unknown, so nothing renders. */}
+                  {formatServiceDates(row.dates) ? (
+                    <Text style={styles.provenance}>{formatServiceDates(row.dates)}</Text>
+                  ) : null}
                 </View>
                 <Text style={styles.cDept}>{row.departmentName}</Text>
                 <Text style={styles.cRole}>{trackLabel(row.track)}</Text>
-                <Text style={styles.cShifts}>{formatShifts(row.shifts)}</Text>
+                <Text style={styles.cShifts}>{formatShiftsAndHours(row.shifts, row.hours)}</Text>
               </View>
             </Fragment>
           ))

@@ -83,6 +83,10 @@ import {
   strikeablePeople,
   strikeCount,
   visibleStrikeCount,
+  listMyStrikes,
+  subjectFacingDetail,
+  setDoNotRehire,
+  getRehireFlag,
   linkActionToReport,
   DISCIPLINARY_CATEGORIES,
   DisciplinaryForbiddenError,
@@ -1336,5 +1340,261 @@ describe("linkActionToReport", () => {
     await expect(
       linkActionToReport(central.id, second.id, report.id)
     ).rejects.toBeInstanceOf(DisciplinaryValidationError);
+  });
+});
+
+describe("do-not-rehire flag", () => {
+  it("sets the flag with a note and records who set it", async () => {
+    const central = await createPerson("Central", "cen-dnr");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-dnr");
+
+    await setDoNotRehire(central.id, subject.id, {
+      doNotRehire: true,
+      note: "Repeated no-shows after two conversations.",
+    });
+
+    const flag = await getRehireFlag(subject.id);
+    expect(flag.doNotRehire).toBe(true);
+    expect(flag.note).toBe("Repeated no-shows after two conversations.");
+    expect(flag.setByName).toBe("Central");
+    expect(flag.setAt).not.toBeNull();
+
+    const audit = await prisma.auditLog.findFirst({ where: { action: "person.do_not_rehire_set" } });
+    expect(audit).not.toBeNull();
+  });
+
+  // A cleared flag must not leave its reason behind: a stale justification for a
+  // flag that no longer exists is worse than no record, and the audit log keeps
+  // the history either way.
+  it("clearing the flag wipes the note and attribution", async () => {
+    const central = await createPerson("Central", "cen-clr");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-clr");
+
+    await setDoNotRehire(central.id, subject.id, { doNotRehire: true, note: "reason" });
+    await setDoNotRehire(central.id, subject.id, { doNotRehire: false });
+
+    const flag = await getRehireFlag(subject.id);
+    expect(flag.doNotRehire).toBe(false);
+    expect(flag.note).toBeNull();
+    expect(flag.setByName).toBeNull();
+    expect(flag.setAt).toBeNull();
+
+    const row = await prisma.person.findUniqueOrThrow({ where: { id: subject.id } });
+    expect(row.doNotRehireSetById).toBeNull();
+
+    const audit = await prisma.auditLog.findFirst({ where: { action: "person.do_not_rehire_cleared" } });
+    expect(audit).not.toBeNull();
+  });
+
+  // Deciding the clinic would not take someone back is a clinic-wide judgment,
+  // not a departmental one. Mirrors deleteAction, which directors also cannot do.
+  it("refuses a director without incidents.manage", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "dir-dnr");
+    const subject = await createPerson("Subject", "sub-dnr2");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+
+    await expect(
+      setDoNotRehire(director.id, subject.id, { doNotRehire: true })
+    ).rejects.toBeInstanceOf(DisciplinaryForbiddenError);
+
+    expect((await getRehireFlag(subject.id)).doNotRehire).toBe(false);
+  });
+
+  it("rejects an unknown person", async () => {
+    const central = await createPerson("Central", "cen-404");
+    await grantPermission(central.id, "incidents.manage");
+    await expect(
+      setDoNotRehire(central.id, "nope", { doNotRehire: true })
+    ).rejects.toBeInstanceOf(DisciplinaryNotFoundError);
+  });
+
+  // Unflagged and unknown both read as "no flag" so callers render one state
+  // rather than having to tell the two apart.
+  it("reports no flag for an unflagged or unknown person", async () => {
+    const plain = await createPerson("Plain", "plain-dnr");
+    expect((await getRehireFlag(plain.id)).doNotRehire).toBe(false);
+    expect((await getRehireFlag("nobody")).doNotRehire).toBe(false);
+  });
+
+  it("normalizes a blank note to null", async () => {
+    const central = await createPerson("Central", "cen-blank");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-blank");
+    await setDoNotRehire(central.id, subject.id, { doNotRehire: true, note: "   " });
+    expect((await getRehireFlag(subject.id)).note).toBeNull();
+  });
+
+  // The flag is advisory. Nothing may use it to remove someone from a list: the
+  // applicant is never told it exists and so cannot contest it, and a silent
+  // filter would be undiscoverable when set in error.
+  it("does not affect who appears in the strikeable-people picker", async () => {
+    const central = await createPerson("Central", "cen-adv");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Flagged Person", "sub-adv");
+
+    const before = await strikeablePeople(central.id);
+    await setDoNotRehire(central.id, subject.id, { doNotRehire: true, note: "n/a" });
+    const after = await strikeablePeople(central.id);
+
+    expect(after.map((p) => p.id).sort()).toEqual(before.map((p) => p.id).sort());
+    expect(after.some((p) => p.id === subject.id)).toBe(true);
+  });
+});
+
+describe("listActions ordinal", () => {
+  it("numbers each row by its position in that person's sequence, not the running total", async () => {
+    const central = await createPerson("Central", "cen-ord");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-ord");
+
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-01-01") });
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-02-01") });
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-03-01") });
+
+    const { rows } = await listActions(central.id, {});
+
+    // Rows come back newest-first, so the newest is their 3rd.
+    expect(rows.map((r) => r.ordinal)).toEqual([3, 2, 1]);
+    // The total is the same on every row, which is exactly why the ordinal is
+    // needed: on its own the total says nothing about which strike this was.
+    expect(rows.every((r) => r.strikes === 3)).toBe(true);
+  });
+
+  it("numbers each person independently", async () => {
+    const central = await createPerson("Central", "cen-two");
+    await grantPermission(central.id, "incidents.manage");
+    const a = await createPerson("Ann", "ann-two");
+    const b = await createPerson("Bob", "bob-two");
+
+    await issueCentral(central.id, a.id, { occurredAt: new Date("2026-01-01") });
+    await issueCentral(central.id, b.id, { occurredAt: new Date("2026-01-15") });
+    await issueCentral(central.id, a.id, { occurredAt: new Date("2026-02-01") });
+
+    const { rows } = await listActions(central.id, {});
+    const byPerson = new Map(rows.map((r) => [`${r.personName}:${r.ordinal}`, r]));
+
+    expect(byPerson.has("Ann:1")).toBe(true);
+    expect(byPerson.has("Ann:2")).toBe(true);
+    expect(byPerson.has("Bob:1")).toBe(true);
+    expect(byPerson.has("Bob:2")).toBe(false);
+  });
+
+  // The ordinal and the total must be computed over the SAME set of rows, or a
+  // director sees nonsense like "3 of 2" where the extra row is a confidential
+  // action they are not permitted to open.
+  it("scopes the ordinal to what a director may see, matching the total", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "dir-ord");
+    const other = await createPerson("Other", "oth-ord");
+    const subject = await createPerson("Subject", "sub-conf-ord");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(other.id, "incidents.manage");
+
+    // A confidential strike issued by someone else: invisible to this director.
+    await issueCentral(other.id, subject.id, { occurredAt: new Date("2026-01-01"), confidential: true });
+    // Two they can see.
+    await issueCentral(other.id, subject.id, { occurredAt: new Date("2026-02-01") });
+    await issueCentral(other.id, subject.id, { occurredAt: new Date("2026-03-01") });
+
+    const { rows } = await listActions(director.id, {});
+
+    expect(rows).toHaveLength(2);
+    // Numbered 1 and 2 over the visible set, NOT 2 and 3 over the true history.
+    expect(rows.map((r) => r.ordinal).sort()).toEqual([1, 2]);
+    // And never exceeding the total shown beside them.
+    expect(rows.every((r) => r.ordinal <= r.strikes)).toBe(true);
+  });
+});
+
+describe("subjectFacingDetail", () => {
+  // Shared with the strike_issued email so the two surfaces that show a person
+  // their own strike cannot drift. See the function's doc for why #45 matters.
+  it("prefers the reviewer's notes, which were written to be read by the subject", () => {
+    expect(
+      subjectFacingDetail({ notes: "Discussed with the volunteer.", description: "raw narrative", confidential: false })
+    ).toBe("Discussed with the volunteer.");
+  });
+
+  it("falls back to the description on a NON-confidential strike", () => {
+    expect(subjectFacingDetail({ notes: null, description: "raw narrative", confidential: false })).toBe(
+      "raw narrative"
+    );
+  });
+
+  // The whole point: an anonymous report becomes a confidential strike, and the
+  // reporter's first-person account would identify them to anyone who knows the
+  // shift roster.
+  it("NEVER exposes the description on a confidential strike", () => {
+    const out = subjectFacingDetail({ notes: null, description: "I was on triage with him when he", confidential: true });
+    expect(out).not.toContain("I was on triage");
+    expect(out).toContain("Contact your department directors");
+  });
+
+  it("treats whitespace-only notes as absent", () => {
+    expect(subjectFacingDetail({ notes: "   ", description: "raw narrative", confidential: false })).toBe(
+      "raw narrative"
+    );
+  });
+});
+
+describe("listMyStrikes", () => {
+  it("returns a person's own strikes oldest first, numbered 1st, 2nd, 3rd", async () => {
+    const central = await createPerson("Central", "cen-ms");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-ms");
+
+    // Deliberately created out of chronological order: the ordinal must come
+    // from occurredAt, not insertion order.
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-03-01"), category: "Attendance" });
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-01-01"), category: "Professionalism" });
+    await issueCentral(central.id, subject.id, { occurredAt: new Date("2026-02-01"), category: "Patient Safety" });
+
+    const rows = await listMyStrikes(subject.id);
+
+    expect(rows.map((r) => r.ordinal)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.category)).toEqual(["Professionalism", "Patient Safety", "Attendance"]);
+  });
+
+  // Confidentiality hides a strike from OTHER directors, not from the person it
+  // is against, who was emailed about it when it was issued. Withholding it here
+  // would leave them unable to see something that counts toward their standing.
+  it("includes a confidential strike, with the narrative redacted", async () => {
+    const central = await createPerson("Central", "cen-conf");
+    await grantPermission(central.id, "incidents.manage");
+    const subject = await createPerson("Subject", "sub-conf");
+
+    await issueCentral(central.id, subject.id, {
+      confidential: true,
+      description: "I was on triage with him when he",
+    });
+
+    const rows = await listMyStrikes(subject.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).not.toContain("I was on triage");
+    expect(rows[0].detail).toContain("Contact your department directors");
+  });
+
+  it("returns nothing for a person with a clean record", async () => {
+    const clean = await createPerson("Clean", "clean-ms");
+    expect(await listMyStrikes(clean.id)).toEqual([]);
+  });
+
+  it("scopes strictly to the person asked for", async () => {
+    const central = await createPerson("Central", "cen-scope");
+    await grantPermission(central.id, "incidents.manage");
+    const mine = await createPerson("Mine", "mine-scope");
+    const theirs = await createPerson("Theirs", "theirs-scope");
+
+    await issueCentral(central.id, theirs.id, { category: "Attendance" });
+
+    expect(await listMyStrikes(mine.id)).toEqual([]);
+    expect(await listMyStrikes(theirs.id)).toHaveLength(1);
   });
 });

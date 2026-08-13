@@ -15,9 +15,17 @@ import { CAPABILITY_KEYS, CAPABILITY_LABELS } from "@/modules/schedule/services/
 type AttendingFormProps = {
   action: (formData: FormData) => Promise<void>;
   attending?: RhdAttending;
+  /**
+   * Whether to ask for the procedure qualification matrix. Only the reproductive
+   * health service line has one; a primary care attending has no IUD or
+   * Nexplanon qualification, and asking would imply the answer is a gap rather
+   * than an inapplicable question. Defaults to true so existing callers are
+   * unchanged.
+   */
+  showCapabilities?: boolean;
 };
 
-export function AttendingForm({ action, attending }: AttendingFormProps) {
+export function AttendingForm({ action, attending, showCapabilities = true }: AttendingFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
@@ -30,17 +38,19 @@ export function AttendingForm({ action, attending }: AttendingFormProps) {
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          {CAPABILITY_KEYS.map((key) => (
-            <Field key={key} label={CAPABILITY_LABELS[key]}>
-              <Select name={key} defaultValue={(attending?.[key] as string) ?? "unknown"}>
-                <option value="yes">yes</option>
-                <option value="no">no</option>
-                <option value="unknown">unknown</option>
-              </Select>
-            </Field>
-          ))}
-        </div>
+        {showCapabilities && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {CAPABILITY_KEYS.map((key) => (
+              <Field key={key} label={CAPABILITY_LABELS[key]}>
+                <Select name={key} defaultValue={(attending?.[key] as string) ?? "unknown"}>
+                  <option value="yes">yes</option>
+                  <option value="no">no</option>
+                  <option value="unknown">unknown</option>
+                </Select>
+              </Field>
+            ))}
+          </div>
+        )}
 
         <Field label="Notes">
           <Input name="notes" defaultValue={attending?.notes ?? ""} placeholder="Optional" />

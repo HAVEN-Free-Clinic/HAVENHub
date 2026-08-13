@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
 import * as review from "./review";
-import { routeApplication, decideRoutedApplication, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, RoutingError } from "./routing";
+import { routeApplication, decideRoutedApplication, returnToRouting, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, RoutingError } from "./routing";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -85,6 +85,84 @@ describe("routeApplication", () => {
     const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "D", lastName: "R", email: "dr@y.edu", emailLower: "dr@y.edu" } });
     const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
     await expect(routeApplication(application.id, "EDUC", lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
+});
+
+describe("returnToRouting", () => {
+  it("hands the applicant back: clears routing, records the department and reason, leaves the decision PENDING", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+
+    const returned = await returnToRouting(application.id, lead.id, "Better suited to a clinical team.");
+
+    // The declining department drops out of their own review queue, which gates
+    // volunteer rows on routedDepartmentCode.
+    expect(returned.routedDepartmentCode).toBeNull();
+    expect(returned.returnedFromDepartmentCode).toBe("EDUC");
+    expect(returned.returnedReason).toBe("Better suited to a clinical team.");
+    expect(returned.returnedById).toBe(lead.id);
+    expect(returned.returnedToRoutingAt).not.toBeNull();
+    // Crucially NOT a rejection: the application is still live.
+    expect(returned.decision).toBe("PENDING");
+
+    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.return_to_routing" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("re-routing clears the returned marker so the applicant leaves the lead's queue", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await returnToRouting(application.id, lead.id, "not us");
+
+    const rerouted = await routeApplication(application.id, "MDIC", lead.id);
+
+    expect(rerouted.routedDepartmentCode).toBe("MDIC");
+    expect(rerouted.returnedToRoutingAt).toBeNull();
+    expect(rerouted.returnedFromDepartmentCode).toBeNull();
+    expect(rerouted.returnedReason).toBeNull();
+    expect(rerouted.returnedById).toBeNull();
+  });
+
+  it("tears down a not-yet-emailed acceptance so releaseDecisions can't email it", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+
+    await returnToRouting(application.id, lead.id, "changed our minds");
+
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  });
+
+  it("blocks the return once the acceptance was emailed (must be rescinded first)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    await prisma.acceptance.updateMany({ where: { applicationId: application.id }, data: { emailedAt: new Date() } });
+
+    await expect(returnToRouting(application.id, lead.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+
+    // Nothing moved: the applicant is still routed and still accepted.
+    const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
+    expect(app.routedDepartmentCode).toBe("EDUC");
+    expect(app.returnedToRoutingAt).toBeNull();
+  });
+
+  it("rejects a return from someone outside the routed department's scope", async () => {
+    const { lead, other, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await expect(returnToRouting(application.id, other.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
+  it("rejects a return on an application that was never routed", async () => {
+    const { lead, application } = await seed();
+    await expect(returnToRouting(application.id, lead.id, null)).rejects.toBeInstanceOf(RoutingError);
+  });
+
+  it("normalizes a blank reason to null rather than storing whitespace", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    const returned = await returnToRouting(application.id, lead.id, "   ");
+    expect(returned.returnedReason).toBeNull();
   });
 });
 

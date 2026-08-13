@@ -33,6 +33,7 @@ import { formatDateOnly } from "@/platform/dates";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
+import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
   reportSubmittedContext,
@@ -106,6 +107,9 @@ export type SubmitReportInput = {
   priorOccurrence?: PriorOccurrence | null;
   priorOccurrenceDetail?: string | null;
   anonymous?: boolean;
+  /** Why the reporter wants to stay anonymous to the subject. Ignored unless
+   *  `anonymous` is set, so unchecking the box cannot leave orphaned text. */
+  anonymousReason?: string | null;
   files?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 };
 
@@ -211,6 +215,89 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Audience
+// ---------------------------------------------------------------------------
+
+/** A person who receives incident notifications, and whether they can act. */
+export type IncidentAudienceMember = {
+  id: string;
+  name: string;
+  entraObjectId: string | null;
+  contactEmail: string | null;
+  /**
+   * True for incidents.manage holders, who can open the review queue. False for
+   * escalation-only recipients, whose emails must omit the review link rather
+   * than offer one that bounces them off a page they cannot see.
+   */
+  canReview: boolean;
+};
+
+/**
+ * Everyone who receives incident notifications: incidents.manage reviewers, plus
+ * incidents.escalation_recipient holders copied for visibility.
+ *
+ * THE SINGLE SOURCE OF THIS AUDIENCE. The reporting form promises the reporter
+ * "This report goes to the clinic's incident reviewers, currently N people", and
+ * disclosure.ts requires that count to come from the same query that drives the
+ * notification, so the form can never describe a smaller audience than the one
+ * actually mailed. Every caller that notifies, or that counts in order to state
+ * who is notified, must go through here. Do not reintroduce a bare
+ * peopleWithAnyPermission(["incidents.manage"]) at a call site.
+ *
+ * Escalation recipients get NO read access anywhere; the permission exists only
+ * to widen this list. See the note on the incidents module's permissions.
+ */
+/**
+ * Clinical supervisors OUTSIDE the Hub who are copied on incidents.
+ *
+ * These are real people with no Person record and no account: Yale School of
+ * Medicine attendings who need visibility but never sign in. That rules out the
+ * permission mechanism (nothing to grant it to) and the notify() path (no
+ * Person, so no Notification row and no channel preference). They get plain
+ * email and nothing else.
+ *
+ * Parsed permissively (comma or whitespace separated, deduped, lowercased) and
+ * filtered to values containing "@", so a stray trailing comma cannot produce an
+ * empty recipient that fails at send time.
+ */
+export async function externalEscalationEmails(): Promise<string[]> {
+  const raw = await getSetting<string>("incidents.externalEscalationEmails");
+  const parts = (raw ?? "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.includes("@"));
+  return [...new Set(parts)];
+}
+
+export async function incidentAudience(): Promise<IncidentAudienceMember[]> {
+  const [reviewers, escalation] = await Promise.all([
+    peopleWithAnyPermission(["incidents.manage"]),
+    peopleWithAnyPermission(["incidents.escalation_recipient"]),
+  ]);
+  const reviewerIds = new Set(reviewers.map((r) => r.id));
+  const members: IncidentAudienceMember[] = reviewers.map((r) => ({
+    id: r.id,
+    name: r.name,
+    entraObjectId: r.entraObjectId,
+    contactEmail: r.contactEmail,
+    canReview: true,
+  }));
+  // Someone holding both permissions is a reviewer: the stronger role wins, and
+  // they must not be mailed twice.
+  for (const e of escalation) {
+    if (reviewerIds.has(e.id)) continue;
+    members.push({
+      id: e.id,
+      name: e.name,
+      entraObjectId: e.entraObjectId,
+      contactEmail: e.contactEmail,
+      canReview: false,
+    });
+  }
+  return members;
+}
+
+// ---------------------------------------------------------------------------
 // Notifications (best-effort -- never throws out of a committed mutation)
 // ---------------------------------------------------------------------------
 
@@ -233,20 +320,30 @@ async function notifyReviewersOfSubmission(
   actorPersonId: string
 ): Promise<void> {
   try {
-    // Exclude every linked subject from the reviewer set, even one who requested
-    // no strike, so no subject is ever alerted about a report about themselves.
-    const reviewers = (await peopleWithAnyPermission(["incidents.manage"])).filter(
+    // Exclude every linked subject from the audience, even one who requested no
+    // strike, so no subject is ever alerted about a report about themselves.
+    // Applies to escalation recipients too: being copied for visibility must not
+    // become a way to learn of a report against yourself.
+    const reviewers = (await incidentAudience()).filter(
       (r) => !subjectPersonIds.includes(r.id)
     );
-    if (reviewers.length === 0) return;
+    // Deliberately NOT an early return. External supervisors are an independent
+    // audience: if nobody currently holds incidents.manage, they are the only
+    // people who would hear about the report at all, and returning here would
+    // silently drop them too.
 
     const baseUrl = await getSetting<string>("app.baseUrl");
-    const reviewLink = `${baseUrl}/incidents/review`;
+    const reviewQueueUrl = `${baseUrl}/incidents/review`;
     const concernSummary = report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
     const hasStrikeRequest = pendingSubjectNames.length > 0;
     const subjectNames = pendingSubjectNames.join(", ");
 
     for (const reviewer of reviewers) {
+      // Escalation-only recipients get the substance without a link: the review
+      // queue requires incidents.manage, so offering it would send them to a
+      // no-access page. The templates guard the link paragraph on a non-empty
+      // value, so passing "" omits it rather than shipping a dead anchor.
+      const reviewLink = reviewer.canReview ? reviewQueueUrl : "";
       const submittedRendered = await renderEmail(
         "incidents.report_submitted",
         reportSubmittedContext({
@@ -266,7 +363,10 @@ async function notifyReviewersOfSubmission(
           summary: report.immediateRisk
             ? `Incident report #${report.number} was submitted and flagged as an immediate risk (${concernSummary}).`
             : `Incident report #${report.number} was submitted (${concernSummary}).`,
-          link: reviewLink,
+          // `|| null` not `??`: the template path uses "" for an escalation-only
+          // recipient, and an empty string would otherwise be stored as a
+          // clickable-but-empty Teams action.
+          link: reviewLink || null,
         },
         triggeredById: actorPersonId,
       });
@@ -290,6 +390,41 @@ async function notifyReviewersOfSubmission(
             summary: `Incident report #${report.number} includes a request to issue a disciplinary strike against ${subjectNames}.`,
             link: reviewLink,
           },
+          triggeredById: actorPersonId,
+        });
+      }
+    }
+
+    // --- External clinical supervisors ---
+    //
+    // Sent LAST and guarded hardest. These addresses are outside the clinic
+    // entirely, so an anonymous report must never reach them: the reporter was
+    // promised anonymity toward the subject, and a narrative leaving the
+    // organization is the one disclosure that cannot be walked back.
+    //
+    // They also get no link, because they have no account to follow it with,
+    // and no verbatim description, because the point is visibility that an
+    // incident occurred rather than distribution of the account.
+    if (!report.anonymous) {
+      const externals = await externalEscalationEmails();
+      for (const to of externals) {
+        const rendered = await renderEmail(
+          "incidents.report_submitted",
+          reportSubmittedContext({
+            reviewerName: "Colleague",
+            reportNumber: report.number,
+            concernSummary,
+            immediateRisk: report.immediateRisk,
+            reviewLink: "",
+          })
+        );
+        await queueEmail(prisma, {
+          to,
+          subject: rendered.subject,
+          html: rendered.html,
+          template: "incidents.report_submitted",
+          // No personId: there is no Person behind this address. EmailLog still
+          // records the send, which is what makes the disclosure auditable.
           triggeredById: actorPersonId,
         });
       }
@@ -474,6 +609,11 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     data: {
       reporterId: actorPersonId,
       anonymous: input.anonymous ?? false,
+      // Only stored alongside a live anonymity request. A reporter who typed a
+      // reason and then unchecked the box must not leave the explanation behind
+      // on a report that is not anonymous, where it would read as an unexplained
+      // aside about a colleague.
+      anonymousReason: input.anonymous ? (input.anonymousReason?.trim() || null) : null,
       concernTypes,
       description: input.description,
       occurredAt: input.occurredAt ?? null,

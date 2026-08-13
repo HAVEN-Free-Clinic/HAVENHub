@@ -22,6 +22,10 @@ import { ApplicantHistory } from "@/modules/recruitment/components/applicant-his
 import { PhotoError, removePhoto, setPhotoFromUpload } from "@/platform/photos";
 import { PhotoCard } from "@/modules/my-info/components/photo-card";
 import { getSetting } from "@/platform/settings/service";
+import { getRehireFlag, setDoNotRehire } from "@/modules/incidents/services/disciplinary";
+import { Alert } from "@/platform/ui/alert";
+import { Field, Input } from "@/platform/ui/input";
+import { DateOnly } from "@/platform/dates/display";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -36,6 +40,12 @@ export default async function PersonDetailPage({ params }: PageProps) {
 
   const canManageRoster = await can(session.personId, "admin.manage_roster");
   const maxMb = await getSetting<number>("uploads.maxMb");
+
+  // Separate permission from the rest of this page on purpose: see the section's
+  // comment below. The service re-checks it, so this only decides whether the
+  // controls render rather than being the security boundary.
+  const canSetRehireFlag = await can(session.personId, "incidents.manage");
+  const rehireFlag = await getRehireFlag(id);
 
   // Resolved here rather than inside LastLoginPanel: that component stays
   // synchronous so it can be tested with renderToStaticMarkup, and the zone
@@ -52,6 +62,26 @@ export default async function PersonDetailPage({ params }: PageProps) {
     personId: person.id,
   });
 
+  // Both actions re-require incidents.manage rather than the page's
+  // admin.manage_people: a server action is a public endpoint in its own right,
+  // and the page gate above does not protect it from being invoked directly.
+  async function setRehireFlagAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("incidents.manage");
+    await setDoNotRehire(actor.personId, id, {
+      doNotRehire: true,
+      note: String(formData.get("note") ?? ""),
+    });
+    redirect(`/admin/people/${id}`);
+  }
+
+  async function clearRehireFlagAction() {
+    "use server";
+    const actor = await requirePermission("incidents.manage");
+    await setDoNotRehire(actor.personId, id, { doNotRehire: false });
+    redirect(`/admin/people/${id}`);
+  }
+
   async function updateAction(formData: FormData) {
     "use server";
     const actorSession = await requirePermission("admin.manage_people");
@@ -64,8 +94,6 @@ export default async function PersonDetailPage({ params }: PageProps) {
         epicId: (formData.get("epicId") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
-        spanishSelfReported: formData.get("spanishSelfReported") === "on",
-        spanishVerified: formData.get("spanishVerified") === "on",
         licensedRN: formData.get("licensedRN") === "on",
         blockerGateExempt: formData.get("blockerGateExempt") === "on",
       });
@@ -237,6 +265,47 @@ export default async function PersonDetailPage({ params }: PageProps) {
           </form>
         )}
       </section>
+
+      {/* Do-not-rehire. Gated on incidents.manage, NOT the admin.manage_people
+          that guards the rest of this page: deciding the clinic would not take
+          someone back is an incidents judgment, and the people who administer
+          records are not necessarily the people who make it. */}
+      {canSetRehireFlag && (
+        <section>
+          <SectionHeader className="mb-4">Rehire eligibility</SectionHeader>
+          {rehireFlag.doNotRehire ? (
+            <div className="space-y-3">
+              <Alert tone="warning">
+                <p className="font-medium">Flagged do-not-rehire.</p>
+                {rehireFlag.note && <p className="mt-1">{rehireFlag.note}</p>}
+                <p className="mt-1 text-xs">
+                  Set by {rehireFlag.setByName ?? "an unknown reviewer"}
+                  {rehireFlag.setAt ? <> on <DateOnly value={rehireFlag.setAt} /></> : null}.
+                </p>
+              </Alert>
+              <p className="text-sm text-muted-foreground">
+                Recruitment reviewers see this if they apply again. It does not reject or hide
+                an application on its own.
+              </p>
+              <form action={clearRehireFlagAction}>
+                <ConfirmButton label="Clear flag" confirmLabel="Clear the do-not-rehire flag?" />
+              </form>
+            </div>
+          ) : (
+            <form action={setRehireFlagAction} className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Flags this person for the recruitment team&apos;s attention if they apply again.
+                Advisory only: it never rejects, filters, or hides an application, and the
+                applicant is not told it exists.
+              </p>
+              <Field label="Reason" hint="Shown to recruitment reviewers. Optional but strongly recommended.">
+                <Input name="note" />
+              </Field>
+              <ConfirmButton label="Flag do-not-rehire" confirmLabel="Flag this person do-not-rehire?" />
+            </form>
+          )}
+        </section>
+      )}
 
       {/* Admin-only. This page already requires admin.manage_people, so the
           gating is inherited. Nothing here is shown to the member themselves or

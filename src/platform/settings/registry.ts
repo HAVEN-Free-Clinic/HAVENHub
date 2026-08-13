@@ -194,6 +194,47 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<string>({
+    key: "incidents.externalEscalationEmails",
+    category: "Operations",
+    label: "External escalation emails (incidents)",
+    help: "Comma-separated addresses of clinical supervisors OUTSIDE the Hub (e.g. Yale School of Medicine attendings) who should be copied on incident reports and issued strikes. They have no Hub account, so they receive email only, with no links. Confidential and anonymous-reporter matters are NEVER sent here. Leave blank to copy nobody. Everyone listed is counted in the audience total shown to reporters on the reporting form.",
+    input: { type: "text" },
+    schema: z.string(),
+    envDefault: () => "",
+    secret: false,
+  }),
+  define<number>({
+    key: "incidents.strikeThreshold",
+    category: "Operations",
+    label: "Disciplinary strike limit",
+    help: "How many strikes constitute reaching the limit under clinic policy. Reaching it is flagged on the strikes ledger and in the notification to a member's directors. It deliberately triggers nothing automatic: whether a member is offboarded stays a decision the Executive Directors make.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().min(1),
+    envDefault: () => 3,
+    secret: false,
+  }),
+  define<string>({
+    key: "epic.temporaryPassword",
+    category: "Integrations",
+    label: "Epic temporary password",
+    help: "The temporary password YNHH sets on a new Epic account, quoted in the activation email's setup steps. YNHH rotates this periodically; update it here the moment they do, or every new volunteer is told a password that no longer works. Leave blank to omit the password from the instructions entirely.",
+    input: { type: "text" },
+    // Deliberately NOT treated as a secret. It is a shared institutional default
+    // that YNHH issues and that this system emails, in plaintext, to every new
+    // Epic user by design. It is not a credential this application holds, and an
+    // admin needs to READ it to check it against what YNHH currently sets, which
+    // masking would prevent. (SettingDef.secret is always false regardless:
+    // genuine secrets live in env, never in the settings table.)
+    schema: z.string(),
+    // Seeded with the value that was hardcoded in the activation template up to
+    // 2026-08-12, so moving it here changes no outbound email on deploy. The "25"
+    // suggests a 2025 rotation and it may already be stale: it needs confirming
+    // against what YNHH currently sets. That is exactly the check this setting
+    // exists to make possible without a deploy.
+    envDefault: () => "SecureCare4u#25",
+    secret: false,
+  }),
+  define<string>({
     key: "teams.clinicGroupId",
     category: "Integrations",
     label: "Teams clinic group ID",

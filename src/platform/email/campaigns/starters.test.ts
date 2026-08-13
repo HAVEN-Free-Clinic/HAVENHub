@@ -7,6 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { validateTemplate } from "@/platform/email/render/validate";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { CAMPAIGN_STARTERS, getStarter } from "./starters";
@@ -47,6 +49,26 @@ describe("campaign starters", () => {
     expect(welcome.body).not.toContain("<body");
     // It must not hard-code a {{ brandColor }} token (the body cannot resolve it).
     expect(welcome.body).not.toContain("brandColor");
+  });
+
+  // A hero that 404s is worse than no hero: it renders as a broken-image icon at
+  // the very top of a welcome email, and nothing in the app would ever surface
+  // it. The file has to exist in public/ AND be referenced absolutely, because a
+  // relative path resolves against the mail client rather than the Hub.
+  it("welcome starter's hero image is absolute and actually exists in public/", () => {
+    const body = getStarter("welcome")!.body;
+    const src = /<img[^>]+src="([^"]+)"/.exec(body)?.[1];
+    expect(src).toBeDefined();
+    expect(src!.startsWith("https://")).toBe(true);
+
+    const path = new URL(src!).pathname;
+    expect(existsSync(join(process.cwd(), "public", path))).toBe(true);
+
+    // Outlook reserves space from the width/height attributes, and an image with
+    // no alt text is a blank gap for anyone with images off, which on Outlook is
+    // the default.
+    expect(body).toMatch(/<img[^>]+width="\d+"[^>]+height="\d+"/);
+    expect(body).toMatch(/<img[^>]+alt="[^"]{20,}"/);
   });
 
   it("welcome starter covers each capability group", () => {

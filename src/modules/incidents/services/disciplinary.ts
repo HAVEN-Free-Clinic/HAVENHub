@@ -83,7 +83,19 @@ export type ActionRow = {
   action: DisciplinaryAction;
   personName: string;
   issuedByName: string;
+  /** The person's total, scoped to what this viewer may see. */
   strikes: number;
+  /**
+   * Where THIS row falls in that person's sequence: 1 for their first, 2 for
+   * their second. Distinct from `strikes`, which is the running total and is
+   * identical on every row for the same person -- so a strike issued two years
+   * ago used to display as "3" purely because they have three now.
+   *
+   * Scoped through the same visibility predicate as `strikes`, so the two always
+   * agree (a director never sees "3 of 2" because a confidential row they cannot
+   * open was counted in one but not the other).
+   */
+  ordinal: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -345,7 +357,11 @@ export async function listActions(
       prisma.disciplinaryAction.count({ where }),
     ]);
 
-    const strikeCounts = await loadStrikeCounts(rows.map((r) => r.personId));
+    const personIds = rows.map((r) => r.personId);
+    const [strikeCounts, ordinals] = await Promise.all([
+      loadStrikeCounts(personIds),
+      loadStrikeOrdinals(personIds),
+    ]);
 
     return {
       rows: rows.map((r) => ({
@@ -353,6 +369,7 @@ export async function listActions(
         personName: r.person.name,
         issuedByName: r.issuedBy.name,
         strikes: strikeCounts.get(r.personId) ?? 0,
+        ordinal: ordinals.get(r.id) ?? 0,
       })),
       total,
       canManageAll: true,
@@ -414,12 +431,15 @@ export async function listActions(
     prisma.disciplinaryAction.count({ where }),
   ]);
 
-  // Count strikes through the same visibility predicate as the rows so the
-  // Strikes column does not leak confidential actions raised by others.
-  const strikeCounts = await loadStrikeCounts(
-    rows.map((r) => r.personId),
-    directorVisibility(viewerPersonId)
-  );
+  // Count and rank strikes through the same visibility predicate as the rows so
+  // the Strikes column does not leak confidential actions raised by others, and
+  // so the ordinal and the total describe the same set.
+  const visibility = directorVisibility(viewerPersonId);
+  const visiblePersonIds = rows.map((r) => r.personId);
+  const [strikeCounts, ordinals] = await Promise.all([
+    loadStrikeCounts(visiblePersonIds, visibility),
+    loadStrikeOrdinals(visiblePersonIds, visibility),
+  ]);
 
   return {
     rows: rows.map((r) => ({
@@ -427,6 +447,7 @@ export async function listActions(
       personName: r.person.name,
       issuedByName: r.issuedBy.name,
       strikes: strikeCounts.get(r.personId) ?? 0,
+      ordinal: ordinals.get(r.id) ?? 0,
     })),
     total,
     canManageAll: false,
@@ -534,6 +555,41 @@ async function loadStrikeCounts(
 }
 
 /**
+ * Map of actionId -> that action's position in its person's sequence.
+ *
+ * Needs every one of the person's actions, not just the ones on the current
+ * page, so this cannot be derived from the paginated rows: a row on page 2 has
+ * to know how many precede it on page 1. One query for all the people on the
+ * page, ranked in memory.
+ *
+ * Ordered by occurredAt then id, the same tiebreaker the ledger's own query uses
+ * (#44), so the numbering agrees with the order rows are displayed in. Pass the
+ * same `visibility` predicate the caller used for counts, so both describe the
+ * same set of rows.
+ */
+async function loadStrikeOrdinals(
+  personIds: string[],
+  visibility?: Prisma.DisciplinaryActionWhereInput
+): Promise<Map<string, number>> {
+  if (personIds.length === 0) return new Map();
+
+  const all = await prisma.disciplinaryAction.findMany({
+    where: { personId: { in: personIds }, ...visibility },
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    select: { id: true, personId: true },
+  });
+
+  const seen = new Map<string, number>();
+  const ordinals = new Map<string, number>();
+  for (const row of all) {
+    const next = (seen.get(row.personId) ?? 0) + 1;
+    seen.set(row.personId, next);
+    ordinals.set(row.id, next);
+  }
+  return ordinals;
+}
+
+/**
  * Returns the set of people against whom the actor may issue a disciplinary
  * action via the UI form.
  *
@@ -604,6 +660,166 @@ export async function issuablePeople(actorPersonId: string): Promise<{
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 
   return { all: false, people };
+}
+
+/**
+ * What a strike's SUBJECT may be told about it.
+ *
+ * A confidential strike must never carry the reporter's verbatim narrative to
+ * the person it is about: a first-person account ("I was working triage with him
+ * on Saturday when he...") identifies the reporter to anyone who knows that
+ * shift's roster, defeating the anonymity promise on the reporting form.
+ * decideStrike sets `confidential` from `report.anonymous`, so every
+ * anonymous-report strike is covered (#45).
+ *
+ * Order of preference:
+ *   1. The reviewer's decision notes, authored as a record the subject may see.
+ *   2. For a NON-confidential strike, the raw description.
+ *   3. Otherwise a pointer to a human, never the narrative.
+ *
+ * Shared by the strike_issued email and the member's own strike list on
+ * /my-info. Both show the subject the same text by construction; a fix to one
+ * cannot leave the other leaking.
+ */
+export function subjectFacingDetail(action: {
+  notes: string | null;
+  description: string | null;
+  confidential: boolean;
+}): string {
+  return (
+    action.notes?.trim() ||
+    (action.confidential
+      ? "Contact your department directors or the HAVEN Executive Directors for the details of this decision."
+      : (action.description ?? ""))
+  );
+}
+
+/** One strike as its subject sees it. */
+export type MyStrike = {
+  id: string;
+  occurredAt: Date;
+  category: string;
+  /** Redacted per subjectFacingDetail. Never the raw narrative on a confidential row. */
+  detail: string;
+  /** Ordinal at the time of this strike: 1 for their first, 2 for their second. */
+  ordinal: number;
+};
+
+/**
+ * A person's own strikes, oldest first, as they are permitted to see them.
+ *
+ * Confidential rows ARE included. Confidentiality on a strike hides it from
+ * OTHER directors (see directorVisibility), not from the person it is against,
+ * who was already emailed about it at issue time. Withholding it here would
+ * leave a member unable to see a strike that counts toward their standing, which
+ * is precisely what this view exists to fix. What confidentiality removes is the
+ * narrative, and subjectFacingDetail handles that.
+ *
+ * The ordinal is computed here rather than stored: deleteAction exists, and a
+ * stored ordinal would be wrong for every later row the moment one is deleted.
+ * Ordered by occurredAt then id, matching the ledger's tiebreaker (#44), so the
+ * numbering a member sees agrees with the order reviewers see.
+ */
+export async function listMyStrikes(personId: string): Promise<MyStrike[]> {
+  const rows = await prisma.disciplinaryAction.findMany({
+    where: { personId },
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    select: { id: true, occurredAt: true, category: true, notes: true, description: true, confidential: true },
+  });
+  return rows.map((r, i) => ({
+    id: r.id,
+    occurredAt: r.occurredAt,
+    category: r.category,
+    detail: subjectFacingDetail(r),
+    ordinal: i + 1,
+  }));
+}
+
+/** The do-not-rehire flag as a reviewer sees it. */
+export type RehireFlag = {
+  doNotRehire: boolean;
+  note: string | null;
+  setAt: Date | null;
+  setByName: string | null;
+};
+
+/**
+ * Sets or clears the do-not-rehire flag on a person.
+ *
+ * Requires incidents.manage. Directors cannot set it, mirroring deleteAction:
+ * this is a clinic-wide judgment about someone's future, not a departmental one.
+ *
+ * Clearing it wipes the note and attribution too, so a stale reason can never
+ * outlive the flag it explained. Both directions are audited.
+ */
+export async function setDoNotRehire(
+  actorPersonId: string,
+  personId: string,
+  input: { doNotRehire: boolean; note?: string | null }
+): Promise<void> {
+  if (!(await can(actorPersonId, "incidents.manage"))) {
+    throw new DisciplinaryForbiddenError(
+      "incidents.manage is required to set the do-not-rehire flag."
+    );
+  }
+
+  const before = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { doNotRehire: true, doNotRehireNote: true },
+  });
+  if (!before) throw new DisciplinaryNotFoundError(`Person ${personId} not found.`);
+
+  const setting = input.doNotRehire;
+  await prisma.person.update({
+    where: { id: personId },
+    data: {
+      doNotRehire: setting,
+      doNotRehireNote: setting ? (input.note?.trim() || null) : null,
+      doNotRehireSetById: setting ? actorPersonId : null,
+      doNotRehireSetAt: setting ? new Date() : null,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: setting ? "person.do_not_rehire_set" : "person.do_not_rehire_cleared",
+    entityType: "Person",
+    entityId: personId,
+    before: { doNotRehire: before.doNotRehire, note: before.doNotRehireNote },
+    after: { doNotRehire: setting, note: setting ? (input.note?.trim() || null) : null },
+  });
+}
+
+/**
+ * The do-not-rehire flag for a person, for display to a recruitment reviewer.
+ *
+ * Returns a flag with `doNotRehire: false` for an unflagged or unknown person,
+ * so callers render "no flag" rather than having to distinguish the two. The
+ * setter's name is resolved for attribution: a flag nobody can trace is one
+ * nobody can question.
+ *
+ * ADVISORY ONLY. Callers must surface this to a human, never use it to filter an
+ * applicant out of a list. See the field's doc comment on Person.
+ */
+export async function getRehireFlag(personId: string): Promise<RehireFlag> {
+  const person = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { doNotRehire: true, doNotRehireNote: true, doNotRehireSetAt: true, doNotRehireSetById: true },
+  });
+  if (!person?.doNotRehire) {
+    return { doNotRehire: false, note: null, setAt: null, setByName: null };
+  }
+  // Bare id, not an FK (mirrors PersonLanguage.verifiedById), so resolve it separately
+  // and tolerate a setter who has since been deleted.
+  const setter = person.doNotRehireSetById
+    ? await prisma.person.findUnique({ where: { id: person.doNotRehireSetById }, select: { name: true } })
+    : null;
+  return {
+    doNotRehire: true,
+    note: person.doNotRehireNote,
+    setAt: person.doNotRehireSetAt,
+    setByName: setter?.name ?? null,
+  };
 }
 
 /**

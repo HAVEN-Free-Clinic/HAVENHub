@@ -116,6 +116,121 @@ describe("computeServiceRecord", () => {
     expect(record.terms[0].shifts).toBe(3);
   });
 
+  describe("dates and hours", () => {
+    /** A member with three shifts in one term and department. */
+    async function threeShifts(hoursPerShift: number | null) {
+      const p = await person();
+      const d = await prisma.department.upsert({
+        where: { code: "ITCM" },
+        update: { hoursPerShift },
+        create: { code: "ITCM", name: "Internal Medicine", hoursPerShift },
+      });
+      const t = await term("SU26", "2026-05-01");
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+      for (const day of ["2026-06-17", "2026-06-03", "2026-06-10"]) {
+        await prisma.shiftAssignment.create({
+          data: {
+            termId: t.id, departmentId: d.id, personId: p.id,
+            clinicDate: new Date(`${day}T12:00:00Z`), role: "VOLUNTEER",
+          },
+        });
+      }
+      return p;
+    }
+
+    it("lists the dates served, ascending", async () => {
+      const p = await threeShifts(6);
+      const record = await computeServiceRecord(p.id);
+      // Seeded out of order above: the output must be sorted, not insertion order.
+      expect(record.terms[0].dates).toEqual(["2026-06-03", "2026-06-10", "2026-06-17"]);
+    });
+
+    it("multiplies shifts by the department's hours per shift", async () => {
+      const p = await threeShifts(6);
+      const record = await computeServiceRecord(p.id);
+      expect(record.terms[0].hours).toBe(18);
+    });
+
+    it("handles a fractional shift length", async () => {
+      const p = await threeShifts(5.5);
+      const record = await computeServiceRecord(p.id);
+      expect(record.terms[0].hours).toBe(16.5);
+    });
+
+    // The point of the whole feature: an unconfigured department must not
+    // produce a number. A fabricated hour total on a document a member submits
+    // with a residency application is worse than an honest omission.
+    it("reports null hours when the department has no hours configured", async () => {
+      const p = await threeShifts(null);
+      const record = await computeServiceRecord(p.id);
+      expect(record.terms[0].shifts).toBe(3);
+      expect(record.terms[0].hours).toBeNull();
+      // Dates are still known: only the hours input was missing.
+      expect(record.terms[0].dates).toHaveLength(3);
+    });
+
+    // Mirrors the existing shifts:null rule. On a term nobody was counting, an
+    // empty date list would read as "served no days" rather than "not recorded".
+    it("reports null dates and hours when the term has no shift data at all", async () => {
+      const p = await person();
+      const d = await prisma.department.upsert({
+        where: { code: "ITCM" },
+        update: { hoursPerShift: 6 },
+        create: { code: "ITCM", name: "Internal Medicine", hoursPerShift: 6 },
+      });
+      const t = await term("SP26", "2026-01-12");
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+
+      const record = await computeServiceRecord(p.id);
+      expect(record.terms[0].shifts).toBeNull();
+      expect(record.terms[0].dates).toBeNull();
+      expect(record.terms[0].hours).toBeNull();
+    });
+
+    // Dates are per (term, department), like shifts. A member serving in two
+    // departments on the same Saturday gets that date on BOTH rows, because each
+    // row describes that department's service, and its hours are that
+    // department's rate. Collapsing them would understate one of the two.
+    it("attributes a shared clinic date to each department separately", async () => {
+      const p = await person();
+      const med = await prisma.department.upsert({
+        where: { code: "ITCM" },
+        update: { hoursPerShift: 6 },
+        create: { code: "ITCM", name: "Internal Medicine", hoursPerShift: 6 },
+      });
+      const peds = await prisma.department.upsert({
+        where: { code: "PEDS" },
+        update: { hoursPerShift: 4 },
+        create: { code: "PEDS", name: "Pediatrics", hoursPerShift: 4 },
+      });
+      const t = await term("SU26", "2026-05-01");
+      for (const d of [med, peds]) {
+        await prisma.termMembership.create({
+          data: { personId: p.id, termId: t.id, departmentId: d.id, kind: "VOLUNTEER" },
+        });
+        await prisma.shiftAssignment.create({
+          data: {
+            termId: t.id, departmentId: d.id, personId: p.id,
+            clinicDate: new Date("2026-06-03T12:00:00Z"), role: "VOLUNTEER",
+          },
+        });
+      }
+
+      const record = await computeServiceRecord(p.id);
+      const byDept = new Map(record.terms.map((r) => [r.departmentName, r]));
+      expect(byDept.get("Internal Medicine")!.dates).toEqual(["2026-06-03"]);
+      expect(byDept.get("Pediatrics")!.dates).toEqual(["2026-06-03"]);
+      // Each at its own department's rate, which is the reason hours are
+      // per-department rather than one clinic-wide number.
+      expect(byDept.get("Internal Medicine")!.hours).toBe(6);
+      expect(byDept.get("Pediatrics")!.hours).toBe(4);
+    });
+  });
+
   it("counts shifts per department, not per term, for a member in two departments in one term", async () => {
     const p = await person();
     const itcm = await department();
@@ -370,12 +485,17 @@ describe("computeServiceRecord", () => {
 
   it("carries verified capabilities and a SCHEDULED basis", async () => {
     const p = await prisma.person.create({
-      data: { name: "Ada Lovelace", spanishVerified: true, licensedRN: true },
+      data: {
+        name: "Ada Lovelace",
+        licensedRN: true,
+        // Verified, so it belongs on the record. A self-reported claim would not.
+        languages: { create: { language: "es", verified: true, verifiedAt: new Date() } },
+      },
     });
 
     const record = await computeServiceRecord(p.id);
 
-    expect(record.capabilities).toEqual({ spanishVerified: true, licensedRN: true });
+    expect(record.capabilities).toEqual({ verifiedLanguages: ["es"], licensedRN: true });
     expect(record.basis).toBe("SCHEDULED");
     expect(record.name).toBe("Ada Lovelace");
     expect(record.memberSince).toBeNull();

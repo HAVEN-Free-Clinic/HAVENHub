@@ -13,6 +13,7 @@ import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { formatCalendarDate } from "@/platform/dates";
+import { languageLabel } from "@/platform/languages";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -104,6 +105,51 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
     ? formatCalendarDate(selectedDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     : null;
 
+  /**
+   * Shift flag badges for one roster row. Rendered for EVERY role, not just
+   * volunteers: the clinic needs to see which DIRECTOR is on triage or working
+   * remotely, and that is exactly what the full schedule is consulted for.
+   */
+  function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }) {
+    return (
+      <>
+        {tags.triage && <Badge tone="default">Triage</Badge>}
+        {tags.walkin && <Badge tone="default">Walk-in</Badge>}
+        {tags.cc && <Badge tone="default">CC</Badge>}
+        {tags.remote && <Badge tone="default">Remote</Badge>}
+      </>
+    );
+  }
+
+  /**
+   * Person-level capability badges: verified languages and RN.
+   *
+   * Distinct from the shift tags above, which describe the ASSIGNMENT (this
+   * person is on triage today). These describe the PERSON and are the same on
+   * every date. Both belong on this page because it is where the clinic looks
+   * someone up mid-shift, and "who can interpret for this patient" is the
+   * question it most often has to answer.
+   *
+   * Verified only, by construction: fullSchedule never returns a self-reported
+   * claim here.
+   */
+  function capabilityBadges(person: { verifiedLanguages: string[]; licensedRN: boolean }) {
+    return (
+      <>
+        {/* Code, not the full name: these rows already carry up to four shift
+            tags plus a conflict badge, and "Haitian Creole" would wrap every
+            row that has one. The full name is on the title for anyone who does
+            not recognise the code. */}
+        {person.verifiedLanguages.map((code) => (
+          <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
+            {code.toUpperCase()}
+          </Badge>
+        ))}
+        {person.licensedRN && <Badge tone="brand">RN</Badge>}
+      </>
+    );
+  }
+
   const totalVolunteers = departments.reduce((acc, d) => acc + d.volunteers.length, 0);
   const totalDirectors = departments.reduce((acc, d) => acc + d.directors.length, 0);
   const totalShadows = departments.reduce((acc, d) => acc + d.shadows.length, 0);
@@ -183,6 +229,8 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               <span className="text-sm font-bold text-foreground">{p.name}</span>
+                              {shiftTags(p.tags)}
+                              {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
@@ -203,10 +251,8 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
                               <span className="text-sm text-foreground-soft">{v.name}</span>
-                              {v.tags.triage && <Badge tone="default">Triage</Badge>}
-                              {v.tags.walkin && <Badge tone="default">Walk-in</Badge>}
-                              {v.tags.cc && <Badge tone="default">CC</Badge>}
-                              {v.tags.remote && <Badge tone="default">Remote</Badge>}
+                              {shiftTags(v.tags)}
+                              {capabilityBadges(v)}
                               {(conflicts.get(v.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(v.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(v.id) ?? []).join(", ")}
@@ -227,6 +273,8 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               <span className="text-sm text-subtle-foreground italic">{p.name}</span>
+                              {shiftTags(p.tags)}
+                              {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}

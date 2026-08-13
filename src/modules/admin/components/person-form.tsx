@@ -11,7 +11,6 @@ import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
-import { DateOnly } from "@/platform/dates/display";
 import { Select } from "@/platform/ui/select";
 import { affiliationOptionsWith } from "@/platform/affiliation";
 
@@ -28,9 +27,6 @@ type PersonFormProps = {
     | "epicId"
     | "yaleAffiliation"
     | "gradYear"
-    | "spanishSelfReported"
-    | "spanishVerified"
-    | "spanishVerifiedAt"
     | "licensedRN"
     | "blockerGateExempt"
   >;
@@ -110,33 +106,20 @@ export function PersonForm({ action, person, children }: PersonFormProps) {
           <div className="flex flex-wrap gap-6">
             <label className="flex items-center gap-2 text-sm text-foreground-soft">
               <Checkbox
-                name="spanishSelfReported"
-                defaultChecked={person?.spanishSelfReported ?? false}
-              />
-              Spanish-speaking (self-reported)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox
                 name="licensedRN"
                 defaultChecked={person?.licensedRN ?? false}
               />
               Licensed RN
             </label>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox
-                name="spanishVerified"
-                defaultChecked={person?.spanishVerified ?? false}
-              />
-              Spanish verified (interpreting dept)
-            </label>
-            {person?.spanishVerifiedAt && (
-              <p className="text-xs text-subtle-foreground">
-                Verified on <DateOnly value={new Date(person.spanishVerifiedAt)} />
-              </p>
-            )}
-          </div>
+          {/* Languages are no longer edited here. They live in PersonLanguage,
+              one row per language, and are assessed through the interpreting
+              department's review queue, which stamps who assessed and when.
+              A free checkbox on this form would be an unattributed override of
+              that assessment. */}
+          <p className="text-xs text-subtle-foreground">
+            Language capabilities are recorded and verified in Volunteers &gt; Language review.
+          </p>
           <div className="flex flex-col gap-1">
             <label className="flex items-center gap-2 text-sm text-foreground-soft">
               <Checkbox

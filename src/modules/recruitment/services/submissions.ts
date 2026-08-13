@@ -17,6 +17,7 @@ import { getRenewalContext } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "../templates/clinic-dates";
+import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -213,6 +214,30 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     }
   }
 
+  // Auto-route departments: clinical teams where the decision is credential
+  // verification by the department, not a committee judgment of fit, so their
+  // applicants skip scoring the way renewals do.
+  //
+  // Keyed on the FIRST choice only. Matching any ranked choice would let an
+  // applicant who put a clinical team third bypass the committee for a
+  // department they barely wanted, and would make the routed department depend
+  // on which auto-route department happened to sort first in their ranking.
+  //
+  // NEW and TRANSFER only. A RENEWAL already auto-routes to its renewal
+  // department below, which takes precedence: a returning member goes back to
+  // the department they belong to, not to whatever they ranked first.
+  let autoRouteDepartmentCode: string | null = null;
+  if (cycle.track === "VOLUNTEER" && input.applicantType !== "RENEWAL") {
+    const firstChoice = selectedDepartmentCodes[0];
+    if (firstChoice && cycle.departments.includes(firstChoice)) {
+      const dept = await prisma.department.findUnique({
+        where: { code: firstChoice },
+        select: { autoRouteApplicants: true },
+      });
+      if (dept?.autoRouteApplicants) autoRouteDepartmentCode = firstChoice;
+    }
+  }
+
   // Resolve the dedup identity and any resumed-draft file refs BEFORE building the
   // visibility context. A FILE field can gate other fields, but its "answer" lives
   // out of band -- in this submit's uploads (input.files) or in a prior draft's
@@ -356,6 +381,24 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     subcommitteeRanking = resolveRanking(input.answers[rankField.key], rankField.required, rankCount, activeIds, rankField.key);
   }
 
+  // Languages the applicant selected, hoisted to codes. Unrecognized answers are
+  // dropped rather than stored: a value nobody can map to a known language is a
+  // claim nobody can verify, and keeping it would put an unresolvable row in the
+  // interpreting department's queue at promotion.
+  const languageField = visibleFields.find((f) => f.key === LANGUAGES_FIELD_KEY);
+  let languagesClaimed: string[] = [];
+  if (languageField) {
+    const raw = input.answers[languageField.key];
+    const selected = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    languagesClaimed = [
+      ...new Set(
+        selected
+          .map((v) => languageCodeFromAnswer(String(v)))
+          .filter((c): c is string => c !== null),
+      ),
+    ];
+  }
+
   const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
@@ -453,16 +496,27 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       const appData = {
         answers: answersWithFiles as never,
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
+        languagesClaimed,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
-        // Returning members (RENEWAL only, NOT TRANSFER) skip committee scoring +
-        // routing: auto-route them straight to their current department so its
-        // director sees and decides them directly. Routing is volunteer-only (the
-        // director track is ranking-based and already visible to the dept). A
-        // TRANSFER is treated like a NEW applicant and goes through the committee.
+        // Two ways an application skips committee scoring and lands straight in a
+        // department's queue. Both are volunteer-only: the director track is
+        // ranking-based and already visible to the department.
+        //
+        //  1. Returning members (RENEWAL only, NOT TRANSFER) go back to the
+        //     department they already belong to. A TRANSFER is treated like a NEW
+        //     applicant and goes through the committee.
+        //  2. A NEW or TRANSFER applicant whose FIRST choice is an auto-route
+        //     department (see Department.autoRouteApplicants) goes to that
+        //     department, which verifies credentials rather than scoring fit.
+        //
+        // Checked in that order: a renewal's own department wins over whatever
+        // they ranked first.
         ...(input.applicantType === "RENEWAL" && cycle.track === "VOLUNTEER"
           ? { routedDepartmentCode: input.renewalDepartment!, routedAt: new Date() }
-          : {}),
+          : autoRouteDepartmentCode
+            ? { routedDepartmentCode: autoRouteDepartmentCode, routedAt: new Date() }
+            : {}),
         status: "SUBMITTED" as const, submittedAt: new Date(),
       };
       let app: Application;

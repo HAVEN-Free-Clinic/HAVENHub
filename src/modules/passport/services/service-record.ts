@@ -24,6 +24,7 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 /**
  * Either the singleton client or a transaction client.
@@ -38,54 +39,18 @@ import { prisma } from "@/platform/db";
  */
 export type PrismaClientOrTx = PrismaClient | Prisma.TransactionClient;
 
-export type ServiceTermRow = {
-  termCode: string;
-  termName: string;
-  /** ISO string. JSON-safe: this value crosses into client components. */
-  startDate: string;
-  departmentName: string;
-  track: "VOLUNTEER" | "DIRECTOR";
-  /**
-   * null = this term and department have no shift records at all. 0 = they do,
-   * and this member had none there.
-   */
-  shifts: number | null;
-  source: "MEMBERSHIP" | "RECRUITMENT";
-};
-
-export type ServiceRecord = {
-  name: string;
-  /** Null when the person has no membership and no onboarded recruitment outcome. */
-  memberSince: { label: string; source: "MEMBERSHIP" | "RECRUITMENT" } | null;
-  /** Ascending by term start. */
-  terms: ServiceTermRow[];
-  capabilities: { spanishVerified: boolean; licensedRN: boolean };
-  /** Upgrades to "ATTENDED" only if attendance capture is ever built. */
-  basis: "SCHEDULED";
-  generatedAt: string;
-};
-
 /**
- * A term and department with no shift records must never read as a zero. "Not
- * recorded" says the clinic was not counting; "0 scheduled" says the member
- * held no shifts.
- * Collapsing the two would understate a long-serving member on a document that
- * goes to residency programs.
- *
- * Lives here, next to ServiceTermRow, rather than in the PDF renderer: the
- * certificate PDF and the public credential page both format this value and
- * must never disagree about how it reads, and importing it from the PDF
- * module would pull @react-pdf/renderer (no sideEffects: false) into the
- * public page's server bundle for a two-line string helper.
+ * The shape and the pure formatters live in ./service-record-format, which is
+ * CLIENT-SAFE. They are re-exported here so server callers keep importing from
+ * one place. Do NOT move them back: the certificate PDF renders through a
+ * "use client" card, and importing a runtime value from this module pulls
+ * prisma and the notification sender into the browser bundle, which only
+ * `next build` catches.
  */
-export function formatShifts(shifts: number | null): string {
-  return shifts === null ? "Not recorded" : `${shifts} scheduled`;
-}
-
-/** Human label for a term row's track. Same reuse rationale as formatShifts above. */
-export function trackLabel(track: ServiceTermRow["track"]): string {
-  return track === "DIRECTOR" ? "Director" : "Volunteer";
-}
+export * from "./service-record-format";
+// `export *` re-exports without binding the names locally, and this file's own
+// signatures reference them.
+import type { ServiceRecord, ServiceTermRow } from "./service-record-format";
 
 export async function computeServiceRecord(
   personId: string,
@@ -93,9 +58,14 @@ export async function computeServiceRecord(
 ): Promise<ServiceRecord> {
   const person = await client.person.findUnique({
     where: { id: personId },
-    select: { name: true, spanishVerified: true, licensedRN: true },
+    select: { name: true, licensedRN: true },
   });
   if (!person) throw new Error(`No person ${personId}`);
+
+  // Verified languages only. A service record is a claim the member makes to a
+  // third party, so a self-reported language must never appear on it as though
+  // the clinic had confirmed it.
+  const verifiedLanguages = (await verifiedLanguagesByPerson([personId], client)).get(personId) ?? [];
 
   // A term that has not started yet is not service. This clinic deliberately
   // rosters the next term ahead of the ACTIVE flip (see the comment in
@@ -152,6 +122,43 @@ export async function computeServiceRecord(
         ).map((row) => [key(row.termId, row.departmentId), row._count._all] as const),
   );
 
+  // The member's own clinic dates per (term, department), so the record can list
+  // WHEN they served rather than only how often. Ascending, deduped: a member
+  // holding two assignments on one date served one day, not two.
+  const ownDates = new Map<string, string[]>();
+  if (!noProbe) {
+    const rows = await client.shiftAssignment.findMany({
+      where: { personId, ...probeWhere },
+      select: { termId: true, departmentId: true, clinicDate: true },
+      orderBy: { clinicDate: "asc" },
+    });
+    for (const r of rows) {
+      const pair = key(r.termId, r.departmentId);
+      // isoDateKey semantics inline: clinicDate is a noon-UTC calendar marker,
+      // so the UTC day IS the date, and any zone conversion would shift it.
+      const dayKey = r.clinicDate.toISOString().slice(0, 10);
+      const list = ownDates.get(pair) ?? [];
+      // The assignment unique key is (term, department, date, person), so a
+      // repeat within a pair cannot occur. Guarding anyway costs one comparison
+      // on an already-sorted list and keeps this correct if that key is ever
+      // widened (e.g. to include role).
+      if (list[list.length - 1] !== dayKey) list.push(dayKey);
+      ownDates.set(pair, list);
+    }
+  }
+
+  // Hours one shift is worth, per department. Absent means "not configured",
+  // which propagates to hours: null rather than defaulting to a number nobody
+  // agreed to.
+  const hoursByDepartment = new Map<string, number>();
+  if (departmentIds.length > 0) {
+    const depts = await client.department.findMany({
+      where: { id: { in: departmentIds }, hoursPerShift: { not: null } },
+      select: { id: true, hoursPerShift: true },
+    });
+    for (const d of depts) hoursByDepartment.set(d.id, Number(d.hoursPerShift));
+  }
+
   // At most one row per (term, department) reaches the output. `kind` is part of
   // the membership unique key, so a member can hold BOTH a VOLUNTEER and a
   // DIRECTOR row for the same term and department; emitting both would print the
@@ -163,13 +170,23 @@ export async function computeServiceRecord(
     const pair = key(m.term.id, m.departmentId);
     const existing = byTermDepartment.get(pair);
     if (existing && !(m.kind === "DIRECTOR" && existing.track !== "DIRECTOR")) continue;
+    const shifts = pairsWithData.has(pair) ? (ownCounts.get(pair) ?? 0) : null;
+    const perShift = hoursByDepartment.get(m.departmentId);
     byTermDepartment.set(pair, {
       termCode: m.term.code,
       termName: m.term.name,
       startDate: m.term.startDate.toISOString(),
       departmentName: m.department.name,
       track: m.kind,
-      shifts: pairsWithData.has(pair) ? (ownCounts.get(pair) ?? 0) : null,
+      shifts,
+      // Dates only where shift data exists at all. On a term we were not
+      // counting, an empty list would read as "served no days" rather than
+      // "not recorded", which is the same lie `shifts: null` exists to avoid.
+      dates: shifts === null ? null : (ownDates.get(pair) ?? []),
+      // Null whenever EITHER input is unknown. Never substitute a default: an
+      // invented hour total on a document a member submits with a residency
+      // application is worse than an honest omission.
+      hours: shifts === null || perShift === undefined ? null : shifts * perShift,
       source: "MEMBERSHIP" as const,
     });
   }
@@ -229,7 +246,12 @@ export async function computeServiceRecord(
         ? (departmentNames.get(h.resultDepartment) ?? h.resultDepartment)
         : "Department not recorded",
       track: h.track,
+      // A recruitment-sourced row is evidence of joining, not of duration: there
+      // is no shift data behind it, so dates and hours are unknown for the same
+      // reason shifts is.
       shifts: null,
+      dates: null,
+      hours: null,
       source: "RECRUITMENT",
     });
   }
@@ -252,7 +274,7 @@ export async function computeServiceRecord(
     memberSince: first ? { label: first.termName, source: first.source } : null,
     terms,
     capabilities: {
-      spanishVerified: person.spanishVerified,
+      verifiedLanguages,
       licensedRN: person.licensedRN,
     },
     basis: "SCHEDULED",

@@ -42,6 +42,25 @@ const BRAND = "#00356b";
 const HUB_URL = "https://hub.havenfreeclinic.org";
 const DOCS_URL = "https://docs.havenfreeclinic.org";
 
+/**
+ * Hero screenshot of the dashboard, served from `public/email/`.
+ *
+ * ABSOLUTE, and it has to be: an email is read outside the app, so a relative
+ * path resolves against the mail client and breaks. The file is committed
+ * alongside this template rather than hotlinked, so the URL cannot rot
+ * independently of the code that references it.
+ *
+ * 1104px wide for a 552px slot, so it stays sharp on a 2x display, and PNG
+ * because the subject is UI: JPEG artifacts show up badly on small text and
+ * flat fills. Roughly 66 KB, which keeps the whole message far below Gmail's
+ * clipping threshold.
+ *
+ * `width` and `height` attributes are set on the tag because Outlook needs
+ * them to reserve space, and the inline `max-width:100%;height:auto` is what
+ * makes it scale on a phone.
+ */
+const HERO_URL = `${HUB_URL}/email/hero-dashboard.png`;
+
 const FONT =
   "'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
@@ -56,13 +75,35 @@ function featureRow(title: string, body: string, opts: { last?: boolean } = {}):
       </tr>`;
 }
 
-const WELCOME_BODY = `<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">Welcome aboard</p>
+/**
+ * One centered value-proposition line under the heading.
+ *
+ * Centered single lines rather than a bulleted list: at 600px an emphasised
+ * fragment plus a short tail reads as a headline, and Outlook renders list
+ * markers inconsistently enough that three <li> would be three different shapes.
+ */
+function valueProp(lead: string, rest: string, opts: { last?: boolean } = {}): string {
+  return `<p style="margin:0 0 ${opts.last ? "24" : "10"}px;text-align:center;font-family:${FONT};font-size:17px;line-height:1.35;color:#0f172a;"><span style="font-weight:700;">${lead}</span> ${rest}</p>`;
+}
 
-<h1 style="margin:0 0 14px;font-family:${FONT};font-size:24px;line-height:1.25;font-weight:700;color:#0f172a;">Hi {{#if firstName}}{{firstName}}{{else}}there{{/if}}, welcome to HAVEN&nbsp;Hub</h1>
+/** One numbered step in the "Start here" panel. */
+function step(n: number, body: string, opts: { last?: boolean } = {}): string {
+  return `        <tr><td style="padding:0 0 ${opts.last ? "0" : "9"}px;font-family:${FONT};font-size:14px;line-height:1.5;color:#1e293b;"><strong style="color:${BRAND};">${n}.</strong>&nbsp;&nbsp;${body}</td></tr>`;
+}
 
-<p style="margin:0 0 16px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">HAVEN&nbsp;Hub is your new home base for everything you do at HAVEN Free Clinic. One sign-in with your Yale account brings your schedule, your compliance, your training, and support together in a single place.</p>
+const WELCOME_BODY = `<a href="${HUB_URL}" style="text-decoration:none;"><img src="${HERO_URL}" width="552" height="268" alt="The HAVEN Hub dashboard, showing your next shift, your clearance status, and the modules available to you" style="display:block;width:100%;max-width:552px;height:auto;border:0;border-radius:8px;margin:0 0 24px;"></a>
 
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 10px;">
+<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">Welcome aboard</p>
+
+<h1 style="margin:0 0 14px;font-family:${FONT};font-size:26px;line-height:1.22;font-weight:700;letter-spacing:-0.4px;color:#0f172a;">Hi {{#if firstName}}{{firstName}}{{else}}there{{/if}}, welcome to HAVEN&nbsp;Hub</h1>
+
+<p style="margin:0 0 22px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">HAVEN&nbsp;Hub is your home base for everything you do at HAVEN Free Clinic. One sign-in with your Yale account brings your shifts, your clearance, your training, and support together in a single place.</p>
+
+${valueProp("One sign-in", "with your Yale account.")}
+${valueProp("Every shift and requirement", "in one place.")}
+${valueProp("Built for HAVEN", "volunteers, by HAVEN volunteers.", { last: true })}
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 10px;">
   <tr>
     <td style="border-radius:6px;background-color:${BRAND};">
       <a href="${HUB_URL}" style="display:inline-block;padding:13px 26px;font-family:${FONT};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">Open HAVEN&nbsp;Hub &rarr;</a>
@@ -80,23 +121,35 @@ const WELCOME_BODY = `<p style="margin:0 0 6px;font-family:${FONT};font-size:12p
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;background-color:#ffffff;margin:0 0 24px;">
 ${featureRow(
   "Your profile &amp; clearance",
-  "Keep your contact details current, track your HIPAA certification, and see exactly what&rsquo;s left before you&rsquo;re cleared to volunteer &mdash; all under <strong>My&nbsp;Info</strong>.",
+  "Add a photo, keep your contact details current, and track your HIPAA and EHS training. <strong>My&nbsp;Info</strong> shows exactly what is left before you are cleared to volunteer, so nothing is a surprise on a Saturday morning.",
 )}
 ${featureRow(
   "The clinic schedule",
-  "See your upcoming shifts, view the full clinic schedule, and request a swap when something comes up.",
+  "See your upcoming shifts, browse the full clinic schedule, and request a swap when something comes up. Subscribe once and your shifts appear automatically in Outlook, Google Calendar, or Apple Calendar.",
+)}
+${featureRow(
+  "Who is on with you",
+  "The full schedule shows who is working each department, which attending is covering the clinic, and who is a verified language provider or a licensed RN &mdash; so you can find the right person without asking around.",
+)}
+${featureRow(
+  "The languages you speak",
+  "Tell us on your application or in <strong>My&nbsp;Info</strong>, and the interpreting department confirms each one. Once confirmed, you show up as a language provider on the schedule.",
 )}
 ${featureRow(
   "Training &amp; learning",
-  "Complete the self-paced courses your department assigns, on your own time, and watch your progress update automatically.",
+  "Complete the self-paced courses your department assigns, on your own time, and watch your progress update as you go.",
 )}
 ${featureRow(
   "IT &amp; Epic support",
   "File a tech request or ask for Epic&nbsp;/&nbsp;YNHH access, then follow it from submitted to resolved without chasing anyone by email.",
 )}
 ${featureRow(
+  "Your Record of Service",
+  "Every shift you serve is recorded. When you need proof for a residency application or a scholarship, download a verified Record of Service with the dates and hours you volunteered.",
+)}
+${featureRow(
   "Report a concern",
-  "Anyone can raise a professional-standards concern, confidentially, so the team can look into it and follow up.",
+  "Anyone can raise a professional-standards concern, confidentially and anonymously if you prefer, so the team can look into it and follow up.",
 )}
 ${featureRow(
   "Stay in the loop",
@@ -110,9 +163,10 @@ ${featureRow(
     <td style="padding:18px 20px;">
       <p style="margin:0 0 12px;font-family:${FONT};font-size:15px;font-weight:700;color:${BRAND};">Start here</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;">
-        <tr><td style="padding:0 0 9px;font-family:${FONT};font-size:14px;line-height:1.5;color:#1e293b;"><strong style="color:${BRAND};">1.</strong>&nbsp;&nbsp;Sign in at hub.havenfreeclinic.org with your Yale account.</td></tr>
-        <tr><td style="padding:0 0 9px;font-family:${FONT};font-size:14px;line-height:1.5;color:#1e293b;"><strong style="color:${BRAND};">2.</strong>&nbsp;&nbsp;Open <strong>My&nbsp;Info</strong> and finish anything still outstanding.</td></tr>
-        <tr><td style="padding:0;font-family:${FONT};font-size:14px;line-height:1.5;color:#1e293b;"><strong style="color:${BRAND};">3.</strong>&nbsp;&nbsp;Explore the modules waiting for you on your dashboard.</td></tr>
+${step(1, "Sign in at hub.havenfreeclinic.org with your Yale account.")}
+${step(2, "Open <strong>My&nbsp;Info</strong> and finish anything still outstanding.")}
+${step(3, "Check <strong>My schedule</strong> and subscribe to your shifts.")}
+${step(4, "Explore the modules waiting for you on your dashboard.", { last: true })}
       </table>
     </td>
   </tr>
@@ -120,9 +174,13 @@ ${featureRow(
 
 <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 24px;">
 
+<h3 style="margin:0 0 8px;font-family:${FONT};font-size:16px;line-height:1.3;font-weight:700;color:#0f172a;">A few things worth knowing</h3>
+
+<p style="margin:0 0 20px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">Press <strong>Cmd&nbsp;+&nbsp;K</strong> (or <strong>Ctrl&nbsp;+&nbsp;K</strong>) anywhere to jump to a page or search for a person. The Hub follows your device&rsquo;s light or dark setting, and you can pin either one from the account menu.</p>
+
 <h3 style="margin:0 0 8px;font-family:${FONT};font-size:16px;line-height:1.3;font-weight:700;color:#0f172a;">Need a hand?</h3>
 
-<p style="margin:0 0 14px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">Every page in HAVEN&nbsp;Hub has a <strong>Help</strong> button with search and answers built in. For step-by-step guides to every feature, our documentation is always a click away.</p>
+<p style="margin:0 0 14px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">Every page has a <strong>Help</strong> button with search and answers built in. For step-by-step guides to every feature, our documentation is always a click away.</p>
 
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 10px;">
   <tr>

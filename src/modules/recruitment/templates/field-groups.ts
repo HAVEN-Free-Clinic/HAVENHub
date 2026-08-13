@@ -2,6 +2,7 @@ import type { Track } from "@prisma/client";
 import type { TemplateOption, TemplateSection } from "./types";
 import { YALE_AFFILIATION, GRAD_YEAR, SPANISH_PROFICIENCY, MEDICAL_CERTIFICATIONS, YES_NO } from "./content/options";
 import { VOLUNTEER_AGREEMENT, PROFESSIONALISM_POLICY, TRAINING_ACKNOWLEDGEMENT } from "./content/acknowledgements";
+import { LANGUAGE_QUESTION } from "@/platform/languages";
 
 const sec = (
   title: string,
@@ -43,13 +44,41 @@ export function eligibilitySection(): TemplateSection {
   ]);
 }
 
+/**
+ * Languages.
+ *
+ * The multi-select is the STANDARD, locked question (LANGUAGES_FIELD_KEY): its
+ * answers are hoisted onto the application at submit and become verification
+ * claims at promotion, which is only possible because every cycle asks it the
+ * same way with the same option values. publishCycle refuses a cycle that
+ * removes it or changes its type.
+ *
+ * It replaced a free-text "which other languages do you speak?" pair. Free text
+ * could not be mapped to a language, so those answers never reached the
+ * interpreting department and never became a verifiable capability.
+ *
+ * Spanish proficiency stays as its own question: it captures a LEVEL, which the
+ * assessor uses when scheduling the assessment, and which a yes/no claim cannot
+ * express. Claiming Spanish here and selecting it above are not in conflict:
+ * both are claims, and neither verifies anything.
+ */
+/**
+ * BOTH, not NEW: a returning volunteer has to be asked too.
+ *
+ * The people most likely to have no language on record are precisely the
+ * returning ones, who applied before this question existed. Scoping the section
+ * to new applicants would mean submissions.ts never sees the field in their
+ * visibleFields, so their languagesClaimed is always empty and they can never
+ * enter the verification queue through an application at all.
+ *
+ * Re-asking someone already assessed is harmless: claimLanguage upserts
+ * selfReported only and never touches an existing verification.
+ */
 export function languagesSection(): TemplateSection {
-  return sec("Languages", "NEW", [
+  return sec("Languages", "BOTH", [
+    { ...LANGUAGE_QUESTION, options: [...LANGUAGE_QUESTION.options] },
     { key: "spanish_proficiency", label: "Spanish proficiency level", type: "SINGLE_SELECT", required: true, options: SPANISH_PROFICIENCY,
       helpText: "If you wish to speak Spanish at HAVEN (regardless of role) you must pass an assessment with the Department of Interpretation and Diversity. Everyone selecting Conversational or above will be invited to this assessment." },
-    { key: "other_languages", label: "Do you speak other languages?", type: "SINGLE_SELECT", required: true, options: YES_NO },
-    { key: "other_languages_detail", label: "Which other languages do you speak?", type: "SHORT_TEXT", required: false,
-      visibleWhen: { field: "other_languages", op: "is", value: "yes" } },
   ]);
 }
 

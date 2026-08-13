@@ -19,6 +19,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     expect(out).toHaveLength(1);
     expect(out[0].context.firstName).toBe("Val");
@@ -45,6 +46,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     expect(out).toHaveLength(4);
     const volReminder = out.find((r) => r.person.id === "v")!;
@@ -60,6 +62,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     expect(out[0].context.deptDirectorsOnShift).toBe("");
   });
@@ -71,6 +74,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "https://teams/x",
       baseUrl: BASE,
+      attendingName: "",
     });
     expect(out[0].context.teamsChannelUrl).toBe("https://teams/x");
   });
@@ -85,6 +89,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     expect(out).toHaveLength(1);
     expect(String(out[0].context.additionalShifts)).toContain("Pharmacy");
@@ -103,6 +108,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     const volReminder = out.find((r) => r.person.id === "v")!;
     expect(volReminder.context.deptDirectorsOnShift).toBe("Sam Lee, Sam Lee");
@@ -123,6 +129,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingName: "",
     });
     // A director is on shift themselves and does not need the directors list.
     expect(out.find((r) => r.person.id === "d1")!.context.deptDirectorsOnShift).toBe("");

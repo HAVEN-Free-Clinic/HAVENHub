@@ -33,8 +33,11 @@ import { strikeIssuedDirectorsContext } from "@/platform/email/templates/inciden
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { formatCalendarDate } from "@/platform/dates";
-import { visibleStrikeCount } from "./disciplinary";
+import { visibleStrikeCount, strikeCount, subjectFacingDetail } from "./disciplinary";
+import { externalEscalationEmails } from "./report";
+import { queueEmail } from "@/platform/email/send";
 
 export type StrikeNotificationInput = {
   /** The committed strike. */
@@ -85,19 +88,45 @@ async function directorRecipients(
 }
 
 /**
+ * Senior staff copied on an issued strike for visibility
+ * (incidents.escalation_recipient), minus the subject and the issuing actor,
+ * and minus anyone already in `existing` so nobody is mailed twice.
+ *
+ * They hold no incidents.view_strikes, so their email carries no ledger link.
+ * The caller supplies that distinction; this only resolves who they are.
+ */
+async function escalationRecipients(
+  subjectPersonId: string,
+  actorPersonId: string,
+  existing: Recipient[]
+): Promise<Recipient[]> {
+  const holders = await peopleWithAnyPermission(["incidents.escalation_recipient"]);
+  const already = new Set([...existing.map((r) => r.id), subjectPersonId, actorPersonId]);
+  return holders
+    .filter((h) => !already.has(h.id))
+    .map((h) => ({
+      id: h.id,
+      name: h.name,
+      entraObjectId: h.entraObjectId,
+      contactEmail: h.contactEmail,
+    }));
+}
+
+/**
  * Notifies the subject of a strike and, unless it is confidential, the directors
  * of their departments. Never throws.
  */
 export async function notifyStrikeIssued(input: StrikeNotificationInput): Promise<void> {
   const { action, actorPersonId } = input;
   try {
-    const [subject, issuer, baseUrl] = await Promise.all([
+    const [subject, issuer, baseUrl, strikeThreshold] = await Promise.all([
       prisma.person.findUnique({
         where: { id: action.personId },
         select: { id: true, name: true, entraObjectId: true, contactEmail: true },
       }),
       prisma.person.findUnique({ where: { id: actorPersonId }, select: { name: true } }),
       getSetting<string>("app.baseUrl"),
+      getSetting<number>("incidents.strikeThreshold"),
     ]);
     if (!subject) return;
 
@@ -111,18 +140,11 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
     });
 
     // --- The subject ---
-    // The subject-facing email must never carry the reporter's verbatim narrative
-    // when the strike is confidential (decideStrike sets confidential from
-    // report.anonymous): a first-person account ("I was working triage with him on
-    // Saturday when he...") identifies the reporter to anyone who knows that shift's
-    // roster, defeating the anonymity promise on the reporting form. Prefer the
-    // reviewer's decision notes, which were authored as a record the subject may see,
-    // and fall back to the raw description only for a non-confidential strike (#45).
-    const subjectFacingDetails =
-      action.notes?.trim() ||
-      (action.confidential
-        ? "Contact your department directors or the HAVEN Executive Directors for the details of this decision."
-        : (action.description ?? ""));
+    // Redaction lives in subjectFacingDetail (disciplinary.ts), shared with the
+    // member's own strike list on /my-info so the two surfaces that show a
+    // person their own strike cannot drift apart. See that function for why a
+    // confidential strike must not carry the reporter's narrative (#45).
+    const subjectFacingDetails = subjectFacingDetail(action);
     const subjectRendered = await renderEmail("incidents.strike_issued", {
       subjectName: subject.name?.trim().split(/\s+/)[0] || subject.name || "there",
       category: action.category,
@@ -141,20 +163,48 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
       triggeredById: actorPersonId,
     });
 
-    // --- Their directors, unless the strike is confidential ---
+    // --- Their directors and escalation recipients, unless confidential ---
+    //
+    // A confidential strike notifies NEITHER group. For directors that mirrors
+    // directorVisibility, which only lets them open a confidential row they
+    // issued themselves. For escalation recipients the rule is stricter still:
+    // they hold no incidents.view_strikes at all, so a confidential strike must
+    // never reach them. decideStrike sets confidential from report.anonymous, so
+    // this is what keeps an anonymous reporter's report from being announced to
+    // a wider audience than the reviewers who handled it.
     if (action.confidential) return;
 
     const directors = await directorRecipients(action.personId, actorPersonId);
-    if (directors.length === 0) return;
+    const escalation = await escalationRecipients(action.personId, actorPersonId, directors);
+    if (directors.length === 0 && escalation.length === 0) return;
 
     const ledgerLink = `${baseUrl}/incidents/strikes`;
 
-    for (const director of directors) {
+    // Directors get the ledger link; escalation recipients cannot open the
+    // ledger, so theirs is omitted (the template guards on a non-empty value).
+    const recipients = [
+      ...directors.map((r) => ({ person: r, canOpenLedger: true })),
+      ...escalation.map((r) => ({ person: r, canOpenLedger: false })),
+    ];
+
+    for (const { person: director, canOpenLedger } of recipients) {
       // Scoped to what this director may see: mirrors directorVisibility, so a
       // confidential strike issued by someone else never inflates the count in
       // their notification (each director's visible total can differ).
       const total = await visibleStrikeCount(action.personId, director.id);
-      const strikeLabel = `${total} strike${total === 1 ? "" : "s"}`;
+      // Say plainly when the policy limit is reached rather than leaving each
+      // director to remember the number and compare. Appended to the existing
+      // count phrase so the template needs no new variable and any admin
+      // override of that template keeps working.
+      //
+      // Deliberately informational: reaching the limit triggers nothing
+      // automatic. Whether the member is offboarded stays an ED decision, and an
+      // automatic membership change driven by a count would be both a policy
+      // call the code should not make and hard to reverse.
+      const atLimit = strikeThreshold > 0 && total >= strikeThreshold;
+      const strikeLabel =
+        `${total} strike${total === 1 ? "" : "s"}` +
+        (atLimit ? ` (at or over the ${strikeThreshold}-strike limit)` : "");
       const rendered = await renderEmail(
         "incidents.strike_issued_directors",
         strikeIssuedDirectorsContext({
@@ -164,7 +214,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
           occurredDate,
           issuedBy,
           strikeCount: strikeLabel,
-          ledgerLink,
+          ledgerLink: canOpenLedger ? ledgerLink : "",
         })
       );
       await notify(prisma, {
@@ -174,10 +224,52 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
         teams: {
           title: `Disciplinary action recorded for ${subject.name}`,
           summary: `A ${action.category} disciplinary action dated ${occurredDate} was recorded against ${subject.name} by ${issuedBy}. They now have ${strikeLabel} on file.`,
-          link: ledgerLink,
+          link: canOpenLedger ? ledgerLink : null,
         },
         triggeredById: actorPersonId,
       });
+    }
+
+    // --- External clinical supervisors ---
+    //
+    // Reached only on a NON-confidential strike, which the early return above
+    // already guarantees. That matters more here than for reports: decideStrike
+    // sets confidential from report.anonymous, so this is what keeps a strike
+    // arising from an anonymous report from being announced outside the clinic.
+    //
+    // No ledger link: they have no account to open it with.
+    const externals = await externalEscalationEmails();
+    if (externals.length > 0) {
+      // The unscoped total, since an external supervisor has no director
+      // visibility to scope against. Safe because a confidential strike never
+      // reaches this branch.
+      const total = await strikeCount(action.personId);
+      const label =
+        `${total} strike${total === 1 ? "" : "s"}` +
+        (strikeThreshold > 0 && total >= strikeThreshold
+          ? ` (at or over the ${strikeThreshold}-strike limit)`
+          : "");
+      for (const to of externals) {
+        const rendered = await renderEmail(
+          "incidents.strike_issued_directors",
+          strikeIssuedDirectorsContext({
+            directorName: "Colleague",
+            subjectName: subject.name,
+            category: action.category,
+            occurredDate,
+            issuedBy,
+            strikeCount: label,
+            ledgerLink: "",
+          })
+        );
+        await queueEmail(prisma, {
+          to,
+          subject: rendered.subject,
+          html: rendered.html,
+          template: "incidents.strike_issued_directors",
+          triggeredById: actorPersonId,
+        });
+      }
     }
   } catch (err) {
     log.error(

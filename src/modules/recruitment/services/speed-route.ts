@@ -14,6 +14,9 @@ export type SpeedRouteRow = {
   departmentChoices: string[];
   proposedDepartmentCode: string | null; // departmentChoices[0] if it is a cycle department, else null
   routedDepartmentCode: string | null;
+  /** The department that handed this applicant back, when returned. */
+  returnedFromDepartmentCode: string | null;
+  returnedReason: string | null;
   decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST";
   stage: ApplicationStage;
   acceptanceEmailed: boolean;
@@ -30,6 +33,16 @@ export type SpeedRouteBoard = {
   middle: SpeedRouteRow[];
   bottom: SpeedRouteRow[];
   unscored: SpeedRouteRow[];
+  /**
+   * Applications a department declined and handed back, awaiting a new routing
+   * decision from the lead. Listed SEPARATELY from the score tiers rather than
+   * inside them: a returned applicant needs a different action (route somewhere
+   * else, or reject) and would otherwise be lost among dozens of already-handled
+   * rows in whichever tier their average happens to fall in. Rows here also
+   * appear in their score tier, so the tier percentages still describe the whole
+   * cohort.
+   */
+  returned: SpeedRouteRow[];
 };
 
 /** Assemble the speed-route board: every SUBMITTED application bucketed by
@@ -69,10 +82,13 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
       departmentChoices: a.departmentChoices,
       proposedDepartmentCode: first && deptSet.has(first) ? first : null,
       routedDepartmentCode: a.routedDepartmentCode,
+      returnedFromDepartmentCode: a.returnedFromDepartmentCode,
+      returnedReason: a.returnedReason,
       decision: a.decision,
       stage: applicationStage({
         scoreCount: a.committeeScores.length,
         routedDepartmentCode: a.routedDepartmentCode,
+        returnedToRoutingAt: a.returnedToRoutingAt,
         applicationDecision: a.decision,
         interviews: a.interviews,
       }),
@@ -88,6 +104,12 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
     bottomPercent: cycle.routeBottomPercent,
   });
   const rows = (ids: string[]) => ids.map((id) => byId.get(id)!);
+  // Highest average first: when a department hands several applicants back at
+  // once, the lead works the strongest candidates first.
+  const returned = apps
+    .filter((a) => a.returnedToRoutingAt != null)
+    .map((a) => byId.get(a.id)!)
+    .sort((a, b) => (b.average ?? -1) - (a.average ?? -1));
   return {
     cycleId: cycle.id,
     title: cycle.title,
@@ -99,5 +121,6 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
     middle: rows(buckets.middle),
     bottom: rows(buckets.bottom),
     unscored: rows(buckets.unscored),
+    returned,
   };
 }

@@ -189,6 +189,22 @@ export async function runRhdImport(
     );
   }
 
+  // --- Service line ---
+  // This importer reads the legacy REPRODUCTIVE HEALTH sheet specifically, so
+  // everything it writes belongs to SRHD's service line. Attendings and clinic
+  // rows are department-scoped since the primary care line was added; hardcoding
+  // SRHD here is correct rather than a shortcut, because there is no other
+  // service line this particular sheet could describe.
+  const serviceLine = await prisma.department.findUnique({
+    where: { code: "SRHD" },
+    select: { id: true },
+  });
+  if (!serviceLine) {
+    throw new Error(
+      'Department "SRHD" not found. The reproductive health import needs it to own the attendings it creates; run the department seed first.'
+    );
+  }
+
   // -------------------------------------------------------------------------
   // Phase 1: Attendings
   // -------------------------------------------------------------------------
@@ -226,7 +242,7 @@ export async function runRhdImport(
         attendingIdByRecordId.set(record.id, `dry:${scheduleName}`);
       } else {
         const created = await prisma.rhdAttending.create({
-          data: { scheduleName, ...desired },
+          data: { scheduleName, departmentId: serviceLine.id, ...desired },
         });
         attendingIdByRecordId.set(record.id, created.id);
       }
@@ -317,9 +333,15 @@ export async function runRhdImport(
       : null;
     const proceduresBooked = numberOrNull(f, CLINIC_FIELD.procedures);
 
-    // Upsert on (termId, clinicDate)
+    // Upsert on (termId, departmentId, clinicDate)
     const existing = await prisma.rhdClinic.findUnique({
-      where: { termId_clinicDate: { termId: term.id, clinicDate } },
+      where: {
+        termId_departmentId_clinicDate: {
+          termId: term.id,
+          departmentId: serviceLine.id,
+          clinicDate,
+        },
+      },
     });
 
     if (!existing) {
@@ -328,6 +350,7 @@ export async function runRhdImport(
         await prisma.rhdClinic.create({
           data: {
             termId: term.id,
+            departmentId: serviceLine.id,
             clinicDate,
             attendingId,
             directorName,

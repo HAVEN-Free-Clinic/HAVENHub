@@ -157,7 +157,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hello {{ reviewerName }},</p>
 {{#if immediateRisk}}<p><strong>This report is flagged as an immediate risk and needs urgent attention.</strong></p>{{/if}}
 <p>Incident report #{{ reportNumber }} was submitted ({{ concernSummary }}).</p>
-<p><a href="{{ reviewLink }}">Open the review queue</a></p>
+{{#if reviewLink}}<p><a href="{{ reviewLink }}">Open the review queue</a></p>{{/if}}
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {
@@ -174,7 +174,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     defaultSubject: "Strike requested on incident report #{{ reportNumber }}",
     defaultBody: `<p>Hello {{ reviewerName }},</p>
 <p>Incident report #{{ reportNumber }} includes a request to issue a disciplinary strike against {{ subjectNames }}.</p>
-<p><a href="{{ reviewLink }}">Open the review queue</a></p>
+{{#if reviewLink}}<p><a href="{{ reviewLink }}">Open the review queue</a></p>{{/if}}
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {
@@ -254,7 +254,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
   <tr><td style="font-weight:600;padding-right:12px">Date of incident</td><td>{{ occurredDate }}</td></tr>
   <tr><td style="font-weight:600;padding-right:12px">Issued by</td><td>{{ issuedBy }}</td></tr>
 </table>
-<p><a href="{{ ledgerLink }}">Open the strikes ledger</a></p>
+{{#if ledgerLink}}<p><a href="{{ ledgerLink }}">Open the strikes ledger</a></p>{{/if}}
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
 ];

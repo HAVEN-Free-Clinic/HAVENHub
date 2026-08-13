@@ -54,6 +54,7 @@ import Link from "next/link";
 import type { DisciplinaryAction } from "@prisma/client";
 import { StrikeRow } from "./strike-row";
 import { formatCalendarDate } from "@/platform/dates";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -139,6 +140,11 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     }
   }
   const accessForbidden = forbiddenMessage !== null;
+
+  // Policy limit, read once for the whole table. Configurable rather than a
+  // constant because "three strikes" is a clinic policy number, not a property
+  // of the software.
+  const strikeThreshold = await getSetting<number>("incidents.strikeThreshold");
 
   // Load active departments for the filter bar, scoped to what the viewer can
   // actually filter by: a non-central director may only filter departments they
@@ -556,7 +562,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 </TR>
               </THead>
               <tbody>
-                {rows.map(({ action, personName, issuedByName, strikes }) => (
+                {rows.map(({ action, personName, issuedByName, strikes, ordinal }) => (
                   <StrikeRow
                     key={action.id}
                     action={{
@@ -581,6 +587,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     personName={personName}
                     issuedByName={issuedByName}
                     strikes={strikes}
+                    ordinal={ordinal}
+                    strikeThreshold={strikeThreshold}
                     canManageAll={canManageAll}
                     reportOptions={reportComboOptions}
                     deleteAction={deleteActionForm}

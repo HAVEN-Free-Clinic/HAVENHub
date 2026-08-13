@@ -72,6 +72,7 @@ export async function submitReportAction(formData: FormData): Promise<void> {
       priorOccurrence: optEnum<PriorOccurrence>(formData.get("priorOccurrence"), ["YES", "NO", "UNSURE"]),
       priorOccurrenceDetail: (String(formData.get("priorOccurrenceDetail") ?? "").trim() || null),
       anonymous: formData.get("anonymous") === "on",
+      anonymousReason: (String(formData.get("anonymousReason") ?? "").trim() || null),
       files: fileInputs,
     });
     number = report.number;

@@ -1,18 +1,18 @@
 /**
  * RHD Clinic Readiness panel for the schedule builder Saturday view.
  *
- * Renders the clinic config form (attending, director, procedures booked)
- * and the computed readiness readout from ClinicReadiness.
+ * Shows who is covering the selected date and the computed readiness readout
+ * from ClinicReadiness. Read-only: attendings are scheduled at
+ * /schedule/attendings, which covers every service line. The coverage is still
+ * shown here because readiness is computed FROM it, and a director building a
+ * schedule needs to see whether the procedures booked are actually covered.
  *
  * Server component: no "use client" directive.
  */
 
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
-import { Select } from "@/platform/ui/select";
 import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
 import type { BuilderRhd } from "@/modules/schedule/services/builder";
 import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
@@ -56,80 +56,49 @@ const PROCEDURE_STATUS_LABELS: Record<ProcedureStatus, string> = {
 
 type ReadinessPanelProps = {
   rhd: BuilderRhd;
-  clinicAction: (fd: FormData) => Promise<void>;
-  addAttendingAction: (fd: FormData) => Promise<void>;
-  dateKey: string;
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReadinessPanel({
-  rhd,
-  clinicAction,
-  addAttendingAction,
-  dateKey,
-}: ReadinessPanelProps) {
-  const { readiness, attendingOptions, clinic } = rhd;
+export function ReadinessPanel({ rhd }: ReadinessPanelProps) {
+  const { readiness, clinic, attendingOptions } = rhd;
+  // Resolved from the options rather than a join. attendingOptions holds the
+  // ACTIVE roster, so a deactivated attending reads as "Not set" here, matching
+  // the attending schedule's rule: naming someone who no longer covers would
+  // read as a filled slot when it is really a gap to fill.
+  const attendingName =
+    attendingOptions.find((a) => a.id === clinic?.attendingId)?.scheduleName ?? null;
 
   return (
     <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
       <SectionHeader as="h2" level="title" className="text-sm">RHD Clinic Readiness</SectionHeader>
 
-      {/* Clinic config form */}
-      <form action={clinicAction} className="flex flex-col gap-3">
-        <input type="hidden" name="dateKey" value={dateKey} />
-
-        {/* Attending select */}
-        <Field label="Attending">
-          <Select name="attendingId" defaultValue={clinic?.attendingId ?? ""}>
-            <option value="">-- none --</option>
-            {attendingOptions.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.scheduleName}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        {/* Director name */}
-        <Field label="Director name">
-          <Input
-            name="directorName"
-            type="text"
-            defaultValue={clinic?.directorName ?? ""}
-            placeholder="-"
-          />
-        </Field>
-
-        {/* Procedures booked */}
-        <Field label="Procedures booked">
-          <Input
-            name="proceduresBooked"
-            type="number"
-            min={0}
-            defaultValue={clinic?.proceduresBooked ?? ""}
-            placeholder="-"
-          />
-        </Field>
-
-        <Button type="submit" variant="outline" size="sm" className="self-start">
-          Save clinic
-        </Button>
-      </form>
-
-      {/* Quick-add a new attending */}
-      <details className="text-xs">
-        <summary className="text-muted-foreground hover:text-foreground-soft">&#xFF0B; Add attending</summary>
-        <form action={addAttendingAction} className="mt-2 flex flex-col gap-2">
-          <Input name="scheduleName" placeholder="Schedule name (e.g. Rivera)" required className="text-sm" />
-          <Input name="fullName" placeholder="Full name (optional)" className="text-sm" />
-          <Button type="submit" variant="outline" size="sm">Add</Button>
-        </form>
-      </details>
+      {/* Who is covering. Read-only: /schedule/attendings owns this row now, for
+          every service line, so there is exactly one form that writes it. */}
+      <dl className="flex flex-col gap-1 text-sm">
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Attending</dt>
+          <dd className={attendingName ? "text-foreground" : "text-subtle-foreground"}>
+            {attendingName ?? "Not set"}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Director</dt>
+          <dd className={clinic?.directorName ? "text-foreground" : "text-subtle-foreground"}>
+            {clinic?.directorName ?? "Not set"}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Procedures booked</dt>
+          <dd className={clinic?.proceduresBooked != null ? "text-foreground" : "text-subtle-foreground"}>
+            {clinic?.proceduresBooked ?? "Not set"}
+          </dd>
+        </div>
+      </dl>
       <Link href="/schedule/attendings" className="text-xs text-brand-fg hover:underline">
-        Manage attendings
+        Schedule attendings
       </Link>
 
       {/* Readiness readout */}

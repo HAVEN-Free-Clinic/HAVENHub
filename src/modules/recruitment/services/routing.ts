@@ -79,6 +79,14 @@ export async function routeApplication(
         routedDepartmentCode: departmentCode,
         routedById: actorId,
         routedAt: new Date(),
+        // Routing IS the answer to a return, so clear the marker unconditionally.
+        // Left set, the application would read as RETURNED forever in the stage
+        // machine's fallback and keep showing in the lead's re-routing bucket
+        // after they had already dealt with it.
+        returnedToRoutingAt: null,
+        returnedFromDepartmentCode: null,
+        returnedById: null,
+        returnedReason: null,
         ...(clearDecision ? { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null } : {}),
       },
     });
@@ -155,6 +163,105 @@ export async function decideRoutedApplication(
     return tx.application.findUniqueOrThrow({ where: { id: applicationId } });
   });
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });
+  return updated;
+}
+
+/** Second-choice discretion: the routed department declines an applicant as not
+ *  a fit for THEM and hands them back to the recruitment lead, rather than
+ *  rejecting them from the clinic outright.
+ *
+ *  Distinct from every existing outcome, deliberately:
+ *    - REJECT ends the application. This does not.
+ *    - WAITLIST already means "hold for capacity in THIS department", which is a
+ *      different answer from "not us, try elsewhere".
+ *    - Simply re-routing is the lead's job; a department director has no
+ *      recruitment.review_all and cannot pick the next department themselves.
+ *
+ *  Leaves `decision` PENDING and clears `routedDepartmentCode` so the declining
+ *  department drops out of their own review queue (listApplicantsForReview gates
+ *  volunteer rows on exactly that field), recording the department here instead.
+ *
+ *  Guarded like rejectApplication: an emailed acceptance or an onboarding
+ *  contract must be torn down first, and any not-emailed acceptance is deleted
+ *  inside the transaction so releaseDecisions cannot email an acceptance for a
+ *  department that just handed the applicant back. */
+export async function returnToRouting(
+  applicationId: string,
+  actorId: string,
+  reason: string | null,
+): Promise<Application> {
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    select: {
+      status: true,
+      decision: true,
+      routedDepartmentCode: true,
+      cycle: { select: { track: true } },
+      applicant: { select: { applicantPersonId: true } },
+    },
+  });
+  if (!app) throw new RoutingError("Application not found.");
+  if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
+  if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Returning for re-routing applies to volunteer cycles.");
+  if (!app.routedDepartmentCode) throw new RoutingError("This applicant isn't routed to a department.");
+  const departmentCode = app.routedDepartmentCode;
+  // Separation of duties, mirroring decideRoutedApplication: a signed-in
+  // applicant who also reviews must not dispose of their own application.
+  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === actorId) {
+    throw new RecruitmentAuthError("You can't decide your own application.");
+  }
+  const scope = await reviewScope(actorId);
+  if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
+    throw new RecruitmentAuthError("You can't decide applications for that department.");
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.acceptance.findUnique({
+      where: { applicationId_departmentCode: { applicationId, departmentCode } },
+      include: { contract: { select: { id: true } } },
+    });
+    if (existing?.emailedAt || existing?.contract) {
+      throw new AcceptanceError(
+        "This applicant was already emailed their acceptance or has started onboarding. Rescind that before returning them for re-routing.",
+      );
+    }
+    if (existing) {
+      // Atomic teardown: delete only while still not-emailed, so a concurrent
+      // releaseDecisions that stamped emailedAt in the gap aborts the return
+      // rather than leaving an emailed acceptance on an unrouted application.
+      const del = await tx.acceptance.deleteMany({ where: { id: existing.id, emailedAt: null } });
+      if (del.count === 0) {
+        throw new AcceptanceError(
+          "This applicant was already emailed their acceptance or has started onboarding. Rescind that before returning them for re-routing.",
+        );
+      }
+    }
+    // Gate on the routing we read: a concurrent re-route by the lead must not be
+    // silently undone by this return landing second.
+    const claimed = await tx.application.updateMany({
+      where: { id: applicationId, routedDepartmentCode: departmentCode },
+      data: {
+        routedDepartmentCode: null,
+        returnedToRoutingAt: new Date(),
+        returnedFromDepartmentCode: departmentCode,
+        returnedById: actorId,
+        returnedReason: reason?.trim() || null,
+      },
+    });
+    if (claimed.count === 0) {
+      throw new RoutingError("This application was just re-routed by someone else. Refresh and try again.");
+    }
+    return tx.application.findUniqueOrThrow({ where: { id: applicationId } });
+  });
+
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.return_to_routing",
+    entityType: "Application",
+    entityId: applicationId,
+    before: { routedDepartmentCode: departmentCode },
+    after: { returnedFromDepartmentCode: departmentCode, reason: reason?.trim() || null },
+  });
   return updated;
 }
 

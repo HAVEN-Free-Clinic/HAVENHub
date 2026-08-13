@@ -163,10 +163,15 @@ export async function seedRhdAttending(
   opts: { scheduleName?: string; fullName?: string } = {}
 ) {
   const t = tag();
+  // Attendings belong to a SERVICE LINE, identified by its managing department
+  // (SRHD for reproductive health). The seed creates SRHD and its delegations,
+  // so this resolves in any environment the e2e suite runs against.
+  const serviceLine = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
   const attending = await prisma.rhdAttending.create({
     data: {
       scheduleName: opts.scheduleName ?? `E2E Attending ${t}`,
       fullName: opts.fullName ?? `E2E Attending ${t}`,
+      departmentId: serviceLine.id,
       isActive: true,
     },
   });

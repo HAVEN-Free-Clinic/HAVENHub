@@ -146,66 +146,24 @@ describe("updatePersonFields", () => {
     ).rejects.toBeInstanceOf(PersonNotFoundError);
   });
 
-  it("#68: createPersonRecord persists spanishSelfReported / spanishVerified / licensedRN and audits them", async () => {
-    const created = await createPersonRecord(ACTOR, {
-      name: "Sam Onboard",
-      spanishSelfReported: true,
-      spanishVerified: false,
-      licensedRN: true,
-    });
-
-    expect(created.spanishSelfReported).toBe(true);
-    expect(created.spanishVerified).toBe(false);
+  it("#68: createPersonRecord persists licensedRN and audits it", async () => {
+    const created = await createPersonRecord(ACTOR, { name: "Sam Onboard", licensedRN: true });
     expect(created.licensedRN).toBe(true);
-    // verified=false on create must not stamp the verifier/timestamp.
-    expect(created.spanishVerifiedById).toBeNull();
-    expect(created.spanishVerifiedAt).toBeNull();
 
     const audit = await prisma.auditLog.findFirstOrThrow({
       where: { action: "person.create", entityId: created.id },
     });
-    const after = audit.after as Record<string, unknown>;
-    expect(after.spanishSelfReported).toBe(true);
-    expect(after.spanishVerified).toBe(false);
-    expect(after.licensedRN).toBe(true);
+    expect((audit.after as Record<string, unknown>).licensedRN).toBe(true);
   });
 
-  it("createPersonRecord stamps verifier+timestamp when spanishVerified is true on create", async () => {
-    const created = await createPersonRecord(ACTOR, { name: "Vee Verified", spanishVerified: true });
-    expect(created.spanishVerified).toBe(true);
-    expect(created.spanishVerifiedById).toBe(ACTOR);
-    expect(created.spanishVerifiedAt).not.toBeNull();
-  });
-
-  it("updatePersonFields stamps verifier+timestamp when spanishVerified goes false->true", async () => {
-    const p = await createPersonRecord(ACTOR, { name: "Up" });
-    expect(p.spanishVerifiedAt).toBeNull();
-
-    const u = await updatePersonFields(ACTOR, p.id, { spanishVerified: true });
-    expect(u.spanishVerified).toBe(true);
-    expect(u.spanishVerifiedById).toBe(ACTOR);
-    expect(u.spanishVerifiedAt).not.toBeNull();
-  });
-
-  it("updatePersonFields clears verifier+timestamp when spanishVerified goes true->false", async () => {
-    const p = await createPersonRecord(ACTOR, { name: "Down", spanishVerified: true });
-    expect(p.spanishVerifiedAt).not.toBeNull();
-
-    const u = await updatePersonFields(ACTOR, p.id, { spanishVerified: false });
-    expect(u.spanishVerified).toBe(false);
-    expect(u.spanishVerifiedAt).toBeNull();
-    expect(u.spanishVerifiedById).toBeNull();
-  });
-
-  it("updatePersonFields editing only spanishSelfReported leaves the verified fields untouched", async () => {
-    const p = await createPersonRecord(ACTOR, { name: "Stable", spanishVerified: true });
-    const verifiedAt = p.spanishVerifiedAt;
-
-    const u = await updatePersonFields(ACTOR, p.id, { spanishSelfReported: true });
-    expect(u.spanishSelfReported).toBe(true);
-    expect(u.spanishVerified).toBe(true);
-    expect(u.spanishVerifiedAt).toEqual(verifiedAt);
-    expect(u.spanishVerifiedById).toBe(ACTOR);
+  // Language capability is no longer a Person column. It lives in PersonLanguage
+  // and is set only through recordLanguageAssessment, which stamps the assessor
+  // and timestamp itself; the verifier-stamping tests that used to live here
+  // moved to languages.test.ts. Creating a person must not fabricate any
+  // language row, so that a new record starts with no claimed capability.
+  it("createPersonRecord creates no language rows", async () => {
+    const created = await createPersonRecord(ACTOR, { name: "No Languages" });
+    expect(await prisma.personLanguage.count({ where: { personId: created.id } })).toBe(0);
   });
 
   it("persists and audits the blocker gate exemption when an admin sets it", async () => {

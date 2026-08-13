@@ -154,4 +154,61 @@ describe("runShiftReminders", () => {
     expect(result.remindersSent).toBe(0);
     expect(await shiftEmailCount()).toBe(0);
   });
+
+  // Attending rows are unique on (term, department, date) since service lines
+  // were split, so one Saturday can carry a reproductive health attending AND a
+  // primary care one. The reminder must name both; the earlier findUnique lookup
+  // would have silently returned only whichever Prisma happened to match.
+  it("names every service line's attending on the clinic date", async () => {
+    const target = futureClinicDate(3);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const srhd = await createDepartment("SRHD", "Sexual and Reproductive Health");
+    const pcar = await createDepartment("PCAR", "Primary Care Advisors");
+    const vol = await createPerson("Val Volunteer", "val@x.org");
+    await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+
+    const ellis = await prisma.rhdAttending.create({
+      data: { scheduleName: "Ellis", fullName: "Dr. Ellis", departmentId: srhd.id },
+    });
+    const okafor = await prisma.rhdAttending.create({
+      data: { scheduleName: "Okafor", fullName: "Dr. Okafor", departmentId: pcar.id },
+    });
+    await prisma.rhdClinic.create({
+      data: { termId: term.id, departmentId: srhd.id, clinicDate: target, attendingId: ellis.id },
+    });
+    await prisma.rhdClinic.create({
+      data: { termId: term.id, departmentId: pcar.id, clinicDate: target, attendingId: okafor.id },
+    });
+
+    await runShiftReminders(NOW);
+
+    const log = await prisma.emailLog.findFirstOrThrow({ where: { template: "shift-reminder" } });
+    expect(log.html).toContain("Dr. Ellis (SRHD)");
+    expect(log.html).toContain("Dr. Okafor (PCAR)");
+  });
+
+  // A deactivated attending must not be announced as covering the shift, but the
+  // row is kept so a manager can see the gap and fill it.
+  it("omits a deactivated attending", async () => {
+    const target = futureClinicDate(3);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const srhd = await createDepartment("SRHD", "Sexual and Reproductive Health");
+    const vol = await createPerson("Val Volunteer", "val@x.org");
+    await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+
+    const retired = await prisma.rhdAttending.create({
+      data: { scheduleName: "Retired", fullName: "Dr. Retired", departmentId: srhd.id, isActive: false },
+    });
+    await prisma.rhdClinic.create({
+      data: { termId: term.id, departmentId: srhd.id, clinicDate: target, attendingId: retired.id },
+    });
+
+    await runShiftReminders(NOW);
+
+    const log = await prisma.emailLog.findFirstOrThrow({ where: { template: "shift-reminder" } });
+    expect(log.html).not.toContain("Dr. Retired");
+    expect(log.html).not.toContain("Attending on shift");
+  });
 });

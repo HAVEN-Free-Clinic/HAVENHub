@@ -64,13 +64,20 @@ async function createPerson(
   name: string,
   opts: { licensedRN?: boolean; spanishVerified?: boolean; spanishSelfReported?: boolean; contactEmail?: string } = {}
 ) {
+  // The option names are kept for readability at the call sites; both now write
+  // a PersonLanguage row. Only the VERIFIED one carries verifiedAt, which is
+  // what separates a capability the builder can act on from a bare claim.
+  const languages = opts.spanishVerified
+    ? { create: { language: "es", selfReported: true, verified: true, verifiedAt: new Date() } }
+    : opts.spanishSelfReported
+      ? { create: { language: "es", selfReported: true } }
+      : undefined;
   return prisma.person.create({
     data: {
       name,
       licensedRN: opts.licensedRN ?? false,
-      spanishVerified: opts.spanishVerified ?? false,
-      spanishSelfReported: opts.spanishSelfReported ?? false,
       contactEmail: opts.contactEmail,
+      ...(languages ? { languages } : {}),
     },
   });
 }
@@ -1022,34 +1029,119 @@ describe("acknowledgeAvailability", () => {
 });
 
 describe("upsertRhdClinic", () => {
+  /**
+   * The reproductive health service line, plus SCTS inside it.
+   *
+   * A service line is a DepartmentDelegation MANAGER, so the edge is what makes
+   * SRHD one. Returns both ids: clinic rows hang off the LINE, while a director
+   * of the member department still has edit rights over it (the pre-split rule,
+   * deliberately preserved).
+   */
+  async function rhdServiceLine() {
+    const scts = await createDepartment("SCTS");
+    const srhd = await createDepartment("SRHD");
+    await prisma.departmentDelegation.create({
+      data: { managerDepartmentId: srhd.id, managedDepartmentId: scts.id },
+    });
+    return { lineId: srhd.id, memberId: scts.id };
+  }
+
   it("allows an actor who manages SCTS to upsert", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
-    const scts = await createDepartment("SCTS");
+    const { lineId, memberId } = await rhdServiceLine();
     const director = await createPerson("RHD Director");
-    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    await createMembership(director.id, term.id, memberId, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]) })
+      upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]) })
     ).resolves.toBeUndefined();
 
     const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
     expect(clinic).not.toBeNull();
   });
 
+  // Primary care schedules attendings through the same path as reproductive
+  // health now, so a second line has to work end to end with no RHD in sight.
+  it("works for a non-RHD service line (primary care)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const jctp = await createDepartment("JCTP");
+    const pcar = await createDepartment("PCAR");
+    await prisma.departmentDelegation.create({
+      data: { managerDepartmentId: pcar.id, managedDepartmentId: jctp.id },
+    });
+    const director = await createPerson("PC Director");
+    await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
+    const attending = await prisma.rhdAttending.create({
+      data: { scheduleName: "Dr. Okafor", fullName: "Dr. A Okafor", departmentId: pcar.id },
+    });
+
+    await upsertRhdClinic(director.id, {
+      termId: term.id,
+      departmentId: pcar.id,
+      dateKey: isoDateKey(dates[0]),
+      attendingId: attending.id,
+      directorName: "Patel",
+    });
+
+    const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id, departmentId: pcar.id } });
+    expect(clinic?.attendingId).toBe(attending.id);
+    expect(clinic?.directorName).toBe("Patel");
+  });
+
+  // The attendings grid posts departmentId from the form. Without this guard a
+  // director could write a clinic row keyed to their MEMBER department, which
+  // passes the manage check (they do manage it) but is read by nothing: the
+  // schedule, the weekly email, and the readiness panel all look up the line.
+  // The attending would silently not be scheduled anywhere.
+  it("rejects a department that is not a service line", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { memberId } = await rhdServiceLine();
+    const director = await createPerson("SCTS Director");
+    await createMembership(director.id, term.id, memberId, "DIRECTOR");
+
+    await expect(
+      upsertRhdClinic(director.id, { termId: term.id, departmentId: memberId, dateKey: isoDateKey(dates[0]) })
+    ).rejects.toThrow(BuilderValidationError);
+
+    expect(await prisma.rhdClinic.count()).toBe(0);
+  });
+
+  // A line manager must not reach another line's dates. The check has to be
+  // per-line, not "manages some line", or primary care could set the
+  // reproductive health attending.
+  it("rejects a manager of one service line writing another's", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { lineId: srhdId } = await rhdServiceLine();
+    const jctp = await createDepartment("JCTP");
+    const pcar = await createDepartment("PCAR");
+    await prisma.departmentDelegation.create({
+      data: { managerDepartmentId: pcar.id, managedDepartmentId: jctp.id },
+    });
+    const pcDirector = await createPerson("PC Director");
+    await createMembership(pcDirector.id, term.id, pcar.id, "DIRECTOR");
+
+    await expect(
+      upsertRhdClinic(pcDirector.id, { termId: term.id, departmentId: srhdId, dateKey: isoDateKey(dates[0]) })
+    ).rejects.toThrow(BuilderForbiddenError);
+  });
+
   it("is idempotent: second upsert updates without creating a duplicate", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
-    const scts = await createDepartment("SCTS");
+    const { lineId, memberId } = await rhdServiceLine();
     const director = await createPerson("Director");
-    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    await createMembership(director.id, term.id, memberId, "DIRECTOR");
 
     const attending = await prisma.rhdAttending.create({
-      data: { scheduleName: "Dr. Test", fullName: "Dr. Full Name" },
+      data: { scheduleName: "Dr. Test", fullName: "Dr. Full Name", departmentId: lineId },
     });
 
-    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
-    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), proceduresBooked: 2 });
+    await upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
+    await upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]), proceduresBooked: 2 });
 
     const clinics = await prisma.rhdClinic.findMany({ where: { termId: term.id } });
     expect(clinics).toHaveLength(1);
@@ -1059,52 +1151,53 @@ describe("upsertRhdClinic", () => {
   it("throws BuilderForbiddenError when actor does not manage any RHD-family dept", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
-    const pcar = await createDepartment("PCAR");
+    const { lineId } = await rhdServiceLine();
+    const unrelated = await createDepartment("ITCM");
     const director = await createPerson("Director");
-    await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
+    await createMembership(director.id, term.id, unrelated.id, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]) })
+      upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]) })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
   });
 
   it("rejects non-clinic dateKey", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
-    const scts = await createDepartment("SCTS");
+    const { lineId, memberId } = await rhdServiceLine();
     const director = await createPerson("Director");
-    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    await createMembership(director.id, term.id, memberId, "DIRECTOR");
 
     await expect(
-      upsertRhdClinic(director.id, { termId: term.id, dateKey: "2099-01-01" })
+      upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: "2099-01-01" })
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
   it("clears attendingId when passed null, but leaves it unchanged when omitted", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
-    const scts = await createDepartment("SCTS");
+    const { lineId, memberId } = await rhdServiceLine();
     const director = await createPerson("Director");
-    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    await createMembership(director.id, term.id, memberId, "DIRECTOR");
 
     const attending = await prisma.rhdAttending.create({
-      data: { scheduleName: "Dr. Null Test", fullName: "Dr. Full Null" },
+      data: { scheduleName: "Dr. Null Test", fullName: "Dr. Full Null", departmentId: lineId },
     });
 
     // Create with an attending.
-    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
+    await upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]), attendingId: attending.id });
 
     const before = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(before.attendingId).toBe(attending.id);
 
     // Clear attendingId by passing null explicitly.
-    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), attendingId: null });
+    await upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]), attendingId: null });
 
     const afterClear = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(afterClear.attendingId).toBeNull();
 
     // Restore, then upsert without attendingId at all - it should remain null, not be touched.
-    await upsertRhdClinic(director.id, { termId: term.id, dateKey: isoDateKey(dates[0]), directorName: "Someone" });
+    await upsertRhdClinic(director.id, { termId: term.id, departmentId: lineId, dateKey: isoDateKey(dates[0]), directorName: "Someone" });
 
     const afterOmit = await prisma.rhdClinic.findFirstOrThrow({ where: { termId: term.id } });
     expect(afterOmit.attendingId).toBeNull();
@@ -1348,7 +1441,7 @@ describe("builderView", () => {
     const entry = view.assignmentsByDate[isoDateKey(dates[0])]?.[orphan.id];
     expect(entry).toBeDefined();
     expect(entry!.person.name).toBe("Offboarded Olivia");
-    expect(entry!.person.spanishVerified).toBe(true);
+    expect(entry!.person.verifiedLanguages).toEqual(["es"]);
   });
 
   // #59: a departed assignee's ShiftAssignment survives offboarding/removeMembership,
@@ -1529,6 +1622,12 @@ describe("builderView", () => {
     const scts = await createDepartment("SCTS");
     await createDepartment("JCTS");
     await createDepartment("CCRH");
+    const srhd = await createDepartment("SRHD");
+    // The delegation edge is what makes SRHD a service line; without it the
+    // builder's readiness block resolves no line and renders nothing.
+    await prisma.departmentDelegation.create({
+      data: { managerDepartmentId: srhd.id, managedDepartmentId: scts.id },
+    });
     const director = await createPerson("Director");
     await createMembership(director.id, term.id, scts.id, "DIRECTOR");
 
@@ -1536,6 +1635,7 @@ describe("builderView", () => {
       data: {
         scheduleName: "Dr. Test",
         fullName: "Dr. Full Name",
+        departmentId: srhd.id,
         iudIn: "yes",
         iudOut: "no",
         nexplanon: "unknown",
@@ -1548,6 +1648,7 @@ describe("builderView", () => {
     await prisma.rhdClinic.create({
       data: {
         termId: term.id,
+        departmentId: srhd.id,
         clinicDate: dates[0],
         attendingId: attending.id,
         directorName: "Test Director",

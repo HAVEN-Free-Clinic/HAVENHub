@@ -21,6 +21,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Alert } from "@/platform/ui/alert";
+import { getRehireFlag } from "@/modules/incidents/services/disciplinary";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
@@ -60,6 +61,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const eligible = seeAll
     ? app.cycle.departments
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
+  // Do-not-rehire, when this applicant is a known past member. Advisory: it is
+  // rendered for the reviewer to weigh, and deliberately does not gate, filter,
+  // or hide anything on this page. Only resolvable for an applicant already
+  // linked to a Person; a returning alum who has not been matched yet shows no
+  // flag, which is a limitation of the link, not a statement about them.
+  const rehireFlag = app.applicant.applicantPersonId
+    ? await getRehireFlag(app.applicant.applicantPersonId)
+    : null;
+
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
   const rankIds = [...new Set([...app.subcommitteeRanking, app.assignedSubcommitteeId].filter((x): x is string => Boolean(x)))];
@@ -110,6 +120,22 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             : ""
         }`}
       />
+
+      {/* Advisory flag on a returning applicant. Placed above the application so
+          a reviewer sees it before forming a view, not after. It is information
+          for them to weigh, not a decision: nothing here rejects, filters, or
+          hides the application, and the applicant is never told it exists. */}
+      {rehireFlag?.doNotRehire && (
+        <Alert tone="warning">
+          <p className="font-medium">This person is flagged do-not-rehire.</p>
+          {rehireFlag.note && <p className="mt-1">{rehireFlag.note}</p>}
+          <p className="mt-1 text-xs">
+            Flagged by {rehireFlag.setByName ?? "an unknown reviewer"}
+            {rehireFlag.setAt ? <> on <DateTime value={rehireFlag.setAt} /></> : null}. Weigh it
+            alongside the application; it does not decide the outcome on its own.
+          </p>
+        </Alert>
+      )}
 
       <ApplicantHistory history={history} title="Past applications" pendingApplication />
 
@@ -301,6 +327,22 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   </form>
                 )}
               </div>
+            ) : app.returnedToRoutingAt ? (
+              // Handed back by a department. The lead re-routes from the routing
+              // control above; this states who declined and why so that decision
+              // is not made blind.
+              <div className="mt-3 space-y-1">
+                <p className="text-sm text-foreground-soft">
+                  <strong className="text-foreground">{app.returnedFromDepartmentCode}</strong> returned this
+                  applicant for re-routing on <DateTime value={app.returnedToRoutingAt} />.
+                </p>
+                {app.returnedReason && (
+                  <p className="text-sm text-foreground-soft">&ldquo;{app.returnedReason}&rdquo;</p>
+                )}
+                <p className="text-xs text-subtle-foreground">
+                  Route them to another department above, or reject the application.
+                </p>
+              </div>
             ) : (
               <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
             )
@@ -323,11 +365,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       <option value="ACCEPT">Accept</option>
                       <option value="REJECT">Reject</option>
                       <option value="WAITLIST">Waitlist</option>
+                      {/* Not a decision: hands the applicant back to the
+                          recruitment lead with the application still open, for
+                          routing to a different department. */}
+                      <option value="RETURN">Not a fit for us, return for re-routing</option>
                     </Select>
                   </Field>
                 </div>
                 <div className="min-w-[12rem] flex-1">
-                  <Field label="Notes" hint="Optional.">
+                  <Field label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently.">
                     <Input name="notes" />
                   </Field>
                 </div>

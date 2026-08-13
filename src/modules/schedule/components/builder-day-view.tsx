@@ -48,7 +48,7 @@ export function BuilderDayView({
   // cuid; now it shows their name and flags (audit M12).
   function assigneeInfo(pid: string): {
     name: string;
-    flagPerson: { spanishVerified: boolean; licensedRN: boolean } | null;
+    flagPerson: { verifiedLanguages: string[]; licensedRN: boolean } | null;
   } {
     const member = memberByPersonId.get(pid);
     const entry = assignmentsOnDate[pid];
@@ -90,11 +90,16 @@ export function BuilderDayView({
     .sort(compareBuilderMembers);
   const availableCount = availableMembers.length;
 
-  function flagBadges(person: { spanishVerified: boolean; licensedRN: boolean }) {
-    if (!person.spanishVerified && !person.licensedRN) return null;
+  // One badge per VERIFIED language, plus RN. The codes are short by design
+  // (ES, HT, ZH) so a director scanning a dense grid reads capability at a
+  // glance; the full label is in the language review queue.
+  function flagBadges(person: { verifiedLanguages: string[]; licensedRN: boolean }) {
+    if (person.verifiedLanguages.length === 0 && !person.licensedRN) return null;
     return (
       <>
-        {person.spanishVerified && <Badge tone="default">ES</Badge>}
+        {person.verifiedLanguages.map((code) => (
+          <Badge key={code} tone="default">{code.toUpperCase()}</Badge>
+        ))}
         {person.licensedRN && <Badge tone="default">RN</Badge>}
       </>
     );
@@ -199,14 +204,34 @@ export function BuilderDayView({
             <div className="flex flex-col gap-2">
               {assignedDirectors.map((pid) => {
                 const { name, flagPerson } = assigneeInfo(pid);
+                // Directors carry the same per-assignment flags volunteers do:
+                // a director can hold the triage post or work the day remotely,
+                // and the full schedule surfaces those to the whole clinic. The
+                // toggles were previously volunteer-only, so the flags existed
+                // on the row but there was no way to set them for a director.
+                const tags = assignmentsOnDate[pid]?.tags;
                 return (
-                  <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
-                    <span className="flex flex-wrap items-center gap-2">
+                  <Card key={pid} pad={false} className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-bold text-foreground">{name}</span>
                       {flagPerson && flagBadges(flagPerson)}
-                    </span>
+                    </div>
+                    {editable && tags && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
+                          <BuilderCell
+                            key={tag}
+                            action={toggleTagAction}
+                            hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
+                            label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
+                            pressed={tags[tag]}
+                            variant="tag"
+                          />
+                        ))}
+                      </div>
+                    )}
                     {editable && (
-                      <form action={unassignAction} className="flex items-center gap-2">
+                      <form action={unassignAction} className="mt-2 flex items-center justify-end gap-2">
                         <input type="hidden" name="departmentId" value={dept.id} />
                         <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
                         <input type="hidden" name="personId" value={pid} />

@@ -140,6 +140,11 @@ describe("epic templates via renderEmail (body inside branded layout)", () => {
         contactEmail: "alice@yale.edu",
         epicId: "ASMITH",
         departmentNames: ["Outreach", "Triage"],
+        // Was hardcoded in the template body until 2026-08-12; now supplied from
+        // the epic.temporaryPassword setting. Passing the historical value keeps
+        // this golden byte-identical to the pre-refactor email, which is what it
+        // exists to prove.
+        temporaryPassword: "SecureCare4u#25",
       }),
     );
     expect(out.subject).toBe("[HAVEN] New Epic Account Set-up");
@@ -176,6 +181,11 @@ describe("epic templates via renderEmail (body inside branded layout)", () => {
         contactEmail: "alice@yale.edu",
         epicId: "ASMITH",
         departmentNames: ["Outreach", "Triage"],
+        // Was hardcoded in the template body until 2026-08-12; now supplied from
+        // the epic.temporaryPassword setting. Passing the historical value keeps
+        // this golden byte-identical to the pre-refactor email, which is what it
+        // exists to prove.
+        temporaryPassword: "SecureCare4u#25",
       }),
     );
     expect(out.subject).toBe("[HAVEN] Epic Account Reset");
@@ -194,6 +204,7 @@ describe("epic templates via renderEmail (body inside branded layout)", () => {
       epicPasswordResetContext({
         personName: "Alice Smith",
         epicId: null,
+        temporaryPassword: "SecureCare4u#25",
       }),
     );
     expect(out.html).toContain("pending assignment");

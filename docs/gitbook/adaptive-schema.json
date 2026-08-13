@@ -75,6 +75,10 @@
           "type": "object",
           "description": "Whether the visitor can access the Incidents area and its actions in HAVEN Hub.",
           "properties": {
+            "escalation_recipient": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the incidents.escalation_recipient permission in HAVEN Hub."
+            },
             "manage": {
               "type": "boolean",
               "description": "Whether the visitor holds the incidents.manage permission in HAVEN Hub."
@@ -178,6 +182,10 @@
           "type": "object",
           "description": "Whether the visitor can access the Volunteers area and its actions in HAVEN Hub.",
           "properties": {
+            "manage_board_attendance": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.manage_board_attendance permission in HAVEN Hub."
+            },
             "manage_compliance": {
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.manage_compliance permission in HAVEN Hub."

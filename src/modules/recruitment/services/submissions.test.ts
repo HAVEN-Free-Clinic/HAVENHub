@@ -6,6 +6,7 @@ import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
 import { createCycle, publishCycle } from "./cycles";
 import { addSection, addField } from "./form-builder";
+import { LANGUAGES_FIELD_KEY } from "@/platform/languages";
 import {
   submitApplication, getApplication,
   CycleNotOpenError, DuplicateApplicationError, SubmissionValidationError,
@@ -111,6 +112,153 @@ it("does NOT auto-route a TRANSFER (it goes through the committee like a new app
   expect(app.applicantType).toBe("TRANSFER");
   expect(app.departmentChoices).toEqual(["MDIC"]);
   expect(app.routedDepartmentCode).toBeNull(); // committee routes it, not auto
+});
+
+// --- Standard language question ---
+//
+// The whole point of standardizing and locking this question: the answers have
+// to survive submit in a form promotion can turn into verification claims.
+
+it("hoists selected languages onto the application as codes", async () => {
+  // The language question is seeded on every cycle by createCycle, so there is
+  // nothing to add here: that IS the standardization being tested.
+  await openVolunteerCycle();
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Lu", last_name: "Perez", email: "lu@yale.edu",
+      "1st_choice_department": "MDIC",
+      // The option VALUES are codes, so this is what the form posts.
+      [LANGUAGES_FIELD_KEY]: ["es", "ht"],
+    },
+    files: {},
+  });
+
+  expect(app.languagesClaimed.sort()).toEqual(["es", "ht"]);
+});
+
+// An answer nobody can map to a known language is a claim nobody can verify, so
+// it must not reach the queue as an unresolvable row.
+// A language nobody can verify must never reach the queue. Because the option
+// values ARE the codes, the form schema rejects an unknown one outright, which
+// is a stronger guarantee than filtering it out after the fact. The hoist's own
+// filter stays as a second line of defence for a crafted post.
+it("rejects an unrecognized language answer at validation", async () => {
+  await openVolunteerCycle();
+
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "NEW",
+      answers: {
+        first_name: "Ka", last_name: "Ito", email: "ka@yale.edu",
+        "1st_choice_department": "MDIC",
+        [LANGUAGES_FIELD_KEY]: ["es", "klingon"],
+      },
+      files: {},
+    }),
+  ).rejects.toThrow();
+});
+
+it("records no languages when the applicant selects none", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "No", last_name: "Langs", email: "nl@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app.languagesClaimed).toEqual([]);
+});
+
+// --- Department.autoRouteApplicants ---
+//
+// Clinical teams verify credentials rather than having the committee judge fit,
+// so their applicants skip scoring the way renewals do. Flag-driven rather than
+// a hardcoded department list, because departments are admin-maintained.
+
+/**
+ * Turns on auto-routing for one of the fixture's cycle departments.
+ *
+ * Upsert, not update: RecruitmentCycle.departments is a String[] of codes with
+ * no foreign key, so openVolunteerCycle creates a cycle naming SRHD and MDIC
+ * without either Department row existing. The absence is exactly why the
+ * no-flag-set case below already passes -- the lookup finds nothing and the
+ * applicant falls through to the committee.
+ */
+async function setAutoRoute(code: string) {
+  await prisma.department.upsert({
+    where: { code },
+    create: { code, name: code, autoRouteApplicants: true },
+    update: { autoRouteApplicants: true },
+  });
+}
+
+it("auto-routes a NEW applicant whose first choice is an auto-route department", async () => {
+  await openVolunteerCycle();
+  await setAutoRoute("MDIC");
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Mo", last_name: "Ed", email: "mo@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app.routedDepartmentCode).toBe("MDIC");
+  expect(app.routedAt).not.toBeNull();
+});
+
+it("leaves a NEW applicant unrouted when their first choice is not an auto-route department", async () => {
+  await openVolunteerCycle();
+  await setAutoRoute("MDIC");
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "Sa", last_name: "Ra", email: "sa@yale.edu", "1st_choice_department": "SRHD", srhd_essay: "because" },
+    files: {},
+  });
+  expect(app.routedDepartmentCode).toBeNull();
+});
+
+// A TRANSFER is otherwise treated like a NEW applicant, so it auto-routes on the
+// same first-choice rule. (The separate "TRANSFER is not auto-routed" test above
+// covers the case where no department has the flag set.)
+it("auto-routes a TRANSFER whose first choice is an auto-route department", async () => {
+  await openVolunteerCycle();
+  await setAutoRoute("MDIC");
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "TRANSFER",
+    answers: { first_name: "Tk", last_name: "An", email: "tk@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "tk@yale.edu",
+  });
+  expect(app.routedDepartmentCode).toBe("MDIC");
+});
+
+// A renewal goes back to the department they already belong to. If their ranked
+// first choice were allowed to win, a returning SRHD member would be routed to
+// MDIC purely because MDIC carries the flag.
+it("sends a RENEWAL to their own department even when another is auto-route", async () => {
+  await openVolunteerCycle();
+  await setAutoRoute("MDIC");
+  const person = await makeVolunteer("SRHD");
+  const app = await submitApplication("apply-v", {
+    applicantType: "RENEWAL",
+    renewalDepartment: "SRHD",
+    answers: { first_name: "Re", last_name: "Nu", email: "re@yale.edu", continue_reason: "yes" },
+    files: {},
+    sessionPersonId: person.id,
+    sessionEmail: "re@yale.edu",
+  });
+  expect(app.routedDepartmentCode).toBe("SRHD");
+});
+
+it("does not auto-route when no department has the flag set", async () => {
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "No", last_name: "Flag", email: "nf@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app.routedDepartmentCode).toBeNull();
 });
 
 // DEPARTMENT_CHOICE validation: toSectionDefs (submissions.ts) has always built

@@ -23,12 +23,45 @@ import {
   runSupportHistoryImport,
   SupportHistoryNotificationError,
 } from "@/platform/airtable/import/support-history";
+import { usingRemoteStorage } from "@/platform/storage";
 
 /** Hides credentials while still identifying which database is about to be written. */
 function describeDatabase(): string {
   const url = process.env.DATABASE_URL ?? "";
   const match = url.match(/@([^/]+)\/([^?]+)/);
   return match ? `${match[2]} at ${match[1]}` : "(DATABASE_URL not set)";
+}
+
+/** Local Postgres hosts where on-disk storage is the legitimate companion. */
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", ""]);
+
+/**
+ * Same guard as scripts/import-certificates.ts, for the same reason: writing
+ * attachment ROWS to a remote database while the BYTES fall back to local disk
+ * (because the R2_* variables are not set) leaves permanently broken downloads.
+ * That footgun orphaned every imported certificate once already.
+ *
+ * Only the attachment step cares, so this refuses rather than silently skipping:
+ * the caller can pass --skip-attachments to import the ticket text now and the
+ * files later, once the storage credentials are present.
+ */
+function assertStorageMatchesDatabase(skipAttachments: boolean): void {
+  if (skipAttachments || usingRemoteStorage) return;
+  let host = "";
+  try {
+    host = new URL((process.env.DATABASE_URL ?? "").replace(/^postgres(ql)?:/, "http:")).hostname;
+  } catch {
+    return; // Unparseable/empty URL: let the DB client surface its own error.
+  }
+  if (LOCAL_DB_HOSTS.has(host)) return;
+  console.error(
+    `Refusing to import attachments: DATABASE_URL points at a remote host (${host}) but the ` +
+      `R2_* variables are not set, so the 26 attachment files would be written to local disk ` +
+      `while their rows land in the remote database, leaving downloads permanently broken.\n\n` +
+      `Either pull the storage credentials (\`vercel env pull\`) and re-run, or re-run with ` +
+      `--skip-attachments to import the ticket history now and the files later.`,
+  );
+  process.exit(1);
 }
 
 async function main() {
@@ -38,6 +71,7 @@ async function main() {
   }
   const dryRun = !process.argv.includes("--apply");
   const skipAttachments = process.argv.includes("--skip-attachments");
+  if (!dryRun) assertStorageMatchesDatabase(skipAttachments);
 
   console.log(
     dryRun

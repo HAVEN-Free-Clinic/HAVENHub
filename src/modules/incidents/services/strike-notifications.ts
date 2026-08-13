@@ -35,9 +35,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { formatCalendarDate } from "@/platform/dates";
-import { visibleStrikeCount, strikeCount, subjectFacingDetail } from "./disciplinary";
-import { externalEscalationEmails } from "./report";
-import { queueEmail } from "@/platform/email/send";
+import { visibleStrikeCount, subjectFacingDetail } from "./disciplinary";
 
 export type StrikeNotificationInput = {
   /** The committed strike. */
@@ -230,47 +228,18 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
       });
     }
 
-    // --- External clinical supervisors ---
+    // --- External clinical supervisors: deliberately NOT notified here ---
     //
-    // Reached only on a NON-confidential strike, which the early return above
-    // already guarantees. That matters more here than for reports: decideStrike
-    // sets confidential from report.anonymous, so this is what keeps a strike
-    // arising from an anonymous report from being announced outside the clinic.
+    // Issuing a strike used to blind-copy every address in
+    // incidents.externalEscalationEmails. A reviewer now forwards a strike to
+    // chosen supervisors from the strikes ledger (forward.ts), and that
+    // disclosure is recorded against the strike.
     //
-    // No ledger link: they have no account to open it with.
-    const externals = await externalEscalationEmails();
-    if (externals.length > 0) {
-      // The unscoped total, since an external supervisor has no director
-      // visibility to scope against. Safe because a confidential strike never
-      // reaches this branch.
-      const total = await strikeCount(action.personId);
-      const label =
-        `${total} strike${total === 1 ? "" : "s"}` +
-        (strikeThreshold > 0 && total >= strikeThreshold
-          ? ` (at or over the ${strikeThreshold}-strike limit)`
-          : "");
-      for (const to of externals) {
-        const rendered = await renderEmail(
-          "incidents.strike_issued_directors",
-          strikeIssuedDirectorsContext({
-            directorName: "Colleague",
-            subjectName: subject.name,
-            category: action.category,
-            occurredDate,
-            issuedBy,
-            strikeCount: label,
-            ledgerLink: "",
-          })
-        );
-        await queueEmail(prisma, {
-          to,
-          subject: rendered.subject,
-          html: rendered.html,
-          template: "incidents.strike_issued_directors",
-          triggeredById: actorPersonId,
-        });
-      }
-    }
+    // Worth knowing if you are tempted to restore an automatic send here: the
+    // old one was never as reliable as it looked. The "nobody internal to
+    // notify" early return above sits ABOVE this point, so a subject with no
+    // department directors and no escalation recipients never reached the
+    // external send at all.
   } catch (err) {
     log.error(
       "[incidents] failed to notify of an issued strike",

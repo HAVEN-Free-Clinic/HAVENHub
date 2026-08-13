@@ -28,7 +28,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
-import { CONCERN_TYPES, listSubjectOptions, incidentAudience, externalEscalationEmails } from "@/modules/incidents/services/report";
+import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
 import { IncidentAttachmentsField } from "./incident-attachments-field";
 import { SubjectPicker } from "./subject-picker";
@@ -87,17 +87,10 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
   const todayIso = formatForDateInput(new Date(), zone);
   const maxUploadMb = await getSetting<number>("uploads.maxMb");
 
-  // Same query notifyReviewersOfSubmission runs at submission time (report.ts),
-  // so the count shown here matches the audience that actually gets notified,
-  // not an approximation. Not filtered to exclude the actor: report.ts only
-  // excludes a report's linked subjects from the reviewer set, never the
-  // reporter, so a reporter who holds incidents.manage is themselves part of
-  // this count -- excluding them here would understate the real audience.
-  // Both halves of the audience: Hub reviewers, plus external clinical
-  // supervisors who receive the report by email. A reporter deciding whether it
-  // is safe to report a colleague is owed the real total, and the external half
-  // is the part they would least expect.
-  const [reviewers, externals] = await Promise.all([incidentAudience(), externalEscalationEmails()]);
+  // No audience query here any more. incidentAudience() and the escalation
+  // setting were read on every render of this form purely to produce the two
+  // headcounts the disclosure used to quote; the disclosure no longer quotes
+  // any number, so both reads are gone with it.
 
   return (
     <div>
@@ -207,7 +200,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
             <h2 className="text-sm font-medium">10. Your information</h2>
             <ReadonlyField label="Your name" value={actor.name ?? ""} />
             <p className="text-xs text-subtle-foreground">
-              {formReviewerDisclosure(reviewers.length, externals.length)}
+              {formReviewerDisclosure()}
             </p>
             <AnonymityField />
           </div>

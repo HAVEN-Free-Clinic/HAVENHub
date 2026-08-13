@@ -33,7 +33,6 @@ import { formatDateOnly } from "@/platform/dates";
 import { validateUploadedFile } from "@/modules/recruitment/services/upload";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
-import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import {
   reportSubmittedContext,
@@ -62,7 +61,7 @@ export const CONCERN_TYPES = [
 export const CONCERN_TYPE_VALUES: string[] = CONCERN_TYPES.map((t) => t.value);
 
 /** value -> human label, for building the comma-separated concernSummary in notification emails. */
-const CONCERN_LABELS: Record<string, string> = Object.fromEntries(CONCERN_TYPES.map((t) => [t.value, t.label]));
+export const CONCERN_LABELS: Record<string, string> = Object.fromEntries(CONCERN_TYPES.map((t) => [t.value, t.label]));
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -247,27 +246,10 @@ export type IncidentAudienceMember = {
  * Escalation recipients get NO read access anywhere; the permission exists only
  * to widen this list. See the note on the incidents module's permissions.
  */
-/**
- * Clinical supervisors OUTSIDE the Hub who are copied on incidents.
- *
- * These are real people with no Person record and no account: Yale School of
- * Medicine attendings who need visibility but never sign in. That rules out the
- * permission mechanism (nothing to grant it to) and the notify() path (no
- * Person, so no Notification row and no channel preference). They get plain
- * email and nothing else.
- *
- * Parsed permissively (comma or whitespace separated, deduped, lowercased) and
- * filtered to values containing "@", so a stray trailing comma cannot produce an
- * empty recipient that fails at send time.
- */
-export async function externalEscalationEmails(): Promise<string[]> {
-  const raw = await getSetting<string>("incidents.externalEscalationEmails");
-  const parts = (raw ?? "")
-    .split(/[,\s]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s.includes("@"));
-  return [...new Set(parts)];
-}
+// Clinical supervisors OUTSIDE the Hub used to be resolved here, as a flat
+// address list that submission and strike issuance blind-copied. They are now a
+// named directory a reviewer forwards from deliberately: see
+// external-contacts.ts (parsing) and forward.ts (sending and the audit trail).
 
 export async function incidentAudience(): Promise<IncidentAudienceMember[]> {
   const [reviewers, escalation] = await Promise.all([
@@ -395,40 +377,16 @@ async function notifyReviewersOfSubmission(
       }
     }
 
-    // --- External clinical supervisors ---
+    // --- External clinical supervisors: deliberately NOT notified here ---
     //
-    // Sent LAST and guarded hardest. These addresses are outside the clinic
-    // entirely, so an anonymous report must never reach them: the reporter was
-    // promised anonymity toward the subject, and a narrative leaving the
-    // organization is the one disclosure that cannot be walked back.
+    // Submission used to blind-copy every address in
+    // incidents.externalEscalationEmails. That setting is now a DIRECTORY a
+    // reviewer forwards from case by case (forward.ts), because sending every
+    // matter to every supervisor was the thing reviewers wanted to stop.
     //
-    // They also get no link, because they have no account to follow it with,
-    // and no verbatim description, because the point is visibility that an
-    // incident occurred rather than distribution of the account.
-    if (!report.anonymous) {
-      const externals = await externalEscalationEmails();
-      for (const to of externals) {
-        const rendered = await renderEmail(
-          "incidents.report_submitted",
-          reportSubmittedContext({
-            reviewerName: "Colleague",
-            reportNumber: report.number,
-            concernSummary,
-            immediateRisk: report.immediateRisk,
-            reviewLink: "",
-          })
-        );
-        await queueEmail(prisma, {
-          to,
-          subject: rendered.subject,
-          html: rendered.html,
-          template: "incidents.report_submitted",
-          // No personId: there is no Person behind this address. EmailLog still
-          // records the send, which is what makes the disclosure auditable.
-          triggeredById: actorPersonId,
-        });
-      }
-    }
+    // Nothing replaces this call site: a report reaches outside the clinic only
+    // when a reviewer decides it should, and that decision leaves an
+    // IncidentForward record on the report.
   } catch (err) {
     log.error("[incidents] failed to notify reviewers of a submitted report", errorAttrs(err, { reportId: report.id }));
   }

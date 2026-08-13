@@ -130,7 +130,19 @@ export type AttendingOption = {
   isActive: boolean;
 };
 
+/**
+ * Why the schedule is empty, when it is.
+ *
+ * Three unrelated causes used to collapse into one "no clinic dates" message,
+ * which sent people to look at the term calendar when the real problem was that
+ * no service lines were configured. A clinic with 17 clinic dates was being told
+ * it had none.
+ */
+export type AttendingScheduleEmptyReason = "no-active-term" | "no-clinic-dates" | "no-service-lines";
+
 export type AttendingSchedule = {
+  /** Set only when there is nothing to render; null when the grid has rows. */
+  emptyReason: AttendingScheduleEmptyReason | null;
   /** The active term, or null when there is none. Needed to write a cell. */
   termId: string | null;
   /** Service lines that have a roster, as table columns. */
@@ -178,9 +190,14 @@ export async function attendingSchedule(): Promise<AttendingSchedule> {
   const [term, rawLines] = await Promise.all([getActiveTerm(), serviceLineDepartments()]);
   const lines = rawLines.map((l) => ({ ...l, usesProcedures: l.code === PROCEDURE_LINE_CODE }));
 
-  if (!term || term.clinicDates.length === 0 || lines.length === 0) {
-    return { termId: term?.id ?? null, lines, optionsByLine: {}, dates: [] };
-  }
+  // Ordered most fundamental first, so the reader is told the one thing they
+  // have to fix rather than whichever condition happened to be checked last.
+  const empty = (emptyReason: AttendingScheduleEmptyReason, termId: string | null) =>
+    ({ emptyReason, termId, lines, optionsByLine: {}, dates: [] }) satisfies AttendingSchedule;
+
+  if (!term) return empty("no-active-term", null);
+  if (term.clinicDates.length === 0) return empty("no-clinic-dates", term.id);
+  if (lines.length === 0) return empty("no-service-lines", term.id);
 
   const [rows, rosters] = await Promise.all([
     prisma.rhdClinic.findMany({
@@ -225,6 +242,7 @@ export async function attendingSchedule(): Promise<AttendingSchedule> {
   const sorted = [...term.clinicDates].sort((a, b) => (isoDateKey(a) < isoDateKey(b) ? -1 : 1));
 
   return {
+    emptyReason: null,
     termId: term.id,
     lines,
     optionsByLine,

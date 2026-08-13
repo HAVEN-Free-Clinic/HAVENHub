@@ -295,6 +295,45 @@ describe("attendingSchedule", () => {
     // which would post an empty termId.
     expect(schedule.termId).toBeNull();
     expect(schedule.dates).toEqual([]);
+    expect(schedule.emptyReason).toBe("no-active-term");
+  });
+
+  // Three unrelated causes used to render as "No clinic dates in the active
+  // term yet". A clinic with 17 clinic dates and no delegations configured was
+  // told it had no clinic dates, which sends whoever reads it to the one place
+  // that is not the problem.
+  it("distinguishes no service lines from no clinic dates", async () => {
+    // A term with dates, but nothing that counts as a service line: the
+    // delegation edge is what makes a department one, and there is none here.
+    await prisma.person.create({ data: { id: "solo-actor", name: "Solo" } });
+    await prisma.department.create({ data: { code: "SCTS", name: "SCTS Dept" } });
+    await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer 2026", status: "ACTIVE",
+        startDate: new Date("2026-05-01T12:00:00Z"), endDate: new Date("2026-08-31T12:00:00Z"),
+        clinicDates: [new Date("2026-05-30T12:00:00Z")],
+      },
+    });
+
+    const schedule = await attendingSchedule();
+
+    expect(schedule.emptyReason).toBe("no-service-lines");
+    expect(schedule.dates).toEqual([]);
+  });
+
+  it("reports no clinic dates only when the active term really has none", async () => {
+    await rhdManager();
+    await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer 2026", status: "ACTIVE",
+        startDate: new Date("2026-05-01T12:00:00Z"), endDate: new Date("2026-08-31T12:00:00Z"),
+        clinicDates: [],
+      },
+    });
+
+    const schedule = await attendingSchedule();
+
+    expect(schedule.emptyReason).toBe("no-clinic-dates");
   });
 });
 

@@ -111,7 +111,28 @@ export default async function AttendingsListPage({ searchParams }: PageProps) {
         <SectionHeader level="title">Schedule</SectionHeader>
         {schedule.dates.length === 0 ? (
           <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No clinic dates in the active term yet.
+            {schedule.emptyReason === "no-active-term" ? (
+              "No active term. Activate one in Admin > Terms to schedule attendings."
+            ) : schedule.emptyReason === "no-clinic-dates" ? (
+              "The active term has no clinic dates yet. Add them in Admin > Terms."
+            ) : (
+              // Service lines are derived from department delegations, so a
+              // clinic that has never set one up lands here with a full term
+              // calendar. Saying "no clinic dates" sent people to look at the
+              // calendar, which was fine, and left the real cause invisible.
+              <>
+                No service lines are set up yet, so there is nothing to schedule against.
+                <span className="mt-2 block">
+                  A service line is a department that manages others (reproductive health
+                  manages its clinical teams; primary care manages its own). Set that up under
+                  Managed departments in{" "}
+                  <Link href="/admin/departments" className="text-brand-fg hover:underline">
+                    Admin &gt; Departments
+                  </Link>
+                  .
+                </span>
+              </>
+            )}
           </Card>
         ) : (
           <Table>

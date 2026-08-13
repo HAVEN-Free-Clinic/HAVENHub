@@ -42,6 +42,25 @@ const BRAND = "#00356b";
 const HUB_URL = "https://hub.havenfreeclinic.org";
 const DOCS_URL = "https://docs.havenfreeclinic.org";
 
+/**
+ * Hero screenshot of the dashboard, served from `public/email/`.
+ *
+ * ABSOLUTE, and it has to be: an email is read outside the app, so a relative
+ * path resolves against the mail client and breaks. The file is committed
+ * alongside this template rather than hotlinked, so the URL cannot rot
+ * independently of the code that references it.
+ *
+ * 1104px wide for a 552px slot, so it stays sharp on a 2x display, and PNG
+ * because the subject is UI: JPEG artifacts show up badly on small text and
+ * flat fills. Roughly 66 KB, which keeps the whole message far below Gmail's
+ * clipping threshold.
+ *
+ * `width` and `height` attributes are set on the tag because Outlook needs
+ * them to reserve space, and the inline `max-width:100%;height:auto` is what
+ * makes it scale on a phone.
+ */
+const HERO_URL = `${HUB_URL}/email/hero-dashboard.png`;
+
 const FONT =
   "'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
@@ -72,7 +91,9 @@ function step(n: number, body: string, opts: { last?: boolean } = {}): string {
   return `        <tr><td style="padding:0 0 ${opts.last ? "0" : "9"}px;font-family:${FONT};font-size:14px;line-height:1.5;color:#1e293b;"><strong style="color:${BRAND};">${n}.</strong>&nbsp;&nbsp;${body}</td></tr>`;
 }
 
-const WELCOME_BODY = `<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">Welcome aboard</p>
+const WELCOME_BODY = `<a href="${HUB_URL}" style="text-decoration:none;"><img src="${HERO_URL}" width="552" height="268" alt="The HAVEN Hub dashboard, showing your next shift, your clearance status, and the modules available to you" style="display:block;width:100%;max-width:552px;height:auto;border:0;border-radius:8px;margin:0 0 24px;"></a>
+
+<p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">Welcome aboard</p>
 
 <h1 style="margin:0 0 14px;font-family:${FONT};font-size:26px;line-height:1.22;font-weight:700;letter-spacing:-0.4px;color:#0f172a;">Hi {{#if firstName}}{{firstName}}{{else}}there{{/if}}, welcome to HAVEN&nbsp;Hub</h1>
 

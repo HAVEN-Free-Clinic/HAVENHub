@@ -769,7 +769,7 @@ export async function getReport(
   id: string
 ): Promise<{
   report: IncidentReport & {
-    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { name: string } }>;
+    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { id: string; name: string } }>;
     reporter: { name: string };
     attachments: IncidentReportAttachment[];
   };
@@ -778,7 +778,8 @@ export async function getReport(
   const report = await prisma.incidentReport.findUnique({
     where: { id },
     include: {
-      subjects: { include: { person: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+      // person.id is selected so the detail page can badge a cleared subject.
+      subjects: { include: { person: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
       reporter: { select: { name: true } },
       attachments: true,
     },

@@ -722,6 +722,13 @@ export type BuilderView = {
   banner: DeptBanner[];
   /** Map: personId -> array of other-department names with same-day conflict. */
   conflicts: Record<string, string[]>;
+  /**
+   * Members fully cleared for the date being built, for the verified badge.
+   * Plain string[] rather than a Set so it survives the RSC boundary intact.
+   * Computed from the same loadClearanceMap pass that feeds `banner`, so a badge
+   * and the banner can never disagree about the same person.
+   */
+  clearedPersonIds: string[];
   pendingRequestCount: number;
   rhd: BuilderRhd | null;
 };
@@ -761,6 +768,7 @@ export async function builderView(
       capacity: emptyMetrics,
       hasCapacityConfig: false,
       banner: [],
+    clearedPersonIds: [],
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
@@ -797,6 +805,7 @@ export async function builderView(
       capacity: emptyMetrics,
       hasCapacityConfig: false,
       banner: [],
+    clearedPersonIds: [],
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
@@ -969,11 +978,18 @@ export async function builderView(
   // Build a memberById Map for O(1) lookups instead of O(n) linear scan per assignee.
   const memberById = new Map(members.map((m) => [m.person.id, m]));
 
-  const bannerClearance = await loadClearanceMap(
-    volunteerAssigneesOnDate.map((a) => a.personId),
-    term.id,
-    now
-  );
+  // ONE clearance pass covering both consumers: the not-cleared banner (volunteer
+  // assignees on this date) and the verified badge on every assignable member
+  // card. Widening the existing call is free relative to making a second one --
+  // loadClearanceMap's cost is per-call, not per-person -- and it guarantees the
+  // banner and the badges can never disagree about the same person.
+  //
+  // Note this deliberately passes `now`, the builder's reference time, so a
+  // badge answers "cleared for the date being built" rather than "cleared today".
+  const clearanceScope = [
+    ...new Set([...volunteerAssigneesOnDate.map((a) => a.personId), ...members.map((m) => m.person.id)]),
+  ];
+  const bannerClearance = await loadClearanceMap(clearanceScope, term.id, now);
 
   const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
     const person = memberById.get(a.personId)?.person ?? a.person;
@@ -1052,6 +1068,11 @@ export async function builderView(
       selectedDept.idealHeadcount != null || selectedDept.patientCapacityPerProvider != null,
     banner,
     conflicts,
+    // Plain string[], not a Set: this crosses into components and a Set would
+    // not survive serialization intact. Callers rebuild a Set if they want O(1).
+    clearedPersonIds: [...bannerClearance]
+      .filter(([, summary]) => summary.cleared)
+      .map(([personId]) => personId),
     pendingRequestCount: pendingCount,
     rhd,
   };

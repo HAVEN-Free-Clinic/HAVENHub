@@ -14,6 +14,7 @@ import { normalizePhoto } from "./normalize";
 import { PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
 import { shouldAttemptYaliesPull, type PhotoState } from "./policy";
 import { fetchYaliesPhoto, isPersonSpecificMiss, isYaliesEnabled } from "./yalies";
+import { capturePhotoPull, capturePhotoRemoved, capturePhotoUploaded } from "./analytics";
 
 /** Upload types we accept. Everything is re-encoded to WebP regardless. */
 export const ACCEPTED_UPLOAD_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -259,9 +260,20 @@ export async function resolvePhoto(
   // this against the response); resolved here rather than hardcoded in
   // yalies.ts, which has no settings dependency of its own on purpose.
   const maxMb = await getSetting<number>("uploads.maxMb");
+  // Read before the attempt writes over it: the event reports which backoff
+  // step this pull was standing on, which is lost once recordMiss increments.
+  const priorMisses = person.photoSyncMisses;
   const fetched = await fetchYaliesPhoto(person.netId, maxMb * 1024 * 1024);
   if ("miss" in fetched) {
-    await recordMiss(personId, now, isPersonSpecificMiss(fetched.miss));
+    const personSpecific = isPersonSpecificMiss(fetched.miss);
+    await recordMiss(personId, now, personSpecific);
+    await capturePhotoPull({
+      personId,
+      outcome: "missed",
+      reason: fetched.miss,
+      personSpecific,
+      priorMisses,
+    });
     return null;
   }
 
@@ -273,6 +285,7 @@ export async function resolvePhoto(
     // object, not about this person, so it does not advance the person's
     // backoff any more than an API outage would.
     await recordMiss(personId, now, false);
+    await capturePhotoPull({ personId, outcome: "unreadable", priorMisses });
     return null;
   }
 
@@ -292,6 +305,7 @@ export async function resolvePhoto(
   } catch (err) {
     log.warn("[photos] storing a Yalies photo failed", errorAttrs(err));
     await recordMiss(personId, now, false);
+    await capturePhotoPull({ personId, outcome: "store_failed", priorMisses });
     return null;
   }
   if (!stored) {
@@ -301,8 +315,10 @@ export async function resolvePhoto(
     // deleted inside storePhoto. Fall back to initials rather than serving a
     // photo the member just asked not to have, or clobbering the photo they
     // just chose themselves.
+    await capturePhotoPull({ personId, outcome: "superseded", priorMisses });
     return null;
   }
+  await capturePhotoPull({ personId, outcome: "sourced", priorMisses });
   return { bytes: normalized, contentType: PHOTO_CONTENT_TYPE };
 }
 
@@ -330,8 +346,17 @@ export async function setPhotoFromUpload(
   if (Math.max(file.size, file.bytes.length) > maxMb * 1024 * 1024) {
     throw new PhotoError(`Image too large; the limit is ${maxMb} MB.`);
   }
-  await storePhoto(personId, await normalizePhoto(file.bytes), "upload", {
+  const normalized = await normalizePhoto(file.bytes);
+  await storePhoto(personId, normalized, "upload", {
     clearSuppression: actorId === personId,
+  });
+  // After the write, so a rejected upload (bad type, too large, undecodable,
+  // storage down) never counts as one that landed.
+  await capturePhotoUploaded({
+    personId,
+    bySelf: actorId === personId,
+    bytes: normalized.length,
+    contentType: file.type,
   });
 }
 
@@ -382,6 +407,7 @@ export async function removePhoto(personId: string): Promise<void> {
   // same key regardless. Do not reorder this to match storePhoto "for
   // consistency" -- the two functions have opposite risks on purpose.
   const key = person.photoKey;
+  const suppressed = person.photoSource === "yalies";
   await prisma.person.update({
     where: { id: personId },
     data: {
@@ -389,8 +415,15 @@ export async function removePhoto(personId: string): Promise<void> {
       photoSource: null,
       photoVersion: { increment: 1 },
       photoUpdatedAt: new Date(),
-      ...(person.photoSource === "yalies" ? { photoSuppressed: true } : {}),
+      ...(suppressed ? { photoSuppressed: true } : {}),
     },
   });
   await deleteObject(key).catch(() => undefined);
+  // Past both early returns, so a no-op removal (nobody there, nothing to
+  // remove) is not counted as an opt-out.
+  await capturePhotoRemoved({
+    personId,
+    previousSource: person.photoSource,
+    suppressed,
+  });
 }

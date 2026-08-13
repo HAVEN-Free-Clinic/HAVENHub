@@ -66,12 +66,71 @@ const BASE_OPTS: Omit<RhdImportOptions, "dryRun"> = {
  * absent rather than writing unattributed rows, which is why every test here
  * needs it seeded.
  */
+const RHD_CAPABILITY_KEYS = ["iudIn", "iudOut", "nexplanon", "gac", "emb", "seesMale"];
+
+/**
+ * The reference data this sheet's rows land in.
+ *
+ * The importer classifies every attending it creates as reproductive health and
+ * writes every assignment into the RHD Attending column of the clinic-wide
+ * schedule, refusing to run without either -- so both are required here rather
+ * than incidental.
+ */
 async function seedServiceLine() {
-  return prisma.department.upsert({
-    where: { code: "SRHD" },
+  const specialty = await prisma.attendingSpecialty.upsert({
+    where: { code: "RHD" },
     update: {},
-    create: { code: "SRHD", name: "Sexual and Reproductive Health" },
+    create: { code: "RHD", name: "Reproductive Health", order: 1 },
   });
+  for (const [order, key] of RHD_CAPABILITY_KEYS.entries()) {
+    await prisma.attendingCapability.upsert({
+      where: { key },
+      update: {},
+      create: { key, label: key, order, specialtyId: specialty.id },
+    });
+  }
+  await prisma.clinicSlot.upsert({
+    where: { label: "RHD Attending" },
+    update: {},
+    create: { label: "RHD Attending", startTime: "09:00", endTime: "13:00", order: 0 },
+  });
+  return specialty;
+}
+
+/** Who the import put on a clinic day, in the RHD Attending column. */
+async function clinicAttendingId(clinicDayId: string): Promise<string | null> {
+  const row = await prisma.clinicDayAttending.findFirst({
+    where: { clinicDayId },
+    select: { attendingId: true },
+  });
+  return row?.attendingId ?? null;
+}
+
+/** Create a clinic day already staffed by `attendingId`, as a director would. */
+async function seedStaffedClinicDay(termId: string, clinicDate: Date, attendingId: string) {
+  const slot = await prisma.clinicSlot.findUniqueOrThrow({ where: { label: "RHD Attending" } });
+  return prisma.clinicDay.create({
+    data: {
+      termId,
+      clinicDate,
+      attendings: { create: [{ slotId: slot.id, attendingId }] },
+    },
+  });
+}
+
+/**
+ * An attending's answers as key -> value.
+ *
+ * Absence IS "unknown" (the importer stores no row for it), so this fills the
+ * gaps rather than making every caller special-case a missing key.
+ */
+async function procedures(scheduleName: string): Promise<Record<string, string>> {
+  const a = await prisma.attending.findUniqueOrThrow({
+    where: { scheduleName },
+    include: { capabilities: { include: { capability: { select: { key: true } } } } },
+  });
+  const stored = new Map(a.capabilities.map((c) => [c.capability.key, c.value]));
+  return Object.fromEntries(RHD_CAPABILITY_KEYS.map((k) => [k, stored.get(k) ?? "unknown"]));
 }
 
 async function seedTerm() {
@@ -88,9 +147,9 @@ async function seedTerm() {
   });
 }
 
-/** The seeded service line's id, for tests that create rows directly. */
-async function serviceLineId() {
-  return (await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } })).id;
+/** The seeded specialty's id, for tests that create attendings directly. */
+async function rhdSpecialtyId() {
+  return (await prisma.attendingSpecialty.findUniqueOrThrow({ where: { code: "RHD" } })).id;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +241,7 @@ describe("runRhdImport", () => {
   // Attending: create
   // -------------------------------------------------------------------------
 
-  it("creates a new RhdAttending row from an attending record", async () => {
+  it("creates a new Attending row from an attending record", async () => {
     await seedTerm();
 
     const reader = makeReader([
@@ -207,16 +266,18 @@ describe("runRhdImport", () => {
     expect(report.attendings.updated).toBe(0);
     expect(report.attendings.unchanged).toBe(0);
 
-    const attending = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
+    const attending = await prisma.attending.findUnique({ where: { scheduleName: "Jones" } });
     expect(attending).not.toBeNull();
     expect(attending!.fullName).toBe("Dr. Alice Jones");
-    expect(attending!.iudIn).toBe("yes");
-    expect(attending!.iudOut).toBe("no");
-    expect(attending!.nexplanon).toBe("yes");
-    expect(attending!.gac).toBe("no");
-    expect(attending!.emb).toBe("unknown");
-    expect(attending!.seesMale).toBe("yes");
     expect(attending!.notes).toBe("Available Saturdays");
+    expect(await procedures("Jones")).toEqual({
+      iudIn: "yes",
+      iudOut: "no",
+      nexplanon: "yes",
+      gac: "no",
+      emb: "unknown",
+      seesMale: "yes",
+    });
   });
 
   it("uses scheduleName as fullName when fullName is blank", async () => {
@@ -234,7 +295,7 @@ describe("runRhdImport", () => {
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
 
-    const attending = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
+    const attending = await prisma.attending.findUnique({ where: { scheduleName: "Jones" } });
     expect(attending!.fullName).toBe("Jones");
   });
 
@@ -262,8 +323,7 @@ describe("runRhdImport", () => {
     ]);
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("yes");
+    expect((await procedures("Jones")).iudIn).toBe("yes");
   });
 
   it("normalizes single-select as object {name:'yes'} -> 'yes'", async () => {
@@ -274,8 +334,7 @@ describe("runRhdImport", () => {
     ]);
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("yes");
+    expect((await procedures("Jones")).iudIn).toBe("yes");
   });
 
   it("normalizes single-select as object {name:'No'} -> 'no' (lowercased)", async () => {
@@ -286,8 +345,7 @@ describe("runRhdImport", () => {
     ]);
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("no");
+    expect((await procedures("Jones")).iudIn).toBe("no");
   });
 
   it("normalizes junk select value to 'unknown'", async () => {
@@ -298,8 +356,7 @@ describe("runRhdImport", () => {
     ]);
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("unknown");
+    expect((await procedures("Jones")).iudIn).toBe("unknown");
   });
 
   it("normalizes absent select field to 'unknown'", async () => {
@@ -310,10 +367,11 @@ describe("runRhdImport", () => {
     ]);
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("unknown");
-    expect(a!.nexplanon).toBe("unknown");
-    expect(a!.seesMale).toBe("unknown");
+    // Absent columns store no rows at all, and must still read as "unknown".
+    expect(await prisma.attendingCapabilityValue.count()).toBe(0);
+    expect((await procedures("Jones")).iudIn).toBe("unknown");
+    expect((await procedures("Jones")).nexplanon).toBe("unknown");
+    expect((await procedures("Jones")).seesMale).toBe("unknown");
   });
 
   // -------------------------------------------------------------------------
@@ -335,8 +393,7 @@ describe("runRhdImport", () => {
     expect(report.attendings.updated).toBe(1);
     expect(report.attendings.created).toBe(0);
 
-    const a = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    expect(a!.iudIn).toBe("no");
+    expect((await procedures("Jones")).iudIn).toBe("no");
   });
 
   it("marks attending unchanged on second identical run", async () => {
@@ -379,7 +436,7 @@ describe("runRhdImport", () => {
     expect(report.clinics.created).toBe(1);
     expect(report.skippedClinicDates).toHaveLength(0);
 
-    const clinic = await prisma.rhdClinic.findFirst();
+    const clinic = await prisma.clinicDay.findFirst();
     expect(clinic).not.toBeNull();
     expect(clinic!.directorName).toBe("Dr. Smith");
     expect(clinic!.proceduresBooked).toBe(3);
@@ -453,12 +510,12 @@ describe("runRhdImport", () => {
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
 
-    const attending = await prisma.rhdAttending.findUnique({ where: { scheduleName: "Jones" } });
-    const clinic = await prisma.rhdClinic.findFirst();
-    expect(clinic!.attendingId).toBe(attending!.id);
+    const attending = await prisma.attending.findUnique({ where: { scheduleName: "Jones" } });
+    const clinic = await prisma.clinicDay.findFirstOrThrow();
+    expect(await clinicAttendingId(clinic.id)).toBe(attending!.id);
   });
 
-  it("adds unresolved attending record id to unresolvedAttendings; clinic imported with attendingId null", async () => {
+  it("adds unresolved attending record id to unresolvedAttendings; clinic imported with the slot unstaffed", async () => {
     await seedTerm();
 
     const reader = makeReader(
@@ -478,16 +535,16 @@ describe("runRhdImport", () => {
     expect(report.unresolvedAttendings).toContain(REC_DR_JONES);
     expect(report.clinics.created).toBe(1);
 
-    const clinic = await prisma.rhdClinic.findFirst();
-    expect(clinic!.attendingId).toBeNull();
+    const clinic = await prisma.clinicDay.findFirstOrThrow();
+    expect(await clinicAttendingId(clinic.id)).toBeNull();
   });
 
-  it("preserves a director-set attendingId when the Airtable link is present but unresolved (#120)", async () => {
+  it("preserves a director-set attending when the Airtable link is present but unresolved (#120)", async () => {
     const term = await seedTerm();
     // A director already selected Dr Smith for the June 6 clinic in the builder.
-    const lineId = await serviceLineId();
-    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", departmentId: lineId } });
-    await prisma.rhdClinic.create({ data: { termId: term.id, departmentId: lineId, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+    const specialtyId = await rhdSpecialtyId();
+    const smith = await prisma.attending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", specialtyId } });
+    await seedStaffedClinicDay(term.id, CLINIC_DATE_1, smith.id);
 
     // Airtable links June 6 to an attending the import cannot resolve (e.g. it was
     // skipped for a blank Schedule Name), so it never enters the resolve map.
@@ -499,16 +556,16 @@ describe("runRhdImport", () => {
     const report = await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
     expect(report.unresolvedAttendings).toContain(REC_DR_JONES);
 
-    // The director's attending survives: an unresolved link must not null it out.
-    const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
-    expect(clinic!.attendingId).toBe(smith.id);
+    // The director's attending survives: an unresolved link must not clear it.
+    const clinic = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(await clinicAttendingId(clinic.id)).toBe(smith.id);
   });
 
-  it("still clears attendingId when Airtable genuinely has no attending link", async () => {
+  it("still unstaffs the slot when Airtable genuinely has no attending link", async () => {
     const term = await seedTerm();
-    const lineId = await serviceLineId();
-    const smith = await prisma.rhdAttending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", departmentId: lineId } });
-    await prisma.rhdClinic.create({ data: { termId: term.id, departmentId: lineId, clinicDate: CLINIC_DATE_1, attendingId: smith.id } });
+    const specialtyId = await rhdSpecialtyId();
+    const smith = await prisma.attending.create({ data: { scheduleName: "Smith", fullName: "Dr Smith", specialtyId } });
+    await seedStaffedClinicDay(term.id, CLINIC_DATE_1, smith.id);
 
     // No attending link at all -> a real "Airtable has no attending", which should
     // still clear the field (this is the case the preserve guard must NOT swallow).
@@ -516,8 +573,8 @@ describe("runRhdImport", () => {
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
 
-    const clinic = await prisma.rhdClinic.findFirst({ where: { termId: term.id } });
-    expect(clinic!.attendingId).toBeNull();
+    const clinic = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(await clinicAttendingId(clinic.id)).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -586,7 +643,7 @@ describe("runRhdImport", () => {
     expect(report.clinics.updated).toBe(1);
     expect(report.clinics.created).toBe(0);
 
-    const clinic = await prisma.rhdClinic.findFirst();
+    const clinic = await prisma.clinicDay.findFirst();
     expect(clinic!.proceduresBooked).toBe(5);
   });
 
@@ -616,8 +673,8 @@ describe("runRhdImport", () => {
     expect(report.clinics.created).toBe(1);
 
     // Nothing written
-    expect(await prisma.rhdAttending.count()).toBe(0);
-    expect(await prisma.rhdClinic.count()).toBe(0);
+    expect(await prisma.attending.count()).toBe(0);
+    expect(await prisma.clinicDay.count()).toBe(0);
     expect(await prisma.auditLog.count()).toBe(0);
   });
 
@@ -698,7 +755,7 @@ describe("runRhdImport", () => {
 
     await runRhdImport(reader, { ...BASE_OPTS, dryRun: false });
 
-    const clinic = await prisma.rhdClinic.findFirst();
+    const clinic = await prisma.clinicDay.findFirst();
     expect(clinic!.directorName).toBeNull();
     expect(clinic!.proceduresBooked).toBeNull();
   });

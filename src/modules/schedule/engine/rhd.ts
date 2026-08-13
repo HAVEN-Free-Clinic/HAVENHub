@@ -5,7 +5,7 @@
  * Source: server/rhd.ts (partial port)
  *
  * Ported:
- *   ProcedureStatus, ProcedureKey, PROCEDURE_KEYS, Attending,
+ *   ProcedureStatus, ProcedureKey, PROCEDURE_KEYS, Attending (now ReadinessAttending),
  *   RhdPersonLite (renamed from PersonLite), ClinicInput, ClinicReadiness,
  *   computeClinicReadiness, dedupeById (private)
  *
@@ -27,10 +27,21 @@ export const PROCEDURE_KEYS: ProcedureKey[] = [
   "iudIn", "iudOut", "nexplanon", "gac", "emb", "seesMale",
 ];
 
-export type Attending = {
+/**
+ * An attending as the readiness computation needs one: identity plus the six
+ * reproductive-health procedure answers, flattened.
+ *
+ * Named ReadinessAttending, not Attending, so it does not collide with the
+ * Prisma model of that name. The two differ on purpose: the model stores
+ * qualifications as rows keyed by capability, while this engine is a port that
+ * wants a fixed six-key record. buildRhdBlock projects one onto the other.
+ */
+export type ReadinessAttending = {
   id: string;
   scheduleName: string;
   fullName: string;
+  /** Which slot they cover, e.g. "Morning". Absent on a line with one slot. */
+  slotLabel?: string;
   procedures: Record<ProcedureKey, ProcedureStatus>;
   notes?: string;
 };
@@ -45,7 +56,12 @@ export type RhdPersonLite = {
 
 export type ClinicInput = {
   date: string; // ISO
-  attending: Attending | null;
+  /**
+   * Everyone covering this date, one per staffed slot, in slot order. Was a
+   * single attending; a service line can now split its day into named slots and
+   * staff each separately.
+   */
+  attendings: ReadinessAttending[];
   director: string | null;
   sctsOnShift: RhdPersonLite[];
   jctsOnShift: RhdPersonLite[];
@@ -57,7 +73,8 @@ export type ClinicInput = {
 export type ClinicReadiness = {
   date: string;
   closed: boolean;
-  attending: Attending | null;
+  /** Everyone covering this date, in slot order. Empty when nobody is on. */
+  attendings: ReadinessAttending[];
   director: string | null;
   procedures: Record<ProcedureKey, ProcedureStatus>;
   coverage: { sctm: number; jctm: number; rn: number; spanish: number };
@@ -74,6 +91,29 @@ function unknownProcedures(): Record<ProcedureKey, ProcedureStatus> {
   };
 }
 
+/**
+ * What the DAY can offer, across everyone covering it.
+ *
+ * "yes" wins: if any attending on the day is qualified, the clinic can book the
+ * procedure -- in their slot. Otherwise an explicit "no" from anyone beats
+ * silence, because a known gap is more useful than an unanswered question. Only
+ * when nobody has answered does the day read "unknown".
+ *
+ * This union is what makes per-day procedure coverage meaningful once a day can
+ * carry two attendings. It deliberately does not say WHICH slot; the panel lists
+ * the attendings, and procedures booked is a per-day number anyway.
+ */
+function mergeProcedures(
+  attendings: ReadinessAttending[],
+): Record<ProcedureKey, ProcedureStatus> {
+  const out = unknownProcedures();
+  for (const key of PROCEDURE_KEYS) {
+    const values = attendings.map((a) => a.procedures[key]);
+    out[key] = values.includes("yes") ? "yes" : values.includes("no") ? "no" : "unknown";
+  }
+  return out;
+}
+
 function dedupeById(people: RhdPersonLite[]): RhdPersonLite[] {
   const seen = new Set<string>();
   const out: RhdPersonLite[] = [];
@@ -87,16 +127,16 @@ function dedupeById(people: RhdPersonLite[]): RhdPersonLite[] {
 
 export function computeClinicReadiness(input: ClinicInput): ClinicReadiness {
   const all = dedupeById([...input.sctsOnShift, ...input.jctsOnShift, ...input.ccrhOnShift]);
-  const closed = input.attending == null && all.length === 0;
+  const closed = input.attendings.length === 0 && all.length === 0;
   const rn = all.filter((p) => p.licensedRN).length;
   const emails = [...new Set(all.map((p) => p.email).filter(Boolean))].sort();
 
   return {
     date: input.date,
     closed,
-    attending: input.attending,
+    attendings: input.attendings,
     director: input.director,
-    procedures: input.attending ? input.attending.procedures : unknownProcedures(),
+    procedures: mergeProcedures(input.attendings),
     coverage: {
       sctm: input.sctsOnShift.length,
       jctm: input.jctsOnShift.length,

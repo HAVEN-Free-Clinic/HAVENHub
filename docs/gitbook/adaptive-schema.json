@@ -148,6 +148,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.manage_attendance permission in HAVEN Hub."
             },
+            "manage_attendings": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.manage_attendings permission in HAVEN Hub."
+            },
             "manage_requests": {
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.manage_requests permission in HAVEN Hub."
@@ -162,7 +166,7 @@
             },
             "manages_any_rhd_dept": {
               "type": "boolean",
-              "description": "Whether the visitor manages at least one reproductive-health (RHD-family) department and can therefore use the Attendings roster. Data-driven, not a registry permission."
+              "description": "Whether the visitor manages at least one clinic service line and can therefore edit an Attendings roster. Data-driven, not a registry permission. The action name is historical: it is a published leaf a live GitBook page conditions on, so it outlived the RHD-only scope it was named for."
             }
           },
           "additionalProperties": false

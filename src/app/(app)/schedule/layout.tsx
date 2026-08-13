@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
+import { canManageAttendings } from "@/modules/schedule/services/attendings";
 import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
 import { isClinicDayToday } from "@/modules/schedule/services/attendance";
 import { ModuleNav } from "@/platform/ui/module-nav";
@@ -34,27 +35,29 @@ export function generateMetadata() {
 // the *global* nav's Schedule dropdown (it cannot run these checks). This layout
 // remains the only place that decides whether they appear in the tab row.
 const BUILDER_HREF = "/schedule/builder";
-// No ATTENDINGS_HREF: that tab is now unconditional, since the attending
-// schedule is readable by every member.
+const ATTENDINGS_HREF = "/schedule/attendings";
 const APPROVALS_HREF = "/schedule/requests";
 const CHECK_IN_HREF = "/schedule/check-in";
 
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, requestDeptIds, isClinicDay] = await Promise.all([
+  const [canBuild, managesAttendings, requestDeptIds, isClinicDay] = await Promise.all([
     canManageAnyScheduleDept(personId),
+    canManageAttendings(personId),
     manageableRequestDepartmentIds(personId),
     isClinicDayToday(),
   ]);
   const canApprove = requestDeptIds.length > 0;
-  // Attendings is no longer gated: the schedule of who is covering each clinic
-  // date is exactly what a volunteer working that shift needs, and it used to be
-  // visible only to the managers who maintain it. The page itself scopes EDIT
-  // controls per service line.
+  // Attendings is a management tool: it maintains the roster and books who
+  // covers each clinic date, which Faculty Relations does. What a VOLUNTEER
+  // needs from it -- who is attending on the shift they are working -- is on
+  // their own schedule page instead (see MyShift.attendings), scoped to the
+  // dates they actually work rather than the whole term.
   const items = mod.nav.filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
+      (item.href !== ATTENDINGS_HREF || managesAttendings) &&
       (item.href !== APPROVALS_HREF || canApprove) &&
       (item.href !== CHECK_IN_HREF || isClinicDay),
   );

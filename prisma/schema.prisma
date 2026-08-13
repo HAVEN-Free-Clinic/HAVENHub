@@ -321,7 +321,7 @@ model Term {
   clinicAttendances    ClinicAttendance[]
   shiftRequests        ShiftRequest[]
   scheduleDays         ScheduleDay[]
-  rhdClinics           RhdClinic[]
+  clinicDays           ClinicDay[]
   boardMeetings        BoardMeeting[]
   schedulePublications SchedulePublication[]
   recruitmentCycles    RecruitmentCycle[]
@@ -374,10 +374,6 @@ model Department {
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
   schedulePublications       SchedulePublication[]
-  /// Set only on a MANAGING department (SRHD, PCAR): the attending roster and
-  /// per-Saturday attending assignments for its service line.
-  rhdAttendings              RhdAttending[]
-  rhdClinics                 RhdClinic[]
   courseDepartments          CourseDepartment[]
   ehsTrainingDepartments     EhsTrainingDepartment[]
   /// Hours one shift in this department is worth, for the volunteer service
@@ -432,6 +428,14 @@ model Subcommittee {
 /// One row per "manager department oversees managed department" edge. Used to
 /// extend a director's compliance scope beyond their own department(s) by one
 /// hop (no recursion). Example: PCAR manages SCTP and JCTP.
+/// One department oversees another for COMPLIANCE purposes: a director of the
+/// manager also oversees the managed department's members, one hop, no further.
+///
+/// That is the whole meaning. It is deliberately NOT a clinic service line, an
+/// attending roster, or a scheduling right. Use Department.hasAttendingRoster for
+/// the first two and manageableScheduleDepartmentIds for the third. Inferring a
+/// service line from these edges is what put an oversight-only pair (VADC/VADM)
+/// on the attending schedule as a clinic line.
 model DepartmentDelegation {
   id                  String     @id @default(cuid())
   managerDepartmentId String
@@ -1402,66 +1406,236 @@ enum BoardAttendanceStatus {
   ABSENT
 }
 
-/// Attending physicians and their procedure qualification matrix.
-/// Procedure values are "yes" | "no" | "unknown" strings (legacy semantics).
+/// A clinical specialty an attending practises in.
 ///
-/// NAME IS HISTORICAL. This started as reproductive-health-only and now covers
-/// every service line that keeps an attending roster (reproductive health under
-/// SRHD, primary care under PCAR). It was not renamed because the rename would
-/// touch the Airtable import, the builder, the weekly reminder email, and every
-/// page and test that reads it, for a cosmetic gain. Read "Rhd" here as
-/// "attending", not as a scope.
-///
-/// The procedure matrix is reproductive-health-specific and is rendered only for
-/// that service line; a primary care attending has no IUD or Nexplanon
-/// qualification and leaves those at their "unknown" default.
-model RhdAttending {
-  id           String      @id @default(cuid())
-  scheduleName String      @unique
-  fullName     String
-  /// The MANAGING department whose service line this attending belongs to
-  /// (SRHD for reproductive health, PCAR for primary care), not one of the
-  /// member-facing departments it oversees. Restrict: an attending roster must
-  /// not be orphaned by deleting the department that owns it.
-  departmentId String
-  iudIn        String      @default("unknown")
-  iudOut       String      @default("unknown")
-  nexplanon    String      @default("unknown")
-  gac          String      @default("unknown")
-  emb          String      @default("unknown")
-  seesMale     String      @default("unknown")
-  notes        String?
-  isActive     Boolean     @default(true)
-  department   Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  clinics      RhdClinic[]
+/// Doubles as the roster's grouping (Primary Care, Reproductive Health,
+/// Behavioral Health) and, for those flagged `runsSpecialtyClinic`, as the
+/// rotating clinic named in the schedule's Specialty Clinic column (Dermatology,
+/// Neurology, Nephrology). Kept as data rather than an enum because the roster
+/// gains specialties as the clinic adds services.
+model AttendingSpecialty {
+  id                  String                @id @default(cuid())
+  /// Short code used in the schedule grid and imports, e.g. "RHD".
+  code                String                @unique
+  /// What people read, e.g. "Reproductive Health".
+  name                String                @unique
+  /// Whether this specialty can be named as the day's rotating Specialty Clinic.
+  runsSpecialtyClinic Boolean               @default(false)
+  order               Int
+  attendings          Attending[]
+  capabilities        AttendingCapability[]
+  clinicDays          ClinicDay[]
 
-  @@index([departmentId])
+  @@index([order])
 }
 
-/// Per-Saturday attending assignment for ONE service line (attending on duty,
-/// director on point, procedures booked).
+/// One qualification asked about attendings, e.g. "IUD In" or "Can sign GAC".
 ///
-/// Unique on (term, date, department) rather than (term, date): reproductive
-/// health and primary care each run on the same Saturday and each have their own
-/// attending, which the original two-part key could not express.
+/// `specialtyId` scopes the question: set, only attendings in that specialty are
+/// asked (the six reproductive-health procedures); null, everyone is (signing
+/// GAC spans primary care and reproductive health, per the term sheets).
 ///
-/// `departmentId` is the MANAGING department (SRHD, PCAR). See RhdAttending for
-/// why the model name still says Rhd.
-model RhdClinic {
-  id               String        @id @default(cuid())
-  termId           String
-  departmentId     String
-  /// Noon-UTC anchored calendar date; compare by UTC day key.
-  clinicDate       DateTime
-  attendingId      String?
-  directorName     String?
-  proceduresBooked Int?
-  term             Term          @relation(fields: [termId], references: [id], onDelete: Restrict)
-  department       Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  attending        RhdAttending? @relation(fields: [attendingId], references: [id], onDelete: SetNull)
+/// This replaced six columns hardcoded onto every attending, which meant a
+/// primary care attending carried six reproductive-health fields and no other
+/// question could be asked without a migration.
+///
+/// `key` is the stable machine name. The reproductive-health readiness engine
+/// reads its six BY KEY, so renaming one silently blanks that column of the
+/// panel; the label is free to change.
+model AttendingCapability {
+  id          String                     @id @default(cuid())
+  /// Stable machine name, e.g. "iudIn".
+  key         String                     @unique
+  /// What the form and roster table show, e.g. "IUD In".
+  label       String
+  /// Display order in the matrix.
+  order       Int
+  /// Null means every attending is asked.
+  specialtyId String?
+  specialty   AttendingSpecialty?        @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  values      AttendingCapabilityValue[]
 
-  @@unique([termId, departmentId, clinicDate])
-  @@index([departmentId])
+  @@index([specialtyId])
+}
+
+/// One attending's answer to one capability question.
+///
+/// A MISSING row means "unknown", so adding a capability does not require
+/// backfilling every attending, and readers must treat absence and "unknown"
+/// identically rather than as a gap.
+model AttendingCapabilityValue {
+  id           String              @id @default(cuid())
+  attendingId  String
+  capabilityId String
+  /// "yes" | "no" | "unknown" (legacy semantics, kept so the ported readiness
+  /// engine and the imports need no value translation).
+  value        String              @default("unknown")
+  attending    Attending           @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+  capability   AttendingCapability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  @@unique([attendingId, capabilityId])
+  @@index([attendingId])
+  @@index([capabilityId])
+}
+
+/// An attending physician on the clinic's roster.
+///
+/// ONE central roster, maintained by Faculty Relations (the
+/// schedule.manage_attendings permission), not a per-department list. An
+/// attending is not a member of a service line; they have a SPECIALTY and cover
+/// whichever slots the schedule puts them in, and many cover more than one area
+/// across a term.
+///
+/// `scheduleName` is how the schedule and the reminder email name them ("Peggy
+/// Bia"); `fullName` is the roster's formal form ("Bia, Margaret"). They differ
+/// often enough that importing the term sheets depends on the distinction.
+model Attending {
+  id            String                  @id @default(cuid())
+  /// How the schedule grid names them. Unique so a schedule cell resolves.
+  scheduleName  String                  @unique
+  fullName      String
+  /// Post-nominals as written on the contact sheet, e.g. "MD, MPH". Free text:
+  /// the real values include MD, DO, PA-C, APRN, PsyD, MBBS and combinations.
+  credentials   String?
+  specialtyId   String?
+  email         String?
+  phone         String?
+  notes         String?
+  isActive      Boolean                 @default(true)
+  specialty     AttendingSpecialty?     @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  capabilities  AttendingCapabilityValue[]
+  clinicDays    ClinicDayAttending[]
+  /// Clinic dates where they hold the on-call week (see ClinicDay.onCallAttending).
+  onCallDays    ClinicDay[]             @relation("clinicDayOnCall")
+  credentialing AttendingCredentialing?
+
+  @@index([specialtyId])
+  @@index([isActive])
+}
+
+/// A named column of the attending schedule: a window of the clinic day that is
+/// staffed separately, e.g. "9am-12pm", "RHD Attending", "BHD Clinic".
+///
+/// CLINIC-WIDE, not per department. The schedule is one grid covering the whole
+/// Saturday; reproductive health and behavioral health are columns in it, not
+/// separate schedules. Editable by Faculty Relations, because the columns drift
+/// between terms.
+///
+/// Times are "HH:MM" in the display time zone. They are labels for humans, not
+/// scheduling arithmetic: volunteer shifts remain date-only (ShiftAssignment),
+/// so nothing joins a volunteer to a slot.
+model ClinicSlot {
+  id             String               @id @default(cuid())
+  /// What the grid column shows, e.g. "9am-12pm".
+  label          String               @unique
+  startTime      String
+  endTime        String
+  /// Column order, left to right.
+  order          Int
+  /// Whether more than one attending may cover this slot on one date. The
+  /// 9am-12pm column really does carry two, which is why the schedule sheet
+  /// repeats that header twice.
+  allowsMultiple Boolean              @default(false)
+  assignments    ClinicDayAttending[]
+
+  @@index([order])
+}
+
+/// One attending covering one slot of one clinic day.
+///
+/// Unique on (day, slot, attending) rather than (day, slot): a slot may carry
+/// several attendings, and the only thing forbidden is naming the same person
+/// twice in one slot.
+///
+/// A MISSING row means that slot is unstaffed. Deactivating an attending does
+/// NOT remove the row, so the grid can still show the stale assignment and a
+/// manager can see the gap; only a hard delete cascades.
+model ClinicDayAttending {
+  id          String     @id @default(cuid())
+  clinicDayId String
+  slotId      String
+  attendingId String
+  /// Order within the slot, so two attendings in one column read consistently.
+  order       Int        @default(0)
+  clinicDay   ClinicDay  @relation(fields: [clinicDayId], references: [id], onDelete: Cascade)
+  slot        ClinicSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  attending   Attending  @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicDayId, slotId, attendingId])
+  @@index([clinicDayId])
+  @@index([slotId])
+  @@index([attendingId])
+}
+
+/// One clinic date's attending coverage, clinic-wide.
+///
+/// Unique on (term, date): there is ONE schedule for the Saturday, with a column
+/// per slot, which is how Faculty Relations actually keeps it. Per-service-line
+/// clinic rows were a mis-modelling of that single grid.
+model ClinicDay {
+  id                String               @id @default(cuid())
+  termId            String
+  /// Noon-UTC anchored calendar date; compare by UTC day key.
+  clinicDate        DateTime
+  /// The clinic does not run this Saturday (holidays, breaks). Kept as a flag
+  /// rather than removing the date, because the term calendar still has it and
+  /// the schedule shows it as closed rather than as an unstaffed gap.
+  isClosed          Boolean              @default(false)
+  /// Why, when closed, e.g. "HAVEN FREE CLINIC CLOSED".
+  closedNote        String?
+  /// Holds the on-call pager for the week LEADING UP TO THE NEXT clinic day, not
+  /// for this one. Stored on the date its row sits on because that is how the
+  /// schedule is read and sent, but the coverage window runs forward.
+  onCallAttendingId String?
+  /// The rotating specialty clinic running this date, if any (Derm, Neuro,
+  /// Nephro). Separate from the attending covering it, since the sheet often
+  /// names the clinic before the doctor is settled.
+  specialtyId       String?
+  /// Reproductive health director on point for the day.
+  directorName      String?
+  /// Procedures booked for the day, for the readiness cap warning.
+  proceduresBooked  Int?
+  term              Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
+  onCallAttending   Attending?           @relation("clinicDayOnCall", fields: [onCallAttendingId], references: [id], onDelete: SetNull)
+  specialty         AttendingSpecialty?  @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  attendings        ClinicDayAttending[]
+
+  @@unique([termId, clinicDate])
+  @@index([onCallAttendingId])
+  @@index([specialtyId])
+}
+
+/// Faculty Relations' onboarding pipeline for one attending.
+///
+/// Mirrors the credentialing tracker the FCRL director keeps by hand. The stages
+/// are deliberately independent booleans rather than one status enum: they are
+/// chased in parallel and completed out of order, and a single status could not
+/// say "forms in, NPDB clear, still waiting on the steering committee".
+model AttendingCredentialing {
+  id                              String    @id @default(cuid())
+  attendingId                     String    @unique
+  /// 1) info email sent to the interested attending.
+  infoEmailSent                   Boolean   @default(false)
+  /// 2) credentialing forms received back.
+  formsReceived                   Boolean   @default(false)
+  /// 3) NPDB check requested, and OAPD (faculty affairs) cleared.
+  npdbCheck                       Boolean   @default(false)
+  oapd                            Boolean   @default(false)
+  /// 2b) FTCA coverage, when the attending needs it.
+  needsFtca                       Boolean   @default(false)
+  ftcaSubmitted                   Boolean   @default(false)
+  /// 4) Yale-affiliated attendings go to the medical directors.
+  medDirectorApprovalNeeded       Boolean   @default(false)
+  medDirectorApproved             Boolean   @default(false)
+  /// 5) community providers go to the steering committee instead.
+  steeringCommitteeApprovalNeeded Boolean   @default(false)
+  steeringCommitteeApproved       Boolean   @default(false)
+  /// 6) cleared to be handed to the clinical advisors.
+  approved                        Boolean   @default(false)
+  notes                           String?
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+  attending                       Attending @relation(fields: [attendingId], references: [id], onDelete: Cascade)
 }
 
 /// How an attendance record came to exist. SELF_GEO passed the geofence;

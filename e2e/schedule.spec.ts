@@ -610,8 +610,10 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
-  // It becomes assignable on the grid, on every clinic date of its line.
-  const cell = page.locator('select[name="attendingId"]').first();
+  // It becomes assignable on the grid, on every clinic date of its line. One
+  // select per time slot, named `slot:<id>`, so this picks the first slot of the
+  // first date rather than a single per-day attending field.
+  const cell = page.locator('select[name^="slot:"]').first();
   await expect(cell).toBeVisible();
   const option = cell.locator("option", { hasText: name });
   await expect(option).toHaveCount(1);
@@ -624,5 +626,5 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.waitForLoadState("networkidle");
 
   // Round-trips through the DB rather than merely rendering optimistically.
-  await expect(page.locator('select[name="attendingId"]').first()).toHaveValue(optionValue!);
+  await expect(page.locator('select[name^="slot:"]').first()).toHaveValue(optionValue!);
 });

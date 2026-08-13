@@ -31,6 +31,44 @@ import { can } from "@/platform/rbac/engine";
 export const MANAGE = "support.manage_requests";
 export const PAGE_SIZE = 25;
 
+/**
+ * Every TechRequest scalar, named explicitly.
+ *
+ * Used wherever a query needs the whole row, in place of letting Prisma imply
+ * the column list. Prisma builds that list from `schema.prisma`, not from what
+ * the calling code touches, so a query with no projection (and an `include:`,
+ * which only names relations) emits every declared column. During a Vercel
+ * build the previous deployment keeps serving while `prisma migrate deploy` has
+ * already run, so the moment a column is dropped those queries ask for a column
+ * the database no longer has and return 42703 to every caller. That is exactly
+ * what commit 2ce40c15 did to `/support/[id]` and to the Intercom
+ * ticket.created webhook.
+ *
+ * Listing all scalars keeps the result assignable to `TechRequest`, so this is
+ * a pure hardening with no type churn at the call sites, and it makes the next
+ * narrowing of this table fail loudly in `tsc` here instead of quietly in
+ * production. See docs/DEPLOY.md §1 for the measurements.
+ */
+const TICKET_SCALARS = {
+  id: true,
+  number: true,
+  airtableRecordId: true,
+  requesterId: true,
+  category: true,
+  epicSubtype: true,
+  subject: true,
+  description: true,
+  priority: true,
+  status: true,
+  assignedToId: true,
+  resolution: true,
+  resolvedAt: true,
+  intercomConversationId: true,
+  intercomTicketId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Typed errors
 // ---------------------------------------------------------------------------
@@ -203,8 +241,12 @@ export async function createTechRequestFromConversation(
         where: {
           OR: [{ intercomTicketId: input.intercomTicketId }, { intercomConversationId: input.intercomConversationId }],
         },
+        select: TICKET_SCALARS,
       })
-    : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
+    : await prisma.techRequest.findUnique({
+        where: { intercomConversationId: input.intercomConversationId },
+        select: TICKET_SCALARS,
+      });
   if (existing) return { ticket: existing, created: false };
 
   const subject = input.subject?.trim();
@@ -223,6 +265,7 @@ export async function createTechRequestFromConversation(
         intercomConversationId: input.intercomConversationId,
         intercomTicketId: input.intercomTicketId ?? null,
       },
+      select: TICKET_SCALARS,
     });
 
     await recordAudit({
@@ -248,8 +291,12 @@ export async function createTechRequestFromConversation(
                 { intercomConversationId: input.intercomConversationId },
               ],
             },
+            select: TICKET_SCALARS,
           })
-        : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
+        : await prisma.techRequest.findUnique({
+            where: { intercomConversationId: input.intercomConversationId },
+            select: TICKET_SCALARS,
+          });
       if (winner) return { ticket: winner, created: false };
     }
     throw err;
@@ -371,10 +418,43 @@ export async function listAllRequests(
   return { rows: rows as unknown as TechRequestListRow[], total, counts };
 }
 
+/**
+ * Explicit `select:` on the scalars, deliberately, not `include:`.
+ *
+ * `include` names RELATIONS; it leaves the scalar list alone, so the generated
+ * SQL still emits every column `schema.prisma` declares. That is what made this
+ * query the casualty of commit 2ce40c15: `prisma migrate deploy` runs at the
+ * start of the Vercel build while the PREVIOUS deployment still serves traffic,
+ * so for the whole build window the old client asked for seven columns the
+ * migration had just dropped, and `/support/[id]` returned 42703 to every
+ * caller. Measured in audit 13: a no-projection query and an `include:`-only
+ * query both fail that way; an explicit `select:` survives untouched.
+ *
+ * Keeping the projection explicit means the next narrowing of this table is a
+ * non-event here. `tsc` enforces it: drop a field a caller reads and the build
+ * fails at the call site rather than in production. See docs/DEPLOY.md §1.
+ */
 async function loadDetail(id: string) {
   return prisma.techRequest.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      number: true,
+      airtableRecordId: true,
+      requesterId: true,
+      category: true,
+      epicSubtype: true,
+      subject: true,
+      description: true,
+      priority: true,
+      status: true,
+      assignedToId: true,
+      resolution: true,
+      resolvedAt: true,
+      intercomConversationId: true,
+      intercomTicketId: true,
+      createdAt: true,
+      updatedAt: true,
       requester: { select: { id: true, name: true, netId: true, contactEmail: true, epicId: true } },
       assignedTo: { select: { id: true, name: true } },
       epicRequests: {

@@ -1,4 +1,5 @@
 import { Badge } from "@/platform/ui/badge";
+import { PersonName } from "@/platform/ui/person-name";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
@@ -35,6 +36,12 @@ export function BuilderDayView({
   toggleTagAction,
 }: BuilderDayViewProps) {
   const { members, assignmentsByDate, conflicts } = data;
+  // Every builder user already sees clearance here: the not-cleared banner names
+  // volunteers outright. So the badge is shown to the whole builder audience
+  // rather than gated on volunteers.view the way passive surfaces are -- gating
+  // it would hide from a director exactly what the banner above already tells
+  // them, on the one screen where clearance changes a decision.
+  const clearedIds = new Set(data.clearedPersonIds);
 
   const assignmentsOnDate: Record<string, BuilderAssignmentEntry> =
     selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};
@@ -114,7 +121,7 @@ export function BuilderDayView({
         className={`px-3 py-3${available ? "" : " opacity-75"}`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className="text-sm font-semibold text-foreground">{member.person.name}</span>
+          <PersonName name={member.person.name} cleared={clearedIds.has(member.person.id)} className="text-sm font-semibold text-foreground" />
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>

@@ -14,6 +14,8 @@ import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { formatCalendarDate } from "@/platform/dates";
 import { languageLabel } from "@/platform/languages";
+import { loadClearedSet } from "@/platform/clearance";
+import { PersonName } from "@/platform/ui/person-name";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -31,6 +33,22 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
   const { term, clinicDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
+
+  // Verified badges, resolved ONCE for every person on the page rather than per
+  // name: loadClearedSet fans out to roughly a dozen queries, and this page
+  // renders every assignment across every department for a clinic date.
+  //
+  // Gated on volunteers.view, the same permission that opens the compliance
+  // roster where clearance is already visible. A plain volunteer browsing the
+  // schedule sees no badges and pays no query cost, because the call is skipped
+  // entirely rather than computed and hidden.
+  const canSeeClearance = await can(session.personId, "volunteers.view");
+  const scheduledPersonIds = canSeeClearance
+    ? departments.flatMap((d) =>
+        [...d.directors, ...d.volunteers, ...d.shadows].map((p) => p.id)
+      )
+    : [];
+  const clearedIds = await loadClearedSet(scheduledPersonIds);
 
   // markPresent/undoAttendance both write against TODAY's clinic date
   // (todaysClinicDate inside attendance.ts), not whatever date this page
@@ -228,7 +246,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm font-bold text-foreground">{p.name}</span>
+                              <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />
                               {shiftTags(p.tags)}
                               {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (
@@ -250,7 +268,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm text-foreground-soft">{v.name}</span>
+                              <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />
                               {shiftTags(v.tags)}
                               {capabilityBadges(v)}
                               {(conflicts.get(v.id) ?? []).length > 0 && (
@@ -272,7 +290,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-sm text-subtle-foreground italic">{p.name}</span>
+                              <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />
                               {shiftTags(p.tags)}
                               {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (

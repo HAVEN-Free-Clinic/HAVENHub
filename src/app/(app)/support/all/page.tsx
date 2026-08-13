@@ -18,6 +18,8 @@
  */
 
 import { requireAnyPermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
+import { loadClearedSet } from "@/platform/clearance";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { isIntercomConfigured } from "@/platform/intercom/config";
@@ -63,6 +65,15 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Verified badges on the requester column. Gated on volunteers.view (the
+  // permission that opens the compliance roster) rather than on
+  // support.manage_requests: a ticket manager is not automatically entitled to
+  // read anyone's clearance. Skipped entirely otherwise, so it costs nothing.
+  const canSeeClearance = await can(session.personId, "volunteers.view");
+  const clearedPersonIds = [
+    ...(await loadClearedSet(canSeeClearance ? rows.map((r) => r.requester.id) : [])),
+  ];
+
   function hrefFor(targetPage: number): string {
     const params = new URLSearchParams();
     if (sp.status) params.set("status", sp.status);
@@ -86,6 +97,7 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
         rows={rows}
         hrefBase="/support"
         showRequester
+        clearedPersonIds={clearedPersonIds}
         // "inbox": managers work tickets in Intercom's agent inbox, so a
         // linked row deep-links there instead of opening the Messenger.
         intercomAction={isIntercomConfigured() ? "inbox" : undefined}

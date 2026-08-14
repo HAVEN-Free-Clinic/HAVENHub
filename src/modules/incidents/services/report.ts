@@ -579,7 +579,12 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
 
   // Every linked person must exist.
   for (const s of subjects) {
-    const person = await prisma.person.findUnique({ where: { id: s.personId } });
+    // Existence check only, so it selects the id alone rather than the row.
+    // Narrower than PERSON_SCALARS and inherently immune to a dropped column.
+    const person = await prisma.person.findUnique({
+      where: { id: s.personId },
+      select: { id: true },
+    });
     if (!person) throw new IncidentNotFoundError(`Subject ${s.personId} not found.`);
   }
 
@@ -769,7 +774,7 @@ export async function getReport(
   id: string
 ): Promise<{
   report: IncidentReport & {
-    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { name: string } }>;
+    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { id: string; name: string } }>;
     reporter: { name: string };
     attachments: IncidentReportAttachment[];
   };
@@ -778,7 +783,8 @@ export async function getReport(
   const report = await prisma.incidentReport.findUnique({
     where: { id },
     include: {
-      subjects: { include: { person: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+      // person.id is selected so the detail page can badge a cleared subject.
+      subjects: { include: { person: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
       reporter: { select: { name: true } },
       attachments: true,
     },

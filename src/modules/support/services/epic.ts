@@ -32,6 +32,7 @@ import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 import {
   epicOnboardingContext,
   epicActivationContext,
@@ -117,7 +118,10 @@ export async function createEpicRequest(
     throw new EpicForbiddenError("You can only submit an epic request for yourself.");
   }
 
-  const person = await prisma.person.findUnique({ where: { id: input.personId } });
+  const person = await prisma.person.findUnique({
+    where: { id: input.personId },
+    select: PERSON_SCALARS,
+  });
   if (!person) throw new EpicNotFoundError(`Person not found: ${input.personId}`);
   if (person.status !== "ACTIVE") {
     throw new EpicStateError("Cannot create an epic request for a non-ACTIVE person.");
@@ -325,7 +329,10 @@ export async function completeRequest(
     );
   }
 
-  const person = await prisma.person.findUnique({ where: { id: req.personId } });
+  const person = await prisma.person.findUnique({
+    where: { id: req.personId },
+    select: PERSON_SCALARS,
+  });
   if (!person) throw new EpicNotFoundError("Person for this request no longer exists.");
 
   // Access-granting kinds may only be completed for an ACTIVE person. This

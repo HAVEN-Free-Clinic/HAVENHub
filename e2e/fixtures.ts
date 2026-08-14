@@ -163,22 +163,22 @@ export async function seedRhdAttending(
   opts: { scheduleName?: string; fullName?: string } = {}
 ) {
   const t = tag();
-  // Attendings belong to a SERVICE LINE, identified by its managing department
-  // (SRHD for reproductive health). The seed creates SRHD and its delegations,
-  // so this resolves in any environment the e2e suite runs against.
-  const serviceLine = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
-  const attending = await prisma.rhdAttending.create({
+  // ONE clinic-wide roster: attendings belong to no department, they have a
+  // specialty. Reproductive health is used so the readiness panel has something
+  // to read; the seed provisions the specialty in every environment.
+  const specialty = await prisma.attendingSpecialty.findUnique({ where: { code: "RHD" } });
+  const attending = await prisma.attending.create({
     data: {
       scheduleName: opts.scheduleName ?? `E2E Attending ${t}`,
       fullName: opts.fullName ?? `E2E Attending ${t}`,
-      departmentId: serviceLine.id,
+      specialtyId: specialty?.id ?? null,
       isActive: true,
     },
   });
   return {
     attending,
     cleanup: () =>
-      prisma.rhdAttending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
+      prisma.attending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }
 

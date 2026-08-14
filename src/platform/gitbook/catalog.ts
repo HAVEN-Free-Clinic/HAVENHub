@@ -12,13 +12,13 @@ export const ADAPTIVE_PERMISSION_CATALOG: string[] = [
 /**
  * Data-driven adaptive claims that are deliberately NOT registry permissions.
  * A few pages gate on a runtime capability rather than a permission string:
- * managing a schedule department (Builder) or an RHD-family department
- * (Attendings) comes from an active directorship or delegation, which the
+ * managing a schedule department (Builder) or a clinic service line
+ * (Attendings) comes from an active directorship, which the
  * registry does not, and should not, model as a permission (see
  * src/app/(app)/schedule/layout.tsx). Their leaves still need to exist in the
  * published schema and the signed token so a GitBook condition can reference
  * them; unlike catalog leaves, their VALUE is computed by a service call in the
- * auth route (canManageAnyScheduleDept / canManageAnyRhdDept) and passed into
+ * auth route (canManageAnyScheduleDept / canManageAnyAttendingRoster) and passed into
  * buildAdaptiveClaims, not derived from the permission set via hasPermission.
  * Regenerate the committed schema after editing this list, same as for a
  * registry permission change.
@@ -34,7 +34,7 @@ export const ADAPTIVE_DERIVED_CLAIMS = [
     module: "schedule",
     action: "manages_any_rhd_dept",
     description:
-      "Whether the visitor manages at least one reproductive-health (RHD-family) department and can therefore use the Attendings roster. Data-driven, not a registry permission.",
+      "Whether the visitor manages at least one clinic service line and can therefore edit an Attendings roster. Data-driven, not a registry permission. The action name is historical: it is a published leaf a live GitBook page conditions on, so it outlived the RHD-only scope it was named for.",
   },
 ] as const;
 

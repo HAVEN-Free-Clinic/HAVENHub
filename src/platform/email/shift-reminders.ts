@@ -39,7 +39,7 @@ export type BuildShiftRemindersInput = {
   baseUrl: string;
   /**
    * Attending physician on duty for this clinic date, or "" when the clinic row
-   * has no attending assigned. Resolved by the caller (RhdClinic) rather than
+   * has no attending assigned. Resolved by the caller (ClinicDay) rather than
    * derived from `assignments`: an attending is not a Person and holds no
    * ShiftAssignment, so unlike the EDs / Clinical Advisors / directors lists
    * there is nothing in the assignment rows to derive it from.
@@ -240,27 +240,26 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   const teamsChannelUrl = channelLink?.webUrl ?? "";
   const baseUrl = await getSetting<string>("app.baseUrl");
 
-  // Attendings on duty for this clinic date, across every service line.
+  // Everyone attending on this clinic date, in schedule-column order.
   //
-  // findMany, not findUnique: the row is now unique on
-  // (termId, departmentId, clinicDate), so a Saturday can carry a reproductive
-  // health attending AND a primary care attending, and the reminder should name
-  // both. clinicDate is the same noon-UTC marker as Term.clinicDates, so
-  // targetDate matches directly.
-  //
-  // No row, no attending on the row, and a deactivated attending all collapse to
+  // The attending schedule is clinic-wide, so one query covers the whole day.
+  // A closed date, no assignments, and a deactivated attending all collapse to
   // "", which the template's {{#if}} hides rather than printing an empty line.
-  const clinics = await prisma.rhdClinic.findMany({
-    where: { termId: term.id, clinicDate: targetDate },
+  const day = await prisma.clinicDay.findFirst({
+    where: { termId: term.id, clinicDate: targetDate, isClosed: false },
     select: {
-      department: { select: { code: true } },
-      attending: { select: { fullName: true, isActive: true } },
+      attendings: {
+        orderBy: [{ slot: { order: "asc" } }, { order: "asc" }],
+        select: {
+          slot: { select: { label: true } },
+          attending: { select: { scheduleName: true, isActive: true } },
+        },
+      },
     },
-    orderBy: { department: { code: "asc" } },
   });
-  const attendingName = clinics
-    .filter((c) => c.attending?.isActive)
-    .map((c) => `${c.attending!.fullName} (${c.department.code})`)
+  const attendingName = (day?.attendings ?? [])
+    .filter((a) => a.attending.isActive)
+    .map((a) => `${a.attending.scheduleName} (${a.slot.label})`)
     .join(", ");
 
   const prepared = buildShiftReminders({ assignments, targetDate, teamsChannelUrl, baseUrl, attendingName });

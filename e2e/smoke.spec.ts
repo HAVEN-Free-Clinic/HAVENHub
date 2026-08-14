@@ -70,15 +70,13 @@ const ROUTES: RouteCase[] = [
 
   // Schedule: requireModuleAccess("schedule") = schedule.view.
   // All three seeded roles carry schedule.view, so the list pages have no
-  // meaningful denied case, and that now includes Attendings: it is READABLE by
-  // every member on purpose, since the people who most need to know which
-  // attending is on this Saturday are the volunteers working that shift. It
-  // used to gate on canManageAnyRhdDept and deny a volunteer. Editing is still
-  // restricted, per service line, and is covered in schedule.spec.ts rather
-  // than here, because this table only asserts reachability.
+  // meaningful denied case. Attendings is the exception: it maintains the
+  // roster and books coverage, so it gates on managing a service line and a
+  // volunteer is denied. What a volunteer needs from it -- who is attending on
+  // the shift THEY work -- is on /schedule instead.
   { path: "/schedule", allowed: "admin" },
   { path: "/schedule/full", allowed: "admin" },
-  { path: "/schedule/attendings", allowed: "volunteer" },
+  { path: "/schedule/attendings", allowed: "admin", denied: "volunteer" },
 
   // Training: requirePersonSession only
   { path: "/training", allowed: "admin" },

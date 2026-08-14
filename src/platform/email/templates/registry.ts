@@ -6,6 +6,7 @@ import { epicDescriptors } from "./epic";
 import { recruitmentDescriptors } from "./recruitment";
 import { supportDescriptors } from "./support";
 import { shiftDescriptors } from "./shift";
+import { attendingDescriptors } from "./attending";
 import { scheduleDescriptors } from "./schedule";
 import { incidentsDescriptors } from "./incidents";
 import { authDescriptors } from "./auth";
@@ -21,6 +22,7 @@ const ALL: TemplateDescriptor[] = [
   ...recruitmentDescriptors,
   ...supportDescriptors,
   ...shiftDescriptors,
+  ...attendingDescriptors,
   ...scheduleDescriptors,
   ...incidentsDescriptors,
   ...authDescriptors,

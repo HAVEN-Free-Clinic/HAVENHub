@@ -64,15 +64,67 @@ const HERO_URL = `${HUB_URL}/email/hero-dashboard.png`;
 const FONT =
   "'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
-/** One capability row in the "What you can do here" panel. */
-function featureRow(title: string, body: string, opts: { last?: boolean } = {}): string {
-  const border = opts.last ? "" : "border-bottom:1px solid #eef2f7;";
-  return `      <tr>
-        <td style="padding:16px 18px;${border}">
-          <p style="margin:0 0 3px;font-family:${FONT};font-size:15px;font-weight:600;color:#0f172a;">${title}</p>
-          <p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;color:#475569;">${body}</p>
-        </td>
-      </tr>`;
+/**
+ * One bullet inside a capability group.
+ *
+ * A two-cell table row rather than `<ul><li>`, for the same reason `valueProp`
+ * avoids lists: Outlook picks its own marker glyph and hanging indent, so real
+ * list items would not line up with each other across groups. A fixed-width
+ * marker cell makes every bullet in the message share one left edge.
+ */
+function bullet(body: string, opts: { last?: boolean } = {}): string {
+  const gap = opts.last ? "0" : "8";
+  return `        <tr>
+          <td width="16" style="width:16px;padding:0 0 ${gap}px;font-family:${FONT};font-size:14px;line-height:1.55;color:#94a3b8;vertical-align:top;">&bull;</td>
+          <td style="padding:0 0 ${gap}px;font-family:${FONT};font-size:14px;line-height:1.55;color:#475569;">${body}</td>
+        </tr>`;
+}
+
+/** A bare bullet list, for prose sections that sit outside a capability card. */
+function bulletList(items: string[]): string {
+  const rows = items.map((b, i) => bullet(b, { last: i === items.length - 1 })).join("\n");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 20px;">
+${rows}
+      </table>`;
+}
+
+/**
+ * One mini-section of the capability list: an uppercase eyebrow, a single line
+ * orienting the reader, the bullets, and where to click to get there.
+ *
+ * Grouped cards rather than one long table of same-looking rows. A uniform list
+ * of nine capabilities reads as a block of text and gets skipped wholesale; four
+ * labelled cards let someone scan for the one heading they care about and stop
+ * there. The eyebrow carries the only color in the card, so the groups separate
+ * on glance without repeating the tinted fill that "Start here" uses to stand out.
+ *
+ * The rule that decides what earns a card: separation reads as "new topic", so a
+ * facet of a capability has to sit INSIDE its parent rather than beside it. Who
+ * you are on with is part of the schedule, not a peer of it, so it is a bullet
+ * within SCHEDULING and must never be promoted to a card of its own. Splitting it
+ * out is what made the previous flat panel read as nine unrelated things instead
+ * of the handful it actually is.
+ */
+function capabilityGroup(g: {
+  eyebrow: string;
+  intro: string;
+  bullets: string[];
+  where: string;
+  last?: boolean;
+}): string {
+  const rows = g.bullets.map((b, i) => bullet(b, { last: i === g.bullets.length - 1 })).join("\n");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;background-color:#ffffff;margin:0 0 ${g.last ? "24" : "12"}px;">
+  <tr>
+    <td style="padding:16px 18px;">
+      <p style="margin:0 0 6px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">${g.eyebrow}</p>
+      <p style="margin:0 0 11px;font-family:${FONT};font-size:15px;line-height:1.5;color:#0f172a;">${g.intro}</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;">
+${rows}
+      </table>
+      <p style="margin:12px 0 0;font-family:${FONT};font-size:13px;line-height:1.45;color:#64748b;">${g.where}</p>
+    </td>
+  </tr>
+</table>`;
 }
 
 /**
@@ -118,45 +170,50 @@ ${valueProp("Built for HAVEN", "volunteers, by HAVEN volunteers.", { last: true 
 <p style="margin:0 0 4px;font-family:${FONT};font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${BRAND};">What you can do here</p>
 <h2 style="margin:0 0 16px;font-family:${FONT};font-size:19px;line-height:1.3;font-weight:700;color:#0f172a;">Everything in one place</h2>
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;background-color:#ffffff;margin:0 0 24px;">
-${featureRow(
-  "Your profile &amp; clearance",
-  "Add a photo, keep your contact details current, and track your HIPAA and EHS training. <strong>My&nbsp;Info</strong> shows exactly what is left before you are cleared to volunteer, so nothing is a surprise on a Saturday morning.",
-)}
-${featureRow(
-  "The clinic schedule",
-  "See your upcoming shifts, browse the full clinic schedule, and request a swap when something comes up. Subscribe once and your shifts appear automatically in Outlook, Google Calendar, or Apple Calendar.",
-)}
-${featureRow(
-  "Who is on with you",
-  "The full schedule shows who is working each department, which attending is covering the clinic, and who is a verified language provider or a licensed RN &mdash; so you can find the right person without asking around.",
-)}
-${featureRow(
-  "The languages you speak",
-  "Tell us on your application or in <strong>My&nbsp;Info</strong>, and the interpreting department confirms each one. Once confirmed, you show up as a language provider on the schedule.",
-)}
-${featureRow(
-  "Training &amp; learning",
-  "Complete the self-paced courses your department assigns, on your own time, and watch your progress update as you go.",
-)}
-${featureRow(
-  "IT &amp; Epic support",
-  "File a tech request or ask for Epic&nbsp;/&nbsp;YNHH access, then follow it from submitted to resolved without chasing anyone by email.",
-)}
-${featureRow(
-  "Your Record of Service",
-  "Every shift you serve is recorded. When you need proof for a residency application or a scholarship, download a verified Record of Service with the dates and hours you volunteered.",
-)}
-${featureRow(
-  "Report a concern",
-  "Anyone can raise a professional-standards concern, confidentially and anonymously if you prefer, so the team can look into it and follow up.",
-)}
-${featureRow(
-  "Stay in the loop",
-  "Get notified the way that works for you &mdash; the in-app bell, email, and Microsoft&nbsp;Teams &mdash; so nothing important slips by.",
-  { last: true },
-)}
-</table>
+${capabilityGroup({
+  eyebrow: "Stay in the loop",
+  intro: "The Hub comes to you when something needs your attention, so nothing rests on you remembering to check.",
+  bullets: [
+    "The bell in the top bar collects your approvals, decisions, and reminders in one list, and carries an unread count until you have read them.",
+    "Anything time-sensitive also goes out by email, and some notices arrive in Microsoft&nbsp;Teams, so you stay notified without living in the Hub.",
+    "Those emails go to the contact address on your record, so keeping it current in <strong>My&nbsp;Info</strong> is what keeps them arriving.",
+  ],
+  where: "The bell sits in the top bar of every page, next to your photo.",
+})}
+${capabilityGroup({
+  eyebrow: "My Info",
+  intro: "Everything the clinic holds about you in one place, including the clearance you need before your first shift.",
+  bullets: [
+    "Your photo and contact details, so the schedule and the front desk know who you are and how to reach you.",
+    "Your HIPAA and EHS training: what is on file, what is expiring, and what is still outstanding.",
+    "The languages you speak. Add them here or on your application and the interpreting department confirms each one; once confirmed, you show up as a language provider on the schedule.",
+    "Your service record. Every shift you serve is recorded, and you can download a verified Record of Service whenever you need proof for a residency application or a scholarship.",
+  ],
+  where: "Open <strong>My&nbsp;Info</strong> from the top navigation.",
+})}
+${capabilityGroup({
+  eyebrow: "Scheduling",
+  intro: "Your shifts, everyone else&rsquo;s, and a way to get both into the calendar you already use.",
+  bullets: [
+    "Your upcoming shifts, with a swap request when something comes up.",
+    "The full clinic schedule: who is working each department, on any clinic day.",
+    "<strong>Who is on with you.</strong> The same schedule names which attending is covering the clinic, and who is a verified language provider or a licensed RN, so you can find the right person mid-shift instead of asking around.",
+    "A calendar subscription. Set it up once and your shifts appear automatically in Outlook, Google Calendar, or Apple Calendar.",
+  ],
+  where:
+    "<strong>Schedule</strong> in the top navigation: <strong>My schedule</strong> for yours, <strong>Full schedule</strong> for everyone&rsquo;s.",
+})}
+${capabilityGroup({
+  eyebrow: "Also in the Hub",
+  intro: "Three more things you will use, each with its own tab.",
+  bullets: [
+    "<strong>Training.</strong> The self-paced courses your department assigns, on your own time, with progress that updates as you go.",
+    "<strong>IT &amp; Epic support.</strong> File a tech request or ask for Epic&nbsp;/&nbsp;YNHH access, then follow it from submitted to resolved without chasing anyone by email.",
+    "<strong>Report a concern.</strong> Anyone can raise a professional-standards concern, confidentially and anonymously if you prefer, so the team can look into it and follow up.",
+  ],
+  where: "<strong>Learning</strong>, <strong>Support</strong>, and <strong>Incidents</strong> in the top navigation.",
+  last: true,
+})}
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background-color:#eef3fb;border:1px solid #d5e2f2;border-radius:8px;margin:0 0 24px;">
   <tr>
@@ -176,7 +233,10 @@ ${step(4, "Explore the modules waiting for you on your dashboard.", { last: true
 
 <h3 style="margin:0 0 8px;font-family:${FONT};font-size:16px;line-height:1.3;font-weight:700;color:#0f172a;">A few things worth knowing</h3>
 
-<p style="margin:0 0 20px;font-family:${FONT};font-size:16px;line-height:1.6;color:#1e293b;">Press <strong>Cmd&nbsp;+&nbsp;K</strong> (or <strong>Ctrl&nbsp;+&nbsp;K</strong>) anywhere to jump to a page or search for a person. The Hub follows your device&rsquo;s light or dark setting, and you can pin either one from the account menu.</p>
+${bulletList([
+  "Press <strong>Cmd&nbsp;+&nbsp;K</strong> (or <strong>Ctrl&nbsp;+&nbsp;K</strong>) anywhere to jump to a page or search for a person.",
+  "The Hub follows your device&rsquo;s light or dark setting. To pin one instead, use the theme button in the top bar.",
+])}
 
 <h3 style="margin:0 0 8px;font-family:${FONT};font-size:16px;line-height:1.3;font-weight:700;color:#0f172a;">Need a hand?</h3>
 

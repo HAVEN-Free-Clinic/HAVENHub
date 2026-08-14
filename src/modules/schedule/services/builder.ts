@@ -552,6 +552,29 @@ export function parseBookedCount(raw: string, label: string): number | null {
 }
 
 /**
+ * A YYYY-MM-DD key as the noon-UTC instant clinic dates are anchored at, or null
+ * when the key is not a real calendar date.
+ *
+ * Noon, not midnight, so the row lands on the same instant a later term-calendar
+ * edit would produce for the same day -- otherwise adding the date to the term
+ * would create a SECOND ClinicDay beside the on-call one.
+ */
+function dateKeyToNoonUtc(key: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+  const d = new Date(`${key}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  // Round-trip check: JS normalizes impossible dates (2026-02-30) into a valid
+  // day in the next month rather than returning NaN.
+  return d.toISOString().slice(0, 10) === key ? d : null;
+}
+
+/** Whether a date falls inside the term's calendar window, inclusive. */
+function withinTerm(d: Date, term: { startDate: Date; endDate: Date }): boolean {
+  const key = isoDateKey(d);
+  return key >= isoDateKey(term.startDate) && key <= isoDateKey(term.endDate);
+}
+
+/**
  * Upserts one clinic date of the clinic-wide attending schedule.
  *
  * Requires schedule.manage_attendings: there is ONE schedule for the whole
@@ -563,7 +586,13 @@ export function parseBookedCount(raw: string, label: string): number | null {
  * Every field is optional and only what is passed gets written, so the grid can
  * save one cell without disturbing the rest of the row.
  *
- * The dateKey must be a clinic date in the active term.
+ * The dateKey must fall inside the term. A date the term does not list as a
+ * clinic date is accepted for the ON-CALL attending alone: on call covers the
+ * week leading up to the next clinic day, so someone holds the pager across a
+ * break week even though the clinic itself does not run. Everything else on such
+ * a date is refused rather than silently dropped -- the builder shows those
+ * dates closed, and a slot assignment reaching here means the caller disagrees
+ * with what the manager was shown.
  */
 export async function upsertClinicDay(
   actor: string,
@@ -589,9 +618,35 @@ export async function upsertClinicDay(
   }
 
   const term = await loadEditableTerm(opts.termId);
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  const listed = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+
+  // A date the term does not list still gets a row when it carries on call, so
+  // resolve it from the key itself. Noon UTC matches how clinic dates are
+  // anchored, so the (term, date) unique key lands on the same instant a later
+  // calendar edit would produce.
+  const clinicDate = listed ?? dateKeyToNoonUtc(opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a valid date.`);
+  }
+  if (!listed) {
+    if (!withinTerm(clinicDate, term)) {
+      throw new BuilderValidationError(`${opts.dateKey} falls outside ${term.name}.`);
+    }
+    // On call is the one field a non-clinic date carries. `isClosed` is allowed
+    // through only as `true`, which is what the builder already renders for such
+    // a date -- accepting `false` would let a save contradict it.
+    const assignsSlots = Object.values(opts.attendingsBySlot ?? {}).some((ids) => ids.length > 0);
+    const setsDayFields =
+      assignsSlots ||
+      (opts.specialtyId ?? null) !== null ||
+      (opts.directorName ?? null) !== null ||
+      (opts.proceduresBooked ?? null) !== null ||
+      ("isClosed" in opts && opts.isClosed === false);
+    if (setsDayFields) {
+      throw new BuilderValidationError(
+        `${opts.dateKey} is not a clinic date in ${term.name}, so only the on-call attending can be set.`,
+      );
+    }
   }
 
   // Slot ids, attending ids and the specialty are foreign keys read verbatim
@@ -618,6 +673,11 @@ export async function upsertClinicDay(
     ...("closedNote" in opts && { closedNote: opts.closedNote ?? null }),
     ...("directorName" in opts && { directorName: opts.directorName ?? null }),
     ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
+    // A date the term does not list is closed as a fact, not a setting. Written
+    // rather than left derived because readers that go straight to ClinicDay --
+    // the member shift card, the reminder emails -- filter on this column and
+    // would otherwise treat an on-call-only row as an open clinic day.
+    ...(listed ? {} : { isClosed: true }),
   };
 
   const before = await prisma.clinicDay.findUnique({
@@ -652,6 +712,110 @@ export async function upsertClinicDay(
         }
       }
     }
+
+    return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "schedule.clinic_day",
+    entityType: "ClinicDay",
+    entityId: `${term.id}|${opts.dateKey}`,
+    ...(before && { before: auditShape(before) }),
+    after: auditShape(after),
+  });
+}
+
+/**
+ * Add or remove ONE attending in one slot of one clinic date.
+ *
+ * The grid's cell toggle. Separate from {@link upsertClinicDay}, whose
+ * `attendingsBySlot` is a replace-set: a grid cell knows only about itself, and
+ * making it post the slot's whole contents would mean a stale page silently
+ * unassigning the colleague someone else added while it was open.
+ *
+ * Slot assignment is refused on a date the term does not list as a clinic date,
+ * matching what the builder renders for such a date -- it is closed, and only
+ * the on-call attending crosses that line.
+ */
+export async function setSlotAttending(
+  actor: string,
+  opts: {
+    termId: string;
+    dateKey: string;
+    slotId: string;
+    attendingId: string;
+    /** True to put them in the slot, false to take them out. */
+    assigned: boolean;
+  },
+): Promise<void> {
+  if (!(await can(actor, "schedule.manage_attendings"))) {
+    throw new BuilderForbiddenError("You do not manage the attending schedule.");
+  }
+
+  const term = await loadEditableTerm(opts.termId);
+  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in ${term.name}.`);
+  }
+
+  // Both ids arrive verbatim from a form. Validate before the write so a stale
+  // or tampered id surfaces a friendly error rather than a raw Prisma P2003.
+  const slot = await prisma.clinicSlot.findUnique({
+    where: { id: opts.slotId },
+    select: { id: true, label: true, allowsMultiple: true },
+  });
+  if (!slot) throw new BuilderValidationError("That schedule column no longer exists.");
+  await assertAttendingExists(opts.attendingId, "attending");
+
+  const before = await prisma.clinicDay.findUnique({
+    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    select: auditSelect,
+  });
+
+  const after = await prisma.$transaction(async (tx) => {
+    const day = await tx.clinicDay.upsert({
+      where: { termId_clinicDate: { termId: term.id, clinicDate } },
+      create: { termId: term.id, clinicDate },
+      update: {},
+      select: { id: true },
+    });
+
+    if (!opts.assigned) {
+      await tx.clinicDayAttending.deleteMany({
+        where: { clinicDayId: day.id, slotId: slot.id, attendingId: opts.attendingId },
+      });
+      return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
+    }
+
+    // A single-attending column holds one person, so assigning REPLACES whoever
+    // is there. The grid shows that column's occupant in the cell, so the
+    // manager can see what they are displacing before they click.
+    if (!slot.allowsMultiple) {
+      await tx.clinicDayAttending.deleteMany({ where: { clinicDayId: day.id, slotId: slot.id } });
+    }
+
+    const existing = await tx.clinicDayAttending.count({
+      where: { clinicDayId: day.id, slotId: slot.id },
+    });
+    // Idempotent on the unique (day, slot, attending): clicking twice, or two
+    // managers clicking at once, must not 500 on a duplicate key.
+    await tx.clinicDayAttending.upsert({
+      where: {
+        clinicDayId_slotId_attendingId: {
+          clinicDayId: day.id,
+          slotId: slot.id,
+          attendingId: opts.attendingId,
+        },
+      },
+      create: {
+        clinicDayId: day.id,
+        slotId: slot.id,
+        attendingId: opts.attendingId,
+        order: existing,
+      },
+      update: {},
+    });
 
     return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
   });

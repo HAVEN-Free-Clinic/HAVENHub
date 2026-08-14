@@ -53,13 +53,20 @@ const CLINIC_SLOTS: Array<{
   startTime: string;
   endTime: string;
   allowsMultiple: boolean;
+  /**
+   * The department this column's attending covers, or null for a column that
+   * belongs to no team. Only the clinical PARENTS are named: SCTP/JCTP reach the
+   * primary-care columns through the PCAR delegation, and JCTS/SCTS/CCRH reach
+   * "RHD Attending" through SRHD, so neither needs naming here.
+   */
+  department: string | null;
 }> = [
-  { label: "9am-12pm", startTime: "09:00", endTime: "12:00", allowsMultiple: true },
-  { label: "11am-2pm", startTime: "11:00", endTime: "14:00", allowsMultiple: false },
-  { label: "RHD Attending", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
-  { label: "BHD Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
-  { label: "Specialty Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
-  { label: "Shadowing", startTime: "09:00", endTime: "13:00", allowsMultiple: true },
+  { label: "9am-12pm", startTime: "09:00", endTime: "12:00", allowsMultiple: true, department: "PCAR" },
+  { label: "11am-2pm", startTime: "11:00", endTime: "14:00", allowsMultiple: false, department: "PCAR" },
+  { label: "RHD Attending", startTime: "09:00", endTime: "13:00", allowsMultiple: false, department: "SRHD" },
+  { label: "BHD Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false, department: "BVHD" },
+  { label: "Specialty Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false, department: null },
+  { label: "Shadowing", startTime: "09:00", endTime: "13:00", allowsMultiple: true, department: null },
 ];
 
 /**
@@ -172,10 +179,23 @@ async function main() {
   }
 
   for (const [order, slot] of CLINIC_SLOTS.entries()) {
+    const { department, ...fields } = slot;
+    // Skipped rather than defaulted when the department is missing: a partial
+    // fixture must leave the column unmapped, never mapped to the wrong team.
+    const dept = department
+      ? await prisma.department.findFirst({ where: { code: department } })
+      : null;
+    const departmentId = dept?.id ?? null;
     await prisma.clinicSlot.upsert({
       where: { label: slot.label },
-      update: { startTime: slot.startTime, endTime: slot.endTime, allowsMultiple: slot.allowsMultiple, order },
-      create: { ...slot, order },
+      update: {
+        startTime: fields.startTime,
+        endTime: fields.endTime,
+        allowsMultiple: fields.allowsMultiple,
+        order,
+        departmentId,
+      },
+      create: { ...fields, order, departmentId },
     });
   }
 

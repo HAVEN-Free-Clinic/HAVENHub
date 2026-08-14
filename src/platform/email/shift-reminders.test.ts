@@ -59,6 +59,29 @@ async function shiftEmailCount() {
 }
 
 /**
+ * Point a schedule column at the department that covers SCTP, the department
+ * every recipient below belongs to.
+ *
+ * Columns name the clinical PARENT (PCAR), and SCTP reaches them through the
+ * one-hop delegation the clinic already models -- which is exactly the path the
+ * reminder has to walk to name the right attending, so the fixture builds it
+ * rather than shortcutting to a direct mapping.
+ */
+async function columnCoveringSctp(): Promise<string> {
+  const pcar = await createDepartment("PCAR", "Primary Care Advisors");
+  const sctp = await createDepartment("SCTP", "Senior Primary Care");
+  const existing = await prisma.departmentDelegation.findFirst({
+    where: { managerDepartmentId: pcar.id, managedDepartmentId: sctp.id },
+  });
+  if (!existing) {
+    await prisma.departmentDelegation.create({
+      data: { managerDepartmentId: pcar.id, managedDepartmentId: sctp.id },
+    });
+  }
+  return pcar.id;
+}
+
+/**
  * The clinic-wide day for `clinicDate`, staffed by `attendingId` in one column.
  *
  * There is ONE schedule for the Saturday, so repeated calls add to the same day
@@ -70,10 +93,18 @@ async function scheduleAttending(
   attendingId: string,
   slotLabel = "9am-12pm",
 ) {
+  const departmentId = await columnCoveringSctp();
   const slot = await prisma.clinicSlot.upsert({
     where: { label: slotLabel },
-    update: {},
-    create: { label: slotLabel, startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+    update: { departmentId },
+    create: {
+      label: slotLabel,
+      startTime: "09:00",
+      endTime: "12:00",
+      order: 0,
+      allowsMultiple: true,
+      departmentId,
+    },
   });
   const day = await prisma.clinicDay.upsert({
     where: { termId_clinicDate: { termId, clinicDate } },
@@ -185,11 +216,10 @@ describe("runShiftReminders", () => {
     expect(await shiftEmailCount()).toBe(0);
   });
 
-  // Attending rows are unique on (term, department, date) since service lines
-  // were split, so one Saturday can carry a reproductive health attending AND a
-  // A clinic date is staffed across several columns, and the reminder names them
-  // all with the window each covers -- the same shape as the schedule itself.
-  it("names every column's attending on the clinic date", async () => {
+  // A department can be covered by more than one column -- primary care is
+  // staffed by two overlapping windows -- and the reminder names each with the
+  // window it covers, the same shape as the schedule itself.
+  it("names every column covering the recipient's department", async () => {
     const target = futureClinicDate(3);
     const term = await createTerm([target]);
     const sctp = await createDepartment("SCTP", "Senior Primary Care");
@@ -212,6 +242,47 @@ describe("runShiftReminders", () => {
     expect(log.html).toContain("Finch (RHD Attending)");
   });
 
+  // The defect the per-department scoping exists to fix: one clinic-wide string
+  // told a behavioral health volunteer the primary care attending's name.
+  it("does not name a column that covers a different department", async () => {
+    const target = futureClinicDate(3);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const vol = await createPerson("Val Volunteer", "val@x.org");
+    await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+
+    const ours = await prisma.attending.create({
+      data: { scheduleName: "Ellis", fullName: "Dr. Ellis" },
+    });
+    const theirs = await prisma.attending.create({
+      data: { scheduleName: "Okafor", fullName: "Dr. Okafor" },
+    });
+    await scheduleAttending(term.id, target, ours.id);
+
+    // Behavioral health is on the same clinic day, on its own column, covering
+    // a department this recipient has nothing to do with.
+    const bvhd = await createDepartment("BVHD", "Behavioral Health");
+    const bhdSlot = await prisma.clinicSlot.create({
+      data: {
+        label: "BHD Clinic",
+        startTime: "09:00",
+        endTime: "13:00",
+        order: 3,
+        departmentId: bvhd.id,
+      },
+    });
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    await prisma.clinicDayAttending.create({
+      data: { clinicDayId: day.id, slotId: bhdSlot.id, attendingId: theirs.id },
+    });
+
+    await runShiftReminders(NOW);
+
+    const log = await prisma.emailLog.findFirstOrThrow({ where: { template: "shift-reminder" } });
+    expect(log.html).toContain("Ellis (9am-12pm)");
+    expect(log.html).not.toContain("Okafor");
+  });
+
   // Two attendings can cover the same clinic day in different windows, so the
   // reminder must name both and say which window each covers.
   it("names both attendings when the day is split across columns", async () => {
@@ -228,11 +299,19 @@ describe("runShiftReminders", () => {
       data: { scheduleName: "Chen", fullName: "Dr. Chen" },
     });
 
+    const departmentId = await columnCoveringSctp();
     const morning = await prisma.clinicSlot.create({
-      data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+      data: {
+        label: "9am-12pm",
+        startTime: "09:00",
+        endTime: "12:00",
+        order: 0,
+        allowsMultiple: true,
+        departmentId,
+      },
     });
     const midday = await prisma.clinicSlot.create({
-      data: { label: "11am-2pm", startTime: "11:00", endTime: "14:00", order: 1 },
+      data: { label: "11am-2pm", startTime: "11:00", endTime: "14:00", order: 1, departmentId },
     });
     await prisma.clinicDay.create({
       data: {

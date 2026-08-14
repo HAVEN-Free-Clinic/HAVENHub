@@ -31,6 +31,7 @@ import {
   setAvailabilityOverride,
   acknowledgeAvailability,
   upsertClinicDay,
+  setSlotAttending,
   builderView,
   BuilderForbiddenError,
   BuilderValidationError,
@@ -1272,6 +1273,243 @@ describe("upsertClinicDay", () => {
     expect(days).toHaveLength(1);
     expect(days[0].proceduresBooked).toBe(2);
     expect(await coverage(term.id, morning.id)).toEqual(["Someone"]);
+  });
+
+  /**
+   * A break week still needs someone on the pager.
+   *
+   * On call covers the week leading up to the NEXT clinic day, so it runs
+   * straight through a Saturday the clinic does not. It is the one field a
+   * non-clinic date accepts; everything else on such a date is refused rather
+   * than written, because the builder shows that date closed.
+   */
+  describe("a date the term does not list as a clinic date", () => {
+    // Inside the term (2026-05-30 to 2026-09-26) but after the six clinic dates.
+    const BREAK_WEEK = "2026-07-18";
+
+    it("accepts the on-call attending and stores the day closed", async () => {
+      const term = await createTerm(sixSaturdays());
+      const { fcrl } = await clinicSetup();
+      const peng = await attending("Jack Peng");
+
+      await upsertClinicDay(fcrl.id, {
+        termId: term.id,
+        dateKey: BREAK_WEEK,
+        onCallAttendingId: peng.id,
+      });
+
+      const day = await prisma.clinicDay.findFirstOrThrow({
+        where: { termId: term.id, clinicDate: new Date(`${BREAK_WEEK}T12:00:00Z`) },
+      });
+      expect(day.onCallAttendingId).toBe(peng.id);
+      // Written, not left to the reader: the member shift card and the reminder
+      // emails filter ClinicDay on this column and would otherwise treat an
+      // on-call-only row as an open clinic day.
+      expect(day.isClosed).toBe(true);
+    });
+
+    it("anchors the row at noon UTC, so adding the date later reuses it", async () => {
+      const term = await createTerm(sixSaturdays());
+      const { fcrl } = await clinicSetup();
+      const peng = await attending("Jack Peng");
+
+      await upsertClinicDay(fcrl.id, {
+        termId: term.id,
+        dateKey: BREAK_WEEK,
+        onCallAttendingId: peng.id,
+      });
+      // The clinic decides to run that Saturday after all.
+      await prisma.term.update({
+        where: { id: term.id },
+        data: { clinicDates: [...sixSaturdays(), new Date(`${BREAK_WEEK}T12:00:00Z`)] },
+      });
+      await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false });
+
+      // One row, not two: a midnight anchor here would have collided with the
+      // noon-anchored date the term calendar produces.
+      const days = await prisma.clinicDay.findMany({
+        where: { termId: term.id, clinicDate: new Date(`${BREAK_WEEK}T12:00:00Z`) },
+      });
+      expect(days).toHaveLength(1);
+      expect(days[0].onCallAttendingId).toBe(peng.id);
+      expect(days[0].isClosed).toBe(false);
+    });
+
+    it("refuses a slot assignment on it", async () => {
+      const term = await createTerm(sixSaturdays());
+      const { morning, fcrl } = await clinicSetup();
+      const a = await attending("Someone");
+
+      await expect(
+        upsertClinicDay(fcrl.id, {
+          termId: term.id,
+          dateKey: BREAK_WEEK,
+          attendingsBySlot: { [morning.id]: [a.id] },
+        }),
+      ).rejects.toBeInstanceOf(BuilderValidationError);
+    });
+
+    it("refuses a save that would reopen it", async () => {
+      const term = await createTerm(sixSaturdays());
+      const { fcrl } = await clinicSetup();
+
+      // isClosed:false would contradict what the builder renders for this date.
+      await expect(
+        upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false }),
+      ).rejects.toBeInstanceOf(BuilderValidationError);
+    });
+
+    it("refuses a date outside the term entirely", async () => {
+      const term = await createTerm(sixSaturdays());
+      const { fcrl } = await clinicSetup();
+      const peng = await attending("Jack Peng");
+
+      await expect(
+        upsertClinicDay(fcrl.id, {
+          termId: term.id,
+          dateKey: "2027-01-02",
+          onCallAttendingId: peng.id,
+        }),
+      ).rejects.toBeInstanceOf(BuilderValidationError);
+    });
+  });
+});
+
+/**
+ * The grid's cell toggle: one attending, one column, one date.
+ *
+ * Deliberately NOT upsertClinicDay's replace-set. A grid cell knows only about
+ * itself, so posting the slot's whole contents would mean a stale page silently
+ * unassigning whoever a colleague added while it was open.
+ */
+describe("setSlotAttending", () => {
+  async function setup() {
+    const morning = await prisma.clinicSlot.create({
+      data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+    });
+    const rhd = await prisma.clinicSlot.create({
+      data: { label: "RHD Attending", startTime: "09:00", endTime: "13:00", order: 1 },
+    });
+    const fcrl = await createPerson("FCRL Director");
+    const role = await prisma.role.create({
+      data: {
+        name: `r-${Date.now()}-${Math.random()}`,
+        isSystem: false,
+        grants: { create: [{ permission: "schedule.manage_attendings" }] },
+      },
+    });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: fcrl.id, termId: null } });
+    return { morning, rhd, fcrl };
+  }
+
+  async function attending(scheduleName: string) {
+    return prisma.attending.create({ data: { scheduleName, fullName: scheduleName } });
+  }
+
+  async function coverage(termId: string, slotId: string): Promise<string[]> {
+    const rows = await prisma.clinicDayAttending.findMany({
+      where: { slotId, clinicDay: { termId } },
+      orderBy: { order: "asc" },
+      select: { attending: { select: { scheduleName: true } } },
+    });
+    return rows.map((r) => r.attending.scheduleName);
+  }
+
+  it("adds and removes one attending without disturbing the others in the column", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { morning, fcrl } = await setup();
+    const peggy = await attending("Peggy Bia");
+    const frank = await attending("Frank Bia");
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]), slotId: morning.id };
+
+    await setSlotAttending(fcrl.id, { ...key, attendingId: peggy.id, assigned: true });
+    await setSlotAttending(fcrl.id, { ...key, attendingId: frank.id, assigned: true });
+    expect(await coverage(term.id, morning.id)).toEqual(["Peggy Bia", "Frank Bia"]);
+
+    await setSlotAttending(fcrl.id, { ...key, attendingId: peggy.id, assigned: false });
+    expect(await coverage(term.id, morning.id)).toEqual(["Frank Bia"]);
+  });
+
+  it("replaces the occupant of a column that holds only one", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { rhd, fcrl } = await setup();
+    const finch = await attending("Finch");
+    const rivera = await attending("Rivera");
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]), slotId: rhd.id };
+
+    await setSlotAttending(fcrl.id, { ...key, attendingId: finch.id, assigned: true });
+    await setSlotAttending(fcrl.id, { ...key, attendingId: rivera.id, assigned: true });
+
+    expect(await coverage(term.id, rhd.id)).toEqual(["Rivera"]);
+  });
+
+  it("is idempotent, so a double click does not fail on the unique key", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { morning, fcrl } = await setup();
+    const peggy = await attending("Peggy Bia");
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]), slotId: morning.id, attendingId: peggy.id };
+
+    await setSlotAttending(fcrl.id, { ...key, assigned: true });
+    await setSlotAttending(fcrl.id, { ...key, assigned: true });
+    expect(await coverage(term.id, morning.id)).toEqual(["Peggy Bia"]);
+
+    // Removing something already absent is a no-op, not an error: two managers
+    // can clear the same cell.
+    await setSlotAttending(fcrl.id, { ...key, assigned: false });
+    await setSlotAttending(fcrl.id, { ...key, assigned: false });
+    expect(await coverage(term.id, morning.id)).toEqual([]);
+  });
+
+  it("refuses a date the term does not list as a clinic date", async () => {
+    const term = await createTerm(sixSaturdays());
+    const { morning, fcrl } = await setup();
+    const peggy = await attending("Peggy Bia");
+
+    await expect(
+      setSlotAttending(fcrl.id, {
+        termId: term.id,
+        dateKey: "2026-07-18",
+        slotId: morning.id,
+        attendingId: peggy.id,
+        assigned: true,
+      }),
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+  });
+
+  it("refuses an actor without schedule.manage_attendings", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { morning } = await setup();
+    const peggy = await attending("Peggy Bia");
+    const nobody = await createPerson("Nobody");
+
+    await expect(
+      setSlotAttending(nobody.id, {
+        termId: term.id,
+        dateKey: isoDateKey(dates[0]),
+        slotId: morning.id,
+        attendingId: peggy.id,
+        assigned: true,
+      }),
+    ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+
+  it("rejects a stale slot or attending id with a validation error, not a 500", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { morning, fcrl } = await setup();
+    const peggy = await attending("Peggy Bia");
+    const dateKey = isoDateKey(dates[0]);
+
+    await expect(
+      setSlotAttending(fcrl.id, { termId: term.id, dateKey, slotId: "gone", attendingId: peggy.id, assigned: true }),
+    ).rejects.toBeInstanceOf(BuilderValidationError);
+    await expect(
+      setSlotAttending(fcrl.id, { termId: term.id, dateKey, slotId: morning.id, attendingId: "gone", assigned: true }),
+    ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 });
 

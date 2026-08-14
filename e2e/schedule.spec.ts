@@ -598,6 +598,9 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 // Attending scheduling lives on /schedule/attendings for every service line.
 // It used to be a form inside the builder's reproductive-health readiness panel,
 // which is why this test once drove the builder; the panel is read-only now.
+//
+// The page has two views. Day is the one with the per-column selects, so this
+// test asks for it explicitly rather than relying on whichever is default.
 test("attendings: add one, then schedule it on a clinic date", async ({ page }) => {
   const name = `Test-${Date.now()}`;
   await devLogin(page, "j.carney@yale.edu");
@@ -610,9 +613,11 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
-  // It becomes assignable on every column of every clinic date. Each date is one
-  // card wrapping one form, so scope to the first card: its slot selects are
-  // named `slot:<id>` and its Save submits that date alone.
+  // It becomes assignable on every column of the selected clinic date. The Day
+  // view is one card wrapping one form, whose slot selects are named
+  // `slot:<id>` and whose Save submits that date alone.
+  await page.goto("/schedule/attendings?view=day");
+  await page.waitForURL((url) => url.searchParams.get("view") === "day");
   const day = page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first();
   const cell = day.locator('select[name^="slot:"]').first();
   await expect(cell).toBeVisible();
@@ -634,4 +639,47 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
     page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first()
       .locator('select[name^="slot:"]').first(),
   ).toHaveValue(optionValue!);
+});
+
+// The grid is the default view and the one that mirrors the volunteer builder:
+// a row per attending, a column per date, one click per cell.
+test("attendings: schedule one from the grid, then clear it", async ({ page }) => {
+  const name = `Grid-${Date.now()}`;
+  await devLogin(page, "j.carney@yale.edu");
+
+  await page.goto("/schedule/attendings/new");
+  await page.fill('input[name="scheduleName"]', name);
+  await page.fill('input[name="fullName"]', `Dr. ${name}`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/attendings");
+
+  const grid = page.getByRole("table", { name: "Attending schedule grid" });
+  await expect(grid).toBeVisible();
+  const row = grid.getByRole("row").filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+
+  // Assign into whichever column the toolbar currently targets. Anchored on the
+  // accessible name rather than a cell index, so a change to how many dates the
+  // term spans does not silently retarget the click.
+  const assign = row.getByRole("button", { name: new RegExp(`^Assign ${name} to `) }).first();
+  await expect(assign).toBeVisible();
+  await assign.click();
+  await page.waitForLoadState("networkidle");
+
+  // The cell flips to the filled state, which is a two-click arm/confirm remove.
+  const filled = page.getByRole("table", { name: "Attending schedule grid" })
+    .getByRole("row").filter({ hasText: name })
+    .getByRole("button", { name: new RegExp(`^Remove ${name} from `) }).first();
+  await expect(filled).toBeVisible();
+
+  await filled.click(); // arms
+  await page.getByRole("button", { name: /^Confirm remove\./ }).first().click();
+  await page.waitForLoadState("networkidle");
+
+  // Back to an empty cell: the round trip actually cleared the row.
+  await expect(
+    page.getByRole("table", { name: "Attending schedule grid" })
+      .getByRole("row").filter({ hasText: name })
+      .getByRole("button", { name: new RegExp(`^Assign ${name} to `) }).first(),
+  ).toBeVisible();
 });

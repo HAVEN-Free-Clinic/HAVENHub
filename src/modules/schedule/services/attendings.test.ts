@@ -284,18 +284,76 @@ describe("capabilitiesFromFormData", () => {
   });
 });
 
+/**
+ * One row of the schedule by date key.
+ *
+ * Rows span the whole term now, not just its clinic dates, so a positional
+ * index no longer identifies the date a test means.
+ */
+function rowFor(schedule: Awaited<ReturnType<typeof attendingSchedule>>, dateKey: string) {
+  const row = schedule.rows.find((r) => r.dateKey === dateKey);
+  if (!row) throw new Error(`No schedule row for ${dateKey}`);
+  return row;
+}
+
 describe("attendingSchedule", () => {
-  it("returns one row per clinic date with an entry per column", async () => {
+  it("spans every Saturday of the term, closing the ones it does not run", async () => {
     await seedReference();
     await activeTerm(["2026-05-30", "2026-06-06"]);
 
     const schedule = await attendingSchedule();
 
-    expect(schedule.rows.map((r) => r.dateKey)).toEqual(["2026-05-30", "2026-06-06"]);
+    // Every Saturday from 2026-05-01 to 2026-08-31, not just the two clinic
+    // dates: a gap in the calendar has to be VISIBLE in the builder, and a
+    // break week still carries an on-call attending.
+    expect(schedule.rows[0].dateKey).toBe("2026-05-02");
+    expect(schedule.rows.at(-1)?.dateKey).toBe("2026-08-29");
+    expect(schedule.rows.every((r) => new Date(`${r.dateKey}T12:00:00Z`).getUTCDay() === 6)).toBe(true);
+
+    // The two the term lists are open; every other Saturday is closed without
+    // anyone having marked it so.
+    const clinicDates = schedule.rows.filter((r) => r.isClinicDate).map((r) => r.dateKey);
+    expect(clinicDates).toEqual(["2026-05-30", "2026-06-06"]);
+    expect(schedule.rows.filter((r) => !r.isClosed).map((r) => r.dateKey)).toEqual(clinicDates);
+
     // Columns come from the clinic's slots, so an unscheduled date still has a
     // cell to fill for every one of them.
-    expect(schedule.rows[0].slots).toHaveLength(3);
+    expect(rowFor(schedule, "2026-05-30").slots).toHaveLength(3);
     expect(schedule.slots.map((s) => s.label)).toEqual(["9am-12pm", "11am-2pm", "RHD Attending"]);
+  });
+
+  it("keeps a clinic date that is not a Saturday", async () => {
+    await seedReference();
+    // A make-up day on a Wednesday. Dropping it because it breaks the weekly
+    // rhythm would hide a date the clinic actually runs.
+    await activeTerm(["2026-05-30", "2026-06-10"]);
+
+    const midweek = rowFor(await attendingSchedule(), "2026-06-10");
+    expect(midweek.isClinicDate).toBe(true);
+    expect(midweek.isClosed).toBe(false);
+  });
+
+  it("closes a date the term stopped listing, even though ClinicDay still says open", async () => {
+    await seedReference();
+    const term = await activeTerm(["2026-05-30", "2026-06-06"]);
+    // Explicitly open, then dropped from the term calendar -- the shape left
+    // behind when someone edits the term after a schedule was built.
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: new Date("2026-06-06T12:00:00Z"), isClosed: false },
+    });
+    await prisma.term.update({
+      where: { id: term.id },
+      data: { clinicDates: [new Date("2026-05-30T12:00:00Z")] },
+    });
+
+    const row = rowFor(await attendingSchedule(), "2026-06-06");
+    // Derived from the term calendar, so one edit closes it everywhere at once
+    // rather than leaving a staffed row only a manual fix could correct.
+    expect(row.isClinicDate).toBe(false);
+    expect(row.isClosed).toBe(true);
+    // The stored flag is reported separately, so the editor's own checkbox does
+    // not read back "closed" and then persist a setting nobody chose.
+    expect(row.storedClosed).toBe(false);
   });
 
   // The defect the whole remodel exists to fix: the 9am-12pm column really is
@@ -320,7 +378,7 @@ describe("attendingSchedule", () => {
       },
     });
 
-    const cell = (await attendingSchedule()).rows[0].slots.find((s) => s.slotId === morning.id);
+    const cell = rowFor(await attendingSchedule(), "2026-05-30").slots.find((s) => s.slotId === morning.id);
     expect(cell?.attendings.map((a) => a.scheduleName)).toEqual(["Peggy Bia", "Frank Bia"]);
   });
 
@@ -338,7 +396,7 @@ describe("attendingSchedule", () => {
       },
     });
 
-    const row = (await attendingSchedule()).rows[0];
+    const row = rowFor(await attendingSchedule(), "2026-05-30");
     expect(row.onCallAttendingId).toBe(peng.id);
     expect(row.onCallName).toBe("Jack Peng");
   });
@@ -355,7 +413,7 @@ describe("attendingSchedule", () => {
       },
     });
 
-    const row = (await attendingSchedule()).rows[0];
+    const row = rowFor(await attendingSchedule(), "2026-07-04");
     expect(row.isClosed).toBe(true);
     expect(row.closedNote).toBe("HAVEN FREE CLINIC CLOSED");
   });
@@ -375,7 +433,7 @@ describe("attendingSchedule", () => {
       },
     });
 
-    const cell = (await attendingSchedule()).rows[0].slots.find((s) => s.slotId === rhdSlot.id);
+    const cell = rowFor(await attendingSchedule(), "2026-05-30").slots.find((s) => s.slotId === rhdSlot.id);
     // The editor still round-trips the value, so saving the row cannot silently
     // clear an assignment the select could not represent.
     expect(cell?.attendings[0]?.id).toBe(gone.id);

@@ -380,6 +380,8 @@ model Department {
   schedulePublications       SchedulePublication[]
   courseDepartments          CourseDepartment[]
   ehsTrainingDepartments     EhsTrainingDepartment[]
+  /// Schedule columns whose attending covers this department (see ClinicSlot.departmentId).
+  attendingSlots             ClinicSlot[]
   /// Hours one shift in this department is worth, for the volunteer service
   /// record. Shift length is NOT uniform clinic-wide (confirmed with ops
   /// 2026-08-12), which is why this is per-department rather than one setting.
@@ -1582,9 +1584,23 @@ model ClinicSlot {
   /// 9am-12pm column really does carry two, which is why the schedule sheet
   /// repeats that header twice.
   allowsMultiple Boolean              @default(false)
+  /// The department whose members this column's attending covers, e.g. the
+  /// "RHD Attending" column covers SRHD. Null means the column belongs to no
+  /// department (Specialty Clinic, Shadowing) and is shown to nobody's shift.
+  ///
+  /// Many columns may point at ONE department -- primary care is staffed by both
+  /// the 9am-12pm and 11am-2pm columns, and a PCAR volunteer is covered by both.
+  ///
+  /// Departments the column does NOT name still resolve through it by one-hop
+  /// DepartmentDelegation: SCTP and JCTP are managed by PCAR, so they read the
+  /// PCAR columns without each having to be named here. That keeps this mapping
+  /// at the handful of clinical parents rather than one row per department.
+  departmentId   String?
+  department     Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   assignments    ClinicDayAttending[]
 
   @@index([order])
+  @@index([departmentId])
 }
 
 /// One attending covering one slot of one clinic day.

@@ -84,10 +84,20 @@ describe("module registry", () => {
     // is a calendar fact, not a permission, so the global dropdown still can't
     // resolve it -- offering the tab on a non-clinic day would land on a page
     // with nothing to do, not /no-access, but the marker is the same mechanism.
+    //
+    // Coverage is Attendings' read-only twin on a wider gate (schedule.edit_all
+    // OR schedule.manage_attendings). "Either of two permissions" is not a
+    // permission string either, so it carries the marker for the same reason.
     const schedule = MODULES.find((m) => m.id === "schedule")!;
     const gated = schedule.nav.filter((n) => n.dynamicGate).map((n) => n.href);
     expect(gated.sort()).toEqual(
-      ["/schedule/builder", "/schedule/requests", "/schedule/attendings", "/schedule/check-in"].sort(),
+      [
+        "/schedule/builder",
+        "/schedule/requests",
+        "/schedule/attendings",
+        "/schedule/coverage",
+        "/schedule/check-in",
+      ].sort(),
     );
   });
 

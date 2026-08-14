@@ -75,10 +75,6 @@
           "type": "object",
           "description": "Whether the visitor can access the Incidents area and its actions in HAVEN Hub.",
           "properties": {
-            "escalation_recipient": {
-              "type": "boolean",
-              "description": "Whether the visitor holds the incidents.escalation_recipient permission in HAVEN Hub."
-            },
             "manage": {
               "type": "boolean",
               "description": "Whether the visitor holds the incidents.manage permission in HAVEN Hub."

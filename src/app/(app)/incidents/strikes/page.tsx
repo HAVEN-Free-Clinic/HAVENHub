@@ -52,8 +52,7 @@ import {
   IncidentNotFoundError,
 } from "@/modules/incidents/services/report";
 import { notifyStrikeIssued } from "@/modules/incidents/services/strike-notifications";
-import { externalContacts } from "@/modules/incidents/services/external-contacts";
-import { forwardStrike, forwardsByAction, IncidentForwardError } from "@/modules/incidents/services/forward";
+import { forwardStrike, forwardsByAction, recentForwardEmails, IncidentForwardError } from "@/modules/incidents/services/forward";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -193,8 +192,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   // forwardsByAction([]) short-circuits without querying, so the non-manager
   // branch stays a no-op while keeping the map's element type (a bare `new Map()`
   // would erase it and make every row's `f` implicitly any).
-  const [externalDirectory, forwardsByStrike] = await Promise.all([
-    canManageAll ? externalContacts() : Promise.resolve([]),
+  const [forwardSuggestions, forwardsByStrike] = await Promise.all([
+    canManageAll ? recentForwardEmails() : Promise.resolve([] as string[]),
     forwardsByAction(canManageAll ? rows.map((r) => r.action.id) : []),
   ]);
 
@@ -634,13 +633,12 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     reportOptions={reportComboOptions}
                     deleteAction={deleteActionForm}
                     linkReport={linkReportForm}
-                    contacts={externalDirectory}
+                    suggestions={forwardSuggestions}
                     // Flattened to plain data: StrikeRow is a client component,
                     // so no Prisma row or Date instance may cross the boundary.
                     forwards={(forwardsByStrike.get(action.id) ?? []).map((f) => ({
                       id: f.id,
                       toEmail: f.toEmail,
-                      toName: f.toName,
                       note: f.note,
                       forwardedByName: f.forwardedBy.name,
                     }))}

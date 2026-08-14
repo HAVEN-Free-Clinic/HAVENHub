@@ -193,16 +193,6 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => true,
     secret: false,
   }),
-  define<string>({
-    key: "incidents.externalEscalationEmails",
-    category: "Operations",
-    label: "External supervisors a reviewer can forward incidents to",
-    help: "Clinical supervisors OUTSIDE the Hub (e.g. Yale School of Medicine attendings) who a reviewer may forward an incident report or an issued strike to. ONE PER LINE, as \"Dr. Jane Smith <jsmith@yale.edu>\" or a bare address; a name makes them recognizable in the reviewer's picker. Bare comma-separated addresses still work. THIS IS A DIRECTORY, NOT A MAILING LIST: nobody here is copied automatically any more. A reviewer chooses recipients per matter, and each forward is recorded on the report or strike it disclosed. Leave blank and no forwarding option is offered. Editing or removing an entry never rewrites a past forward.",
-    input: { type: "textarea" },
-    schema: z.string(),
-    envDefault: () => "",
-    secret: false,
-  }),
   define<number>({
     key: "incidents.strikeThreshold",
     category: "Operations",

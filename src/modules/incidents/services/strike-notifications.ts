@@ -33,7 +33,6 @@ import { strikeIssuedDirectorsContext } from "@/platform/email/templates/inciden
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
-import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { formatCalendarDate } from "@/platform/dates";
 import { visibleStrikeCount, subjectFacingDetail } from "./disciplinary";
 
@@ -83,31 +82,6 @@ async function directorRecipients(
     where: { id: { in: ids } },
     select: { id: true, name: true, entraObjectId: true, contactEmail: true },
   });
-}
-
-/**
- * Senior staff copied on an issued strike for visibility
- * (incidents.escalation_recipient), minus the subject and the issuing actor,
- * and minus anyone already in `existing` so nobody is mailed twice.
- *
- * They hold no incidents.view_strikes, so their email carries no ledger link.
- * The caller supplies that distinction; this only resolves who they are.
- */
-async function escalationRecipients(
-  subjectPersonId: string,
-  actorPersonId: string,
-  existing: Recipient[]
-): Promise<Recipient[]> {
-  const holders = await peopleWithAnyPermission(["incidents.escalation_recipient"]);
-  const already = new Set([...existing.map((r) => r.id), subjectPersonId, actorPersonId]);
-  return holders
-    .filter((h) => !already.has(h.id))
-    .map((h) => ({
-      id: h.id,
-      name: h.name,
-      entraObjectId: h.entraObjectId,
-      contactEmail: h.contactEmail,
-    }));
 }
 
 /**
@@ -173,8 +147,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
     if (action.confidential) return;
 
     const directors = await directorRecipients(action.personId, actorPersonId);
-    const escalation = await escalationRecipients(action.personId, actorPersonId, directors);
-    if (directors.length === 0 && escalation.length === 0) return;
+    if (directors.length === 0) return;
 
     const ledgerLink = `${baseUrl}/incidents/strikes`;
 
@@ -182,7 +155,6 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
     // ledger, so theirs is omitted (the template guards on a non-empty value).
     const recipients = [
       ...directors.map((r) => ({ person: r, canOpenLedger: true })),
-      ...escalation.map((r) => ({ person: r, canOpenLedger: false })),
     ];
 
     for (const { person: director, canOpenLedger } of recipients) {

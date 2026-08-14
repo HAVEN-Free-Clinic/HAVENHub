@@ -9,8 +9,32 @@ on:
 permissions:
   contents: read
 
+# A new push makes the previous run's verdict irrelevant, and every run occupies
+# three runners for several minutes. Cancel the superseded run instead of letting
+# it finish. Pushes to main are never cancelled: main's runs are the record of
+# what was actually verified on the branch we deploy from.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
-  checks:
+  # Lint and typecheck need no database and no migrations, so they do not belong
+  # behind the test suite's Postgres setup. Split out, they return a verdict in
+  # about ninety seconds instead of riding along with a much longer job.
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      # postinstall runs `prisma generate`, which reads the schema file only.
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  test:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -33,6 +57,12 @@ jobs:
       DATABASE_URL_UNPOOLED: postgresql://haven:haven_dev@localhost:5434/havenhub_test
       TEST_DATABASE_URL: postgresql://haven:haven_dev@localhost:5434/havenhub_test
       AUTH_SECRET: ci-only-secret
+      # Pinned rather than derived from the runner's core count. These tests wait
+      # on Postgres far more than they compute (a serial run of the DB-backed
+      # files sat at ~16% CPU), so the useful worker count tracks how much the
+      # database can absorb, not how many cores the runner has. Each worker gets
+      # its own cloned database and a connection_limit of 5.
+      VITEST_WORKERS: "8"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -40,9 +70,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The suite calls resetDb() before ~2,900 test cases; each call TRUNCATEs 71
+      # tables, and that cost is dominated by commit-time fsync rather than by the
+      # rows removed. Measured on postgres:16-alpine: 471ms per TRUNCATE with the
+      # defaults, 83ms with these settings. This database is created and destroyed
+      # by the job, so there is nothing here durability could protect.
+      #
+      # Service containers cannot override the container command, so these are set
+      # at runtime instead. All three are SIGHUP-level parameters, so a config
+      # reload applies them without a restart.
+      - name: Trade Postgres durability for speed
+        run: |
+          psql "$DATABASE_URL_UNPOOLED" \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "SELECT pg_reload_conf()"
+          psql "$DATABASE_URL_UNPOOLED" -c "SHOW fsync" | grep -q off
       - run: npx prisma migrate deploy
-      - run: npm run lint
-      - run: npm run typecheck
       - run: npm test
 
   e2e:
@@ -76,11 +121,30 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Same trade as the test job: this database is job-scoped and disposable, and
+      # the e2e specs seed and tear down rows constantly. See the note there.
+      - name: Trade Postgres durability for speed
+        run: |
+          psql "$DATABASE_URL_UNPOOLED" \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "SELECT pg_reload_conf()"
+          psql "$DATABASE_URL_UNPOOLED" -c "SHOW fsync" | grep -q off
       - run: npx prisma migrate deploy
       # Seeds the Platform Admin (j.carney@yale.edu), an ACTIVE term, and the
       # departments the recruitment e2e flows rely on. The dev server runs in
       # development mode, so the email-only dev login is available.
       - run: npm run db:seed
+      # Keyed on the Playwright version alone: the browser build is pinned by it,
+      # and keying on the whole lockfile would miss the cache on every unrelated
+      # dependency bump.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
       - run: npx playwright install --with-deps chromium
       # Run the full e2e suite. Every spec self-seeds via the UI or the Prisma
       # fixtures helper (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts

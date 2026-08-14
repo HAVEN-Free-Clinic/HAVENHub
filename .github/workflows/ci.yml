@@ -92,6 +92,16 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # Playwright runs the suite serially against a dev server that compiles routes
+    # on demand, so workers stay at 1 (see playwright.config.ts). Splitting the
+    # specs across runners is the parallelism that is available instead. Each
+    # shard is a separate job with its own Postgres and its own seed, and the
+    # specs assert only against state they create, so they do not need to see
+    # each other's rows.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: postgres:16-alpine
@@ -146,14 +156,14 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: playwright-${{ runner.os }}-
       - run: npx playwright install --with-deps chromium
-      # Run the full e2e suite. Every spec self-seeds via the UI or the Prisma
-      # fixtures helper (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts
-      # only against fixture-created state, so the suite is deterministic on this
-      # freshly seeded database.
-      - run: npx playwright test
+      # Every spec self-seeds via the UI or the Prisma fixtures helper
+      # (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts only against
+      # fixture-created state, so the suite is deterministic on this freshly
+      # seeded database and each shard is independent of the others.
+      - run: npx playwright test --shard=${{ matrix.shard }}/3
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-results
+          name: playwright-results-shard-${{ matrix.shard }}
           path: test-results/
           retention-days: 7

@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import {
   TEMPLATE_DATABASE_URL,
@@ -35,9 +37,31 @@ export default async function setup(): Promise<void> {
   const preexistingKeys = new Set(Object.keys(process.env));
 
   const admin = new PrismaClient({ datasourceUrl: adminUrl.toString() });
+  // Postgres has no cross-database queries, so counting the template's applied
+  // migrations needs a connection to the template itself.
+  const templateClient = new PrismaClient({ datasourceUrl: TEMPLATE_DATABASE_URL });
   try {
-    // CREATE DATABASE ... TEMPLATE refuses to run while any other session is
-    // connected to the template, and an interrupted run can leave one behind.
+    // Every clone inherits the template's schema, so a template that is behind
+    // prisma/migrations fails hundreds of files on missing columns. Name the
+    // command that fixes it: the drift is not visible from those failures.
+    const [{ applied }] = await templateClient.$queryRawUnsafe<{ applied: bigint }[]>(
+      `SELECT count(*) AS applied FROM "_prisma_migrations"
+        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`
+    );
+    const onDisk = readdirSync(path.join(process.cwd(), "prisma", "migrations"), {
+      withFileTypes: true,
+    }).filter((entry) => entry.isDirectory()).length;
+    if (Number(applied) < onDisk) {
+      throw new Error(
+        `Test database "${template}" is ${onDisk - Number(applied)} migration(s) behind ` +
+          `prisma/migrations. Run \`npm run test:prepare\`.`
+      );
+    }
+    // Released before the clone step: CREATE DATABASE ... TEMPLATE refuses to run
+    // while any other session is connected to the template, including this one.
+    await templateClient.$disconnect();
+
+    // An interrupted run can also leave a session behind.
     await admin.$executeRawUnsafe(
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
         WHERE datname = $1 AND pid <> pg_backend_pid()`,
@@ -60,6 +84,7 @@ export default async function setup(): Promise<void> {
         `\`npm run test:prepare\`, then re-run.\n\n${message}`
     );
   } finally {
+    await templateClient.$disconnect();
     await admin.$disconnect();
     for (const key of Object.keys(process.env)) {
       if (!preexistingKeys.has(key)) delete process.env[key];

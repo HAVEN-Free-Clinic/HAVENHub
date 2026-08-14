@@ -56,6 +56,12 @@ export const MODULES: ModuleManifest[] = [
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
+      // Read-only view of the same schedule, for a WIDER audience than the
+      // builder: anyone holding clinic-wide schedule rights runs a clinic day
+      // and needs to look coverage up without being able to change it. Also
+      // data-driven (schedule.edit_all OR schedule.manage_attendings), so the
+      // layout resolves it and the global dropdown stays out of it.
+      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true },
     ],
   },
   {

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
-import { canManageAttendings } from "@/modules/schedule/services/attendings";
+import { canManageAttendings, canViewAttendingCoverage } from "@/modules/schedule/services/attendings";
 import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
 import { isClinicDayToday } from "@/modules/schedule/services/attendance";
 import { ModuleNav } from "@/platform/ui/module-nav";
@@ -36,15 +36,17 @@ export function generateMetadata() {
 // remains the only place that decides whether they appear in the tab row.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
+const COVERAGE_HREF = "/schedule/coverage";
 const APPROVALS_HREF = "/schedule/requests";
 const CHECK_IN_HREF = "/schedule/check-in";
 
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, managesAttendings, requestDeptIds, isClinicDay] = await Promise.all([
+  const [canBuild, managesAttendings, viewsCoverage, requestDeptIds, isClinicDay] = await Promise.all([
     canManageAnyScheduleDept(personId),
     canManageAttendings(personId),
+    canViewAttendingCoverage(personId),
     manageableRequestDepartmentIds(personId),
     isClinicDayToday(),
   ]);
@@ -54,10 +56,14 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
   // needs from it -- who is attending on the shift they are working -- is on
   // their own schedule page instead (see MyShift.attendings), scoped to the
   // dates they actually work rather than the whole term.
+  // Coverage is the read-only twin of Attendings, on a WIDER gate: Faculty
+  // Relations builds the schedule, but everyone holding clinic-wide schedule
+  // rights runs a clinic day and has to be able to look coverage up.
   const items = mod.nav.filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
       (item.href !== ATTENDINGS_HREF || managesAttendings) &&
+      (item.href !== COVERAGE_HREF || viewsCoverage) &&
       (item.href !== APPROVALS_HREF || canApprove) &&
       (item.href !== CHECK_IN_HREF || isClinicDay),
   );

@@ -19,6 +19,15 @@ import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { isoDateKey } from "../engine/map";
 
+// The department -> attending mapping lives in platform: the weekly reminder
+// email needs it too, and platform may not import from modules. Re-exported so
+// schedule-side callers still reach it through this service.
+export {
+  departmentSlotIds,
+  departmentAttendingsForDates,
+  type DepartmentAttending,
+} from "@/platform/attendings/coverage";
+
 export type CapabilityValue = "yes" | "no" | "unknown";
 
 /** One question asked about attendings, and who it is asked of. */
@@ -45,6 +54,9 @@ export type ClinicSlotView = {
   startTime: string;
   endTime: string;
   allowsMultiple: boolean;
+  /** The department this column's attending covers; null for a shared column. */
+  departmentId: string | null;
+  department: { code: string; name: string } | null;
 };
 
 /** An attending plus the answers on file, for the roster table and edit form. */
@@ -84,6 +96,23 @@ async function assertCanManage(actor: string): Promise<void> {
   if (!(await canManageAttendings(actor))) throw new AttendingForbiddenError();
 }
 
+/**
+ * Whether this person may READ the whole clinic's attending coverage.
+ *
+ * Wider than {@link canManageAttendings} on purpose. Faculty Relations builds the
+ * schedule, but the people running the clinic day -- anyone holding the
+ * clinic-wide schedule.edit_all -- need to see who is covering every column
+ * without being able to change it. The two are ORed rather than the viewer
+ * requiring both, so neither group is locked out of a read-only page.
+ */
+export async function canViewAttendingCoverage(personId: string): Promise<boolean> {
+  const [editsAll, managesAttendings] = await Promise.all([
+    can(personId, "schedule.edit_all"),
+    can(personId, "schedule.manage_attendings"),
+  ]);
+  return editsAll || managesAttendings;
+}
+
 /** Validate an answer a CALLER supplied. Throws, because bad input is a bug. */
 function validCapability(v: unknown): CapabilityValue {
   if (v === "yes" || v === "no" || v === "unknown") return v;
@@ -114,7 +143,15 @@ export function listSpecialties(): Promise<SpecialtyView[]> {
 
 export function listClinicSlots(): Promise<ClinicSlotView[]> {
   return prisma.clinicSlot.findMany({
-    select: { id: true, label: true, startTime: true, endTime: true, allowsMultiple: true },
+    select: {
+      id: true,
+      label: true,
+      startTime: true,
+      endTime: true,
+      allowsMultiple: true,
+      departmentId: true,
+      department: { select: { code: true, name: true } },
+    },
     orderBy: { order: "asc" },
   });
 }
@@ -381,11 +418,31 @@ export type SlotCoverage = {
   attendings: Array<{ id: string; scheduleName: string; isActive: boolean }>;
 };
 
-/** One clinic date of the schedule. */
+/** One date of the schedule. */
 export type AttendingScheduleRow = {
   dateKey: string;
   clinicDate: Date;
+  /**
+   * Whether the term calendar lists this date as a clinic date.
+   *
+   * False for a Saturday the term skips. Such a date still gets a row -- the
+   * builder spans the whole term so a gap is visible rather than absent -- but
+   * it is closed no matter what ClinicDay says.
+   */
+  isClinicDate: boolean;
+  /**
+   * Closed to clinical staffing. DERIVED: a date the term does not list is
+   * closed regardless of the stored flag, so removing a date from the term
+   * calendar closes it everywhere at once rather than leaving a staffed row
+   * behind that only a manual edit could correct.
+   */
   isClosed: boolean;
+  /**
+   * The stored ClinicDay.isClosed, for the editor's own checkbox. Kept apart
+   * from `isClosed` so a non-clinic date does not silently report the manager's
+   * setting back as "checked" and then persist that on the next save.
+   */
+  storedClosed: boolean;
   closedNote: string | null;
   onCallAttendingId: string | null;
   onCallName: string | null;
@@ -407,6 +464,9 @@ export type AttendingScheduleEmptyReason = "no-active-term" | "no-clinic-dates" 
 export type AttendingSchedule = {
   emptyReason: AttendingScheduleEmptyReason | null;
   termId: string | null;
+  termName: string | null;
+  /** False for an ARCHIVED term, which is readable but not writable. */
+  editable: boolean;
   slots: ClinicSlotView[];
   specialties: SpecialtyView[];
   /** Assignable attendings, active first; inactive kept so a stale row shows. */
@@ -415,26 +475,86 @@ export type AttendingSchedule = {
 };
 
 /**
- * The clinic-wide attending schedule for the active term.
+ * Every Saturday from `start` to `end` inclusive, anchored at noon UTC.
  *
- * One row per clinic date, one entry per slot. Readable by anyone who can see
- * the schedule module; editing is gated separately on schedule.manage_attendings.
+ * Noon rather than midnight so the date renders as the same Saturday in any US
+ * time zone, matching how Term.clinicDates are stored.
  */
-export async function attendingSchedule(): Promise<AttendingSchedule> {
+function saturdaysBetween(start: Date, end: Date): Date[] {
+  const out: Date[] = [];
+  // Rebuild from the UTC calendar parts: a term's start/end carry whatever time
+  // they were saved with, and only the calendar day matters here.
+  const at = (d: Date) =>
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12));
+
+  const last = at(end);
+  const cursor = at(start);
+  // 6 = Saturday. Step forward to the first one, then a week at a time.
+  cursor.setUTCDate(cursor.getUTCDate() + ((6 - cursor.getUTCDay() + 7) % 7));
+  for (let d = cursor; d <= last; d = new Date(d.getTime() + 7 * 86400000)) {
+    out.push(new Date(d));
+  }
+  return out;
+}
+
+/**
+ * The dates the attending builder spans: every Saturday of the term, UNION the
+ * term's own clinic dates.
+ *
+ * The union matters in both directions. Saturdays the term skips are included so
+ * a break in the calendar is visible (and can still carry an on-call attending)
+ * rather than silently absent; and a clinic date that is NOT a Saturday -- a
+ * make-up day, a weekday special clinic -- is never dropped just because it
+ * falls off the weekly rhythm.
+ */
+function builderDates(term: { startDate: Date; endDate: Date; clinicDates: Date[] }): Date[] {
+  const byKey = new Map<string, Date>();
+  for (const d of saturdaysBetween(term.startDate, term.endDate)) byKey.set(isoDateKey(d), d);
+  for (const d of term.clinicDates) byKey.set(isoDateKey(d), d);
+  return [...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, d]) => d);
+}
+
+/**
+ * The clinic-wide attending schedule for one term.
+ *
+ * One row per date the builder spans (see {@link builderDates}), one entry per
+ * slot. Readable by anyone who can see the schedule module; editing is gated
+ * separately on schedule.manage_attendings.
+ *
+ * `termId` selects the working term; omitted, the active one is used.
+ */
+export async function attendingSchedule(termId?: string): Promise<AttendingSchedule> {
   const [term, slots, specialties] = await Promise.all([
-    getActiveTerm(),
+    termId
+      ? prisma.term.findUnique({
+          where: { id: termId },
+          select: { id: true, name: true, status: true, startDate: true, endDate: true, clinicDates: true },
+        })
+      : getActiveTerm(),
     listClinicSlots(),
     listSpecialties(),
   ]);
 
   // Ordered most fundamental first, so the reader is told the one thing they
   // have to fix rather than whichever condition happened to be checked last.
-  const empty = (emptyReason: AttendingScheduleEmptyReason, termId: string | null) =>
-    ({ emptyReason, termId, slots, specialties, options: [], rows: [] }) satisfies AttendingSchedule;
+  const empty = (
+    emptyReason: AttendingScheduleEmptyReason,
+    t: { id: string; name: string } | null,
+  ) =>
+    ({
+      emptyReason,
+      termId: t?.id ?? null,
+      termName: t?.name ?? null,
+      editable: false,
+      slots,
+      specialties,
+      options: [],
+      rows: [],
+    }) satisfies AttendingSchedule;
 
   if (!term) return empty("no-active-term", null);
-  if (term.clinicDates.length === 0) return empty("no-clinic-dates", term.id);
-  if (slots.length === 0) return empty("no-slots", term.id);
+  if (term.clinicDates.length === 0) return empty("no-clinic-dates", term);
+  if (slots.length === 0) return empty("no-slots", term);
 
   const [days, roster] = await Promise.all([
     prisma.clinicDay.findMany({
@@ -467,20 +587,21 @@ export async function attendingSchedule(): Promise<AttendingSchedule> {
   ]);
 
   const byDate = new Map(days.map((d) => [isoDateKey(d.clinicDate), d]));
-
-  // Term.clinicDates is a raw Postgres array with no ordering guarantee, so sort
-  // a copy rather than trusting position.
-  const sorted = [...term.clinicDates].sort((a, b) => (isoDateKey(a) < isoDateKey(b) ? -1 : 1));
+  const clinicDateKeys = new Set(term.clinicDates.map(isoDateKey));
 
   return {
     emptyReason: null,
     termId: term.id,
+    termName: term.name,
+    editable: term.status !== "ARCHIVED",
     slots,
     specialties,
     options: roster,
-    rows: sorted.map((clinicDate) => {
+    rows: builderDates(term).map((clinicDate) => {
       const dateKey = isoDateKey(clinicDate);
       const day = byDate.get(dateKey);
+      const isClinicDate = clinicDateKeys.has(dateKey);
+      const storedClosed = day?.isClosed ?? false;
       const assigned = new Map<string, SlotCoverage["attendings"]>();
       for (const a of day?.attendings ?? []) {
         assigned.set(a.slotId, [
@@ -491,7 +612,9 @@ export async function attendingSchedule(): Promise<AttendingSchedule> {
       return {
         dateKey,
         clinicDate,
-        isClosed: day?.isClosed ?? false,
+        isClinicDate,
+        isClosed: !isClinicDate || storedClosed,
+        storedClosed,
         closedNote: day?.closedNote ?? null,
         onCallAttendingId: day?.onCallAttendingId ?? null,
         // A deactivated on-call reads as unset, the same rule the slots use.

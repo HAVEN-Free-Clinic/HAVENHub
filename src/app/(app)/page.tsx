@@ -10,6 +10,7 @@ import {
   Clock,
   ChevronRight,
   ClipboardCheck,
+  UserRound,
 } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
@@ -407,6 +408,18 @@ export default async function HubPage() {
                 {nextTags.length > 0 && (
                   <span className="inline-flex items-center gap-2">
                     <Repeat aria-hidden className="h-4 w-4 text-white/70" /> {nextTags.join(" · ")}
+                  </span>
+                )}
+                {/* The attending covering THIS member's department that day.
+                    Omitted entirely when there is none -- an unstaffed column,
+                    a department that maps to no column, or a schedule not
+                    published yet all read as "not announced", which is honest,
+                    where an empty "Attending:" label would read as a gap. */}
+                {next.attendings.length > 0 && (
+                  <span className="inline-flex items-center gap-2">
+                    <UserRound aria-hidden className="h-4 w-4 text-white/70" />
+                    {next.attendings.length > 1 ? "Attendings" : "Attending"}:{" "}
+                    {next.attendings.map((a) => a.name).join(", ")}
                   </span>
                 )}
               </div>

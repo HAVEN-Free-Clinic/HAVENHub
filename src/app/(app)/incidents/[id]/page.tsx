@@ -25,13 +25,15 @@ import { loadClearedSet } from "@/platform/clearance";
 import {
   getReport,
   CONCERN_TYPES,
-  incidentAudience,
   IncidentNotFoundError,
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
-import { reviewReportAction, decideStrikeAction } from "../actions";
+import { externalContacts } from "@/modules/incidents/services/external-contacts";
+import { listReportForwards } from "@/modules/incidents/services/forward";
+import { reviewReportAction, decideStrikeAction, forwardReportAction } from "../actions";
 import { detailReviewerDisclosure } from "../disclosure";
+import { ForwardForm } from "../forward-form";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -129,15 +131,11 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
   // rethrow below, and getReport's own NotFound/Forbidden still resolve to
   // notFound() exactly as before.
   let result: Awaited<ReturnType<typeof getReport>>;
-  let reviewers: Awaited<ReturnType<typeof incidentAudience>>;
   try {
-    [result, reviewers] = await Promise.all([
-      getReport(actor.personId, id),
-      // Same audience notifyReviewersOfSubmission mails when a report is filed
-      // (report.ts), read live so the count reflects who currently receives
-      // reports rather than a value frozen at submission time.
-      incidentAudience(),
-    ]);
+    // incidentAudience() used to run alongside this purely to produce the
+    // headcount the disclosure quoted. The disclosure quotes no number now, so
+    // the permission-holder query is gone from every render of this page.
+    result = await getReport(actor.personId, id);
   } catch (err) {
     if (err instanceof IncidentNotFoundError || err instanceof IncidentForbiddenError) {
       notFound();
@@ -145,6 +143,13 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     throw err;
   }
   const { report, canManage } = result;
+
+  // Forwarding is a reviewer-only surface, so neither read runs for the
+  // reporter viewing their own report: they cannot forward, and the trail of who
+  // received it outside the clinic is not theirs to see.
+  const [contacts, forwards] = canManage
+    ? await Promise.all([externalContacts(), listReportForwards(report.id)])
+    : [[], []];
 
   // Verified badges on the linked subjects. Gated on volunteers.view, so the
   // reporter viewing their own report never sees the clearance of the person
@@ -282,7 +287,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                   &ldquo;{report.anonymousReason}&rdquo;
                 </p>
               )}
-              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure(reviewers.length)}</p>
+              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure()}</p>
             </dd>
           </div>
           <div>
@@ -414,6 +419,40 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               </Link>
               .
             </p>
+          )}
+        </Card>
+      )}
+
+      {/* Forwarding sits in its own card, deliberately apart from the reviewer
+          controls above. Those change the report's state inside the clinic and
+          are reversible; this sends it OUTSIDE the organization and is not. The
+          trail of past forwards renders directly above the form so a reviewer
+          sees who already received it before choosing to send it again. */}
+      {canManage && (
+        <Card>
+          <SectionHeader>Forward outside the clinic</SectionHeader>
+          {forwards.length > 0 && (
+            <ul className="mt-3 space-y-1 text-sm text-foreground-soft">
+              {forwards.map((f) => (
+                <li key={f.id}>
+                  Sent to <span className="text-foreground">{f.toName ?? f.toEmail}</span> by{" "}
+                  {f.forwardedBy.name} on <DateOnly value={f.createdAt} />
+                  {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {contacts.length === 0 ? (
+            <p className="mt-3 text-sm text-subtle-foreground">
+              No external supervisors are configured. An administrator can add them in Settings.
+            </p>
+          ) : (
+            <ForwardForm
+              action={forwardReportAction}
+              targetIdName="reportId"
+              targetId={report.id}
+              contacts={contacts}
+            />
           )}
         </Card>
       )}

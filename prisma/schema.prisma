@@ -193,6 +193,8 @@ model Person {
   incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
   /// Incident-report attachments this person uploaded.
   incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
+  /// Incident reports and strikes this person forwarded outside the clinic.
+  incidentForwardsSent           IncidentForward[]          @relation("incidentForwardForwardedBy")
   /// Email log rows addressed to or triggered by this person.
   emailLogs                      EmailLog[]                 @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
@@ -883,6 +885,8 @@ model DisciplinaryAction {
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
   issuedBy        Person          @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
+  forwards        IncidentForward[]
+
   @@unique([reportId, personId])
   @@index([personId])
 }
@@ -927,6 +931,7 @@ model IncidentReport {
   attachments           IncidentReportAttachment[]
   subjects              IncidentReportSubject[]
   strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
+  forwards              IncidentForward[]
 
   @@index([status])
   @@index([reporterId])
@@ -954,6 +959,45 @@ model IncidentReportSubject {
   @@unique([reportId, personId])
   @@index([reportId])
   @@index([personId])
+}
+
+/// One disclosure of an incident report, or of an issued strike, to a clinical
+/// supervisor OUTSIDE the Hub. Written every time a reviewer forwards, and
+/// rendered back on the source record as a visible trail.
+///
+/// This exists because the disclosure leaves the organization and cannot be
+/// walked back. EmailLog already records that a message was sent, but a reviewer
+/// deciding whether to forward needs to see, on the report itself, who has
+/// already received it -- and an after-the-fact audit needs it attached to the
+/// record rather than reconstructed from mail logs.
+///
+/// Exactly one of reportId / actionId is set. DB-LEVEL GUARD LIVES IN RAW SQL
+/// (see the migration): a CHECK constraint, following the RoleAssignment
+/// precedent, because Prisma cannot express "exactly one of these".
+model IncidentForward {
+  id           String              @id @default(cuid())
+  reportId     String?
+  actionId     String?
+  /// Address as sent. Stored rather than referenced: the settings directory is
+  /// free text and an entry can be edited or removed after a forward, which must
+  /// not rewrite or orphan the historical record of who actually received it.
+  toEmail      String
+  /// Display name at the time of sending, when the directory entry had one.
+  toName       String?
+  /// The reviewer's optional covering note, included in the email body.
+  note         String?             @db.Text
+  forwardedById String
+  createdAt    DateTime            @default(now())
+  /// Cascade: the trail belongs to the report.
+  report       IncidentReport?     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Cascade: the trail belongs to the strike.
+  action       DisciplinaryAction? @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  /// Restrict: the forwarding reviewer is the accountable party on a disclosure
+  /// that left the clinic, so the record must not lose them.
+  forwardedBy  Person              @relation("incidentForwardForwardedBy", fields: [forwardedById], references: [id], onDelete: Restrict)
+
+  @@index([reportId])
+  @@index([actionId])
 }
 
 /// A file attached to an incident report. Bytes live in storage under storedName

@@ -15,6 +15,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { setSetting } from "@/platform/settings/service";
 import { notifyStrikeIssued } from "./strike-notifications";
 import { issueAction } from "./disciplinary";
 
@@ -236,6 +237,31 @@ describe("notifyStrikeIssued", () => {
     expect(notes[0].body).toContain("Subject");
     // They hold no incidents.view_strikes, so the ledger link is withheld.
     expect(notes[0].link).toBeNull();
+  });
+
+  it("does NOT email external supervisors when a strike is issued", async () => {
+    // Issuing a strike used to blind-copy every address in
+    // incidents.externalEscalationEmails. That setting is now a directory a
+    // reviewer forwards from deliberately (forward.ts), so issuance itself must
+    // reach nobody outside the clinic. A bare address is used on purpose: the
+    // old parser matched exactly that form, so this fails against the old code.
+    await setSetting("incidents.externalEscalationEmails", "md@yale.edu", null);
+    const term = await createTerm();
+    const dept = await createDepartment("SCTM");
+    const central = await createPerson("Central", "sn-ext-c");
+    const subject = await createPerson("Subject", "sn-ext-s");
+    // A director must exist: notifyStrikeIssued returns early when there is
+    // nobody internal to notify, and that early return sits ABOVE the external
+    // send. Without one, this test would pass against the old code too.
+    const director = await createPerson("Director", "sn-ext-d");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const action = await strike(central.id, subject.id);
+    await notifyStrikeIssued({ action, actorPersonId: central.id });
+
+    expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
   });
 
   // The strictest rule in this file. A confidential strike comes from an

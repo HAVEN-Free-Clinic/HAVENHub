@@ -92,6 +92,25 @@ export function reportSubmittedContext(p: ReportSubmittedParams): Record<string,
   };
 }
 
+/** Build the flat render-engine context for incidents.forwarded_external. */
+export function forwardedExternalContext(p: {
+  recipientName: string;
+  subjectLine: string;
+  concernSummary: string;
+  immediateRisk: boolean;
+  forwardedBy: string;
+  note: string;
+}): Record<string, unknown> {
+  return {
+    recipientName: p.recipientName,
+    subjectLine: p.subjectLine,
+    concernSummary: p.concernSummary,
+    immediateRisk: p.immediateRisk,
+    forwardedBy: p.forwardedBy,
+    note: p.note,
+  };
+}
+
 /** Build the flat render-engine context for incidents.strike_requested. */
 export function strikeRequestedContext(p: StrikeRequestedParams): Record<string, unknown> {
   return {
@@ -158,6 +177,30 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
 {{#if immediateRisk}}<p><strong>This report is flagged as an immediate risk and needs urgent attention.</strong></p>{{/if}}
 <p>Incident report #{{ reportNumber }} was submitted ({{ concernSummary }}).</p>
 {{#if reviewLink}}<p><a href="{{ reviewLink }}">Open the review queue</a></p>{{/if}}
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "incidents.forwarded_external",
+    name: "Incident: forwarded to an external supervisor",
+    category: "transactional",
+    group: "incidents",
+    variables: [
+      { name: "recipientName", label: "Recipient name, or 'Colleague'", sampleValue: "Dr. Smith" },
+      { name: "subjectLine", label: "What is being forwarded", sampleValue: "Incident report #42" },
+      { name: "concernSummary", label: "Comma-separated concern types", sampleValue: "Professional Conduct" },
+      { name: "immediateRisk", label: "True when flagged as immediate risk", sampleValue: "false" },
+      { name: "forwardedBy", label: "The reviewer who forwarded it", sampleValue: "Dr. Jane Doe" },
+      { name: "note", label: "The reviewer's covering note (may be blank)", sampleValue: "Please review before Saturday." },
+    ],
+    defaultSubject: "{{ subjectLine }}: forwarded for your awareness",
+    // No link and no verbatim description, exactly as the blind-copy send it
+    // replaces: the recipient has no Hub account to follow a link with, and the
+    // point is awareness that an incident occurred, not distribution of the
+    // account. The reviewer's note is the only free text, and it is theirs.
+    defaultBody: `<p>Hello {{ recipientName }},</p>
+{{#if immediateRisk}}<p><strong>This has been flagged as an immediate risk.</strong></p>{{/if}}
+<p>{{ forwardedBy }} has forwarded {{ subjectLine }} ({{ concernSummary }}) to you for your awareness.</p>
+{{#if note}}<p>{{ note }}</p>{{/if}}
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {

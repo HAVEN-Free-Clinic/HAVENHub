@@ -610,8 +610,11 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
-  // It becomes assignable on the grid, on every clinic date of its line.
-  const cell = page.locator('select[name="attendingId"]').first();
+  // It becomes assignable on every column of every clinic date. Each date is one
+  // card wrapping one form, so scope to the first card: its slot selects are
+  // named `slot:<id>` and its Save submits that date alone.
+  const day = page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first();
+  const cell = day.locator('select[name^="slot:"]').first();
   await expect(cell).toBeVisible();
   const option = cell.locator("option", { hasText: name });
   await expect(option).toHaveCount(1);
@@ -620,9 +623,15 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   // Actually schedule it: this is the thing the page now exists to do, and the
   // half that a "does the dropdown contain it" assertion never reached.
   await cell.selectOption({ label: name });
-  await cell.locator("xpath=ancestor::form[1]").getByRole("button", { name: "Save" }).click();
+  await day.getByRole("button", { name: "Save" }).click();
   await page.waitForLoadState("networkidle");
 
   // Round-trips through the DB rather than merely rendering optimistically.
-  await expect(page.locator('select[name="attendingId"]').first()).toHaveValue(optionValue!);
+  // This is the assertion that caught the controls being dropped on submit: the
+  // day row saved while its attendings did not, because they sat outside the
+  // form and a server action serialises only the form's descendants.
+  await expect(
+    page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first()
+      .locator('select[name^="slot:"]').first(),
+  ).toHaveValue(optionValue!);
 });

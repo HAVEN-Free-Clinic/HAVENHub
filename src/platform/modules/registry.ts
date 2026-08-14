@@ -28,6 +28,11 @@ export const MODULES: ModuleManifest[] = [
       // above): the operational reality is one front-desk staffer marking
       // walk-ins present across every department, not per-department checks.
       "schedule.manage_attendance",
+      // Also unscoped, for the same kind of reason: there is ONE attending
+      // roster and ONE attending schedule for the whole clinic, maintained by
+      // Faculty Relations. Attendings are not members of a department, so a
+      // department-scoped grant could not express who may edit them.
+      "schedule.manage_attendings",
     ],
     status: "active",
     nav: [

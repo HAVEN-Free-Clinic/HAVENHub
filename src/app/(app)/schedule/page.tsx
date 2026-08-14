@@ -283,6 +283,30 @@ export default async function MySchedulePage() {
                   {shift.tags.remote && <Badge tone="default">Remote</Badge>}
                 </div>
 
+                {/* Who is attending on this shift. The Attendings page is gated
+                    to the directors who maintain it, so this is where the person
+                    actually working the shift finds out. Absent until someone is
+                    scheduled, rather than showing an empty "Attending:" row. */}
+                {shift.attendings.length > 0 && (
+                  <p className="mb-2 text-sm text-foreground-soft">
+                    <span className="text-muted-foreground">
+                      {shift.attendings.length > 1 ? "Attendings: " : "Attending: "}
+                    </span>
+                    {shift.attendings.map((a, i) => (
+                      <span key={`${a.name}-${a.startTime}`}>
+                        {i > 0 && ", "}
+                        {a.name}
+                        {a.slotLabel && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            ({a.slotLabel} {a.startTime}-{a.endTime})
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </p>
+                )}
+
                 <div className="mt-2">
                   {pendingReq ? (
                     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">

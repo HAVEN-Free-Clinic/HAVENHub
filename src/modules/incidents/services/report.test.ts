@@ -576,35 +576,36 @@ describe("submitReport notifications", () => {
     expect(notes[0].link).toMatch(/\/incidents\/review$/);
   });
 
-  // External clinical supervisors have no Hub account, so they cannot hold a
-  // permission and cannot receive a Notification. Email is the only channel.
+  // The setting is no longer a blind-copy list. It is a DIRECTORY a reviewer
+  // forwards from, one matter at a time (see forward.ts and forward.test.ts).
+  // Submission must therefore reach nobody outside the clinic on its own.
   describe("external escalation", () => {
     async function setExternals(value: string) {
       await setSetting("incidents.externalEscalationEmails", value, null);
     }
 
-    it("emails an external supervisor with no link and no Notification row", async () => {
+    it("does NOT email external supervisors on submission, even when the directory is populated", async () => {
+      // The behaviour this replaces: every configured address received every
+      // non-anonymous report automatically. Reviewers asked for the opposite --
+      // a particular matter to a particular supervisor -- so a submitted report
+      // now leaves the clinic only when someone decides to send it.
       const reporter = await createPerson("Reporter", "ext-rep");
+      // A BARE address on purpose: the old blind-copy parser would have matched
+      // and sent to it, so this test fails against the previous behaviour. A
+      // "Name <addr>" entry would pass trivially, since the old parser mangled
+      // it into "<addr>" and never matched this assertion.
       await setExternals("md@yale.edu");
 
-      const report = await submitReport(reporter.id, {
+      await submitReport(reporter.id, {
         concernTypes: ["PATIENT_SAFETY"],
         description: "Unsafe handoff.",
       });
 
-      const sent = await prisma.emailLog.findMany({ where: { toEmail: "md@yale.edu" } });
-      expect(sent).toHaveLength(1);
-      expect(sent[0].html).toContain(String(report.number));
-      // They cannot open the review queue, so it is not offered.
-      expect(sent[0].html).not.toContain("/incidents/review");
-      // No Person behind the address, so no in-app notification exists.
-      expect(sent[0].personId).toBeNull();
+      // Nothing at all leaves the clinic: no external row, by any address.
+      expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
     });
 
-    // The hardest guarantee in this feature. An anonymous report must not leave
-    // the organization: the account itself can identify the reporter to anyone
-    // who knows the shift, and a disclosure outside the clinic cannot be undone.
-    it("NEVER emails an external supervisor about an anonymous report", async () => {
+    it("still emails nobody externally for an anonymous report", async () => {
       const reporter = await createPerson("Reporter", "ext-anon");
       await setExternals("md@yale.edu");
 
@@ -615,24 +616,6 @@ describe("submitReport notifications", () => {
       });
 
       expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
-    });
-
-    it("copies nobody when the setting is blank", async () => {
-      const reporter = await createPerson("Reporter", "ext-blank");
-      await setExternals("");
-      await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
-      expect(await prisma.emailLog.count()).toBe(0);
-    });
-
-    // A stray comma must not produce an empty recipient that fails at send time.
-    it("parses a messy list, deduping and ignoring blanks", async () => {
-      const reporter = await createPerson("Reporter", "ext-messy");
-      await setExternals("  MD@yale.edu, ,md@yale.edu\n second@yale.edu ,");
-
-      await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
-
-      const tos = (await prisma.emailLog.findMany({ select: { toEmail: true } })).map((r) => r.toEmail).sort();
-      expect(tos).toEqual(["md@yale.edu", "second@yale.edu"]);
     });
   });
 

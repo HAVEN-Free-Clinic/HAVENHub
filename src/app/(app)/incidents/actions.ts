@@ -13,6 +13,7 @@ import {
   IncidentNotFoundError,
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
+import { forwardReport, IncidentForwardError } from "@/modules/incidents/services/forward";
 import type { PatientImpact, IssueNature, PriorOccurrence, IncidentReportStatus } from "@prisma/client";
 
 function optEnum<T extends string>(v: FormDataEntryValue | null, allowed: readonly string[]): T | null {
@@ -165,5 +166,37 @@ export async function decideStrikeAction(formData: FormData): Promise<void> {
   }
   revalidatePath(`/incidents/${reportId}`);
   revalidatePath("/incidents/review");
+  redirect(`/incidents/${reportId}`);
+}
+
+/**
+ * Reviewer control: forwards a report to chosen external clinical supervisors.
+ *
+ * Recipients arrive as repeated "emails" checkbox values, each one an address
+ * from the configured directory; forwardReport re-checks every one against that
+ * directory server-side, so a tampered form cannot introduce an address.
+ *
+ * Unlike the notification paths this replaces, a failure here is surfaced to the
+ * reviewer rather than swallowed: they are entitled to know a supervisor was NOT
+ * told, and silence would read as success.
+ */
+export async function forwardReportAction(formData: FormData): Promise<void> {
+  const actor = await requirePermission("incidents.manage");
+  const reportId = String(formData.get("reportId"));
+  const emails = formData.getAll("emails").map(String).filter(Boolean);
+  try {
+    await forwardReport(actor.personId, reportId, {
+      emails,
+      note: String(formData.get("note") ?? ""),
+    });
+  } catch (err) {
+    if (err instanceof IncidentForwardError) {
+      redirect(`/incidents/${reportId}?error=validation&message=${encodeURIComponent(err.message)}`);
+    }
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${reportId}?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${reportId}`);
   redirect(`/incidents/${reportId}`);
 }

@@ -43,6 +43,15 @@ export const SYSTEM_ROLES: SystemRole[] = [
     grants: ["volunteers.view", "volunteers.manage_compliance"],
   },
   {
+    name: "Faculty Relations Manager",
+    description: "Maintains the attending roster, the attending schedule, and attending credentialing",
+    // Attendings are faculty, not clinic members: they hold no TermMembership
+    // and belong to no department, so this cannot be a department-scoped
+    // directorship. schedule.view comes along because the roster is only
+    // meaningful next to the schedule it staffs.
+    grants: ["schedule.view", "schedule.manage_attendings"],
+  },
+  {
     name: "Volunteer Operations Manager",
     description: "Offboarding, IT support requests, and incident reports across the clinic",
     grants: ["volunteers.view", "volunteers.manage_offboarding", "support.manage_requests", "incidents.manage", "incidents.view_strikes"],

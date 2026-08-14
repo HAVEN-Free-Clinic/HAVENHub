@@ -305,6 +305,39 @@ const schema = z
         });
       }
     }
+  })
+  .superRefine((env, ctx) => {
+    // The all-or-nothing check above only fires once SOME R2_* var is set, so a
+    // deployment with NONE of them validated cleanly and silently selected the
+    // local-disk driver (src/platform/storage/index.ts keys r2Active off
+    // R2_BUCKET). That is the one case where the failure is invisible: a
+    // half-configured store was already refused at boot, but a completely
+    // unconfigured one booted fine and then broke every upload path in the app
+    // at once -- HIPAA certificates, drawn signatures, incident and support
+    // attachments, recruitment files, branding images, SCORM packages, member
+    // photos -- and only at the moment a real user tried. On Vercel the function
+    // filesystem is read-only outside /tmp, so the write throws; point UPLOAD_DIR
+    // at /tmp instead and the write succeeds and the bytes vanish on the next
+    // invocation, which is worse. Refuse to boot instead, matching what the
+    // comment above already says this config wants.
+    if (env.NODE_ENV !== "production") return;
+    // Demo/staging deploys are the documented escape hatch for running without
+    // the full infrastructure, and they never hold live volunteer data (see
+    // DEMO_MODE's own comment), so they keep the local-disk fallback. The real
+    // production deploy runs with DEMO_MODE off and is the one this guards.
+    if (env.DEMO_MODE) return;
+    // `next build` runs with NODE_ENV=production but without runtime secrets, so
+    // this is a boot-time check, not a build-time one -- same carve-out and same
+    // reason as the Azure block above.
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
+    if (!env.R2_BUCKET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["R2_BUCKET"],
+        message:
+          "object storage is required in production: without it every upload falls back to the local filesystem, which is read-only or ephemeral on a deployed host",
+      });
+    }
   });
 
 export type AppConfig = z.infer<typeof schema>;

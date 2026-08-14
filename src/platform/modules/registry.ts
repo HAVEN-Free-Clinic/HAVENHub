@@ -28,6 +28,11 @@ export const MODULES: ModuleManifest[] = [
       // above): the operational reality is one front-desk staffer marking
       // walk-ins present across every department, not per-department checks.
       "schedule.manage_attendance",
+      // Also unscoped, for the same kind of reason: there is ONE attending
+      // roster and ONE attending schedule for the whole clinic, maintained by
+      // Faculty Relations. Attendings are not members of a department, so a
+      // department-scoped grant could not express who may edit them.
+      "schedule.manage_attendings",
     ],
     status: "active",
     nav: [
@@ -221,12 +226,22 @@ export const MODULES: ModuleManifest[] = [
     icon: LifeBuoy,
     // No accessPermission: open to any signed-in matched person (like my-info),
     // so anyone can submit. Manager tabs gate on support.manage_requests.
-    permissions: ["support.manage_requests"],
+    //
+    // support.view_all_requests is the read-only half of manage_requests: it
+    // opens the cross-clinic queue to someone who needs to answer "where is my
+    // request?" without being able to work a ticket. It reaches ONLY the "All
+    // requests" tab -- never Epic / YNHH tools, which submits real access
+    // requests.
+    permissions: ["support.manage_requests", "support.view_all_requests"],
     status: "active",
     nav: [
       { label: "My requests", href: "/support" },
       { label: "Submit a request", href: "/support/new" },
-      { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
+      {
+        label: "All requests",
+        href: "/support/all",
+        permission: ["support.manage_requests", "support.view_all_requests"],
+      },
       { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
     ],
   },

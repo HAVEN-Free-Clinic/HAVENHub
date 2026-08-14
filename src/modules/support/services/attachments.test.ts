@@ -143,6 +143,23 @@ describe("getAttachmentForDownload", () => {
     await expect(getAttachmentForDownload(stranger.id, att.id)).rejects.toThrow(SupportNotFoundError);
   });
 
+  it("denies a support.view_all_requests auditor", async () => {
+    // Files are outside the read-only grant, same as comments. The auditor can
+    // reach the ticket, so this is the gate that keeps them off its uploads --
+    // and it must hold even though the attachment list is already hidden from
+    // their page render, because the download URL is guessable by id.
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    const att = await persistAttachment(owner.id, { requestId: req.id }, {
+      fileName: "a.png",
+      mimeType: "image/png",
+      bytes: Buffer.from("x"),
+    });
+    await expect(getAttachmentForDownload(auditor.id, att.id)).rejects.toThrow(SupportNotFoundError);
+  });
+
   it("allows the requester to download their own ticket attachment", async () => {
     const owner = await createPerson("Owner");
     const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });

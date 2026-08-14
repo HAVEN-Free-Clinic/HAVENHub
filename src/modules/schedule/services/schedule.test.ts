@@ -181,6 +181,137 @@ describe("mySchedule", () => {
     expect(live.shifts[0].department.code).toBe("ITCM");
   });
 
+  /**
+   * Who is attending is a member-facing fact.
+   *
+   * The Attendings page is gated to Faculty Relations, so a volunteer's own
+   * schedule is the only place they can look up who is on the shift they work.
+   * The attending schedule is CLINIC-WIDE, so the card shows the day's whole
+   * coverage -- the same picture the weekly reminder email sends.
+   */
+  describe("attendings on a shift", () => {
+    async function clinicColumns() {
+      const morning = await prisma.clinicSlot.create({
+        data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+      });
+      const rhd = await prisma.clinicSlot.create({
+        data: { label: "RHD Attending", startTime: "09:00", endTime: "13:00", order: 1 },
+      });
+      return { morning, rhd };
+    }
+
+    async function attending(scheduleName: string, isActive = true) {
+      return prisma.attending.create({ data: { scheduleName, fullName: scheduleName, isActive } });
+    }
+
+    it("shows the whole day's coverage, in column then slot order", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTS");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const { morning, rhd } = await clinicColumns();
+      const peggy = await attending("Peggy Bia");
+      const frank = await attending("Frank Bia");
+      const finch = await attending("Finch");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: {
+            create: [
+              { slotId: morning.id, attendingId: peggy.id, order: 0 },
+              { slotId: morning.id, attendingId: frank.id, order: 1 },
+              { slotId: rhd.id, attendingId: finch.id },
+            ],
+          },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+
+      expect(live.shifts[0].attendings.map((a) => [a.name, a.slotLabel])).toEqual([
+        ["Peggy Bia", "9am-12pm"],
+        ["Frank Bia", "9am-12pm"],
+        ["Finch", "RHD Attending"],
+      ]);
+    });
+
+    // Only the dates the member actually works, never the whole term.
+    it("attaches nothing to a date the member does not work", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTS");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const { morning } = await clinicColumns();
+      const a = await attending("Peggy Bia");
+      // Booked on the SECOND date, which this member does not work.
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[1],
+          attendings: { create: [{ slotId: morning.id, attendingId: a.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts).toHaveLength(1);
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+
+    it("omits a deactivated attending rather than naming them as covering", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTS");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const { morning } = await clinicColumns();
+      const retired = await attending("Dr. Retired", false);
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: { create: [{ slotId: morning.id, attendingId: retired.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+
+    // A closed date staffs nobody; naming anyone would contradict the closure.
+    it("attaches nothing on a closed clinic date", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTS");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const { morning } = await clinicColumns();
+      const a = await attending("Peggy Bia");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          isClosed: true,
+          attendings: { create: [{ slotId: morning.id, attendingId: a.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+  });
+
+
   it("resolves SELF tier after a self-update", async () => {
     const dates = saturdays("2026-05-30", 4);
     const term = await createTerm("ACTIVE", "SU26", dates);

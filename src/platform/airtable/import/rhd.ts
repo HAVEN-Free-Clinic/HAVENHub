@@ -59,6 +59,15 @@ const ATTENDING_FIELD = {
   notes: "fldh1FJjByriGBdb0",        // Notes
 } as const;
 
+/**
+ * The sheet's procedure columns, as AttendingCapability keys.
+ *
+ * Duplicated from the schedule engine's PROCEDURE_KEYS rather than imported:
+ * platform code must not import module code (eslint boundary). Both lists, and
+ * the seed's SERVICE_LINES, describe the same six SRHD capability keys.
+ */
+const PROCEDURE_KEYS = ["iudIn", "iudOut", "nexplanon", "gac", "emb", "seesMale"] as const;
+
 // ---------------------------------------------------------------------------
 // RHD Clinics field IDs
 // ---------------------------------------------------------------------------
@@ -165,7 +174,7 @@ export function parseClinicDate(
 /**
  * Runs the RHD import: attendings first, then clinics.
  *
- * In apply mode, upserts RhdAttending and RhdClinic rows and writes one
+ * In apply mode, upserts Attending and ClinicDay rows and writes one
  * AuditLog entry. In dry-run mode, computes the same counts without any DB
  * writes. Dry-run uses a sentinel string as a placeholder attending id so
  * clinic resolution still works correctly.
@@ -189,20 +198,56 @@ export async function runRhdImport(
     );
   }
 
-  // --- Service line ---
+  // --- Where this sheet's rows belong ---
   // This importer reads the legacy REPRODUCTIVE HEALTH sheet specifically, so
-  // everything it writes belongs to SRHD's service line. Attendings and clinic
-  // rows are department-scoped since the primary care line was added; hardcoding
-  // SRHD here is correct rather than a shortcut, because there is no other
-  // service line this particular sheet could describe.
-  const serviceLine = await prisma.department.findUnique({
-    where: { code: "SRHD" },
+  // every attending it creates has that specialty and every clinic assignment
+  // lands in the RHD Attending column of the clinic-wide schedule. Hardcoding
+  // both is correct rather than a shortcut: no other specialty or column is
+  // describable from this particular sheet.
+  const specialty = await prisma.attendingSpecialty.findUnique({
+    where: { code: "RHD" },
     select: { id: true },
   });
-  if (!serviceLine) {
+  if (!specialty) {
     throw new Error(
-      'Department "SRHD" not found. The reproductive health import needs it to own the attendings it creates; run the department seed first.'
+      'Specialty "RHD" not found. The reproductive health import needs it to classify the attendings it creates; run the department seed first.'
     );
+  }
+
+  const importSlot = await prisma.clinicSlot.findUnique({
+    where: { label: "RHD Attending" },
+    select: { id: true },
+  });
+  if (!importSlot) {
+    throw new Error(
+      'Clinic slot "RHD Attending" not found, so imported assignments would have nowhere to go. Run the department seed, or rename the column back.'
+    );
+  }
+
+  // The capability each procedure column maps to, keyed by our capability KEY.
+  // An absent key means that question is no longer asked, so the column is
+  // skipped rather than failing the import.
+  const capabilities = await prisma.attendingCapability.findMany({
+    select: { id: true, key: true },
+  });
+  const capabilityIdByKey = new Map(capabilities.map((c) => [c.key, c.id]));
+
+  /**
+   * The capability value rows a sheet row implies.
+   *
+   * "unknown" stores no row, matching the rule everywhere else that absence IS
+   * unknown, so a re-import cannot leave a stale explicit "unknown" behind.
+   */
+  function capabilityRows(f: Record<string, unknown>): Array<{ capabilityId: string; value: string }> {
+    const rows: Array<{ capabilityId: string; value: string }> = [];
+    for (const key of PROCEDURE_KEYS) {
+      const capabilityId = capabilityIdByKey.get(key);
+      if (!capabilityId) continue;
+      const value = normalizeSelect(f[ATTENDING_FIELD[key]]);
+      if (value === "unknown") continue;
+      rows.push({ capabilityId, value });
+    }
+    return rows;
   }
 
   // -------------------------------------------------------------------------
@@ -211,7 +256,7 @@ export async function runRhdImport(
 
   const attendingRecords = await reader.listAll(options.baseId, options.attendingsTableId);
 
-  // In-memory map: Airtable record id -> our RhdAttending id (or sentinel in dry-run)
+  // In-memory map: Airtable record id -> our Attending id (or sentinel in dry-run)
   const attendingIdByRecordId = new Map<string, string>();
 
   for (const record of attendingRecords) {
@@ -222,18 +267,13 @@ export async function runRhdImport(
     const rawFullName = strOrNull(f, ATTENDING_FIELD.fullName);
     const fullName = rawFullName ?? scheduleName;
 
-    const desired = {
-      fullName,
-      iudIn: normalizeSelect(f[ATTENDING_FIELD.iudIn]),
-      iudOut: normalizeSelect(f[ATTENDING_FIELD.iudOut]),
-      nexplanon: normalizeSelect(f[ATTENDING_FIELD.nexplanon]),
-      gac: normalizeSelect(f[ATTENDING_FIELD.gac]),
-      emb: normalizeSelect(f[ATTENDING_FIELD.emb]),
-      seesMale: normalizeSelect(f[ATTENDING_FIELD.seesMale]),
-      notes: strOrNull(f, ATTENDING_FIELD.notes),
-    };
+    const desired = { fullName, notes: strOrNull(f, ATTENDING_FIELD.notes) };
+    const desiredCapabilities = capabilityRows(f);
 
-    const existing = await prisma.rhdAttending.findUnique({ where: { scheduleName } });
+    const existing = await prisma.attending.findUnique({
+      where: { scheduleName },
+      include: { capabilities: { select: { capabilityId: true, value: true } } },
+    });
 
     if (!existing) {
       report.attendings.created++;
@@ -241,29 +281,40 @@ export async function runRhdImport(
         // Use scheduleName as placeholder key so clinics can still resolve
         attendingIdByRecordId.set(record.id, `dry:${scheduleName}`);
       } else {
-        const created = await prisma.rhdAttending.create({
-          data: { scheduleName, departmentId: serviceLine.id, ...desired },
+        const created = await prisma.attending.create({
+          data: {
+            scheduleName,
+            specialtyId: specialty.id,
+            ...desired,
+            capabilities: { create: desiredCapabilities },
+          },
         });
         attendingIdByRecordId.set(record.id, created.id);
       }
     } else {
-      // Check if anything changed
+      // Compare capabilities as sorted "id=value" pairs so a reordered fetch
+      // does not read as a change and inflate the updated count every run.
+      const asPairs = (rows: Array<{ capabilityId: string; value: string }>) =>
+        rows.map((r) => `${r.capabilityId}=${r.value}`).sort().join(",");
       const changed =
         existing.fullName !== desired.fullName ||
-        existing.iudIn !== desired.iudIn ||
-        existing.iudOut !== desired.iudOut ||
-        existing.nexplanon !== desired.nexplanon ||
-        existing.gac !== desired.gac ||
-        existing.emb !== desired.emb ||
-        existing.seesMale !== desired.seesMale ||
-        existing.notes !== desired.notes;
+        existing.notes !== desired.notes ||
+        asPairs(existing.capabilities) !== asPairs(desiredCapabilities);
 
       if (changed) {
         report.attendings.updated++;
         if (!options.dryRun) {
-          await prisma.rhdAttending.update({
-            where: { scheduleName },
-            data: desired,
+          await prisma.$transaction(async (tx) => {
+            // Replace-set: the sheet is authoritative for this line's answers,
+            // so an answer cleared upstream must delete its row rather than
+            // linger. Scoped to this attending.
+            await tx.attendingCapabilityValue.deleteMany({ where: { attendingId: existing.id } });
+            if (desiredCapabilities.length > 0) {
+              await tx.attendingCapabilityValue.createMany({
+                data: desiredCapabilities.map((r) => ({ ...r, attendingId: existing.id })),
+              });
+            }
+            await tx.attending.update({ where: { scheduleName }, data: desired });
           });
         }
       } else {
@@ -310,7 +361,7 @@ export async function runRhdImport(
     // Distinguish "Airtable has no attending" (attendingLinks empty -> attendingId
     // null, a legitimate clear) from "Airtable links an attending we could not
     // resolve" (e.g. it was skipped for a blank Schedule Name). Only the former may
-    // null out RhdClinic.attendingId; the latter must leave whatever a director set
+    // clear the slot's assignment; the latter must leave whatever a director set
     // in the builder untouched, or every import silently wipes that clinic's
     // attending back to a value Airtable does not actually hold (#120).
     let attendingUnresolved = false;
@@ -334,49 +385,62 @@ export async function runRhdImport(
     const proceduresBooked = numberOrNull(f, CLINIC_FIELD.procedures);
 
     // Upsert on (termId, departmentId, clinicDate)
-    const existing = await prisma.rhdClinic.findUnique({
-      where: {
-        termId_departmentId_clinicDate: {
-          termId: term.id,
-          departmentId: serviceLine.id,
-          clinicDate,
-        },
-      },
+    const existing = await prisma.clinicDay.findUnique({
+      where: { termId_clinicDate: { termId: term.id, clinicDate } },
+      include: { attendings: { where: { slotId: importSlot.id }, select: { attendingId: true } } },
     });
+
+    // Only the import slot's assignment is compared and written; any other slot
+    // this line staffs is invisible to the sheet and must stay untouched.
+    const existingAttendingId = existing?.attendings[0]?.attendingId ?? null;
 
     if (!existing) {
       report.clinics.created++;
       if (!options.dryRun) {
-        await prisma.rhdClinic.create({
+        await prisma.clinicDay.create({
           data: {
             termId: term.id,
-            departmentId: serviceLine.id,
             clinicDate,
-            attendingId,
             directorName,
             proceduresBooked,
+            ...(attendingId
+              ? { attendings: { create: [{ slotId: importSlot.id, attendingId }] } }
+              : {}),
           },
         });
       }
     } else {
       const changed =
-        (!attendingUnresolved && existing.attendingId !== attendingId) ||
+        (!attendingUnresolved && existingAttendingId !== attendingId) ||
         existing.directorName !== directorName ||
         existing.proceduresBooked !== proceduresBooked;
 
       if (changed) {
         report.clinics.updated++;
         if (!options.dryRun) {
-          await prisma.rhdClinic.update({
-            where: { id: existing.id },
-            // Omit attendingId entirely when the link was present but unresolved,
-            // preserving a director-set attending. An empty attendingLinks array
-            // still writes null through the resolved path (a real clear).
-            data: {
-              ...(attendingUnresolved ? {} : { attendingId }),
-              directorName,
-              proceduresBooked,
-            },
+          await prisma.$transaction(async (tx) => {
+            await tx.clinicDay.update({
+              where: { id: existing.id },
+              data: { directorName, proceduresBooked },
+            });
+            // Skip the assignment entirely when the link was present but
+            // unresolved, preserving a director-set attending. An empty
+            // attendingLinks array still clears through the resolved path.
+            if (attendingUnresolved) return;
+            if (attendingId === null) {
+              await tx.clinicDayAttending.deleteMany({
+                where: { clinicDayId: existing.id, slotId: importSlot.id },
+              });
+              return;
+            }
+            // Replace the slot's occupant: this column takes one attending,
+            // and the sheet is authoritative for it.
+            await tx.clinicDayAttending.deleteMany({
+              where: { clinicDayId: existing.id, slotId: importSlot.id },
+            });
+            await tx.clinicDayAttending.create({
+              data: { clinicDayId: existing.id, slotId: importSlot.id, attendingId },
+            });
           });
         }
       } else {
@@ -393,7 +457,7 @@ export async function runRhdImport(
     await recordAudit({
       actorPersonId: null,
       action: "schedule.rhd_import",
-      entityType: "RhdClinic",
+      entityType: "ClinicDay",
       entityId: null,
       after: report as unknown as Prisma.InputJsonValue,
     });

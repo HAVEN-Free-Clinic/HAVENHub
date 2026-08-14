@@ -23,7 +23,12 @@ export function DelegationEditor({
     <form action={action}>
       <Card className="space-y-3">
         <p className="text-sm text-foreground-soft">
-          Departments this one manages. A director here also oversees these (one hop).
+          Departments this one manages. A director here also oversees these for compliance
+          (one hop).
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Oversight only. This does not create a clinic service line or an attending roster,
+          and does not grant scheduling rights over these departments.
         </p>
         {candidates.length === 0 ? (
           <p className="text-sm text-muted-foreground">No other active departments to delegate to.</p>

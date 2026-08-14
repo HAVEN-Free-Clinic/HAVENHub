@@ -21,7 +21,10 @@
  *     rest of the pipeline (submit to YNHH, set SR#, complete, email) is
  *     worked on the Epic Requests page, not here.
  *   - ticket-level attachments (Task 7): rendered only when the ticket has
- *     any (detail.attachments comes straight off getTechRequest's include).
+ *     any (detail.attachments comes straight off getTechRequest's include)
+ *     AND `showCorrespondence` is set. A support.view_all_requests auditor
+ *     reaches this component but is not entitled to the ticket's files or its
+ *     comment thread, and getTechRequest returns both regardless of viewer.
  *
  * All action props are optional so this component still renders (with the
  * relevant section hidden) for any caller that has not been updated to pass
@@ -142,6 +145,14 @@ type TicketDetailProps = {
   cancelEpicAction?: (formData: FormData) => Promise<void>;
   /** Active departments+members for the attach picker. Only needed when canManage. */
   departments?: DepartmentWithMembers[];
+  /**
+   * Whether the ticket's correspondence -- comment thread and attachment list --
+   * belongs to this viewer. False for a support.view_all_requests auditor, who
+   * tracks a ticket's progress without reading its conversation or files. Comes
+   * from ticketViewCapabilities so the rule lives in one place; defaults true so
+   * existing manager/requester call sites are unaffected.
+   */
+  showCorrespondence?: boolean;
 };
 
 export async function TicketDetail({
@@ -160,6 +171,7 @@ export async function TicketDetail({
   attachEpicAction,
   cancelEpicAction,
   departments = [],
+  showCorrespondence = true,
 }: TicketDetailProps) {
   const isOpen = !TERMINAL_STATUSES.includes(detail.status);
   const zone = await getDisplayTimeZone();
@@ -418,7 +430,7 @@ export async function TicketDetail({
         </section>
       )}
 
-      {detail.attachments.length > 0 && (
+      {showCorrespondence && detail.attachments.length > 0 && (
         <section>
           <SectionHeader className="mb-2">Attachments</SectionHeader>
           <Card>

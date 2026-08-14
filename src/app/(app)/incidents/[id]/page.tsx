@@ -20,6 +20,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
+import { loadClearedSet } from "@/platform/clearance";
 import {
   getReport,
   CONCERN_TYPES,
@@ -40,6 +42,7 @@ import type {
   StrikeDecision,
 } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { PersonName } from "@/platform/ui/person-name";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -148,6 +151,15 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     ? await Promise.all([externalContacts(), listReportForwards(report.id)])
     : [[], []];
 
+  // Verified badges on the linked subjects. Gated on volunteers.view, so the
+  // reporter viewing their own report never sees the clearance of the person
+  // they reported -- that would hand a reporter a compliance detail about their
+  // subject as a side effect of filing.
+  const canSeeClearance = await can(actor.personId, "volunteers.view");
+  const clearedIds = await loadClearedSet(
+    canSeeClearance ? report.subjects.map((s) => s.person.id) : []
+  );
+
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeader
@@ -193,7 +205,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                 <ul className="space-y-1">
                   {report.subjects.map((s) => (
                     <li key={s.id} className="flex items-center gap-2">
-                      <span>{s.person.name}</span>
+                      <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} />
                       {s.strikeDecision && (
                         <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
                       )}

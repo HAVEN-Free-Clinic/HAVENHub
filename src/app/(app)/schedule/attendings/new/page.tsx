@@ -1,55 +1,55 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import {
   createAttending,
-  manageableServiceLines,
-  CAPABILITY_KEYS,
+  canManageAttendings,
+  listSpecialties,
+  capabilitiesForSpecialty,
+  capabilitiesFromFormData,
   AttendingValidationError,
   AttendingForbiddenError,
-  type CapabilityValue,
 } from "@/modules/schedule/services/attendings";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
+import { Alert } from "@/platform/ui/alert";
 import { PageHeader } from "@/platform/ui/page-header";
 
 type PageProps = {
-  searchParams: Promise<{ line?: string; error?: string }>;
+  searchParams: Promise<{ specialty?: string; error?: string }>;
 };
-
-/** Reproductive health keeps the procedure matrix; no other line has one. */
-const PROCEDURE_LINE_CODE = "SRHD";
 
 export default async function NewAttendingPage({ searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
   const sp = await searchParams;
 
-  // The service line comes from the link on the roster page. It must be one the
-  // actor may edit, resolved here rather than trusted from the query string, so
-  // a hand-edited ?line= cannot add an attending to someone else's roster. The
-  // service re-checks this too; this only decides what the page renders.
-  const manageable = await manageableServiceLines(session.personId);
-  if (manageable.length === 0) redirect("/no-access");
+  // Same gate as the nav tab and the roster page, so the URL is never a way
+  // around the tab being absent.
+  if (!(await canManageAttendings(session.personId))) redirect("/no-access");
 
-  const line = sp.line ? manageable.find((l) => l.id === sp.line) : manageable[0];
-  if (!line) notFound();
-  const lineId = line.id;
+  const specialties = await listSpecialties();
+  // Which questions to ask depends on the specialty, which is not chosen until
+  // the form is submitted. Render the questions for the pre-selected specialty
+  // (from ?specialty=, else none) and let the service re-scope on save; posting
+  // an answer the chosen specialty does not ask is simply dropped there.
+  const selectedSpecialtyId = sp.specialty ?? null;
+  const capabilities = await capabilitiesForSpecialty(selectedSpecialtyId);
 
   async function createAction(formData: FormData) {
     "use server";
     const actor = await requireModuleAccess("schedule");
-    const capabilities: Record<string, CapabilityValue> = Object.fromEntries(
-      CAPABILITY_KEYS.map((k) => [k, (formData.get(k) as string) as CapabilityValue]),
-    );
     try {
       await createAttending(actor.personId, {
         scheduleName: (formData.get("scheduleName") as string) ?? "",
         fullName: (formData.get("fullName") as string) ?? "",
-        departmentId: lineId,
-        capabilities,
+        credentials: (formData.get("credentials") as string) || null,
+        specialtyId: (formData.get("specialtyId") as string) || null,
+        email: (formData.get("email") as string) || null,
+        phone: (formData.get("phone") as string) || null,
         notes: (formData.get("notes") as string) || null,
+        capabilities: capabilitiesFromFormData(formData),
       });
     } catch (err) {
       if (err instanceof AttendingValidationError || err instanceof AttendingForbiddenError) {
-        redirect(`/schedule/attendings/new?line=${lineId}&error=${encodeURIComponent(err.message)}`);
+        redirect(`/schedule/attendings/new?error=${encodeURIComponent(err.message)}`);
       }
       throw err;
     }
@@ -58,8 +58,20 @@ export default async function NewAttendingPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`Add attending to ${line.name}`} />
-      <AttendingForm action={createAction} showCapabilities={line.code === PROCEDURE_LINE_CODE} />
+      <PageHeader
+        title="Add attending"
+        description="Faculty joining the clinic's attending roster."
+      />
+      {/* createAction redirects here with ?error= on a domain failure. Without
+          this a duplicate schedule name bounced the user back to a blank form
+          with no indication of what went wrong. */}
+      {sp.error && <Alert tone="error">{sp.error}</Alert>}
+      <AttendingForm
+        action={createAction}
+        specialties={specialties}
+        selectedSpecialtyId={selectedSpecialtyId}
+        capabilities={capabilities}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { Person } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { transformPeople, transformRoster, type PersonImport } from "./transforms";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 
 export type AirtableReader = {
   listAll(baseId: string, tableId: string): Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
@@ -38,11 +39,17 @@ async function findExisting(person: PersonImport): Promise<Person | null> {
   });
   if (byRecord) return byRecord;
   if (person.netId) {
-    const byNetId = await prisma.person.findFirst({ where: { netId: insensitive(person.netId) } });
+    const byNetId = await prisma.person.findFirst({
+      where: { netId: insensitive(person.netId) },
+      select: PERSON_SCALARS,
+    });
     if (byNetId) return byNetId;
   }
   if (person.contactEmail) {
-    return prisma.person.findFirst({ where: { contactEmail: insensitive(person.contactEmail) } });
+    return prisma.person.findFirst({
+      where: { contactEmail: insensitive(person.contactEmail) },
+      select: PERSON_SCALARS,
+    });
   }
   return null;
 }

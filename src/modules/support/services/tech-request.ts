@@ -26,10 +26,57 @@
 import type { TechRequest, TechRequestCategory, TechRequestStatus, EpicRequestKind } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { can } from "@/platform/rbac/engine";
+import { can, getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 
 export const MANAGE = "support.manage_requests";
+/**
+ * Read-only counterpart to MANAGE: opens the cross-clinic ticket views to an
+ * auditor who should see where every request stands without being able to move
+ * one. It widens READ paths only -- listAllRequests and getTechRequest below --
+ * and is deliberately absent from every write path, which keeps gating on
+ * MANAGE via isManager. Comment threads and attachments stay manager-only too,
+ * so a ticket's correspondence and files are not part of this grant.
+ */
+export const VIEW_ALL = "support.view_all_requests";
 export const PAGE_SIZE = 25;
+
+/**
+ * Every TechRequest scalar, named explicitly.
+ *
+ * Used wherever a query needs the whole row, in place of letting Prisma imply
+ * the column list. Prisma builds that list from `schema.prisma`, not from what
+ * the calling code touches, so a query with no projection (and an `include:`,
+ * which only names relations) emits every declared column. During a Vercel
+ * build the previous deployment keeps serving while `prisma migrate deploy` has
+ * already run, so the moment a column is dropped those queries ask for a column
+ * the database no longer has and return 42703 to every caller. That is exactly
+ * what commit 2ce40c15 did to `/support/[id]` and to the Intercom
+ * ticket.created webhook.
+ *
+ * Listing all scalars keeps the result assignable to `TechRequest`, so this is
+ * a pure hardening with no type churn at the call sites, and it makes the next
+ * narrowing of this table fail loudly in `tsc` here instead of quietly in
+ * production. See docs/DEPLOY.md §1 for the measurements.
+ */
+const TICKET_SCALARS = {
+  id: true,
+  number: true,
+  airtableRecordId: true,
+  requesterId: true,
+  category: true,
+  epicSubtype: true,
+  subject: true,
+  description: true,
+  priority: true,
+  status: true,
+  assignedToId: true,
+  resolution: true,
+  resolvedAt: true,
+  intercomConversationId: true,
+  intercomTicketId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -73,6 +120,19 @@ export class SupportConflictError extends SupportStateError {
 
 export async function isManager(personId: string): Promise<boolean> {
   return can(personId, MANAGE);
+}
+
+/**
+ * May this person read tickets they do not own? True for a manager and for a
+ * VIEW_ALL auditor. Resolves the permission set once rather than calling `can`
+ * twice, because both read paths below ask this on every request.
+ *
+ * Never use this to authorize a mutation: an auditor passes it. Write paths ask
+ * isManager.
+ */
+export async function canViewAllRequests(personId: string): Promise<boolean> {
+  const perms = await getEffectivePermissions(personId);
+  return hasPermission(perms, MANAGE) || hasPermission(perms, VIEW_ALL);
 }
 
 // ---------------------------------------------------------------------------
@@ -203,8 +263,12 @@ export async function createTechRequestFromConversation(
         where: {
           OR: [{ intercomTicketId: input.intercomTicketId }, { intercomConversationId: input.intercomConversationId }],
         },
+        select: TICKET_SCALARS,
       })
-    : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
+    : await prisma.techRequest.findUnique({
+        where: { intercomConversationId: input.intercomConversationId },
+        select: TICKET_SCALARS,
+      });
   if (existing) return { ticket: existing, created: false };
 
   const subject = input.subject?.trim();
@@ -223,6 +287,7 @@ export async function createTechRequestFromConversation(
         intercomConversationId: input.intercomConversationId,
         intercomTicketId: input.intercomTicketId ?? null,
       },
+      select: TICKET_SCALARS,
     });
 
     await recordAudit({
@@ -248,8 +313,12 @@ export async function createTechRequestFromConversation(
                 { intercomConversationId: input.intercomConversationId },
               ],
             },
+            select: TICKET_SCALARS,
           })
-        : await prisma.techRequest.findUnique({ where: { intercomConversationId: input.intercomConversationId } });
+        : await prisma.techRequest.findUnique({
+            where: { intercomConversationId: input.intercomConversationId },
+            select: TICKET_SCALARS,
+          });
       if (winner) return { ticket: winner, created: false };
     }
     throw err;
@@ -315,7 +384,9 @@ export type RequestFilter = {
 
 /**
  * Returns a paginated, filtered master list of all tickets. Requires
- * support.manage_requests (SupportForbiddenError otherwise).
+ * support.manage_requests or support.view_all_requests (SupportForbiddenError
+ * otherwise) -- the list itself is identical for both; only the actions a
+ * caller can then take on a row differ.
  *
  * counts is a groupBy across ALL statuses regardless of the applied filter.
  */
@@ -323,8 +394,8 @@ export async function listAllRequests(
   actorPersonId: string,
   filter: RequestFilter
 ): Promise<{ rows: TechRequestListRow[]; total: number; counts: Record<TechRequestStatus, number> }> {
-  if (!(await can(actorPersonId, MANAGE))) {
-    throw new SupportForbiddenError(`The ${MANAGE} permission is required.`);
+  if (!(await canViewAllRequests(actorPersonId))) {
+    throw new SupportForbiddenError(`The ${MANAGE} or ${VIEW_ALL} permission is required.`);
   }
   const page = filter.page ?? 1;
   const where: Record<string, unknown> = {};
@@ -371,10 +442,43 @@ export async function listAllRequests(
   return { rows: rows as unknown as TechRequestListRow[], total, counts };
 }
 
+/**
+ * Explicit `select:` on the scalars, deliberately, not `include:`.
+ *
+ * `include` names RELATIONS; it leaves the scalar list alone, so the generated
+ * SQL still emits every column `schema.prisma` declares. That is what made this
+ * query the casualty of commit 2ce40c15: `prisma migrate deploy` runs at the
+ * start of the Vercel build while the PREVIOUS deployment still serves traffic,
+ * so for the whole build window the old client asked for seven columns the
+ * migration had just dropped, and `/support/[id]` returned 42703 to every
+ * caller. Measured in audit 13: a no-projection query and an `include:`-only
+ * query both fail that way; an explicit `select:` survives untouched.
+ *
+ * Keeping the projection explicit means the next narrowing of this table is a
+ * non-event here. `tsc` enforces it: drop a field a caller reads and the build
+ * fails at the call site rather than in production. See docs/DEPLOY.md §1.
+ */
 async function loadDetail(id: string) {
   return prisma.techRequest.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      number: true,
+      airtableRecordId: true,
+      requesterId: true,
+      category: true,
+      epicSubtype: true,
+      subject: true,
+      description: true,
+      priority: true,
+      status: true,
+      assignedToId: true,
+      resolution: true,
+      resolvedAt: true,
+      intercomConversationId: true,
+      intercomTicketId: true,
+      createdAt: true,
+      updatedAt: true,
       requester: { select: { id: true, name: true, netId: true, contactEmail: true, epicId: true } },
       assignedTo: { select: { id: true, name: true } },
       epicRequests: {
@@ -392,16 +496,21 @@ async function loadDetail(id: string) {
 export type TechRequestDetail = NonNullable<Awaited<ReturnType<typeof loadDetail>>>;
 
 /**
- * Returns full ticket detail. The requester or a support.manage_requests
- * holder may read it; anyone else gets SupportNotFoundError (not
- * SupportForbiddenError) so a stranger cannot distinguish "does not exist"
- * from "exists but you can't see it".
+ * Returns full ticket detail. The requester, a support.manage_requests holder,
+ * or a support.view_all_requests auditor may read it; anyone else gets
+ * SupportNotFoundError (not SupportForbiddenError) so a stranger cannot
+ * distinguish "does not exist" from "exists but you can't see it".
+ *
+ * This returns the same payload to an auditor as to a manager, comments and
+ * attachments included. Hiding those from an auditor is the PAGE's job (see
+ * ticket-detail.tsx): a service that stripped them would also strip them from
+ * the manager paths that share this loader.
  */
 export async function getTechRequest(actorPersonId: string, id: string): Promise<TechRequestDetail> {
   const detail = await loadDetail(id);
   if (!detail) throw new SupportNotFoundError();
-  const manager = await can(actorPersonId, MANAGE);
-  if (!manager && detail.requesterId !== actorPersonId) {
+  const viewer = await canViewAllRequests(actorPersonId);
+  if (!viewer && detail.requesterId !== actorPersonId) {
     // Do not leak existence to strangers.
     throw new SupportNotFoundError();
   }

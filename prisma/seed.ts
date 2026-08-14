@@ -12,8 +12,9 @@ import { DEPARTMENTS } from "./department-catalog";
 const prisma = new PrismaClient();
 
 /**
- * Department delegation edges: a manager department oversees the managed ones.
- * Seeded idempotently and skipped silently when either code is missing.
+ * Compliance oversight edges: a director of `manager` also oversees `managed`,
+ * one hop. Oversight only: it grants no scheduling rights and creates no clinic
+ * structure. VADC/VADM is here precisely to keep that distinction honest.
  */
 const DELEGATIONS: Array<{ manager: string; managed: string }> = [
   { manager: "PCAR", managed: "SCTP" },
@@ -22,6 +23,59 @@ const DELEGATIONS: Array<{ manager: string; managed: string }> = [
   { manager: "SRHD", managed: "CCRH" },
   { manager: "SRHD", managed: "JCTS" },
   { manager: "SRHD", managed: "SCTS" },
+];
+
+/**
+ * The specialties an attending can practise in.
+ *
+ * `runsSpecialtyClinic` marks the ones that can be named as a clinic date's
+ * rotating Specialty Clinic (Derm, Neuro, Nephro); the rest describe where an
+ * attending works but never rotate as their own clinic.
+ */
+const SPECIALTIES: Array<{ code: string; name: string; runsSpecialtyClinic: boolean }> = [
+  { code: "PC", name: "Primary Care", runsSpecialtyClinic: false },
+  { code: "RHD", name: "Reproductive Health", runsSpecialtyClinic: false },
+  { code: "BHD", name: "Behavioral Health", runsSpecialtyClinic: false },
+  { code: "DERM", name: "Dermatology", runsSpecialtyClinic: true },
+  { code: "NEURO", name: "Neurology", runsSpecialtyClinic: true },
+  { code: "NEPHRO", name: "Nephrology", runsSpecialtyClinic: true },
+];
+
+/**
+ * The columns of the clinic-wide attending schedule.
+ *
+ * `allowsMultiple` is set where the schedule really does carry more than one
+ * attending in the same window: the 9am-12pm shift is covered by two, which is
+ * why the paper sheet repeats that header twice.
+ */
+const CLINIC_SLOTS: Array<{
+  label: string;
+  startTime: string;
+  endTime: string;
+  allowsMultiple: boolean;
+}> = [
+  { label: "9am-12pm", startTime: "09:00", endTime: "12:00", allowsMultiple: true },
+  { label: "11am-2pm", startTime: "11:00", endTime: "14:00", allowsMultiple: false },
+  { label: "RHD Attending", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
+  { label: "BHD Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
+  { label: "Specialty Clinic", startTime: "09:00", endTime: "13:00", allowsMultiple: false },
+  { label: "Shadowing", startTime: "09:00", endTime: "13:00", allowsMultiple: true },
+];
+
+/**
+ * Qualifications asked about attendings.
+ *
+ * `specialty` scopes the question; null asks it of everyone. The six procedures
+ * are reproductive-health-only, and the readiness panel reads them BY KEY, so
+ * those keys are contractual while the labels are free to change.
+ */
+const CAPABILITIES: Array<{ key: string; label: string; specialty: string | null }> = [
+  { key: "iudIn", label: "IUD In", specialty: "RHD" },
+  { key: "iudOut", label: "IUD Out", specialty: "RHD" },
+  { key: "nexplanon", label: "Nexplanon", specialty: "RHD" },
+  { key: "gac", label: "GAC", specialty: "RHD" },
+  { key: "emb", label: "EMB", specialty: "RHD" },
+  { key: "seesMale", label: "Sees Male", specialty: "RHD" },
 ];
 
 /**
@@ -105,6 +159,36 @@ async function main() {
     update: { isActive: false },
     create: { code: "OTHER", name: "OTHER", isActive: false },
   });
+
+  // Attending reference data: specialties, the schedule's columns, and the
+  // qualifications asked. All clinic-wide -- there is ONE roster and ONE
+  // schedule, maintained by Faculty Relations, not a list per department.
+  for (const [order, sp] of SPECIALTIES.entries()) {
+    await prisma.attendingSpecialty.upsert({
+      where: { code: sp.code },
+      update: { name: sp.name, runsSpecialtyClinic: sp.runsSpecialtyClinic, order },
+      create: { code: sp.code, name: sp.name, runsSpecialtyClinic: sp.runsSpecialtyClinic, order },
+    });
+  }
+
+  for (const [order, slot] of CLINIC_SLOTS.entries()) {
+    await prisma.clinicSlot.upsert({
+      where: { label: slot.label },
+      update: { startTime: slot.startTime, endTime: slot.endTime, allowsMultiple: slot.allowsMultiple, order },
+      create: { ...slot, order },
+    });
+  }
+
+  for (const [order, cap] of CAPABILITIES.entries()) {
+    const specialty = cap.specialty
+      ? await prisma.attendingSpecialty.findUnique({ where: { code: cap.specialty } })
+      : null;
+    await prisma.attendingCapability.upsert({
+      where: { key: cap.key },
+      update: { label: cap.label, order, specialtyId: specialty?.id ?? null },
+      create: { key: cap.key, label: cap.label, order, specialtyId: specialty?.id ?? null },
+    });
+  }
 
   // Seed department delegations idempotently. Skip silently when either code is
   // missing (e.g. partial dev fixtures).
@@ -195,6 +279,31 @@ async function main() {
     update: { phone: "203-555-0142" },
     create: { name: "Dev Volunteer", contactEmail: "dev.volunteer@yale.edu", netId: "dv456", phone: "203-555-0142" },
   });
+  // A support auditor: holds support.view_all_requests and nothing else, so the
+  // e2e suite can prove the read-only grant really is read-only. Deliberately
+  // NOT a SYSTEM_ROLE -- adding one would oblige a production backfill migration
+  // for a role nobody has been granted yet, and the whole point of this
+  // permission is that it is assigned by hand to the few people who need it.
+  const auditor = await prisma.person.upsert({
+    where: { contactEmail: "dev.support-auditor@yale.edu" },
+    update: { phone: "203-555-0153" },
+    create: {
+      name: "Dev Support Auditor",
+      contactEmail: "dev.support-auditor@yale.edu",
+      netId: "dsa789",
+      phone: "203-555-0153",
+    },
+  });
+  const auditorRole = await prisma.role.upsert({
+    where: { name: "IT Support Auditor" },
+    update: { description: "Read-only view of every IT Support request" },
+    create: { name: "IT Support Auditor", description: "Read-only view of every IT Support request" },
+  });
+  await prisma.roleGrant.upsert({
+    where: { roleId_permission: { roleId: auditorRole.id, permission: "support.view_all_requests" } },
+    update: {},
+    create: { roleId: auditorRole.id, permission: "support.view_all_requests" },
+  });
 
   const membership = (personId: string, departmentId: string, kind: "DIRECTOR" | "VOLUNTEER") =>
     prisma.termMembership.upsert({
@@ -213,6 +322,7 @@ async function main() {
   await membership(jack.id, itcm.id, "DIRECTOR");
   await membership(director.id, vadm.id, "DIRECTOR");
   await membership(volunteer.id, vadm.id, "VOLUNTEER");
+  await membership(auditor.id, vadm.id, "VOLUNTEER");
 
   // A verified, currently-valid HIPAA cert clears the onboarding "hipaa" task for
   // the dev director and volunteer. Idempotent: skip if the person already has one.
@@ -237,6 +347,7 @@ async function main() {
   await ensureHipaaCert(jack.id);
   await ensureHipaaCert(director.id);
   await ensureHipaaCert(volunteer.id);
+  await ensureHipaaCert(auditor.id);
 
   const existingAssignment = await prisma.roleAssignment.findFirst({
     where: { roleId: adminRole.id, personId: jack.id, termId: null },
@@ -244,6 +355,15 @@ async function main() {
   if (!existingAssignment) {
     await prisma.roleAssignment.create({
       data: { roleId: adminRole.id, personId: jack.id, termId: null },
+    });
+  }
+
+  const existingAuditorAssignment = await prisma.roleAssignment.findFirst({
+    where: { roleId: auditorRole.id, personId: auditor.id, termId: null },
+  });
+  if (!existingAuditorAssignment) {
+    await prisma.roleAssignment.create({
+      data: { roleId: auditorRole.id, personId: auditor.id, termId: null },
     });
   }
 

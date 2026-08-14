@@ -26,6 +26,7 @@ import { cancelEpicRequest, EpicForbiddenError, EpicNotFoundError, EpicStateErro
 import { listDepartmentsWithMembers } from "@/modules/support/services/itcm";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { TicketDetail } from "@/modules/support/components/ticket-detail";
+import { ticketViewCapabilities } from "@/modules/support/ticket-view";
 import { ALL_STATUSES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 
 type PageProps = {
@@ -50,7 +51,12 @@ export default async function TicketPage({ params }: PageProps) {
 
   const canManage = await isManager(session.personId);
   const isRequester = detail.requesterId === session.personId;
-  const comments = await listComments(session.personId, id);
+  const { showCorrespondence } = ticketViewCapabilities({ canManage, isRequester });
+  // A view-only auditor gets neither: listComments would throw
+  // SupportNotFoundError for them (it still gates on manager-or-requester, and
+  // deliberately so), and the page would 500 rather than render the read-only
+  // view they are entitled to.
+  const comments = showCorrespondence ? await listComments(session.personId, id) : undefined;
   const managers = canManage ? await peopleWithAnyPermission([MANAGE]) : [];
   const departments = canManage ? await listDepartmentsWithMembers() : [];
 
@@ -277,7 +283,8 @@ export default async function TicketPage({ params }: PageProps) {
         cancelAction={cancelAction}
         cancelOwnAction={cancelOwnAction}
         comments={comments}
-        commentAction={commentAction}
+        commentAction={showCorrespondence ? commentAction : undefined}
+        showCorrespondence={showCorrespondence}
         attachEpicAction={attachEpicAction}
         cancelEpicAction={cancelEpicAction}
         departments={departments}

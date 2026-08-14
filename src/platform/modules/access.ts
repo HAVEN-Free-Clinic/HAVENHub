@@ -21,14 +21,20 @@ export function canAccessModule(
 /**
  * The module sub-tabs the user may actually open. Mirrors canAccessModule at the
  * tab level: an item with no `permission` is always shown (it gates on module
- * access only); an item with one is shown only when the viewer holds it. Keeps
- * the ModuleNav consistent with the per-page gate so no tab is a dead end.
+ * access only); an item with one is shown only when the viewer holds it; an item
+ * with several is shown when the viewer holds ANY of them, mirroring a page that
+ * gates on requireAnyPermission. Keeps the ModuleNav consistent with the per-page
+ * gate so no tab is a dead end.
  */
 export function filterNavItems(
   items: ModuleNavItem[],
   perms: Set<string>,
 ): ModuleNavItem[] {
-  return items.filter((item) => !item.permission || hasPermission(perms, item.permission));
+  return items.filter((item) => {
+    if (!item.permission) return true;
+    const required = Array.isArray(item.permission) ? item.permission : [item.permission];
+    return required.some((p) => hasPermission(perms, p));
+  });
 }
 
 /**

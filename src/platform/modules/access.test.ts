@@ -302,6 +302,20 @@ describe("filterNavItems", () => {
     expect(filterNavItems(nav, new Set(["*"]))).toEqual(nav);
   });
 
+  it("keeps an item when the viewer holds ANY ONE of several listed permissions", () => {
+    // A tab serving two audiences (e.g. support "All requests", open to both a
+    // manager and a view-only auditor) lists both permissions; holding either
+    // is enough, and holding neither still drops it.
+    const shared: ModuleNavItem = {
+      label: "All requests",
+      href: "/support/all",
+      permission: ["support.manage_requests", "support.view_all_requests"],
+    };
+    expect(filterNavItems([shared], new Set(["support.manage_requests"]))).toEqual([shared]);
+    expect(filterNavItems([shared], new Set(["support.view_all_requests"]))).toEqual([shared]);
+    expect(filterNavItems([shared], new Set(["support.something_else"]))).toEqual([]);
+  });
+
   it("still returns dynamicGate items, so the module tab row is unaffected", () => {
     // Only the global-nav path (filterAccessibleModules) skips them. The module
     // layout filters this output further using the real capability check, so
@@ -316,10 +330,16 @@ describe("registry nav permissions", () => {
     for (const mod of MODULES) {
       const declared = new Set(mod.permissions);
       for (const item of mod.nav) {
-        if (item.permission) {
+        if (!item.permission) continue;
+        // An any-of item must have EVERY listed permission declared, not just
+        // one: a typo in the second entry would otherwise ride along unnoticed
+        // behind a valid first entry, and the tab would silently never open for
+        // the audience that entry was added for.
+        const required = Array.isArray(item.permission) ? item.permission : [item.permission];
+        for (const permission of required) {
           expect(
-            declared.has(item.permission),
-            `${mod.id} nav "${item.label}" requires undeclared permission "${item.permission}"`,
+            declared.has(permission),
+            `${mod.id} nav "${item.label}" requires undeclared permission "${permission}"`,
           ).toBe(true);
         }
       }

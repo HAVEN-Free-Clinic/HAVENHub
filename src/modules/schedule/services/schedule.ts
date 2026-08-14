@@ -29,6 +29,58 @@ import { attendanceForDate, type AttendanceRow } from "./attendance";
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
 
+/**
+ * Who is attending on each clinic date in `dates`, keyed by date key.
+ *
+ * The attending schedule is CLINIC-WIDE: one grid per Saturday with a column per
+ * role, not a schedule per department. So a volunteer's shift shows the whole
+ * day's coverage -- which is also exactly what the weekly reminder email sends
+ * to the attendings themselves.
+ *
+ * One query regardless of how many shifts a member holds.
+ */
+async function attendingsForDates(
+  termId: string,
+  dates: Date[],
+): Promise<Map<string, ShiftAttending[]>> {
+  const out = new Map<string, ShiftAttending[]>();
+  if (dates.length === 0) return out;
+
+  const days = await prisma.clinicDay.findMany({
+    where: {
+      termId,
+      clinicDate: { in: [...new Set(dates.map((d) => d.getTime()))].map((t) => new Date(t)) },
+      // A closed date staffs nobody; naming anyone would contradict the closure.
+      isClosed: false,
+    },
+    select: {
+      clinicDate: true,
+      attendings: {
+        orderBy: [{ slot: { order: "asc" } }, { order: "asc" }],
+        select: {
+          slot: { select: { label: true, startTime: true, endTime: true } },
+          attending: { select: { scheduleName: true, isActive: true } },
+        },
+      },
+    },
+  });
+
+  for (const d of days) {
+    const rows = d.attendings
+      // A deactivated attending is not covering; naming them would read as a
+      // staffed slot, matching the schedule grid's own rule.
+      .filter((a) => a.attending.isActive)
+      .map((a) => ({
+        name: a.attending.scheduleName,
+        slotLabel: a.slot.label,
+        startTime: a.slot.startTime,
+        endTime: a.slot.endTime,
+      }));
+    if (rows.length > 0) out.set(isoDateKey(d.clinicDate), rows);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Typed error
 // ---------------------------------------------------------------------------
@@ -45,11 +97,35 @@ export class AvailabilityValidationError extends Error {
 // Shared types
 // ---------------------------------------------------------------------------
 
+/** An attending covering a shift, as the member-facing card shows them. */
+export type ShiftAttending = {
+  name: string;
+  /** The schedule column they cover, e.g. "9am-12pm". */
+  slotLabel: string;
+  startTime: string;
+  endTime: string;
+};
+
 export type MyShift = {
   clinicDate: Date;
   department: Department;
   role: ShiftRole;
   tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  /**
+   * Everyone attending on this clinic DATE, in schedule-column order.
+   *
+   * The attending schedule is clinic-wide, so this is the day's whole coverage
+   * rather than a slice matched to the member's department -- the same picture
+   * the weekly reminder email sends. Empty when nobody is assigned, when the
+   * date is closed, or when the only assignment is to a deactivated attending;
+   * all of which read as "not announced yet" rather than a gap the member could
+   * act on.
+   *
+   * This is the member-facing answer to "who is on my Saturday". The Attendings
+   * page is gated to Faculty Relations, so without this a volunteer would have
+   * no way to look it up between weekly reminder emails.
+   */
+  attendings: ShiftAttending[];
 };
 
 export type PersonLite = { id: string; name: string };
@@ -157,11 +233,17 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     }),
   ]);
 
+  const attendingsByDate = await attendingsForDates(
+    term.id,
+    rawShifts.map((s) => s.clinicDate),
+  );
+
   const shifts: MyShift[] = rawShifts.map((s) => ({
     clinicDate: s.clinicDate,
     department: s.department,
     role: s.role,
     tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote },
+    attendings: attendingsByDate.get(isoDateKey(s.clinicDate)) ?? [],
   }));
 
   // Build pendingRequests map keyed by "${dateKey}|${departmentId}".

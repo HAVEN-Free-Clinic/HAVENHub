@@ -23,6 +23,7 @@ the job below silently stops running with no in-repo error.
 | `/api/cron/email` | External (cron-job.org) | every 30 min | `*/30 * * * *` | Dispatches due campaigns, then drains the email + Teams queues. **Backstop** only: primary delivery fires on enqueue (post-response flush). | Failed-send retries and scheduled campaigns stall (new transactional mail still goes out on enqueue). |
 | `/api/cron/reminders` | External (cron-job.org) | daily | `0 13 * * *` | Enqueues HIPAA certificate reminders and onboarding-requirement reminders, plus the weekly per-director clearance digest (which self-paces off an ISO-week claim, so it lands on the first run of each week). | HIPAA reminders, onboarding reminders, and the weekly director digest are all never enqueued. |
 | `/api/cron/shift-reminders` | External (cron-job.org) | weekly (Mon) | `0 13 * * 1` | Enqueues weekly shift reminders to everyone scheduled for the upcoming Saturday clinic day (delivered by the enqueue flush after it runs, backstopped by the email tick). | Volunteers stop receiving their Saturday shift reminders. |
+| `/api/cron/attending-reminders` | External (cron-job.org) | weekly (Mon) | `0 12 * * 1` | Enqueues the weekly attending reminder to the attendings covering the upcoming clinic day, with the slot-by-slot schedule and the on-call line. Skips a closed or unstaffed date. Attendings are faculty with no Person row, so this is email-only: no Teams and no in-app inbox copy. | Attendings stop receiving their Saturday reminder, which Faculty Relations previously sent by hand. |
 | `/api/cron/recruitment-drafts` | External (cron-job.org) | daily | `0 4 * * *` | Sweeps abandoned onboarding drafts older than 30 days. | Stale draft rows accumulate. |
 | `/api/cron/recruitment-review-digest` | External (cron-job.org) | daily | `0 14 * * *` | Notifies each active department director who has applications awaiting review (volunteer routed-undecided + director-track undecided) in their department(s). Enqueue-only; skips directors with nothing to review. | Directors get no daily reminder of applications waiting on their review (they can still reach them via the roster). |
 | `/api/cron/schedule-reminders` | External (cron-job.org) | daily | `0 15 * * *` | Reminds a department's shift-request approvers (`schedule.manage_requests` holders) of drop/swap requests still pending, throttled so the same approver is not re-notified every day. Enqueue-only. | Pending shift drop/swap requests are never chased; approvers may never notice a request awaiting their decision. |
@@ -41,11 +42,17 @@ Notes:
   kept locked for `STALE_LOCK_MS` (5 min), so retries are paced by that window
   regardless of how often a drain is triggered; a permanently-failed row (FAILED
   after 8 attempts) releases its lock so an admin retry is immediately claimable.
-- The `reminders`, `shift-reminders`, `recruitment-review-digest`, and
+- The `reminders`, `shift-reminders`, `attending-reminders`,
+  `recruitment-review-digest`, and
   `clinic-checkin-invites` jobs still only **enqueue**; their mail is delivered by
   the enqueue flush after they run, or by this backstop tick. Each is idempotent
   per (person, day) via `claimReminderDispatch`, so an at-least-once retry (a
   cron-job.org timeout/5xx re-fire, or a manual re-run) never double-sends.
+  `attending-reminders` is the exception: its recipients are attendings, who have
+  no `Person` row for `ReminderDispatch` to key on, so it dedupes on a recent
+  `EmailLog` row for the same address and template instead. That is a slightly
+  weaker guard (two runs overlapping inside the same second could both pass),
+  which is acceptable for a weekly job fired once.
   `clinic-checkin-invites` claims under its own dispatch kind
   (`clinic-checkin-invite`), keyed by clinic date, so it cannot collide with the
   weekly `shift-reminders` claims even for the same person on the same day.

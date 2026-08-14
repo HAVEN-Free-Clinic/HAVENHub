@@ -238,7 +238,7 @@ Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf 
 - `learning.access`, `learning.manage_courses`, `learning.view_progress`
 - `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`, `recruitment.score`
 - `schedule.view`, `schedule.manages_any_dept`, `schedule.manages_any_rhd_dept`
-- `support.manage_requests`
+- `support.manage_requests`, `support.view_all_requests`
 - `volunteers.view`, `volunteers.manage_compliance`, `volunteers.verify_spanish`
 
 All confirmed present as `boolean` leaves in the schema. `schedule.manages_any_dept` and

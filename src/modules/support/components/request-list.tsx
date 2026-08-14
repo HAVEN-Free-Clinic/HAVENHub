@@ -20,6 +20,7 @@
 
 import Link from "next/link";
 import { Card } from "@/platform/ui/card";
+import { PersonName } from "@/platform/ui/person-name";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { DateOnly } from "@/platform/dates/display";
 import { intercomConversationUrl } from "@/platform/intercom/config";
@@ -33,6 +34,12 @@ type RequestListProps = {
   rows: TechRequestListRow[];
   hrefBase: string;
   showRequester?: boolean;
+  /**
+   * Requester ids that are cleared, for the verified badge. Plain string[]
+   * rather than a Set so it survives the RSC boundary. Omit to show no badges:
+   * callers resolve it only when the viewer holds volunteers.view.
+   */
+  clearedPersonIds?: string[];
   /**
    * Adds the Conversation column. Omit entirely (leave undefined) when
    * Intercom is not configured -- callers gate this on isIntercomConfigured()
@@ -75,7 +82,14 @@ function ConversationCell({
   );
 }
 
-export function RequestList({ rows, hrefBase, showRequester = false, intercomAction }: RequestListProps) {
+export function RequestList({
+  rows,
+  hrefBase,
+  showRequester = false,
+  intercomAction,
+  clearedPersonIds = [],
+}: RequestListProps) {
+  const clearedIds = new Set(clearedPersonIds);
   if (rows.length === 0) {
     return (
       <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -112,7 +126,11 @@ export function RequestList({ rows, hrefBase, showRequester = false, intercomAct
             <TD className="text-muted-foreground">{CATEGORY_LABELS[row.category]}</TD>
             {showRequester && (
               <TD className="text-muted-foreground">
-                {row.requester.name ?? <span className="text-subtle-foreground">-</span>}
+                {row.requester.name ? (
+                  <PersonName name={row.requester.name} cleared={clearedIds.has(row.requester.id)} />
+                ) : (
+                  <span className="text-subtle-foreground">-</span>
+                )}
               </TD>
             )}
             <TD>

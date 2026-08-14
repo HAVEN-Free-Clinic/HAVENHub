@@ -1,42 +1,52 @@
 import { notFound, redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
-import { getAttending, updateAttending, manageableServiceLines, CAPABILITY_KEYS, AttendingValidationError, AttendingForbiddenError, type CapabilityValue } from "@/modules/schedule/services/attendings";
-
-/** Reproductive health keeps the procedure matrix; no other line has one. */
-const PROCEDURE_LINE_CODE = "SRHD";
+import {
+  getAttending,
+  updateAttending,
+  canManageAttendings,
+  listSpecialties,
+  capabilitiesForSpecialty,
+  capabilitiesFromFormData,
+  AttendingValidationError,
+  AttendingForbiddenError,
+} from "@/modules/schedule/services/attendings";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
+import { Alert } from "@/platform/ui/alert";
 import { PageHeader } from "@/platform/ui/page-header";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string }>;
 };
 
-export default async function EditAttendingPage({ params }: PageProps) {
+export default async function EditAttendingPage({ params, searchParams }: PageProps) {
   const session = await requireModuleAccess("schedule");
   const { id } = await params;
+  const { error } = await searchParams;
+
+  if (!(await canManageAttendings(session.personId))) redirect("/no-access");
+
   const attending = await getAttending(id);
   if (!attending) notFound();
 
-  // Scoped to THIS attending's service line, not "manages any": a primary care
-  // director must not reach the edit form for a reproductive health attending.
-  // updateAttending re-checks the same thing, so this only decides whether the
-  // form renders rather than being the security boundary.
-  const manageable = await manageableServiceLines(session.personId);
-  const line = manageable.find((l) => l.id === attending.departmentId);
-  if (!line) redirect("/no-access");
+  const [specialties, capabilities] = await Promise.all([
+    listSpecialties(),
+    capabilitiesForSpecialty(attending.specialtyId),
+  ]);
 
   async function updateAction(formData: FormData) {
     "use server";
-    const session = await requireModuleAccess("schedule");
-    const capabilities: Record<string, CapabilityValue> = Object.fromEntries(
-      CAPABILITY_KEYS.map((k) => [k, (formData.get(k) as string) as CapabilityValue]),
-    );
+    const actor = await requireModuleAccess("schedule");
     try {
-      await updateAttending(session.personId, id, {
+      await updateAttending(actor.personId, id, {
         scheduleName: (formData.get("scheduleName") as string) ?? "",
         fullName: (formData.get("fullName") as string) ?? "",
-        capabilities,
+        credentials: (formData.get("credentials") as string) || null,
+        specialtyId: (formData.get("specialtyId") as string) || null,
+        email: (formData.get("email") as string) || null,
+        phone: (formData.get("phone") as string) || null,
         notes: (formData.get("notes") as string) || null,
+        capabilities: capabilitiesFromFormData(formData),
         isActive: formData.get("isActive") === "on",
       });
     } catch (err) {
@@ -50,11 +60,16 @@ export default async function EditAttendingPage({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`Edit ${attending.scheduleName}`} description={line!.name} />
+      <PageHeader title={`Edit ${attending.scheduleName}`} description={attending.fullName} />
+      {/* updateAction redirects here with ?error= on a domain failure. */}
+      {error && <Alert tone="error">{error}</Alert>}
       <AttendingForm
         action={updateAction}
         attending={attending}
-        showCapabilities={line!.code === PROCEDURE_LINE_CODE}
+        specialties={specialties}
+        selectedSpecialtyId={attending.specialtyId}
+        capabilities={capabilities}
+        values={attending.capabilityValues}
       />
     </div>
   );

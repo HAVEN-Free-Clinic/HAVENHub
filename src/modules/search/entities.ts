@@ -65,7 +65,13 @@ export const searchEntities = cache(async function searchEntities(
   // below from that one Set. Nothing below this point may run a query before
   // its gate has been checked here.
   const perms = await getEffectivePermissions(personId);
-  const canManageRequests = hasPermission(perms, "support.manage_requests");
+  // Either support permission widens the ticket search to everyone's requests:
+  // both audiences can open any ticket from /support/all, so a search that
+  // returned only the auditor's own would be narrower than the list they
+  // already have.
+  const canSearchAllRequests =
+    hasPermission(perms, "support.manage_requests") ||
+    hasPermission(perms, "support.view_all_requests");
   const canRecruitmentAccess = hasPermission(perms, "recruitment.access");
 
   // People: each tier needs the destination page's gate AND the module layout
@@ -156,13 +162,14 @@ export const searchEntities = cache(async function searchEntities(
     }
   }
 
-  // Requests: everyone may search their own; only a support.manage_requests
-  // holder may search everyone's. The scoping is baked into the `where`
-  // clause itself, not filtered out of an unscoped result afterward.
+  // Requests: everyone may search their own; a support.manage_requests or
+  // support.view_all_requests holder may search everyone's. The scoping is baked
+  // into the `where` clause itself, not filtered out of an unscoped result
+  // afterward.
   const requestWhere: { subject: { contains: string; mode: "insensitive" }; requesterId?: string } = {
     subject: { contains: q, mode: "insensitive" },
   };
-  if (!canManageRequests) requestWhere.requesterId = personId;
+  if (!canSearchAllRequests) requestWhere.requesterId = personId;
   const requests = await prisma.techRequest.findMany({
     where: requestWhere,
     select: { id: true, subject: true, status: true },

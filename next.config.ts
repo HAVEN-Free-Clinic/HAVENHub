@@ -27,6 +27,47 @@ if (isUploadRef && !uploadSourcemaps) {
   );
 }
 
+/**
+ * Refuse to start a dev server against a database that is not local.
+ *
+ * `.env` holds the production Neon URL, because the deploy and import scripts
+ * need it, and Next does not override variables that are already set. So the
+ * bare `next dev` ran the whole app against production: every page load mutated
+ * live clinic data, and paid a ~49ms round trip per query instead of ~3ms.
+ * `npm run dev` now names the local database explicitly; this is the backstop
+ * for the paths that do not go through it.
+ *
+ * Deliberately scoped to `next dev`. Builds are the case where a remote database
+ * is correct: Vercel, the preview workflow, and a local `next build` all set
+ * NODE_ENV=production and must not be blocked.
+ *
+ * Same shape and same escape-hatch convention as the guards in
+ * playwright.config.ts (E2E_ALLOW_REMOTE_DB) and prisma/seed.ts (ALLOW_PROD_SEED).
+ */
+function assertLocalDevDatabase(): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (process.env.ALLOW_REMOTE_DEV_DB === "1") return;
+  const url = process.env.DATABASE_URL;
+  if (!url) return; // config.ts reports a missing URL far better than this can.
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return; // Not parseable, so not provably remote. config.ts will complain.
+  }
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return;
+
+  throw new Error(
+    `Refusing to start a dev server against a non-local database (host: "${hostname}").\n` +
+      `Every request would read and write real clinic data.\n\n` +
+      `  npm run dev          use the local database (set it up once with \`npm run db:setup\`)\n` +
+      `  npm run dev:remote   connect to this database on purpose\n`,
+  );
+}
+
+assertLocalDevDatabase();
+
 const nextConfig: NextConfig = {
   output: "standalone",
   /**

@@ -86,7 +86,7 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
 
       <form action={handleCreate} className="flex flex-wrap items-end gap-2">
         <div className="w-72">
-          <Field label="Label (optional)" hint="Who this is for, so you can recognise it later">
+          <Field label="Label (optional)" hint="Who this is for, so you can recognize it later">
             <Input name="label" placeholder="e.g. info-session walk-up" />
           </Field>
         </div>

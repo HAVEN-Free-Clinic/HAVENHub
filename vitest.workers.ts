@@ -62,3 +62,19 @@ export function workerDatabaseUrl(slot: number): string {
 export function databaseName(url: string): string {
   return new URL(url).pathname.replace(/^\//, "");
 }
+
+/**
+ * Upload directory for one worker.
+ *
+ * Keyed on the template database name as well as the slot, so it is per worktree
+ * for the same reason TEST_DATABASE_URL is. A single hardcoded path was shared by
+ * every checkout on the machine, and because several suites claim the whole
+ * directory (my-info and the certificates importer readdir it and delete every
+ * entry, and the importer's dry-run asserts it is empty) two concurrent runs
+ * deleted each other's blobs. That surfaced as ENOENT in compliance, incidents,
+ * and support, which reads exactly like a regression in whatever you were
+ * actually working on. A dedicated TEST_DATABASE_URL alone never fixed it.
+ */
+export function workerUploadDir(slot: number): string {
+  return `/tmp/havenhub-test-uploads/${databaseName(TEMPLATE_DATABASE_URL)}/w${slot}`;
+}

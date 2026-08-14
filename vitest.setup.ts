@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { workerDatabaseUrl, workerSlot } from "./vitest.workers";
+import { workerDatabaseUrl, workerSlot, workerUploadDir } from "./vitest.workers";
 
 // Tests run against a dedicated test database, never the dev one. Each worker
 // gets its own clone (created by vitest.globalsetup.ts) so that resetDb() in one
@@ -12,16 +12,11 @@ process.env.DATABASE_URL_UNPOOLED = databaseUrl;
 process.env.AUTH_SECRET = process.env.AUTH_SECRET ?? "test-secret";
 // NODE_ENV intentionally omitted — vitest sets NODE_ENV=test automatically.
 
-// Upload directory: use a stable temp path so certificate service tests do not
-// write into the project tree. Set BEFORE any config import.
-//
-// Per worker, for the same reason the database is. Several suites claim the
-// whole directory: my-info and the certificates importer readdir(UPLOAD_DIR) and
-// delete every entry, and the importer's dry-run test asserts the directory is
-// empty. Those are reasonable assertions about a directory the file owns, and
-// they stay true only while no other worker is writing to the same path.
-process.env.UPLOAD_DIR = `/tmp/havenhub-test-uploads/w${workerSlot(Number(process.env.VITEST_POOL_ID))}`;
-// Created up front: the suites above readdir() it in beforeEach, which throws
+// Upload directory: a temp path, so certificate service tests do not write into
+// the project tree. Set BEFORE any config import. Per worker and per worktree,
+// for the same reasons the database is; see workerUploadDir.
+process.env.UPLOAD_DIR = workerUploadDir(workerSlot(Number(process.env.VITEST_POOL_ID)));
+// Created up front: several suites readdir() it in beforeEach, which throws
 // ENOENT on a directory no test has written to yet.
 mkdirSync(process.env.UPLOAD_DIR, { recursive: true });
 

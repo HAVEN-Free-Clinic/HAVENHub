@@ -2,6 +2,23 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Durability traded for speed, deliberately. This container holds only the
+    # local dev database and the throwaway test database, both rebuildable with
+    # `npm run db:migrate && npm run db:seed`. Nothing here is worth an fsync.
+    #
+    # The test suite calls resetDb() before ~2,900 test cases, and each call is a
+    # TRUNCATE across 71 tables whose cost is dominated by commit-time fsync, not
+    # by the row count. Measured on this image: 471ms per TRUNCATE with the
+    # defaults, 83ms with the flags below. That is the single largest cost in
+    # `npm test`. Never copy these flags to a database holding real data.
+    command:
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - full_page_writes=off
+      - -c
+      - synchronous_commit=off
     environment:
       POSTGRES_USER: haven
       POSTGRES_PASSWORD: haven_dev

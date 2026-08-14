@@ -184,6 +184,27 @@ export async function revokeInvite(actorPersonId: string, inviteId: string): Pro
   });
 }
 
+/**
+ * The applicant emails that accepted a live invite to this cycle.
+ *
+ * Feeds the "Invited" marker on the review list. Reviewers working a stack of
+ * applications need to know which ones arrived past the deadline by invitation
+ * rather than through the open form -- the distinction changes how an
+ * application is read, and it is otherwise invisible.
+ *
+ * Derived from the claim rather than stored on Application: an invited
+ * application is exactly one whose applicant accepted a live invite, so a column
+ * would be a second copy of that fact, free to drift the moment an invite is
+ * withdrawn. Withdrawing correctly un-marks the application here.
+ */
+export async function invitedEmailsFor(cycleId: string): Promise<Set<string>> {
+  const rows = await prisma.recruitmentInvite.findMany({
+    where: { cycleId, revokedAt: null, claimedByEmailLower: { not: null } },
+    select: { claimedByEmailLower: true },
+  });
+  return new Set(rows.map((r) => r.claimedByEmailLower!));
+}
+
 /** A cycle's invites, newest first, for the management table. */
 export async function listInvites(cycleId: string) {
   return prisma.recruitmentInvite.findMany({

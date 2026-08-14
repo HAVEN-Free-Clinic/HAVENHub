@@ -25,6 +25,7 @@ import {
   revokeInvite,
   listInvites,
   peekInvite,
+  invitedEmailsFor,
 } from "./invites";
 
 beforeEach(resetDb);
@@ -223,5 +224,42 @@ describe("peekInvite", () => {
     const claimed = await createInvite(actor.id, cycle.id, {});
     await claimInvite(claimed.token, "ada@yale.edu");
     expect(await peekInvite(claimed.token)).toBeNull();
+  });
+});
+
+describe("invitedEmailsFor", () => {
+  it("returns the emails that accepted a live invite to the cycle", async () => {
+    // Feeds the "Invited" marker on the review list: reviewers reading a stack
+    // of applications need to know which ones arrived past the deadline by
+    // invitation rather than through the open form.
+    const cycle = await closedCycle();
+    const actor = await staff();
+    const a = await createInvite(actor.id, cycle.id, {});
+    await claimInvite(a.token, "ada@yale.edu");
+    // An outstanding, unclaimed invite contributes nobody.
+    await createInvite(actor.id, cycle.id, {});
+
+    const emails = await invitedEmailsFor(cycle.id);
+    expect([...emails]).toEqual(["ada@yale.edu"]);
+  });
+
+  it("drops a withdrawn invite, so a revoked application stops being marked", async () => {
+    const cycle = await closedCycle();
+    const actor = await staff();
+    const { token, invite } = await createInvite(actor.id, cycle.id, {});
+    await claimInvite(token, "ada@yale.edu");
+    await revokeInvite(actor.id, invite.id);
+
+    expect((await invitedEmailsFor(cycle.id)).size).toBe(0);
+  });
+
+  it("does not leak invitees across cycles", async () => {
+    const cycleA = await closedCycle("cycle-a");
+    const cycleB = await closedCycle("cycle-b");
+    const actor = await staff();
+    const { token } = await createInvite(actor.id, cycleA.id, {});
+    await claimInvite(token, "ada@yale.edu");
+
+    expect((await invitedEmailsFor(cycleB.id)).size).toBe(0);
   });
 });

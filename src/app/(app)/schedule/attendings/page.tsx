@@ -50,6 +50,20 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
  */
 const BASE = "/schedule/attendings";
 
+/**
+ * Append a message to a href that may already carry query params.
+ *
+ * MODULE scope, deliberately. An inline "use server" action serialises
+ * everything it closes over, and a function is not serialisable -- closing over
+ * a helper defined inside the component threw "Functions cannot be passed
+ * directly to Client Components" on every render of this page. Only the href
+ * STRING crosses into the actions below.
+ */
+function withMessage(href: string, message: string): string {
+  const sep = href.includes("?") ? "&" : "?";
+  return `${href}${sep}message=${encodeURIComponent(message)}`;
+}
+
 type PageProps = {
   searchParams: Promise<{
     message?: string;
@@ -120,13 +134,10 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
       : (schedule.slots.find((s) => s.id === sp.target)?.id ?? schedule.slots[0]?.id ?? ON_CALL_TARGET);
 
   const hrefParams = { date: selectedDateKey, term: termParam ?? null, target };
+  // Where every action below returns to, so a save does not drop the view being
+  // worked in. A plain string: the actions close over it, and their closures are
+  // serialised (see withMessage above).
   const selfHref = attendingViewHref(BASE, hrefParams, view);
-
-  /** Where an action returns to, so a save does not drop the view being worked in. */
-  function backHref(message?: string): string {
-    const sep = selfHref.includes("?") ? "&" : "?";
-    return message ? `${selfHref}${sep}message=${encodeURIComponent(message)}` : selfHref;
-  }
 
   /** Save one clinic date: its slots, on-call, specialty clinic, and day fields. */
   async function saveDayAction(formData: FormData) {
@@ -172,9 +183,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
             : { proceduresBooked: parseBookedCount(String(rawProcedures), "Procedures booked") }),
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => backHref(m),
+      errorRedirect: (m) => withMessage(selfHref, m),
       revalidate: BASE,
-      successRedirect: backHref(),
+      successRedirect: selfHref,
     });
   }
 
@@ -192,9 +203,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           assigned: true,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => backHref(m),
+      errorRedirect: (m) => withMessage(selfHref, m),
       revalidate: BASE,
-      successRedirect: backHref(),
+      successRedirect: selfHref,
     });
   }
 
@@ -212,9 +223,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           assigned: false,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => backHref(m),
+      errorRedirect: (m) => withMessage(selfHref, m),
       revalidate: BASE,
-      successRedirect: backHref(),
+      successRedirect: selfHref,
     });
   }
 
@@ -235,9 +246,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           onCallAttendingId: ((formData.get("attendingId") as string) ?? "").trim() || null,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => backHref(m),
+      errorRedirect: (m) => withMessage(selfHref, m),
       revalidate: BASE,
-      successRedirect: backHref(),
+      successRedirect: selfHref,
     });
   }
 
@@ -266,9 +277,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
         }
       },
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => backHref(m),
+      errorRedirect: (m) => withMessage(selfHref, m),
       revalidate: BASE,
-      successRedirect: backHref("Reminders sent."),
+      successRedirect: withMessage(selfHref, "Reminders sent."),
     });
   }
 

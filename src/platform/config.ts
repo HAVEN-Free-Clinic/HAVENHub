@@ -28,8 +28,17 @@ const schema = z
     RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
     RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),
     // Email transport: "log" prints to stdout (default, safe for development/CI);
-    // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below).
-    EMAIL_TRANSPORT: z.enum(["log", "graph"]).default("log"),
+    // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below);
+    // "maileroo" sends via the Maileroo HTTP API (requires MAILEROO_API_KEY).
+    //
+    // Graph is bound to a Yale shared mailbox and inherits Exchange Online's
+    // ~30 messages/minute submission cap; Maileroo is a dedicated ESP with no
+    // comparable per-minute ceiling, sending from our own verified domain.
+    // Teams DMs always use Graph regardless of this setting -- see
+    // resolveTeamsTransport, which keys off "is a live transport selected", not
+    // off "is Graph selected".
+    EMAIL_TRANSPORT: z.enum(["log", "graph", "maileroo"]).default("log"),
+    MAILEROO_API_KEY: z.string().optional(),
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
@@ -278,6 +287,21 @@ const schema = z
           code: "custom",
           path: [key],
           message: "required when EMAIL_TRANSPORT is graph",
+        });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // Maileroo needs an API key and a From address. The address must be on a
+    // domain verified in the Maileroo dashboard, which we cannot check here --
+    // the admin confirms it with a sender test send.
+    if (env.EMAIL_TRANSPORT !== "maileroo") return;
+    for (const key of ["MAILEROO_API_KEY", "EMAIL_SENDER"] as const) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "required when EMAIL_TRANSPORT is maileroo",
         });
       }
     }

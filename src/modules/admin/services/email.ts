@@ -9,7 +9,13 @@
 import type { EmailLog, EmailStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { GraphTransport, LogTransport } from "@/platform/email/transport";
+import {
+  GraphTransport,
+  LogTransport,
+  MailerooTransport,
+  type EmailTransport,
+} from "@/platform/email/transport";
+import { config } from "@/platform/config";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatForDateInput, parseZonedInput } from "@/platform/dates/format";
 import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
@@ -257,8 +263,9 @@ export async function retryAllFailedEmails(actorPersonId: string, now?: Date): P
 
 /**
  * Send a one-off test email AS `fromEmail`, directly (NOT via the queue), so any
- * Graph rejection (malformed address or missing Send-As rights) surfaces
- * synchronously to the admin. In log mode it just logs. Records an audit entry.
+ * rejection (malformed address, missing Send-As rights, unverified sending
+ * domain) surfaces synchronously to the admin. In log mode it just logs. Records
+ * an audit entry.
  *
  * `opts` is for testing only; production callers omit it.
  */
@@ -267,21 +274,45 @@ export async function sendSenderTest(
   input: { toEmail: string; fromEmail: string; fromName?: string | null },
   opts?: { getAccessToken?: () => Promise<string>; fetchImpl?: typeof fetch }
 ): Promise<void> {
-  const transportKind = await getSetting<"log" | "graph">("email.transport");
-  const transport =
-    transportKind === "graph"
-      ? new GraphTransport({
-          getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
-          sender: input.fromEmail,
-          fetchImpl: opts?.fetchImpl,
-        })
-      : new LogTransport();
+  const transportKind = await getSetting<"log" | "graph" | "maileroo">("email.transport");
+
+  // The address the test actually sends AS. On graph that is the rule's own
+  // address, which is exactly what the test checks (Send-As rights). Maileroo
+  // pins every send to the one verified domain and ignores per-rule addresses
+  // entirely (see MailerooTransport), so testing a rule's @yale.edu address would
+  // report a failure for an address that has no bearing on real mail. Test the
+  // pinned sender instead, so the result mirrors what production will do.
+  const effectiveFrom =
+    transportKind === "maileroo"
+      ? await getSetting<string>("email.sender")
+      : input.fromEmail;
+
+  // Build the transport that is actually selected. Falling through to LogTransport
+  // for a live non-graph transport would make the test send silently "pass"
+  // without sending, defeating the one check that confirms the From address is
+  // usable (Send-As rights on graph, a verified sending domain on maileroo).
+  let transport: EmailTransport;
+  if (transportKind === "graph") {
+    transport = new GraphTransport({
+      getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
+      sender: effectiveFrom,
+      fetchImpl: opts?.fetchImpl,
+    });
+  } else if (transportKind === "maileroo") {
+    transport = new MailerooTransport({
+      apiKey: config.MAILEROO_API_KEY ?? "",
+      sender: effectiveFrom,
+      fetchImpl: opts?.fetchImpl,
+    });
+  } else {
+    transport = new LogTransport();
+  }
 
   await transport.send({
     to: input.toEmail,
     subject: "HAVEN Hub sender test",
-    html: `<p>This is a test message confirming HAVEN Hub can send from ${input.fromEmail}.</p>`,
-    from: input.fromEmail,
+    html: `<p>This is a test message confirming HAVEN Hub can send from ${effectiveFrom}.</p>`,
+    from: effectiveFrom,
     fromName: input.fromName ?? undefined,
   });
 
@@ -289,6 +320,8 @@ export async function sendSenderTest(
     actorPersonId,
     action: "email.sender_test",
     entityType: "EmailSenderRule",
-    after: { toEmail: input.toEmail, fromEmail: input.fromEmail },
+    // Record both: under maileroo the requested address is not the one used, and
+    // the audit trail should not imply otherwise.
+    after: { toEmail: input.toEmail, fromEmail: input.fromEmail, sentAs: effectiveFrom },
   });
 }

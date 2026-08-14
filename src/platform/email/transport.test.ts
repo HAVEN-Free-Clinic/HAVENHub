@@ -8,10 +8,12 @@ import {
 import {
   LogTransport,
   GraphTransport,
+  MailerooTransport,
   TransientEmailError,
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
+import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache, getSetting } from "@/platform/settings/service";
@@ -234,6 +236,176 @@ describe("GraphTransport", () => {
 });
 
 // ---------------------------------------------------------------------------
+// MailerooTransport
+// ---------------------------------------------------------------------------
+
+describe("MailerooTransport", () => {
+  /** Maileroo answers 200 with a { success, message, data } envelope. */
+  const ok = () =>
+    new Response(JSON.stringify({ success: true, message: "queued", data: { reference_id: "abc" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  const maileroo = (fetchImpl?: typeof fetch) =>
+    new MailerooTransport({
+      apiKey: "test-key",
+      sender: "noreply@havenfreeclinic.org",
+      fetchImpl: (fetchImpl ?? (async () => ok())) as typeof fetch,
+    });
+
+  it("POSTs to the v2 send endpoint with the X-API-Key header and a v2 JSON body", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send(msg);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(url)).toBe("https://smtp.maileroo.com/api/v2/emails");
+    expect(init.method?.toUpperCase()).toBe("POST");
+
+    const headers = new Headers(init.headers);
+    expect(headers.get("X-API-Key")).toBe("test-key");
+    expect(headers.get("Content-Type")).toBe("application/json");
+
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    expect(parsed.to).toEqual([{ address: msg.to }]);
+    expect(parsed.subject).toBe(msg.subject);
+    expect(parsed.html).toBe(msg.html);
+  });
+
+  it("never puts the API key in the request body", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send(msg);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(init.body)).not.toContain("test-key");
+  });
+
+  // Maileroo can only sign for a domain verified in our account, so the From is
+  // pinned to the configured sender. Honoring a per-template @yale.edu sender rule
+  // would fail permanently on an unverified sending domain.
+  it("ignores a per-message from and always sends as the configured sender", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: "recruit@yale.edu" });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    // The unverified @yale.edu address must never be the signed From...
+    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    // ...but it is preserved as Reply-To so replies still reach a human.
+    expect(parsed.reply_to.address).toBe("recruit@yale.edu");
+  });
+
+  // Rows queued before the transport switch already carry an @yale.edu address in
+  // EmailLog.fromEmail; the pin has to rescue those too rather than fail the backlog.
+  it("pins the sender for a backlog row whose @yale.edu sender was snapshotted at enqueue", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({
+      ...msg,
+      from: "hfc.it@yale.edu",
+      fromName: "HAVEN IT",
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    // The display name is cosmetic and plays no part in DKIM alignment, so it survives.
+    expect(parsed.from.display_name).toBe("HAVEN IT");
+    expect(parsed.reply_to).toEqual({ address: "hfc.it@yale.edu", display_name: "HAVEN IT" });
+  });
+
+  it("omits reply_to when the message carries no per-template sender", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send(msg);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).reply_to).toBeUndefined();
+  });
+
+  it("omits a redundant reply_to when the intended sender is already the pinned one", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({
+      ...msg,
+      from: "  NoReply@HavenFreeClinic.org  ",
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).reply_to).toBeUndefined();
+  });
+
+  it("sets display_name when fromName is given and omits it otherwise", async () => {
+    const withName = vi.fn(async () => ok());
+    await maileroo(withName as typeof fetch).send({ ...msg, fromName: "HAVEN Recruitment" });
+    const [, a] = withName.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(a.body)).from.display_name).toBe("HAVEN Recruitment");
+
+    const without = vi.fn(async () => ok());
+    await maileroo(without as typeof fetch).send(msg);
+    const [, b] = without.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(b.body)).from.display_name).toBeUndefined();
+  });
+
+  it("inlines the layout <style> and drops the <style> block before delivery (Gmail clip fix)", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    const html =
+      "<!DOCTYPE html><html><head><style>" +
+      ".email-content a { color: #00356b; text-decoration: underline; }" +
+      "</style></head><body><table><tr>" +
+      '<td class="email-content"><p><a href="https://x">Open</a></p></td>' +
+      "</tr></table></body></html>";
+    await maileroo(fetchMock as typeof fetch).send({ ...msg, html });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const sent = JSON.parse(String(init.body)).html as string;
+    expect(sent).not.toMatch(/<style[\s>]/i);
+    expect(sent).toMatch(/<a\b[^>]*style="[^"]*color:\s*#00356b/i);
+  });
+
+  // A 200 carrying success:false is the dangerous case: without the envelope
+  // check the drain stamps the row SENT and never retries, so the message is
+  // silently never delivered.
+  it("treats HTTP 200 with success:false as a permanent failure, not delivery", async () => {
+    const body = JSON.stringify({ success: false, message: "Sending domain not verified" });
+    const t = maileroo((async () =>
+      new Response(body, { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch);
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(String(err)).toContain("Sending domain not verified");
+  });
+
+  it("fails rather than assuming delivery when a 200 body is unparseable", async () => {
+    const t = maileroo((async () => new Response("<html>gateway</html>", { status: 200 })) as typeof fetch);
+    await expect(t.send(msg)).rejects.toThrow(/unparseable/);
+  });
+
+  it.each([429, 500, 502, 503, 504])("classifies HTTP %s as transient", async (status) => {
+    const t = maileroo((async () => new Response("upstream", { status })) as typeof fetch);
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it.each([400, 401, 403, 404, 422])("keeps HTTP %s permanent (plain Error)", async (status) => {
+    const t = maileroo((async () => new Response("bad", { status })) as typeof fetch);
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a request timeout as transient", async () => {
+    const timeout = Object.assign(new Error("The operation timed out"), { name: "TimeoutError" });
+    const t = maileroo((async () => { throw timeout; }) as typeof fetch);
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies a network failure as transient", async () => {
+    const t = maileroo((async () => { throw new TypeError("fetch failed"); }) as typeof fetch);
+    await expect(t.send(msg)).rejects.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("does not leak the API key into a failure message", async () => {
+    const t = maileroo((async () => new Response("denied", { status: 401 })) as typeof fetch);
+    const err = await t.send(msg).catch((e) => e);
+    expect(String(err)).not.toContain("test-key");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // resolveEmailTransport (DB-backed factory)
 // ---------------------------------------------------------------------------
 
@@ -277,5 +449,63 @@ describe("resolveEmailTransport", () => {
     // The drain must resolve the committed "graph", not the stale cached "log".
     const t = await resolveEmailTransport();
     expect(t).toBeInstanceOf(GraphTransport);
+  });
+
+  /** Set config.MAILEROO_API_KEY for one test and restore it afterwards. */
+  async function withApiKey<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const mutable = config as { MAILEROO_API_KEY?: string };
+    const previous = mutable.MAILEROO_API_KEY;
+    mutable.MAILEROO_API_KEY = value;
+    try {
+      return await fn();
+    } finally {
+      mutable.MAILEROO_API_KEY = previous;
+    }
+  }
+
+  it("returns a MailerooTransport when email.transport is maileroo and the key is set", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    _resetSettingsCache();
+    const t = await withApiKey("test-key", resolveEmailTransport);
+    expect(t).toBeInstanceOf(MailerooTransport);
+  });
+
+  it("falls back to the log transport outside production when the Maileroo key is missing", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    _resetSettingsCache();
+    const t = await withApiKey(undefined, resolveEmailTransport);
+    expect(t).toBeInstanceOf(LogTransport);
+  });
+
+  // The production counterpart of the test above: silently degrading to
+  // LogTransport would let the drain stamp every row SENT while delivering
+  // nothing, exactly as it would for a graph transport with no sender (#76).
+  it("throws instead of degrading to log in production when the Maileroo key is missing", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    _resetSettingsCache();
+    vi.stubEnv("VERCEL_ENV", "production");
+    try {
+      await withApiKey(undefined, async () => {
+        await expect(resolveEmailTransport()).rejects.toThrow(/MAILEROO_API_KEY/);
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("throws in production when maileroo is selected with no sender address", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+    _resetSettingsCache();
+    vi.stubEnv("VERCEL_ENV", "production");
+    try {
+      await withApiKey("test-key", async () => {
+        await expect(resolveEmailTransport()).rejects.toThrow(/email\.sender/);
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

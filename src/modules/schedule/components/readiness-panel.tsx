@@ -63,13 +63,7 @@ type ReadinessPanelProps = {
 // ---------------------------------------------------------------------------
 
 export function ReadinessPanel({ rhd }: ReadinessPanelProps) {
-  const { readiness, clinic, attendingOptions } = rhd;
-  // Resolved from the options rather than a join. attendingOptions holds the
-  // ACTIVE roster, so a deactivated attending reads as "Not set" here, matching
-  // the attending schedule's rule: naming someone who no longer covers would
-  // read as a filled slot when it is really a gap to fill.
-  const attendingName =
-    attendingOptions.find((a) => a.id === clinic?.attendingId)?.scheduleName ?? null;
+  const { readiness, clinic } = rhd;
 
   return (
     <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
@@ -79,9 +73,18 @@ export function ReadinessPanel({ rhd }: ReadinessPanelProps) {
           every service line, so there is exactly one form that writes it. */}
       <dl className="flex flex-col gap-1 text-sm">
         <div className="flex gap-2">
-          <dt className="text-muted-foreground">Attending</dt>
-          <dd className={attendingName ? "text-foreground" : "text-subtle-foreground"}>
-            {attendingName ?? "Not set"}
+          {/* Plural: a service line can split its day into named slots and staff
+              each separately, so a Saturday may carry more than one attending.
+              A deactivated one is absent here, the same gap the schedule shows. */}
+          <dt className="text-muted-foreground">
+            {readiness.attendings.length > 1 ? "Attendings" : "Attending"}
+          </dt>
+          <dd className={readiness.attendings.length > 0 ? "text-foreground" : "text-subtle-foreground"}>
+            {readiness.attendings.length === 0
+              ? "Not set"
+              : readiness.attendings
+                  .map((a) => (a.slotLabel ? `${a.scheduleName} (${a.slotLabel})` : a.scheduleName))
+                  .join(", ")}
           </dd>
         </div>
         <div className="flex gap-2">

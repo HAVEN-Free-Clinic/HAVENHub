@@ -26,6 +26,10 @@ const MIGRATION_SQL_FILES = [
   "prisma/migrations/20260726000000_bootstrap_system_roles/migration.sql",
   // schedule.manage_attendance backfilled onto Director (see system-roles.ts).
   "prisma/migrations/20260807130000_schedule_manage_attendance_grant/migration.sql",
+  // The Faculty Relations Manager role itself, which maintains the attending
+  // roster and schedule. A whole role rather than a grant on an existing one:
+  // attendings belong to no department, so this cannot hang off a directorship.
+  "prisma/migrations/20260813160000_faculty_relations_role/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

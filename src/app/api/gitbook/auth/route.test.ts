@@ -16,13 +16,13 @@ vi.mock("@/platform/config", () => ({
 // The schedule Builder/Attendings capability gates are data-driven (DB-backed);
 // mock them so this route test stays DB-free.
 vi.mock("@/modules/schedule/services/builder", () => ({ canManageAnyScheduleDept: vi.fn() }));
-vi.mock("@/modules/schedule/services/attendings", () => ({ canManageAnyRhdDept: vi.fn() }));
+vi.mock("@/modules/schedule/services/attendings", () => ({ canManageAttendings: vi.fn() }));
 
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
-import { canManageAnyRhdDept } from "@/modules/schedule/services/attendings";
+import { canManageAttendings } from "@/modules/schedule/services/attendings";
 
 const asMock = (f: unknown) => f as ReturnType<typeof vi.fn>;
 
@@ -40,7 +40,7 @@ describe("GET /api/gitbook/auth adaptive claims", () => {
     asMock(getActivePerson).mockResolvedValue({ id: "p1", name: "Jo", contactEmail: "jo@x.com" });
     asMock(getEffectivePermissions).mockResolvedValue(new Set(["schedule.view"]));
     asMock(canManageAnyScheduleDept).mockResolvedValue(false);
-    asMock(canManageAnyRhdDept).mockResolvedValue(false);
+    asMock(canManageAttendings).mockResolvedValue(false);
 
     const { GET } = await import("./route");
     const req = new Request("https://hub.example.org/api/gitbook/auth?location=/schedule");
@@ -65,7 +65,7 @@ describe("GET /api/gitbook/auth adaptive claims", () => {
     asMock(getActivePerson).mockResolvedValue({ id: "p2", name: "Dee", contactEmail: "dee@x.com" });
     asMock(getEffectivePermissions).mockResolvedValue(new Set(["schedule.view"]));
     asMock(canManageAnyScheduleDept).mockResolvedValue(true);
-    asMock(canManageAnyRhdDept).mockResolvedValue(false);
+    asMock(canManageAttendings).mockResolvedValue(false);
 
     const { GET } = await import("./route");
     const req = new Request("https://hub.example.org/api/gitbook/auth?location=/schedule");

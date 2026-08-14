@@ -284,6 +284,14 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
 
+        {/* Languages. Part of the "who you are on record as" block at the top of
+            the page, beside Profile and Memberships -- not down among the
+            compliance sections, where members read it as an afterthought. */}
+        <section>
+          <SectionHeader className="mb-4">Languages</SectionHeader>
+          <LanguagesPanel languages={myLanguages} />
+        </section>
+
         {/* Memberships */}
         <section>
           <SectionHeader className="mb-4">Memberships</SectionHeader>
@@ -291,6 +299,22 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             memberships={myInfo.memberships}
             withdrawAction={withdrawAction}
             withdrawn={withdrawn}
+          />
+        </section>
+
+        {/* Clearance. Ahead of the HIPAA and EHS sections it summarizes: the
+            banner tells a member to "finish the unchecked items below", which
+            only reads correctly when those sections follow it. */}
+        <section>
+          <SectionHeader className="mb-4">Clearance</SectionHeader>
+          <ClearanceCard
+            requirements={requirements}
+            cleared={onboarding.cleared}
+            termName={activeTerm?.name ?? null}
+            // Only offer the /get-started CTA if going there would do something. An
+            // already-onboarded member (the usual case here) has only non-blocking,
+            // coordinator-recorded items left, and /get-started just redirects home.
+            finishHref={onboarding.onboarded ? undefined : "/get-started"}
           />
         </section>
 
@@ -310,29 +334,9 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <EhsPanel items={ehsItems} />
         </section>
 
-        {/* Clearance */}
-        <section>
-          <SectionHeader className="mb-4">Clearance</SectionHeader>
-          <ClearanceCard
-            requirements={requirements}
-            cleared={onboarding.cleared}
-            termName={activeTerm?.name ?? null}
-            // Only offer the /get-started CTA if going there would do something. An
-            // already-onboarded member (the usual case here) has only non-blocking,
-            // coordinator-recorded items left, and /get-started just redirects home.
-            finishHref={onboarding.onboarded ? undefined : "/get-started"}
-          />
-        </section>
-
-        {/* Languages. Next to the other "what am I on record for" sections. */}
-        <section>
-          <SectionHeader className="mb-4">Languages</SectionHeader>
-          <LanguagesPanel languages={myLanguages} />
-        </section>
-
-        {/* Disciplinary record. Placed after Clearance because both answer
-            "where do I stand?", and before the outward-facing Calendar and
-            Service record sections. */}
+        {/* Disciplinary record. Placed after the compliance sections because it
+            also answers "where do I stand?", and before the outward-facing
+            Calendar and Service record sections. */}
         <section>
           <SectionHeader className="mb-4">Disciplinary record</SectionHeader>
           <StrikesPanel strikes={myStrikes} />

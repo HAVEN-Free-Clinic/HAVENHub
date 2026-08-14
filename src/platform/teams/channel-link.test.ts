@@ -245,6 +245,96 @@ describe("getCurrentClinicChannelLink", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("retries the Graph call after a timeout and returns the link", async () => {
+    const timeout = () => {
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      return err;
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [{ id: "2", displayName: "06-13-26 Clinic", webUrl: "https://x/0613" }],
+          }),
+          { status: 200 }
+        )
+      );
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      sleep: async () => {},
+    });
+    expect(result?.webUrl).toBe("https://x/0613");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the attempt cap and returns null on repeated timeouts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const timeout = () => {
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      return err;
+    };
+    const fetchImpl = vi.fn(async () => {
+      throw timeout();
+    });
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      sleep: async () => {},
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry a non-retriable Graph status (403)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      sleep: async () => {},
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a 5xx Graph response before succeeding", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("boom", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [{ id: "2", displayName: "06-13-26 Clinic", webUrl: "https://x/0613" }],
+          }),
+          { status: 200 }
+        )
+      );
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      sleep: async () => {},
+    });
+    expect(result?.webUrl).toBe("https://x/0613");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("retries a null result after the short miss window", async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })

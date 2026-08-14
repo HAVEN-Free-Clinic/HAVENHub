@@ -101,7 +101,19 @@ export interface ChannelLinkDeps {
   now?: Date;
   groupId?: string | undefined;
   loadClinicDates?: () => Promise<Date[] | null>;
+  /** Delay between Graph retry attempts. Injectable so tests run without waits. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+// Per-attempt timeout for the Graph channels call. A channel list is small, so
+// a healthy response returns well within this budget; a slower one is aborted
+// and retried rather than left to hang.
+const GRAPH_TIMEOUT_MS = 8000;
+// The Graph call sometimes times out on a transient latency spike. Retry it a
+// few times with a short backoff before giving up, so one slow response no
+// longer hides the channel card for a whole miss window.
+const GRAPH_MAX_ATTEMPTS = 3;
+const GRAPH_RETRY_BASE_MS = 300;
 
 // A found channel link is stable for the whole clinic week: the channel does not
 // change until the week rolls over on Sunday, at which point the `dateStr` key
@@ -139,8 +151,70 @@ async function loadActiveTermClinicDates(): Promise<Date[] | null> {
   return term?.clinicDates ?? null;
 }
 
-function logChannelError(stage: string, err: unknown): void {
-  log.error(`[teams/channel-link] ${stage} failed`, errorAttrs(err, { stage }));
+function logChannelError(
+  stage: string,
+  err: unknown,
+  extra: Record<string, unknown> = {}
+): void {
+  log.error(
+    `[teams/channel-link] ${stage} failed`,
+    errorAttrs(err, { stage, ...extra })
+  );
+}
+
+/**
+ * A transient Graph failure is worth a retry: a request timeout, a network
+ * error, rate limiting (429), or a 5xx. An auth or permission error (e.g. 403)
+ * is not retried, because a repeat call returns the same result.
+ */
+function isRetriableError(err: unknown): boolean {
+  // AbortSignal.timeout aborts with a TimeoutError; a fetch network failure
+  // surfaces as a TypeError. Both are transient.
+  return (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError" || err instanceof TypeError)
+  );
+}
+
+function isRetriableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/**
+ * List a Team's channels via Microsoft Graph, retrying transient failures.
+ * Each attempt gets a fresh timeout. Throws when every attempt fails, or on the
+ * first non-retriable failure.
+ */
+async function listGraphChannels(
+  url: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  sleep: (ms: number) => Promise<void>
+): Promise<GraphChannel[]> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const err = new Error(`Graph channels list failed: ${res.status}`);
+        if (isRetriableStatus(res.status) && attempt < GRAPH_MAX_ATTEMPTS) {
+          await sleep(GRAPH_RETRY_BASE_MS * attempt);
+          continue;
+        }
+        throw err;
+      }
+      const json = (await res.json()) as { value?: GraphChannel[] };
+      return json.value ?? [];
+    } catch (err) {
+      if (isRetriableError(err) && attempt < GRAPH_MAX_ATTEMPTS) {
+        await sleep(GRAPH_RETRY_BASE_MS * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /**
@@ -157,6 +231,7 @@ export async function getCurrentClinicChannelLink(
     now = new Date(),
     groupId,
     loadClinicDates = loadActiveTermClinicDates,
+    sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = deps;
 
   const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
@@ -192,15 +267,8 @@ export async function getCurrentClinicChannelLink(
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       resolvedGroupId
     )}/channels`;
-    const res = await fetchImpl(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      throw new Error(`Graph channels list failed: ${res.status}`);
-    }
-    const json = (await res.json()) as { value?: GraphChannel[] };
-    const channel = matchChannel(json.value ?? [], dateStr);
+    const channels = await listGraphChannels(url, token, fetchImpl, sleep);
+    const channel = matchChannel(channels, dateStr);
     if (channel?.webUrl) {
       value = {
         webUrl: channel.webUrl,
@@ -209,7 +277,8 @@ export async function getCurrentClinicChannelLink(
       };
     }
   } catch (err) {
-    logChannelError("resolve channel", err);
+    // Include the clinic date so a failure names the channel it was resolving.
+    logChannelError("resolve channel", err, { clinicDate: dateStr });
     value = null;
   }
 

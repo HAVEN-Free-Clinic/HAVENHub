@@ -3,6 +3,8 @@ import { prisma } from "@/platform/db";
 import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { canSubmitToCycle } from "@/modules/recruitment/services/cycle-window";
+import { isInvitedTo } from "@/modules/recruitment/services/invites";
 import { getDraft } from "@/modules/recruitment/services/drafts";
 import { resolveAvailabilityOptions } from "@/modules/recruitment/templates/clinic-dates";
 import { departmentChoiceOptions, resolveSectionTitle } from "@/modules/recruitment/templates/department-options";
@@ -25,7 +27,6 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   });
 
   const now = new Date();
-  const open = cycle && cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
 
   // Unknown slug (no such cycle): send to the portal entrance rather than imply a
   // real-but-closed form exists. Signed out lands on the sign-in page; signed in
@@ -38,7 +39,18 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   // `cycle.sections`, so the form and its validation see the same list.
   const sections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
 
-  if (!open) {
+  // Identity is resolved BEFORE the open check, because whether this cycle is
+  // open depends on WHO is asking: an invited applicant may apply to a cycle
+  // that is closed to everyone else.
+  //
+  // The sign-in redirect deliberately stays BELOW the closed notice. Resolving
+  // identity early must not start demanding a login from a passer-by who opened
+  // a closed form's link -- they should still get the friendly "applications are
+  // closed" page, exactly as before, without being asked to sign in first.
+  const identity = await getApplicantIdentity();
+  const invited = identity ? await isInvitedTo(cycle.id, identity.email) : false;
+
+  if (!canSubmitToCycle(cycle, now, { invited })) {
     const support = await getSupportContact();
     return (
       <PortalShell>
@@ -52,7 +64,6 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     );
   }
 
-  const identity = await getApplicantIdentity();
   if (!identity) redirect(`/apply?next=${encodeURIComponent(`/apply/${slug}`)}`);
   const draft = await getDraft(slug, identity);
   // Withdrawal is terminal for the applicant: only staff can reopen one. Without

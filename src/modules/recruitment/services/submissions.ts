@@ -5,6 +5,8 @@ import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
 import { putObject } from "@/platform/storage";
 import { persistFiles, cleanupFiles, validateUploadedFile, type UploadedFile } from "./upload";
+import { canSubmitToCycle } from "./cycle-window";
+import { isInvitedTo } from "./invites";
 export type { UploadedFile } from "./upload";
 import { recordAudit } from "@/platform/audit";
 import {
@@ -114,7 +116,11 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   if (!cycle) throw new CycleNotOpenError("Application not found.");
 
   const now = new Date();
-  const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
+  // Submit is the last gate an invited applicant passes, and the one whose
+  // failure would be most expensive: a completed application rejected at the
+  // final click. It asks the same question the page and the autosave asked.
+  const invited = await isInvitedTo(cycle.id, input.identityEmail);
+  const open = canSubmitToCycle(cycle, now, { invited });
   if (!open) throw new CycleNotOpenError();
   if ((input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER") && !cycle.acceptsRenewals) {
     throw new CycleNotOpenError("This cycle does not accept returning applicants.");

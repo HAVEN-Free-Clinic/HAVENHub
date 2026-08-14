@@ -6,6 +6,9 @@ import { zoneLabel } from "@/platform/dates/zone";
 import { formatForDateTimeInput, formatForDateInput } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
+import { revalidatePath } from "next/cache";
+import { createInvite, listInvites, revokeInvite } from "@/modules/recruitment/services/invites";
+import { InvitePanel, type InviteRow } from "./invite-panel";
 import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -92,6 +95,49 @@ export default async function CycleOverviewPage({ params }: PageProps) {
     : [];
   const gradedQuestionCount = countGradedQuestions(quizFields);
   const totalQuestionCount = quizFields.length;
+  // Invite links are a manage_cycles capability: issuing one admits an applicant
+  // past a closed deadline, which is a recruiting decision, not a viewing one.
+  const inviteRows: InviteRow[] = canManage
+    ? (await listInvites(cycle.id)).map((i) => ({
+        id: i.id,
+        label: i.label,
+        createdByName: i.createdBy.name ?? "Unknown",
+        createdAtLabel: i.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        expiresAtLabel: i.expiresAt
+          ? i.expiresAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+          : null,
+        claimedByEmailLower: i.claimedByEmailLower,
+        revoked: i.revokedAt !== null,
+        expired: i.expiresAt !== null && i.expiresAt <= now,
+      }))
+    : [];
+
+  // Returns the claim URL for the panel to show ONCE. Both actions re-check
+  // manage_cycles: a server action is a public endpoint in its own right, and the
+  // page's own gate does not protect it from being invoked directly.
+  async function createInviteAction(formData: FormData): Promise<string> {
+    "use server";
+    const actor = await requirePermission("recruitment.manage_cycles");
+    const rawTtl = Number.parseInt(String(formData.get("ttlDays") ?? ""), 10);
+    const ttlDays = Number.isFinite(rawTtl) && rawTtl > 0 ? Math.min(rawTtl, 365) : 14;
+    const { token } = await createInvite(actor.personId, id, {
+      label: String(formData.get("label") ?? ""),
+      ttlDays,
+    });
+    revalidatePath(`/recruitment/cycles/${id}`);
+    const base = await portalUrl();
+    // portalUrl() with no slug returns the portal home; the claim route hangs off
+    // the same origin so an invitee lands on the applicant portal, not the hub.
+    return `${base.replace(/\/$/, "")}/i/${token}`;
+  }
+
+  async function revokeInviteAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("recruitment.manage_cycles");
+    await revokeInvite(actor.personId, String(formData.get("inviteId") ?? ""));
+    revalidatePath(`/recruitment/cycles/${id}`);
+  }
+
   return (
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
@@ -125,6 +171,16 @@ export default async function CycleOverviewPage({ params }: PageProps) {
           <p className="mt-1 text-sm text-muted-foreground">Publish the cycle to activate {applyUrl}</p>
         )}
       </Card>
+
+      {canManage && (
+        <Card>
+          <InvitePanel
+            rows={inviteRows}
+            createAction={createInviteAction}
+            revokeAction={revokeInviteAction}
+          />
+        </Card>
+      )}
 
       <Card className="space-y-3">
         <SectionHeader>Departments</SectionHeader>

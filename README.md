@@ -104,6 +104,15 @@ cannot reach a real bucket, mailbox, or Airtable base regardless of what your
   renaming a button breaks specs that unit tests do not cover.
 - **A test passes alone and fails in the suite.** Check for another vitest
   process still running from an earlier command before assuming a regression.
+- **The whole suite is suddenly many times slower, with scattered timeouts.**
+  Check `uptime` before reading anything into it. The suite runs eight workers
+  against a Postgres that no longer waits on fsync, so it wants the whole
+  machine; on a 12-core laptop already at load 20 it degrades to about 40
+  minutes and starts tripping 5s and 10s test timeouts. The tell is that
+  everything slows uniformly, including module import time, which a real
+  regression does not do. Run `npm run test:related` against what you changed
+  and let CI be the authority. `VITEST_WORKERS=3 npm test` is gentler if you
+  need the whole suite while the machine is busy.
 
 ## Layout
 

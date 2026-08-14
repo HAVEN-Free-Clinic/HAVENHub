@@ -25,34 +25,67 @@ process.env.UPLOAD_DIR = `/tmp/havenhub-test-uploads/w${workerSlot(Number(proces
 // ENOENT on a directory no test has written to yet.
 mkdirSync(process.env.UPLOAD_DIR, { recursive: true });
 
-// Storage must be the local disk driver, never a remote bucket. .env carries R2
-// credentials for the dev server, and anything that loads .env before the tests
-// import config leaves them in process.env; constructing a PrismaClient does it,
-// and @/platform/db does that at import. src/platform/storage then sees
-// R2_BUCKET, flips to the remote driver, and the upload suites both write into
-// the real production bucket and fail their on-disk assertions with ENOENT.
-// CI has no R2 variables, which is why this only ever bit local runs.
-// Tests that need to exercise the R2 paths mock the config module instead.
+// A test run must not reach a real external service, and must not behave
+// differently on a developer's machine than it does in CI.
+//
+// .env holds live credentials for the dev server. Anything that loads .env
+// before the tests import config leaves them in process.env, and constructing a
+// PrismaClient does exactly that, which @/platform/db does at import. config.ts
+// and the settings registry then read them as defaults, so a local run silently
+// diverged from CI, which has none of them set. Two ways that already bit:
+// storage/index.ts selects the R2 driver on Boolean(R2_BUCKET), so local runs
+// wrote uploads into the production bucket and then failed their on-disk
+// assertions; and the email.sender setting falls back to EMAIL_SENDER, so the
+// transport tests asserting a refusal-with-no-sender could not fail locally.
 //
 // Claimed as empty rather than deleted: dotenv only fills in names that are
 // absent, so occupying them now is what stops the later .env load from
-// reinstating the real ones. Empty is also how config.ts already spells "not
-// configured" (the all-or-nothing R2 check tests truthiness, and
-// storage/index.ts keys the driver off Boolean(config.R2_BUCKET)), so
-// validation still passes and the disk driver is selected.
-process.env.R2_BUCKET = "";
-process.env.R2_ACCOUNT_ID = "";
-process.env.R2_ACCESS_KEY_ID = "";
-process.env.R2_SECRET_ACCESS_KEY = "";
+// reinstating the real ones. Empty is how config.ts already spells "not
+// configured" for every key here (each is optional, and the R2 all-or-nothing
+// check tests truthiness), so validation still passes. Tests that need a
+// configured integration pass it to loadConfig() or mock the config module.
+for (const key of [
+  // Object storage. Empty R2_BUCKET selects the local disk driver.
+  "R2_BUCKET",
+  "R2_ACCOUNT_ID",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "BLOB_READ_WRITE_TOKEN",
+  "BLOB_STORE_ID",
+  // Email. EMAIL_SENDER backs the email.sender setting's envDefault; the rest
+  // are the credentials the two live transports validate against.
+  "EMAIL_SENDER",
+  "GRAPH_OAUTH_TENANT_ID",
+  "GRAPH_OAUTH_CLIENT_ID",
+  "GRAPH_OAUTH_CLIENT_SECRET",
+  "GRAPH_OAUTH_REDIRECT_URI",
+  "MAILEROO_API_KEY",
+  // Airtable import sources.
+  "AIRTABLE_PAT",
+  "AIRTABLE_MIRROR_ENABLED",
+  "AIRTABLE_MIRROR_BASE_ID",
+  "AIRTABLE_MIRROR_PEOPLE_TABLE_ID",
+  "AIRTABLE_MIRROR_FIELD_MAP",
+  "ALL_PEOPLE_TABLE_ID",
+  "HAVEN_MGMT_BASE_ID",
+  "SU26_ROSTER_TABLE_ID",
+  // Yale SSO.
+  "AZURE_AD_TENANT_ID",
+  "AZURE_AD_CLIENT_ID",
+  "AZURE_AD_CLIENT_SECRET",
+]) {
+  process.env[key] = "";
+}
 
 // Worktree: node_modules is symlinked to the main project whose .env has
 // EMAIL_TRANSPORT=graph. Force log transport so config validation passes
 // without requiring Graph credentials during tests.
 //
 // Assigned unconditionally, not with `??`. Anything that loads .env before the
-// workers fork (constructing a PrismaClient does) leaves EMAIL_TRANSPORT=graph
-// in the inherited environment, and a `??` here would defer to it and point the
-// suite at the real mailbox. A test run has no business selecting a live
-// transport, so this is not negotiable by the surrounding environment. Tests
-// that need to exercise graph config pass it to loadConfig() directly.
+// workers fork (constructing a PrismaClient does) leaves .env's transport in the
+// inherited environment, and a `??` here would defer to it and point the suite
+// at a real mailbox. "log" is the only one of the three that delivers nowhere,
+// and a test run has no business selecting either live transport, so this is not
+// negotiable by the surrounding environment. Tests that need to exercise the
+// graph or maileroo config pass it to loadConfig() directly.
 process.env.EMAIL_TRANSPORT = "log";

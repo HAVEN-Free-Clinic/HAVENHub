@@ -1,5 +1,6 @@
 import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { invitedEmailsFor } from "./invites";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -57,6 +58,13 @@ export function canViewApplication(
 
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
+  /**
+   * True when this applicant accepted an invite link for the cycle, i.e. they
+   * were recruited selectively rather than applying through the open form. It
+   * usually means the application arrived after the deadline, which changes how
+   * a reviewer reads it, and is otherwise invisible on this screen.
+   */
+  invited: boolean;
   acceptances: Acceptance[];
   committeeScores: { score: number; scorerId: string }[];
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
@@ -72,16 +80,26 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
     can(viewerId, "recruitment.score"),
   ]);
   const seeAll = scope.all || managesCycles || canScore;
-  const apps = await prisma.application.findMany({
-    where: { cycleId, status: "SUBMITTED" },
-    include: {
-      applicant: { select: { firstName: true, lastName: true, email: true, applicantPersonId: true } },
-      acceptances: true,
-      committeeScores: { select: { score: true, scorerId: true } },
-      interviews: { select: { decision: true } },
-    },
-    orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
-  });
+  // One lookup for the whole cycle, not one per row: the marker is derived from
+  // the invite claims rather than stored on Application, so it cannot drift when
+  // an invite is withdrawn.
+  const [rawApps, invitedEmails] = await Promise.all([
+    prisma.application.findMany({
+      where: { cycleId, status: "SUBMITTED" },
+      include: {
+        applicant: { select: { firstName: true, lastName: true, email: true, applicantPersonId: true } },
+        acceptances: true,
+        committeeScores: { select: { score: true, scorerId: true } },
+        interviews: { select: { decision: true } },
+      },
+      orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
+    }),
+    invitedEmailsFor(cycleId),
+  ]);
+  const apps: ReviewApplication[] = rawApps.map((a) => ({
+    ...a,
+    invited: invitedEmails.has(a.applicant.email.trim().toLowerCase()),
+  }));
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });

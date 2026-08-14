@@ -213,6 +213,8 @@ model Person {
   clinicAttendancesRecorded      ClinicAttendance[]         @relation("clinicAttendanceRecordedBy")
   schedulePublications           SchedulePublication[]      @relation("schedulePublishedBy")
   recruitmentCyclesCreated       RecruitmentCycle[]         @relation("RecruitmentCycleCreatedBy")
+  /// Invite links this person issued to admit an applicant past a closed deadline.
+  recruitmentInvitesCreated      RecruitmentInvite[]        @relation("recruitmentInviteCreatedBy")
   recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
   applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
   contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
@@ -1761,6 +1763,7 @@ model RecruitmentCycle {
   trainings    Training[]
   cycleEmails  RecruitmentCycleEmail[]
   contract     RecruitmentCycleContract?
+  invites      RecruitmentInvite[]
 
   @@index([status, track])
 }
@@ -1772,6 +1775,49 @@ model RecruitmentCycleContract {
   updatedAt DateTime @updatedAt
 
   cycle RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+}
+
+/// A single-use link that admits ONE applicant to a cycle they could not
+/// otherwise apply to, so someone can be recruited selectively after the
+/// deadline without reopening the cycle to the public.
+///
+/// ONLY THE HASH IS STORED, like ApplicantPortalToken and MemberLoginToken: the
+/// raw token is shown to staff once, at generation, and is unrecoverable
+/// afterwards. Anyone holding the DB still cannot use a link.
+///
+/// The link is ANONYMOUS until claimed. It burns at the invitee's first sign-in
+/// rather than at submit, and stamps claimedByEmailLower then. Both halves of
+/// that matter: burning at submit would leave a live link circulating for as
+/// long as someone takes to finish a draft, and burning at page load would strip
+/// the invite from anyone who abandoned the form and came back, stranding them
+/// mid-application. Binding to the claimant's email is what lets them return.
+model RecruitmentInvite {
+  id       String @id @default(cuid())
+  cycleId  String
+  tokenHash String @unique
+  /// Staff-facing note ("info-session walk-up", "Dr. Patel's referral") so an
+  /// outstanding invite is identifiable in the list. Never shown to the applicant.
+  label    String?
+  /// Null = never expires. Defaults to 14 days out at creation.
+  expiresAt   DateTime?
+  /// Set at the invitee's first sign-in, together with claimedByEmailLower.
+  claimedAt   DateTime?
+  /// The applicant identity that claimed it. Lets them resume a draft after the
+  /// single-use token itself is spent.
+  claimedByEmailLower String?
+  /// Set when staff revoke an unclaimed invite. Kept rather than deleted so the
+  /// audit trail of who was invited survives.
+  revokedAt   DateTime?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Restrict: the issuing staffer is the accountable party for admitting someone
+  /// past a closed deadline.
+  createdBy Person           @relation("recruitmentInviteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([cycleId])
+  @@index([claimedByEmailLower])
 }
 
 model FormSection {

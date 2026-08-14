@@ -140,12 +140,23 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             return (
               <TR key={a.id}>
                 <TD>
-                  <Link
-                    className="font-medium text-foreground hover:text-brand-fg"
-                    href={`/recruitment/cycles/${id}/applicants/${a.id}`}
-                  >
-                    {a.applicant.firstName} {a.applicant.lastName}
-                  </Link>
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <Link
+                      className="font-medium text-foreground hover:text-brand-fg"
+                      href={`/recruitment/cycles/${id}/applicants/${a.id}`}
+                    >
+                      {a.applicant.firstName} {a.applicant.lastName}
+                    </Link>
+                    {/* Recruited by invite link rather than through the open
+                        form, which usually means the application arrived after
+                        the deadline. Reviewers are otherwise given no way to
+                        tell, and it changes how the application reads. */}
+                    {a.invited && (
+                      <Badge tone="brand" title="Applied through an invitation link">
+                        Invited
+                      </Badge>
+                    )}
+                  </span>
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
                 <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>

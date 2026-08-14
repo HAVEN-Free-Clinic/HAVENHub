@@ -1,5 +1,7 @@
 import type { ApplicationStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { canSubmitToCycle } from "./cycle-window";
+import { isInvitedTo } from "./invites";
 import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -104,11 +106,14 @@ export async function saveDraft(
   const { cycle, applicant } = row;
 
   const now = new Date();
-  const open =
-    cycle.status === "OPEN" &&
-    (!cycle.opensAt || cycle.opensAt <= now) &&
-    (!cycle.closesAt || cycle.closesAt >= now);
-  if (!open) throw new DraftError("This application is closed.");
+  // An invited applicant may save a draft to a cycle that is closed to everyone
+  // else. Every applicant-facing gate asks canSubmitToCycle for exactly this
+  // reason: an invite that worked on the page but not on autosave would let
+  // someone type a full application and silently lose it.
+  const invited = await isInvitedTo(cycle.id, identity.email);
+  if (!canSubmitToCycle(cycle, now, { invited })) {
+    throw new DraftError("This application is closed.");
+  }
 
   // Never trust client-supplied file answers on autosave; file refs are written
   // only by uploadDraftFile. Use the stripped set for both the update-merge and the
@@ -242,8 +247,10 @@ export async function uploadDraftFile(
   if (!row) throw new DraftError("Application not found.");
   const { cycle, applicant } = row;
   const now = new Date();
-  const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
-  if (!open) throw new DraftError("This application is closed.");
+  const invited = await isInvitedTo(cycle.id, identity.email);
+  if (!canSubmitToCycle(cycle, now, { invited })) {
+    throw new DraftError("This application is closed.");
+  }
   const app = applicant?.applications[0];
   if (!app || app.status === "SUBMITTED") throw new DraftError("No editable draft.");
 

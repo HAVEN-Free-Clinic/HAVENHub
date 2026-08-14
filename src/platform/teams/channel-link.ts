@@ -101,7 +101,40 @@ export interface ChannelLinkDeps {
   now?: Date;
   groupId?: string | undefined;
   loadClinicDates?: () => Promise<Date[] | null>;
+  /** Backoff delay. Injectable so tests do not actually wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/**
+ * Total wall-clock budget for resolving the channel list, across ALL attempts.
+ *
+ * Unchanged from the single-attempt timeout this replaces, and that is the
+ * point. The card renders inside <Suspense fallback={null}> on the hub, so a
+ * slow resolve does not block the dashboard -- but it does hold a serverless
+ * invocation open while the rail sits empty. Giving each retry a fresh
+ * full-length timeout would have tripled that for no better outcome, so the
+ * attempts share one budget instead: more chances to succeed, same ceiling.
+ */
+export const GRAPH_TOTAL_BUDGET_MS = 8000;
+
+/**
+ * Per-attempt slices, summing to the budget above (with the backoff).
+ *
+ * Fixed slices rather than "whatever remains", which is the subtle trap here: an
+ * attempt that fails INSTANTLY (a network error, not a timeout) consumes none of
+ * the budget, so a remaining/attempts-left split hands the next attempt a full
+ * share of a budget nothing has spent, and the grants sum past the ceiling. A
+ * caught test of exactly that pinned 14.7s against an 8s budget.
+ *
+ * Two attempts, not three. Every observed production failure hung for the whole
+ * 8s, and a hung call is not rescued by a shorter third slice -- it is rescued by
+ * getting a second connection at all. A generous first attempt also keeps a
+ * merely slow (not hung) Graph from being aborted where it used to succeed.
+ */
+const GRAPH_ATTEMPT_BUDGETS_MS = [5000, 2850] as const;
+
+/** Backoff between attempts. Deliberately tiny -- it comes out of the budget. */
+const GRAPH_RETRY_BACKOFF_MS = 150;
 
 // A found channel link is stable for the whole clinic week: the channel does not
 // change until the week rolls over on Sunday, at which point the `dateStr` key
@@ -139,8 +172,80 @@ async function loadActiveTermClinicDates(): Promise<Date[] | null> {
   return term?.clinicDates ?? null;
 }
 
-function logChannelError(stage: string, err: unknown): void {
-  log.error(`[teams/channel-link] ${stage} failed`, errorAttrs(err, { stage }));
+function logChannelError(
+  stage: string,
+  err: unknown,
+  extra: Record<string, unknown> = {}
+): void {
+  log.error(`[teams/channel-link] ${stage} failed`, errorAttrs(err, { stage, ...extra }));
+}
+
+/**
+ * Transient Graph failures worth another attempt: a request timeout, a network
+ * error, rate limiting, or a 5xx. An auth or permission failure is NOT retried,
+ * because the next call returns the same answer and the budget is better spent
+ * failing fast.
+ */
+function isTransient(err: unknown): boolean {
+  if (err instanceof GraphStatusError) return err.status === 429 || err.status >= 500;
+  // AbortSignal.timeout rejects with a TimeoutError; a fetch network failure
+  // surfaces as a TypeError.
+  return err instanceof Error && (err.name === "TimeoutError" || err instanceof TypeError);
+}
+
+class GraphStatusError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Graph channels list failed: ${status}`);
+    this.name = "GraphStatusError";
+    this.status = status;
+  }
+}
+
+/**
+ * List a Team's channels, retrying transient failures inside one shared budget.
+ *
+ * Each attempt is capped at whatever remains, so the caller's total wait is
+ * bounded no matter how many attempts run. When too little budget is left for a
+ * meaningful attempt, it stops rather than firing a call that is certain to
+ * abort. Reports the attempts spent so the caller can log them.
+ */
+async function listGraphChannels(
+  url: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
+  startedAt: number
+): Promise<{ channels: GraphChannel[]; attempts: number }> {
+  let lastErr: unknown;
+
+  for (let attempt = 1; attempt <= GRAPH_ATTEMPT_BUDGETS_MS.length; attempt++) {
+    // Whichever is smaller: this attempt's slice, or what is actually left of
+    // the wall-clock budget. The slice alone bounds the sum; the remaining check
+    // also bounds real elapsed time when an earlier attempt ran long.
+    const remaining = GRAPH_TOTAL_BUDGET_MS - (Date.now() - startedAt);
+    const attemptMs = Math.min(GRAPH_ATTEMPT_BUDGETS_MS[attempt - 1], remaining);
+    if (attemptMs <= 0) break;
+
+    try {
+      const res = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(attemptMs),
+        // Surfaces the per-attempt budget for the test that pins the ceiling.
+        // Ignored by fetch, which discards unknown init keys.
+        __timeoutMs: attemptMs,
+      } as RequestInit);
+      if (!res.ok) throw new GraphStatusError(res.status);
+      const json = (await res.json()) as { value?: GraphChannel[] };
+      return { channels: json.value ?? [], attempts: attempt };
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err) || attempt === GRAPH_ATTEMPT_BUDGETS_MS.length) break;
+      await sleep(GRAPH_RETRY_BACKOFF_MS);
+    }
+  }
+
+  throw lastErr ?? new Error("Graph channels list failed");
 }
 
 /**
@@ -157,6 +262,7 @@ export async function getCurrentClinicChannelLink(
     now = new Date(),
     groupId,
     loadClinicDates = loadActiveTermClinicDates,
+    sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = deps;
 
   const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
@@ -183,6 +289,8 @@ export async function getCurrentClinicChannelLink(
   }
 
   let value: ClinicChannelLink | null = null;
+  let attempts = 0;
+  const startedAt = Date.now();
   try {
     const token = await getToken();
     // Graph returns up to ~200 channels in one unpaged response. A clinic Team
@@ -192,15 +300,9 @@ export async function getCurrentClinicChannelLink(
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       resolvedGroupId
     )}/channels`;
-    const res = await fetchImpl(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      throw new Error(`Graph channels list failed: ${res.status}`);
-    }
-    const json = (await res.json()) as { value?: GraphChannel[] };
-    const channel = matchChannel(json.value ?? [], dateStr);
+    const listed = await listGraphChannels(url, token, fetchImpl, sleep, startedAt);
+    attempts = listed.attempts;
+    const channel = matchChannel(listed.channels, dateStr);
     if (channel?.webUrl) {
       value = {
         webUrl: channel.webUrl,
@@ -209,7 +311,15 @@ export async function getCurrentClinicChannelLink(
       };
     }
   } catch (err) {
-    logChannelError("resolve channel", err);
+    // Name the clinic week and the attempts spent. The previous log carried
+    // neither, so a recurrence could not be tied to a channel or told apart from
+    // a single flaky call -- which is exactly why the production occurrences
+    // could not be counted.
+    logChannelError("resolve channel", err, {
+      clinicDate: dateStr,
+      attempts: attempts || GRAPH_ATTEMPT_BUDGETS_MS.length,
+      elapsedMs: Date.now() - startedAt,
+    });
     value = null;
   }
 

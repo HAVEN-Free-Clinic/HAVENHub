@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
-import { formatForDateTimeInput, formatForDateInput } from "@/platform/dates";
+import { formatForDateTimeInput, formatForDateInput, formatDateOnly } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { revalidatePath } from "next/cache";
@@ -102,9 +102,12 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         id: i.id,
         label: i.label,
         createdByName: i.createdBy.name ?? "Unknown",
-        createdAtLabel: i.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        // formatDateOnly, not toLocaleDateString: these are real timestamps, and
+        // the clinic renders every one of them in the configured display zone.
+        // A guard test (platform/dates/no-raw-locale.guard.test.ts) enforces it.
+        createdAtLabel: formatDateOnly(i.createdAt, zone, { month: "short", day: "numeric" }),
         expiresAtLabel: i.expiresAt
-          ? i.expiresAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+          ? formatDateOnly(i.expiresAt, zone, { month: "short", day: "numeric" })
           : null,
         claimedByEmailLower: i.claimedByEmailLower,
         revoked: i.revokedAt !== null,

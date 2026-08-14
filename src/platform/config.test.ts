@@ -240,6 +240,27 @@ describe("loadConfig", () => {
     expect(config.EMAIL_SENDER).toBe("noreply@example.com");
   });
 
+  it("rejects maileroo mode without the API key or a sender, naming each missing key", () => {
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "maileroo" })
+    ).toThrowError(/MAILEROO_API_KEY/);
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "maileroo" })
+    ).toThrowError(/EMAIL_SENDER/);
+  });
+
+  it("accepts maileroo mode with the API key and sender, requiring no Graph OAuth vars", () => {
+    const config = loadConfig({
+      ...base,
+      EMAIL_TRANSPORT: "maileroo",
+      MAILEROO_API_KEY: "maileroo-key",
+      EMAIL_SENDER: "noreply@havenfreeclinic.org",
+    });
+    expect(config.EMAIL_TRANSPORT).toBe("maileroo");
+    expect(config.MAILEROO_API_KEY).toBe("maileroo-key");
+    expect(config.GRAPH_OAUTH_TENANT_ID).toBeUndefined();
+  });
+
   // --- Teams clinic channel config ---
 
   it("exposes TEAMS_CLINIC_GROUP_ID when provided", () => {

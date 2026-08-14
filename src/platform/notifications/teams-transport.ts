@@ -125,16 +125,27 @@ export class GraphTeamsTransport implements TeamsTransport {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the Teams transport. Reuses the email.transport toggle: when it is
- * "graph" and a mailer account is connected, returns the Graph transport sending
- * AS the connected account; otherwise returns the log transport.
+ * Resolve the Teams transport. Reuses the email.transport toggle as a live/not-live
+ * switch: when a real transport is selected and a mailer account is connected,
+ * returns the Graph transport sending AS the connected account; otherwise the log
+ * transport.
+ *
+ * The test is deliberately "not log", NOT "is graph". Teams DMs can only go over
+ * Graph, so the email transport choice is irrelevant to how a DM is sent -- it
+ * only says whether this deployment is live. Keying off `=== "graph"` meant
+ * selecting the maileroo email transport silently routed every Teams DM to
+ * LogTeamsTransport, which *succeeds*: drainTeamsQueue would mark the row LOGGED
+ * (a terminal success), never retry, and never fire the permanent-failure email
+ * fallback, so the recipient is reached on no channel while the monitor shows
+ * green. That is the same silent-undelivered trap the connected-account guard
+ * below exists to prevent.
  */
 export async function resolveTeamsTransport(): Promise<TeamsTransport> {
-  const transport = await getSetting<"log" | "graph">("email.transport");
-  if (transport !== "graph") return new LogTeamsTransport();
+  const transport = await getSetting<"log" | "graph" | "maileroo">("email.transport");
+  if (transport === "log") return new LogTeamsTransport();
   const status = await mailConnectionStatus();
   if (!status.connected || !status.account) {
-    // graph is selected but the mailer is not connected. LogTeamsTransport
+    // A live transport is selected but the mailer is not connected. LogTeamsTransport
     // *succeeds* (returns { logged: true }), so drainTeamsQueue marks the row
     // LOGGED -- a terminal success. The DM is never sent, the row never retries,
     // and the permanent-failure email-fallback branch never fires: the recipient
@@ -145,7 +156,7 @@ export async function resolveTeamsTransport(): Promise<TeamsTransport> {
     // connected mailer still work.
     if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
       throw new Error(
-        "email.transport is 'graph' but no mailer account is connected -- refusing to route Teams DMs to the log transport in production (would record undelivered notifications as LOGGED and skip the email fallback)",
+        `email.transport is '${transport}' (live) but no mailer account is connected -- refusing to route Teams DMs to the log transport in production (would record undelivered notifications as LOGGED and skip the email fallback)`,
       );
     }
     log.warn("[teams] graph transport selected but no mailer account is connected; using log transport");

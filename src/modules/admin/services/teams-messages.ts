@@ -74,8 +74,10 @@ export async function listTeamsMessages(params: {
  * Reset a FAILED, FALLBACK, or LOGGED Teams message back to QUEUED for another
  * attempt.
  *
- * LOGGED rows were recorded by the log transport (email.transport not "graph")
- * and never actually sent, so they are retryable once graph delivery is enabled.
+ * LOGGED rows were recorded by the log transport (email.transport is "log", the
+ * only setting that takes Teams offline -- any live email transport still sends
+ * DMs over Graph) and never actually sent, so they are retryable once a live
+ * transport is enabled.
  * Throws TeamsMessageStateError for QUEUED/SENT. The actual send is performed by
  * the delivery cron; this function only resets the row state.
  *

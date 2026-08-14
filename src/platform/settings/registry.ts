@@ -234,27 +234,35 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => config.TEAMS_CLINIC_GROUP_ID ?? "",
     secret: false,
   }),
-  define<"log" | "graph">({
+  define<"log" | "graph" | "maileroo">({
     key: "email.transport",
     category: "Email",
     label: "Email transport",
-    help: "How outbound email is sent. 'log' prints to the server log; 'graph' sends via Microsoft Graph (requires OAuth credentials in the environment). Cron-based delivery applies a change immediately; restart the worker process for queue-based delivery.",
+    help: "How outbound email is sent. 'log' prints to the server log; 'graph' sends via Microsoft Graph as the Yale shared mailbox (requires OAuth credentials in the environment); 'maileroo' sends via the Maileroo API from our own verified domain (requires MAILEROO_API_KEY). Graph inherits Exchange Online's ~30 messages/minute cap, so a roster-wide campaign paces out over hours; Maileroo has no comparable per-minute ceiling but delivers as external mail to yale.edu inboxes. Teams notifications always use Graph regardless of this setting.",
     input: { type: "select", options: [
       { value: "log", label: "Log (no real email)" },
       { value: "graph", label: "Microsoft Graph (live email)" },
+      { value: "maileroo", label: "Maileroo (live email)" },
     ] },
-    schema: z.enum(["log", "graph"]),
+    schema: z.enum(["log", "graph", "maileroo"]),
     envDefault: () => config.EMAIL_TRANSPORT,
     secret: false,
     validate: async (value, { config, getSetting }) => {
-      if (value !== "graph") return null;
-      const problems: string[] = (
-        ["GRAPH_OAUTH_TENANT_ID", "GRAPH_OAUTH_CLIENT_ID", "GRAPH_OAUTH_CLIENT_SECRET"] as const
-      ).filter((k) => !config[k]);
+      if (value === "log") return null;
+      const problems: string[] = [];
+      if (value === "graph") {
+        problems.push(
+          ...(
+            ["GRAPH_OAUTH_TENANT_ID", "GRAPH_OAUTH_CLIENT_ID", "GRAPH_OAUTH_CLIENT_SECRET"] as const
+          ).filter((k) => !config[k]),
+        );
+      } else if (!config.MAILEROO_API_KEY) {
+        problems.push("MAILEROO_API_KEY");
+      }
       const sender = await getSetting<string>("email.sender");
       if (!sender) problems.push("a sender address (set Email > Sender first)");
       return problems.length
-        ? `Cannot enable graph email until these are configured: ${problems.join(", ")}.`
+        ? `Cannot enable ${value} email until these are configured: ${problems.join(", ")}.`
         : null;
     },
   }),

@@ -76,6 +76,22 @@ describe("getSetting", () => {
     expect(await getSetting<number>("rhd.maxProcedures")).toBe(8);
   });
 
+  it("falls back to the env default when the Setting table is missing (P2021)", async () => {
+    // The database answers, but the schema is behind the code: the Setting table
+    // was never migrated. This must degrade to the default like a Neon blip, not
+    // 500 every route through generateMetadata.
+    const spy = vi
+      .spyOn(prisma.setting, "findUnique")
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError(
+          "The table `public.Setting` does not exist in the current database.",
+          { code: "P2021", clientVersion: "5.0.0" }
+        )
+      );
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(3);
+    spy.mockRestore();
+  });
+
   it("still rethrows non-connectivity DB errors", async () => {
     const spy = vi
       .spyOn(prisma.setting, "findUnique")
@@ -131,6 +147,24 @@ describe("getCategory", () => {
       value: 9,
       isOverridden: true,
     });
+  });
+
+  it("falls back to env defaults when the Setting table is missing (P2021)", async () => {
+    await setSetting("rhd.maxProcedures", 9, null);
+    _resetSettingsCache();
+    const spy = vi
+      .spyOn(prisma.setting, "findMany")
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError(
+          "The table `public.Setting` does not exist in the current database.",
+          { code: "P2021", clientVersion: "5.0.0" }
+        )
+      );
+
+    const rows = await getCategory("Operations");
+    const rhdEntry = rows.find((e) => e.key === "rhd.maxProcedures");
+    expect(rhdEntry).toMatchObject({ value: 3, isOverridden: false });
+    spy.mockRestore();
   });
 
   it("still rethrows non-connectivity DB errors", async () => {

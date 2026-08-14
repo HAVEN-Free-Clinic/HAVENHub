@@ -1,0 +1,104 @@
+#!/bin/sh
+#
+# Pre-push checks: the cheap subset of CI, run locally so a typo does not cost a
+# CI round trip. Wired up by the `prepare` script in package.json, which points
+# core.hooksPath at this directory on npm install.
+#
+# What runs, and why this set:
+#
+#   repo-scanning guards  a handful of tests read the source tree rather than
+#                         importing it (glass usage, system-role bootstrap,
+#                         the GitBook schema artifact, campaign starters), so
+#                         `vitest related` cannot link them to a change. They
+#                         fail on edits made anywhere and take under two seconds.
+#   typecheck             the whole point of the strict config
+#   lint                  the module-boundary and no-em-dash rules are
+#                         cross-file, so a changed-files-only pass would miss
+#                         the violations that matter
+#   related tests         every test that imports what this push changes
+#
+# The full suite stays CI's job. This is meant to be under two minutes.
+#
+# Escape hatches, in order of preference:
+#   git push --no-verify    skip these checks for one push
+#   SKIP_HOOKS=1 git push   same thing, spelled for scripts
+#
+set -e
+
+if [ "$SKIP_HOOKS" = "1" ]; then
+  echo "pre-push: skipped (SKIP_HOOKS=1)"
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Compare against main rather than the upstream branch: on a fresh feature branch
+# there is no upstream yet, and "everything since main" is the honest set anyway.
+BASE=""
+if git rev-parse --verify --quiet origin/main >/dev/null; then
+  BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
+fi
+if [ -z "$BASE" ]; then
+  echo "pre-push: no origin/main to compare against; skipping (CI will run the full suite)"
+  exit 0
+fi
+
+# Any TypeScript anywhere, not just src/: next.config.ts, the vitest config, and
+# the scripts are all typechecked and linted too, and a change to one of them can
+# break the build just as easily.
+CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" HEAD -- '*.ts' '*.tsx' || true)
+
+if [ -z "$CHANGED" ]; then
+  echo "pre-push: no TypeScript changes; nothing to check"
+  exit 0
+fi
+
+# `vitest related` maps files to the tests importing them, so only the app
+# sources are meaningful input. A config-only change still gets the guards,
+# typecheck, and lint above.
+RELATED_INPUT=$(echo "$CHANGED" | grep '^src/' || true)
+
+# The suite hangs with no output when Postgres is unreachable, rather than
+# failing, so check first and say so instead of leaving a hook apparently stuck.
+DB_UP=1
+node -e '
+  const url = new URL(process.env.TEST_DATABASE_URL ?? "postgresql://haven:haven_dev@localhost:5434/havenhub_test");
+  const s = require("net").createConnection({ host: url.hostname, port: Number(url.port || 5432) });
+  s.setTimeout(2000);
+  s.on("connect", () => { s.end(); process.exit(0); });
+  s.on("timeout", () => { s.destroy(); process.exit(1); });
+  s.on("error", () => process.exit(1));
+' >/dev/null 2>&1 || DB_UP=0
+
+echo "pre-push: checking $(echo "$CHANGED" | wc -l | tr -d ' ') changed file(s)"
+
+echo "pre-push: repo-scanning guards"
+npx vitest run \
+  src/platform/ui/glass.test.ts \
+  src/platform/rbac/bootstrap-system-roles.migration.test.ts \
+  src/platform/gitbook/schema-artifact.test.ts \
+  src/platform/email/campaigns/starters.test.ts
+
+echo "pre-push: typecheck"
+npm run typecheck
+
+echo "pre-push: lint"
+npm run lint
+
+if [ -z "$RELATED_INPUT" ]; then
+  echo "pre-push: no src/ changes, so no related tests to run"
+  echo "pre-push: ok"
+  exit 0
+fi
+
+if [ "$DB_UP" = "0" ]; then
+  echo "pre-push: Postgres is not reachable, so the related tests were SKIPPED."
+  echo "          Start it with \`npm run db:up\`. CI will still run the full suite."
+  exit 0
+fi
+
+echo "pre-push: tests related to the changed files"
+# shellcheck disable=SC2086
+npx vitest related --run $RELATED_INPUT
+
+echo "pre-push: ok"

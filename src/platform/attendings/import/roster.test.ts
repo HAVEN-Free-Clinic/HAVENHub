@@ -42,6 +42,47 @@ describe("deriveScheduleName", () => {
   });
 });
 
+describe("confirmed schedule names", () => {
+  /**
+   * These are everyday names with no mechanical relationship to the formal one,
+   * so no derivation rule could reach them. Each was confirmed by Faculty
+   * Relations; the import would otherwise leave their shifts unassigned.
+   */
+  it("uses the confirmed name over the derived one", () => {
+    const parse = parseAttendingRoster(
+      sheet(
+        ["Bia, Margaret", "MD", "Primary Care"],
+        ["Atlas, Stephen", "MD", "Primary Care"],
+        ["Kang, Angela", "MD, MPH", "Primary Care"],
+        ["Madeline Wilson", "MD", "Primary Care"],
+        ["Wormser, Andrew", "MD", "Primary Care"],
+        ["Ponce Terashima, Javier", "MD", "BHD"],
+      ),
+    );
+
+    expect(parse.attendings.map((a) => a.scheduleName)).toEqual([
+      "Peggy Bia",
+      "Steve Atlas",
+      "Angi Kang",
+      "Maddie Wilson",
+      "Andy Wormser",
+      "Dr. Ponce",
+    ]);
+  });
+
+  // Frank is derived normally; only Margaret is overridden. Getting this wrong
+  // would collapse two real physicians onto one name.
+  it("leaves the other Bia alone", () => {
+    const parse = parseAttendingRoster(sheet(["Bia, Frank", "MD, MPH", "Primary Care"]));
+    expect(parse.attendings[0].scheduleName).toBe("Frank Bia");
+  });
+
+  it("keeps the formal name as fullName", () => {
+    const parse = parseAttendingRoster(sheet(["Bia, Margaret", "MD", "Primary Care"]));
+    expect(parse.attendings[0].fullName).toBe("Bia, Margaret");
+  });
+});
+
 describe("specialtyCodeFor", () => {
   it("maps the sheet's wording onto specialty codes", () => {
     expect(specialtyCodeFor("Primary Care")).toBe("PC");

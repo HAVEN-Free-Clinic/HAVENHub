@@ -76,6 +76,32 @@ function preferredGiven(given: string): string {
   return given.trim();
 }
 
+/**
+ * Attendings the schedule calls something the contact sheet cannot produce.
+ *
+ * Keyed by the contact sheet's name EXACTLY as written, so the mapping is
+ * unambiguous about which person it means. These are everyday names with no
+ * mechanical relationship to the formal one -- Margaret is Peggy, Stephen is
+ * Steve -- so no derivation rule could find them; each was confirmed by Faculty
+ * Relations rather than guessed.
+ *
+ * `Peggy Bia` is why the schedule import refuses to guess at all: the surname
+ * alone is shared with Frank Bia, so an automatic match would have been a coin
+ * toss between two real physicians.
+ *
+ * This list exists to make the FIRST import land correctly. Afterwards the
+ * schedule name is editable per attending in the Hub, which is where an ongoing
+ * change belongs.
+ */
+export const CONFIRMED_SCHEDULE_NAMES: Record<string, string> = {
+  "Bia, Margaret": "Peggy Bia",
+  "Atlas, Stephen": "Steve Atlas",
+  "Kang, Angela": "Angi Kang",
+  "Madeline Wilson": "Maddie Wilson",
+  "Wormser, Andrew": "Andy Wormser",
+  "Ponce Terashima, Javier": "Dr. Ponce",
+};
+
 function cell(row: unknown[], i: number): string | null {
   const v = row[i];
   if (v === null || v === undefined) return null;
@@ -130,7 +156,9 @@ export function parseAttendingRoster(rows: unknown[][]): RosterParse {
       ? [first, cell(row, 1)].filter(Boolean).join(", ")
       : first;
 
-    const scheduleName = deriveScheduleName(fullName);
+    // A confirmed everyday name wins over the derived one: the schedule calls
+    // Margaret Bia "Peggy", and no rule could derive that.
+    const scheduleName = CONFIRMED_SCHEDULE_NAMES[fullName] ?? deriveScheduleName(fullName);
     if (!scheduleName) {
       parse.skipped.push({ row: i + 1, text: fullName, reason: "no readable name" });
       continue;

@@ -109,14 +109,15 @@ export const MODULES: ModuleManifest[] = [
     description: "Report a professional-standards concern; review reports and manage strikes",
     icon: ShieldAlert,
     // No accessPermission: open to any signed-in matched person so anyone can file a report.
-    // incidents.escalation_recipient is NOTIFICATION-ONLY. It copies senior
-    // staff (medical directors, EDs) on incident reports and issued strikes so
-    // they have visibility, and grants NO read access: holders get the substance
-    // by email without a link into the review queue or the strikes ledger, which
-    // they cannot open. It must never appear in a can() check that guards a page
-    // or an action. Deliberately absent from SYSTEM_ROLES: changing those needs a
-    // prod backfill migration, so admins grant it on a custom role instead.
-    permissions: ["incidents.manage", "incidents.view_strikes", "incidents.escalation_recipient"],
+    //
+    // There is deliberately NO permission for "receives incident escalations".
+    // incidents.escalation_recipient used to exist for exactly that, aimed at
+    // medical directors -- but a permission can only be granted to a Person with
+    // an account, and the advisors it was meant for are third parties with no Hub
+    // account at all. It could never have reached them. Forwarding a report or a
+    // strike outside the clinic is now an address a reviewer types, per matter
+    // (see modules/incidents/services/forward.ts).
+    permissions: ["incidents.manage", "incidents.view_strikes"],
     status: "active",
     nav: [
       { label: "Report a concern", href: "/incidents" },

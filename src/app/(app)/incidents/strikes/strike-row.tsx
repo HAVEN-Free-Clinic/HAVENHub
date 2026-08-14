@@ -6,7 +6,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Combobox } from "@/platform/ui/combobox";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { ForwardForm, type ForwardContact } from "../forward-form";
+import { ForwardForm } from "../forward-form";
 
 /**
  * One row of the strikes ledger, with an expandable detail row.
@@ -48,13 +48,12 @@ export type StrikeRowProps = {
   reportOptions: Array<{ value: string; label: string }>;
   deleteAction: (formData: FormData) => Promise<void>;
   linkReport: (formData: FormData) => Promise<void>;
-  /** Configured external supervisors. Empty hides the forward control. */
-  contacts?: ForwardContact[];
+  /** Previously used addresses, offered as suggestions on the forward field. */
+  suggestions?: string[];
   /** Past disclosures of THIS strike, newest first. */
   forwards?: Array<{
     id: string;
     toEmail: string;
-    toName: string | null;
     note: string | null;
     forwardedByName: string;
   }>;
@@ -72,7 +71,7 @@ export function StrikeRow({
   reportOptions,
   deleteAction,
   linkReport,
-  contacts = [],
+  suggestions = [],
   forwards = [],
   forwardStrike,
 }: StrikeRowProps) {
@@ -222,7 +221,7 @@ export function StrikeRow({
                   <dd className="mt-1 space-y-1 text-foreground-soft">
                     {forwards.map((f) => (
                       <div key={f.id}>
-                        Sent to <span className="text-foreground">{f.toName ?? f.toEmail}</span> by{" "}
+                        Sent to <span className="text-foreground">{f.toEmail}</span> by{" "}
                         {f.forwardedByName}
                         {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
                       </div>
@@ -231,13 +230,13 @@ export function StrikeRow({
                 ) : (
                   <dd className="mt-1 text-foreground-soft">Not forwarded.</dd>
                 )}
-                {contacts.length > 0 && forwardStrike && (
+                {forwardStrike && (
                   <dd className="mt-2">
                     <ForwardForm
                       action={forwardStrike}
                       targetIdName="actionId"
                       targetId={action.id}
-                      contacts={contacts}
+                      suggestions={suggestions}
                     />
                   </dd>
                 )}

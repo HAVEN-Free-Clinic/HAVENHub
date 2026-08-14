@@ -15,7 +15,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { setSetting } from "@/platform/settings/service";
 import { notifyStrikeIssued } from "./strike-notifications";
 import { issueAction } from "./disciplinary";
 
@@ -217,35 +216,12 @@ describe("notifyStrikeIssued", () => {
     expect(directorNotes[0].body).not.toContain("2 strikes");
   });
 
-  it("copies escalation recipients on an issued strike, with no ledger link", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("SCTM");
-    const central = await createPerson("Central", "sn-esc-c");
-    const subject = await createPerson("Subject", "sn-esc-s");
-    const medDirector = await createPerson("Medical Director", "sn-esc-m");
-    await grantPermission(central.id, "incidents.manage");
-    await grantPermission(medDirector.id, "incidents.escalation_recipient");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
-
-    const action = await strike(central.id, subject.id);
-    await notifyStrikeIssued({ action, actorPersonId: central.id });
-
-    const notes = await prisma.notification.findMany({
-      where: { personId: medDirector.id, type: "incidents.strike_issued_directors" },
-    });
-    expect(notes).toHaveLength(1);
-    expect(notes[0].body).toContain("Subject");
-    // They hold no incidents.view_strikes, so the ledger link is withheld.
-    expect(notes[0].link).toBeNull();
-  });
 
   it("does NOT email external supervisors when a strike is issued", async () => {
     // Issuing a strike used to blind-copy every address in
-    // incidents.externalEscalationEmails. That setting is now a directory a
-    // reviewer forwards from deliberately (forward.ts), so issuance itself must
-    // reach nobody outside the clinic. A bare address is used on purpose: the
-    // old parser matched exactly that form, so this fails against the old code.
-    await setSetting("incidents.externalEscalationEmails", "md@yale.edu", null);
+    // a configured address list. Reaching outside the clinic is now a per-strike
+    // forward a reviewer types (forward.ts), so issuance itself must reach
+    // nobody outside the clinic at all.
     const term = await createTerm();
     const dept = await createDepartment("SCTM");
     const central = await createPerson("Central", "sn-ext-c");
@@ -269,67 +245,8 @@ describe("notifyStrikeIssued", () => {
   // escalation recipients hold no view_strikes at all, so announcing it to them
   // would widen the audience for an anonymous report beyond the reviewers who
   // handled it.
-  it("notifies NO escalation recipient when the strike is confidential", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("JCTM");
-    const central = await createPerson("Central", "sn-escc-c");
-    const subject = await createPerson("Subject", "sn-escc-s");
-    const medDirector = await createPerson("Medical Director", "sn-escc-m");
-    await grantPermission(central.id, "incidents.manage");
-    await grantPermission(medDirector.id, "incidents.escalation_recipient");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
 
-    const action = await strike(central.id, subject.id, { confidential: true });
-    await notifyStrikeIssued({ action, actorPersonId: central.id });
 
-    expect(
-      await prisma.notification.count({
-        where: { personId: medDirector.id, type: "incidents.strike_issued_directors" },
-      })
-    ).toBe(0);
-  });
-
-  it("does not double-notify a department director who is also an escalation recipient", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("SCTM");
-    const central = await createPerson("Central", "sn-dbl-c");
-    const subject = await createPerson("Subject", "sn-dbl-s");
-    const director = await createPerson("Director", "sn-dbl-d");
-    await grantPermission(central.id, "incidents.manage");
-    await grantPermission(director.id, "incidents.escalation_recipient");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
-    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
-
-    const action = await strike(central.id, subject.id);
-    await notifyStrikeIssued({ action, actorPersonId: central.id });
-
-    const notes = await prisma.notification.findMany({
-      where: { personId: director.id, type: "incidents.strike_issued_directors" },
-    });
-    expect(notes).toHaveLength(1);
-    // Their director role wins, so they keep the ledger link.
-    expect(notes[0].link).toMatch(/\/incidents\/strikes$/);
-  });
-
-  it("never copies the subject of the strike, even if they hold the escalation permission", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("SCTM");
-    const central = await createPerson("Central", "sn-self-c");
-    const subject = await createPerson("Subject", "sn-self-s");
-    await grantPermission(central.id, "incidents.manage");
-    await grantPermission(subject.id, "incidents.escalation_recipient");
-    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
-
-    const action = await strike(central.id, subject.id);
-    await notifyStrikeIssued({ action, actorPersonId: central.id });
-
-    // Their own strike_issued notice, and nothing from the directors' path.
-    expect(
-      await prisma.notification.count({
-        where: { personId: subject.id, type: "incidents.strike_issued_directors" },
-      })
-    ).toBe(0);
-  });
 
   it("is a no-op, not a throw, when the subject no longer exists", async () => {
     const central = await createPerson("Central", "sn-throw-c");

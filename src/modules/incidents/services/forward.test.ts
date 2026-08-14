@@ -23,12 +23,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { setSetting } from "@/platform/settings/service";
 import { submitReport, IncidentNotFoundError, IncidentForbiddenError } from "./report";
 import { issueAction } from "./disciplinary";
-import { forwardReport, forwardStrike, listReportForwards, IncidentForwardError } from "./forward";
+import {
+  forwardReport,
+  forwardStrike,
+  listReportForwards,
+  recentForwardEmails,
+  IncidentForwardError,
+} from "./forward";
 
-const DIRECTORY = "Dr. Jane Smith <jsmith@yale.edu>\nDr. Ann Lee <alee@yale.edu>";
 
 async function createPerson(name: string, netId?: string) {
   return prisma.person.create({ data: { name, netId } });
@@ -51,10 +55,7 @@ async function aReport(reporterId: string) {
   });
 }
 
-beforeEach(async () => {
-  await resetDb();
-  await setSetting("incidents.externalEscalationEmails", DIRECTORY, null);
-});
+beforeEach(resetDb);
 
 describe("forwardReport", () => {
   it("refuses a non-manager", async () => {
@@ -62,7 +63,7 @@ describe("forwardReport", () => {
     const nosy = await createPerson("Nosy");
     const report = await aReport(reporter.id);
     await expect(
-      forwardReport(nosy.id, report.id, { emails: ["jsmith@yale.edu"] })
+      forwardReport(nosy.id, report.id, { emails: ["advisor@ynhh.org"] })
     ).rejects.toThrow(IncidentForbiddenError);
   });
 
@@ -70,7 +71,7 @@ describe("forwardReport", () => {
     const mgr = await createPerson("Manager");
     await grantPermission(mgr.id, "incidents.manage");
     await expect(
-      forwardReport(mgr.id, "no-such-report", { emails: ["jsmith@yale.edu"] })
+      forwardReport(mgr.id, "no-such-report", { emails: ["advisor@ynhh.org"] })
     ).rejects.toThrow(IncidentNotFoundError);
   });
 
@@ -81,7 +82,7 @@ describe("forwardReport", () => {
     const report = await aReport(reporter.id);
 
     await forwardReport(mgr.id, report.id, {
-      emails: ["jsmith@yale.edu", "alee@yale.edu"],
+      emails: ["advisor@ynhh.org", "second@ynhh.org"],
       note: "Please review before Saturday.",
     });
 
@@ -89,12 +90,9 @@ describe("forwardReport", () => {
       where: { reportId: report.id },
       orderBy: { toEmail: "asc" },
     });
-    expect(rows.map((r) => r.toEmail)).toEqual(["alee@yale.edu", "jsmith@yale.edu"]);
+    expect(rows.map((r) => r.toEmail)).toEqual(["advisor@ynhh.org", "second@ynhh.org"]);
     expect(rows.every((r) => r.forwardedById === mgr.id)).toBe(true);
     expect(rows.every((r) => r.note === "Please review before Saturday.")).toBe(true);
-    // The name is snapshotted from the directory, not looked up later: the
-    // setting is free text and an entry can be edited or deleted afterwards.
-    expect(rows.find((r) => r.toEmail === "jsmith@yale.edu")?.toName).toBe("Dr. Jane Smith");
   });
 
   it("queues one email per recipient", async () => {
@@ -103,23 +101,37 @@ describe("forwardReport", () => {
     await grantPermission(mgr.id, "incidents.manage");
     const report = await aReport(reporter.id);
 
-    await forwardReport(mgr.id, report.id, { emails: ["jsmith@yale.edu"] });
+    await forwardReport(mgr.id, report.id, { emails: ["advisor@ynhh.org"] });
 
-    const mail = await prisma.emailLog.findMany({ where: { toEmail: "jsmith@yale.edu" } });
+    const mail = await prisma.emailLog.findMany({ where: { toEmail: "advisor@ynhh.org" } });
     expect(mail).toHaveLength(1);
   });
 
-  it("refuses an address that is not in the configured directory", async () => {
-    // The whole point of the directory is that a reviewer picks from a vetted
-    // list. A free-typed address is one typo away from disclosing an incident
-    // report to a stranger, and the disclosure cannot be recalled.
+  it("accepts any address the reviewer types", async () => {
+    // External advisors have no Hub account and no Person record, so there is
+    // nothing to pre-register them against. A reviewer types the address of
+    // whichever advisor this matter should reach.
+    const reporter = await createPerson("Reporter");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "incidents.manage");
+    const report = await aReport(reporter.id);
+
+    await forwardReport(mgr.id, report.id, { emails: ["advisor@ynhh.org"] });
+
+    const rows = await prisma.incidentForward.findMany({ where: { reportId: report.id } });
+    expect(rows.map((r) => r.toEmail)).toEqual(["advisor@ynhh.org"]);
+  });
+
+  it("still refuses something that is not an email address", async () => {
+    // The only guard left. A typo that is not an address would fail silently at
+    // send time, leaving a forward row claiming a disclosure that never happened.
     const reporter = await createPerson("Reporter");
     const mgr = await createPerson("Manager");
     await grantPermission(mgr.id, "incidents.manage");
     const report = await aReport(reporter.id);
 
     await expect(
-      forwardReport(mgr.id, report.id, { emails: ["stranger@example.com"] })
+      forwardReport(mgr.id, report.id, { emails: ["not-an-email"] })
     ).rejects.toThrow(IncidentForwardError);
     expect(await prisma.incidentForward.count()).toBe(0);
   });
@@ -148,9 +160,9 @@ describe("forwardReport", () => {
       anonymous: true,
     });
 
-    await forwardReport(mgr.id, report.id, { emails: ["jsmith@yale.edu"] });
+    await forwardReport(mgr.id, report.id, { emails: ["advisor@ynhh.org"] });
 
-    const mail = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "jsmith@yale.edu" } });
+    const mail = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "advisor@ynhh.org" } });
     expect(mail.html).not.toContain("Anonymous Reporter");
     expect(mail.html).not.toContain("Something happened.");
   });
@@ -173,12 +185,12 @@ describe("forwardStrike", () => {
     await grantPermission(mgr.id, "incidents.manage");
     const action = await aStrike(mgr.id, subject.id);
 
-    await forwardStrike(mgr.id, action.id, { emails: ["jsmith@yale.edu"] });
+    await forwardStrike(mgr.id, action.id, { emails: ["advisor@ynhh.org"] });
 
     const rows = await prisma.incidentForward.findMany({ where: { actionId: action.id } });
     expect(rows).toHaveLength(1);
     expect(rows[0].reportId).toBeNull();
-    expect(await prisma.emailLog.count({ where: { toEmail: "jsmith@yale.edu" } })).toBe(1);
+    expect(await prisma.emailLog.count({ where: { toEmail: "advisor@ynhh.org" } })).toBe(1);
   });
 
   it("refuses to forward a CONFIDENTIAL strike", async () => {
@@ -192,7 +204,7 @@ describe("forwardStrike", () => {
     const action = await aStrike(mgr.id, subject.id, true);
 
     await expect(
-      forwardStrike(mgr.id, action.id, { emails: ["jsmith@yale.edu"] })
+      forwardStrike(mgr.id, action.id, { emails: ["advisor@ynhh.org"] })
     ).rejects.toThrow(IncidentForwardError);
     expect(await prisma.incidentForward.count()).toBe(0);
   });
@@ -204,7 +216,7 @@ describe("forwardStrike", () => {
     await grantPermission(mgr.id, "incidents.manage");
     const action = await aStrike(mgr.id, subject.id);
     await expect(
-      forwardStrike(nosy.id, action.id, { emails: ["jsmith@yale.edu"] })
+      forwardStrike(nosy.id, action.id, { emails: ["advisor@ynhh.org"] })
     ).rejects.toThrow(IncidentForbiddenError);
   });
 });
@@ -216,12 +228,36 @@ describe("listReportForwards", () => {
     await grantPermission(mgr.id, "incidents.manage");
     const report = await aReport(reporter.id);
 
-    await forwardReport(mgr.id, report.id, { emails: ["jsmith@yale.edu"] });
+    await forwardReport(mgr.id, report.id, { emails: ["advisor@ynhh.org"] });
     await new Promise((r) => setTimeout(r, 5));
-    await forwardReport(mgr.id, report.id, { emails: ["alee@yale.edu"] });
+    await forwardReport(mgr.id, report.id, { emails: ["second@ynhh.org"] });
 
     const trail = await listReportForwards(report.id);
-    expect(trail.map((f) => f.toEmail)).toEqual(["alee@yale.edu", "jsmith@yale.edu"]);
+    expect(trail.map((f) => f.toEmail)).toEqual(["second@ynhh.org", "advisor@ynhh.org"]);
     expect(trail[0].forwardedBy.name).toBe("Manager");
+  });
+});
+
+describe("recentForwardEmails", () => {
+  it("offers previously used addresses, most recent first, deduped", async () => {
+    // Typing a medical advisor's address from memory every time invites a typo
+    // that silently sends an incident report to a stranger. Past addresses are
+    // offered as suggestions -- not as a constraint.
+    const reporter = await createPerson("Reporter");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "incidents.manage");
+    const report = await aReport(reporter.id);
+
+    await forwardReport(mgr.id, report.id, { emails: ["first@ynhh.org"] });
+    await new Promise((r) => setTimeout(r, 5));
+    await forwardReport(mgr.id, report.id, { emails: ["second@ynhh.org"] });
+    await new Promise((r) => setTimeout(r, 5));
+    await forwardReport(mgr.id, report.id, { emails: ["first@ynhh.org"] });
+
+    expect(await recentForwardEmails()).toEqual(["first@ynhh.org", "second@ynhh.org"]);
+  });
+
+  it("is empty when nothing has ever been forwarded", async () => {
+    expect(await recentForwardEmails()).toEqual([]);
   });
 });

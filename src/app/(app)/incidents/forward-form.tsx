@@ -1,86 +1,80 @@
 "use client";
 
 /**
- * Recipient picker for forwarding an incident report or an issued strike to
- * clinical supervisors outside the clinic.
+ * Forwarding an incident report or an issued strike to a clinical advisor
+ * outside the clinic.
  *
- * Shared by the report detail page and the strikes ledger, which is why the
- * target field is parameterised (`targetIdName`) rather than hardcoded to a
- * report: both surfaces send the same shape to their own server action.
+ * A PLAIN EMAIL FIELD, on purpose. These advisors are third parties: no Hub
+ * account, no Person record, nothing to grant a permission to and nothing to
+ * pre-register them against. An earlier version of this made the reviewer pick
+ * from a settings-managed directory, which put an admin step between them and
+ * the advisor they needed to reach.
  *
- * Client component for one reason: the submit button stays disabled until at
- * least one recipient is checked. The server re-validates the recipient list
- * against the directory regardless -- this only stops a reviewer submitting an
- * empty form and getting bounced back with an error they could have been spared.
+ * Addresses used before are offered through a <datalist>, so the common case
+ * (the same two or three advisors, over and over) is a pick rather than a
+ * retype, while an address never used before still just works. A datalist and
+ * not a <select>: it suggests without constraining.
  *
- * Deliberately NOT a free-text address field. Every recipient is a checkbox over
- * the configured directory, because a typed address is one keystroke away from
- * disclosing an incident report to a stranger, and no send outside the
- * organization can be recalled.
+ * Client component because the submit button stays disabled until the field
+ * holds something that looks like an address. The service re-validates and is
+ * the real guard; this only spares the reviewer a round trip.
  */
 
-import { useState } from "react";
-import { Checkbox } from "@/platform/ui/checkbox";
-import { Field, Textarea } from "@/platform/ui/input";
+import { useId, useState } from "react";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
-
-export type ForwardContact = { name: string | null; email: string };
 
 type ForwardFormProps = {
   action: (formData: FormData) => Promise<void>;
   /** Form field name the owning action reads the target id from. */
   targetIdName: string;
   targetId: string;
-  contacts: ForwardContact[];
+  /** Previously used addresses, offered as suggestions. */
+  suggestions?: string[];
 };
 
-export function ForwardForm({ action, targetIdName, targetId, contacts }: ForwardFormProps) {
-  const [chosen, setChosen] = useState<string[]>([]);
+/** Mirrors the service's check. Permissive by design: it catches "not an
+ *  address at all", not undeliverable ones. */
+const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  function toggle(email: string, checked: boolean) {
-    setChosen((prev) => (checked ? [...prev, email] : prev.filter((e) => e !== email)));
-  }
+export function ForwardForm({ action, targetIdName, targetId, suggestions = [] }: ForwardFormProps) {
+  const [email, setEmail] = useState("");
+  const listId = useId();
 
   return (
     <form action={action} className="mt-3 space-y-3">
       <input type="hidden" name={targetIdName} value={targetId} />
 
-      <fieldset>
-        <legend className="mb-2 text-sm font-medium">Send to</legend>
-        <div className="space-y-1">
-          {contacts.map((c) => (
-            <label key={c.email} className="flex items-start gap-2 text-sm">
-              <Checkbox
-                name="emails"
-                value={c.email}
-                className="mt-0.5"
-                checked={chosen.includes(c.email)}
-                onChange={(e) => toggle(c.email, e.target.checked)}
-              />
-              <span>
-                {c.name ? (
-                  <>
-                    <span className="font-medium">{c.name}</span>{" "}
-                    <span className="text-subtle-foreground">({c.email})</span>
-                  </>
-                ) : (
-                  c.email
-                )}
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <div className="max-w-md">
+        <Field label="Forward to" hint="Email address of the advisor outside the clinic">
+          <Input
+            name="emails"
+            type="email"
+            list={suggestions.length > 0 ? listId : undefined}
+            placeholder="advisor@example.org"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="off"
+          />
+        </Field>
+        {suggestions.length > 0 && (
+          <datalist id={listId}>
+            {suggestions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        )}
+      </div>
 
-      <Field label="Note (optional)" hint="Included in the email and kept on the record">
-        <Textarea name="note" rows={2} placeholder="Why you are sending this" />
-      </Field>
+      <div className="max-w-md">
+        <Field label="Note (optional)" hint="Included in the email and kept on the record">
+          <Textarea name="note" rows={2} placeholder="Why you are sending this" />
+        </Field>
+      </div>
 
       <FormActions>
-        <SubmitButton disabled={chosen.length === 0}>
-          {chosen.length > 1 ? `Forward to ${chosen.length} people` : "Forward"}
-        </SubmitButton>
+        <SubmitButton disabled={!LOOKS_LIKE_EMAIL.test(email.trim())}>Forward</SubmitButton>
       </FormActions>
     </form>
   );

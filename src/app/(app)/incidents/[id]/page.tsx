@@ -29,8 +29,7 @@ import {
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
-import { externalContacts } from "@/modules/incidents/services/external-contacts";
-import { listReportForwards } from "@/modules/incidents/services/forward";
+import { listReportForwards, recentForwardEmails } from "@/modules/incidents/services/forward";
 import { reviewReportAction, decideStrikeAction, forwardReportAction } from "../actions";
 import { detailReviewerDisclosure } from "../disclosure";
 import { ForwardForm } from "../forward-form";
@@ -147,9 +146,9 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
   // Forwarding is a reviewer-only surface, so neither read runs for the
   // reporter viewing their own report: they cannot forward, and the trail of who
   // received it outside the clinic is not theirs to see.
-  const [contacts, forwards] = canManage
-    ? await Promise.all([externalContacts(), listReportForwards(report.id)])
-    : [[], []];
+  const [suggestions, forwards] = canManage
+    ? await Promise.all([recentForwardEmails(), listReportForwards(report.id)])
+    : [[] as string[], [] as Awaited<ReturnType<typeof listReportForwards>>];
 
   // Verified badges on the linked subjects. Gated on volunteers.view, so the
   // reporter viewing their own report never sees the clearance of the person
@@ -435,25 +434,19 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
             <ul className="mt-3 space-y-1 text-sm text-foreground-soft">
               {forwards.map((f) => (
                 <li key={f.id}>
-                  Sent to <span className="text-foreground">{f.toName ?? f.toEmail}</span> by{" "}
+                  Sent to <span className="text-foreground">{f.toEmail}</span> by{" "}
                   {f.forwardedBy.name} on <DateOnly value={f.createdAt} />
                   {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
                 </li>
               ))}
             </ul>
           )}
-          {contacts.length === 0 ? (
-            <p className="mt-3 text-sm text-subtle-foreground">
-              No external supervisors are configured. An administrator can add them in Settings.
-            </p>
-          ) : (
-            <ForwardForm
-              action={forwardReportAction}
-              targetIdName="reportId"
-              targetId={report.id}
-              contacts={contacts}
-            />
-          )}
+          <ForwardForm
+            action={forwardReportAction}
+            targetIdName="reportId"
+            targetId={report.id}
+            suggestions={suggestions}
+          />
         </Card>
       )}
     </div>

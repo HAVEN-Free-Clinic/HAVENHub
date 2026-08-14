@@ -232,51 +232,27 @@ export type IncidentAudienceMember = {
 };
 
 /**
- * Everyone who receives incident notifications: incidents.manage reviewers, plus
- * incidents.escalation_recipient holders copied for visibility.
+ * Everyone who receives incident notifications: incidents.manage reviewers.
  *
- * THE SINGLE SOURCE OF THIS AUDIENCE. The reporting form promises the reporter
- * "This report goes to the clinic's incident reviewers, currently N people", and
- * disclosure.ts requires that count to come from the same query that drives the
- * notification, so the form can never describe a smaller audience than the one
- * actually mailed. Every caller that notifies, or that counts in order to state
- * who is notified, must go through here. Do not reintroduce a bare
- * peopleWithAnyPermission(["incidents.manage"]) at a call site.
+ * THE SINGLE SOURCE OF THIS AUDIENCE. Every caller that notifies must go through
+ * here rather than reintroducing a bare peopleWithAnyPermission at a call site.
  *
- * Escalation recipients get NO read access anywhere; the permission exists only
- * to widen this list. See the note on the incidents module's permissions.
+ * It used to also fold in incidents.escalation_recipient holders, and separately
+ * blind-copy a list of external addresses. Both are gone: the permission could
+ * never reach the third-party advisors it was built for (they have no account to
+ * grant it to), and the blind copy sent every matter to everyone. Reaching
+ * outside the clinic is now a per-matter forward (forward.ts).
  */
-// Clinical supervisors OUTSIDE the Hub used to be resolved here, as a flat
-// address list that submission and strike issuance blind-copied. They are now a
-// named directory a reviewer forwards from deliberately: see
-// external-contacts.ts (parsing) and forward.ts (sending and the audit trail).
 
 export async function incidentAudience(): Promise<IncidentAudienceMember[]> {
-  const [reviewers, escalation] = await Promise.all([
-    peopleWithAnyPermission(["incidents.manage"]),
-    peopleWithAnyPermission(["incidents.escalation_recipient"]),
-  ]);
-  const reviewerIds = new Set(reviewers.map((r) => r.id));
-  const members: IncidentAudienceMember[] = reviewers.map((r) => ({
+  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
+  return reviewers.map((r) => ({
     id: r.id,
     name: r.name,
     entraObjectId: r.entraObjectId,
     contactEmail: r.contactEmail,
     canReview: true,
   }));
-  // Someone holding both permissions is a reviewer: the stronger role wins, and
-  // they must not be mailed twice.
-  for (const e of escalation) {
-    if (reviewerIds.has(e.id)) continue;
-    members.push({
-      id: e.id,
-      name: e.name,
-      entraObjectId: e.entraObjectId,
-      contactEmail: e.contactEmail,
-      canReview: false,
-    });
-  }
-  return members;
 }
 
 // ---------------------------------------------------------------------------

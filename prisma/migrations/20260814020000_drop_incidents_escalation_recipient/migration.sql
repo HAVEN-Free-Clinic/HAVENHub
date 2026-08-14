@@ -1,0 +1,18 @@
+-- Removes the incidents.escalation_recipient permission from any role that
+-- still grants it.
+--
+-- The permission is gone from the registry (src/platform/modules/registry.ts).
+-- It existed to copy "medical directors" on incident reports and issued
+-- strikes, but a permission can only be granted to a Person with a Hub account,
+-- and the advisors it was aimed at are third parties with no account at all --
+-- so it could never actually reach them. Forwarding outside the clinic is now
+-- an address a reviewer types per matter.
+--
+-- Left behind, these rows would be invisible in the RBAC editor (which renders
+-- from the registry) while still sitting in the database, so a later
+-- reintroduction of the same string would silently re-grant it to whoever holds
+-- it today.
+--
+-- Roles are NOT deleted, only this grant: a role may carry other permissions,
+-- and deleting one out from under its assignments would revoke unrelated access.
+DELETE FROM "RoleGrant" WHERE "permission" = 'incidents.escalation_recipient';

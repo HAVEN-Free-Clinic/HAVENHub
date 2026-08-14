@@ -74,7 +74,6 @@ import {
   IncidentForbiddenError,
 } from "./report";
 import { DISCIPLINARY_CATEGORIES } from "./disciplinary";
-import { setSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors src/modules/incidents/services/disciplinary.test.ts)
@@ -422,55 +421,26 @@ describe("submitReport", () => {
 // submitReport -> notify() wiring
 // ---------------------------------------------------------------------------
 
-// The reporting form tells a reporter "this goes to N people", and that N comes
-// from incidentAudience(). If the audience and the notification ever describe
-// different sets, the form makes a false promise to someone deciding whether it
-// is safe to report a colleague. These pin the two together.
+// incidentAudience is the single source of who gets notified about a report.
 describe("incidentAudience", () => {
-  it("counts reviewers and escalation recipients alike", async () => {
+  it("is exactly the incidents.manage holders", async () => {
     const reviewer = await createPerson("Reviewer", "aud-rev");
-    const escalation = await createPerson("Escalation", "aud-esc");
     const nobody = await createPerson("Nobody", "aud-non");
     await grantPermission(reviewer.id, "incidents.manage");
-    await grantPermission(escalation.id, "incidents.escalation_recipient");
 
     const audience = await incidentAudience();
     const ids = audience.map((a) => a.id);
 
-    expect(ids).toContain(reviewer.id);
-    expect(ids).toContain(escalation.id);
+    expect(ids).toEqual([reviewer.id]);
     expect(ids).not.toContain(nobody.id);
+    expect(audience[0].canReview).toBe(true);
   });
 
-  it("marks only incidents.manage holders as able to review", async () => {
-    const reviewer = await createPerson("Reviewer", "aud-rev2");
-    const escalation = await createPerson("Escalation", "aud-esc2");
-    await grantPermission(reviewer.id, "incidents.manage");
-    await grantPermission(escalation.id, "incidents.escalation_recipient");
 
-    const audience = await incidentAudience();
-    expect(audience.find((a) => a.id === reviewer.id)?.canReview).toBe(true);
-    expect(audience.find((a) => a.id === escalation.id)?.canReview).toBe(false);
-  });
-
-  it("lists someone holding both permissions once, as a reviewer", async () => {
-    const both = await createPerson("Both", "aud-both");
-    await grantPermission(both.id, "incidents.manage");
-    await grantPermission(both.id, "incidents.escalation_recipient");
-
-    const audience = await incidentAudience();
-    const mine = audience.filter((a) => a.id === both.id);
-    expect(mine).toHaveLength(1);
-    expect(mine[0].canReview).toBe(true);
-  });
-
-  // The count the form shows must equal the number of people actually mailed.
   it("matches the set that submitReport notifies", async () => {
     const reporter = await createPerson("Reporter", "aud-rep");
     const reviewer = await createPerson("Reviewer", "aud-rev3");
-    const escalation = await createPerson("Escalation", "aud-esc3");
     await grantPermission(reviewer.id, "incidents.manage");
-    await grantPermission(escalation.id, "incidents.escalation_recipient");
 
     const disclosedCount = (await incidentAudience()).length;
 
@@ -479,7 +449,9 @@ describe("incidentAudience", () => {
       description: "Audience check.",
     });
 
-    const notified = await prisma.notification.count({ where: { type: "incidents.report_submitted" } });
+    const notified = await prisma.notification.count({
+      where: { type: "incidents.report_submitted" },
+    });
     expect(notified).toBe(disclosedCount);
   });
 });
@@ -512,49 +484,9 @@ describe("submitReport notifications", () => {
   // Escalation recipients are copied for visibility and hold no read access
   // anywhere, so their email must carry the substance without a link into the
   // review queue they cannot open.
-  it("copies escalation recipients, with no review link", async () => {
-    const reporter = await createPerson("Reporter", "esc-rep");
-    const manager = await createPerson("Manager", "esc-mgr");
-    const medDirector = await createPerson("Medical Director", "esc-med");
-    await grantPermission(manager.id, "incidents.manage");
-    await grantPermission(medDirector.id, "incidents.escalation_recipient");
-
-    const report = await submitReport(reporter.id, {
-      concernTypes: ["PATIENT_SAFETY"],
-      description: "Unsafe handoff at the end of clinic.",
-    });
-
-    const escNotes = await prisma.notification.findMany({
-      where: { personId: medDirector.id, type: "incidents.report_submitted" },
-    });
-    expect(escNotes).toHaveLength(1);
-    // They are told what happened...
-    expect(escNotes[0].body).toContain(String(report.number));
-    // ...but not handed a link that would bounce them off /incidents/review.
-    expect(escNotes[0].link).toBeNull();
-
-    // The reviewer still gets theirs, with the link.
-    const mgrNotes = await prisma.notification.findMany({
-      where: { personId: manager.id, type: "incidents.report_submitted" },
-    });
-    expect(mgrNotes[0].link).toMatch(/\/incidents\/review$/);
-  });
 
   // Being copied for visibility must not become a way to learn of a report
   // filed against yourself.
-  it("never notifies an escalation recipient who is a subject of the report", async () => {
-    const reporter = await createPerson("Reporter", "esc-rep2");
-    const medDirector = await createPerson("Medical Director", "esc-med2");
-    await grantPermission(medDirector.id, "incidents.escalation_recipient");
-
-    await submitReport(reporter.id, {
-      concernTypes: ["PROFESSIONAL_CONDUCT"],
-      description: "Concern about the medical director.",
-      subjects: [{ personId: medDirector.id }],
-    });
-
-    expect(await prisma.notification.count({ where: { personId: medDirector.id } })).toBe(0);
-  });
 
   // Holding both permissions must not produce two emails; the reviewer role wins.
   it("does not double-notify someone holding both permissions", async () => {
@@ -580,42 +512,20 @@ describe("submitReport notifications", () => {
   // forwards from, one matter at a time (see forward.ts and forward.test.ts).
   // Submission must therefore reach nobody outside the clinic on its own.
   describe("external escalation", () => {
-    async function setExternals(value: string) {
-      await setSetting("incidents.externalEscalationEmails", value, null);
-    }
-
-    it("does NOT email external supervisors on submission, even when the directory is populated", async () => {
-      // The behaviour this replaces: every configured address received every
-      // non-anonymous report automatically. Reviewers asked for the opposite --
-      // a particular matter to a particular supervisor -- so a submitted report
-      // now leaves the clinic only when someone decides to send it.
+    it("emails NOBODY outside the clinic on submission", async () => {
+      // There is no longer any configured list to blind-copy, and no permission
+      // that quietly widens the audience. A report reaches an outside advisor
+      // only when a reviewer forwards it to a typed address (forward.ts).
       const reporter = await createPerson("Reporter", "ext-rep");
-      // A BARE address on purpose: the old blind-copy parser would have matched
-      // and sent to it, so this test fails against the previous behaviour. A
-      // "Name <addr>" entry would pass trivially, since the old parser mangled
-      // it into "<addr>" and never matched this assertion.
-      await setExternals("md@yale.edu");
 
       await submitReport(reporter.id, {
         concernTypes: ["PATIENT_SAFETY"],
         description: "Unsafe handoff.",
       });
 
-      // Nothing at all leaves the clinic: no external row, by any address.
-      expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
-    });
-
-    it("still emails nobody externally for an anonymous report", async () => {
-      const reporter = await createPerson("Reporter", "ext-anon");
-      await setExternals("md@yale.edu");
-
-      await submitReport(reporter.id, {
-        concernTypes: ["PROFESSIONAL_CONDUCT"],
-        description: "I was on triage with him when he",
-        anonymous: true,
-      });
-
-      expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
+      // Every queued email belongs to a Person: no bare external address.
+      const mail = await prisma.emailLog.findMany({ select: { personId: true } });
+      expect(mail.every((m) => m.personId !== null)).toBe(true);
     });
   });
 

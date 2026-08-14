@@ -9,14 +9,17 @@
  * supervisor -- so the automatic sends are gone (see report.ts and
  * strike-notifications.ts) and this is the deliberate act that replaced them.
  *
- * TWO RULES HOLD THE SAFETY THAT THE OLD BLIND COPY GOT FROM BEING AUTOMATIC:
+ * RECIPIENTS ARE TYPED, NOT PICKED FROM A LIST. These advisors are third
+ * parties: no Hub account, no Person record, nothing to pre-register them
+ * against. An earlier version of this required every address to exist in a
+ * settings directory first, which put an admin step between a reviewer and the
+ * advisor they needed to reach, for no safety the trail below does not already
+ * provide. Addresses used before are offered as suggestions instead.
  *
- *  1. Recipients must come from the configured directory. A free-typed address
- *     is one typo away from disclosing an incident report to a stranger, and no
- *     disclosure outside the organization can be recalled.
- *  2. Every forward is recorded on the record it disclosed (IncidentForward), not
- *     just in EmailLog. A reviewer deciding whether to forward needs to see who
- *     already received it, and an audit needs the trail attached to the report.
+ * What DOES hold: every forward is recorded on the record it disclosed
+ * (IncidentForward), not just in EmailLog. A reviewer deciding whether to
+ * forward needs to see who already received it, and an audit of a disclosure
+ * that left the organization needs the trail attached to the record itself.
  *
  * The payload is deliberately thin -- report number, concern types, risk flag,
  * the reviewer's note -- with no link (recipients have no Hub account) and no
@@ -32,9 +35,8 @@ import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { forwardedExternalContext } from "@/platform/email/templates/incidents";
 import { IncidentNotFoundError, IncidentForbiddenError, CONCERN_LABELS } from "./report";
-import { externalContacts } from "./external-contacts";
 
-/** A forward that cannot be sent as asked: no recipients, or an unknown address. */
+/** A forward that cannot be sent as asked: no recipients, or a malformed address. */
 export class IncidentForwardError extends Error {
   constructor(message: string) {
     super(message);
@@ -43,7 +45,7 @@ export class IncidentForwardError extends Error {
 }
 
 export type ForwardInput = {
-  /** Addresses chosen from the directory. */
+  /** Addresses the reviewer typed. */
   emails: string[];
   /** Optional covering note from the reviewer, included in the email. */
   note?: string;
@@ -51,33 +53,48 @@ export type ForwardInput = {
 
 const MANAGE = "incidents.manage";
 
-/**
- * Resolves the requested addresses against the directory, or throws.
- *
- * Returns the matched contacts so the caller snapshots the display NAME as it
- * stood at send time: the directory is a free-text setting, and an entry can be
- * renamed or deleted afterwards without rewriting history.
- */
-async function resolveRecipients(emails: string[]) {
+/** Deliberately permissive: enough to catch a typo that is not an address at
+ *  all, without pretending to validate deliverability. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function resolveRecipients(emails: string[]): string[] {
   const wanted = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
   if (wanted.length === 0) {
-    throw new IncidentForwardError("Choose at least one recipient to forward to.");
+    throw new IncidentForwardError("Enter at least one address to forward to.");
   }
 
-  const directory = await externalContacts();
-  const byEmail = new Map(directory.map((c) => [c.email, c]));
-  const unknown = wanted.filter((e) => !byEmail.has(e));
-  if (unknown.length > 0) {
-    throw new IncidentForwardError(
-      `Not a configured external contact: ${unknown.join(", ")}. Add them in Settings first.`
-    );
+  const malformed = wanted.filter((e) => !EMAIL.test(e));
+  if (malformed.length > 0) {
+    throw new IncidentForwardError(`Not a valid email address: ${malformed.join(", ")}`);
   }
 
-  return wanted.map((e) => byEmail.get(e)!);
+  return wanted;
 }
 
 /**
- * Forwards a report to the chosen external contacts.
+ * Addresses forwarded to before, most recent first.
+ *
+ * Offered as SUGGESTIONS on the forward form, never as a constraint: typing a
+ * medical advisor's address from memory each time invites the one typo that
+ * sends an incident report to a stranger. Derived from the forward trail, so it
+ * needs no separate contact list to keep in sync.
+ */
+export async function recentForwardEmails(limit = 20): Promise<string[]> {
+  const rows = await prisma.incidentForward.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { toEmail: true },
+    take: 200,
+  });
+  const seen: string[] = [];
+  for (const r of rows) {
+    if (!seen.includes(r.toEmail)) seen.push(r.toEmail);
+    if (seen.length >= limit) break;
+  }
+  return seen;
+}
+
+/**
+ * Forwards a report to the addresses the reviewer entered.
  *
  * Not best-effort, unlike the submission notifications this replaces: those fired
  * automatically after a commit that had to stand regardless, so swallowing their
@@ -96,7 +113,7 @@ export async function forwardReport(
   const report = await prisma.incidentReport.findUnique({ where: { id: reportId } });
   if (!report) throw new IncidentNotFoundError();
 
-  const recipients = await resolveRecipients(input.emails);
+  const recipients = resolveRecipients(input.emails);
   const note = (input.note ?? "").trim();
   const actor = await prisma.person.findUniqueOrThrow({
     where: { id: actorPersonId },
@@ -104,11 +121,11 @@ export async function forwardReport(
   });
   const concernSummary = report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
 
-  for (const contact of recipients) {
+  for (const email of recipients) {
     const rendered = await renderEmail(
       "incidents.forwarded_external",
       forwardedExternalContext({
-        recipientName: contact.name ?? "Colleague",
+        recipientName: "Colleague",
         subjectLine: `Incident report #${report.number}`,
         concernSummary,
         immediateRisk: report.immediateRisk,
@@ -117,7 +134,7 @@ export async function forwardReport(
       })
     );
     await queueEmail(prisma, {
-      to: contact.email,
+      to: email,
       subject: rendered.subject,
       html: rendered.html,
       template: "incidents.forwarded_external",
@@ -127,8 +144,7 @@ export async function forwardReport(
     await prisma.incidentForward.create({
       data: {
         reportId: report.id,
-        toEmail: contact.email,
-        toName: contact.name,
+        toEmail: email,
         note: note || null,
         forwardedById: actorPersonId,
       },
@@ -140,12 +156,12 @@ export async function forwardReport(
     actorPersonId,
     entityType: "IncidentReport",
     entityId: report.id,
-    after: { recipients: recipients.map((r) => r.email), note: note || null },
+    after: { recipients, note: note || null },
   });
 }
 
 /**
- * Forwards an issued strike to the chosen external contacts.
+ * Forwards an issued strike to the addresses the reviewer entered.
  *
  * REFUSES A CONFIDENTIAL STRIKE. decideStrike sets `confidential` from the
  * source report's `anonymous` flag, and a confidential strike is already
@@ -174,18 +190,18 @@ export async function forwardStrike(
     );
   }
 
-  const recipients = await resolveRecipients(input.emails);
+  const recipients = resolveRecipients(input.emails);
   const note = (input.note ?? "").trim();
   const actor = await prisma.person.findUniqueOrThrow({
     where: { id: actorPersonId },
     select: { name: true },
   });
 
-  for (const contact of recipients) {
+  for (const email of recipients) {
     const rendered = await renderEmail(
       "incidents.forwarded_external",
       forwardedExternalContext({
-        recipientName: contact.name ?? "Colleague",
+        recipientName: "Colleague",
         subjectLine: `A disciplinary action recorded for ${action.person.name}`,
         concernSummary: action.category,
         immediateRisk: false,
@@ -194,7 +210,7 @@ export async function forwardStrike(
       })
     );
     await queueEmail(prisma, {
-      to: contact.email,
+      to: email,
       subject: rendered.subject,
       html: rendered.html,
       template: "incidents.forwarded_external",
@@ -203,8 +219,7 @@ export async function forwardStrike(
     await prisma.incidentForward.create({
       data: {
         actionId: action.id,
-        toEmail: contact.email,
-        toName: contact.name,
+        toEmail: email,
         note: note || null,
         forwardedById: actorPersonId,
       },
@@ -216,7 +231,7 @@ export async function forwardStrike(
     actorPersonId,
     entityType: "DisciplinaryAction",
     entityId: action.id,
-    after: { recipients: recipients.map((r) => r.email), note: note || null },
+    after: { recipients, note: note || null },
   });
 }
 

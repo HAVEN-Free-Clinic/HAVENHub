@@ -5,6 +5,7 @@ import {
   matchChannel,
   getCurrentClinicChannelLink,
   __resetChannelCache,
+  GRAPH_TOTAL_BUDGET_MS,
   type ClinicChannelLink,
 } from "./channel-link";
 
@@ -257,5 +258,103 @@ describe("getCurrentClinicChannelLink", () => {
     // After the miss window: retried.
     await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 6 * 60 * 1000) });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getCurrentClinicChannelLink Graph retries", () => {
+  const groupId = "4796e633-27e4-4053-8631-d3b4fe64ebe6";
+  const now = new Date(Date.UTC(2026, 5, 8, 12, 0, 0));
+  const clinicDates = [clinic(2026, 6, 6), clinic(2026, 6, 13), clinic(2026, 6, 20)];
+
+  function timeoutError() {
+    const err = new Error("The operation was aborted due to timeout");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  function okResponse() {
+    return new Response(
+      JSON.stringify({
+        value: [{ id: "2", displayName: "06-13-26 Clinic", webUrl: "https://x/0613" }],
+      }),
+      { status: 200 }
+    );
+  }
+
+  const base = () => ({
+    getToken: async () => "tok",
+    now,
+    groupId,
+    loadClinicDates: async () => clinicDates,
+    sleep: async () => {},
+  });
+
+  it("recovers from a single timeout instead of hiding the card", async () => {
+    // The reported production failure: one transient Graph timeout blanked the
+    // clinic channel card for the whole miss window.
+    const fetchImpl = vi.fn().mockRejectedValueOnce(timeoutError()).mockResolvedValueOnce(okResponse());
+    const result = await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    expect(result?.webUrl).toBe("https://x/0613");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a 429, which is transient too", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("slow down", { status: 429 }))
+      .mockResolvedValueOnce(okResponse());
+    const result = await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    expect(result?.webUrl).toBe("https://x/0613");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry a 403, which will not fix itself", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the WHOLE resolve inside one budget, however many attempts it takes", async () => {
+    // The point of the retry is a better success rate, NOT a longer wait. This
+    // renders inside <Suspense> on the hub, so a slow resolve holds a serverless
+    // invocation open showing an empty rail. Retrying with a fresh full-length
+    // timeout per attempt would triple that; the budget is shared instead.
+    const timeouts: number[] = [];
+    const fetchImpl = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => {
+      // Read back the per-attempt budget the resolver asked for.
+      timeouts.push((init as { __timeoutMs?: number } | undefined)?.__timeoutMs ?? 0);
+      throw timeoutError();
+    });
+    await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+
+    expect(timeouts.length).toBeGreaterThan(1);
+    const total = timeouts.reduce((a, b) => a + b, 0);
+    expect(total).toBeLessThanOrEqual(GRAPH_TOTAL_BUDGET_MS);
+    // Every attempt gets a usable slice rather than a vanishing tail.
+    expect(Math.min(...timeouts)).toBeGreaterThan(0);
+  });
+
+  it("gives up and degrades to null when every attempt times out", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+  });
+
+  it("logs the clinic week and the attempts spent, so a repeat is diagnosable", async () => {
+    // The report's actual complaint: the existing log named neither the channel
+    // being resolved nor whether it eventually succeeded, so nobody could tell
+    // how many clinic weeks were affected.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+
+    const logged = spy.mock.calls.map((c) => JSON.stringify(c)).join(" ");
+    expect(logged).toContain("06-13-26");
+    expect(logged).toMatch(/attempts/i);
   });
 });

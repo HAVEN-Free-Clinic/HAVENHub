@@ -40,19 +40,30 @@ export function PersonName({ name, cleared = false, className }: PersonNameProps
       {label}
       {/* role="img" + <title>: the badge carries meaning, so it needs an
           accessible name. Without one a screen reader announces the name and
-          silently drops the status the sighted user can see. */}
+          silently drops the status the sighted user can see.
+
+          The seal is a 14-lobe scalloped circle generated from polar geometry
+          (notch points at 0.925 of the outer radius, joined by quadratic curves
+          through control points on each bisector), so it is symmetric by
+          construction. The previous path was hand-written and visibly lopsided.
+          14 lobes is deliberate: fewer reads as a cloud, more collapses into a
+          plain circle at the 14px this actually renders at.
+
+          The tick is a HOLE, not a painted shape -- one path, fillRule
+          "evenodd". Painting it a fixed colour would break wherever the badge
+          sits on something other than that colour: card, striped table row,
+          dark mode. As a knockout it simply shows whatever is behind it. */}
       <svg
         role="img"
         aria-label="Cleared for clinic"
-        viewBox="0 0 20 20"
+        viewBox="0 0 24 24"
         fill="currentColor"
         className="h-3.5 w-3.5 shrink-0 text-success"
       >
         <title>Cleared for clinic</title>
         <path
           fillRule="evenodd"
-          d="M10 1.5l2.1 1.6 2.6-.2.9 2.5 2.2 1.4-.9 2.5.9 2.5-2.2 1.4-.9 2.5-2.6-.2L10 18.5l-2.1-1.6-2.6.2-.9-2.5L2.2 13l.9-2.5-.9-2.5 2.2-1.4.9-2.5 2.6.2L10 1.5zm3.6 6.3a.75.75 0 00-1.1-1l-3.2 3.5-1.4-1.4a.75.75 0 10-1.1 1.1l2 2a.75.75 0 001.1 0l3.7-4.2z"
-          clipRule="evenodd"
+          d="M12 1.45Q14.79 -0.21 16.58 2.5Q19.81 2.21 20.24 5.43Q23.28 6.57 22.28 9.65Q24.52 12 22.28 14.35Q23.28 17.43 20.24 18.57Q19.81 21.79 16.58 21.5Q14.79 24.21 12 22.55Q9.21 24.21 7.42 21.5Q4.19 21.79 3.76 18.57Q0.72 17.43 1.72 14.35Q-0.52 12 1.72 9.65Q0.72 6.57 3.76 5.43Q4.19 2.21 7.42 2.5Q9.21 -0.21 12 1.45ZM6.27 12.2L10.6 16.53L17.93 9.2L16.3 7.57L10.6 13.27L7.9 10.57Z"
         />
       </svg>
     </span>

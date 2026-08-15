@@ -446,6 +446,40 @@ export const SETTINGS: SettingDef<unknown>[] = [
     envDefault: () => "800 Howard Ave, New Haven, CT (Yale Physicians Building)",
     secret: false,
   }),
+  // Maintenance is registered last so its category renders at the bottom of
+  // /admin/settings: it is the one switch on the page that takes the hub away
+  // from everybody, and it should not sit next to the settings people edit
+  // week to week.
+  define<boolean>({
+    key: "maintenance.enabled",
+    category: "Maintenance",
+    label: "Maintenance mode",
+    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Only a Platform Admin (the \"*\" grant) keeps using the hub normally, so check who holds it before relying on this. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
+    input: { type: "boolean" },
+    schema: z.boolean(),
+    envDefault: () => false,
+    secret: false,
+  }),
+  define<string>({
+    key: "maintenance.message",
+    category: "Maintenance",
+    label: "Maintenance message",
+    help: "Shown on the maintenance page in place of the default wording. Say what is happening in a sentence, and remember the audience is every volunteer, applicant, and director who tried to open the hub. Leave blank for the default.",
+    input: { type: "textarea" },
+    schema: z.string().max(500, "Keep the message under 500 characters."),
+    envDefault: () => "",
+    secret: false,
+  }),
+  define<string>({
+    key: "maintenance.until",
+    category: "Maintenance",
+    label: "Expected back by",
+    help: "Free text, shown under the message as \"Expected back: ...\" -- for example \"9:00 PM Eastern\" or \"Monday morning\". Written out rather than picked from a calendar so it can stay vague; leave it blank to promise nothing, which is better than missing a time you published.",
+    input: { type: "text" },
+    schema: z.string().max(120, "Keep this under 120 characters."),
+    envDefault: () => "",
+    secret: false,
+  }),
 ];
 
 const BY_KEY = new Map(SETTINGS.map((d) => [d.key, d]));

@@ -156,3 +156,40 @@ describe("clinic hours settings", () => {
     expect(await endDef.validate?.("23:59", mockCtx)).toBe(null);
   });
 });
+
+describe("maintenance settings", () => {
+  it("groups the switch and its copy under one Maintenance category", () => {
+    for (const key of ["maintenance.enabled", "maintenance.message", "maintenance.until"]) {
+      expect(getSettingDef(key).category, key).toBe("Maintenance");
+    }
+    expect(listCategories()).toContain("Maintenance");
+  });
+
+  it("renders Maintenance last, away from the settings edited week to week", () => {
+    const categories = listCategories();
+    expect(categories[categories.length - 1]).toBe("Maintenance");
+  });
+
+  it("defaults to off, so a database blip can never strand the hub in maintenance", () => {
+    expect(getSettingDef("maintenance.enabled").envDefault()).toBe(false);
+  });
+
+  it("defaults the message and the estimate to blank", () => {
+    expect(getSettingDef("maintenance.message").envDefault()).toBe("");
+    expect(getSettingDef("maintenance.until").envDefault()).toBe("");
+  });
+
+  it("documents the no-deploy escape hatch on the switch itself", () => {
+    // The one place an admin locked out by this setting will actually look.
+    expect(getSettingDef("maintenance.enabled").help).toContain("UPDATE \"Setting\"");
+  });
+
+  it("caps the free-text fields so neither can break the page layout", () => {
+    const message = getSettingDef("maintenance.message");
+    expect(message.schema.safeParse("Back shortly.").success).toBe(true);
+    expect(message.schema.safeParse("x".repeat(501)).success).toBe(false);
+    const until = getSettingDef("maintenance.until");
+    expect(until.schema.safeParse("9:00 PM Eastern").success).toBe(true);
+    expect(until.schema.safeParse("x".repeat(121)).success).toBe(false);
+  });
+});

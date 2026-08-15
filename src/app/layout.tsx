@@ -10,6 +10,9 @@ import { buildPageMetadata } from "@/platform/branding/metadata";
 import { brandStyleVars } from "@/platform/ui/brand-style";
 import { TopProgressBar } from "@/platform/ui/top-progress-bar";
 import { EnvBanner } from "@/platform/ui/env-banner";
+import { MaintenanceBanner } from "@/platform/maintenance/maintenance-banner";
+import { shouldShowMaintenanceBanner } from "@/platform/maintenance/banner-mount";
+import { holdsMaintenanceBypass } from "@/platform/maintenance/status";
 import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
@@ -35,10 +38,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const [session, brandColor, adminDefault, requestHeaders] = await Promise.all([
+  const [session, brandColor, adminDefault, maintenanceEnabled, requestHeaders] = await Promise.all([
     auth(),
     getSetting<string>("branding.brandColor"),
     getSetting<string>("ui.defaultTheme"),
+    getSetting<boolean>("maintenance.enabled"),
     headers(),
   ]);
 
@@ -51,6 +55,20 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // bundle. See flash.ts's "applicant portal host" doc section.
   const portalHost = hostFromUrl(config.PORTAL_BASE_URL);
   const isPortalHost = portalHost !== null && requestHeaders.get("host") === portalHost;
+
+  // The banner is for whoever is still using the hub during a window, so it is
+  // gated on the same bypass check the proxy makes rather than on the switch
+  // alone: /login and the public passport pages stay up, and the members and
+  // outside visitors reaching them are not its audience. The RBAC call runs
+  // only while maintenance is actually on. proxy.ts stamps x-pathname on every
+  // request.
+  const holdsBypass =
+    maintenanceEnabled && session?.personId ? await holdsMaintenanceBypass(session.personId) : false;
+  const showMaintenanceBanner = shouldShowMaintenanceBanner({
+    enabled: maintenanceEnabled,
+    isMaintenancePath: requestHeaders.get("x-pathname") === "/maintenance",
+    holdsBypass,
+  });
 
   // Person preference wins; cookie is a fast hint when there is no session. The
   // lookup runs before the page's own requirePersonSession so the <html> class
@@ -78,6 +96,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className={`${hanken.variable} min-h-screen bg-canvas font-sans text-foreground antialiased`}>
         <style dangerouslySetInnerHTML={{ __html: brandStyleVars(brandColor) }} />
         <EnvBanner label={config.ENV_BANNER_LABEL} />
+        <MaintenanceBanner enabled={showMaintenanceBanner} />
         <ThemeListener />
         <RouterCrashRecovery />
         {/* ToastProvider wraps the whole tree (not just the viewport) so any

@@ -88,8 +88,21 @@ describe("matchChannel", () => {
   });
 });
 
+// In-memory durable-store stand-in, so the resolver tests never touch the DB.
+function memLastGood() {
+  const m = new Map<string, ClinicChannelLink>();
+  return {
+    loadLastGood: async (g: string, d: string) => m.get(`${g}|${d}`) ?? null,
+    saveLastGood: async (g: string, d: string, l: ClinicChannelLink) => {
+      m.set(`${g}|${d}`, l);
+    },
+  };
+}
+
+let lastGood: ReturnType<typeof memLastGood>;
 beforeEach(() => {
   __resetChannelCache();
+  lastGood = memLastGood();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -122,6 +135,7 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
+      ...lastGood,
     });
     expect(result).toEqual<ClinicChannelLink>({
       webUrl: "https://x/0613",
@@ -186,6 +200,7 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
+      ...lastGood,
     });
     expect(result).toBeNull();
   });
@@ -201,6 +216,7 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
+      ...lastGood,
     });
     expect(result).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -214,6 +230,7 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
+      ...lastGood,
     };
     await getCurrentClinicChannelLink(deps);
     await getCurrentClinicChannelLink(deps);
@@ -222,7 +239,7 @@ describe("getCurrentClinicChannelLink", () => {
 
   it("re-resolves within the same week when the clinic group id changes (#138)", async () => {
     const fetchImpl = okChannelsFetch();
-    const base = { fetchImpl, getToken: async () => "tok", now, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", now, loadClinicDates: async () => clinicDates, ...lastGood };
     // Warm the cache against the original group id for this clinic week.
     await getCurrentClinicChannelLink({ ...base, groupId });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -239,7 +256,7 @@ describe("getCurrentClinicChannelLink", () => {
 
   it("keeps a found link cached for the week (well past the old 30-min TTL)", async () => {
     const fetchImpl = okChannelsFetch();
-    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates, ...lastGood };
     await getCurrentClinicChannelLink({ ...base, now });
     // Two hours later, same clinic week: still served from cache, no Graph call.
     await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 2 * 60 * 60 * 1000) });
@@ -250,7 +267,7 @@ describe("getCurrentClinicChannelLink", () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })
     );
-    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates, ...lastGood };
     expect(await getCurrentClinicChannelLink({ ...base, now })).toBeNull();
     // Within the miss window: cached, not retried.
     await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 60 * 1000) });
@@ -287,6 +304,7 @@ describe("getCurrentClinicChannelLink Graph retries", () => {
     groupId,
     loadClinicDates: async () => clinicDates,
     sleep: async () => {},
+    ...lastGood,
   });
 
   it("recovers from a single timeout instead of hiding the card", async () => {
@@ -335,12 +353,44 @@ describe("getCurrentClinicChannelLink Graph retries", () => {
     expect(Math.min(...timeouts)).toBeGreaterThan(0);
   });
 
-  it("gives up and degrades to null when every attempt times out", async () => {
+  it("degrades to null when every attempt times out and NO link was saved", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchImpl = vi.fn(async () => {
       throw timeoutError();
     });
+    // lastGood is empty this test, so there is nothing to fall back to.
     expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+  });
+
+  it("saves a resolved link so a later cold start can fall back to it", async () => {
+    const fetchImpl = vi.fn(async () => okResponse());
+    await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    const saved = await lastGood.loadLastGood(groupId, "06-13-26");
+    expect(saved?.webUrl).toBe("https://x/0613");
+  });
+
+  it("serves the last-known-good link instead of hiding the card when every attempt times out", async () => {
+    // The recurring production symptom: both attempts exhaust the 8s budget, so
+    // the module cache (which a serverless cold start does not keep) cannot help.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A previous invocation already saved this clinic week's link.
+    await lastGood.saveLastGood(groupId, "06-13-26", {
+      webUrl: "https://x/0613",
+      displayName: "06-13-26 Clinic",
+      clinicDate: clinic(2026, 6, 13),
+    });
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    const result = await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+
+    expect(result?.webUrl).toBe("https://x/0613");
+    // The card renders, so this is a recovered warning, NOT the counted
+    // "resolve channel failed" error line.
+    expect(errorSpy).not.toHaveBeenCalled();
+    const warned = warnSpy.mock.calls.map((c) => JSON.stringify(c)).join(" ");
+    expect(warned).toContain("last-known-good");
   });
 
   it("logs the clinic week and the attempts spent, so a repeat is diagnosable", async () => {

@@ -8,9 +8,17 @@
  * list the Team's channels via Microsoft Graph using the reused Mailer delegated
  * token, and return the matched channel's Graph-provided webUrl deeplink.
  *
- * Every failure path degrades to null so the dashboard simply hides the card.
+ * When the Graph lookup fails -- most often a timeout that exhausts the whole
+ * retry budget -- we fall back to the last link we saved for this clinic week
+ * instead of hiding the card. The week's channel does not change once it exists,
+ * so a saved copy stays correct. The fallback is durable (a DB row), not the
+ * module cache, because that cache does not survive a serverless cold start.
+ *
+ * A failure with no saved link still degrades to null, so the dashboard hides
+ * the card rather than throwing.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
 import { getAccessToken } from "@/platform/email/oauth";
@@ -103,6 +111,14 @@ export interface ChannelLinkDeps {
   loadClinicDates?: () => Promise<Date[] | null>;
   /** Backoff delay. Injectable so tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Durable last-known-good store, keyed by group id and clinic-week date. Lets
+   * a failed resolve fall back to a link an earlier invocation saved, because
+   * the module cache does not survive a serverless cold start. Injectable so
+   * tests do not touch the database.
+   */
+  loadLastGood?: (groupId: string, dateStr: string) => Promise<ClinicChannelLink | null>;
+  saveLastGood?: (groupId: string, dateStr: string, link: ClinicChannelLink) => Promise<void>;
 }
 
 /**
@@ -160,6 +176,49 @@ let cache: CacheEntry | null = null;
 /** Clear the module-level cache. Exported for test isolation only. */
 export function __resetChannelCache(): void {
   cache = null;
+}
+
+// Durable last-known-good link, held in one reused Setting row (the same direct
+// prisma.setting pattern the cron heartbeat uses). A single row, overwritten on
+// each success and read back on failure, is enough: the link is stable for the
+// whole clinic week, so we only ever need the most recent one.
+const LAST_GOOD_KEY = "teams.channelLinkLastGood";
+
+interface StoredLastGood {
+  groupId: string;
+  dateStr: string;
+  webUrl: string;
+  displayName: string;
+  clinicDate: string; // ISO; JSON has no Date type
+}
+
+/** Read the saved link, but only when it matches this group and clinic week. */
+async function loadStoredLastGood(groupId: string, dateStr: string): Promise<ClinicChannelLink | null> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: LAST_GOOD_KEY } });
+    const v = row?.value as StoredLastGood | null;
+    if (!v || v.groupId !== groupId || v.dateStr !== dateStr) return null;
+    return { webUrl: v.webUrl, displayName: v.displayName, clinicDate: new Date(v.clinicDate) };
+  } catch {
+    // Best-effort fallback: a DB blip just means no saved link this time.
+    return null;
+  }
+}
+
+/** Persist a freshly resolved link. Never throws -- it must not fail a render. */
+async function saveStoredLastGood(groupId: string, dateStr: string, link: ClinicChannelLink): Promise<void> {
+  const value: Prisma.InputJsonObject = {
+    groupId,
+    dateStr,
+    webUrl: link.webUrl,
+    displayName: link.displayName,
+    clinicDate: link.clinicDate.toISOString(),
+  };
+  try {
+    await prisma.setting.upsert({ where: { key: LAST_GOOD_KEY }, create: { key: LAST_GOOD_KEY, value }, update: { value } });
+  } catch {
+    // Best-effort persistence; a failed write only forfeits a future fallback.
+  }
 }
 
 /** Default clinic-date source: the active term's clinicDates array. */
@@ -263,6 +322,8 @@ export async function getCurrentClinicChannelLink(
     groupId,
     loadClinicDates = loadActiveTermClinicDates,
     sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+    loadLastGood = loadStoredLastGood,
+    saveLastGood = saveStoredLastGood,
   } = deps;
 
   const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
@@ -309,18 +370,33 @@ export async function getCurrentClinicChannelLink(
         displayName: channel.displayName,
         clinicDate,
       };
+      // Save the link so a later invocation whose Graph call times out can still
+      // show the card. Awaited but best-effort: saveLastGood never throws.
+      await saveLastGood(resolvedGroupId, dateStr, value);
     }
   } catch (err) {
-    // Name the clinic week and the attempts spent. The previous log carried
-    // neither, so a recurrence could not be tied to a channel or told apart from
-    // a single flaky call -- which is exactly why the production occurrences
-    // could not be counted.
-    logChannelError("resolve channel", err, {
+    // The live lookup failed. Before hiding the card, fall back to the link a
+    // previous invocation saved for this same clinic week -- it does not change
+    // once the week's channel exists, so a saved copy is still correct.
+    const fallback = await loadLastGood(resolvedGroupId, dateStr);
+    const attrs = {
       clinicDate: dateStr,
       attempts: attempts || GRAPH_ATTEMPT_BUDGETS_MS.length,
       elapsedMs: Date.now() - startedAt,
-    });
-    value = null;
+    };
+    if (fallback) {
+      // Not the "resolve channel failed" error line: the card still renders, so
+      // this is a recovered warning, not a user-visible failure.
+      log.warn("[teams/channel-link] served last-known-good after resolve failure", errorAttrs(err, attrs));
+      value = fallback;
+    } else {
+      // Name the clinic week and the attempts spent. The previous log carried
+      // neither, so a recurrence could not be tied to a channel or told apart
+      // from a single flaky call -- which is why the occurrences could not be
+      // counted.
+      logChannelError("resolve channel", err, attrs);
+      value = null;
+    }
   }
 
   cache = { dateStr, groupId: resolvedGroupId, value, expiresAt: now.getTime() + (value ? HIT_TTL_MS : MISS_TTL_MS) };

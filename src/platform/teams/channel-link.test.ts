@@ -88,8 +88,25 @@ describe("matchChannel", () => {
   });
 });
 
+/**
+ * In-memory stand-in for the durable last-known-good store, so the resolver
+ * tests exercise the fallback without touching the database.
+ */
+function memLastGood() {
+  const rows = new Map<string, ClinicChannelLink>();
+  return {
+    loadLastGood: async (g: string, d: string) => rows.get(`${g}|${d}`) ?? null,
+    saveLastGood: async (g: string, d: string, link: ClinicChannelLink) => {
+      rows.set(`${g}|${d}`, link);
+    },
+  };
+}
+
+let lastGood: ReturnType<typeof memLastGood>;
+
 beforeEach(() => {
   __resetChannelCache();
+  lastGood = memLastGood();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -122,7 +139,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
-    });
+      ...lastGood,
+});
     expect(result).toEqual<ClinicChannelLink>({
       webUrl: "https://x/0613",
       displayName: "06-13-26 Clinic",
@@ -143,7 +161,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId: undefined,
       loadClinicDates: async () => clinicDates,
-    });
+      ...lastGood,
+});
     expect(result).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -173,7 +192,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
-    });
+      ...lastGood,
+});
     expect(result).toBeNull();
   });
 
@@ -186,7 +206,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
-    });
+      ...lastGood,
+});
     expect(result).toBeNull();
   });
 
@@ -201,7 +222,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
-    });
+      ...lastGood,
+});
     expect(result).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -214,7 +236,8 @@ describe("getCurrentClinicChannelLink", () => {
       now,
       groupId,
       loadClinicDates: async () => clinicDates,
-    };
+      ...lastGood,
+};
     await getCurrentClinicChannelLink(deps);
     await getCurrentClinicChannelLink(deps);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -222,7 +245,7 @@ describe("getCurrentClinicChannelLink", () => {
 
   it("re-resolves within the same week when the clinic group id changes (#138)", async () => {
     const fetchImpl = okChannelsFetch();
-    const base = { fetchImpl, getToken: async () => "tok", now, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", now, loadClinicDates: async () => clinicDates, ...lastGood };
     // Warm the cache against the original group id for this clinic week.
     await getCurrentClinicChannelLink({ ...base, groupId });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -239,7 +262,7 @@ describe("getCurrentClinicChannelLink", () => {
 
   it("keeps a found link cached for the week (well past the old 30-min TTL)", async () => {
     const fetchImpl = okChannelsFetch();
-    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates, ...lastGood };
     await getCurrentClinicChannelLink({ ...base, now });
     // Two hours later, same clinic week: still served from cache, no Graph call.
     await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 2 * 60 * 60 * 1000) });
@@ -250,7 +273,7 @@ describe("getCurrentClinicChannelLink", () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })
     );
-    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates };
+    const base = { fetchImpl, getToken: async () => "tok", groupId, loadClinicDates: async () => clinicDates, ...lastGood };
     expect(await getCurrentClinicChannelLink({ ...base, now })).toBeNull();
     // Within the miss window: cached, not retried.
     await getCurrentClinicChannelLink({ ...base, now: new Date(now.getTime() + 60 * 1000) });
@@ -287,6 +310,7 @@ describe("getCurrentClinicChannelLink Graph retries", () => {
     groupId,
     loadClinicDates: async () => clinicDates,
     sleep: async () => {},
+    ...lastGood,
   });
 
   it("recovers from a single timeout instead of hiding the card", async () => {
@@ -335,11 +359,12 @@ describe("getCurrentClinicChannelLink Graph retries", () => {
     expect(Math.min(...timeouts)).toBeGreaterThan(0);
   });
 
-  it("gives up and degrades to null when every attempt times out", async () => {
+  it("degrades to null when every attempt times out and nothing was ever saved", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchImpl = vi.fn(async () => {
       throw timeoutError();
     });
+    // lastGood is empty in this test, so there is nothing to fall back to.
     expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
   });
 
@@ -356,5 +381,169 @@ describe("getCurrentClinicChannelLink Graph retries", () => {
     const logged = spy.mock.calls.map((c) => JSON.stringify(c)).join(" ");
     expect(logged).toContain("06-13-26");
     expect(logged).toMatch(/attempts/i);
+  });
+});
+
+describe("getCurrentClinicChannelLink failure telemetry", () => {
+  const groupId = "4796e633-27e4-4053-8631-d3b4fe64ebe6";
+  const now = new Date(Date.UTC(2026, 5, 8, 12, 0, 0));
+  const clinicDates = [clinic(2026, 6, 6), clinic(2026, 6, 13), clinic(2026, 6, 20)];
+
+  function timeoutError() {
+    const err = new Error("The operation was aborted due to timeout");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  const base = () => ({
+    now,
+    groupId,
+    loadClinicDates: async () => clinicDates,
+    sleep: async () => {},
+    ...lastGood,
+  });
+
+  /** The single JSON blob of everything console.error was handed. */
+  function loggedJson(spy: { mock: { calls: unknown[] } }): string {
+    return spy.mock.calls.map((c) => JSON.stringify(c)).join(" ");
+  }
+
+  it("reports the REAL attempt count, not a constant", async () => {
+    // The regression this pins: attempts was only assigned on the SUCCESS path,
+    // so the failure log -- the only one anyone reads -- always printed the
+    // hardcoded attempt cap. Production "attempts=2" lines were that constant,
+    // and two rounds of budget tuning were argued from them.
+    //
+    // A 403 is the discriminator: it is not transient, so exactly ONE attempt
+    // runs. The old code still claimed two.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    await getCurrentClinicChannelLink({ ...base(), getToken: async () => "tok", fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(loggedJson(spy)).toContain('"attempts":1');
+  });
+
+  it("blames the token half, with zero Graph attempts, when the token call is what failed", async () => {
+    // getAccessToken bounds the Entra refresh with its OWN 8s AbortSignal, and
+    // the elapsed clock starts before it -- so a hung token refresh threw the
+    // very same TimeoutError at the very same ~8s and was logged as "resolve
+    // channel failed". The two are only separable by stage + attempts.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn();
+    const result = await getCurrentClinicChannelLink({
+      ...base(),
+      getToken: async () => {
+        throw timeoutError();
+      },
+      fetchImpl,
+    });
+
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const logged = loggedJson(spy);
+    expect(logged).toContain("acquire token");
+    expect(logged).not.toContain("resolve channel");
+    expect(logged).toContain('"attempts":0');
+  });
+
+  it("splits the elapsed time into tokenMs and graphMs", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    await getCurrentClinicChannelLink({ ...base(), getToken: async () => "tok", fetchImpl });
+
+    const logged = loggedJson(spy);
+    expect(logged).toMatch(/"tokenMs":\d+/);
+    expect(logged).toMatch(/"graphMs":\d+/);
+  });
+});
+
+describe("getCurrentClinicChannelLink last-known-good fallback", () => {
+  const groupId = "4796e633-27e4-4053-8631-d3b4fe64ebe6";
+  const now = new Date(Date.UTC(2026, 5, 8, 12, 0, 0));
+  const clinicDates = [clinic(2026, 6, 6), clinic(2026, 6, 13), clinic(2026, 6, 20)];
+  const link: ClinicChannelLink = {
+    webUrl: "https://x/0613",
+    displayName: "06-13-26 Clinic",
+    clinicDate: clinic(2026, 6, 13),
+  };
+
+  function timeoutError() {
+    const err = new Error("The operation was aborted due to timeout");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  const base = () => ({
+    getToken: async () => "tok",
+    now,
+    groupId,
+    loadClinicDates: async () => clinicDates,
+    sleep: async () => {},
+    ...lastGood,
+  });
+
+  it("saves a resolved link so a later cold start has something to fall back to", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ value: [{ id: "2", displayName: link.displayName, webUrl: link.webUrl }] }),
+          { status: 200 }
+        )
+    );
+    await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    expect(await lastGood.loadLastGood(groupId, "06-13-26")).toEqual(link);
+  });
+
+  it("serves the saved link instead of hiding the card when the whole resolve times out", async () => {
+    // The recurring production symptom. The module cache cannot cover this: it
+    // does not survive the serverless cold start that causes it.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await lastGood.saveLastGood(groupId, "06-13-26", link);
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+
+    const result = await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+
+    expect(result).toEqual(link);
+    // Recovered, so NOT the counted error line -- but still fully queryable.
+    expect(errorSpy).not.toHaveBeenCalled();
+    const warned = warnSpy.mock.calls.map((c) => JSON.stringify(c)).join(" ");
+    expect(warned).toContain("last-known-good");
+    expect(warned).toContain("TimeoutError");
+    expect(warned).toContain('"attempts":2');
+  });
+
+  it("ignores a saved link from a different clinic week", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await lastGood.saveLastGood(groupId, "06-06-26", link);
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+  });
+
+  it("ignores a saved link from a different Teams group", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await lastGood.saveLastGood("00000000-1111-2222-3333-444444444444", "06-13-26", link);
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+  });
+
+  it("does not save when Graph answers but the week's channel does not exist yet", async () => {
+    // Nothing resolved, so there is nothing worth remembering -- and a null must
+    // never overwrite a good link saved earlier in the same week.
+    await lastGood.saveLastGood(groupId, "06-13-26", link);
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })
+    );
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+    expect(await lastGood.loadLastGood(groupId, "06-13-26")).toEqual(link);
   });
 });

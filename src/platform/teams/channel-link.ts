@@ -8,7 +8,15 @@
  * list the Team's channels via Microsoft Graph using the reused Mailer delegated
  * token, and return the matched channel's Graph-provided webUrl deeplink.
  *
- * Every failure path degrades to null so the dashboard simply hides the card.
+ * When the live lookup fails we serve the last link we successfully resolved for
+ * the SAME clinic week rather than hiding the card. The week's channel does not
+ * change once it exists, so a saved copy stays correct until the week rolls over
+ * (and the key rolls with it). That fallback is durable -- a Setting row -- and
+ * deliberately so: the module cache below does not survive a serverless cold
+ * start, which is exactly when the lookup is slowest.
+ *
+ * A failure with no saved link still degrades to null, so the dashboard hides
+ * the card rather than throwing.
  */
 
 import { prisma } from "@/platform/db";
@@ -103,6 +111,14 @@ export interface ChannelLinkDeps {
   loadClinicDates?: () => Promise<Date[] | null>;
   /** Backoff delay. Injectable so tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Durable last-known-good store, keyed by group id + clinic week. Lets a
+   * failed resolve fall back to a link an earlier invocation saved, which the
+   * module cache cannot do across a serverless cold start. Injectable so the
+   * resolver tests never touch the database.
+   */
+  loadLastGood?: (groupId: string, dateStr: string) => Promise<ClinicChannelLink | null>;
+  saveLastGood?: (groupId: string, dateStr: string, link: ClinicChannelLink) => Promise<void>;
 }
 
 /**
@@ -162,6 +178,74 @@ export function __resetChannelCache(): void {
   cache = null;
 }
 
+/**
+ * Durable last-known-good link, kept in one reused Setting row -- the same
+ * key/value-table-as-runtime-state pattern the cron heartbeat already uses, so
+ * this needs no schema change. One row is enough: only one clinic week is ever
+ * current, and the stored group id + week are checked on read, so a stale row
+ * from a past week (or a repointed team) is simply ignored.
+ *
+ * Not registered in the settings registry on purpose -- it is resolver state,
+ * not an admin-editable setting, so it is written and read through prisma
+ * directly and never appears in Admin > Settings.
+ */
+const LAST_GOOD_KEY = "teams.channelLinkLastGood";
+
+interface StoredLastGood {
+  groupId: string;
+  dateStr: string;
+  webUrl: string;
+  displayName: string;
+  /** ISO string: JSON has no Date type. */
+  clinicDate: string;
+}
+
+/** Read the saved link, but only when it is for this group and clinic week. */
+async function loadStoredLastGood(
+  groupId: string,
+  dateStr: string
+): Promise<ClinicChannelLink | null> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: LAST_GOOD_KEY } });
+    const stored = row?.value as StoredLastGood | null;
+    if (!stored || stored.groupId !== groupId || stored.dateStr !== dateStr) return null;
+    if (!stored.webUrl) return null;
+    return {
+      webUrl: stored.webUrl,
+      displayName: stored.displayName,
+      clinicDate: new Date(stored.clinicDate),
+    };
+  } catch {
+    // Best-effort: a DB blip just means there is no fallback available, which
+    // lands on the same degrade-to-null path as having never saved one.
+    return null;
+  }
+}
+
+/** Persist a freshly resolved link. Never throws -- it must not fail a render. */
+async function saveStoredLastGood(
+  groupId: string,
+  dateStr: string,
+  link: ClinicChannelLink
+): Promise<void> {
+  const value = {
+    groupId,
+    dateStr,
+    webUrl: link.webUrl,
+    displayName: link.displayName,
+    clinicDate: link.clinicDate.toISOString(),
+  } satisfies StoredLastGood;
+  try {
+    await prisma.setting.upsert({
+      where: { key: LAST_GOOD_KEY },
+      create: { key: LAST_GOOD_KEY, value },
+      update: { value },
+    });
+  } catch {
+    // Best-effort persistence; a failed write only forfeits a future fallback.
+  }
+}
+
 /** Default clinic-date source: the active term's clinicDates array. */
 async function loadActiveTermClinicDates(): Promise<Date[] | null> {
   const term = await prisma.term.findFirst({
@@ -208,15 +292,22 @@ class GraphStatusError extends Error {
  * Each attempt is capped at whatever remains, so the caller's total wait is
  * bounded no matter how many attempts run. When too little budget is left for a
  * meaningful attempt, it stops rather than firing a call that is certain to
- * abort. Reports the attempts spent so the caller can log them.
+ * abort.
+ *
+ * `stats.attempts` is incremented before each call, so the count survives the
+ * throw. It used to be reported only on the success path, which left the FAILURE
+ * log -- the only one anybody reads -- printing a hardcoded "attempts=2" whether
+ * two attempts ran, one ran, or none did because the budget was already spent.
+ * Two rounds of tuning were argued from that constant.
  */
 async function listGraphChannels(
   url: string,
   token: string,
   fetchImpl: typeof fetch,
   sleep: (ms: number) => Promise<void>,
-  startedAt: number
-): Promise<{ channels: GraphChannel[]; attempts: number }> {
+  startedAt: number,
+  stats: { attempts: number }
+): Promise<GraphChannel[]> {
   let lastErr: unknown;
 
   for (let attempt = 1; attempt <= GRAPH_ATTEMPT_BUDGETS_MS.length; attempt++) {
@@ -227,6 +318,7 @@ async function listGraphChannels(
     const attemptMs = Math.min(GRAPH_ATTEMPT_BUDGETS_MS[attempt - 1], remaining);
     if (attemptMs <= 0) break;
 
+    stats.attempts = attempt;
     try {
       const res = await fetchImpl(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -237,7 +329,7 @@ async function listGraphChannels(
       } as RequestInit);
       if (!res.ok) throw new GraphStatusError(res.status);
       const json = (await res.json()) as { value?: GraphChannel[] };
-      return { channels: json.value ?? [], attempts: attempt };
+      return json.value ?? [];
     } catch (err) {
       lastErr = err;
       if (!isTransient(err) || attempt === GRAPH_ATTEMPT_BUDGETS_MS.length) break;
@@ -251,7 +343,7 @@ async function listGraphChannels(
 /**
  * Resolve the current clinic week's Teams channel link, or null when it cannot
  * be determined (unconfigured, not connected, no active term, channel missing,
- * or any Graph error). Never throws.
+ * or any Graph error with no saved link to fall back to). Never throws.
  */
 export async function getCurrentClinicChannelLink(
   deps: ChannelLinkDeps = {}
@@ -263,6 +355,8 @@ export async function getCurrentClinicChannelLink(
     groupId,
     loadClinicDates = loadActiveTermClinicDates,
     sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+    loadLastGood = loadStoredLastGood,
+    saveLastGood = saveStoredLastGood,
   } = deps;
 
   const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
@@ -289,10 +383,21 @@ export async function getCurrentClinicChannelLink(
   }
 
   let value: ClinicChannelLink | null = null;
-  let attempts = 0;
+  let resolvedLive = false;
+  const stats = { attempts: 0 };
   const startedAt = Date.now();
+  let tokenMs = 0;
+  // Which half of the resolve is running. Both halves abort with the SAME
+  // TimeoutError -- getAccessToken bounds the Entra refresh with its own 8s
+  // AbortSignal, and startedAt is stamped BEFORE it -- so a token refresh that
+  // eats the budget used to log as "resolve channel failed, elapsedMs 8001",
+  // indistinguishable from Graph itself running long. The stage and the split
+  // timings below are what tell those two apart.
+  let stage = "acquire token";
   try {
     const token = await getToken();
+    tokenMs = Date.now() - startedAt;
+    stage = "resolve channel";
     // Graph returns up to ~200 channels in one unpaged response. A clinic Team
     // accrues ~one channel per week, so a single page covers years; we do not
     // page. If a Team ever exceeds ~200 channels, this would need @odata.nextLink
@@ -300,27 +405,62 @@ export async function getCurrentClinicChannelLink(
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       resolvedGroupId
     )}/channels`;
-    const listed = await listGraphChannels(url, token, fetchImpl, sleep, startedAt);
-    attempts = listed.attempts;
-    const channel = matchChannel(listed.channels, dateStr);
+    const channels = await listGraphChannels(url, token, fetchImpl, sleep, startedAt, stats);
+    const channel = matchChannel(channels, dateStr);
     if (channel?.webUrl) {
       value = {
         webUrl: channel.webUrl,
         displayName: channel.displayName,
         clinicDate,
       };
+      resolvedLive = true;
     }
   } catch (err) {
-    // Name the clinic week and the attempts spent. The previous log carried
-    // neither, so a recurrence could not be tied to a channel or told apart from
-    // a single flaky call -- which is exactly why the production occurrences
-    // could not be counted.
-    logChannelError("resolve channel", err, {
+    const elapsedMs = Date.now() - startedAt;
+    const attrs = {
       clinicDate: dateStr,
-      attempts: attempts || GRAPH_ATTEMPT_BUDGETS_MS.length,
-      elapsedMs: Date.now() - startedAt,
-    });
-    value = null;
+      // Real counts now, not a constant: attempts is 0 when the token half
+      // consumed the budget and Graph never got a call at all.
+      attempts: stats.attempts,
+      tokenMs: stage === "acquire token" ? elapsedMs : tokenMs,
+      graphMs: stage === "acquire token" ? 0 : elapsedMs - tokenMs,
+      elapsedMs,
+    };
+    // Before hiding the card, fall back to the link a previous invocation saved
+    // for this same clinic week. The week's channel does not change once it
+    // exists, so the saved copy is still the right answer. Guarded because this
+    // function is documented never to throw and it renders a Server Component.
+    let fallback: ClinicChannelLink | null = null;
+    try {
+      fallback = await loadLastGood(resolvedGroupId, dateStr);
+    } catch {
+      // No fallback available; fall through to the degrade-to-null path.
+    }
+    if (fallback) {
+      // Recovered, so deliberately NOT the "... failed" error line the alerting
+      // counts: nobody saw a missing card. The attributes are identical, so the
+      // underlying timeout stays fully queryable one severity down. A quiet
+      // error stream here means "users stopped seeing it", NOT "Graph stopped
+      // timing out" -- watch the `degraded` warn for that.
+      log.warn(
+        `[teams/channel-link] ${stage} degraded; serving last-known-good link`,
+        errorAttrs(err, { stage, ...attrs })
+      );
+      value = fallback;
+    } else {
+      logChannelError(stage, err, attrs);
+      value = null;
+    }
+  }
+
+  // Save outside the try so a store failure can never be mistaken for a resolve
+  // failure (and so it cannot throw out of a function documented never to).
+  if (resolvedLive && value) {
+    try {
+      await saveLastGood(resolvedGroupId, dateStr, value);
+    } catch {
+      // Best-effort: losing the save only forfeits a future fallback.
+    }
   }
 
   cache = { dateStr, groupId: resolvedGroupId, value, expiresAt: now.getTime() + (value ? HIT_TTL_MS : MISS_TTL_MS) };

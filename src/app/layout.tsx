@@ -11,6 +11,8 @@ import { brandStyleVars } from "@/platform/ui/brand-style";
 import { TopProgressBar } from "@/platform/ui/top-progress-bar";
 import { EnvBanner } from "@/platform/ui/env-banner";
 import { MaintenanceBanner } from "@/platform/maintenance/maintenance-banner";
+import { shouldShowMaintenanceBanner } from "@/platform/maintenance/banner-mount";
+import { holdsMaintenanceBypass } from "@/platform/maintenance/status";
 import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
@@ -54,10 +56,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const portalHost = hostFromUrl(config.PORTAL_BASE_URL);
   const isPortalHost = portalHost !== null && requestHeaders.get("host") === portalHost;
 
-  // The maintenance page says all this at full size, so the strip would only
-  // repeat itself there. proxy.ts stamps x-pathname on every request.
-  const showMaintenanceBanner =
-    maintenanceEnabled && requestHeaders.get("x-pathname") !== "/maintenance";
+  // The banner is for whoever is still using the hub during a window, so it is
+  // gated on the same bypass check the proxy makes rather than on the switch
+  // alone: /login and the public passport pages stay up, and the members and
+  // outside visitors reaching them are not its audience. The RBAC call runs
+  // only while maintenance is actually on. proxy.ts stamps x-pathname on every
+  // request.
+  const holdsBypass =
+    maintenanceEnabled && session?.personId ? await holdsMaintenanceBypass(session.personId) : false;
+  const showMaintenanceBanner = shouldShowMaintenanceBanner({
+    enabled: maintenanceEnabled,
+    isMaintenancePath: requestHeaders.get("x-pathname") === "/maintenance",
+    holdsBypass,
+  });
 
   // Person preference wins; cookie is a fast hint when there is no session. The
   // lookup runs before the page's own requirePersonSession so the <html> class

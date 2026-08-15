@@ -21,6 +21,11 @@ export const RESERVED_PORTAL_SLUGS = [
   "verify",
   "favicon",
   "_next",
+  // Maintenance mode redirects a blocked visitor to /maintenance on whatever
+  // host they arrived at, the portal host included. Without this the rewrite
+  // would send that redirect to /apply/maintenance and serve a 404 in place of
+  // the maintenance page.
+  "maintenance",
 ] as const;
 
 /** Parse the host (with port, if any) from a URL string; null if empty/invalid. */

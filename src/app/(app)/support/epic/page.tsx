@@ -22,6 +22,7 @@ import {
   listEpicAuthorizers,
   listIncidentPeople,
   listPendingEpicRequests,
+  listLinkableTechRequests,
   closeTicket,
   updateServiceRequestNumber,
   logYnhhIncident,
@@ -160,8 +161,10 @@ async function createTicketFromPendingAction(formData: FormData) {
   const session = await requirePermission("support.manage_requests");
   const requestIds = formData.getAll("requestIds").map(String).filter(Boolean);
   const description = ((formData.get("description") as string) ?? "").trim() || null;
+  const serviceRequestNumber =
+    ((formData.get("serviceRequestNumber") as string) ?? "").trim() || null;
   try {
-    await createTicket(session.personId, { requestIds, description });
+    await createTicket(session.personId, { requestIds, description, serviceRequestNumber });
   } catch (err) {
     if (err instanceof EpicForbiddenError || err instanceof EpicStateError) {
       redirect(`/support/epic?tab=pending&error=${encodeURIComponent(err.message)}`);
@@ -268,14 +271,16 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
             : "generate";
 
   // Load data for both tabs in parallel.
-  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending] = await Promise.all([
-    listDepartmentsWithMembers(),
-    getEpicRequestHistory(),
-    listPendingDeactivations(),
-    listEpicAuthorizers(),
-    listIncidentPeople(),
-    listPendingEpicRequests(),
-  ]);
+  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
+    await Promise.all([
+      listDepartmentsWithMembers(),
+      getEpicRequestHistory(),
+      listPendingDeactivations(),
+      listEpicAuthorizers(),
+      listIncidentPeople(),
+      listPendingEpicRequests(),
+      listLinkableTechRequests(),
+    ]);
 
   // The Term batch tab can target a term before it goes active, so resolve the
   // working term from ?term= (falling back to the live term) rather than assuming
@@ -306,6 +311,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
+        linkableTickets={linkableTickets}
         rollup={rollup}
         termOptions={termOptions}
         liveTermId={liveTerm?.id ?? null}

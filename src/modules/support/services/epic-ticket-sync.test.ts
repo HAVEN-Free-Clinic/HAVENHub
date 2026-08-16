@@ -26,9 +26,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { intercomStateId, stubIntercomFetch } from "@/platform/test/intercom";
+import { intercomStateId, intercomWriteCalls, stubIntercomFetch } from "@/platform/test/intercom";
 import { createTechRequest } from "./tech-request";
-import { onEpicSubmitted, onEpicResolved } from "./epic-ticket-sync";
+import {
+  onEpicSubmitted,
+  onEpicResolved,
+  syncYnhhServiceRequestToIntercom,
+} from "./epic-ticket-sync";
 
 // ---------------------------------------------------------------------------
 // Helpers (copied from epic.test.ts / manage.test.ts)
@@ -382,5 +386,125 @@ describe("onEpicResolved", () => {
 
     const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
     expect(updated.status).toBe("IN_PROGRESS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// syncYnhhServiceRequestToIntercom
+// ---------------------------------------------------------------------------
+
+/**
+ * The RITM is issued by YNHH IT AFTER the ticket is opened, so it is normally
+ * recorded later. Until this existed, recording it wrote a column and told
+ * nobody: the Intercom ticket an agent was looking at still said the request
+ * had gone to YNHH with no number.
+ */
+describe("syncYnhhServiceRequestToIntercom", () => {
+  beforeEach(() => {
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
+    vi.stubEnv("INTERCOM_BOT_ADMIN_ID", "admin-1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function seedLinked(
+    serviceRequestNumber: string | null,
+    status: "AWAITING_YNHH" | "RESOLVED" = "AWAITING_YNHH"
+  ) {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const requester = await createPerson("Requester");
+    const alice = await createPerson("Alice");
+
+    const techRequest = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Epic access",
+      description: "d",
+    });
+    await linkToTicket(techRequest.id, "conv_1");
+    await prisma.techRequest.update({ where: { id: techRequest.id }, data: { status } });
+
+    const ticket = await createYnhhTicket(actor.id, serviceRequestNumber);
+    await submittedEpicRequest(alice.id, actor.id, ticket.id, techRequest.id, "NEW");
+    return { actor, ticket, techRequest };
+  }
+
+  it("writes the number onto the linked Intercom ticket's attribute", async () => {
+    const fetchMock = stubIntercomFetch();
+    const { ticket } = await seedLinked("RITM0345759");
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    const attributeWrites = intercomWriteCalls(fetchMock)
+      .filter(([url]) => url.includes("/tickets/"))
+      .map(([, init]) => JSON.parse(init.body as string) as Record<string, unknown>)
+      .filter((b) => "ticket_attributes" in b);
+    expect(attributeWrites).toEqual([
+      { ticket_attributes: { "YNHH service request": "RITM0345759" } },
+    ]);
+  });
+
+  // The note is the durable record, and the fallback for a workspace where the
+  // ticket attribute was never created.
+  it("posts a staff note carrying the number", async () => {
+    const fetchMock = stubIntercomFetch();
+    const { ticket } = await seedLinked("RITM0345759");
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    const notes = intercomWriteCalls(fetchMock)
+      .filter(([url]) => url.includes("/conversations/"))
+      .map(([, init]) => (JSON.parse(init.body as string) as { body: string }).body);
+    expect(notes.some((b) => b.includes("RITM0345759"))).toBe(true);
+  });
+
+  it("does nothing when the YNHH ticket has no number yet", async () => {
+    const fetchMock = stubIntercomFetch();
+    const { ticket } = await seedLinked(null);
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    expect(intercomWriteCalls(fetchMock)).toHaveLength(0);
+  });
+
+  // Closed out for reasons independent of the Epic request; an attribute write
+  // would misreport it as live YNHH work.
+  it("skips a TechRequest in a terminal status", async () => {
+    const fetchMock = stubIntercomFetch();
+    const { ticket } = await seedLinked("RITM0345759", "RESOLVED");
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    expect(intercomWriteCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("does not call Intercom for an Epic request attached to no support ticket", async () => {
+    const fetchMock = stubIntercomFetch();
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await createYnhhTicket(actor.id, "RITM0345759");
+    await submittedEpicRequest(alice.id, actor.id, ticket.id, null, "NEW");
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    expect(intercomWriteCalls(fetchMock)).toHaveLength(0);
+  });
+
+  // Two Epic requests on one YNHH ticket can point at the same support ticket;
+  // it must not be written twice.
+  it("writes once per linked support ticket, not once per Epic request", async () => {
+    const fetchMock = stubIntercomFetch();
+    const { actor, ticket, techRequest } = await seedLinked("RITM0345759");
+    const bob = await createPerson("Bob");
+    await submittedEpicRequest(bob.id, actor.id, ticket.id, techRequest.id, "MODIFY");
+
+    await syncYnhhServiceRequestToIntercom(ticket.id);
+
+    const attributeWrites = intercomWriteCalls(fetchMock).filter(([url]) => url.includes("/tickets/"));
+    expect(attributeWrites).toHaveLength(1);
   });
 });

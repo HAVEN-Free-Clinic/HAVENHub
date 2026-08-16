@@ -38,6 +38,25 @@ export const INTERCOM_TICKET_READ_TIMEOUT_MS = 5_000;
 const HUB_TICKET_NUMBER_ATTRIBUTE = "Hub ticket number";
 
 /**
+ * The Intercom ticket-type attribute carrying the Yale New Haven Health service
+ * request number (an "RITM..." from their ServiceNow) once YNHH IT issues one.
+ *
+ * MUST BE CREATED IN THE INTERCOM WORKSPACE for the write below to land: a
+ * `ticket_attributes` key that no ticket type defines is silently ignored by
+ * Intercom rather than rejected, so an unconfigured workspace looks exactly
+ * like a successful write. {@link pushYnhhServiceRequest} therefore logs on
+ * every call whose response does not echo the value back.
+ *
+ * The number is the ONLY handle an agent has on YNHH's side. There is no
+ * ServiceNow integration here and there is not going to be one soon, so a
+ * volunteer asking "any news on my Epic account?" is answered by someone
+ * carrying this string over to YNHH by hand. Having it on the ticket rather
+ * than buried in a note is the difference between that taking five seconds and
+ * taking a search through the hub.
+ */
+const YNHH_SERVICE_REQUEST_ATTRIBUTE = "YNHH service request";
+
+/**
  * Reads a Ticket's staff-facing state label out of an Intercom ticket object,
  * accepting either of the two serializations Intercom uses.
  *
@@ -153,6 +172,86 @@ export async function pushTicketNumber(ticketId: string, number: number): Promis
     // the matching comment in identity.ts.
     log.warn(
       "[intercom] ticket number write-back failed",
+      errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
+    );
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Writes the YNHH service request number onto an Intercom Ticket's
+ * "YNHH service request" attribute.
+ *
+ * Same write surface, timeout and fail-closed contract as
+ * {@link pushTicketNumber}: an unconfigured token, a network error, a timeout
+ * and a non-2xx all resolve to `false` and are logged. The caller has already
+ * committed the number to the hub by the time this runs, and an unreachable
+ * Intercom must never turn recording an SR# into a failed save.
+ *
+ * One difference from pushTicketNumber, and the reason this is not a shared
+ * helper over an attribute name: it VERIFIES the echo. Intercom accepts and
+ * silently drops a `ticket_attributes` key the ticket type does not define, so
+ * a workspace missing {@link YNHH_SERVICE_REQUEST_ATTRIBUTE} returns 200 and
+ * changes nothing. Without this check the failure mode is invisible -- agents
+ * simply never see the number and nobody knows why.
+ */
+export async function pushYnhhServiceRequest(
+  ticketId: string,
+  serviceRequestNumber: string,
+): Promise<boolean> {
+  const token = intercomAccessToken();
+  if (!token) return false;
+
+  const endpoint = "tickets/:id";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_TICKET_WRITE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${INTERCOM_API}/tickets/${encodeURIComponent(ticketId)}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "Intercom-Version": INTERCOM_API_VERSION,
+      },
+      body: JSON.stringify({
+        ticket_attributes: { [YNHH_SERVICE_REQUEST_ATTRIBUTE]: serviceRequestNumber },
+      }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      log.warn("[intercom] YNHH service request write failed", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        status: res.status,
+      });
+      return false;
+    }
+
+    // 200 with the key absent from the echoed attributes means the ticket type
+    // does not define it. Parsed defensively: a body we cannot read is not
+    // evidence of failure, so it is treated as written rather than reported as
+    // a missing attribute the workspace may well have.
+    const body: unknown = await res.json().catch(() => null);
+    const attrs =
+      body && typeof body === "object" && "ticket_attributes" in body
+        ? (body as { ticket_attributes?: Record<string, unknown> }).ticket_attributes
+        : undefined;
+    if (attrs && !(YNHH_SERVICE_REQUEST_ATTRIBUTE in attrs)) {
+      log.warn("[intercom] YNHH service request attribute is not defined on this ticket type", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        attribute: YNHH_SERVICE_REQUEST_ATTRIBUTE,
+      });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    log.warn(
+      "[intercom] YNHH service request write failed",
       errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION })
     );
     return false;

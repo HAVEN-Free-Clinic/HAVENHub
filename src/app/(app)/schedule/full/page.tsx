@@ -12,8 +12,8 @@ import { displayTodayKey } from "@/platform/dates/today";
 import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
+import { CapabilityBadges } from "@/modules/schedule/components/capability-badges";
 import { formatCalendarDate } from "@/platform/dates";
-import { languageLabel } from "@/platform/languages";
 import { loadClearedSet } from "@/platform/clearance";
 import { PersonName } from "@/platform/ui/person-name";
 
@@ -75,9 +75,11 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
   async function undoAttendanceAction(formData: FormData) {
     "use server";
-    await requirePermission("schedule.manage_attendance");
+    // Bound to a name so the undo can be attributed: this hard-deletes a row
+    // someone else may have created by checking themselves in (audit 14).
+    const actor = await requirePermission("schedule.manage_attendance");
     const personId = (formData.get("personId") as string | null) ?? "";
-    if (personId) await undoAttendance(personId);
+    if (personId) await undoAttendance(personId, new Date(), actor.personId);
     revalidatePath("/schedule/full");
   }
 
@@ -139,34 +141,10 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
     );
   }
 
-  /**
-   * Person-level capability badges: verified languages and RN.
-   *
-   * Distinct from the shift tags above, which describe the ASSIGNMENT (this
-   * person is on triage today). These describe the PERSON and are the same on
-   * every date. Both belong on this page because it is where the clinic looks
-   * someone up mid-shift, and "who can interpret for this patient" is the
-   * question it most often has to answer.
-   *
-   * Verified only, by construction: fullSchedule never returns a self-reported
-   * claim here.
-   */
-  function capabilityBadges(person: { verifiedLanguages: string[]; licensedRN: boolean }) {
-    return (
-      <>
-        {/* Code, not the full name: these rows already carry up to four shift
-            tags plus a conflict badge, and "Haitian Creole" would wrap every
-            row that has one. The full name is on the title for anyone who does
-            not recognise the code. */}
-        {person.verifiedLanguages.map((code) => (
-          <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
-            {code.toUpperCase()}
-          </Badge>
-        ))}
-        {person.licensedRN && <Badge tone="brand">RN</Badge>}
-      </>
-    );
-  }
+  // Person-level capability badges now live in CapabilityBadges (audit 14). They were
+  // a local closure here, which meant nothing could render them without standing up an
+  // authenticated, database-backed page, and that is how a badge carrying its whole
+  // meaning in a `title` tooltip shipped unnoticed.
 
   const totalVolunteers = departments.reduce((acc, d) => acc + d.volunteers.length, 0);
   const totalDirectors = departments.reduce((acc, d) => acc + d.directors.length, 0);
@@ -248,7 +226,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />
                               {shiftTags(p.tags)}
-                              {capabilityBadges(p)}
+                              <CapabilityBadges person={p} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
@@ -270,7 +248,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
                               <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />
                               {shiftTags(v.tags)}
-                              {capabilityBadges(v)}
+                              <CapabilityBadges person={v} />
                               {(conflicts.get(v.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(v.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(v.id) ?? []).join(", ")}
@@ -292,7 +270,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />
                               {shiftTags(p.tags)}
-                              {capabilityBadges(p)}
+                              <CapabilityBadges person={p} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}

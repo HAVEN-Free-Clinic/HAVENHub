@@ -12,13 +12,25 @@ import { ProgressProvider } from "@bprogress/next/app";
  * provider only configures it and supplies the progress context to children.
  * Self-contained client state, so it is unaffected by the fact that layouts do
  * not re-render on soft navigation.
+ *
+ * Deliberately does NOT pass `shallowRouting` (audit 14). Despite the name, that
+ * flag does not mean "also cover shallow routes": inside the library it reads
+ * `shallowRouting && isSameURLWithoutSearch(target, current) && disableSameURL ->
+ * return`, i.e. it SUPPRESSES the bar for any navigation that keeps the same path
+ * and changes only the query string. In this app that is not a rare edge, it is the
+ * slow path: pagination, column sorting, filter and tab changes, and term/view
+ * switching are all `?`-only links onto the same route, and they are the
+ * navigations that actually wait on a database round trip. With the flag set, the
+ * whole app went dead-silent for exactly those clicks, because this bar is the only
+ * loading indicator they have (there is no per-table skeleton behind them). The
+ * library's own `disableSameURL` default still suppresses the bar for a navigation
+ * to the byte-identical URL, which is the case genuinely worth skipping.
  */
 export function TopProgressBar({ children }: { children?: ReactNode } = {}) {
   return (
     <ProgressProvider
       color="var(--color-brand)"
       height="3px"
-      shallowRouting
       options={{ showSpinner: false }}
     >
       {children}

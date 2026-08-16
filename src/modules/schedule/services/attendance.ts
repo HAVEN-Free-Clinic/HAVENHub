@@ -1,6 +1,7 @@
 import type { CheckInMethod } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
+import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { displayTodayKey } from "@/platform/dates/today";
@@ -308,12 +309,51 @@ export async function markPresent(
  *
  * Caller must have already enforced `schedule.manage_attendance`.
  */
-export async function undoAttendance(personId: string, now: Date = new Date()): Promise<void> {
+export async function undoAttendance(
+  personId: string,
+  now: Date = new Date(),
+  actorId: string | null = null,
+): Promise<void> {
   const today = await todaysClinicDate(now);
   if (!today) return;
 
+  // Read the row before deleting so the audit can say what was erased. This is a
+  // HARD delete of a record someone else may have created by checking themselves
+  // in, and it left no trace at all: any holder of the check-in permission could
+  // remove another department's volunteer's self check-in and nothing recorded
+  // that it had happened, or by whom (audit 14, CLINIC-04).
+  const existing = await prisma.clinicAttendance.findUnique({
+    where: {
+      termId_clinicDate_personId: {
+        termId: today.termId,
+        clinicDate: today.clinicDate,
+        personId,
+      },
+    },
+    select: { checkedInAt: true, method: true, recordedById: true },
+  });
+  if (!existing) return;
+
   await prisma.clinicAttendance.deleteMany({
     where: { termId: today.termId, clinicDate: today.clinicDate, personId },
+  });
+
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "attendance.undo",
+    entityType: "ClinicAttendance",
+    entityId: personId,
+    before: {
+      termId: today.termId,
+      clinicDate: today.clinicDate.toISOString(),
+      personId,
+      checkedInAt: existing.checkedInAt.toISOString(),
+      method: existing.method,
+      // Who recorded it originally: a self check-in has no recordedById, so this
+      // distinguishes "a director undid their own entry" from "a director undid
+      // someone's self check-in".
+      recordedById: existing.recordedById,
+    },
   });
 }
 

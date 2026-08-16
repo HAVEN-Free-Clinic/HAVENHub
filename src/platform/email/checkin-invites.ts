@@ -53,17 +53,36 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
   const assignments = await prisma.shiftAssignment.findMany({
     where: { termId: term.id, clinicDate },
     select: {
+      departmentId: true,
       person: {
         select: { id: true, name: true, contactEmail: true, entraObjectId: true, status: true },
       },
     },
   });
 
+  // Removing someone from a department does not delete their existing shift
+  // assignments, so Person.status alone is not enough: a volunteer taken off one
+  // department's roster mid-term still held an assignment row and was still
+  // invited to turn up for it. The sibling shift-reminder cron already filters on
+  // ACTIVE membership keyed on (person, department) for exactly this reason,
+  // noting "a single-department removal is caught too, not just a full offboard";
+  // this job did not (audit 14, SCHED-2 / CLINIC-02).
+  const activeMemberships = await prisma.termMembership.findMany({
+    where: {
+      termId: term.id,
+      status: "ACTIVE",
+      personId: { in: [...new Set(assignments.map((a) => a.person.id))] },
+    },
+    select: { personId: true, departmentId: true },
+  });
+  const activePair = new Set(activeMemberships.map((m) => `${m.personId}|${m.departmentId}`));
+
   // One email per PERSON, not per assignment: someone on two departments'
   // schedules that day arrives once and should be asked once.
   const byPerson = new Map<string, (typeof assignments)[number]["person"]>();
   for (const a of assignments) {
     if (a.person.status !== "ACTIVE") continue;
+    if (!activePair.has(`${a.person.id}|${a.departmentId}`)) continue;
     byPerson.set(a.person.id, a.person);
   }
 

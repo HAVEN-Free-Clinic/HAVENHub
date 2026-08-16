@@ -207,6 +207,27 @@ describe("runCheckInInvites", () => {
     expect(result.queued).toBeGreaterThan(0);
   });
 
+  // audit 14, SCHED-2 / CLINIC-02. Removing someone from a department does not
+  // delete their shift assignments, so Person.status alone let a volunteer taken
+  // off a roster mid-term keep being told to come in. The sibling shift-reminder
+  // cron already filtered on ACTIVE membership per (person, department).
+  it("skips someone whose department membership was removed, even though the assignment remains", async () => {
+    const { term } = await seed();
+    const scheduled = await prisma.person.findFirstOrThrow({ where: { contactEmail: "ada@example.com" } });
+    await prisma.termMembership.updateMany({
+      where: { termId: term.id, personId: scheduled.id },
+      data: { status: "REMOVED" },
+    });
+    // The assignment row deliberately survives, which is the whole point.
+    expect(
+      await prisma.shiftAssignment.count({ where: { termId: term.id, personId: scheduled.id } })
+    ).toBe(1);
+
+    const result = await runCheckInInvites(SATURDAY_MORNING);
+    expect(result.queued).toBe(0);
+    expect(await prisma.emailLog.count()).toBe(0);
+  });
+
   it("does not send: it only enqueues", async () => {
     await seed();
     await runCheckInInvites(SATURDAY_MORNING);

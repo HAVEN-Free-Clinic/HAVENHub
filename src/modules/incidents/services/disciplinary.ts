@@ -23,6 +23,7 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { isStrikeSubject, isReportSubject } from "./self-exclusion";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -264,6 +265,16 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
   const row = await prisma.disciplinaryAction.findUnique({ where: { id } });
   if (!row) throw new DisciplinaryNotFoundError();
 
+  // A subject may not delete the record about themselves. Without this, a holder
+  // of incidents.manage could erase their own strike, and because the delete
+  // reverts the source report's subject row to PENDING, the approved decision
+  // against them silently un-decides itself (audit 14).
+  if (await isStrikeSubject(actorPersonId, row)) {
+    throw new DisciplinaryForbiddenError(
+      "You cannot delete a disciplinary action concerning yourself."
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.disciplinaryAction.delete({ where: { id } });
     // If this strike was issued by approving an incident-report request, revert the
@@ -288,16 +299,25 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
     action: "disciplinary.delete",
     entityType: "DisciplinaryAction",
     entityId: id,
+    // Metadata only, deliberately mirroring disciplinary.issue's payload.
+    //
+    // This used to snapshot the whole row -- description, followUpActions, notes
+    // -- and /admin/audit renders audit payloads verbatim to any holder of
+    // admin.view_audit. That routed the confidential narrative around BOTH
+    // guards that protect it: directorVisibility (which decides who may see a
+    // confidential strike) and subjectFacingDetail (which decides what the
+    // subject is told). Deleting a strike is not a reason to publish it to a
+    // wider audience than could read it while it existed (audit 14).
+    //
+    // The tradeoff is that a deleted strike's text is not recoverable from the
+    // audit log. That is the intended reading of "delete": the ledger row is the
+    // record, and an operator who needs the text should read it before deleting.
     before: {
       id: row.id,
       personId: row.personId,
       issuedById: row.issuedById,
       occurredAt: row.occurredAt.toISOString(),
       category: row.category,
-      description: row.description,
-      followUpActions: row.followUpActions,
-      policyReference: row.policyReference,
-      notes: row.notes,
       confidential: row.confidential,
       patientInvolved: row.patientInvolved,
       createdAt: row.createdAt.toISOString(),
@@ -324,6 +344,42 @@ export async function deleteAction(actorPersonId: string, id: string): Promise<v
  * viewers, and only non-confidential-or-self-issued actions for directors, so
  * the column never reveals confidential records a director may not see.
  */
+/**
+ * Redact a strike row that is ABOUT the viewer before it reaches the ledger.
+ *
+ * Every other manage-gated read in this module refuses a viewer who is a linked
+ * subject -- getReport, listReviewQueue, reviewReport, decideStrike, and the
+ * attachment route all do it, because the narrative can identify an anonymous
+ * reporter ("I was on triage with her Saturday morning..."). listActions' central
+ * branch had no such guard, so a holder of incidents.manage who was themselves
+ * the subject of a report read the reporter's verbatim words off their own row,
+ * defeating the anonymity the reporting form promises (audit 14, finding 6).
+ *
+ * Redact rather than hide. The subject already knows the strike exists -- it is
+ * on their own /my-info -- so removing the row would only desynchronise the
+ * ledger's counts and ordinals from what everyone else sees. Substituting
+ * subjectFacingDetail keeps this surface consistent with the two that already
+ * show them this row (the strike_issued email and /my-info), which is the whole
+ * point of that helper.
+ *
+ * reportId goes too: it is passed to the client StrikeRow, and it is the id the
+ * forward form posts, so leaving it would keep the self-forward path reachable.
+ */
+function redactOwnRow(
+  row: DisciplinaryAction,
+  viewerPersonId: string
+): DisciplinaryAction {
+  if (row.personId !== viewerPersonId) return row;
+  return {
+    ...row,
+    description: subjectFacingDetail(row),
+    notes: null,
+    followUpActions: null,
+    policyReference: null,
+    reportId: null,
+  };
+}
+
 export async function listActions(
   viewerPersonId: string,
   q: { departmentId?: string; q?: string; category?: string; page?: number }
@@ -365,7 +421,7 @@ export async function listActions(
 
     return {
       rows: rows.map((r) => ({
-        action: r,
+        action: redactOwnRow(r, viewerPersonId),
         personName: r.person.name,
         issuedByName: r.issuedBy.name,
         strikes: strikeCounts.get(r.personId) ?? 0,
@@ -442,8 +498,11 @@ export async function listActions(
   ]);
 
   return {
+    // Same self-redaction as the central branch: a director can be the subject of
+    // a strike in a department they manage, and buildDirectorWhere scopes by
+    // person, not by "not me".
     rows: rows.map((r) => ({
-      action: r,
+      action: redactOwnRow(r, viewerPersonId),
       personName: r.person.name,
       issuedByName: r.issuedBy.name,
       strikes: strikeCounts.get(r.personId) ?? 0,
@@ -937,12 +996,26 @@ export async function linkActionToReport(
   const row = await prisma.disciplinaryAction.findUnique({ where: { id: actionId } });
   if (!row) throw new DisciplinaryNotFoundError();
 
+  // Refuse on both ends: a subject may neither re-link the strike about
+  // themselves, nor attach any strike to a report they are a subject of (which
+  // would otherwise pull that report's number onto a row they can read).
+  if (await isStrikeSubject(actorPersonId, row)) {
+    throw new DisciplinaryForbiddenError(
+      "You cannot re-link a disciplinary action concerning yourself."
+    );
+  }
+
   if (reportId) {
     const report = await prisma.incidentReport.findUnique({
       where: { id: reportId },
       select: { id: true },
     });
     if (!report) throw new DisciplinaryNotFoundError(`Incident report ${reportId} not found.`);
+    if (await isReportSubject(actorPersonId, reportId)) {
+      throw new DisciplinaryForbiddenError(
+        "You cannot link a disciplinary action to a report concerning yourself."
+      );
+    }
   }
 
   let updated: DisciplinaryAction;

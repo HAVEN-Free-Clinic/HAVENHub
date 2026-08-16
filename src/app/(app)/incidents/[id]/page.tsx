@@ -382,8 +382,25 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                             ))}
                           </Select>
                         </Field>
-                        <Field label="Notes">
-                          <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
+                        {/* This text is what the member receives, not an internal
+                            note: subjectFacingDetail prefers it over the strike's
+                            description. On a multi-subject report it is the ONLY
+                            per-person text they get, because the shared narrative
+                            is withheld from the strike to stop each subject being
+                            told what the others did (audit 14). */}
+                        <Field
+                          label="Notes to the member"
+                          hint={
+                            report.subjects.length > 1
+                              ? "Sent to them in the strike email and shown on their My Info page. This report names several people, so the shared narrative is NOT sent; without notes they receive only a pointer to the report."
+                              : "Sent to them in the strike email and shown on their My Info page. Leave blank to send the report narrative instead."
+                          }
+                        >
+                          <Textarea
+                            name="notes"
+                            rows={2}
+                            placeholder="What this member should be told about the decision..."
+                          />
                         </Field>
                         <FormActions>
                           <ConfirmButton label="Approve strike" confirmLabel="Confirm strike?" size="sm" />

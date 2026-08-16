@@ -167,7 +167,10 @@ export function StrikeRow({
 
             {action.notes && (
               <div className="sm:col-span-2">
-                <dt className="font-medium text-foreground">Internal notes</dt>
+                {/* Named for what it is: subjectFacingDetail prefers this field,
+                    so the member has already received it. Calling it "internal"
+                    here was the other half of the trap (audit 14). */}
+                <dt className="font-medium text-foreground">Notes sent to the member</dt>
                 <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">{action.notes}</dd>
               </div>
             )}

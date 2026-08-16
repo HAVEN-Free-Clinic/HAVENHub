@@ -885,6 +885,11 @@ export async function linkableReports(
 
   const zone = await getDisplayTimeZone();
   const reports = await prisma.incidentReport.findMany({
+    // Never offer the actor a report that names them. The picker's label carries
+    // the number, the concern types and the date, which is already enough for a
+    // subject to confirm a report about them exists and what it alleges -- and
+    // listReviewQueue applies exactly this exclusion for the same reason.
+    where: { subjects: { none: { personId: actorPersonId } } },
     select: { id: true, number: true, concernTypes: true, createdAt: true },
     orderBy: [{ createdAt: "desc" }, { number: "desc" }],
     take: LINKABLE_REPORT_LIMIT,
@@ -1047,6 +1052,26 @@ export async function decideStrike(
   }
   const report = subject.report;
 
+  // A report holds ONE narrative but may link N subjects, and each subject gets an
+  // independent strike. Copying the shared narrative onto every strike means each
+  // subject is emailed, and permanently shown on /my-info, what their co-subjects
+  // are alleged to have done -- one volunteer learning of a named colleague's
+  // HIPAA allegation from us (audit 14). #45's fix only covered the anonymous
+  // case, where subjectFacingDetail already substitutes a pointer.
+  //
+  // So on a multi-subject report the narrative stays on the report, where only
+  // reviewers can read it, and the strike carries a pointer instead. The
+  // reviewer's own per-decision notes still win over this (subjectFacingDetail
+  // prefers them), which is the intended way to tell one subject something
+  // specific: the Approve form now says so.
+  const subjectCount = await prisma.incidentReportSubject.count({
+    where: { reportId: report.id },
+  });
+  const strikeDescription =
+    subjectCount > 1
+      ? `See incident report #${report.number}. Contact your department directors or the HAVEN Executive Directors for the details of this decision.`
+      : report.description;
+
   if (!input.approve) {
     // Atomic claim: only a still-PENDING subject row becomes DECLINED. If a
     // concurrent decision won first, count === 0 and we reject rather than
@@ -1108,7 +1133,7 @@ export async function decideStrike(
           personId: subject.personId,
           occurredAt: input.occurredAt ?? report.occurredAt ?? occurredFallback,
           category,
-          description: report.description,
+          description: strikeDescription,
           followUpActions: input.followUpActions ?? null,
           policyReference: input.policyReference ?? null,
           notes: input.notes ?? null,

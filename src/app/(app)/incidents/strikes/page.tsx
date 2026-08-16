@@ -480,11 +480,20 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Notes */}
               <div className="flex-1 min-w-48">
-                <Field label="Notes">
+                {/* Not internal, despite what this field used to say. This text
+                    is what subjectFacingDetail prefers, so it becomes the Details
+                    block of the strike_issued email and the text pinned to the
+                    member's /my-info -- displacing the Description above. The old
+                    "Optional internal notes..." placeholder invited reviewers to
+                    write things the member then received verbatim (audit 14). */}
+                <Field
+                  label="Notes to the member"
+                  hint="Sent to them in the strike email and shown on their My Info page. Leave blank to send the Description instead."
+                >
                   <Textarea
                     name="notes"
                     rows={2}
-                    placeholder="Optional internal notes..."
+                    placeholder="What the member should be told about this decision..."
                   />
                 </Field>
               </div>

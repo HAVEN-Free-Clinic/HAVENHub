@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { PersonName } from "@/platform/ui/person-name";
 import { Card } from "@/platform/ui/card";
@@ -21,6 +23,16 @@ export type BuilderDayViewProps = {
   dept: { id: string; code: string; name: string };
   selectedDateKey: string | null;
   editable: boolean;
+  /**
+   * The people whose profile this viewer may open (see platform/member-profile).
+   * Names in that set become links to their contact details and the reasons they
+   * are or are not cleared; everyone else renders as plain text rather than as a
+   * link that would bounce to /no-access.
+   *
+   * A plain Set, not a string[]: this is a server component rendering inside
+   * another server component, so nothing crosses a serialization boundary.
+   */
+  profilePersonIds: Set<string>;
   assignAction: (fd: FormData) => Promise<void>;
   unassignAction: (fd: FormData) => Promise<void>;
   toggleTagAction: (fd: FormData) => Promise<void>;
@@ -31,6 +43,7 @@ export function BuilderDayView({
   dept,
   selectedDateKey,
   editable,
+  profilePersonIds,
   assignAction,
   unassignAction,
   toggleTagAction,
@@ -63,6 +76,21 @@ export function BuilderDayView({
       name: member?.person.name ?? entry?.person.name ?? pid,
       flagPerson: member?.person ?? entry?.person ?? null,
     };
+  }
+
+  /**
+   * Wraps a rendered name in a link to that person's profile, when the viewer
+   * may open it. "Who is this and why are they not cleared" is the question a
+   * director has standing in front of the roster, and until now the only way to
+   * answer it was to leave the builder and search the compliance list.
+   */
+  function profileLink(personId: string, label: ReactNode): ReactNode {
+    if (!profilePersonIds.has(personId)) return label;
+    return (
+      <Link href={`/volunteers/compliance/${personId}`} className="hover:underline">
+        {label}
+      </Link>
+    );
   }
 
   const assignedDirectors = Object.entries(assignmentsOnDate)
@@ -121,7 +149,10 @@ export function BuilderDayView({
         className={`px-3 py-3${available ? "" : " opacity-75"}`}
       >
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <PersonName name={member.person.name} cleared={clearedIds.has(member.person.id)} className="text-sm font-semibold text-foreground" />
+          {profileLink(
+            member.person.id,
+            <PersonName name={member.person.name} cleared={clearedIds.has(member.person.id)} className="text-sm font-semibold text-foreground" />,
+          )}
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
@@ -220,7 +251,7 @@ export function BuilderDayView({
                 return (
                   <Card key={pid} pad={false} className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-foreground">{name}</span>
+                      {profileLink(pid, <span className="text-sm font-bold text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
                     </div>
                     {editable && tags && (
@@ -269,7 +300,7 @@ export function BuilderDayView({
                 return (
                   <Card key={pid} pad={false} className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium text-foreground">{name}</span>
+                      {profileLink(pid, <span className="font-medium text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
                       {personConflicts.length > 0 && (
                         <Badge tone="warning" title={personConflicts.join(", ")}>
@@ -321,7 +352,7 @@ export function BuilderDayView({
                 return (
                   <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-foreground-soft">{name}</span>
+                      {profileLink(pid, <span className="text-sm font-medium text-foreground-soft">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
                     </span>
                     {editable && (

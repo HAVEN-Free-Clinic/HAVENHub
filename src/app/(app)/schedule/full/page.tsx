@@ -1,5 +1,8 @@
+import type { ReactNode } from "react";
+import Link from "next/link";
 import { requireModuleAccess, requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
+import { viewableMemberIds } from "@/platform/member-profile";
 import { revalidatePath } from "next/cache";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
@@ -43,12 +46,30 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   // schedule sees no badges and pays no query cost, because the call is skipped
   // entirely rather than computed and hidden.
   const canSeeClearance = await can(session.personId, "volunteers.view");
-  const scheduledPersonIds = canSeeClearance
-    ? departments.flatMap((d) =>
-        [...d.directors, ...d.volunteers, ...d.shadows].map((p) => p.id)
-      )
-    : [];
-  const clearedIds = await loadClearedSet(scheduledPersonIds);
+  const allScheduledPersonIds = departments.flatMap((d) =>
+    [...d.directors, ...d.volunteers, ...d.shadows].map((p) => p.id)
+  );
+  const scheduledPersonIds = canSeeClearance ? allScheduledPersonIds : [];
+  // Which of those names link through to a profile. SCOPED, not the same gate as
+  // the badge above: the badge says only "cleared", which the whole builder
+  // audience already sees, while the profile says WHY someone is not, and that
+  // belongs to the people responsible for them. A director gets links for their
+  // own departments' members and plain text for everyone else's, rather than a
+  // link that would bounce.
+  const [clearedIds, profileIds] = await Promise.all([
+    loadClearedSet(scheduledPersonIds),
+    viewableMemberIds(session.personId, allScheduledPersonIds),
+  ]);
+
+  /** Wraps a rendered name in a link to their profile, when the viewer may open it. */
+  function profileLink(personId: string, label: ReactNode): ReactNode {
+    if (!profileIds.has(personId)) return label;
+    return (
+      <Link href={`/volunteers/compliance/${personId}`} className="hover:underline">
+        {label}
+      </Link>
+    );
+  }
 
   // markPresent/undoAttendance both write against TODAY's clinic date
   // (todaysClinicDate inside attendance.ts), not whatever date this page
@@ -246,7 +267,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />
+                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />)}
                               {shiftTags(p.tags)}
                               {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (
@@ -268,7 +289,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
-                              <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />
+                              {profileLink(v.id, <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />)}
                               {shiftTags(v.tags)}
                               {capabilityBadges(v)}
                               {(conflicts.get(v.id) ?? []).length > 0 && (
@@ -290,7 +311,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />
+                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />)}
                               {shiftTags(p.tags)}
                               {capabilityBadges(p)}
                               {(conflicts.get(p.id) ?? []).length > 0 && (

@@ -12,7 +12,6 @@ import {
 import {
   upsertClinicDay,
   setSlotAttending,
-  parseBookedCount,
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
@@ -157,9 +156,6 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
       if (id) attendingsBySlot[slotId].push(id);
     }
 
-    const rawProcedures = formData.get("proceduresBooked");
-    const rawDirector = formData.get("directorName");
-
     await runAction({
       work: () =>
         upsertClinicDay(actor.personId, {
@@ -177,10 +173,12 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           ...(formData.has("isClosed") || formData.has("closedMarker")
             ? { isClosed: formData.get("isClosed") === "on" }
             : {}),
-          ...(rawDirector === null ? {} : { directorName: String(rawDirector).trim() || null }),
-          ...(rawProcedures === null
-            ? {}
-            : { proceduresBooked: parseBookedCount(String(rawProcedures), "Procedures booked") }),
+          // directorName and proceduresBooked are deliberately absent. Both were
+          // reproductive health's fields on a clinic-wide row: the director is
+          // now read off the schedule's DIRECTOR assignments, and the booked
+          // count is edited in the builder's RHD readiness panel. upsertClinicDay
+          // still accepts them for the Airtable import, which is now their only
+          // writer besides that panel.
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (m) => withMessage(selfHref, m),

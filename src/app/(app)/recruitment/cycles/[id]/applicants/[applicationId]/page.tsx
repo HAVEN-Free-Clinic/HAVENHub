@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
+import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
@@ -69,6 +70,12 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const rehireFlag = app.applicant.applicantPersonId
     ? await getRehireFlag(app.applicant.applicantPersonId)
     : null;
+  // Whether a "returning" applicant is genuinely continuous, or coming back
+  // after sitting terms out. Same limitation as the flag above: only resolvable
+  // for an applicant already linked to a Person.
+  const serviceGap = app.applicant.applicantPersonId
+    ? await serviceGapForCycle(app.applicant.applicantPersonId, app.cycle.termId)
+    : null;
 
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
@@ -133,6 +140,24 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             Flagged by {rehireFlag.setByName ?? "an unknown reviewer"}
             {rehireFlag.setAt ? <> on <DateTime value={rehireFlag.setAt} /></> : null}. Weigh it
             alongside the application; it does not decide the outcome on its own.
+          </p>
+        </Alert>
+      )}
+
+      {/* Not a continuous renewal. "Returning" covers both someone who worked
+          last Saturday and someone who last worked eighteen months ago, and the
+          header above says the same word for each. This states the difference:
+          the term they last served and the ones that ran without them. Like the
+          flag above it is information to weigh, not a decision -- their
+          clearance is checked at onboarding regardless. */}
+      {serviceGap && serviceGap.missedTerms.length > 0 && (
+        <Alert tone="info">
+          <p className="font-medium">
+            Returning after a break, not a continuous renewal.
+          </p>
+          <p className="mt-1">
+            Last on the roster in {serviceGap.lastTerm.name}. They were not a member for{" "}
+            {serviceGap.missedTerms.map((t) => t.name).join(", ")}.
           </p>
         </Alert>
       )}

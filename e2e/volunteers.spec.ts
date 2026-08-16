@@ -90,7 +90,7 @@ test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
   await page.waitForURL((url) => url.pathname === "/volunteers/master");
 
   // Filter bar inputs must be present
-  await expect(page.getByPlaceholder("Name or NetID...")).toBeVisible();
+  await expect(page.getByPlaceholder("Name, NetID, or email...")).toBeVisible();
 });
 
 test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
@@ -193,7 +193,7 @@ test("master view links a member's name to their per-person compliance view", as
   await page.waitForURL((url) => url.pathname === "/volunteers/master");
 
   // Filter to the seeded member so their row is on the current page regardless of roster size.
-  await page.getByPlaceholder("Name or NetID...").fill(member.person.name);
+  await page.getByPlaceholder("Name, NetID, or email...").fill(member.person.name);
   await page.getByRole("button", { name: "Filter", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("q") !== null);
 

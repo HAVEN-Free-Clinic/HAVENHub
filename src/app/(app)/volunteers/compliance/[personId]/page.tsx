@@ -1,20 +1,35 @@
 /**
- * Per-person compliance view: full clearance detail for one member, reachable from
- * the master compliance list. Gated by volunteers.manage_compliance (compliance
- * managers, not only admins). Read model mirrors /my-info, but the cert actions are
- * the manager set-date/verify (not self-service upload).
+ * Per-person member profile: who they are, and their full clearance detail.
+ *
+ * Reached from the master compliance list, from a director's own /volunteers
+ * roster, and from every name on the schedule. That last route is why the gate
+ * moved: it used to require volunteers.manage_compliance, which meant a director
+ * standing in clinic could see that one of their volunteers was not cleared but
+ * had no way to find out WHY. It is now scoped -- compliance managers and admins
+ * reach everyone, a director reaches the ACTIVE members of the departments they
+ * direct or manage by delegation, and nobody else reaches anyone. See
+ * platform/member-profile for that rule.
+ *
+ * The identity half is a deliberate subset of /admin/people: enough to contact
+ * someone and know what they can do on a shift, and none of the record-keeping
+ * or incident material. The cert actions stay on the manager permission, so a
+ * director reads the same page without the ability to set a date or verify.
  */
 
-import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/platform/auth/session";
-import { prisma } from "@/platform/db";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
+import { Card } from "@/platform/ui/card";
+import { PersonPhoto } from "@/platform/ui/person-photo";
 import { can } from "@/platform/rbac/engine";
+import { canViewMemberProfile } from "@/platform/member-profile";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { languageLabel } from "@/platform/languages";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
@@ -33,27 +48,44 @@ import {
   ComplianceForbiddenError,
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
+import { getMemberProfileBasics } from "@/modules/volunteers/services/member-profile";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { CalendarDate } from "@/platform/dates/display";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
+/** One label/value row of the identity card. Renders "Not set" rather than nothing,
+ *  so a director can tell a missing phone number from a field that does not exist. */
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0 break-words [overflow-wrap:anywhere]">
+      <dt className="text-xs text-subtle-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm text-foreground">
+        {value || <span className="text-subtle-foreground">Not set</span>}
+      </dd>
+    </div>
+  );
+}
+
 export default async function PersonCompliancePage({ params }: PageProps) {
-  const viewer = await requirePermission("volunteers.manage_compliance");
+  const viewer = await requirePersonSession();
   const { personId } = await params;
 
-  const person = await prisma.person.findUnique({
-    where: { id: personId },
-    select: { id: true, name: true, netId: true },
-  });
+  // The scoped gate. /no-access rather than notFound(): the person exists, and
+  // pretending otherwise would send a director hunting for a typo.
+  if (!(await canViewMemberProfile(viewer.personId, personId))) redirect("/no-access");
+
+  const person = await getMemberProfileBasics(personId);
   if (!person) notFound();
 
   const activeTerm = await getActiveTerm();
-  const [onboarding, certificates, ehsItems, courses] = await Promise.all([
+  const [onboarding, certificates, ehsItems, courses, isManager, isAdmin] = await Promise.all([
     getOnboardingStatus(personId),
     listMyCertificates(personId),
     getMyEhsStatus(personId),
     getMyCourses(personId),
+    can(viewer.personId, "volunteers.manage_compliance"),
+    can(viewer.personId, "admin.access"),
   ]);
 
   // The newest cert drives the DOCUMENT panel below (its date/file/expiry).
@@ -70,8 +102,9 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     .filter((t) => t.state !== "NOT_REQUIRED")
     .map((t) => (t.key === "hipaa" ? certRequirement(status) : taskRequirement(t.label, t.state)));
 
-  const isAdmin = await can(viewer.personId, "admin.access");
-
+  // Both actions require manage_compliance regardless of who opened the page: a
+  // server action is a public endpoint in its own right, and this page now
+  // admits directors who may read the record but not amend it.
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
     "use server";
     const actor = await requirePermission("volunteers.manage_compliance");
@@ -103,20 +136,96 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
   const certReq = certRequirement(status);
   const expiresAt = newestCert?.completionDate ? certExpiresAt(newestCert.completionDate) : null;
+  // A director has no master view to go back to; send them to the roster they do
+  // have. Both are one click either way, and a link to a page that bounces is
+  // worse than a slightly less specific one.
+  const backHref = isManager ? "/volunteers/master" : "/volunteers";
+  const backLabel = isManager ? "Back to master compliance" : "Back to compliance";
 
   return (
     <div>
       <div className="mb-2">
-        <Link href="/volunteers/master" className="text-sm text-brand-fg hover:opacity-75">
-          Back to master compliance
+        <Link href={backHref} className="text-sm text-brand-fg hover:opacity-75">
+          {backLabel}
         </Link>
       </div>
       <PageHeader
         title={person.name}
-        description={person.netId ? `NetID ${person.netId}` : "Compliance and clearance detail"}
+        description={
+          [
+            person.netId ? `NetID ${person.netId}` : null,
+            person.memberships.length > 0
+              ? person.memberships
+                  .map((m) => `${m.departmentCode}${m.kind === "DIRECTOR" ? " (director)" : ""}`)
+                  .join(" · ")
+              : "No active membership",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        }
+        action={
+          person.status === "ACTIVE" ? (
+            <Badge tone="success">Active</Badge>
+          ) : (
+            <Badge tone="default">Offboarded</Badge>
+          )
+        }
       />
 
       <div className="mt-8 space-y-10">
+        <section>
+          <SectionHeader className="mb-4">Member details</SectionHeader>
+          <Card>
+            <div className="flex flex-wrap items-start gap-6">
+              <PersonPhoto person={person} size={72} />
+              <dl className="grid min-w-0 flex-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                <InfoRow
+                  label="Email"
+                  value={
+                    person.contactEmail ? (
+                      <a href={`mailto:${person.contactEmail}`} className="text-brand-fg hover:underline">
+                        {person.contactEmail}
+                      </a>
+                    ) : null
+                  }
+                />
+                <InfoRow label="Phone" value={person.phone} />
+                <InfoRow label="NetID" value={person.netId} />
+                <InfoRow label="Pronouns" value={person.pronouns} />
+                <InfoRow label="Yale affiliation" value={person.yaleAffiliation} />
+                <InfoRow label="Class year" value={person.gradYear} />
+                {person.staffTitle && <InfoRow label="Title" value={person.staffTitle} />}
+                <InfoRow
+                  label={person.termName ? `Departments (${person.termName})` : "Departments"}
+                  value={
+                    person.memberships.length > 0
+                      ? person.memberships.map((m) => `${m.departmentCode} - ${m.departmentName}`).join(", ")
+                      : null
+                  }
+                />
+                <InfoRow
+                  label="Clinical flags"
+                  value={
+                    person.licensedRN || person.verifiedLanguages.length > 0 ? (
+                      <span className="flex flex-wrap gap-1.5">
+                        {person.licensedRN && <Badge tone="brand">RN</Badge>}
+                        {/* VERIFIED languages only. A self-reported claim is an
+                            intake signal and must never read here as something a
+                            director can staff a shift on. */}
+                        {person.verifiedLanguages.map((code) => (
+                          <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
+                            {languageLabel(code)}
+                          </Badge>
+                        ))}
+                      </span>
+                    ) : null
+                  }
+                />
+              </dl>
+            </div>
+          </Card>
+        </section>
+
         <section>
           <SectionHeader className="mb-4">Clearance</SectionHeader>
           <ClearanceCard
@@ -139,10 +248,10 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                 fileName={newestCert.fileName}
                 ownerName={person.name}
                 completionDate={newestCert.completionDate}
-                canEditDate
+                canEditDate={isManager}
                 canEditExistingDate={isAdmin}
                 onSetDate={setDateAction.bind(null, newestCert.id)}
-                canVerify
+                canVerify={isManager}
                 verified={Boolean(newestCert.verifiedAt)}
                 onVerify={verifyAction.bind(null, newestCert.id)}
               />

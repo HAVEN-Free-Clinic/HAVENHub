@@ -206,4 +206,79 @@ describe("sweepWalletPasses", () => {
     expect(await sweepWalletPasses()).toEqual({ revoked: 0, failed: 0 });
     expect(revokePassMock).not.toHaveBeenCalled();
   });
+
+  // -------------------------------------------------------------------------
+  // Batching and failure isolation (audit 14 follow-up)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The whole badge population goes stale on the same day (every pass for a
+   * term whose endDate has passed), so these guard the behaviour that keeps
+   * that day's run inside the cron's 300s ceiling and keeps it making progress.
+   */
+
+  // The failure the serial loop had: one badge the vendor refuses used to be
+  // able to end the run for everything behind it. Here the refusal is counted
+  // and the rest are still revoked.
+  it("keeps revoking past a pass the vendor refuses", async () => {
+    const stuck = await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-01T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-02T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-03T12:00:00Z" });
+    revokePassMock.mockImplementation(async (serial: string) => serial !== stuck.serialNumber);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 2, failed: 1 });
+
+    // The refused one keeps its null revokedAt, so the next run retries it.
+    const after = await prisma.walletPass.findUniqueOrThrow({ where: { id: stuck.id } });
+    expect(after.revokedAt).toBeNull();
+  });
+
+  // A database write that fails must not abandon the passes after it either.
+  // revokePass degrades vendor errors to `false`, so this is the only path that
+  // can actually throw inside the loop.
+  it("keeps going when recording a revoke throws", async () => {
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-01T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-02T12:00:00Z" });
+    revokePassMock.mockResolvedValue(true);
+    const update = vi.spyOn(prisma.walletPass, "update").mockRejectedValueOnce(new Error("db down"));
+
+    const result = await sweepWalletPasses();
+    expect(result.revoked + result.failed).toBe(2);
+    expect(result.failed).toBe(1);
+    update.mockRestore();
+  });
+
+  // The bound itself. SWEEP_BATCH is 150, so this asserts the cap exists and
+  // that the remainder survives for the next run rather than being dropped --
+  // it does NOT re-assert the constant, which would just restate the source.
+  it("caps one run and leaves the remainder for the next", async () => {
+    const dept = await department();
+    const term = await prisma.term.create({
+      data: {
+        code: "TBATCH",
+        name: "Batch term",
+        startDate: new Date("2020-01-01T12:00:00Z"),
+        endDate: new Date("2020-06-01T12:00:00Z"),
+        status: "ARCHIVED",
+      },
+    });
+    // 151 badges: one more than the cap, so exactly one must be left behind.
+    for (let i = 0; i < 151; i += 1) {
+      const person = await prisma.person.create({ data: { name: `Ada ${i}`, status: "ACTIVE" } });
+      await prisma.termMembership.create({
+        data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+      });
+      await prisma.walletPass.create({
+        data: { personId: person.id, termId: term.id, serialNumber: `ser_batch_${i}` },
+      });
+    }
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 150, failed: 0 });
+    expect(await prisma.walletPass.count({ where: { revokedAt: null } })).toBe(1);
+
+    // The next run finishes the job: the remainder is deferred, never dropped.
+    expect(await sweepWalletPasses()).toEqual({ revoked: 1, failed: 0 });
+    expect(await prisma.walletPass.count({ where: { revokedAt: null } })).toBe(0);
+  });
 });

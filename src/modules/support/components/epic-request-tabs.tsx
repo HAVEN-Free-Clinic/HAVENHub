@@ -61,6 +61,8 @@ type Props = {
   activeTab: Tab;
   departments: DepartmentWithMembers[];
   history: EpicRequestHistoryRow[];
+  /** Cap the server applied to the closed-ticket page, if any. */
+  historyLimit?: number;
   pendingDeactivations: PendingDeactivation[];
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
@@ -280,6 +282,9 @@ function TrackerTable({
   linkEpicRequestAction,
   cancelEpicRequestAction,
 }: {
+  // Never capped: the Tracker renders OPEN tickets, which are bounded by the
+  // work in flight rather than by the size of the archive, so there is nothing
+  // to truncate and nothing to disclose. Only HistoryTable takes a limit.
   history: EpicRequestHistoryRow[];
   nowIso: string;
   linkableTickets: LinkableTechRequest[];
@@ -521,7 +526,22 @@ function LinkTicketControl({
 // History table
 // ---------------------------------------------------------------------------
 
-function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
+/**
+ * `historyLimit` is the cap the server applied, or undefined when it returned
+ * everything. Passed in rather than imported so this component keeps no opinion
+ * about how much the loader fetched; it only needs to know whether to say the
+ * list is partial. A capped table that reads exactly like a complete one is the
+ * thing to avoid: the archive only grows, so "no rows before 2024" would
+ * otherwise look like a data problem rather than a page size.
+ */
+function HistoryTable({
+  history,
+  historyLimit,
+}: {
+  history: EpicRequestHistoryRow[];
+  /** Cap the server applied to the closed-ticket page, if any. */
+  historyLimit?: number;
+}) {
   const zone = useTimeZone();
   // getEpicRequestHistory returns rows by submittedAt desc, but the History tab
   // groups by CLOSED month and relies on Map insertion order for both the month
@@ -541,6 +561,10 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
     return <p className="text-sm text-muted-foreground">No completed Epic requests yet.</p>;
   }
 
+  // Equality, not >=: the loader takes at most `historyLimit`, so a full page is
+  // the only signal available that more exist behind it.
+  const capped = historyLimit !== undefined && closedTickets.length === historyLimit;
+
   const groups = new Map<string, EpicRequestHistoryRow[]>();
   for (const row of closedTickets) {
     const key = formatDateOnly(new Date(row.ticket.closedAt ?? row.ticket.submittedAt), zone, { month: "long", year: "numeric" });
@@ -550,6 +574,12 @@ function HistoryTable({ history }: { history: EpicRequestHistoryRow[] }) {
 
   return (
     <div className="space-y-8">
+      {capped && (
+        <p className="text-xs text-muted-foreground">
+          Showing the {historyLimit} most recently closed requests. Older ones are still
+          recorded and reachable from the person they belong to.
+        </p>
+      )}
       {[...groups.entries()].map(([month, rows]) => (
         <div key={month}>
           <h2 className="text-sm font-semibold text-foreground mb-3">{month}</h2>
@@ -699,6 +729,7 @@ export function EpicRequestTabs({
   activeTab,
   departments,
   history,
+  historyLimit,
   pendingDeactivations,
   authorizers,
   incidentPeople,
@@ -762,7 +793,7 @@ export function EpicRequestTabs({
           />
         </div>
       ) : (
-        <HistoryTable history={history} />
+        <HistoryTable history={history} historyLimit={historyLimit} />
       )}
     </div>
   );

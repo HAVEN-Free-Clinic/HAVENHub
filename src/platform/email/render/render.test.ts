@@ -45,4 +45,45 @@ describe("renderTemplate", () => {
     expect(renderTemplate("x{{#if a}}Y{{/if}}z", { a: true })).toBe("xYz");
     expect(renderTemplate("x{{#if a}}Y{{/if}}z", { a: false })).toBe("xz");
   });
+
+  // ---------------------------------------------------------------------------
+  // onUnknownName (audit 14, TSI-05)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * An unknown name resolves to "" and always will -- an email must still go
+   * out. The callback is how the send path learns it happened. The negative
+   * cases are the important ones: a hook that fires for legitimately-empty
+   * values would cry wolf on every optional field in the app.
+   */
+  describe("onUnknownName", () => {
+    const collect = (source: string, context: Record<string, unknown>) => {
+      const seen: string[] = [];
+      renderTemplate(source, context, { onUnknownName: (n) => seen.push(n) });
+      return seen;
+    };
+
+    it("reports a name absent from the context, for plain, raw, and if tokens", () => {
+      expect(collect("{{ a }}", {})).toEqual(["a"]);
+      expect(collect("{{{ b }}}", {})).toEqual(["b"]);
+      expect(collect("{{#if c}}x{{/if}}", {})).toEqual(["c"]);
+    });
+
+    it("stays silent for a declared name that is merely empty", () => {
+      // These render empty ON PURPOSE. Reporting them would make the send-path
+      // warning fire constantly and stop meaning anything.
+      expect(collect("{{ a }}", { a: null })).toEqual([]);
+      expect(collect("{{ a }}", { a: undefined })).toEqual([]);
+      expect(collect("{{ a }}", { a: "" })).toEqual([]);
+      expect(collect("{{#if a}}x{{/if}}", { a: false })).toEqual([]);
+    });
+
+    it("still renders the empty string for the unknown name", () => {
+      expect(renderTemplate("a{{ gone }}b", {}, { onUnknownName: () => {} })).toBe("ab");
+    });
+
+    it("is optional", () => {
+      expect(() => renderTemplate("{{ gone }}", {})).not.toThrow();
+    });
+  });
 });

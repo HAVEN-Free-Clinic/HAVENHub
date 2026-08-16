@@ -23,6 +23,11 @@ import { PhotoError, removePhoto, setPhotoFromUpload } from "@/platform/photos";
 import { PhotoCard } from "@/modules/my-info/components/photo-card";
 import { getSetting } from "@/platform/settings/service";
 import { getRehireFlag, setDoNotRehire } from "@/modules/incidents/services/disciplinary";
+import {
+  getCredential,
+  revokeServiceCredential,
+  restoreServiceCredential,
+} from "@/modules/passport/services/credential";
 import { Alert } from "@/platform/ui/alert";
 import { Field, Input } from "@/platform/ui/input";
 import { DateOnly } from "@/platform/dates/display";
@@ -46,6 +51,11 @@ export default async function PersonDetailPage({ params }: PageProps) {
   // controls render rather than being the security boundary.
   const canSetRehireFlag = await can(session.personId, "incidents.manage");
   const rehireFlag = await getRehireFlag(id);
+
+  // Null for most people: a credential exists only once the member has issued
+  // one from /my-info, so the section below renders nothing rather than offering
+  // a control over something that does not exist.
+  const credential = await getCredential(id);
 
   // Resolved here rather than inside LastLoginPanel: that component stays
   // synchronous so it can be tested with renderToStaticMarkup, and the zone
@@ -79,6 +89,30 @@ export default async function PersonDetailPage({ params }: PageProps) {
     "use server";
     const actor = await requirePermission("incidents.manage");
     await setDoNotRehire(actor.personId, id, { doNotRehire: false });
+    redirect(`/admin/people/${id}`);
+  }
+
+  /**
+   * Retract this person's public service credential: the public page 404s, the
+   * QR on any wallet badge stops resolving, and the photo route stops serving.
+   *
+   * Both actions re-check admin.manage_people at the door rather than trusting
+   * the page's guard, matching every other action here, and revokeServiceCredential
+   * checks it a third time in the service. Restoring is a separate decision, not
+   * an undo: the token is kept through a revoke precisely so a restore returns
+   * the SAME URL rather than silently minting a new one.
+   */
+  async function revokeCredentialAction() {
+    "use server";
+    const actor = await requirePermission("admin.manage_people");
+    await revokeServiceCredential(actor.personId, id);
+    redirect(`/admin/people/${id}`);
+  }
+
+  async function restoreCredentialAction() {
+    "use server";
+    const actor = await requirePermission("admin.manage_people");
+    await restoreServiceCredential(actor.personId, id);
     redirect(`/admin/people/${id}`);
   }
 
@@ -302,6 +336,50 @@ export default async function PersonDetailPage({ params }: PageProps) {
                 <Input name="note" />
               </Field>
               <ConfirmButton label="Flag do-not-rehire" confirmLabel="Flag this person do-not-rehire?" />
+            </form>
+          )}
+        </section>
+      )}
+
+      {/* Service credential. Rendered only when one exists: a member issues
+          their own from /my-info, so for most people there is nothing to
+          retract and an always-on control would imply otherwise.
+
+          Gated by this page's own admin.manage_people, which is the permission
+          revokeServiceCredential itself checks. Until now that retraction path
+          existed in the service layer with no caller, so an offboarded member's
+          public credential page could not actually be taken down (audit 14). */}
+      {credential && (
+        <section>
+          <SectionHeader className="mb-4">Service credential</SectionHeader>
+          {credential.revokedAt ? (
+            <div className="space-y-3">
+              <Alert tone="warning">
+                <p className="font-medium">Revoked.</p>
+                <p className="mt-1 text-xs">
+                  Retracted on <DateOnly value={new Date(credential.revokedAt)} />.
+                </p>
+              </Alert>
+              <p className="text-sm text-muted-foreground">
+                The public page returns 404, the QR on any wallet badge does not resolve, and the
+                photo route serves nothing. Restoring brings back the same URL, not a new one.
+              </p>
+              <form action={restoreCredentialAction}>
+                <ConfirmButton label="Restore credential" confirmLabel="Restore this credential?" />
+              </form>
+            </div>
+          ) : (
+            <form action={revokeCredentialAction} className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Issued on <DateOnly value={new Date(credential.issuedAt)} />
+                {credential.publicToken ? " and published publicly." : " but never published."} Revoking
+                makes the public page 404 and stops any wallet badge&apos;s QR from resolving. The
+                record is kept, so this can be undone.
+              </p>
+              <ConfirmButton
+                label="Revoke credential"
+                confirmLabel="Revoke this person's credential?"
+              />
             </form>
           )}
         </section>

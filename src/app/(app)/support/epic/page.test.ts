@@ -31,6 +31,10 @@ vi.mock("@/platform/auth/session", () => ({
 }));
 vi.mock("@/modules/support/services/itcm", () => ({
   ...loaders,
+  // A real value, not a stub: the page reads it to decide the History cap and
+  // passes it to the table, so a mock that omitted it made the page hand down
+  // `undefined` and silently lose the "showing the N most recent" disclosure.
+  EPIC_HISTORY_LIMIT: 200,
   closeTicket: vi.fn(),
   updateServiceRequestNumber: vi.fn(),
   logYnhhIncident: vi.fn(),
@@ -88,6 +92,19 @@ describe("/support/epic loaders", () => {
       "listEpicAuthorizers",
       "listPendingDeactivations",
     ]);
+  });
+
+  // The Tracker renders OPEN tickets and History renders CLOSED ones. Asking for
+  // only the status the tab shows is what keeps the Tracker's payload bounded by
+  // the work in flight instead of by the size of the archive, and it is the half
+  // of the fix a "was it called" assertion cannot see (audit 14 follow-up).
+  it("asks for only the ticket status the tab renders, and caps the closed archive", async () => {
+    await visit("tracker");
+    expect(loaders.getEpicRequestHistory).toHaveBeenCalledWith({ status: "OPEN" });
+
+    loaders.getEpicRequestHistory.mockClear();
+    await visit("history");
+    expect(loaders.getEpicRequestHistory).toHaveBeenCalledWith({ status: "CLOSED", take: 200 });
   });
 
   it("reads the ticket history only for the tabs that render it", async () => {

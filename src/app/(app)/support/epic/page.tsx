@@ -18,6 +18,7 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   listDepartmentsWithMembers,
   getEpicRequestHistory,
+  EPIC_HISTORY_LIMIT,
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
@@ -282,16 +283,28 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   // one step down (every department with its full membership). Both were being
   // paid for by someone opening the default Generate tab to make one PDF.
   //
-  // The remaining unbounded case is the Tracker/History pair itself, which still
-  // receives the whole ticket history; narrowing that needs a paged loader in
-  // itcm.ts and a paged table, and is worth doing before the archive is large.
+  // The Tracker/History pair is now narrowed too. Each tab asks for only the
+  // status it renders, so the Tracker's payload is bounded by the work in flight
+  // instead of by the size of the archive, and History takes the most recent
+  // EPIC_HISTORY_LIMIT closed tickets rather than every one ever recorded. The
+  // table says so when it is showing a capped set.
   const needsHistory = activeTab === "tracker" || activeTab === "history";
+  // Only the History tab is capped. The Tracker asks for OPEN tickets, which are
+  // bounded by the work actually in flight rather than by the size of the archive,
+  // so there is nothing there to truncate and nothing to disclose.
+  const historyLimit = activeTab === "history" ? EPIC_HISTORY_LIMIT : undefined;
   const needsGenerate = activeTab === "generate";
   const needsTracker = activeTab === "tracker";
   const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
     await Promise.all([
       needsGenerate ? listDepartmentsWithMembers() : [],
-      needsHistory ? getEpicRequestHistory() : [],
+      needsHistory
+        ? getEpicRequestHistory(
+            activeTab === "tracker"
+              ? { status: "OPEN" }
+              : { status: "CLOSED", take: EPIC_HISTORY_LIMIT }
+          )
+        : [],
       needsGenerate ? listPendingDeactivations() : [],
       // The generator form and the Term batch tab both offer an authorizer.
       needsGenerate || activeTab === "term-batch" ? listEpicAuthorizers() : [],
@@ -325,6 +338,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         activeTab={activeTab}
         departments={departments}
         history={history}
+        historyLimit={historyLimit}
         pendingDeactivations={pendingDeactivations}
         authorizers={authorizers}
         incidentPeople={incidentPeople}

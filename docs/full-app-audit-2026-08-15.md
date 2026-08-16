@@ -696,20 +696,39 @@ Recorded so a future pass does not re-raise them.
 
 ---
 
-## Follow-ups deliberately left open
+## Follow-ups (all code items now closed, 2026-08-16)
 
-Recorded here rather than silently dropped.
+Recorded here rather than silently dropped. Every one that was a code change has
+since been made; the two that remain are launch-checklist items that cannot be
+done from the repository.
 
-- **No admin UI for credential revocation.** `revokeServiceCredential` /
-  `restoreServiceCredential` exist, are gated on `admin.manage_people`, and are
-  tested, but nothing calls them yet. `/admin/people/[id]` needs a Revoke /
-  Restore control. Until then the retraction path for an offboarded member's
-  public credential page exists in the service layer only.
-- **`issueWalletPassAction` narrows its own return type.** The /my-info action
-  declares `Promise<{ googleSaveUrl, shareUrl } | null>`, which types away the
-  `publicToken` the value actually carries at runtime. The card's prop type
-  treats absent as null so this is safe, but widening the annotation to
-  `Awaited<ReturnType<typeof issueWalletPass>>` would make it honest.
+**Closed:**
+
+- **Admin UI for credential revocation.** `/admin/people/[id]` now has a Service
+  credential section with Revoke / Restore, gated by the page's existing
+  `admin.manage_people` (the same permission the service checks). It renders only
+  when a credential exists, since a member issues their own from `/my-info`.
+- **`issueWalletPassAction` return type.** Now derived as
+  `Awaited<ReturnType<typeof issueWalletPass>>` instead of retyped by hand, so
+  `publicToken` is no longer typed away.
+- **Wallet sweep unbounded serial vendor calls.** Bounded to 150 per run with
+  `SWEEP_CONCURRENCY = 6`, sized against the route's `maxDuration = 300` and the
+  vendor's 8s timeout. Failures no longer end the run: one badge the vendor
+  refuses used to abandon every pass behind it. Truncation is logged with the
+  real backlog size, and the batch is deterministically ordered so a capped run
+  and the next one agree on what comes first.
+- **Epic ticket archive.** `getEpicRequestHistory` now takes the status the tab
+  actually renders (Tracker OPEN, History CLOSED) instead of fetching every
+  ticket ever recorded and discarding half in the client, and History is capped
+  at `EPIC_HISTORY_LIMIT`. The table says when it is showing a capped set.
+- **TSI-05, the send-path half.** `renderTemplate` takes an optional
+  `onUnknownName`, and `renderEmail` warns with the template key and the missing
+  names. Absence is the signal, not emptiness, so a legitimately-null optional
+  field stays quiet. This covers what `registry.test.ts` cannot: admin overrides
+  stored in the database against a variable a later code change removed.
+
+**Still open, and not code:**
+
 - **Revoking a credential does not revoke wallet badges.** Deliberate: the badge
   asserts present standing and is governed by the sweep and the offboard paths,
   and a revoked credential already leaves the badge's QR resolving to a 404.

@@ -39,6 +39,8 @@
  *   - q matches any linked subject's name; strikePending matches any PENDING subject.
  *
  * reviewReport(actorPersonId, id, input):
+ *   - Refuses any transition INTO AWAITING_INFO (that status is owned by the
+ *     clarification thread), but allows re-saving a report already in it.
  *   - Non-manager -> IncidentForbiddenError.
  *   - A holder of incidents.manage sets status and reviewNotes; RESOLVED/DISMISSED
  *     stamp resolvedById/resolvedAt, other statuses clear them.
@@ -986,6 +988,46 @@ describe("listReviewQueue", () => {
 // ---------------------------------------------------------------------------
 
 describe("reviewReport", () => {
+  // AWAITING_INFO is reachable only by actually asking the reporter something
+  // (services/messages.ts), which writes the question and notifies them in the
+  // same breath. Setting it from the status control would strand the reporter
+  // with a demand for a reply to a question that was never asked.
+  it("refuses to move a report into AWAITING_INFO", async () => {
+    const reporter = await createPerson("Reporter", "ra001");
+    const manager = await createPerson("Manager", "ra002");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await expect(
+      reviewReport(manager.id, report.id, { status: "AWAITING_INFO" })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+
+    const after = await prisma.incidentReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(after.status).toBe("SUBMITTED");
+  });
+
+  // The detail page keeps AWAITING_INFO in the status select while it is the
+  // current value, so editing reviewer notes on such a report resubmits it
+  // unchanged. That save must succeed.
+  it("allows saving notes on a report already awaiting the reporter", async () => {
+    const reporter = await createPerson("Reporter", "ra003");
+    const manager = await createPerson("Manager", "ra004");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+    await prisma.incidentReport.update({
+      where: { id: report.id },
+      data: { status: "AWAITING_INFO" },
+    });
+
+    const updated = await reviewReport(manager.id, report.id, {
+      status: "AWAITING_INFO",
+      reviewNotes: "Chased on Tuesday.",
+    });
+
+    expect(updated.status).toBe("AWAITING_INFO");
+    expect(updated.reviewNotes).toBe("Chased on Tuesday.");
+  });
+
   it("forbids a non-manager", async () => {
     const reporter = await createPerson("Reporter", "rr001");
     const nonManager = await createPerson("NonManager", "rr002");

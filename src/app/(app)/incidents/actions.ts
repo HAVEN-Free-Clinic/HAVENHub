@@ -14,6 +14,7 @@ import {
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
 import { forwardReport, IncidentForwardError } from "@/modules/incidents/services/forward";
+import { postReviewerQuestion, postReporterMessage } from "@/modules/incidents/services/messages";
 import type { PatientImpact, IssueNature, PriorOccurrence, IncidentReportStatus } from "@prisma/client";
 
 function optEnum<T extends string>(v: FormDataEntryValue | null, allowed: readonly string[]): T | null {
@@ -110,9 +111,17 @@ export async function reviewReportAction(formData: FormData): Promise<void> {
   // Validate the status against the enum allowlist (same optEnum guard
   // submitReportAction uses) so a malformed value is rejected cleanly instead
   // of being written or surfacing as a raw Prisma error.
+  // AWAITING_INFO belongs here even though no reviewer can CHOOSE it: the detail
+  // page keeps it in the select while it is the report's current status, so
+  // saving notes on an awaiting-reporter report submits it unchanged. Rejecting
+  // it here would make that save fail with "Select a valid status." The real
+  // guard against setting it illegitimately is in reviewReport, which refuses
+  // any transition INTO it -- an allowlist can only see the submitted value, not
+  // the one it would replace.
   const status = optEnum<IncidentReportStatus>(formData.get("status"), [
     "SUBMITTED",
     "UNDER_REVIEW",
+    "AWAITING_INFO",
     "RESOLVED",
     "DISMISSED",
   ]);
@@ -134,6 +143,68 @@ export async function reviewReportAction(formData: FormData): Promise<void> {
     if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
     if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
     if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${id}`);
+  revalidatePath("/incidents/review");
+  redirect(`/incidents/${id}`);
+}
+
+/**
+ * Reviewer control: asks the reporter for more information. Requires
+ * incidents.manage at the door, but the real gate is inside
+ * postReviewerQuestion, which additionally refuses a linked subject of the
+ * report and refuses a closed report.
+ *
+ * Same error-redirect shape as reviewReportAction.
+ */
+export async function askReporterAction(formData: FormData): Promise<void> {
+  const actor = await requirePermission("incidents.manage");
+  const id = String(formData.get("reportId"));
+  try {
+    await postReviewerQuestion(actor.personId, id, String(formData.get("body") ?? ""));
+    await captureEvent({
+      distinctId: actor.personId,
+      event: "incident_info_requested",
+      properties: { report_id: id },
+      groups: await activeTermGroup(),
+    });
+  } catch (err) {
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${id}`);
+  revalidatePath("/incidents/review");
+  redirect(`/incidents/${id}`);
+}
+
+/**
+ * The reporter adds information to their own report, answering a reviewer's
+ * question or volunteering a detail unprompted.
+ *
+ * requirePersonSession, NOT requirePermission: the reporter is an ordinary
+ * signed-in member with no incidents permission at all. Ownership is enforced
+ * inside postReporterMessage.
+ */
+export async function replyToReviewerAction(formData: FormData): Promise<void> {
+  const actor = await requirePersonSession();
+  const id = String(formData.get("reportId"));
+  try {
+    await postReporterMessage(actor.personId, id, String(formData.get("body") ?? ""));
+    await captureEvent({
+      distinctId: actor.personId,
+      event: "incident_info_provided",
+      properties: { report_id: id },
+      groups: await activeTermGroup(),
+    });
+  } catch (err) {
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
+    // Not the reporter, or a subject reaching for someone else's report: send
+    // them to their own list rather than back to a page they cannot read.
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/mine?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/mine?error=not-found`);
     throw err;
   }
   revalidatePath(`/incidents/${id}`);

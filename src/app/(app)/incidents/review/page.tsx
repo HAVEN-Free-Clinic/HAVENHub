@@ -39,6 +39,9 @@ type BadgeTone = "default" | "success" | "warning" | "critical";
 const STATUS_LABELS: Record<IncidentReportStatus, string> = {
   SUBMITTED: "Submitted",
   UNDER_REVIEW: "Under review",
+  // Reviewer-facing wording: on this page the useful fact is that the clinic is
+  // blocked on somebody else, which is what separates it from "Under review".
+  AWAITING_INFO: "Awaiting reporter",
   RESOLVED: "Resolved",
   DISMISSED: "Dismissed",
 };
@@ -46,6 +49,10 @@ const STATUS_LABELS: Record<IncidentReportStatus, string> = {
 const STATUS_TONES: Record<IncidentReportStatus, BadgeTone> = {
   SUBMITTED: "default",
   UNDER_REVIEW: "warning",
+  // Not "warning": a report waiting on the reporter needs no reviewer action,
+  // so toning it like the queue's actionable rows would pull attention to the
+  // one row nobody here can move.
+  AWAITING_INFO: "default",
   RESOLVED: "success",
   DISMISSED: "default",
 };

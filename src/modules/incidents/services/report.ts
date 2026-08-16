@@ -42,6 +42,7 @@ import {
 } from "@/platform/email/templates/incidents";
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 import { notifyStrikeIssued } from "./strike-notifications";
+import { resolveReportAccess } from "./report-access";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -725,28 +726,16 @@ export async function getReport(
   });
   if (!report) throw new IncidentNotFoundError();
 
+  // Both exclusions (non-reporter without manage; a linked subject reaching a
+  // report about themselves through manage) live in resolveReportAccess, which
+  // services/messages.ts gates the clarification thread on too. One rule, one
+  // copy -- see report-access.ts for why.
   const canManage = await can(actorPersonId, "incidents.manage");
-  const isOwner = report.reporterId === actorPersonId;
-  if (!canManage && !isOwner) throw new IncidentForbiddenError();
+  const access = resolveReportAccess(report, actorPersonId, canManage);
+  if (!access) throw new IncidentForbiddenError();
 
-  const actorIsSubject = report.subjects.some((s) => s.personId === actorPersonId);
-
-  // A linked subject who merely holds incidents.manage must never reach a report
-  // about themselves through that capability (they could unmask an anonymous
-  // reporter or self-adjudicate). Reaching here with !isOwner implies canManage,
-  // so this only blocks the manage path; the reporter-owner read path is unaffected.
-  if (!isOwner && actorIsSubject) {
-    throw new IncidentForbiddenError();
-  }
-
-  // Even on the owner (self-report) path, a linked subject must not exercise manage
-  // powers over a report about themselves: reviewReport/decideStrike both reject a
-  // subject server-side, so returning canManage=true here would leak reviewNotes to
-  // them and render dead-end reviewer controls. Exclude subjects from the effective
-  // manage flag used for both.
-  const effectiveManage = canManage && !actorIsSubject;
-  const safe = effectiveManage ? report : { ...report, reviewNotes: null };
-  return { report: safe, canManage: effectiveManage };
+  const safe = access.effectiveManage ? report : { ...report, reviewNotes: null };
+  return { report: safe, canManage: access.effectiveManage };
 }
 
 // ---------------------------------------------------------------------------
@@ -769,7 +758,13 @@ const REVIEW_PAGE_SIZE = 25;
  * before it reaches Prisma. An unknown value (e.g. a hand-crafted query string)
  * is dropped rather than passed through, which would otherwise throw.
  */
-const INCIDENT_REPORT_STATUSES: IncidentReportStatus[] = ["SUBMITTED", "UNDER_REVIEW", "RESOLVED", "DISMISSED"];
+const INCIDENT_REPORT_STATUSES: IncidentReportStatus[] = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "AWAITING_INFO",
+  "RESOLVED",
+  "DISMISSED",
+];
 
 /** Largest value a Postgres int4 (IncidentReport.number) can hold. */
 const MAX_INT4 = 2_147_483_647;
@@ -940,6 +935,19 @@ export async function reviewReport(
     select: { id: true },
   });
   if (actorIsSubject) throw new IncidentForbiddenError();
+
+  // AWAITING_INFO means "a reviewer asked the reporter something and is waiting",
+  // so it is only ever reached by actually asking (services/messages.ts), which
+  // writes the question and notifies the reporter in the same breath. Setting it
+  // here would produce a report that demands a reply to a question nobody asked.
+  // Re-saving a report that is ALREADY awaiting info is fine and does nothing --
+  // that is what the detail page's status control submits when a reviewer edits
+  // the notes of a report in this state.
+  if (input.status === "AWAITING_INFO" && existing.status !== "AWAITING_INFO") {
+    throw new IncidentValidationError(
+      "Ask the reporter a question to put this report into 'awaiting reporter'."
+    );
+  }
 
   const terminal = input.status === "RESOLVED" || input.status === "DISMISSED";
   // Only treat this as a fresh resolution when the status actually CHANGES to a

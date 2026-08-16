@@ -1,9 +1,14 @@
 /**
  * Incident Reports email templates for HAVEN Hub.
  *
- * Six templates cover the incident-report lifecycle:
+ * Nine templates cover the incident-report lifecycle:
  *   - incidents.report_submitted: sent to reviewers (incidents.manage) when a
  *     new report is filed.
+ *   - incidents.forwarded_external: sent to a clinical supervisor outside the
+ *     clinic when a reviewer forwards a report or strike to them.
+ *   - incidents.info_requested: sent to the reporter when a reviewer asks them
+ *     a question about their report.
+ *   - incidents.info_provided: sent to reviewers when the reporter answers.
  *   - incidents.strike_requested: sent to reviewers when a director-filed
  *     report also requests a disciplinary strike against the subject.
  *   - incidents.strike_decided: sent to the reporter once a reviewer approves
@@ -61,6 +66,30 @@ export type ReportResolvedParams = {
   approved: boolean;
   /** Absolute link to the reporter's own report. */
   reportLink: string;
+};
+
+/**
+ * incidents.info_requested / incidents.info_provided.
+ *
+ * NOTE THE ABSENCE: neither carries the message body, and neither should ever
+ * gain a variable that does. These two notifications exist to move somebody to a
+ * page, not to deliver case content -- the report itself is readable only behind
+ * RBAC, by the reporter and by non-subject reviewers, and a mail body escapes all
+ * of that the moment it is forwarded, auto-filed, or read over a shoulder. The
+ * pointer is the feature, not a limitation to be fixed later.
+ */
+export type InfoRequestedParams = {
+  reporterName: string;
+  reportNumber: number;
+  /** Absolute link to the reporter's own report, where the question is readable. */
+  reportLink: string;
+};
+
+export type InfoProvidedParams = {
+  reviewerName: string;
+  reportNumber: number;
+  /** Absolute link into the reviewer queue. */
+  reviewLink: string;
 };
 
 export type StrikeIssuedDirectorsParams = {
@@ -137,6 +166,24 @@ export function reportResolvedContext(p: ReportResolvedParams): Record<string, u
     reportNumber: String(p.reportNumber),
     outcome: p.approved ? "resolved" : "dismissed",
     reportLink: p.reportLink,
+  };
+}
+
+/** Build the flat render-engine context for incidents.info_requested. */
+export function infoRequestedContext(p: InfoRequestedParams): Record<string, unknown> {
+  return {
+    reporterName: p.reporterName,
+    reportNumber: String(p.reportNumber),
+    reportLink: p.reportLink,
+  };
+}
+
+/** Build the flat render-engine context for incidents.info_provided. */
+export function infoProvidedContext(p: InfoProvidedParams): Record<string, unknown> {
+  return {
+    reviewerName: p.reviewerName,
+    reportNumber: String(p.reportNumber),
+    reviewLink: p.reviewLink,
   };
 }
 
@@ -250,6 +297,42 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hello {{ reporterName }},</p>
 <p>Your incident report #{{ reportNumber }} has been {{ outcome }}.</p>
 <p><a href="{{ reportLink }}">View your report</a></p>
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "incidents.info_requested",
+    name: "Incident: more information requested (reporter)",
+    category: "transactional",
+    group: "incidents",
+    // No message-body variable, deliberately -- see InfoRequestedParams. An
+    // admin editing this template in the UI can only reach these four.
+    variables: [
+      { name: "reporterName", label: "Reporter name", sampleValue: "Jane Doe" },
+      { name: "reportNumber", label: "Report number", sampleValue: "42" },
+      { name: "reportLink", label: "Link to the reporter's own report", sampleValue: "https://hub.havenfreeclinic.org/incidents/mine" },
+    ],
+    defaultSubject: "A reviewer has a question about incident report #{{ reportNumber }}",
+    defaultBody: `<p>Hello {{ reporterName }},</p>
+<p>A reviewer has asked a question about incident report #{{ reportNumber }} and is waiting on your answer.</p>
+<p>The question is not repeated in this email. Sign in to read it and reply.</p>
+<p><a href="{{ reportLink }}">Open your report</a></p>
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "incidents.info_provided",
+    name: "Incident: reporter answered (reviewers)",
+    category: "transactional",
+    group: "incidents",
+    variables: [
+      { name: "reviewerName", label: "Reviewer name", sampleValue: "Alex Reviewer" },
+      { name: "reportNumber", label: "Report number", sampleValue: "42" },
+      { name: "reviewLink", label: "Link to the review queue", sampleValue: "https://hub.havenfreeclinic.org/incidents/review" },
+    ],
+    defaultSubject: "New information on incident report #{{ reportNumber }}",
+    defaultBody: `<p>Hello {{ reviewerName }},</p>
+<p>The reporter has added information to incident report #{{ reportNumber }}.</p>
+<p>Sign in to read it.</p>
+<p><a href="{{ reviewLink }}">Open the review queue</a></p>
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {

@@ -1,0 +1,13 @@
+-- The admin email monitor's "Sent today" tile (audit 14, DM-3).
+--
+-- emailHealthCounts (src/modules/admin/services/email.ts) counts
+-- WHERE "status" = 'SENT' AND "sentAt" >= <start of day in the display zone>.
+-- "sentAt" is in no index, so this counted by reading every SENT row ever
+-- recorded -- and it runs on every /admin/email visit, since listEmails asks for
+-- the health counts alongside the page it is already loading.
+--
+-- CONCURRENTLY and one-statement-per-file for the same reasons spelled out in
+-- 20260816120000_email_log_listing_index: migrate deploy runs while the previous
+-- deployment is still serving, and a multi-statement file gets an implicit
+-- transaction that CONCURRENTLY refuses to run inside (SQLSTATE 25001).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "EmailLog_status_sentAt_idx" ON "EmailLog"("status", "sentAt");

@@ -591,3 +591,108 @@ describe("TermDateError", () => {
     expect(err.name).toBe("TermDateError");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Last-admin invariant on the term swap (audit 14, VRT-4)
+//
+// Which term is ACTIVE is a direct input to the RBAC engine: department- and
+// kind-targeted grants resolve through the holder's ACTIVE memberships in the
+// ACTIVE term. So a term swap can empty the effective admin set the same way
+// removeMembership or deleteRole can. Every one of those siblings recomputes the
+// invariant inside its transaction; the term mutations did not.
+// ---------------------------------------------------------------------------
+
+describe("activateTerm last-admin invariant", () => {
+  beforeEach(resetDb);
+
+  it("refuses a swap that would strip the only department-scoped admin", async () => {
+    const dept = await prisma.department.create({ data: { code: "EXEC", name: "Exec" } });
+    const live = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE",
+      },
+    });
+    const next = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall",
+        startDate: new Date("2026-09-27"), endDate: new Date("2027-01-01"), status: "PLANNING",
+      },
+    });
+
+    const admin = await prisma.person.create({ data: { name: "Only Admin", netId: "adm-vrt4" } });
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    // Department-targeted, so it confers only through an ACTIVE membership in
+    // whichever term is active.
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, termId: null, departmentId: dept.id },
+    });
+    await prisma.termMembership.create({
+      data: { personId: admin.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    // They hold no place in FA26, so activating it strips their only admin path.
+    await expect(activateTerm(ACTOR, next.id)).rejects.toThrow(/last active admin/i);
+
+    // Rolled back: SU26 is still the live term.
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: live.id } })).status).toBe("ACTIVE");
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: next.id } })).status).toBe("PLANNING");
+  });
+
+  it("allows the swap once the admin has a place in the incoming term", async () => {
+    const dept = await prisma.department.create({ data: { code: "EXEC", name: "Exec" } });
+    const live = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE",
+      },
+    });
+    const next = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall",
+        startDate: new Date("2026-09-27"), endDate: new Date("2027-01-01"), status: "PLANNING",
+      },
+    });
+
+    const admin = await prisma.person.create({ data: { name: "Only Admin", netId: "adm-vrt4b" } });
+    const role = await prisma.role.create({
+      data: { name: "Dept Admin", grants: { create: [{ permission: "admin.access" }] } },
+    });
+    await prisma.roleAssignment.create({
+      data: { roleId: role.id, termId: null, departmentId: dept.id },
+    });
+    await prisma.termMembership.createMany({
+      data: [
+        { personId: admin.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+        { personId: admin.id, termId: next.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+      ],
+    });
+
+    await activateTerm(ACTOR, next.id);
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: next.id } })).status).toBe("ACTIVE");
+  });
+
+  // A deployment with no admins at all is already broken; blocking its term
+  // flips does not help it, and every fixture that does not seed RBAC is in
+  // exactly that state. The rule is "do not REMOVE the last admin".
+  it("does not block a swap when there was no admin to begin with", async () => {
+    const live = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE",
+      },
+    });
+    const next = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall",
+        startDate: new Date("2026-09-27"), endDate: new Date("2027-01-01"), status: "PLANNING",
+      },
+    });
+
+    await activateTerm(ACTOR, next.id);
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: next.id } })).status).toBe("ACTIVE");
+    expect((await prisma.term.findUniqueOrThrow({ where: { id: live.id } })).status).not.toBe("ACTIVE");
+  });
+});

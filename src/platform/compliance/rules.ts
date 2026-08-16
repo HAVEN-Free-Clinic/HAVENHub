@@ -128,15 +128,43 @@ export function effectiveComplianceStatus(
   termEnd: Date | null,
   now: Date = new Date()
 ): ComplianceStatus {
-  if (certs.length === 0) return complianceStatus(null, termEnd, now);
-  const newestStatus = complianceStatus(certs[0], termEnd, now);
-  if (newestStatus !== "PENDING_VERIFICATION" && newestStatus !== "UNKNOWN_DATE") return newestStatus;
+  return effectiveCompliance(certs, termEnd, now).status;
+}
+
+/**
+ * effectiveComplianceStatus, plus the certificate the status actually came from.
+ *
+ * The status alone is not enough for any caller that also wants to SHOW an expiry
+ * date, and every one of them reached for `certs[0]` instead. That is the wrong
+ * cert precisely when the fallback above fires: mid-renewal, the status describes
+ * the older still-valid VERIFIED cert while certs[0] is the new unverified upload,
+ * so the HIPAA panel badged "Compliant through <a year out>" and the weekly
+ * reminder advertised the same far-off date, to a member whose real coverage runs
+ * out next month (audit 14, L3 / hipaa-badge-expiry-from-unverified-cert).
+ *
+ * `cert` is null only when there are no certificates at all; otherwise it is the
+ * row whose completionDate the status was computed from, so
+ * `certExpiresAt(cert.completionDate)` is the date that status is about. Callers
+ * that need to say something about the newest UPLOAD (e.g. "your renewal is
+ * awaiting verification") should read certs[0] themselves, deliberately.
+ */
+export function effectiveCompliance<T extends { completionDate: Date | null; verifiedAt: Date | null }>(
+  certs: T[],
+  termEnd: Date | null,
+  now: Date = new Date()
+): { status: ComplianceStatus; cert: T | null } {
+  if (certs.length === 0) return { status: complianceStatus(null, termEnd, now), cert: null };
+  const newest = certs[0];
+  const newestStatus = complianceStatus(newest, termEnd, now);
+  if (newestStatus !== "PENDING_VERIFICATION" && newestStatus !== "UNKNOWN_DATE") {
+    return { status: newestStatus, cert: newest };
+  }
   for (const cert of certs) {
     if (cert.verifiedAt === null) continue;
     const status = complianceStatus(cert, termEnd, now);
-    if (status === "COMPLIANT" || status === "EXPIRING_SOON") return status;
+    if (status === "COMPLIANT" || status === "EXPIRING_SOON") return { status, cert };
   }
-  return newestStatus;
+  return { status: newestStatus, cert: newest };
 }
 
 /** The combined clearance a member needs to be active for the term: a valid

@@ -37,7 +37,18 @@ export async function releaseSummary(cycleId: string): Promise<{
   unnotified: number;
   emailed: number;
 }> {
-  const acceptances = await prisma.acceptance.findMany({ where: { application: { cycleId } } });
+  // Same WITHDRAWN exclusion releaseDecisions applies to the rows it actually
+  // emails. Without it the summary counted acceptances Release will never send:
+  // a withdrawn applicant's acceptance sat in "Unnotified" (and in "Conflicts to
+  // resolve") permanently, so pressing Release left a non-zero counter that no
+  // action could ever clear, and SRR could not tell a real outstanding decision
+  // from a phantom (audit 14, REC-3).
+  //
+  // Application.status is non-nullable, so `not` drops no rows unexpectedly here
+  // -- the same reasoning releaseDecisions records at its own filter.
+  const acceptances = await prisma.acceptance.findMany({
+    where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
+  });
   const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
   const acceptedApplications = new Set(acceptances.map((a) => a.applicationId)).size;
   let unnotified = 0;
@@ -60,12 +71,20 @@ export async function releaseSummary(cycleId: string): Promise<{
 export async function sendAcceptanceEmail(
   applicationId: string,
   departmentCode: string,
-): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" | "withdrawn" }> {
+): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" | "withdrawn" | "cycle_archived" }> {
   const acc = await prisma.acceptance.findUnique({
     where: { applicationId_departmentCode: { applicationId, departmentCode } },
-    include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true } } } } },
+    include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true, status: true } } } } },
   });
   if (!acc) return { sent: false, reason: "not_found" };
+  // Same DRAFT/ARCHIVED gate releaseDecisions and createOrResendContract enforce.
+  // Without it this path -- the waitlist promote, the one acceptance email that
+  // does not go through Release -- happily emailed an offer for an archived cycle,
+  // and the onboarding link that offer promises is hard-blocked on exactly that
+  // status, so the applicant could never be onboarded (audit 14, REC-5).
+  if (acc.application.cycle.status === "DRAFT" || acc.application.cycle.status === "ARCHIVED") {
+    return { sent: false, reason: "cycle_archived" };
+  }
   // Withdrawal never deletes the Acceptance (see services/withdraw.ts), so the
   // row alone does not mean the applicant is still in play. Reading the
   // application's status is the only thing standing between a withdrawn

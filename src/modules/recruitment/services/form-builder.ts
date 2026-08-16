@@ -100,6 +100,22 @@ export async function updateField(
   );
   await assertCycleEditable(field.cycleId, structural);
 
+  // Deleting (or renaming the value of) an answer choice must not leave
+  // correctValue pointing at an option that no longer exists. The quiz builder
+  // edits options and the correct answer through two independent saves, so
+  // removing the marked-correct choice silently orphaned correctValue: the
+  // grader compares the applicant's answer against a value no radio can produce,
+  // so that question was unanswerable-correctly and the makeup quiz became
+  // unpassable, locking the learner out with no way to see why. Clearing it turns
+  // the question ungraded (countGradedQuestions drops it) and leaves the builder
+  // showing no choice marked correct, which is the prompt to pick a new one
+  // (audit 14, quiz-correct-answer-orphaned-on-option-delete).
+  const nextCorrect = patch.correctValue === undefined ? field.correctValue : patch.correctValue;
+  const orphanedCorrect =
+    patch.options !== undefined &&
+    nextCorrect !== null &&
+    !optionValues(patch.options).includes(nextCorrect);
+
   return prisma.formField.update({
     where: { id: fieldId },
     data: {
@@ -110,9 +126,18 @@ export async function updateField(
       options: patch.options === undefined ? undefined : (patch.options as never),
       validation: patch.validation === undefined ? undefined : (patch.validation as never),
       visibleWhen: patch.visibleWhen === undefined ? undefined : (patch.visibleWhen as never),
-      correctValue: patch.correctValue === undefined ? undefined : patch.correctValue,
+      correctValue: orphanedCorrect ? null : (patch.correctValue === undefined ? undefined : patch.correctValue),
     },
   });
+}
+
+/** The `value`s of an options payload ({value,label}[] as stored on FormField),
+ *  tolerating the untyped `unknown` the callers pass through. */
+function optionValues(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((o) => (o && typeof o === "object" ? (o as { value?: unknown }).value : undefined))
+    .filter((v): v is string => typeof v === "string");
 }
 
 export async function deleteField(fieldId: string): Promise<void> {

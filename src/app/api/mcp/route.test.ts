@@ -117,15 +117,17 @@ describe("POST /api/mcp", () => {
     expect(mocked(recordToolCall)).not.toHaveBeenCalled();
   });
 
-  it("401s with the wrong bearer token, and audits it since a credential was presented", async () => {
+  it("401s with the wrong bearer token, and writes NOTHING to the audit log", async () => {
     const { POST } = await import("./route");
     const res = await POST(req({ Authorization: "Bearer wrong" }));
     expect(res.status).toBe(401);
-    // A wrong-but-present credential is what a stale or rotated connector
-    // looks like from here, which is exactly the signal worth a row.
-    expect(mocked(recordToolCall)).toHaveBeenCalledWith(
-      expect.objectContaining({ personId: null, outcome: "denied" })
-    );
+    // This case used to assert the opposite, on the theory that a wrong-but-
+    // present credential is a stale connector worth a row. An Authorization
+    // header is free to send at a publicly reachable URL, so that made an
+    // unauthenticated stranger able to grow AuditLog one row per request (audit
+    // 14, UNAUTH-02). Nothing is audited until authentication succeeds; the
+    // stale-connector signal is a log line now.
+    expect(mocked(recordToolCall)).not.toHaveBeenCalled();
   });
 
   it("refuses and audits when no conversation id is supplied", async () => {

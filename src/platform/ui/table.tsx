@@ -16,8 +16,18 @@ export function Table({ className, ...rest }: ComponentProps<"table">) {
   );
 }
 
+/**
+ * The header's background and its ink, named and exported so theme-contrast.test.ts
+ * can assert it is still guarding the pair this component actually renders. Audit 14
+ * found this exact pair failing WCAG AA in dark mode (3.74:1) across every table in
+ * the app; a rename or a repaint that slipped past the guard would put it straight
+ * back, silently.
+ */
+export const THEAD_BG_CLASS = "bg-muted";
+export const TH_TEXT_CLASS = "text-subtle-foreground";
+
 export function THead({ className, ...rest }: ComponentProps<"thead">) {
-  return <thead {...rest} className={cx("bg-muted", className)} />;
+  return <thead {...rest} className={cx(THEAD_BG_CLASS, className)} />;
 }
 
 export function TR({ className, ...rest }: ComponentProps<"tr">) {
@@ -28,7 +38,7 @@ export function TR({ className, ...rest }: ComponentProps<"tr">) {
 
 /** Shared by TH and SortableTH so a sortable header is visually identical to a
  *  plain one apart from its affordance. */
-const thClasses = "px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-subtle-foreground";
+const thClasses = `px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider ${TH_TEXT_CLASS}`;
 
 export function TH({ className, ...rest }: ComponentProps<"th">) {
   return <th scope="col" {...rest} className={cx(thClasses, className)} />;

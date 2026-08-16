@@ -26,10 +26,22 @@ describe("captureEvent", () => {
     expect(capture).toHaveBeenCalledWith({
       distinctId: "person-1",
       event: "thing_happened",
-      properties: { count: 3, kind: "x" },
+      // `environment` rides every server event: production, staging, preview and
+      // local dev share one PostHog project, and server events carried nothing to
+      // tell them apart (audit 14, OBS-05).
+      properties: { count: 3, kind: "x", environment: "development" },
       groups: undefined,
     });
     expect(flush).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps the deployment environment on every server event", async () => {
+    await captureEvent({ event: "e", distinctId: "person-1" });
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({ environment: expect.any(String) }),
+      }),
+    );
   });
 
   it("attaches non-empty groups and drops empty group values", async () => {
@@ -51,7 +63,9 @@ describe("captureEvent", () => {
     });
     expect(capture).toHaveBeenCalledWith(
       expect.objectContaining({
-        properties: { $set: { departments: ["SRHD", "PCAR"], active_term: "Fall 2026" } },
+        properties: expect.objectContaining({
+          $set: { departments: ["SRHD", "PCAR"], active_term: "Fall 2026" },
+        }),
       }),
     );
   });

@@ -67,4 +67,35 @@ describe("GET /api/cron/schedule-reminders", () => {
     expect(remindedIds).toContain(dirA.id);
     expect(remindedIds).not.toContain(dirB.id);
   });
+
+  // audit 14. The template ends with an unconditional
+  // <a href="{{ requestsUrl }}">Review pending requests</a>, and only ONE of the
+  // three sites that render it supplied that variable. The renderer resolves a
+  // missing key to "", so this cron -- the one that runs every day, to every
+  // approver -- shipped a dead button.
+  it("renders the approvals CTA with a real href, not an empty one", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30T12:00:00Z"), endDate: new Date("2026-09-26T12:00:00Z"),
+        status: "ACTIVE",
+      },
+    });
+    const dept = await prisma.department.create({ data: { code: "CTAX", name: "Dept CTA" } });
+    const dir = await director("Cta");
+    const vol = await prisma.person.create({ data: { name: "VolCta", status: "ACTIVE" } });
+    await prisma.termMembership.create({
+      data: { personId: dir.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+    await pendingRequest(term.id, dept.id, vol.id);
+
+    const { GET } = await import("./route");
+    await GET(new Request("https://x/api/cron/schedule-reminders", { headers: { Authorization: "Bearer sekret" } }));
+
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: REMINDER_TEMPLATE, personId: dir.id },
+    });
+    expect(mail.html).not.toContain('href=""');
+    expect(mail.html).toMatch(/href="https?:\/\/[^"]*\/schedule\/requests"/);
+  });
 });

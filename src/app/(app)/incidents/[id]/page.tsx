@@ -15,6 +15,14 @@
  * status/reviewNotes form bound to reviewReportAction, and one Approve/
  * Decline form pair per subject whose strike request is still PENDING, each
  * bound to decideStrikeAction with that subject's reportSubjectId.
+ *
+ * A "Messages" section renders the clarification thread for BOTH audiences,
+ * with the composer swapped by role: the reporter gets "Add information"
+ * (replyToReviewerAction), a non-subject reviewer gets "Ask the reporter for
+ * more information" (askReporterAction). Everyone who reaches this page sees
+ * every message in the thread -- reviewer-only remarks belong in reviewNotes,
+ * which the reporter never receives. The subject of a report cannot reach this
+ * page at all, so they see neither.
  */
 
 import Link from "next/link";
@@ -30,7 +38,14 @@ import {
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
 import { listReportForwards, recentForwardEmails } from "@/modules/incidents/services/forward";
-import { reviewReportAction, decideStrikeAction, forwardReportAction } from "../actions";
+import { listMessages } from "@/modules/incidents/services/messages";
+import {
+  reviewReportAction,
+  decideStrikeAction,
+  forwardReportAction,
+  askReporterAction,
+  replyToReviewerAction,
+} from "../actions";
 import { detailReviewerDisclosure } from "../disclosure";
 import { ForwardForm } from "../forward-form";
 import type {
@@ -62,6 +77,7 @@ type BadgeTone = "default" | "success" | "warning" | "critical";
 const STATUS_LABELS: Record<IncidentReportStatus, string> = {
   SUBMITTED: "Submitted",
   UNDER_REVIEW: "Under review",
+  AWAITING_INFO: "Awaiting reporter",
   RESOLVED: "Resolved",
   DISMISSED: "Dismissed",
 };
@@ -69,9 +85,37 @@ const STATUS_LABELS: Record<IncidentReportStatus, string> = {
 const STATUS_TONES: Record<IncidentReportStatus, BadgeTone> = {
   SUBMITTED: "default",
   UNDER_REVIEW: "warning",
+  AWAITING_INFO: "warning",
   RESOLVED: "success",
   DISMISSED: "default",
 };
+
+/**
+ * This page has two audiences, and AWAITING_INFO is the one status whose plain
+ * label lands differently on each: to a reviewer it describes somebody else, to
+ * the reporter it is a request addressed to them. Everything else reads the same
+ * to both, so only this case branches.
+ */
+function statusLabel(status: IncidentReportStatus, isOwner: boolean): string {
+  if (status === "AWAITING_INFO" && isOwner) return "Your reply needed";
+  return STATUS_LABELS[status];
+}
+
+/**
+ * The statuses a reviewer may set directly from the Status control.
+ *
+ * AWAITING_INFO is deliberately absent: it is set as a side effect of actually
+ * asking a question, never on its own. Offering it here would let a reviewer put
+ * a report into "waiting on the reporter" with no question in the thread and no
+ * notification sent -- the reporter would see only that something is expected of
+ * them, with no way to find out what.
+ */
+const SETTABLE_STATUSES: IncidentReportStatus[] = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "RESOLVED",
+  "DISMISSED",
+];
 
 const STRIKE_LABELS: Record<StrikeDecision, string> = {
   PENDING: "Strike requested",
@@ -142,6 +186,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     throw err;
   }
   const { report, canManage } = result;
+  const isOwner = report.reporterId === actor.personId;
 
   // Forwarding is a reviewer-only surface, so neither read runs for the
   // reporter viewing their own report: they cannot forward, and the trail of who
@@ -159,11 +204,17 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     canSeeClearance ? report.subjects.map((s) => s.person.id) : []
   );
 
+  // The clarification thread. Safe to load for everyone who got past getReport:
+  // listMessages re-derives the same access rule through resolveReportAccess, so
+  // this cannot widen who sees it -- reaching here already means the viewer is
+  // the reporter or a non-subject reviewer.
+  const messages = await listMessages(actor.personId, report.id);
+
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeader
         title={`Report #${report.number}`}
-        action={<Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>}
+        action={<Badge tone={STATUS_TONES[report.status]}>{statusLabel(report.status, isOwner)}</Badge>}
       />
 
       <Card>
@@ -332,6 +383,73 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
         </Card>
       )}
 
+      {/* Clarification thread. Rendered for the reporter and for non-subject
+          reviewers -- the two audiences listMessages admits. Both see every
+          message: nothing written here is one-sided, which is why reviewer-only
+          remarks belong in Reviewer notes below instead. */}
+      <Card>
+        <SectionHeader>Messages</SectionHeader>
+        <p className="mt-1 text-xs text-subtle-foreground">
+          {isOwner
+            ? "Questions from the reviewers about this report, and anything you add. The individual(s) named in this report cannot see these messages."
+            : "Questions to the reporter, and their answers. The reporter sees everything in this thread."}
+        </p>
+
+        {messages.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">No messages yet.</p>
+        ) : (
+          <ul className="mt-4 space-y-4">
+            {messages.map((m) => (
+              <li key={m.id} className="rounded-lg border border-border-subtle p-3">
+                <p className="text-xs text-subtle-foreground">
+                  <span className="font-medium text-foreground-soft">
+                    {m.fromReporter ? "Reporter" : "Reviewer"}
+                  </span>
+                  {": "}
+                  {m.authorName} on <DateOnly value={m.createdAt} />
+                </p>
+                {/* whitespace-pre-wrap, not a markdown or HTML render: this is
+                    member-authored text shown to another member, so it is
+                    displayed exactly as typed and never interpreted. */}
+                <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{m.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {isOwner ? (
+          <form action={replyToReviewerAction} className="mt-4 space-y-3">
+            <input type="hidden" name="reportId" value={report.id} />
+            <Field
+              label="Add information"
+              hint="Answer a reviewer's question, or add a detail you remembered. The individual(s) named in this report never see this."
+            >
+              <Textarea name="body" rows={3} required maxLength={5000} />
+            </Field>
+            <FormActions>
+              <SubmitButton variant="primary" size="sm" pendingLabel="Sending…">
+                Send
+              </SubmitButton>
+            </FormActions>
+          </form>
+        ) : canManage ? (
+          <form action={askReporterAction} className="mt-4 space-y-3">
+            <input type="hidden" name="reportId" value={report.id} />
+            <Field
+              label="Ask the reporter for more information"
+              hint="The reporter is notified and the report moves to 'awaiting reporter'. They are told to sign in; the question itself is not put in the email."
+            >
+              <Textarea name="body" rows={3} required maxLength={5000} />
+            </Field>
+            <FormActions>
+              <SubmitButton variant="primary" size="sm" pendingLabel="Sending…">
+                Ask the reporter
+              </SubmitButton>
+            </FormActions>
+          </form>
+        ) : null}
+      </Card>
+
       {canManage && (
         <Card>
           <SectionHeader>Reviewer controls</SectionHeader>
@@ -339,8 +457,17 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
           <form action={reviewReportAction} className="mt-3 space-y-3">
             <input type="hidden" name="reportId" value={report.id} />
             <Field label="Status">
+              {/* AWAITING_INFO is listed only while the report is already in it.
+                  It is not a status a reviewer picks (see SETTABLE_STATUSES), but
+                  it must still appear when current, or the select would fall back
+                  to its first option and "Save status" would quietly drop the
+                  report out of "waiting on the reporter" without anyone choosing
+                  to. Re-saving it unchanged is a no-op. */}
               <Select name="status" defaultValue={report.status}>
-                {(Object.keys(STATUS_LABELS) as IncidentReportStatus[]).map((s) => (
+                {(report.status === "AWAITING_INFO"
+                  ? ["AWAITING_INFO" as IncidentReportStatus, ...SETTABLE_STATUSES]
+                  : SETTABLE_STATUSES
+                ).map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABELS[s]}
                   </option>
@@ -382,8 +509,25 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                             ))}
                           </Select>
                         </Field>
-                        <Field label="Notes">
-                          <Textarea name="notes" rows={2} placeholder="Optional notes on this decision..." />
+                        {/* This text is what the member receives, not an internal
+                            note: subjectFacingDetail prefers it over the strike's
+                            description. On a multi-subject report it is the ONLY
+                            per-person text they get, because the shared narrative
+                            is withheld from the strike to stop each subject being
+                            told what the others did (audit 14). */}
+                        <Field
+                          label="Notes to the member"
+                          hint={
+                            report.subjects.length > 1
+                              ? "Sent to them in the strike email and shown on their My Info page. This report names several people, so the shared narrative is NOT sent; without notes they receive only a pointer to the report."
+                              : "Sent to them in the strike email and shown on their My Info page. Leave blank to send the report narrative instead."
+                          }
+                        >
+                          <Textarea
+                            name="notes"
+                            rows={2}
+                            placeholder="What this member should be told about the decision..."
+                          />
                         </Field>
                         <FormActions>
                           <ConfirmButton label="Approve strike" confirmLabel="Confirm strike?" size="sm" />

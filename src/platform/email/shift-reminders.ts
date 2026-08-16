@@ -5,6 +5,7 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
+import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
@@ -215,6 +216,12 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   if (Math.round((targetDay - nowDay) / MS_PER_DAY) > 6) return result;
 
   const targetKey = isoDateKey(targetDate);
+
+  // ...and not if that Saturday has been closed. Reminding volunteers to turn up
+  // to a clinic Faculty Relations has cancelled is worse than sending nothing,
+  // and the attending twin of this job already bails on the same flag (audit 14,
+  // CLINIC-01 / SCHED-4).
+  if (!(await resolveOpenClinicDate(term, targetKey))) return result;
 
   // Load the term's assignments and filter to the target clinic date by UTC day
   // key (never compare clinicDate by raw timestamp).

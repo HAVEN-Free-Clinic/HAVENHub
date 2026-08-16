@@ -27,7 +27,7 @@
 
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { log } from "@/platform/logging";
+import { log, errorAttrs } from "@/platform/logging";
 import { fetchTicketState } from "@/platform/intercom/tickets";
 import { intercomAccessToken } from "@/platform/intercom/config";
 import { mapIntercomTicketStateToStatus } from "./intercom-sync";
@@ -39,13 +39,60 @@ const PAGE_SIZE = 50;
  * Hard ceiling on rows touched in a single invocation. A serverless function
  * has its own wall-clock budget (see the cron route's maxDuration); this is
  * what keeps a large backlog from timing out mid-sweep and reconciling
- * nothing. Ordered by id, so a bounded run always makes forward progress --
- * the next scheduled run picks up past where this one stopped, on average,
- * rather than re-scanning the same head of the table every time. (No cursor
- * is persisted between runs -- see the route's doc comment for why an
- * approximate forward march is an acceptable trade for staying stateless.)
+ * nothing.
  */
 const MAX_ROWS_PER_RUN = 500;
+
+/**
+ * Where the last run stopped, so the next one starts after it.
+ *
+ * The ceiling above used to be the whole story, and the claim that "the next
+ * scheduled run picks up past where this one stopped" was simply false: each
+ * run started from `orderBy: id asc` with no cursor, so the 501st linked ticket
+ * onwards was never read by any run, ever. The sweep still reported a clean
+ * summary -- checked: 500, mismatched: 0 -- which is worse than reporting
+ * nothing, because the backstop for a silently missed status sync was itself
+ * silently missing statuses (audit 14, SUP-4).
+ *
+ * Stored in the Setting key/value table, the same place cron liveness
+ * heartbeats live (src/platform/cron-heartbeat.ts), so persisting runtime state
+ * needs no schema change. Not registered in the settings catalog: this is a
+ * position marker the sweep writes to itself, never an admin-editable value.
+ *
+ * Cleared when a run reaches the end of the table, so the next run wraps back
+ * to the start. A sweep that only ever moved forward would check each ticket
+ * once and then go quiet forever, which is the opposite of what a drift
+ * detector is for -- drift appears at any time on a ticket that was in sync
+ * yesterday.
+ */
+const CURSOR_KEY = "intercom.reconcileCursor";
+
+async function readCursor(): Promise<string | null> {
+  const row = await prisma.setting.findUnique({ where: { key: CURSOR_KEY } });
+  const value = row?.value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const lastId = (value as Record<string, unknown>).lastId;
+  return typeof lastId === "string" && lastId !== "" ? lastId : null;
+}
+
+/**
+ * Best-effort, like recordCronHeartbeat: a failed cursor write must not turn a
+ * completed sweep into a failed cron run. It IS logged rather than swallowed
+ * silently, because a cursor that never advances is exactly the failure this
+ * whole mechanism exists to end, and it would otherwise look identical to the
+ * bug it replaced.
+ */
+async function writeCursor(lastId: string | null): Promise<void> {
+  try {
+    await prisma.setting.upsert({
+      where: { key: CURSOR_KEY },
+      create: { key: CURSOR_KEY, value: { lastId } },
+      update: { value: { lastId } },
+    });
+  } catch (err) {
+    log.warn("[support] reconciliation could not persist its cursor", errorAttrs(err, { lastId }));
+  }
+}
 
 export type ReconcileSummary = {
   checked: number;
@@ -72,7 +119,10 @@ export type ReconcileSummary = {
  * failure never aborts the sweep; only the underlying findMany reads can
  * throw out of this function.
  */
-export async function reconcileIntercomTickets(): Promise<ReconcileSummary> {
+export async function reconcileIntercomTickets(
+  options: { maxRows?: number } = {}
+): Promise<ReconcileSummary> {
+  const maxRows = options.maxRows ?? MAX_ROWS_PER_RUN;
   const summary: ReconcileSummary = {
     checked: 0,
     inSync: 0,
@@ -83,18 +133,31 @@ export async function reconcileIntercomTickets(): Promise<ReconcileSummary> {
 
   if (!intercomAccessToken()) return summary;
 
-  let cursor: string | undefined;
+  // Resumes where the last run stopped. Read before the loop rather than per
+  // page: a run is one continuous walk, and re-reading mid-sweep would let a
+  // concurrent run's cursor rewind this one.
+  let lastId = await readCursor();
+  // Distinguishes "stopped because the table ran out" (wrap back to the start
+  // next time) from "stopped because maxRows was reached" (resume from lastId).
+  let reachedEnd = false;
 
-  while (summary.checked < MAX_ROWS_PER_RUN) {
+  while (summary.checked < maxRows) {
+    const take = Math.min(PAGE_SIZE, maxRows - summary.checked);
     const rows = await prisma.techRequest.findMany({
-      where: { intercomTicketId: { not: null } },
+      // An explicit `id: { gt: lastId }` rather than Prisma's `cursor`, because
+      // a persisted cursor outlives the row it names: a ticket deleted between
+      // runs would leave `cursor` pointing at a row that no longer exists,
+      // while a plain range predicate simply resumes after that id.
+      where: { intercomTicketId: { not: null }, ...(lastId ? { id: { gt: lastId } } : {}) },
       orderBy: { id: "asc" },
-      take: Math.min(PAGE_SIZE, MAX_ROWS_PER_RUN - summary.checked),
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take,
       select: { id: true, number: true, status: true, intercomTicketId: true },
     });
-    if (rows.length === 0) break;
-    cursor = rows[rows.length - 1].id;
+    if (rows.length === 0) {
+      reachedEnd = true;
+      break;
+    }
+    lastId = rows[rows.length - 1].id;
 
     for (const row of rows) {
       summary.checked += 1;
@@ -162,8 +225,23 @@ export async function reconcileIntercomTickets(): Promise<ReconcileSummary> {
       });
     }
 
-    if (rows.length < PAGE_SIZE) break;
+    // Short page means this query exhausted the table, not merely this budget.
+    // Compared against `take`, not PAGE_SIZE: the final page of a run is
+    // deliberately smaller when maxRows is about to be hit, and treating that
+    // as the end of the table would clear the cursor and re-scan from the top
+    // forever -- the very bug this cursor exists to fix.
+    if (rows.length < take) {
+      reachedEnd = true;
+      break;
+    }
   }
+
+  await writeCursor(reachedEnd ? null : lastId);
+  log.info("[support] reconciliation sweep finished", {
+    ...summary,
+    // Where the next run will start: null means "back at the beginning".
+    resumeAfterId: reachedEnd ? null : lastId,
+  });
 
   return summary;
 }

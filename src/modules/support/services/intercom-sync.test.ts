@@ -214,6 +214,126 @@ describe("applyIntercomTicketStateChange", () => {
     expect(result).toEqual({ ok: false, reason: "ticket_not_found" });
   });
 
+  /**
+   * Every sibling refusal in this module audits; this one only logged, and it
+   * is the refusal that actually means the Hub and Intercom have diverged. The
+   * signal is also cross-row: one occurrence can be a delivery-ordering race
+   * against ticket.created, the same intercomTicketId twice is a permanently
+   * orphaned Intercom ticket -- a distinction a log line that ages out of
+   * retention cannot support (audit 14, finding 5).
+   */
+  it("audits an unknown ticket id, so an orphaned Intercom ticket leaves a durable trace", async () => {
+    await applyIntercomTicketStateChange("215475503912170", "In progress");
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: "intercom_ticket_sync.ticket_not_found" },
+    });
+    expect(rows).toHaveLength(1);
+    const after = rows[0].after as Record<string, unknown>;
+    expect(after.intercomTicketId).toBe("215475503912170");
+    expect(after.internalLabel).toBe("In progress");
+    expect(rows[0].actorPersonId).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------
+  // Staleness: Intercom guarantees no delivery ORDER and retries a failed
+  // delivery for hours, so "arrived later" is not "happened later". Status
+  // equality, the only guard there used to be, says nothing about age.
+  // ---------------------------------------------------------------------
+  describe("out-of-order deliveries", () => {
+    const older = new Date("2026-08-16T03:05:00.000Z");
+    const newer = new Date("2026-08-16T03:06:00.000Z");
+
+    it("refuses an event older than the one already applied, leaving the newer status in place", async () => {
+      const person = await createPerson("Alice");
+      const ticket = await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "Resolved", newer);
+      const result = await applyIntercomTicketStateChange("ticket_1", "In progress", older);
+
+      // Reported as an accepted no-op rather than a failure: the delivery was
+      // valid, it just lost its race, and a retry would refuse identically.
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.changed).toBe(false);
+      expect(result.ok && result.stale).toBe(true);
+      const reloaded = await prisma.techRequest.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(reloaded.status).toBe("RESOLVED");
+    });
+
+    it("audits the refusal, so a silently dropped state change is still findable", async () => {
+      const person = await createPerson("Alice");
+      await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "Resolved", newer);
+      await applyIntercomTicketStateChange("ticket_1", "In progress", older);
+
+      const rows = await prisma.auditLog.findMany({ where: { action: "intercom_ticket_sync.stale_event" } });
+      expect(rows).toHaveLength(1);
+      expect((rows[0].after as Record<string, unknown>).status).toBe("IN_PROGRESS");
+      expect((rows[0].before as Record<string, unknown>).status).toBe("RESOLVED");
+    });
+
+    it("applies an event newer than the one already applied", async () => {
+      const person = await createPerson("Alice");
+      const ticket = await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "In progress", older);
+      const result = await applyIntercomTicketStateChange("ticket_1", "Resolved", newer);
+
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.changed).toBe(true);
+      const reloaded = await prisma.techRequest.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(reloaded.status).toBe("RESOLVED");
+    });
+
+    /**
+     * The guard must fail OPEN. A payload with no usable timestamp, or a
+     * ticket whose last change predates this field existing, has nothing to
+     * compare against -- and "we cannot tell" must stay the old behavior of
+     * applying the change, never become a new way to drop a real state change
+     * on the floor.
+     */
+    it("applies a change when the incoming event carries no timestamp at all", async () => {
+      const person = await createPerson("Alice");
+      const ticket = await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "Resolved", newer);
+      const result = await applyIntercomTicketStateChange("ticket_1", "In progress", null);
+
+      expect(result.ok && result.changed).toBe(true);
+      const reloaded = await prisma.techRequest.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(reloaded.status).toBe("IN_PROGRESS");
+    });
+
+    it("applies a change when the previously applied one recorded no timestamp", async () => {
+      const person = await createPerson("Alice");
+      const ticket = await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "Resolved", null);
+      const result = await applyIntercomTicketStateChange("ticket_1", "In progress", older);
+
+      expect(result.ok && result.changed).toBe(true);
+      const reloaded = await prisma.techRequest.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(reloaded.status).toBe("IN_PROGRESS");
+    });
+
+    // The timestamp the guard reads back on the NEXT delivery. Without it in
+    // the audit row there is nothing to compare against and the guard silently
+    // stops rejecting anything, which is a regression no status assertion
+    // above would catch on its own.
+    it("records the applied event's timestamp on the audit row the guard reads", async () => {
+      const person = await createPerson("Alice");
+      await createLinkedTicket(person.id, "ticket_1");
+
+      await applyIntercomTicketStateChange("ticket_1", "In progress", newer);
+
+      const row = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "intercom_ticket_sync.status_change" },
+      });
+      expect((row.after as Record<string, unknown>).intercomEventAt).toBe(newer.toISOString());
+    });
+  });
+
   it("is a no-op when the incoming status already equals the current one", async () => {
     const person = await createPerson("Alice");
     const ticket = await createLinkedTicket(person.id, "ticket_1");

@@ -28,9 +28,11 @@ const DEFAULT_MESSAGE =
  * no onboarding gate, so it renders for a signed-out visitor and a signed-in
  * member alike.
  *
- * It is also the page a Platform Admin sees if they follow a stale link during
- * a window, so it tells them they are exempt and offers the way back in, rather
- * than implying the switch is stuck.
+ * It is also the page a bypass holder sees if they follow a stale link during a
+ * window, so it tells them they are exempt and offers the way back in, rather
+ * than implying the switch is stuck. "Bypass holder" means anyone who can reach
+ * /admin/settings (admin.manage_settings, which "*" satisfies), deliberately the
+ * same audience that can turn the switch on -- see platform/maintenance/status.ts.
  */
 export default async function MaintenancePage() {
   // Not a dead end once the window closes: anyone still sitting on this page (or
@@ -92,8 +94,8 @@ export default async function MaintenancePage() {
         {canBypass && (
           <div className="mt-6 rounded-xl border border-border-subtle bg-surface/60 px-4 py-3 text-sm text-foreground-soft">
             <p>
-              You are a Platform Admin, so maintenance mode does not apply to you. Everyone else sees
-              this page until it is turned off.
+              Maintenance mode does not apply to you, because you can turn it off. Everyone else sees
+              this page until you do.
             </p>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
               <Link href="/" className="font-medium text-brand-fg underline underline-offset-2">

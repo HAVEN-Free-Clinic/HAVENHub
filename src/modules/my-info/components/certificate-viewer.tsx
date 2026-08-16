@@ -7,6 +7,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Field, Input } from "@/platform/ui/input";
+import { runAction } from "@/platform/ui/run-action";
 import { formatForDateInput } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
 
@@ -88,7 +89,10 @@ export function CertificateViewer({
     const dateIso = (formData.get("completionDate") as string | null) ?? "";
     setError(null);
     startTransition(async () => {
-      const result = await onSetDate(dateIso);
+      // runAction, not a bare await: a rejected action would skip the error branch,
+      // leave the modal open with no Alert, and lose the date the manager just read
+      // off the PDF (audit 14).
+      const result = await runAction(() => onSetDate(dateIso));
       if (result?.error) {
         setError(result.error);
         return;
@@ -103,7 +107,7 @@ export function CertificateViewer({
     if (!onVerify) return;
     setError(null);
     startTransition(async () => {
-      const result = await onVerify();
+      const result = await runAction(() => onVerify());
       if (result?.error) {
         setError(result.error);
         return;

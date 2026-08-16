@@ -9,7 +9,7 @@ vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn(async () => null) }));
 import { issueMagicToken, verifyMagicToken, peekMagicToken, requestMagicLink } from "./portal-auth";
 import { signApplicantCookie, readApplicantCookie, getApplicantIdentity, APPLICANT_COOKIE } from "./portal-auth";
 import { auth } from "@/platform/auth/auth";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { setSetting } from "@/platform/settings/service";
 
 beforeEach(async () => { await resetDb(); });
@@ -222,4 +222,44 @@ it("queues a magic link rendered through the global template + layout", async ()
   expect(mail.subject).toBe("Your HAVEN Hub application link");
   expect(mail.html).toContain("Open my application");
   expect(mail.html).toContain("<!DOCTYPE html>");
+});
+
+// --- Abuse ceilings on this PUBLIC, unauthenticated send endpoint (audit 14) ---
+
+it("caps daily links PER ADDRESS, so one requester cannot spend the shared budget", async () => {
+  // UNAUTH-01: the only daily ceiling was GLOBAL, and the 15-minute per-address
+  // limit allows 288 sends a day for ONE address -- more than a third of the
+  // whole budget, and three addresses exhausted it. Once exhausted, every real
+  // applicant's link was silently dropped for the next 24 hours.
+  const anHourAgo = new Date(Date.now() - 60 * 60 * 1000); // outside the 15-minute window
+  await prisma.applicantPortalToken.createMany({
+    data: Array.from({ length: 10 }, (_, i) => ({
+      emailLower: "flooder@yale.edu",
+      tokenHash: `seeded-${i}`,
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: anHourAgo,
+    })),
+  });
+
+  await requestMagicLink("flooder@yale.edu");
+  expect(await prisma.emailLog.count()).toBe(0);
+
+  // And the cap is theirs alone: another applicant is served normally.
+  await requestMagicLink("realapplicant@yale.edu");
+  expect(await prisma.emailLog.count()).toBe(1);
+});
+
+it("does not let a spoofed x-forwarded-for hop defeat the per-IP window", async () => {
+  // UNAUTH-04: the limiter keyed on the LEFTMOST forwarded hop, which is whatever
+  // the client chose to send, so rotating it made every request look like a fresh
+  // IP and the window never closed. The edge's own (rightmost) entry is the
+  // constant one below.
+  for (let i = 0; i < 6; i += 1) {
+    vi.mocked(headers).mockResolvedValueOnce({
+      get: (name: string) => (name === "x-forwarded-for" ? `203.0.113.${i}, 198.51.100.44` : null),
+    } as never);
+    await requestMagicLink(`spoof-target-${i}@yale.edu`);
+  }
+  // IP_RATE_MAX is 5 per window, so the sixth request sends nothing.
+  expect(await prisma.emailLog.count()).toBe(5);
 });

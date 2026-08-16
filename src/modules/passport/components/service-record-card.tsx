@@ -6,7 +6,20 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import type { IssuedCredential } from "../services/credential";
 
-type WalletPassLinks = { googleSaveUrl: string; shareUrl: string };
+/**
+ * What the wallet action hands back.
+ *
+ * publicToken is the credential token the badge's QR points at, because adding a
+ * badge auto-publishes the credential (see autoPublishForBadge). Optional, not
+ * required, because the /my-info server action declares its own narrower return
+ * type: treat "absent" exactly like "null", which is also what a member who
+ * previously unpublished gets.
+ */
+type WalletPassLinks = {
+  googleSaveUrl: string;
+  shareUrl: string;
+  publicToken?: string | null;
+};
 
 export function ServiceRecordCard({
   orgName,
@@ -109,6 +122,12 @@ export function ServiceRecordCard({
       const result = await issueWalletPass();
       if (result) {
         setWalletPass(result);
+        // The server just published this member's credential so the badge could
+        // carry a QR. Without adopting the token here the section above kept
+        // offering "Publish a shareable link" and HID the Unpublish control
+        // until a full reload, so the one member who wanted to undo the publish
+        // that had just happened had no control to do it with (audit 14).
+        if (result.publicToken) setToken(result.publicToken);
       } else {
         setWalletUnavailable(true);
       }
@@ -140,7 +159,14 @@ export function ServiceRecordCard({
       <div className="mt-4 border-t border-border-subtle pt-4">
         {token ? (
           <>
-            <p className="text-sm">
+            {/* ph-no-capture: this renders the member's live credential token,
+                which stays valid until they unpublish. Autocapture reads element
+                text and session replay records it, so without this the token
+                reaches the analytics project from the page that displays it --
+                the same reason the calendar feed URL field carries it (audit
+                14). The scrubber covers /credential/<token> in a URL; this is
+                the token as page content, which the scrubber never sees. */}
+            <p className="ph-no-capture text-sm">
               Your record is published at{" "}
               <code className="break-all">{`${baseUrl}/credential/${token}`}</code>
             </p>

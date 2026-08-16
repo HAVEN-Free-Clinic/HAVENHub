@@ -39,13 +39,16 @@
  * behavior above:
  *   - the owner-facing cancel button is hidden (isLinked check below).
  *   - the entire manager control panel (assign / status / priority /
- *     resolve / cancel / close) is hidden, with no exception. A linked
- *     EPIC ticket used to keep the status control alone, because epic.ts was
- *     the only thing that could ever set AWAITING_YNHH and hiding it would
- *     have stranded that state; now epic.ts drives AWAITING_YNHH itself (see
- *     epic-ticket-sync.ts) whenever an attached Epic request is submitted to
- *     YNHH, and moves it back once none remain outstanding, so a linked EPIC
- *     ticket is read-only like any other linked ticket.
+ *     resolve / cancel / close) is hidden, for a ticket Intercom can actually
+ *     drive -- which means one with an intercomTicketId, NOT merely a
+ *     conversation id; see isStatusDrivenByIntercom below for why the
+ *     distinction is the difference between a read-only record and a ticket
+ *     nobody can move from either side. A linked EPIC ticket used to keep the
+ *     status control alone, because epic.ts was the only thing that could ever
+ *     set AWAITING_YNHH and hiding it would have stranded that state; now
+ *     epic.ts drives AWAITING_YNHH itself (see epic-ticket-sync.ts) whenever an
+ *     attached Epic request is submitted to YNHH, and moves it back once none
+ *     remain outstanding, so a synced EPIC ticket is read-only like any other.
  *   - the Epic access section keeps its attach/cancel forms on an EPIC
  *     ticket, linked or not. This is the one place the read-only rule stops,
  *     and it is a boundary rather than an exception: Intercom took over the
@@ -184,11 +187,23 @@ export async function TicketDetail({
   // still lives in Intercom regardless.
   const isLinked = detail.intercomConversationId !== null;
 
-  // Every manager mutation (assign, status, priority, resolve, cancel,
-  // close) moves fully to Intercom for a linked ticket, no exceptions --
-  // epic.ts now drives AWAITING_YNHH itself (epic-ticket-sync.ts), so there
-  // is no longer a manual-status carve-out to make here.
-  const showManagerMutations = !isLinked;
+  // A conversation link is not the same thing as a STATUS link. Every
+  // Intercom-to-Hub status path keys on intercomTicketId, a different column:
+  // applyIntercomTicketStateChange looks the ticket up by it, and the
+  // reconciliation sweep filters on it. A ticket with a conversation but no
+  // Intercom Ticket -- which is every ticket Fin's custom action opens, since
+  // no Intercom Ticket exists at that moment -- therefore has no status
+  // control surface anywhere: Intercom cannot reach it, and hiding the Hub's
+  // panel because it is "linked" meant nobody could move it here either. It
+  // sat wherever it was created, permanently (audit 14, SUP-2).
+  //
+  // So the panel hides on the ticket id, not the conversation id: a ticket
+  // Intercom really can drive stays read-only here as designed, and one it
+  // cannot stays workable in the Hub. Once ticket.created back-fills the
+  // ticket id (see linkIntercomTicketId in tech-request.ts), such a ticket
+  // flips to read-only on its own, which is the correct moment for it.
+  const isStatusDrivenByIntercom = detail.intercomTicketId !== null;
+  const showManagerMutations = !isStatusDrivenByIntercom;
   // Epic mutations are NOT a link-conditional control, and this is not an
   // exception to the read-only rule so much as the boundary of what that rule
   // was ever about. Intercom took over the CONVERSATION; the Epic to YNHH to
@@ -212,6 +227,19 @@ export async function TicketDetail({
   const conversationId = detail.intercomConversationId;
   const conversationUrl = conversationId && intercomLive ? intercomConversationUrl(conversationId) : null;
 
+  // The banner has to match what the page actually offers. A linked ticket
+  // Intercom cannot drive still shows its manager panel below, so telling a
+  // manager to go and change the status in Intercom would send them looking
+  // for a control that is not there (and, on that ticket, would not work).
+  const bannerTitle = isStatusDrivenByIntercom
+    ? "This ticket is managed in Intercom"
+    : "This conversation is in Intercom";
+  const bannerBody = !canManage
+    ? "Reply and get updates in the conversation -- the Hub shows this ticket as a record of it."
+    : isStatusDrivenByIntercom
+      ? "Reply, reassign, and change its priority in the Intercom conversation -- the Hub shows this ticket as a record of it."
+      : "Reply in the Intercom conversation. This ticket is not linked to an Intercom ticket yet, so its status is still worked here.";
+
   // The current assignee may have lost support.manage_requests since being
   // assigned; make sure they still show up as a selectable (and selected)
   // option instead of silently falling back to "Unassigned".
@@ -233,12 +261,8 @@ export async function TicketDetail({
         <section>
           <Card className="flex flex-wrap items-center justify-between gap-4 border-brand/20 bg-brand-faint">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">This ticket is managed in Intercom</p>
-              <p className="mt-1 text-sm text-foreground-soft">
-                {canManage
-                  ? "Reply, reassign, and change its priority in the Intercom conversation -- the Hub shows this ticket as a record of it."
-                  : "Reply and get updates in the conversation -- the Hub shows this ticket as a record of it."}
-              </p>
+              <p className="text-sm font-semibold text-foreground">{bannerTitle}</p>
+              <p className="mt-1 text-sm text-foreground-soft">{bannerBody}</p>
             </div>
             {canManage
               ? conversationUrl && (

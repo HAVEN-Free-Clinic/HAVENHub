@@ -9,7 +9,7 @@
  *   4. Anything else -> false
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { canViewCertificate } from "./access";
@@ -54,9 +54,18 @@ async function createMembership(
   });
 }
 
+/**
+ * Counter, not Date.now() (audit 14, determinism). Role.name is unique, so two
+ * grants of the SAME permission inside one millisecond collide and the second
+ * create fails P2002 -- the shape the 11th audit found on term codes. No test
+ * here grants twice today, which is exactly why the trap is easy to walk into
+ * later; the case at the bottom of this file holds the fixture to it.
+ */
+let roleSeq = 0;
+
 async function grantPermission(personId: string, permission: string) {
   const role = await prisma.role.create({
-    data: { name: `Role-${permission}-${Date.now()}`, isSystem: false, grants: { create: [{ permission }] } },
+    data: { name: `Role-${permission}-${++roleSeq}`, isSystem: false, grants: { create: [{ permission }] } },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
 }
@@ -188,5 +197,24 @@ describe("canViewCertificate", () => {
     await createMembership(owner.id, term.id, pcar.id, "VOLUNTEER", "ACTIVE");
 
     expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
+  });
+});
+
+describe("grantPermission fixture", () => {
+  it("names roles uniquely even when two grants land in the same millisecond", async () => {
+    // Freezing the clock is what makes the old Date.now() fixture fail every
+    // run instead of once in a while on a fast machine (audit 14, determinism).
+    const frozen = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      const first = await createPerson("Frozen One", "frz001");
+      const second = await createPerson("Frozen Two", "frz002");
+
+      await grantPermission(first.id, "volunteers.view");
+      await grantPermission(second.id, "volunteers.view");
+
+      expect(await prisma.role.count()).toBe(2);
+    } finally {
+      frozen.mockRestore();
+    }
   });
 });

@@ -16,6 +16,8 @@ describe("notification registry", () => {
         "epic-activation",
         "epic-onboarding",
         "epic-password-reset",
+        "incidents.info_provided",
+        "incidents.info_requested",
         "incidents.report_resolved",
         "incidents.report_submitted",
         "incidents.strike_decided",

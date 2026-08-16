@@ -5,7 +5,7 @@
  * streams, each with its own cadence and its own atomic claim:
  *
  *   HIPAA leg (compliance-reminder, `compliance.reminderIntervalDays`, 7 by default)
- *     Driven by effectiveComplianceStatus. Unsatisfied for every status except
+ *     Driven by effectiveCompliance. Unsatisfied for every status except
  *     COMPLIANT, so EXPIRING_SOON keeps producing the renewal nudge.
  *
  *     This leg MUST read `status` and not ClearanceSummary.missing:
@@ -36,8 +36,8 @@
 
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
-import { log } from "@/platform/logging";
-import { effectiveComplianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { log, errorAttrs } from "@/platform/logging";
+import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
@@ -112,6 +112,8 @@ export type ReminderRunResult = {
   digestsSent: number;
   reset: number;
   skipped: number;
+  /** Members whose reminder threw. The run continues past them (audit 14). */
+  failed: number;
 };
 
 /**
@@ -145,6 +147,7 @@ export async function runClearanceReminders(
     digestsSent: 0,
     reset: 0,
     skipped: 0,
+    failed: 0,
   };
 
   // 1. Resolve the active term. Bail out early when none exists.
@@ -184,7 +187,7 @@ export async function runClearanceReminders(
 
   // 3. Full cert history per candidate, newest-first. Order by (personId asc,
   //    uploadedAt desc) then group per personId, preserving newest-first order so
-  //    effectiveComplianceStatus can fall back to an older still-valid verified cert
+  //    effectiveCompliance can fall back to an older still-valid verified cert
   //    when the newest is an early renewal awaiting verification.
   const allCerts = await prisma.hipaaCertificate.findMany({
     where: { personId: { in: personIds } },
@@ -231,6 +234,14 @@ export async function runClearanceReminders(
   ): boolean => {
     const wantsEmail = channel === "email" || channel === "both";
     const wantsTeams = channel === "teams" || channel === "both";
+    // A cached entraObjectId is NOT required to reach someone on Teams. notify()
+    // resolves the id from Graph when it is missing and caches it, and falls back
+    // to email when that fails -- so gating on the cached value here skipped every
+    // member whose id had not been looked up yet, and (because the claim is taken
+    // only inside the else branch) they were skipped again on every subsequent
+    // run. A contactEmail is enough for notify to deliver on either channel; the
+    // only genuinely unreachable member is one with neither (audit 14).
+    if (wantsTeams && !!person.contactEmail) return true;
     return (wantsEmail && !!person.contactEmail) || (wantsTeams && !!person.entraObjectId);
   };
 
@@ -246,12 +257,30 @@ export async function runClearanceReminders(
 
   // 5 + 6 + 7. Process each candidate.
   for (const person of persons) {
+   // Per-person isolation, matching every sibling reminder job (shift-reminders,
+   // checkin-invites and attending-reminders all do this). Without it a single
+   // rejection from notify()/renderEmail -- a pool timeout under the
+   // O(active members) write phase, a transient reset, a template miss -- escaped
+   // the loop and took the whole run with it: everyone after this person was
+   // skipped for the day, and sendClearanceDigests never ran, so the weekly
+   // director digest was lost too. This is the most compliance-critical job in
+   // the set and was the only one without the guard (audit 14).
+   //
+   // The claim is deliberately NOT rolled back. It is taken before the send, and
+   // re-sending a HIPAA nag is worse than delaying one by an interval.
+   try {
     const certs = certsByPerson.get(person.id) ?? [];
-    const cert = certs[0] ?? null;
     // Effective (all-certs) status: an early renewal awaiting verification must not
     // flip a still-cleared member back to PENDING_VERIFICATION and re-trigger nags.
     // EXPIRING_SOON is still surfaced so the renewal nudge holds.
-    const status = effectiveComplianceStatus(certs, activeTerm.endDate, now);
+    //
+    // `cert` comes from the SAME call, not from certs[0]. The two differ exactly
+    // when the fallback fires, and this email prints the expiry date: reading it
+    // off certs[0] told a mid-renewal member their coverage ran to the new
+    // upload's date, when the status describing them came from the older cert
+    // expiring far sooner. A renewal nudge quoting the wrong date is worse than
+    // none (audit 14, L3).
+    const { status, cert } = effectiveCompliance(certs, activeTerm.endDate, now);
     const clearance = clearanceByPerson.get(person.id);
 
     // A term can disable the HIPAA step. loadClearanceMap drops a disabled step from
@@ -440,6 +469,13 @@ export async function runClearanceReminders(
       ],
       stalledSince: existing?.stalledSince ?? now,
     });
+   } catch (err) {
+    log.error(
+      "[reminders] person failed; continuing with the rest of the roster",
+      errorAttrs(err, { personId: person.id }),
+    );
+    result.failed++;
+   }
   }
 
   await sendClearanceDigests(termId, uncleared, now, baseUrl, result);

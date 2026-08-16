@@ -76,6 +76,29 @@ export class LogTransport implements EmailTransport {
   }
 }
 
+/**
+ * A transport that refuses, per message, because the configured one is unusable.
+ *
+ * The misconfiguration checks below used to `throw` at RESOLUTION time, and every
+ * comment explaining them described a recovery that could therefore never happen:
+ * "rows go FAILED, the admin Failed card lights, and the drain logs it". None of
+ * that ran. `resolveEmailTransport()` is called by the CALLER, before
+ * `drainEmailQueue(transport)`, so the throw escaped before a single row was
+ * claimed -- `attempts` never incremented, nothing reached FAILED, and the whole
+ * cron tick aborted, taking the Teams drain, the tick log and the heartbeat with
+ * it (audit 14, EMAIL-1 / NOTIF-1).
+ *
+ * Returning this instead puts the failure exactly where the comments always said
+ * it was: inside the per-row loop, where the existing attempt budget, FAILED
+ * accounting and (for Teams) email fallback already work.
+ */
+export class UnconfiguredTransport implements EmailTransport {
+  constructor(private readonly reason: string) {}
+  async send(): Promise<void> {
+    throw new Error(this.reason);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GraphTransport
 // ---------------------------------------------------------------------------
@@ -346,8 +369,8 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // drain mark every row SENT while delivering nothing.
     if (!apiKey || !sender) {
       const missing = [!apiKey && "MAILEROO_API_KEY", !sender && "email.sender"].filter(Boolean);
-      if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
-        throw new Error(
+      if (isProductionRuntime()) {
+        return new UnconfiguredTransport(
           `email.transport is 'maileroo' but ${missing.join(" and ")} is not configured -- refusing to route mail to the log transport in production (would record undelivered mail as SENT)`,
         );
       }
@@ -368,8 +391,8 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // rows go FAILED, the admin Failed card lights, and the drain logs it. In dev/CI
     // keep the log fallback so local runs without a sender still work.
     if (!sender) {
-      if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
-        throw new Error(
+      if (isProductionRuntime()) {
+        return new UnconfiguredTransport(
           "email.transport is 'graph' but email.sender is not configured -- refusing to route mail to the log transport in production (would record undelivered mail as SENT)",
         );
       }
@@ -380,5 +403,31 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     }
     return new GraphTransport({ getAccessToken, sender });
   }
+
+  // Resolved to "log" in production. The setting read above degrades to
+  // config.EMAIL_TRANSPORT rather than throwing when the database is briefly
+  // unreachable or the Setting table is missing (getSettingUncached catches
+  // P1001/P2021/P2022), so one bad read could collapse a live transport to "log"
+  // -- and LogTransport RESOLVES, which means the drain would stamp every row in
+  // the batch SENT while delivering nothing. Terminal, no lastError, no retry.
+  //
+  // Not observed in production (30 days of logs contain no "[email] from=..."
+  // line, audit 14 finding 11), so this is a guard against a latent hazard, not a
+  // fix for an active one -- but it is the same argument the graph and maileroo
+  // branches above already make, and they only cover a MISSING credential.
+  if (isProductionRuntime()) {
+    return new UnconfiguredTransport(
+      "email.transport resolved to 'log' in production -- refusing to record undelivered mail as SENT. Check the email.transport setting, and whether the settings read degraded to its env default.",
+    );
+  }
   return new LogTransport();
+}
+
+/**
+ * True on a real deployment. Kept in one place because the three refusals above
+ * must agree, and because VERCEL_ENV is set on preview deploys too -- a preview
+ * that silently marked mail SENT would be just as misleading as production.
+ */
+function isProductionRuntime(): boolean {
+  return process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
 }

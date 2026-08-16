@@ -1,34 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { validateTemplate } from "@/platform/email/render/validate";
 import { renderTemplate } from "@/platform/email/render/render";
 import { getDescriptor } from "@/platform/email/templates/registry";
+import { scheduleDescriptors } from "@/platform/email/templates/schedule";
 
-const SCHEDULE_KEYS = [
-  "schedule-swap-submitted-requester",
-  "schedule-swap-submitted-partner",
-  "schedule-drop-submitted-requester",
-  "schedule-request-approved",
-  "schedule-request-approved-partner",
-  "schedule-request-denied",
-  "schedule-request-cancelled-partner",
-  "schedule-request-submitted-director",
-  "clinic-checkin-invite",
-] as const;
+// Derived from the descriptors, not retyped (audit 14, TSI-05). The hand-written
+// list this replaces had drifted: it omitted schedule-request-denied-partner, so
+// that template's group and (then) its variable guard silently ran on nothing.
+// The registry-wide variable guard now lives in registry.test.ts and covers all
+// 46 descriptors; what stays here is the schedule-specific behaviour.
+const SCHEDULE_KEYS = scheduleDescriptors.map((d) => d.key);
 
 describe("schedule request templates", () => {
+  it("covers every schedule descriptor", () => {
+    // Guards the derivation itself: an empty export would make each case vacuous.
+    expect(SCHEDULE_KEYS.length).toBeGreaterThanOrEqual(10);
+  });
+
   it.each(SCHEDULE_KEYS)("%s is registered under the shift group", (key) => {
     const d = getDescriptor(key);
     expect(d).toBeDefined();
     expect(d!.group).toBe("shift");
-  });
-
-  it.each(SCHEDULE_KEYS)("%s subject + body only reference declared variables", (key) => {
-    const d = getDescriptor(key)!;
-    const allowed = d.variables.map((v) => v.name);
-    expect(validateTemplate(d.defaultSubject, allowed).ok).toBe(true);
-    const bodyResult = validateTemplate(d.defaultBody, allowed);
-    expect(bodyResult.unknownVariables).toEqual([]);
-    expect(bodyResult.ok).toBe(true);
   });
 
   it("director template shows the partner clause only for swaps", () => {

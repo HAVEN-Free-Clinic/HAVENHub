@@ -44,6 +44,20 @@ function assertLocalDatabase(label: string, url: string): void {
 assertLocalDatabase("DATABASE_URL", databaseUrl);
 assertLocalDatabase("DATABASE_URL_UNPOOLED", databaseUrlUnpooled);
 
+// Publish the resolved URLs into THIS process, not just the dev server's.
+//
+// e2e/fixtures.ts builds its own PrismaClient and, finding no DATABASE_URL,
+// used to fall back to reading `.env` -- the production Neon URL. So the run
+// the block above exists to prevent was still half-happening: the dev server
+// was pointed at a throwaway database while the fixtures seeded, mutated, and
+// deleted rows in production. CI never saw it because CI sets DATABASE_URL.
+//
+// Setting it here closes that, and it also makes the two halves agree by
+// construction: the app under test and the fixtures now read the same resolved,
+// asserted-local URL.
+process.env.DATABASE_URL = databaseUrl;
+process.env.DATABASE_URL_UNPOOLED = databaseUrlUnpooled;
+
 export default defineConfig({
   testDir: "e2e",
   // Run serially. The Next.js dev server compiles routes on demand in a single
@@ -58,7 +72,17 @@ export default defineConfig({
     url: "http://localhost:3100/api/health",
     // Merged over process.env for the spawned dev server, and Next.js leaves
     // already-set variables alone, so these beat whatever `.env` contains.
+    //
+    // DEV_DATABASE_URL is the one that actually lands. The command is `npm run
+    // dev`, whose script begins `DATABASE_URL=${DEV_DATABASE_URL:-...havenhub}`,
+    // and that inline assignment overrides anything passed in here -- so the
+    // DATABASE_URL below was silently discarded and the app ran against the
+    // developer's own `havenhub` database no matter what this config resolved.
+    // The script honours DEV_DATABASE_URL, so setting it is what makes the
+    // resolved URL reach the server. DATABASE_URL stays for `next dev` itself
+    // and for anything that reads it before the script's assignment.
     env: {
+      DEV_DATABASE_URL: databaseUrl,
       DATABASE_URL: databaseUrl,
       DATABASE_URL_UNPOOLED: databaseUrlUnpooled,
       // Keeps the content blocker gate out of the suite. It mounts only when

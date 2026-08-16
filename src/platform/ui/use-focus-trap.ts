@@ -2,8 +2,27 @@
 
 import { useEffect, type RefObject } from "react";
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea, input, select, iframe, [tabindex]:not([tabindex="-1"])';
+/**
+ * Selector for controls that can actually take focus.
+ *
+ * Every `:not([disabled])` and the `input[type="hidden"]` exclusion were added in
+ * audit 14. The original list only guarded `button`, so a disabled input/select/
+ * textarea, and every hidden input a form carries (CSRF-style tokens, server-action
+ * bookkeeping fields, the hidden id inputs our row forms post), all counted as
+ * focusable. That skews `first` and `last`: a panel whose real last control is a
+ * Save button but whose markup ends in a hidden input would wrap Shift+Tab onto the
+ * hidden input, `.focus()` on which does nothing, leaving focus where it was and the
+ * wrap silently broken.
+ */
+const FOCUSABLE = [
+  "a[href]",
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  'input:not([disabled]):not([type="hidden"])',
+  "select:not([disabled])",
+  "iframe",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
 
 /**
  * Keeps Tab inside `panelRef` while `active`, and moves focus into the panel
@@ -27,20 +46,39 @@ export function useFocusTrap(panelRef: RefObject<HTMLElement | null>, active: bo
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Tab") return;
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
-      if (!focusables || focusables.length === 0) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        // `hidden` is not expressible in the selector above without repeating it on
+        // every branch, and a hidden node is exactly as unfocusable as a disabled one.
+        (el) => !el.hasAttribute("hidden"),
+      );
+
+      // No focusable control left in the panel. This is NOT a reason to stand down:
+      // it is most often a one-button dialog whose button just went `disabled` for
+      // the duration of its own submit, which is precisely the window the trap
+      // exists to cover (audit 14). Standing down here handed Tab to the browser,
+      // which walked focus into the scroll-locked page behind the scrim. The panel
+      // itself is focusable (Modal and BlockerGate both set tabIndex={-1}), so park
+      // focus there and keep the trap closed until a control comes back.
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const focused = document.activeElement;
 
       // Focus escaped the panel: pull it straight back in before the browser
       // default runs. See the #79 note above.
-      if (!focused || !panelRef.current?.contains(focused)) {
+      if (!focused || !panel.contains(focused)) {
         e.preventDefault();
         (e.shiftKey ? last : first).focus();
         return;
       }
-      if (e.shiftKey && (focused === first || focused === panelRef.current)) {
+      if (e.shiftKey && (focused === first || focused === panel)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && focused === last) {

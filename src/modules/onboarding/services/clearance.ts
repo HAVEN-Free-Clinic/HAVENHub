@@ -2,8 +2,10 @@ import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { loadEhsItemsMap } from "@/platform/ehs/services/status";
+import { getActiveTerm } from "@/platform/terms/active-term";
 import {
   coursesForMember,
+  coursesSatisfiableInTerm,
   splitByRecurrence,
   type AssignableCourse,
   type MemberMembership,
@@ -56,8 +58,11 @@ export async function loadClearanceMap(
   // steps and honors a term's blocking override via loadEffectiveSteps/buildTask.
   // Load it here too so the batch onboarded/cleared gates agree with that path.
   const steps = await loadEffectiveSteps(termId);
-  const [persons, memberships, certRows, trainingRows, designatedCycles, activeCourses, ehsItemsMap] =
+  const [activeTerm, persons, memberships, certRows, trainingRows, designatedCycles, activeCourses, ehsItemsMap] =
     await Promise.all([
+      // Which term learning writes land in; see coursesSatisfiableInTerm below.
+      // cache()d per request, so this is free on a page that already resolved it.
+      getActiveTerm(),
       prisma.person.findMany({
         where: { id: { in: personIds } },
         select: { id: true, contactEmail: true, phone: true },
@@ -118,7 +123,15 @@ export async function loadClearanceMap(
   const completeTrack = new Set(trainingRows.map((t) => `${t.personId}:${t.track}`));
   const designatedTracks = new Set(designatedCycles.map((c) => c.track));
 
-  const assignable: AssignableCourse[] = activeCourses.map((c) => ({
+  // Drop PER_TERM courses when this map is answering for a term that is not the
+  // ACTIVE one. Their progress rows are written against the active term and read
+  // against `termId`, so for a next (PLANNING) term the requirement is unclearable
+  // and every member read as permanently "not cleared" on the schedule builder's
+  // banner and in the Epic roll-up. getMyCourses applies the identical rule, which
+  // is what keeps this map and a member's own checklist agreeing (audit 14, L1).
+  const satisfiableCourses = coursesSatisfiableInTerm(activeCourses, activeTerm?.id === termId);
+
+  const assignable: AssignableCourse[] = satisfiableCourses.map((c) => ({
     id: c.id,
     isActive: c.isActive,
     assignToAll: c.assignToAll,
@@ -133,7 +146,7 @@ export async function loadClearanceMap(
   // diverge from getMyCourses/getOnboardingStatus: this map feeds the schedule
   // builder's clearance banner, and the whole reason learning carries a termId at
   // all is so that banner and a member's own checklist agree for a given term.
-  const { onceIds, perTermIds } = splitByRecurrence(activeCourses);
+  const { onceIds, perTermIds } = splitByRecurrence(satisfiableCourses);
   const progressRows = activeCourseIds.length
     ? await prisma.courseProgress.findMany({
         where: {
@@ -144,6 +157,16 @@ export async function loadClearanceMap(
           ],
         },
         select: { personId: true, courseId: true, lessonStatus: true },
+        // ONCE courses are read UNSCOPED, so one (person, course) can match more
+        // than one row: a course toggled to PER_TERM, run for a term or two, then
+        // toggled back leaves a row per term behind. The map below is last-wins,
+        // and without an order Postgres may hand back the stale incomplete row
+        // last -- so the builder's banner called a member not cleared while their
+        // own checklist (getMyCourses, which has always ordered here) said
+        // Complete. Completed rows sort last and therefore win; id breaks the
+        // remaining ties totally, because a createdAt tie is a known flake source
+        // in this repo and leaves the same non-determinism in place (audit 14, L4).
+        orderBy: [{ completedAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
       })
     : [];
   const progressByPerson = new Map<string, Map<string, string | null>>();

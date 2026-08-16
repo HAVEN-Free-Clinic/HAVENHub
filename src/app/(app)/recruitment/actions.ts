@@ -8,7 +8,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { isUniqueConstraintError } from "@/platform/db";
 import { runAction } from "@/platform/actions";
 import {
-  createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, setAcceptsRenewals,
+  createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, unarchiveCycle, setAcceptsRenewals,
   setApplicationWindow, setCycleDepartments, CyclePublishError,
 } from "@/modules/recruitment/services/cycles";
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
@@ -100,6 +100,20 @@ export async function archiveCycleAction(cycleId: string) {
   const person = await requirePermission("recruitment.manage_cycles");
   await runAction({
     work: () => archiveCycle(cycleId, person.personId),
+    domainErrors: [CyclePublishError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+  });
+}
+
+/** The reverse of archiveCycleAction, so an SRR who archived a cycle with someone
+ *  still mid-pipeline can get back to the actions archiving blocks (release,
+ *  onboarding links, waitlist promote) instead of stranding that applicant
+ *  (audit 14, archived-cycle-is-a-one-way-door). */
+export async function unarchiveCycleAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  await runAction({
+    work: () => unarchiveCycle(cycleId, person.personId),
     domainErrors: [CyclePublishError],
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,

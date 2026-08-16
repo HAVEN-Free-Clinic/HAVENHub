@@ -91,6 +91,56 @@ it("does not offer Continue for a draft whose application window has passed", as
   expect(v.canContinue).toBe(false);
 });
 
+// audit 14, REC-1. cycle-window.ts says every applicant-facing gate must call
+// canSubmitToCycle, not isCycleOpen, "or an invite will work on one path and
+// bounce on another" -- and that is exactly what happened. The three WRITE paths
+// obeyed it; this READ path did not, so an invited applicant with a saved draft
+// in a closed cycle saw "Applications closed" with no Continue link and no way to
+// discard, while the server would still have accepted their submission. The
+// emailed invite was no way back either: it is single-use.
+//
+// No pre-existing test in this file constructs a claimed invite at all, which is
+// why the whole case was invisible.
+it("DOES offer Continue for an invited applicant's draft in a closed cycle", async () => {
+  const { cycle, srr } = await cycleWithApp("d4", "invitee@yale.edu", {
+    appStatus: "DRAFT",
+    cycleStatus: "CLOSED",
+  });
+  await prisma.recruitmentInvite.create({
+    data: {
+      cycle: { connect: { id: cycle.id } },
+      createdBy: { connect: { id: srr.id } },
+      tokenHash: "hash-d4",
+      claimedByEmailLower: "invitee@yale.edu",
+      claimedAt: new Date(),
+    },
+  });
+
+  const [v] = await getApplicantStatus(ID("invitee@yale.edu"));
+  expect(v.canContinue).toBe(true);
+  expect(v.withdraw).toEqual({ kind: "discard_draft" });
+});
+
+it("still closes the door once that invite is revoked", async () => {
+  const { cycle, srr } = await cycleWithApp("d5", "revoked@yale.edu", {
+    appStatus: "DRAFT",
+    cycleStatus: "CLOSED",
+  });
+  await prisma.recruitmentInvite.create({
+    data: {
+      cycle: { connect: { id: cycle.id } },
+      createdBy: { connect: { id: srr.id } },
+      tokenHash: "hash-d5",
+      claimedByEmailLower: "revoked@yale.edu",
+      claimedAt: new Date(),
+      revokedAt: new Date(),
+    },
+  });
+
+  const [v] = await getApplicantStatus(ID("revoked@yale.edu"));
+  expect(v.canContinue).toBe(false);
+});
+
 it("does not leak another identity's status", async () => {
   await cycleWithApp("c6", "reed@yale.edu");
   expect(await getApplicantStatus(ID("other@yale.edu"))).toEqual([]);

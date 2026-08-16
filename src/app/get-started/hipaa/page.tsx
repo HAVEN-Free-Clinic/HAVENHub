@@ -7,7 +7,7 @@ import {
   parseCertificateUpload,
   CertificateValidationError,
 } from "@/modules/my-info/services/my-info";
-import { effectiveComplianceStatus } from "@/platform/compliance/rules";
+import { effectiveCompliance } from "@/platform/compliance/rules";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { OnboardingStepShell } from "../onboarding-step-shell";
@@ -26,7 +26,13 @@ export default async function OnboardingHipaaPage() {
   // Effective status (full history, verified-fallback): a returning member
   // re-onboarding with an early renewal whose prior verified cert is still valid
   // must read as HIPAA-cleared here, not blocked on the unverified new upload.
-  const certStatus = effectiveComplianceStatus(certificates, activeTerm?.endDate ?? null);
+  // Destructured together so the panel badges the expiry of the cert this
+  // status actually describes, which mid-renewal is NOT certificates[0]
+  // (audit 14, L3).
+  const { status: certStatus, cert: certStatusCert } = effectiveCompliance(
+    certificates,
+    activeTerm?.endDate ?? null
+  );
 
   async function uploadAction(formData: FormData) {
     "use server";
@@ -56,6 +62,7 @@ export default async function OnboardingHipaaPage() {
         certificates={certificates}
         uploadAction={uploadAction}
         status={certStatus}
+        statusCert={certStatusCert}
       />
     </OnboardingStepShell>
   );

@@ -358,10 +358,17 @@ export async function setTicketServiceRequestNumber(
  *
  * Sets status COMPLETED + completedAt. Audits "epic.complete".
  *
- * Note on atomicity: updatePersonFields runs before the request-status update
- * and uses the global prisma client (it cannot join a tx). A crash between the
- * two writes leaves epicId written with the request still open; a retry is safe
- * because updatePersonFields diffs and no-ops on an unchanged epicId.
+ * Note on atomicity: the status claim and the Person.epicId write cannot share
+ * a transaction, because updatePersonFields opens its own (platform/people.ts).
+ * The claim goes FIRST so a concurrent cancel cannot be silently reverted (see
+ * the claim's own comment), and a failed epicId write then RELEASES that claim
+ * so the request returns to PENDING/SUBMITTED and stays retryable -- the
+ * alternative, which shipped until audit 14, was a COMPLETED request whose
+ * person never got an Epic ID and which completeRequest would refuse to touch
+ * again. A hard crash between the two writes still leaves the request COMPLETED
+ * without an epicId, which no compensating write can cover; a retry is safe in
+ * either direction because updatePersonFields diffs and no-ops on an unchanged
+ * epicId.
  */
 export async function completeRequest(
   actorPersonId: string,
@@ -427,6 +434,30 @@ export async function completeRequest(
     try {
       await updatePersonFields(actorPersonId, req.personId, { epicId: writtenEpicId });
     } catch (err) {
+      // Release the claim before rethrowing. The claim above and this write
+      // cannot share a transaction -- updatePersonFields opens its own (see
+      // platform/people.ts) -- so without this compensating write, a failed
+      // epicId write left the request COMPLETED with the person's epicId
+      // unwritten, and completeRequest refuses any request that is not
+      // PENDING/SUBMITTED. The support module then had no way to retry: the
+      // one action that writes the epicId would not run again, and the ticket
+      // read as done with the access it was for never granted (audit 14,
+      // SUP-3). Reverting restores the exact precondition a retry needs.
+      //
+      // Guarded on status COMPLETED so this can only ever undo OUR OWN claim:
+      // if anything moved the row on in the meantime, the revert matches
+      // nothing and leaves it alone rather than dragging a resolved request
+      // back open. A failed revert is swallowed deliberately -- the caller
+      // must still see the underlying epicId failure, which is the actionable
+      // one, not a secondary error about the cleanup.
+      try {
+        await prisma.epicRequest.updateMany({
+          where: { id: requestId, status: "COMPLETED" },
+          data: { status: req.status, completedAt: null },
+        });
+      } catch {
+        // Best-effort: rethrowing the original error below is what matters.
+      }
       if (err instanceof PersonNotFoundError) {
         throw new EpicNotFoundError("Person for this request no longer exists.");
       }

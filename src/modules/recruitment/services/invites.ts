@@ -105,6 +105,32 @@ export async function peekInvite(rawToken: string) {
 }
 
 /**
+ * The invite this token names, if it is still live for `email` SPECIFICALLY.
+ *
+ * peekInvite requires `claimedAt: null`, which is right for admitting a stranger
+ * but wrong for the person who already accepted: re-opening their own emailed
+ * link told them "this invitation link is no longer valid... it may have already
+ * been used", when the thing that used it was them. claimInvite already treats a
+ * same-email re-claim as a no-op success for exactly this reason, but peekInvite
+ * gated it so that branch was unreachable from the only caller (audit 14, REC-1).
+ *
+ * Deliberately narrow: it matches only a row already claimed BY THIS EMAIL, so it
+ * cannot admit anyone the original token did not.
+ */
+export async function peekOwnClaimedInvite(rawToken: string, email: string | null | undefined) {
+  const emailLower = email ? normalizeEmail(email) : "";
+  if (!emailLower) return null;
+  return prisma.recruitmentInvite.findFirst({
+    where: {
+      tokenHash: hashToken(rawToken),
+      claimedByEmailLower: emailLower,
+      revokedAt: null,
+    },
+    include: { cycle: { select: { id: true, publicSlug: true, title: true, status: true } } },
+  });
+}
+
+/**
  * Spends a raw token on behalf of `email`, returning the claimed invite or null
  * when the token is unknown, already claimed, expired, or revoked.
  *

@@ -226,7 +226,9 @@ export type CreateFromConversationInput = {
  * Either way this is deliberately not an error: an Intercom retry (of a
  * webhook delivery or of a Fin tool call) is normal, not a fault, and must
  * land on the SAME ticket, not a second one with a consecutive number --
- * returned unchanged, `created: false`.
+ * returned with `created: false`. Returned unchanged EXCEPT for the one
+ * back-fill this path owns: a ticket found by its conversation id that has no
+ * intercomTicketId yet gains one (see linkIntercomTicketId).
  *
  * The lookup-then-create pair still leaves a race window between two
  * genuinely concurrent calls for the same conversation/ticket (both can pass
@@ -247,11 +249,17 @@ export type CreateFromConversationInput = {
  * already have it from resolveIdentityFromConversation. A forged requester
  * would file a ticket as somebody else, and that check belongs where the
  * request enters the system, not buried in this function's body.
+ *
+ * `linked` in the result reports that an EXISTING ticket just gained its
+ * intercomTicketId (see linkIntercomTicketId below). It is a third outcome, not
+ * a flavour of `created`: nothing is created, but the caller now has a first
+ * chance to do the ticket-id-only work it could not do before -- which is why
+ * the webhook route pushes the Hub ticket number back on it.
  */
 export async function createTechRequestFromConversation(
   requesterPersonId: string,
   input: CreateFromConversationInput
-): Promise<{ ticket: TechRequest; created: boolean }> {
+): Promise<{ ticket: TechRequest; created: boolean; linked: boolean }> {
   // findUnique on intercomConversationId alone when there is no ticket id --
   // the exact query the from-conversation route has always run, left
   // untouched so that path's behavior (including what it looks like under a
@@ -269,7 +277,10 @@ export async function createTechRequestFromConversation(
         where: { intercomConversationId: input.intercomConversationId },
         select: TICKET_SCALARS,
       });
-  if (existing) return { ticket: existing, created: false };
+  if (existing) {
+    const { ticket, linked } = await linkIntercomTicketId(existing, input.intercomTicketId);
+    return { ticket, created: false, linked };
+  }
 
   const subject = input.subject?.trim();
   const description = input.description?.trim();
@@ -298,7 +309,7 @@ export async function createTechRequestFromConversation(
       after: { category: ticket.category, number: ticket.number, source: "intercom" },
     });
 
-    return { ticket, created: true };
+    return { ticket, created: true, linked: false };
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       // Another call for the same conversation/ticket won the race between
@@ -319,7 +330,73 @@ export async function createTechRequestFromConversation(
             where: { intercomConversationId: input.intercomConversationId },
             select: TICKET_SCALARS,
           });
-      if (winner) return { ticket: winner, created: false };
+      if (winner) {
+        const { ticket, linked } = await linkIntercomTicketId(winner, input.intercomTicketId);
+        return { ticket, created: false, linked };
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Back-fills intercomTicketId onto a ticket that already exists for this
+ * conversation but has never been linked to an Intercom Ticket. Returns the
+ * ticket unchanged (linked: false) when there is nothing to do.
+ *
+ * This is the repair for the sync link ticket.created used to sever silently
+ * (audit 14, SUP-1/INT-1). A ticket created by Fin's custom action
+ * (src/app/api/support/tickets/from-conversation) only ever has a conversation
+ * id, because no Intercom Ticket exists at that moment. When Intercom later
+ * converts that conversation into a Ticket, ticket.created fires with the SAME
+ * id -- and this function used to find the existing row and return early, never
+ * writing the ticket id. Nothing else in the codebase ever wrote that column,
+ * so the link was severed permanently and invisibly: every inbound status path
+ * keys on intercomTicketId (applyIntercomTicketStateChange's findUnique), and
+ * the reconciliation sweep filters on `intercomTicketId: { not: null }`, so the
+ * backstop built to catch a missed sync could not see the ticket either. The
+ * ticket simply stopped receiving Intercom state changes forever, with no error
+ * anywhere.
+ *
+ * A P2002 here means a DIFFERENT row already holds this ticket id -- two
+ * conversations that Intercom merged into one Ticket, which no write can
+ * reconcile. Left unlinked and audited rather than thrown: the ticket the
+ * caller asked about still exists and is still correct, and failing the webhook
+ * over it would only make Intercom retry a conflict that cannot resolve.
+ */
+async function linkIntercomTicketId(
+  existing: TechRequest,
+  intercomTicketId: string | undefined
+): Promise<{ ticket: TechRequest; linked: boolean }> {
+  if (!intercomTicketId || existing.intercomTicketId) return { ticket: existing, linked: false };
+
+  try {
+    const ticket = await prisma.techRequest.update({
+      where: { id: existing.id },
+      data: { intercomTicketId },
+      select: TICKET_SCALARS,
+    });
+
+    await recordAudit({
+      actorPersonId: null,
+      action: "support.intercom_ticket_link",
+      entityType: "TechRequest",
+      entityId: existing.id,
+      before: { intercomTicketId: null },
+      after: { intercomTicketId, number: existing.number, source: "intercom" },
+    });
+
+    return { ticket, linked: true };
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      await recordAudit({
+        actorPersonId: null,
+        action: "support.intercom_ticket_link_conflict",
+        entityType: "TechRequest",
+        entityId: existing.id,
+        after: { intercomTicketId, number: existing.number },
+      });
+      return { ticket: existing, linked: false };
     }
     throw err;
   }

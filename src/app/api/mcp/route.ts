@@ -38,8 +38,20 @@ const CONVERSATION_ID_ARG = "conversation_id";
  */
 const TOOL_FAILURE_MESSAGE = "Sorry, I could not look that up right now.";
 
-/** Audit tool name for a request rejected before any specific tool ran (bad bearer, missing identity header). Distinguishes a request-level rejection from a named tool's own outcome. */
-const REQUEST_LEVEL_TOOL = "(request)";
+/**
+ * Never audit a request that has not authenticated.
+ *
+ * A rejected bearer used to write an AuditLog row whenever ANY Authorization
+ * header was present, on the theory that a wrong-but-present credential is what
+ * a stale connector looks like. It is also what one curl loop looks like: the
+ * endpoint is publicly reachable once configured, the header is free to send,
+ * and so an unauthenticated stranger could grow AuditLog a row at a time for as
+ * long as they cared to (audit 14, UNAUTH-02). The stale-connector signal is
+ * worth keeping but not worth a write, so it goes to the log instead -- the same
+ * call, for the same reason, that the Intercom webhook route makes on a rejected
+ * signature. Nothing reaches the audit trail before authentication succeeds.
+ */
+const REJECTED_CREDENTIAL_LOG = "[intercom-mcp] rejected bearer token";
 
 /**
  * Registers every tool against one request's MCP server.
@@ -169,17 +181,11 @@ async function guard(request: Request): Promise<Response | null> {
   const expected = mcpBearerToken();
   const authHeader = request.headers.get("authorization");
   if (!expected || !constantTimeBearerMatch(authHeader, expected)) {
-    // A wrong shared secret is not a legitimate Fin request at all, but it is
-    // still worth a row: a run of these is what a misconfigured or stale
-    // connector looks like from here. Only audited when a header was actually
-    // presented, though -- this endpoint is publicly reachable once
-    // configured, so a credential-free drive-by scanner would otherwise be
-    // able to grow AuditLog for free. The webhook route makes the same call
-    // for the same reason (see its rejected-signature branch: log.warn only,
-    // never an audit row).
-    if (authHeader) {
-      await recordToolCall({ personId: null, tool: REQUEST_LEVEL_TOOL, args: {}, outcome: "denied" });
-    }
+    // Logged, never audited -- see REJECTED_CREDENTIAL_LOG. A run of these is
+    // still the signal that a connector is stale or rotated; it just cannot be
+    // allowed to cost a database write, because nothing here has proved the
+    // caller is anything but a stranger who found the URL.
+    if (authHeader) log.warn(REJECTED_CREDENTIAL_LOG);
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

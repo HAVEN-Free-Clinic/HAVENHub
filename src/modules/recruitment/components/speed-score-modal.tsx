@@ -8,6 +8,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Spinner } from "@/platform/ui/spinner";
 import { Input } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { runAction } from "@/platform/ui/run-action";
 import { buildSpeedScoreQueue, type SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import type { ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import { DocumentPreview } from "./document-preview";
@@ -117,7 +118,12 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
       const note = comment.trim() ? comment.trim() : null;
       setSaveError(null);
       startSave(async () => {
-        const res = await onScore(target, value, note);
+        // runAction, not a bare await: ensureLoaded above already learned this
+        // lesson for the READ path (#48). The write path had the same hole until
+        // audit 14 -- a rejected onScore skipped the error branch, so the committee
+        // score was dropped, no Alert rendered, and the queue advanced to the next
+        // applicant as if the score had been recorded.
+        const res = await runAction(() => onScore(target, value, note));
         if (res?.error) {
           setSaveError(res.error);
           return;

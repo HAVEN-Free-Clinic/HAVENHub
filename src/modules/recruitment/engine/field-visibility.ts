@@ -19,9 +19,28 @@ export function parseFieldCondition(v: unknown): FieldCondition | null {
   return null;
 }
 
+/**
+ * The answer, as the list of values it actually carries.
+ *
+ * Empty strings are dropped from an ARRAY answer, not just from a scalar one.
+ * A group control posts one form value per sub-control under a single name --
+ * SUBCOMMITTEE_RANK renders `rankCount` selects, all named for the field, and an
+ * unranked slot posts "" -- so an untouched 3-rank question reaches the server as
+ * ["", "", ""]. Treating that as three answers made "isAnswered" true on the
+ * server while the browser, whose visibility map only gets an entry once a
+ * control fires onChange, still had nothing for the key and read it as
+ * unanswered. That is the client/server `visibleWhen` disagreement the 11th audit
+ * closed for scalars, reopened by whichever field type happens to post empty
+ * siblings: a dependent required field was hidden in the wizard and enforced at
+ * submit, dead-ending the applicant on a question they were never shown.
+ *
+ * Normalizing HERE (rather than per field type at each call site) is the point:
+ * the wizard, the submit path and the reviewer view all evaluate through this one
+ * function, so no future group-shaped field type can drift again (audit 14).
+ */
 function asArray(a: string | string[] | undefined): string[] {
   if (a === undefined) return [];
-  return Array.isArray(a) ? a : a === "" ? [] : [a];
+  return (Array.isArray(a) ? a : [a]).filter((v) => v !== "");
 }
 
 export function isFieldVisible(

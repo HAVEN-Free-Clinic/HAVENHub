@@ -64,7 +64,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Real @/platform/people throughout, with updatePersonFields wrapped in a spy
+ * that DELEGATES to the real implementation. Every test in this file therefore
+ * behaves exactly as before; the completeRequest suite uses
+ * mockRejectedValueOnce to stage a single failed Person.epicId write, which is
+ * the one thing this module's compensating release exists for and which no
+ * amount of real database setup can produce on demand.
+ */
+vi.mock("@/platform/people", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform/people")>();
+  return { ...actual, updatePersonFields: vi.fn(actual.updatePersonFields) };
+});
+
 import * as channel from "@/platform/notifications/channel";
+import { updatePersonFields } from "@/platform/people";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { stubIntercomFetch } from "@/platform/test/intercom";
@@ -85,6 +100,8 @@ import { createTechRequest } from "./tech-request";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
 async function createPerson(
   name: string,
@@ -672,6 +689,57 @@ describe("completeRequest", () => {
 
     await expect(completeRequest(actor.id, req.id, "E99999")).rejects.toBeInstanceOf(EpicStateError);
     expect((await prisma.person.findUniqueOrThrow({ where: { id: target.id } })).epicId).toBeNull();
+  });
+
+  /**
+   * The claim and the Person.epicId write cannot share a transaction
+   * (updatePersonFields opens its own), so a failed epicId write used to leave
+   * a COMPLETED request whose person had no Epic ID -- and completeRequest
+   * refuses anything that is not PENDING/SUBMITTED, so there was no way to
+   * retry from the support module at all. The Epic request read as done while
+   * the access it existed to grant had never been granted (audit 14, SUP-3).
+   *
+   * A DB blip on the person write is the realistic trigger, staged here by
+   * failing that one call.
+   */
+  describe("a failed Person.epicId write", () => {
+    it("leaves the request retryable rather than COMPLETED without an epicId", async () => {
+      const actor = await createPerson("Manager", { netId: "mgr001" });
+      await grantPermission(actor.id, "support.manage_requests");
+      const target = await createPerson("Alice", { netId: "aaa001" });
+      const req = await prisma.epicRequest.create({
+        data: { personId: target.id, kind: "NEW", status: "PENDING", requestedById: target.id },
+      });
+
+      mocked(updatePersonFields).mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+      await expect(completeRequest(actor.id, req.id, "E55555")).rejects.toThrow(/Connection terminated/);
+
+      const afterFailure = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+      expect(afterFailure.status).toBe("PENDING");
+      expect(afterFailure.completedAt).toBeNull();
+      expect((await prisma.person.findUniqueOrThrow({ where: { id: target.id } })).epicId).toBeNull();
+
+      // The point of releasing the claim: the same call now works.
+      await completeRequest(actor.id, req.id, "E55555");
+      expect((await prisma.person.findUniqueOrThrow({ where: { id: target.id } })).epicId).toBe("E55555");
+      expect((await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("COMPLETED");
+    });
+
+    // The release restores the status the request actually had, not a fixed
+    // PENDING: a request already submitted to YNHH must not silently lose that.
+    it("restores a SUBMITTED request to SUBMITTED, not to PENDING", async () => {
+      const actor = await createPerson("Manager", { netId: "mgr001" });
+      await grantPermission(actor.id, "support.manage_requests");
+      const target = await createPerson("Alice", { netId: "aaa001" });
+      const req = await prisma.epicRequest.create({
+        data: { personId: target.id, kind: "NEW", status: "SUBMITTED", requestedById: target.id },
+      });
+
+      mocked(updatePersonFields).mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+      await expect(completeRequest(actor.id, req.id, "E55555")).rejects.toThrow(/Connection terminated/);
+
+      expect((await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe("SUBMITTED");
+    });
   });
 });
 

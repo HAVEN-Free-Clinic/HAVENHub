@@ -39,6 +39,8 @@
  *   - q matches any linked subject's name; strikePending matches any PENDING subject.
  *
  * reviewReport(actorPersonId, id, input):
+ *   - Refuses any transition INTO AWAITING_INFO (that status is owned by the
+ *     clarification thread), but allows re-saving a report already in it.
  *   - Non-manager -> IncidentForbiddenError.
  *   - A holder of incidents.manage sets status and reviewNotes; RESOLVED/DISMISSED
  *     stamp resolvedById/resolvedAt, other statuses clear them.
@@ -986,6 +988,46 @@ describe("listReviewQueue", () => {
 // ---------------------------------------------------------------------------
 
 describe("reviewReport", () => {
+  // AWAITING_INFO is reachable only by actually asking the reporter something
+  // (services/messages.ts), which writes the question and notifies them in the
+  // same breath. Setting it from the status control would strand the reporter
+  // with a demand for a reply to a question that was never asked.
+  it("refuses to move a report into AWAITING_INFO", async () => {
+    const reporter = await createPerson("Reporter", "ra001");
+    const manager = await createPerson("Manager", "ra002");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await expect(
+      reviewReport(manager.id, report.id, { status: "AWAITING_INFO" })
+    ).rejects.toBeInstanceOf(IncidentValidationError);
+
+    const after = await prisma.incidentReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(after.status).toBe("SUBMITTED");
+  });
+
+  // The detail page keeps AWAITING_INFO in the status select while it is the
+  // current value, so editing reviewer notes on such a report resubmits it
+  // unchanged. That save must succeed.
+  it("allows saving notes on a report already awaiting the reporter", async () => {
+    const reporter = await createPerson("Reporter", "ra003");
+    const manager = await createPerson("Manager", "ra004");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+    await prisma.incidentReport.update({
+      where: { id: report.id },
+      data: { status: "AWAITING_INFO" },
+    });
+
+    const updated = await reviewReport(manager.id, report.id, {
+      status: "AWAITING_INFO",
+      reviewNotes: "Chased on Tuesday.",
+    });
+
+    expect(updated.status).toBe("AWAITING_INFO");
+    expect(updated.reviewNotes).toBe("Chased on Tuesday.");
+  });
+
   it("forbids a non-manager", async () => {
     const reporter = await createPerson("Reporter", "rr001");
     const nonManager = await createPerson("NonManager", "rr002");
@@ -1286,11 +1328,66 @@ describe("decideStrike (per subject)", () => {
     expect(mail.html).toContain("Executive Directors");
   });
 
-  it("still sends the narrative for a non-anonymous report with no reviewer notes", async () => {
+  it("still sends the narrative for a non-anonymous SINGLE-subject report with no reviewer notes", async () => {
     const { pending, manager } = await seedAnonymousStrikeWithEmail(NARRATIVE, false);
     await decideStrike(manager.id, pending.id, { approve: true, category: DISCIPLINARY_CATEGORIES[0] });
     const [mail] = await prisma.emailLog.findMany({ where: { template: "incidents.strike_issued" } });
     expect(mail.html).toContain(NARRATIVE);
+  });
+
+  // audit 14: a report holds ONE narrative but may link N subjects, each getting
+  // an independent strike. Copying the shared narrative onto every strike told
+  // each subject what their co-subjects were accused of. The narrative stays on
+  // the report; the strike carries a pointer unless the reviewer writes notes.
+  it("withholds the shared narrative when the report names several subjects", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const director = await createPerson("Director", "ms-dir");
+    const first = await prisma.person.create({
+      data: { name: "First", netId: "ms-one", contactEmail: "one@yale.edu" },
+    });
+    const second = await prisma.person.create({
+      data: { name: "Second", netId: "ms-two", contactEmail: "two@yale.edu" },
+    });
+    const manager = await createPerson("Manager", "ms-mgr");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(first.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(second.id, term.id, dept.id, "VOLUNTEER");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const shared = "First ignored the escalation and Second pulled up a chart she was not assigned.";
+    const report = await submitReport(director.id, {
+      concernTypes: ["PRIVACY_HIPAA"],
+      description: shared,
+      subjects: [
+        { personId: first.id, requestStrike: true },
+        { personId: second.id, requestStrike: true },
+      ],
+    });
+
+    const pendingFirst = await prisma.incidentReportSubject.findFirstOrThrow({
+      where: { reportId: report.id, personId: first.id },
+    });
+    await decideStrike(manager.id, pendingFirst.id, {
+      approve: true,
+      category: DISCIPLINARY_CATEGORIES[0],
+    });
+
+    // The strike about First must not carry what Second is alleged to have done.
+    const action = await prisma.disciplinaryAction.findFirstOrThrow({
+      where: { reportId: report.id, personId: first.id },
+    });
+    expect(action.description).not.toContain("Second pulled up a chart");
+    expect(action.description).toContain(`#${report.number}`);
+
+    const [mail] = await prisma.emailLog.findMany({
+      where: { template: "incidents.strike_issued" },
+    });
+    expect(mail.html).not.toContain("Second pulled up a chart");
+
+    // The narrative itself is untouched on the report, where reviewers read it.
+    const stored = await prisma.incidentReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(stored.description).toBe(shared);
   });
 
   it("approve issues one DisciplinaryAction for that person, mirrors anonymous->confidential, sets APPROVED", async () => {
@@ -1539,5 +1636,29 @@ describe("linkableReports", () => {
     });
 
     expect(await linkableReports(central.id)).toHaveLength(200);
+  });
+
+  // audit 14: the picker's label carries the number, the concern types and the
+  // date, which already tells a subject that a report about them exists and what
+  // it alleges. listReviewQueue excludes the actor's own reports for the same
+  // reason; this picker did not.
+  it("omits reports that name the actor as a subject", async () => {
+    const central = await createPerson("Central", "lr-self-c");
+    const reporter = await createPerson("Reporter", "lr-self-r");
+    await grantPermission(central.id, "incidents.manage");
+
+    const aboutThem = await submitReport(reporter.id, {
+      concernTypes: ["PRIVACY_HIPAA"],
+      description: "Report naming the central reviewer.",
+      subjects: [{ personId: central.id }],
+    });
+    const unrelated = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "Unrelated report.",
+    });
+
+    const ids = (await linkableReports(central.id)).map((r) => r.id);
+    expect(ids).toContain(unrelated.id);
+    expect(ids).not.toContain(aboutThem.id);
   });
 });

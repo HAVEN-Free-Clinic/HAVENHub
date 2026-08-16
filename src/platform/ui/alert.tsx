@@ -24,7 +24,7 @@ const iconColor: Record<Tone, string> = {
   info: "text-brand-fg",
 };
 
-type AlertProps = ComponentProps<"p"> & {
+type AlertProps = ComponentProps<"div"> & {
   tone?: Tone;
 };
 
@@ -38,6 +38,14 @@ type AlertProps = ComponentProps<"p"> & {
  * Errors announce as role="alert" (assertive); successes/info/warnings announce
  * as role="status" (polite) so meaning isn't conveyed by color alone.
  * Callers may override `role` for non-default behavior.
+ *
+ * Renders a <div>, not a <p> (audit 14). A <p> is auto-closed by the HTML parser
+ * the moment a block child opens, so callers that pass a heading line plus detail
+ * lines (the do-not-rehire notices) or a copy-the-link row (the interview invite
+ * panel) had their content hoisted OUT of the alert: the bordered box rendered
+ * empty and its text spilled below it, unstyled and no longer announced with the
+ * message. A <div> legally contains both phrasing and flow content, so a caller
+ * can pass either without the markup silently coming apart.
  */
 export function Alert({
   tone = "info",
@@ -48,7 +56,7 @@ export function Alert({
 }: AlertProps) {
   const Icon = toneIcon[tone];
   return (
-    <p
+    <div
       role={role ?? (tone === "error" ? "alert" : "status")}
       {...rest}
       className={cx(
@@ -60,7 +68,10 @@ export function Alert({
         className={cx("mt-px h-4 w-4 shrink-0", iconColor[tone])}
         aria-hidden
       />
-      <span>{children}</span>
-    </p>
+      {/* Also a <div>: a block child inside a <span> is the same invalid nesting
+          one level down, and min-w-0 keeps a long unbroken message from pushing
+          the flex row wider than its container instead of wrapping. */}
+      <div className="min-w-0">{children}</div>
+    </div>
   );
 }

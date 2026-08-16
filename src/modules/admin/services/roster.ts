@@ -420,6 +420,26 @@ export async function copyRosterFromTerm(
     select: { personId: true, departmentId: true, kind: true, status: true },
   });
 
+  // Offboard convergence: Person.status and TermMembership.status move together.
+  // Every other membership writer honours that; this one did not, and the source
+  // picker offers ARCHIVED terms, so copying last year's roster forward wrote
+  // ACTIVE memberships for people who have since been offboarded. They cannot log
+  // in (the session check reads Person.status), but they reappear on the roster,
+  // in capacity maths, and in reminder audiences -- a ghost nobody can explain
+  // (audit 14, finding 9; same class as the promoteContracts leak in audit 11).
+  //
+  // Skipped rather than revived: bringing someone back is a deliberate act with
+  // its own path, not a side effect of copying a roster.
+  const sourcePersonIds = [...new Set(sourceMemberships.map((m) => m.personId))];
+  const offboarded = new Set(
+    (
+      await prisma.person.findMany({
+        where: { id: { in: sourcePersonIds }, status: "OFFBOARDED" },
+        select: { id: true },
+      })
+    ).map((p) => p.id)
+  );
+
   // Build a lookup Map: "${personId}:${departmentId}:${kind}" -> status
   const existingMap = new Map<string, string>();
   for (const m of existingTargetMemberships) {
@@ -435,6 +455,12 @@ export async function copyRosterFromTerm(
 
     // Already ACTIVE in target: skip
     if (existingStatus === "ACTIVE") {
+      skipped++;
+      continue;
+    }
+
+    // Offboarded in the meantime: never write them back onto a live roster.
+    if (offboarded.has(src.personId)) {
       skipped++;
       continue;
     }

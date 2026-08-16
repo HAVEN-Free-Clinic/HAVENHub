@@ -33,15 +33,43 @@ describe("distinctIdFromCookie", () => {
 
 describe("onRequestError", () => {
   const OLD_RUNTIME = process.env.NEXT_RUNTIME;
-  beforeEach(() => vi.clearAllMocks());
+  const OLD_VERCEL_ENV = process.env.VERCEL_ENV;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // The suite itself runs off-Vercel, so without this every capture case
+    // would take the local-process early return and assert nothing.
+    process.env.VERCEL_ENV = "production";
+  });
   afterEach(() => {
     process.env.NEXT_RUNTIME = OLD_RUNTIME;
+    if (OLD_VERCEL_ENV === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = OLD_VERCEL_ENV;
   });
 
   it("does nothing outside the node runtime", async () => {
     process.env.NEXT_RUNTIME = "edge";
     await onRequestError(new Error("boom"), { headers: {} }, {});
     expect(captureException).not.toHaveBeenCalled();
+  });
+
+  // Three GitHub issues were auto-filed from one `next dev` run against an
+  // empty database. A developer sees their own errors in their own terminal;
+  // sending them to the shared project only dilutes the production signal.
+  it("does not report an error from a local dev or CI process", async () => {
+    process.env.NEXT_RUNTIME = "nodejs";
+    delete process.env.VERCEL_ENV;
+    await onRequestError(new Error("local boom"), { headers: {} }, {});
+    expect(captureException).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+  });
+
+  // Staging and preview must keep reporting: nobody is watching a terminal for
+  // those, which is when the tracker actually earns its keep.
+  it("still reports from a preview deployment", async () => {
+    process.env.NEXT_RUNTIME = "nodejs";
+    process.env.VERCEL_ENV = "preview";
+    await onRequestError(new Error("preview boom"), { headers: {} }, {});
+    expect(captureException).toHaveBeenCalledTimes(1);
   });
 
   it("captures the exception with the cookie distinctId and route context, then flushes", async () => {
@@ -58,6 +86,9 @@ describe("onRequestError", () => {
       router_kind: "App Router",
       route_path: "/recruitment",
       route_type: "action",
+      // Staging, preview and local dev share this PostHog project with
+      // production (audit 14, OBS-05).
+      environment: expect.any(String),
     });
     expect(flush).toHaveBeenCalledTimes(1);
   });

@@ -379,6 +379,33 @@ describe("copyRosterFromTerm", () => {
     expect(targetMemberships[0].personId).toBe(director.id);
   });
 
+  // audit 14, finding 9. Offboard convergence says Person.status and
+  // TermMembership.status move together. This was the one membership writer that
+  // did not honour it, and the source picker offers ARCHIVED terms, so copying an
+  // old roster forward resurrected offboarded people onto a live one. They cannot
+  // log in, but they reappear on rosters, in capacity maths and in reminder
+  // audiences.
+  it("skips OFFBOARDED people instead of writing them back onto a live roster", async () => {
+    const source = await seedTerm("SU25", "ARCHIVED");
+    const target = await seedTerm("FA26", "PLANNING");
+    const dept = await seedDepartment("DEPT");
+    const stayed = await seedPerson("Still Here");
+    const left = await seedPerson("Long Gone");
+    await prisma.person.update({ where: { id: left.id }, data: { status: "OFFBOARDED" } });
+
+    await seedMembership({ personId: stayed.id, termId: source.id, departmentId: dept.id, kind: "VOLUNTEER" });
+    await seedMembership({ personId: left.id, termId: source.id, departmentId: dept.id, kind: "VOLUNTEER" });
+
+    const result = await copyRosterFromTerm(ACTOR, source.id, target.id, ["VOLUNTEER"]);
+
+    expect(result.copied).toBe(1);
+    expect(result.skipped).toBe(1);
+
+    const rows = await prisma.termMembership.findMany({ where: { termId: target.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].personId).toBe(stayed.id);
+  });
+
   it("copies both kinds when both are requested", async () => {
     const source = await seedTerm("SU26", "ACTIVE");
     const target = await seedTerm("FA26", "PLANNING");

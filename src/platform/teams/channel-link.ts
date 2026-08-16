@@ -119,6 +119,16 @@ export interface ChannelLinkDeps {
    */
   loadLastGood?: (groupId: string, dateStr: string) => Promise<ClinicChannelLink | null>;
   saveLastGood?: (groupId: string, dateStr: string, link: ClinicChannelLink) => Promise<void>;
+  /** Drop the saved link once a live resolve proves it no longer matches. */
+  clearLastGood?: (groupId: string, dateStr: string) => Promise<void>;
+  /**
+   * Durable consecutive-failure counter, so a Graph that is down stops costing a
+   * full budget on every cold instance. Injectable for the same reason the
+   * last-known-good store is: the resolver tests must not touch the database.
+   */
+  loadFailure?: () => Promise<StoredFailure | null>;
+  recordFailure?: (now: Date) => Promise<void>;
+  clearFailure?: () => Promise<void>;
 }
 
 /**
@@ -191,6 +201,73 @@ export function __resetChannelCache(): void {
  */
 const LAST_GOOD_KEY = "teams.channelLinkLastGood";
 
+/**
+ * Durable "Graph is not answering" marker, same Setting-as-runtime-state pattern.
+ *
+ * The module cache bounds repeat cost within one warm instance, but a serverless
+ * fleet is mostly cold instances, and each one paid the full 8s budget on a call
+ * that had not succeeded once in thirty days of production (audit 14, finding 2).
+ * That is 8s of function time per cold dashboard render, spent to render nothing,
+ * behind a Suspense boundary nobody sees fail.
+ *
+ * So consecutive failures are counted durably. Past the threshold the resolver
+ * stops calling Graph for a cooldown and serves the saved link (or null)
+ * immediately. Any success clears it, so a fixed configuration recovers on the
+ * first attempt after the cooldown rather than needing a deploy.
+ */
+const FAILURE_KEY = "teams.channelLinkFailure";
+
+/** Consecutive failures before the resolver starts skipping the Graph call. */
+const FAILURE_TRIP_COUNT = 3;
+
+/** How long to skip for once tripped. Short enough that a fix is picked up soon. */
+const FAILURE_COOLDOWN_MS = 30 * 60 * 1000;
+
+export interface StoredFailure {
+  /** Consecutive failures; reset to 0 by any success. */
+  count: number;
+  /** ISO string of the most recent failure. */
+  at: string;
+}
+
+async function loadStoredFailure(): Promise<StoredFailure | null> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: FAILURE_KEY } });
+    const stored = row?.value as StoredFailure | null;
+    if (!stored || typeof stored.count !== "number" || !stored.at) return null;
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+/** Never throws: observability state must not fail a render. */
+async function recordStoredFailure(now: Date): Promise<void> {
+  try {
+    const prev = await loadStoredFailure();
+    const value = {
+      count: (prev?.count ?? 0) + 1,
+      at: now.toISOString(),
+    } satisfies StoredFailure;
+    await prisma.setting.upsert({
+      where: { key: FAILURE_KEY },
+      create: { key: FAILURE_KEY, value },
+      update: { value },
+    });
+  } catch {
+    // Best-effort.
+  }
+}
+
+/** Never throws. Cheap no-op when there is nothing to clear. */
+async function clearStoredFailure(): Promise<void> {
+  try {
+    await prisma.setting.deleteMany({ where: { key: FAILURE_KEY } });
+  } catch {
+    // Best-effort.
+  }
+}
+
 interface StoredLastGood {
   groupId: string;
   dateStr: string;
@@ -219,6 +296,25 @@ async function loadStoredLastGood(
     // Best-effort: a DB blip just means there is no fallback available, which
     // lands on the same degrade-to-null path as having never saved one.
     return null;
+  }
+}
+
+/**
+ * Drop the saved link. Called when Graph answers and no channel matches this
+ * week: whatever is stored is then known-stale, and keeping it would let the NEXT
+ * transient failure serve a deep link to a channel that has been renamed or
+ * deleted (audit 14, NOTIF-3). Never throws.
+ */
+async function clearStoredLastGood(groupId: string, dateStr: string): Promise<void> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: LAST_GOOD_KEY } });
+    const stored = row?.value as StoredLastGood | null;
+    // Only clear OUR group's row; a repointed team's row is already ignored on
+    // read and is not ours to delete.
+    if (!stored || stored.groupId !== groupId || stored.dateStr !== dateStr) return;
+    await prisma.setting.deleteMany({ where: { key: LAST_GOOD_KEY } });
+  } catch {
+    // Best-effort.
   }
 }
 
@@ -279,10 +375,31 @@ function isTransient(err: unknown): boolean {
 
 class GraphStatusError extends Error {
   readonly status: number;
-  constructor(status: number) {
-    super(`Graph channels list failed: ${status}`);
+  /** First 200 chars of Graph's error body, or "" when it could not be read. */
+  readonly body: string;
+  constructor(status: number, body: string) {
+    super(`Graph channels list failed: ${status}${body ? ` -- ${body}` : ""}`);
     this.name = "GraphStatusError";
     this.status = status;
+    this.body = body;
+  }
+}
+
+/**
+ * Read Graph's error body without ever letting that read fail the request.
+ *
+ * A non-2xx used to be reduced to a bare status number, which made the two
+ * failures an operator actually has to tell apart look identical in the logs: a
+ * 403 for a missing Channel.ReadBasic.All scope and a 403 for a mailbox that is
+ * not a member of the Team carry completely different fixes, and Graph explains
+ * which in the body every time (audit 14). Truncated because Graph error bodies
+ * can be long and this goes to a log line, not a debugger.
+ */
+async function readErrorBody(res: Response): Promise<string> {
+  try {
+    return (await res.text()).slice(0, 200);
+  } catch {
+    return "";
   }
 }
 
@@ -307,7 +424,7 @@ async function listGraphChannels(
   sleep: (ms: number) => Promise<void>,
   startedAt: number,
   stats: { attempts: number }
-): Promise<GraphChannel[]> {
+): Promise<{ channels: GraphChannel[]; truncated: boolean }> {
   let lastErr: unknown;
 
   for (let attempt = 1; attempt <= GRAPH_ATTEMPT_BUDGETS_MS.length; attempt++) {
@@ -327,9 +444,16 @@ async function listGraphChannels(
         // Ignored by fetch, which discards unknown init keys.
         __timeoutMs: attemptMs,
       } as RequestInit);
-      if (!res.ok) throw new GraphStatusError(res.status);
-      const json = (await res.json()) as { value?: GraphChannel[] };
-      return json.value ?? [];
+      if (!res.ok) throw new GraphStatusError(res.status, await readErrorBody(res));
+      const json = (await res.json()) as {
+        value?: GraphChannel[];
+        "@odata.nextLink"?: string;
+      };
+      // We deliberately do not page (see the caller). Reporting whether Graph
+      // said there IS another page is what lets "no channel matched" be told
+      // apart from "the match is on a page we never asked for" -- which decides
+      // whether a saved link may be invalidated.
+      return { channels: json.value ?? [], truncated: Boolean(json["@odata.nextLink"]) };
     } catch (err) {
       lastErr = err;
       if (!isTransient(err) || attempt === GRAPH_ATTEMPT_BUDGETS_MS.length) break;
@@ -357,6 +481,10 @@ export async function getCurrentClinicChannelLink(
     sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
     loadLastGood = loadStoredLastGood,
     saveLastGood = saveStoredLastGood,
+    clearLastGood = clearStoredLastGood,
+    loadFailure = loadStoredFailure,
+    recordFailure = recordStoredFailure,
+    clearFailure = clearStoredFailure,
   } = deps;
 
   const resolvedGroupId = groupId ?? (await getSetting<string>("teams.clinicGroupId"));
@@ -382,6 +510,30 @@ export async function getCurrentClinicChannelLink(
     return cache.value;
   }
 
+  // Graph has been failing consecutively: skip the call entirely for a cooldown
+  // rather than paying the full budget again on this cold instance. Serve the
+  // saved link if there is one, exactly as the failure path would.
+  const failure = await loadFailure();
+  if (
+    failure &&
+    failure.count >= FAILURE_TRIP_COUNT &&
+    now.getTime() - new Date(failure.at).getTime() < FAILURE_COOLDOWN_MS
+  ) {
+    let saved: ClinicChannelLink | null = null;
+    try {
+      saved = await loadLastGood(resolvedGroupId, dateStr);
+    } catch {
+      // No fallback available.
+    }
+    cache = {
+      dateStr,
+      groupId: resolvedGroupId,
+      value: saved,
+      expiresAt: now.getTime() + (saved ? HIT_TTL_MS : MISS_TTL_MS),
+    };
+    return saved;
+  }
+
   let value: ClinicChannelLink | null = null;
   let resolvedLive = false;
   const stats = { attempts: 0 };
@@ -402,10 +554,24 @@ export async function getCurrentClinicChannelLink(
     // accrues ~one channel per week, so a single page covers years; we do not
     // page. If a Team ever exceeds ~200 channels, this would need @odata.nextLink
     // handling to stay reliable.
+    //
+    // $select is REQUIRED, not an optimisation, and it is the root cause of the
+    // production outage this module has been failing with. Without it Graph
+    // populates each channel's `email` property, which Microsoft documents as an
+    // expensive operation. A clinic Team accrues one channel per clinic week, so
+    // that per-channel cost grows with the Team until every list call runs past
+    // the budget above and times out -- which is exactly the shape production
+    // showed: both attempts consuming their whole slice, never once succeeding,
+    // so the last-known-good fallback was never seeded either. Requesting only
+    // the three fields we actually read drops `email` and keeps the call inside
+    // the budget. (Diagnosis from PostHog's self-driving agent, PR #643; folded
+    // in here so it ships with the observability work in the same commit range.)
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       resolvedGroupId
-    )}/channels`;
-    const channels = await listGraphChannels(url, token, fetchImpl, sleep, startedAt, stats);
+    )}/channels?$select=id,displayName,webUrl`;
+    const { channels, truncated } = await listGraphChannels(
+      url, token, fetchImpl, sleep, startedAt, stats
+    );
     const channel = matchChannel(channels, dateStr);
     if (channel?.webUrl) {
       value = {
@@ -415,6 +581,36 @@ export async function getCurrentClinicChannelLink(
       };
       resolvedLive = true;
     }
+
+    // The ONLY record that this call can succeed at all. Without it the module
+    // logged exclusively on failure, so the real latency that every timeout-budget
+    // decision here has been argued from had never once been measured, and a
+    // hundred-percent failure rate was indistinguishable from a Team that simply
+    // has no channel this week (audit 14, finding 2). One line per completed
+    // resolve, at info, and the cache means it is not one per render.
+    log.info("[teams/channel-link] resolved", {
+      clinicDate: dateStr,
+      matched: Boolean(channel?.webUrl),
+      channelCount: channels.length,
+      truncated,
+      attempts: stats.attempts,
+      tokenMs,
+      graphMs: Date.now() - startedAt - tokenMs,
+    });
+
+    // Graph answered, the list was COMPLETE, and nothing matched: the week's
+    // channel was renamed or deleted, so a link saved for this same week is now a
+    // deep link to a channel that is gone. Drop it, or the next transient failure
+    // resurrects it (audit 14, NOTIF-3).
+    //
+    // Gated on `truncated` deliberately. This call does not follow
+    // @odata.nextLink, so on a Team with enough channels to page, "no match" can
+    // mean "the match is on a page we never asked for" -- and invalidating a good
+    // link on that basis would be strictly worse than keeping it.
+    if (!channel?.webUrl && !truncated) {
+      await clearLastGood(resolvedGroupId, dateStr);
+    }
+    await clearFailure();
   } catch (err) {
     const elapsedMs = Date.now() - startedAt;
     const attrs = {
@@ -430,12 +626,21 @@ export async function getCurrentClinicChannelLink(
     // for this same clinic week. The week's channel does not change once it
     // exists, so the saved copy is still the right answer. Guarded because this
     // function is documented never to throw and it renders a Server Component.
+    // Only a TRANSIENT failure earns the fallback. A 401/403/404 is Graph
+    // telling us the configuration is wrong or the Team is gone, and serving a
+    // saved deep link on top of that hides a problem only an operator can fix
+    // while sending people to a channel that may no longer exist (audit 14,
+    // NOTIF-3). Timeouts, 429s and 5xx are the cases the fallback was written
+    // for: the answer is still correct, we just could not fetch it.
     let fallback: ClinicChannelLink | null = null;
-    try {
-      fallback = await loadLastGood(resolvedGroupId, dateStr);
-    } catch {
-      // No fallback available; fall through to the degrade-to-null path.
+    if (isTransient(err)) {
+      try {
+        fallback = await loadLastGood(resolvedGroupId, dateStr);
+      } catch {
+        // No fallback available; fall through to the degrade-to-null path.
+      }
     }
+    await recordFailure(now);
     if (fallback) {
       // Recovered, so deliberately NOT the "... failed" error line the alerting
       // counts: nobody saw a missing card. The attributes are identical, so the

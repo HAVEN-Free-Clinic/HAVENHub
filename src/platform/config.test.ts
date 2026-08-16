@@ -103,8 +103,19 @@ describe("loadConfig", () => {
   });
 
   it("transforms MAX_UPLOAD_MB string to number", () => {
-    const config = loadConfig({ ...base, MAX_UPLOAD_MB: "25" });
-    expect(config.MAX_UPLOAD_MB).toBe(25);
+    const config = loadConfig({ ...base, MAX_UPLOAD_MB: "3" });
+    expect(config.MAX_UPLOAD_MB).toBe(3);
+  });
+
+  // audit 14, max-upload-mb-env-default-bypasses-the-4mb-cap. This case used to
+  // assert 25 came back as 25, which is what made the whole cap decorative: the
+  // settings registry stops an ADMIN from typing more than 4, but the env value
+  // flows straight past it into every validation site (and into uploads.maxMb's
+  // envDefault). .env.example shipped 5, so a copied deployment advertised a
+  // size the platform rejects at the edge before any app code runs.
+  it("clamps MAX_UPLOAD_MB to the 4 MB server-action body cap", () => {
+    expect(loadConfig({ ...base, MAX_UPLOAD_MB: "5" }).MAX_UPLOAD_MB).toBe(4);
+    expect(loadConfig({ ...base, MAX_UPLOAD_MB: "25" }).MAX_UPLOAD_MB).toBe(4);
   });
 
   it("rejects MAX_UPLOAD_MB 'abc' naming the variable", () => {

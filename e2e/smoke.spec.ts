@@ -100,15 +100,45 @@ const ROUTES: RouteCase[] = [
 // Test loop
 // ---------------------------------------------------------------------------
 
+/**
+ * What our own error boundaries render (audit 14, TSI-01).
+ *
+ * A server component that throws inside the (app) tree does NOT fail the
+ * request: Next streams the shell, swaps in src/app/(app)/error.tsx, and the
+ * response is still 200. So `status < 400` is true of a completely broken page,
+ * and the content assertion is the only thing here with teeth.
+ *
+ * That assertion used to look for /Application error|Unhandled Runtime Error/.
+ * Neither string can ever appear in this app: "Application error: a client-side
+ * exception has occurred" is Next's own fallback for apps that ship NO
+ * global-error.tsx (we have one, and it renders "Something went wrong"), and
+ * "Unhandled Runtime Error" was the pre-15 dev overlay title. Every one of the
+ * 32 routes below was therefore guarded by the status code alone.
+ *
+ * "Something went wrong" is the shared heading of (app)/error.tsx,
+ * global-error.tsx and get-started/error.tsx, so one string covers all three.
+ */
+const ERROR_BOUNDARY_HEADING = /^Something went wrong$/;
+
 for (const r of ROUTES) {
   test(`smoke: ${r.path} loads for ${r.allowed}`, async ({ page }) => {
     await loginAs(page, r.allowed);
     const resp = await page.goto(r.path);
     expect(resp?.status(), `${r.path} HTTP status`).toBeLessThan(400);
     await expect(page).toHaveURL((url) => url.pathname === (r.finalPath ?? r.path));
-    // Verify no Next.js error boundary was rendered.
+
+    // Positive first: wait for the page body to actually paint something. This
+    // is also what makes the negative assertion below meaningful -- checking for
+    // the absence of an error heading before anything has rendered would pass
+    // on a page that goes on to render one a tick later.
+    const main = page.locator("main#main-content");
+    await expect(main).toBeVisible();
+    expect((await main.innerText()).trim().length, `${r.path} rendered an empty page body`)
+      .toBeGreaterThan(0);
+
     await expect(
-      page.getByText(/Application error|Unhandled Runtime Error/i),
+      page.getByRole("heading", { name: ERROR_BOUNDARY_HEADING }),
+      `${r.path} rendered an error boundary with an HTTP ${resp?.status()}`,
     ).toHaveCount(0);
   });
 

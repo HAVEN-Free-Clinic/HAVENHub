@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { can } from "@/platform/rbac/engine";
 import { log, errorAttrs } from "@/platform/logging";
 import {
   computeServiceRecord,
@@ -176,6 +177,88 @@ export async function getCredentialByToken(token: string): Promise<PublicCredent
   });
   if (!row || row.revokedAt) return null;
   return { ...toIssued(row), person: row.person };
+}
+
+export class CredentialForbiddenError extends Error {
+  constructor(message = "You do not have permission to revoke a service credential.") {
+    super(message);
+    this.name = "CredentialForbiddenError";
+  }
+}
+
+/**
+ * Who may revoke. admin.manage_people is the permission that already governs a
+ * person's record as a whole, which is what a service credential is: a frozen,
+ * name-bearing claim about one person. It is deliberately NOT a volunteers.*
+ * permission, because revocation reaches alumni and offboarded people who no
+ * longer appear on any roster.
+ */
+const REVOKE_PERMISSION = "admin.manage_people";
+
+/**
+ * Retract a credential: the public page 404s, the QR on any wallet badge stops
+ * resolving, and the photo route stops serving.
+ *
+ * ServiceCredential.revokedAt is read in four places and documented in the
+ * schema as the admin revocation control, but until audit 14 NOTHING in the
+ * codebase ever wrote it, so the control did not exist. That left two real
+ * situations with no answer: a record issued in error or on falsified service
+ * could not be pulled, and an OFFBOARDED member's public page could not be
+ * retracted by anyone, since unpublishCredential is reachable only from
+ * /my-info, which requires the sign-in they no longer have.
+ *
+ * Revoking does NOT delete the snapshot or the token. The record is evidence of
+ * what was published and by whom, and keeping the token means restoring is a
+ * decision rather than a re-publish under a new URL.
+ *
+ * Idempotent: revoking an already-revoked credential keeps the ORIGINAL
+ * timestamp, so a second click cannot rewrite when the retraction took effect.
+ */
+export async function revokeServiceCredential(
+  actorPersonId: string,
+  personId: string,
+): Promise<void> {
+  if (!(await can(actorPersonId, REVOKE_PERMISSION))) throw new CredentialForbiddenError();
+
+  const updated = await prisma.serviceCredential.updateMany({
+    where: { personId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  if (updated.count === 0) return;
+
+  await recordAudit({
+    actorPersonId,
+    action: "passport.revoke",
+    entityType: "ServiceCredential",
+    entityId: personId,
+  });
+}
+
+/**
+ * Undo a revocation, for the case the control has to cover as much as revoking
+ * itself: a credential pulled on a report that turns out to be wrong.
+ *
+ * The credential returns to exactly the state it was in, published token
+ * included, because revocation never took either away.
+ */
+export async function restoreServiceCredential(
+  actorPersonId: string,
+  personId: string,
+): Promise<void> {
+  if (!(await can(actorPersonId, REVOKE_PERMISSION))) throw new CredentialForbiddenError();
+
+  const updated = await prisma.serviceCredential.updateMany({
+    where: { personId, revokedAt: { not: null } },
+    data: { revokedAt: null },
+  });
+  if (updated.count === 0) return;
+
+  await recordAudit({
+    actorPersonId,
+    action: "passport.restore",
+    entityType: "ServiceCredential",
+    entityId: personId,
+  });
 }
 
 /**

@@ -66,10 +66,18 @@ export function yaleEmailForNetId(netId: string): string {
  * bug. Change the matching rules ONLY here.
  */
 async function matchPersonByClaim(profile: LoginProfile): Promise<Person | null> {
+  // All three lookups project through PERSON_SCALARS for the same reason
+  // getActivePerson does, and the omission here was the more dangerous half:
+  // getActivePerson guards every request an EXISTING session makes, this guards
+  // sign-in itself. Left unprojected, the next narrowing migration would have
+  // produced the worst shape of outage -- live sessions surviving on the
+  // projected read while nobody could sign in, which reads as "auth is broken
+  // for some people" rather than "the app is down" (audit 14, DM-1).
   // 1. Already linked
   if (profile.entraObjectId) {
     const linked = await prisma.person.findUnique({
       where: { entraObjectId: profile.entraObjectId },
+      select: PERSON_SCALARS,
     });
     if (linked) return linked;
   }
@@ -79,6 +87,7 @@ async function matchPersonByClaim(profile: LoginProfile): Promise<Person | null>
   if (netId) {
     const byNetId = await prisma.person.findFirst({
       where: { netId: { equals: netId, mode: "insensitive" } },
+      select: PERSON_SCALARS,
     });
     if (byNetId) return byNetId;
   }
@@ -95,6 +104,7 @@ async function matchPersonByClaim(profile: LoginProfile): Promise<Person | null>
   if (profile.email && profile.email.toLowerCase().endsWith("@yale.edu")) {
     const byEmail = await prisma.person.findFirst({
       where: { contactEmail: { equals: profile.email, mode: "insensitive" as const } },
+      select: PERSON_SCALARS,
     });
     if (byEmail) return byEmail;
   }

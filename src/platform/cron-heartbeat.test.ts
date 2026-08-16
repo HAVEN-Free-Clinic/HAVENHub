@@ -57,3 +57,53 @@ describe("getCronHealth", () => {
     expect(j.stale).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Registry completeness (audit 14, finding 4)
+//
+// attending-reminders stamped a heartbeat under an id CRON_JOBS did not contain,
+// so getCronHealth -- which maps over CRON_JOBS -- never read the row back, and
+// the admin panel could not flag that job however long it stayed dead. Its
+// recipients have no Person row and no inbox, and Faculty Relations used to send
+// that email by hand, so nothing else accumulates to reveal the silence.
+//
+// Nothing caught it: every test above picks a single JOB *out of* CRON_JOBS, so
+// they can only ever exercise ids that are already registered. This walks the
+// route files instead, which are the only source of truth for what gets stamped.
+// ---------------------------------------------------------------------------
+
+/** Every id passed to recordCronHeartbeat across the cron route files. */
+async function stampedCronIds(): Promise<string[]> {
+  const { readdirSync, readFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const cronDir = join(process.cwd(), "src/app/api/cron");
+  const ids: string[] = [];
+  for (const entry of readdirSync(cronDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const routeFile = join(cronDir, entry.name, "route.ts");
+    if (!existsSync(routeFile)) continue;
+    for (const m of readFileSync(routeFile, "utf8").matchAll(
+      /recordCronHeartbeat\(\s*["'`]([^"'`]+)["'`]\s*\)/g
+    )) {
+      ids.push(m[1]);
+    }
+  }
+  return ids;
+}
+
+describe("CRON_JOBS registry", () => {
+  it("contains every id that a cron route stamps a heartbeat for", async () => {
+    const stamped = await stampedCronIds();
+    // If this finds nothing, the walk is broken rather than the registry.
+    expect(stamped.length).toBeGreaterThan(5);
+
+    const registered = new Set(CRON_JOBS.map((j) => j.id));
+    expect(stamped.filter((id) => !registered.has(id))).toEqual([]);
+  });
+
+  it("registers no id that no route stamps (a job that could never report)", async () => {
+    const stamped = new Set(await stampedCronIds());
+    expect(CRON_JOBS.map((j) => j.id).filter((id) => !stamped.has(id))).toEqual([]);
+  });
+});

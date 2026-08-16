@@ -3,6 +3,7 @@ import { recordAudit } from "@/platform/audit";
 import { getDescriptor, listDescriptors, LAYOUT_KEY } from "@/platform/email/templates/registry";
 import type { TemplateDescriptor } from "@/platform/email/templates/types";
 import { validateTemplate } from "@/platform/email/render/validate";
+import { tokenize } from "@/platform/email/render/tokens";
 import {
   resolveInheritedSender,
   listSenderRules,
@@ -91,7 +92,44 @@ export async function getTemplateForEdit(key: string): Promise<TemplateForEdit> 
   };
 }
 
-function validateOrThrow(d: TemplateDescriptor, subject: string, body: string): void {
+/**
+ * The layout is the single wrapper EVERY platform email renders inside, and it
+ * reaches the content through one raw slot: `{{{ body }}}`.
+ *
+ * Nothing used to require that slot to survive an edit, and both ways of losing
+ * it passed validation, because `body` IS a declared layout variable:
+ *
+ *   - `{{ body }}` (double brace) takes the renderer's `var` branch and emits
+ *     `esc(String(v))`, so every email is delivered as visible escaped HTML
+ *     source;
+ *   - omitting it altogether produces a header band, a footer, and no content.
+ *
+ * The editor makes the first one easy to reach by accident: its "Insert a
+ * variable" chips are built from the descriptor's variables and insert
+ * `{{ name }}` for all of them, including `body` (audit 14, EMAIL-6).
+ *
+ * One admin action, every outbound email, no send-time error.
+ */
+function layoutSlotProblems(key: string, body: string): string[] {
+  if (key !== LAYOUT_KEY) return [];
+  const tokens = tokenize(body);
+  if (tokens.some((t) => t.type === "rawVar" && t.name === "body")) return [];
+  if (tokens.some((t) => t.type === "var" && t.name === "body")) {
+    return [
+      "The layout's {{ body }} must be triple-braced as {{{ body }}}. Double braces escape the HTML, so every email would be delivered as visible markup.",
+    ];
+  }
+  return [
+    "The layout must contain the {{{ body }}} slot. Without it every email renders with a header and footer and no content.",
+  ];
+}
+
+function validateOrThrow(
+  d: TemplateDescriptor,
+  subject: string,
+  body: string,
+  key?: string,
+): void {
   const allowed = allowedVars(d);
   const s = validateTemplate(subject, allowed);
   const b = validateTemplate(body, allowed);
@@ -104,6 +142,7 @@ function validateOrThrow(d: TemplateDescriptor, subject: string, body: string): 
     ...b.errors,
     ...s.unknownVariables.map((v) => `Unknown variable in subject: ${v}`),
     ...b.unknownVariables.map((v) => `Unknown variable in body: ${v}`),
+    ...(key ? layoutSlotProblems(key, body) : []),
   ];
   if (problems.length > 0) throw new TemplateValidationError(problems);
 }
@@ -115,7 +154,7 @@ export async function saveTemplateOverride(
 ): Promise<void> {
   const d = getDescriptor(key);
   if (!d) throw new Error(`Unknown email template: ${key}`);
-  validateOrThrow(d, input.subject, input.body);
+  validateOrThrow(d, input.subject, input.body, key);
 
   const before = await prisma.emailTemplate.findUnique({ where: { key } });
   await prisma.emailTemplate.upsert({

@@ -9,6 +9,7 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Alert } from "@/platform/ui/alert";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -35,6 +36,15 @@ export default async function WaitlistPage({ params }: PageProps) {
         {entries.length} waitlisted {entries.length === 1 ? "applicant" : "applicants"}. Promoting an applicant
         accepts them for their department and emails them their acceptance right away.
       </p>
+      {/* Archiving blocks the acceptance email AND the onboarding link, so a promote
+          here would strand the applicant accepted-but-un-onboardable. The action
+          refuses it; say so up front rather than after the click (audit 14, REC-5). */}
+      {cycle.status === "ARCHIVED" && (
+        <Alert tone="warning">
+          This cycle is archived, so promoting is blocked: neither the acceptance email nor the onboarding
+          link can be sent for an archived cycle. Un-archive it from the cycle overview first.
+        </Alert>
+      )}
       <Table>
         <THead>
           <tr>

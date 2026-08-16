@@ -13,7 +13,7 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
 import { countGradedQuestions } from "@/platform/quiz/graded";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -262,7 +262,15 @@ export default async function CycleOverviewPage({ params }: PageProps) {
           </>
         )}
         {cycle.status === "ARCHIVED" && (
-          <p className="text-sm text-subtle-foreground">Archived. Removed from the active cycle list.</p>
+          <>
+            <p className="text-sm text-subtle-foreground">
+              Archived. Removed from the active cycle list, and decisions, onboarding links and waitlist
+              promotions are blocked. Un-archive to finish anyone still mid-pipeline.
+            </p>
+            <form action={unarchiveCycleAction.bind(null, id)}>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Un-archiving…">Un-archive</SubmitButton>
+            </form>
+          </>
         )}
         {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
           <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>

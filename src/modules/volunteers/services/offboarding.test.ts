@@ -275,10 +275,45 @@ describe("executeOffboard", () => {
     );
   });
 
+  // audit 14, finding 10. A flag belongs to ONE term, but the flip sweeps every
+  // non-archived term -- so executing a current-term flag deleted the place an
+  // incoming director already held in the PLANNING term, undoing a completed
+  // onboarding promotion with no trace. recordSelfWithdrawal already refuses to
+  // RAISE a flag in this state, naming this exact hazard; nothing guarded the
+  // moment that actually destroys the row, which is now a bulk action.
+  it("refuses while the person still holds an active place in another non-archived term", async () => {
+    const live = await createTerm("ACTIVE", "SU26");
+    const next = await createTerm("PLANNING", "FA26");
+    const dept = await createDepartment("ITCM");
+
+    const actor = await createPerson("Executor", "exec-nt");
+    const target = await createPerson("Promoted", "tgt-nt");
+    await grantPermission(actor.id, "volunteers.manage_offboarding");
+
+    await createMembership(target.id, live.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, next.id, dept.id, "DIRECTOR");
+    await prisma.offboardFlag.create({
+      data: { personId: target.id, termId: live.id, flaggedById: actor.id },
+    });
+
+    await expect(executeOffboard(actor.id, target.id)).rejects.toBeInstanceOf(
+      OffboardForbiddenError
+    );
+
+    // Nothing was destroyed: the next-term place and the person both survive.
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: target.id } });
+    expect(person.status).toBe("ACTIVE");
+    const nextMembership = await prisma.termMembership.findFirstOrThrow({
+      where: { personId: target.id, termId: next.id },
+    });
+    expect(nextMembership.status).toBe("ACTIVE");
+  });
+
   it("person had ACTIVE memberships in TWO terms + a flag; after: status OFFBOARDED, memberships REMOVED, zero flags, audit present", async () => {
-    // Two terms.
-    const term1 = await createTerm("ACTIVE", "SU26");
-    const term2 = await createTerm("ACTIVE", "FA26");
+    // The live term plus one being prepared, which is the real shape of this
+    // clinic's calendar (ops runs the next term ahead of the flip).
+    const live = await createTerm("ACTIVE", "SU26");
+    const next = await createTerm("PLANNING", "FA26");
     const dept = await createDepartment("ITCM");
 
     const actor = await createPerson("Executor", "exec001");
@@ -286,13 +321,19 @@ describe("executeOffboard", () => {
 
     await grantPermission(actor.id, "volunteers.manage_offboarding");
 
-    // Two ACTIVE memberships across the two terms.
-    await createMembership(target.id, term1.id, dept.id, "VOLUNTEER");
-    await createMembership(target.id, term2.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, live.id, dept.id, "VOLUNTEER");
+    await createMembership(target.id, next.id, dept.id, "VOLUNTEER");
 
-    // Create a flag in one of the terms.
     await prisma.offboardFlag.create({
-      data: { personId: target.id, termId: term1.id, flaggedById: actor.id },
+      data: { personId: target.id, termId: live.id, flaggedById: actor.id },
+    });
+
+    // The guard above refuses while a place remains in another non-archived term,
+    // so this is the documented two-step for someone genuinely leaving: retire the
+    // next-term place first, then offboard.
+    await prisma.termMembership.updateMany({
+      where: { personId: target.id, termId: next.id },
+      data: { status: "REMOVED" },
     });
 
     await executeOffboard(actor.id, target.id);
@@ -320,7 +361,9 @@ describe("executeOffboard", () => {
     });
     expect(auditRow).not.toBeNull();
     const after = auditRow?.after as Record<string, unknown>;
-    expect(after.removedMemberships).toBe(2);
+    // One, not two: the next-term row was already REMOVED by the two-step above,
+    // and the count only records what THIS flip swept.
+    expect(after.removedMemberships).toBe(1);
 
     // setPersonStatusField also writes person.offboard for the status change.
     const statusAudit = await prisma.auditLog.findFirst({

@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { renderTemplate } from "@/platform/email/render/render";
 import { getSetting } from "@/platform/settings/service";
+import { log } from "@/platform/logging";
 import { getDescriptor, LAYOUT_KEY } from "./registry";
 
 export type RenderedEmail = { subject: string; html: string };
@@ -32,8 +33,33 @@ export async function renderEmail(
   // otherwise a value with "&" or "'" (e.g. a name like O'Brien) is garbled into
   // an entity. The layout re-escapes {{ subject }} for the HTML <title>, so this
   // is not an XSS vector. Bodies stay escaped since they render as HTML.
-  const subject = renderTemplate(subjectSource, context, { escape: false });
-  const renderedBody = renderTemplate(bodySource, context);
+  // Collect every {{name}} the template asks for that the caller did not supply.
+  //
+  // The renderer resolves an unknown name to the empty string, which is right at
+  // runtime (an email must still go out) but means drift is invisible: an admin
+  // override written against a variable a later code change removed renders a
+  // blank where a name or a link should be, and an {{#if}} on a dropped name
+  // takes its whole block with it. registry.test.ts pins the SHIPPED templates
+  // against their descriptors, so this covers the case tests cannot -- overrides
+  // stored in the database, edited by a human, months before the descriptor moved.
+  //
+  // Warn rather than throw: a degraded email beats no email, and this is a
+  // reporting path, not a guard.
+  const unknown = new Set<string>();
+  const onUnknownName = (name: string) => unknown.add(name);
+
+  const subject = renderTemplate(subjectSource, context, { escape: false, onUnknownName });
+  const renderedBody = renderTemplate(bodySource, context, { onUnknownName });
+
+  if (unknown.size > 0) {
+    log.warn("[email] template referenced variables the caller did not supply", {
+      template: key,
+      // Names only. The VALUES are the email's content, which routinely carries
+      // member names and links, and this line goes to the shared log stream.
+      names: [...unknown].sort().join(", "),
+      overridden: byKey.has(key),
+    });
+  }
 
   // The layout's header band + link color track the admin's brand color. Inject
   // it first so an explicit caller-supplied `brandColor` (rare) still wins.

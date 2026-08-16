@@ -17,6 +17,20 @@ import { supportsPresignedUpload } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
 
+/**
+ * Server Actions run on the route that invokes them, so this covers the SCORM
+ * ingest (audit 14, scorm-ingest-serial-uploads). ingestUploadedPackageAction
+ * reads a package of up to 75 MB out of R2, unzips it, and writes back as many
+ * as 2000 objects; even at eight concurrent writes a large real package is tens
+ * of seconds of vendor round trips, and the platform default is nowhere near
+ * that. A timeout mid-write is not just a slow save: files land under a fresh
+ * prefix BEFORE the DB manifest update, so the course keeps serving the old
+ * package while a half-written prefix is orphaned in storage, and the admin sees
+ * a generic action failure with nothing to retry against. 300 is the ceiling the
+ * cron routes already use.
+ */
+export const maxDuration = 300;
+
 export default async function EditCoursePage({
   params,
 }: {

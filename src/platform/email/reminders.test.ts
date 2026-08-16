@@ -160,6 +160,7 @@ describe("no active term", () => {
       digestsSent: 0,
       reset: 0,
       skipped: 0,
+      failed: 0,
     });
     expect(await emailLogCount("compliance-reminder")).toBe(0);
   });

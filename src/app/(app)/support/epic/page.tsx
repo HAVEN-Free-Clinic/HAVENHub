@@ -18,6 +18,7 @@ import { requirePermission } from "@/platform/auth/session";
 import {
   listDepartmentsWithMembers,
   getEpicRequestHistory,
+  EPIC_HISTORY_LIMIT,
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
@@ -270,16 +271,46 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
             ? "term-batch"
             : "generate";
 
-  // Load data for both tabs in parallel.
+  // Load only what the tab being rendered actually uses, in parallel (audit 14,
+  // epic-history-unbounded-client-payload).
+  //
+  // Every one of these was loaded on every visit and serialized into the client
+  // component's props, whichever tab was on screen. getEpicRequestHistory is the
+  // expensive one: EVERY YnhhTicket ever recorded, each with its submitter,
+  // subject person, attachments, and requests-with-people, and it has no bound at
+  // all -- the Tracker renders the OPEN ones and History the CLOSED ones, so the
+  // set only ever grows. listDepartmentsWithMembers is the same shape of problem
+  // one step down (every department with its full membership). Both were being
+  // paid for by someone opening the default Generate tab to make one PDF.
+  //
+  // The Tracker/History pair is now narrowed too. Each tab asks for only the
+  // status it renders, so the Tracker's payload is bounded by the work in flight
+  // instead of by the size of the archive, and History takes the most recent
+  // EPIC_HISTORY_LIMIT closed tickets rather than every one ever recorded. The
+  // table says so when it is showing a capped set.
+  const needsHistory = activeTab === "tracker" || activeTab === "history";
+  // Only the History tab is capped. The Tracker asks for OPEN tickets, which are
+  // bounded by the work actually in flight rather than by the size of the archive,
+  // so there is nothing there to truncate and nothing to disclose.
+  const historyLimit = activeTab === "history" ? EPIC_HISTORY_LIMIT : undefined;
+  const needsGenerate = activeTab === "generate";
+  const needsTracker = activeTab === "tracker";
   const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
     await Promise.all([
-      listDepartmentsWithMembers(),
-      getEpicRequestHistory(),
-      listPendingDeactivations(),
-      listEpicAuthorizers(),
-      listIncidentPeople(),
-      listPendingEpicRequests(),
-      listLinkableTechRequests(),
+      needsGenerate ? listDepartmentsWithMembers() : [],
+      needsHistory
+        ? getEpicRequestHistory(
+            activeTab === "tracker"
+              ? { status: "OPEN" }
+              : { status: "CLOSED", take: EPIC_HISTORY_LIMIT }
+          )
+        : [],
+      needsGenerate ? listPendingDeactivations() : [],
+      // The generator form and the Term batch tab both offer an authorizer.
+      needsGenerate || activeTab === "term-batch" ? listEpicAuthorizers() : [],
+      needsTracker ? listIncidentPeople() : [],
+      activeTab === "pending" ? listPendingEpicRequests() : [],
+      needsTracker ? listLinkableTechRequests() : [],
     ]);
 
   // The Term batch tab can target a term before it goes active, so resolve the
@@ -307,6 +338,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         activeTab={activeTab}
         departments={departments}
         history={history}
+        historyLimit={historyLimit}
         pendingDeactivations={pendingDeactivations}
         authorizers={authorizers}
         incidentPeople={incidentPeople}

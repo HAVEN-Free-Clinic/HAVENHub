@@ -305,9 +305,39 @@ export type EpicRequestHistoryRow = {
   }[];
 };
 
-export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> {
+/**
+ * Most CLOSED tickets one History page renders.
+ *
+ * The closed archive is the only part of this data set that grows without
+ * bound: an open ticket is bounded by how much work is in flight, but every
+ * ticket ever resolved stays closed forever, and each row carries its submitter,
+ * subject person, attachments, and requests-with-people into a client component.
+ * A cap is what stops the page getting slower every term for a table nobody
+ * scrolls to the end of. Older tickets remain readable through search on the
+ * individual request.
+ */
+export const EPIC_HISTORY_LIMIT = 200;
+
+/**
+ * Epic ticket history, narrowed to what the calling tab renders.
+ *
+ * `status` matters more than it looks: the Tracker shows OPEN tickets and
+ * History shows CLOSED ones, and before audit 14 both were served by one
+ * unfiltered query that fetched EVERY ticket ever recorded and shipped the whole
+ * set to the client, where the component threw away the half it did not want.
+ * Filtering in the query means the Tracker's payload is bounded by the work
+ * actually in flight rather than by the size of the archive.
+ */
+export async function getEpicRequestHistory(
+  opts: { status?: "OPEN" | "CLOSED"; take?: number } = {}
+): Promise<EpicRequestHistoryRow[]> {
   const tickets = await prisma.ynhhTicket.findMany({
-    orderBy: { submittedAt: "desc" },
+    where: opts.status ? { status: opts.status } : {},
+    // `id` as a total tiebreak: submittedAt alone ties on same-second imports
+    // (the Airtable backfill inserted in bulk), and a paged read whose order is
+    // not total can show the same row on two pages and skip another entirely.
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+    ...(opts.take ? { take: opts.take } : {}),
     include: {
       submittedBy: { select: { name: true } },
       person: { select: { name: true } },

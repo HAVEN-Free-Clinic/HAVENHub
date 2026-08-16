@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { coursesForMember, kindMatchesAudience, splitByRecurrence, type AssignableCourse, type MemberMembership } from "./assignment";
+import { coursesForMember, coursesSatisfiableInTerm, kindMatchesAudience, splitByRecurrence, type AssignableCourse, type MemberMembership } from "./assignment";
 
 const course = (over: Partial<AssignableCourse> & { id: string }): AssignableCourse => ({
   isActive: true,
@@ -117,4 +117,18 @@ it("kindMatchesAudience maps plural audiences to singular kinds", () => {
   expect(kindMatchesAudience("DIRECTOR", "EVERYONE")).toBe(true);
   expect(kindMatchesAudience("DIRECTOR", "VOLUNTEERS")).toBe(false);
   expect(kindMatchesAudience("VOLUNTEER", "VOLUNTEERS")).toBe(true);
+});
+
+// Audit 14 (L1): a SCORM commit carries no term, so persistScoCmi always records
+// against the ACTIVE term. A PER_TERM course therefore has no way to be completed
+// FOR any other term, and asserting it as outstanding there is a requirement
+// nobody can clear.
+it("coursesSatisfiableInTerm keeps everything for the active term", () => {
+  const list = [{ id: "a", recurrence: "ONCE" as const }, { id: "b", recurrence: "PER_TERM" as const }];
+  expect(coursesSatisfiableInTerm(list, true)).toEqual(list);
+});
+
+it("coursesSatisfiableInTerm drops PER_TERM courses for a non-active term, keeping ONCE", () => {
+  const list = [{ id: "a", recurrence: "ONCE" as const }, { id: "b", recurrence: "PER_TERM" as const }];
+  expect(coursesSatisfiableInTerm(list, false)).toEqual([{ id: "a", recurrence: "ONCE" }]);
 });

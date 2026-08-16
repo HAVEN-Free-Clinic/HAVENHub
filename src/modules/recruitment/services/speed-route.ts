@@ -12,7 +12,9 @@ export type SpeedRouteRow = {
   average: number | null;
   scoreCount: number;
   departmentChoices: string[];
-  proposedDepartmentCode: string | null; // departmentChoices[0] if it is a cycle department, else null
+  /** Highest ranked choice that is a cycle department and has not declined them,
+   *  or null when no ranked choice qualifies. */
+  proposedDepartmentCode: string | null;
   routedDepartmentCode: string | null;
   /** The department that handed this applicant back, when returned. */
   returnedFromDepartmentCode: string | null;
@@ -73,14 +75,21 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   const byId = new Map<string, SpeedRouteRow>();
   const bucketItems = apps.map((a) => {
     const { average, count } = scoreAverage(a.committeeScores.map((s) => s.score));
+    // Never propose the department that handed this applicant back. It is usually
+    // their first choice, so proposing it pointed every default on the board (the
+    // tier select, "Apply top tier", the Returned card's own picker) straight back
+    // at the department that just declined them -- which routeApplication now
+    // refuses outright (audit 14, REC-2). Null instead, so the lead picks.
     const first = a.departmentChoices[0] ?? null;
+    const proposed =
+      first && deptSet.has(first) && first !== a.returnedFromDepartmentCode ? first : null;
     const row: SpeedRouteRow = {
       applicationId: a.id,
       name: `${a.applicant.firstName} ${a.applicant.lastName}`,
       average,
       scoreCount: count,
       departmentChoices: a.departmentChoices,
-      proposedDepartmentCode: first && deptSet.has(first) ? first : null,
+      proposedDepartmentCode: proposed,
       routedDepartmentCode: a.routedDepartmentCode,
       returnedFromDepartmentCode: a.returnedFromDepartmentCode,
       returnedReason: a.returnedReason,

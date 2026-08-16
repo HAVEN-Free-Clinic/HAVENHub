@@ -693,3 +693,32 @@ Recorded so a future pass does not re-raise them.
   enough stakes to deserve a hand check before it is dismissed.
 - Production has had 43 unique visitors in 30 days. Nothing here has been exercised at launch
   scale.
+
+---
+
+## Follow-ups deliberately left open
+
+Recorded here rather than silently dropped.
+
+- **No admin UI for credential revocation.** `revokeServiceCredential` /
+  `restoreServiceCredential` exist, are gated on `admin.manage_people`, and are
+  tested, but nothing calls them yet. `/admin/people/[id]` needs a Revoke /
+  Restore control. Until then the retraction path for an offboarded member's
+  public credential page exists in the service layer only.
+- **`issueWalletPassAction` narrows its own return type.** The /my-info action
+  declares `Promise<{ googleSaveUrl, shareUrl } | null>`, which types away the
+  `publicToken` the value actually carries at runtime. The card's prop type
+  treats absent as null so this is safe, but widening the annotation to
+  `Awaited<ReturnType<typeof issueWalletPass>>` would make it honest.
+- **Revoking a credential does not revoke wallet badges.** Deliberate: the badge
+  asserts present standing and is governed by the sweep and the offboard paths,
+  and a revoked credential already leaves the badge's QR resolving to a 404.
+- **The clinic geofence default (OBS-08).** Audit 13 measured the shipped
+  coordinate at roughly 140 m from the clinic address, so the fence does cover
+  the building. The residual is confirming the entrance coordinate before the
+  first clinic day: a launch-checklist item, not a code change.
+- **Cron provisioning (section 1).** Re-enable the paused jobs at launch, confirm
+  `attending-reminders` exists on the scheduler at all, check whether
+  `clinic-checkin-invites` is configured Saturday-only when the route expects
+  daily, and add the dead-man's-switch push alert `docs/DEPLOY.md` still marks
+  "(recommended)".

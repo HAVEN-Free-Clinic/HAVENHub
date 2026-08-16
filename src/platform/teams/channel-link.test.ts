@@ -94,10 +94,24 @@ describe("matchChannel", () => {
  */
 function memLastGood() {
   const rows = new Map<string, ClinicChannelLink>();
+  // In-memory twin of the two durable Setting rows the resolver keeps: the
+  // last-known-good link and the consecutive-failure counter. Both are injected
+  // so these tests never touch the database.
+  let failure: { count: number; at: string } | null = null;
   return {
     loadLastGood: async (g: string, d: string) => rows.get(`${g}|${d}`) ?? null,
     saveLastGood: async (g: string, d: string, link: ClinicChannelLink) => {
       rows.set(`${g}|${d}`, link);
+    },
+    clearLastGood: async (g: string, d: string) => {
+      rows.delete(`${g}|${d}`);
+    },
+    loadFailure: async () => failure,
+    recordFailure: async (at: Date) => {
+      failure = { count: (failure?.count ?? 0) + 1, at: at.toISOString() };
+    },
+    clearFailure: async () => {
+      failure = null;
     },
   };
 }
@@ -536,14 +550,128 @@ describe("getCurrentClinicChannelLink last-known-good fallback", () => {
     expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
   });
 
-  it("does not save when Graph answers but the week's channel does not exist yet", async () => {
-    // Nothing resolved, so there is nothing worth remembering -- and a null must
-    // never overwrite a good link saved earlier in the same week.
+  // audit 14 (NOTIF-3). A COMPLETE list with no match means the week's channel was
+  // renamed or deleted, so a link saved for that same week now points at a channel
+  // that is gone. Keeping it meant the next transient failure served a dead deep
+  // link for the rest of the week.
+  it("drops a saved link when a complete channel list no longer contains it", async () => {
     await lastGood.saveLastGood(groupId, "06-13-26", link);
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ value: [{ id: "1", displayName: "General", webUrl: "u" }] }), { status: 200 })
     );
     expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+    expect(await lastGood.loadLastGood(groupId, "06-13-26")).toBeNull();
+  });
+
+  // ...but this call deliberately does not follow @odata.nextLink, so on a Team
+  // with enough channels to page, "no match" can mean "the match is on a page we
+  // never asked for". Invalidating a good link on that basis would be strictly
+  // worse than keeping it.
+  it("keeps a saved link when Graph says the channel list was truncated", async () => {
+    await lastGood.saveLastGood(groupId, "06-13-26", link);
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            value: [{ id: "1", displayName: "General", webUrl: "u" }],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/teams/x/channels?$skiptoken=abc",
+          }),
+          { status: 200 }
+        )
+    );
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
     expect(await lastGood.loadLastGood(groupId, "06-13-26")).toEqual(link);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// audit 14, finding 2: the failure path was invisible and unbounded in cost.
+// ---------------------------------------------------------------------------
+
+describe("getCurrentClinicChannelLink failure handling", () => {
+  function timeoutError() {
+    const err = new Error("The operation was aborted due to timeout");
+    err.name = "TimeoutError";
+    return err;
+  }
+
+  const groupId = "4796e633-27e4-4053-8631-d3b4fe64ebe6";
+  const now = new Date(Date.UTC(2026, 5, 8, 12, 0, 0));
+  const clinicDates = [clinic(2026, 6, 13)];
+  const link: ClinicChannelLink = {
+    webUrl: "https://x/0613",
+    displayName: "06-13-26 Clinic",
+    clinicDate: clinic(2026, 6, 13),
+  };
+  const base = () => ({
+    getToken: async () => "tok",
+    now,
+    groupId,
+    loadClinicDates: async () => clinicDates,
+    sleep: async () => {},
+    ...lastGood,
+  });
+
+  // A 401/403/404 is Graph saying the configuration is wrong or the Team is gone.
+  // Papering over that with a saved link hides the one problem only an operator
+  // can fix, and sends people to a channel that may not exist.
+  it("does NOT serve the saved link on a permanent Graph error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await lastGood.saveLastGood(groupId, "06-13-26", link);
+    const fetchImpl = vi.fn(async () => new Response("Forbidden", { status: 403 }));
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toBeNull();
+  });
+
+  it("still serves the saved link on a transient failure", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await lastGood.saveLastGood(groupId, "06-13-26", link);
+    const fetchImpl = vi.fn(async () => new Response("Bad gateway", { status: 502 }));
+    expect(await getCurrentClinicChannelLink({ ...base(), fetchImpl })).toEqual(link);
+  });
+
+  // Production ran thirty days without a single success, paying the full 8s budget
+  // on every cold instance to render nothing.
+  it("stops calling Graph once failures trip the threshold", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError();
+    });
+
+    for (let i = 0; i < 4; i++) {
+      __resetChannelCache(); // simulate a fresh serverless instance each time
+      await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    }
+
+    // Three attempts, then the breaker trips and the fourth never reaches Graph.
+    expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(3 * 2);
+    const before = fetchImpl.mock.calls.length;
+    __resetChannelCache();
+    await getCurrentClinicChannelLink({ ...base(), fetchImpl });
+    expect(fetchImpl.mock.calls.length).toBe(before);
+  });
+
+  it("recovers on the first success after the cooldown, with no deploy", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const failing = vi.fn(async () => {
+      throw timeoutError();
+    });
+    for (let i = 0; i < 3; i++) {
+      __resetChannelCache();
+      await getCurrentClinicChannelLink({ ...base(), fetchImpl: failing });
+    }
+
+    const later = new Date(now.getTime() + 31 * 60 * 1000);
+    const ok = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ value: [{ id: "2", displayName: "06-13-26 Clinic", webUrl: "https://x/0613" }] }),
+          { status: 200 }
+        )
+    );
+    __resetChannelCache();
+    const resolved = await getCurrentClinicChannelLink({ ...base(), now: later, fetchImpl: ok });
+    expect(resolved?.webUrl).toBe("https://x/0613");
+    // Counter cleared, so the next failure starts from zero rather than tripping.
+    expect(await lastGood.loadFailure()).toBeNull();
   });
 });

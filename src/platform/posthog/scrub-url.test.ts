@@ -219,4 +219,34 @@ describe("scrubProperties", () => {
     expect(out.$external_click_url).not.toContain("SUPERSECRETTOKEN");
     expect(JSON.stringify(out)).not.toContain("SUPERSECRETTOKEN");
   });
+
+  // audit 14. The recruitment invite route (#613) was a sixth credential-bearing
+  // path and was never added to the scrub list, so a live UNCLAIMED single-use
+  // token went to the analytics project verbatim on every claim-page view.
+  it("redacts a recruitment invite token from the claim page URL", () => {
+    const out = scrubProperties({
+      $current_url: "https://apply.example.org/apply/i/INVITETOKEN123",
+      $pathname: "/apply/i/INVITETOKEN123",
+    });
+    expect(JSON.stringify(out)).not.toContain("INVITETOKEN123");
+  });
+
+  // ...and it leaked a SECOND time. An unauthenticated visitor opening the invite
+  // is redirected to /apply?next=/apply/i/<token> so the claim survives sign-in,
+  // and a relative path in a query value was previously returned untouched: the
+  // nested-URL branch only descended into absolute http/https/webcal values, and
+  // `next` is not in SECRET_PARAMS.
+  it("redacts an invite token carried in a relative `next` query param", () => {
+    const out = scrubProperties({
+      $current_url: `https://apply.example.org/apply?next=${encodeURIComponent("/apply/i/INVITETOKEN123")}`,
+    });
+    expect(JSON.stringify(out)).not.toContain("INVITETOKEN123");
+  });
+
+  it("leaves an ordinary relative `next` path alone", () => {
+    const out = scrubProperties({
+      $current_url: `https://hub.example.org/login?next=${encodeURIComponent("/schedule/requests")}`,
+    });
+    expect(out.$current_url).toContain("schedule");
+  });
 });

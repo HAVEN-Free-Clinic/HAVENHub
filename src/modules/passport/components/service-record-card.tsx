@@ -140,7 +140,14 @@ export function ServiceRecordCard({
       <div className="mt-4 border-t border-border-subtle pt-4">
         {token ? (
           <>
-            <p className="text-sm">
+            {/* ph-no-capture: this renders the member's live credential token,
+                which stays valid until they unpublish. Autocapture reads element
+                text and session replay records it, so without this the token
+                reaches the analytics project from the page that displays it --
+                the same reason the calendar feed URL field carries it (audit
+                14). The scrubber covers /credential/<token> in a URL; this is
+                the token as page content, which the scrubber never sees. */}
+            <p className="ph-no-capture text-sm">
               Your record is published at{" "}
               <code className="break-all">{`${baseUrl}/credential/${token}`}</code>
             </p>

@@ -46,12 +46,36 @@ type RequestErrorContext = {
   routeType?: string;
 };
 
+/**
+ * True when this process is NOT running on Vercel: a developer's `next dev`, a
+ * test runner, or CI. VERCEL_ENV is set to "production" | "preview" |
+ * "development" on every Vercel deployment and unset everywhere else.
+ */
+function isLocalProcess(): boolean {
+  return !process.env.VERCEL_ENV;
+}
+
 export async function onRequestError(
   error: unknown,
   request: RequestErrorRequest,
   context: RequestErrorContext,
 ): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Never report a local dev or CI error into the shared PostHog project.
+  //
+  // Tagging these with environment: "development" (OBS-05, below) was not
+  // enough: the event still creates an Error Tracking issue, and the auto-file
+  // automation still opens a GitHub issue for it. One `next dev` run against a
+  // database with no schema filed THREE issues ("The table `public.Setting`
+  // does not exist") that no production user could ever hit, and they sat in the
+  // open-issue list next to real ones. A developer already sees their own errors
+  // in their own terminal; the cost of sending them here is that they dilute the
+  // signal the production tracker exists to give.
+  //
+  // Deliberately scoped to "not on Vercel at all", so staging and preview keep
+  // reporting -- those are deployed environments nobody is watching a terminal
+  // for, which is exactly when this tracker earns its keep.
+  if (isLocalProcess()) return;
   try {
     const { getPostHogClient } = await import(
       "@/platform/posthog/posthog-server"

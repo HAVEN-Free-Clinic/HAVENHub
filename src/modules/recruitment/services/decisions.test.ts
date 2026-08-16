@@ -135,6 +135,22 @@ it("releaseSummary reports the counts", async () => {
   expect(s.emailed).toBe(0);
 });
 
+// audit 14, REC-3. releaseDecisions skips WITHDRAWN applications when it emails,
+// but the summary counted them, so a withdrawn applicant's acceptance sat in
+// "Unnotified" forever: pressing Release left a counter no action could clear,
+// and SRR could not tell a real outstanding decision from a phantom.
+it("releaseSummary excludes a withdrawn applicant, so Release can clear the count", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  expect((await releaseSummary(cycle.id)).unnotified).toBe(1);
+
+  await prisma.application.update({ where: { id: clean.id }, data: { status: "WITHDRAWN" } });
+
+  const s = await releaseSummary(cycle.id);
+  expect(s.unnotified).toBe(0);
+  expect(s.acceptedApplications).toBe(0);
+});
+
 it("sendAcceptanceEmail sends the acceptance email for one acceptance and stamps emailedAt", async () => {
   const { srr, clean } = await seed();
   await accept(clean.id, "SRHD", srr.id);

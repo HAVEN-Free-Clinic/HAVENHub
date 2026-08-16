@@ -115,6 +115,44 @@ describe("getApplicantHistory", () => {
     expect(h.furthest!.cycleLabel).toBe("Fall 2025 Volunteer Recruitment");
   });
 
+  // audit 14, REC-3. This query was the only reviewer-facing one in the module
+  // with no status filter, so an UNSUBMITTED draft became a history entry:
+  // counted in applicationCount, dated off createdAt (submittedAt is null on a
+  // draft), and linked into an application the applicant never submitted. A
+  // reviewer opening a first-time applicant read "2nd application".
+  it("ignores an unsubmitted DRAFT in another cycle", async () => {
+    const { current, sibling } = await seedTwoLiveApplications("ada@yale.edu");
+    await prisma.application.update({
+      where: { id: sibling.id },
+      data: { status: "DRAFT", submittedAt: null },
+    });
+
+    const h = await getApplicantHistory({
+      emails: ["ada@yale.edu"],
+      excludeApplicationId: current.id,
+    });
+
+    expect(h.applicationCount).toBe(0);
+    expect(h.entries).toHaveLength(0);
+  });
+
+  // ...but a WITHDRAWN application IS part of their history: liveOutcome and
+  // liveEntry model it deliberately.
+  it("still counts a WITHDRAWN application in another cycle", async () => {
+    const { current, sibling } = await seedTwoLiveApplications("ada@yale.edu");
+    await prisma.application.update({
+      where: { id: sibling.id },
+      data: { status: "WITHDRAWN" },
+    });
+
+    const h = await getApplicantHistory({
+      emails: ["ada@yale.edu"],
+      excludeApplicationId: current.id,
+    });
+
+    expect(h.applicationCount).toBe(1);
+  });
+
   it("matches on netId even when the email differs", async () => {
     await prisma.historicalApplicant.create({
       data: {

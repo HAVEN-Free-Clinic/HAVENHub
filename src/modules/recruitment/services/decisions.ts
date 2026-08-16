@@ -37,7 +37,18 @@ export async function releaseSummary(cycleId: string): Promise<{
   unnotified: number;
   emailed: number;
 }> {
-  const acceptances = await prisma.acceptance.findMany({ where: { application: { cycleId } } });
+  // Same WITHDRAWN exclusion releaseDecisions applies to the rows it actually
+  // emails. Without it the summary counted acceptances Release will never send:
+  // a withdrawn applicant's acceptance sat in "Unnotified" (and in "Conflicts to
+  // resolve") permanently, so pressing Release left a non-zero counter that no
+  // action could ever clear, and SRR could not tell a real outstanding decision
+  // from a phantom (audit 14, REC-3).
+  //
+  // Application.status is non-nullable, so `not` drops no rows unexpectedly here
+  // -- the same reasoning releaseDecisions records at its own filter.
+  const acceptances = await prisma.acceptance.findMany({
+    where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
+  });
   const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
   const acceptedApplications = new Set(acceptances.map((a) => a.applicationId)).size;
   let unnotified = 0;

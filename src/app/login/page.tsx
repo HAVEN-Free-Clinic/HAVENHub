@@ -86,8 +86,18 @@ export default async function LoginPage({
 
       {/* Centered glass card */}
       <div className="glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 shadow-xl">
-        {/* Brand lockup at the top of the card */}
-        <HavenLogo className="mx-auto h-8 text-brand-fg" />
+        {/* Brand lockup at the top of the card.
+
+            h-14 rather than h-8: at 32px the lockup sat well under the size of
+            the "Sign in" heading below it and read as an afterthought, which is
+            backwards for the first thing on the page.
+
+            text-brand-fg stays. It is not a recolor of a colored asset -- the
+            bundled logo is a white silhouette (public/brand/haven-logo-white.png,
+            which is what the branding route falls back to), so the mask fill is
+            the ONLY thing giving it a color at all. Dropping it renders the logo
+            white on a white card. */}
+        <HavenLogo className="mx-auto h-14 text-brand-fg" />
 
         <h1 className="mt-5 text-center text-2xl font-bold tracking-tight text-foreground">
           Sign in to {appName}

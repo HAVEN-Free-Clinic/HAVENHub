@@ -231,6 +231,39 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
     throw new OffboardForbiddenError("volunteers.manage_offboarding is required to execute offboarding.");
   }
 
+  // A flag belongs to ONE term (OffboardFlag is @@unique([personId, termId]) and
+  // flagForOffboarding raises it against the ACTIVE term), but the flip below
+  // sweeps ACTIVE memberships across EVERY non-archived term. So executing a
+  // current-term flag also deletes the place an incoming director already holds in
+  // the PLANNING term, silently undoing a completed onboarding promotion (audit
+  // 14, finding 10).
+  //
+  // recordSelfWithdrawal already refuses to RAISE a flag in this situation, with a
+  // comment naming this exact hazard. That guard is at flag time only, and it is
+  // not on the director-raised path, so nothing protected the moment that actually
+  // destroys the row -- which is now a bulk action of up to 25 people.
+  //
+  // Checked here rather than inside setPersonStatusField because this is a policy
+  // about offboarding, not about status writes: promotion legitimately gives
+  // someone a next-term membership while they are still active in the current one.
+  const activeTerm = await getActiveTerm();
+  const elsewhere = activeTerm
+    ? await prisma.termMembership.findFirst({
+        where: {
+          personId,
+          status: "ACTIVE",
+          ...OFFBOARDABLE_TERM,
+          termId: { not: activeTerm.id },
+        },
+        select: { term: { select: { code: true } } },
+      })
+    : null;
+  if (elsewhere) {
+    throw new OffboardForbiddenError(
+      `This person holds an active place in ${elsewhere.term.code}. Remove that membership first if they really are leaving, or clear the flag: offboarding would delete it.`
+    );
+  }
+
   // Count ACTIVE memberships before the flip; setPersonStatusField removes them.
   // Same OFFBOARDABLE_TERM scope as that write, so the audited count cannot
   // over-report by including archived terms the flip deliberately leaves alone.

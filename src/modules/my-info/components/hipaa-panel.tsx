@@ -43,7 +43,20 @@ function formatSize(bytes: number): string {
 type HipaaPanelProps = {
   certificates: HipaaCertificate[];
   uploadAction: (formData: FormData) => Promise<void>;
+  /**
+   * The EFFECTIVE status, which mid-renewal describes an older verified
+   * certificate rather than the newest upload.
+   */
   status: ComplianceStatus;
+  /**
+   * The certificate `status` actually describes, from effectiveCompliance.
+   * Passed in rather than recomputed here because picking it needs the term end
+   * date, which this component does not take. It is NOT always certificates[0]:
+   * mid-renewal the status comes from an older verified cert while
+   * certificates[0] is the pending upload, and badging that upload's expiry
+   * promised a member a year of coverage they did not have (audit 14, L3).
+   */
+  statusCert: HipaaCertificate | null;
 };
 
 function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCertificate | null }) {
@@ -74,6 +87,7 @@ export async function HipaaPanel({
   certificates,
   uploadAction,
   status,
+  statusCert,
 }: HipaaPanelProps) {
   const [zone, support] = await Promise.all([getDisplayTimeZone(), getSupportContact()]);
   const latest = certificates[0] ?? null;
@@ -128,7 +142,7 @@ export async function HipaaPanel({
             </div>
             {/* Compliance status badge */}
             <div className="flex items-center gap-2">
-              <StatusBadge status={status} cert={latest} />
+              <StatusBadge status={status} cert={statusCert} />
               {latest.completionDate && (
                 <span className="text-xs text-subtle-foreground">
                   Detected completion date: {formatCalendarDate(latest.completionDate)}

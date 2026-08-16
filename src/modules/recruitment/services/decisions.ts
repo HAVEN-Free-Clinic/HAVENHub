@@ -71,12 +71,20 @@ export async function releaseSummary(cycleId: string): Promise<{
 export async function sendAcceptanceEmail(
   applicationId: string,
   departmentCode: string,
-): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" | "withdrawn" }> {
+): Promise<{ sent: boolean; reason?: "already_emailed" | "conflicted" | "not_found" | "withdrawn" | "cycle_archived" }> {
   const acc = await prisma.acceptance.findUnique({
     where: { applicationId_departmentCode: { applicationId, departmentCode } },
-    include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true } } } } },
+    include: { application: { include: { applicant: true, cycle: { select: { id: true, title: true, status: true } } } } },
   });
   if (!acc) return { sent: false, reason: "not_found" };
+  // Same DRAFT/ARCHIVED gate releaseDecisions and createOrResendContract enforce.
+  // Without it this path -- the waitlist promote, the one acceptance email that
+  // does not go through Release -- happily emailed an offer for an archived cycle,
+  // and the onboarding link that offer promises is hard-blocked on exactly that
+  // status, so the applicant could never be onboarded (audit 14, REC-5).
+  if (acc.application.cycle.status === "DRAFT" || acc.application.cycle.status === "ARCHIVED") {
+    return { sent: false, reason: "cycle_archived" };
+  }
   // Withdrawal never deletes the Acceptance (see services/withdraw.ts), so the
   // row alone does not mean the applicant is still in play. Reading the
   // application's status is the only thing standing between a withdrawn

@@ -9,7 +9,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { bulkFlag, bulkExecuteOffboard, TransitionBatchTooLargeError } from "./transition-actions";
+import {
+  bulkFlag,
+  bulkExecuteOffboard,
+  TransitionBatchTooLargeError,
+  MAX_BULK_FLAG,
+} from "./transition-actions";
 import { MAX_BULK_OFFBOARD } from "../transition-limits";
 
 async function createPerson(name: string, netId?: string) {
@@ -117,6 +122,44 @@ describe("bulkFlag", () => {
     expect(result.skipped[0].personId).toBe(outOfScope.id);
     expect(result.skipped[0].name).toBe("Theirs");
     expect(result.skipped[0].reason).toMatch(/permission/i);
+  });
+
+  // audit 14, bulk-flag-uncapped. personIds comes straight off a FormData POST
+  // behind volunteers.view, and each id costs ~6 sequential queries, so an
+  // uncapped batch is unbounded database work any signed-in member can ask for
+  // (and half-applies if it outruns the function's wall clock). The cap is its
+  // own number, well above a full roster, NOT the offboard cap of 25 -- the UI
+  // tells the user to flag everyone and offboard in batches.
+  it("refuses a batch larger than MAX_BULK_FLAG without touching the database", async () => {
+    const actor = await createPerson("Exec", "exec01");
+    await grantPermission(actor.id, "volunteers.manage_offboarding");
+    const ids = Array.from({ length: MAX_BULK_FLAG + 1 }, (_, i) => `person-${i}`);
+
+    await expect(bulkFlag(actor.id, ids)).rejects.toBeInstanceOf(TransitionBatchTooLargeError);
+    // Refused before the loop, so nothing was flagged and no summary row landed.
+    expect(await prisma.offboardFlag.count()).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: "offboard.bulk_flag" } })).toBe(0);
+  });
+
+  // The other half of the cap: it must NOT be the offboard cap. transition-tab
+  // tells a director whose selection exceeds 25 to "flag them all now and
+  // offboard in batches", so a batch of 26 has to go through.
+  it("accepts a batch larger than the offboard cap", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const actor = await createPerson("Exec", "exec01");
+    await grantPermission(actor.id, "volunteers.manage_offboarding");
+    const target = await createPerson("Target", "tgt01");
+    await createMembership(target.id, term.id, dept.id);
+    // The same person repeated: re-flagging takes the existing-row fast path, so
+    // this exercises the length check without creating 26 fixtures.
+    const ids = Array.from({ length: MAX_BULK_OFFBOARD + 1 }, () => target.id);
+
+    expect(MAX_BULK_FLAG).toBeGreaterThan(MAX_BULK_OFFBOARD);
+    const result = await bulkFlag(actor.id, ids);
+
+    expect(result.skipped).toEqual([]);
+    expect(await prisma.offboardFlag.count()).toBe(1);
   });
 });
 

@@ -99,10 +99,17 @@ export function SpeedRouteModal({ open, onClose, rows, departments, onRoute, onR
   }, [current, isSaving, onReject]);
 
   // Ranked departments that are real cycle departments, in the applicant's order.
+  // A department that already declined this applicant and handed them back is
+  // dropped: a returned applicant is PENDING with no routed department, so they
+  // queue here like anyone else, and their first ranked choice (number key "1")
+  // is usually the very department that returned them. routeApplication refuses
+  // that route, so offering it only buys an error mid-queue (audit 14, REC-2).
   const rankedDepts = useMemo(() => {
     if (!current) return [];
     const set = new Set(departments);
-    return current.departmentChoices.filter((d) => set.has(d)).slice(0, 9);
+    return current.departmentChoices
+      .filter((d) => set.has(d) && d !== current.returnedFromDepartmentCode)
+      .slice(0, 9);
   }, [current, departments]);
 
   // Keyboard: number keys route to the k-th ranked dept; R rejects; arrows navigate.

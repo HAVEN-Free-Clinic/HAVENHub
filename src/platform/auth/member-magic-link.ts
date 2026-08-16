@@ -5,6 +5,7 @@ import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { safeLoginPath } from "@/platform/auth/safe-next";
+import { clientIpForRateLimit } from "@/platform/auth/client-ip";
 import { log } from "@/platform/logging";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -92,6 +93,15 @@ const RATE_MAX = 3; // per identical email address
 const IP_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const IP_RATE_MAX = 5; // per client IP per window
 const GLOBAL_DAILY_MAX = 800; // member links issued / 24h across all requesters
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Per-address share of that daily budget. Same defect and same reasoning as the
+ * applicant portal's EMAIL_DAILY_MAX (audit 14, UNAUTH-01): RATE_MAX alone lets a
+ * single address consume 288 of the 800, so a handful of addresses exhausted the
+ * ceiling and every non-Yale member lost their only way into the hub for 24
+ * hours, silently. Both endpoints drain the same mailbox, so both need the cap.
+ */
+const EMAIL_DAILY_MAX = 10; // member links issued / 24h per email address
 const ipHits = new Map<string, number[]>();
 
 function ipRateLimited(ip: string | null): boolean {
@@ -127,23 +137,33 @@ export async function requestMemberLoginLink(email: string, next?: string | null
   const emailLower = email.trim().toLowerCase();
   if (emailLower.endsWith(YALE_DOMAIN)) return "use-yale";
 
-  // Per-IP backstop (best-effort, per-instance). x-forwarded-for is a comma list;
-  // the first hop is the client. Silently "sent" when limited -- no membership
-  // oracle to callers. (#121)
-  const forwardedFor = (await headers()).get("x-forwarded-for");
-  const clientIp = forwardedFor ? forwardedFor.split(",")[0]!.trim() : null;
-  if (ipRateLimited(clientIp)) return "sent";
+  // Per-IP backstop (best-effort, per-instance). Silently "sent" when limited --
+  // no membership oracle to callers (#121). See clientIpForRateLimit for why the
+  // IP is read from the right-hand end of the forwarded chain and not the left.
+  if (ipRateLimited(clientIpForRateLimit(await headers()))) return "sent";
 
   const recent = await prisma.memberLoginToken.count({
     where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
   });
   if (recent >= RATE_MAX) return "sent";
 
+  // Per-address daily ceiling, checked BEFORE the global one so no single
+  // requester can walk the shared budget down for every other member.
+  const recentForEmail = await prisma.memberLoginToken.count({
+    where: { emailLower, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
+  });
+  if (recentForEmail >= EMAIL_DAILY_MAX) {
+    log.warn("[member-magic-link] Daily member-link ceiling reached for this address; skipping send.", {
+      recentForEmail,
+    });
+    return "sent";
+  }
+
   // Hard global daily ceiling: bound total member links/24h so a distributed flood
   // across many addresses can't exhaust the shared mailbox and silently break ALL
   // app email. Legit clinic volume is far below this. (#121)
   const globalRecent = await prisma.memberLoginToken.count({
-    where: { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    where: { createdAt: { gt: new Date(Date.now() - DAY_MS) } },
   });
   if (globalRecent >= GLOBAL_DAILY_MAX) {
     log.warn("[member-magic-link] Global daily member-link ceiling reached; skipping send.", { globalRecent });

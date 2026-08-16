@@ -31,7 +31,7 @@
  *   - Empty array clears availability (stores [], sets availabilityUpdatedAt, clears acknowledge).
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -1066,6 +1066,41 @@ describe("fullSchedule", () => {
     expect(result.departments).toHaveLength(0);
     // But the attendance map itself is untouched by the roster filter.
     expect(result.attendance.has(departed.id)).toBe(true);
+  });
+
+  // audit 14, fullschedule-loads-whole-term. This page renders ONE date, but it
+  // used to read every ShiftAssignment in the term (two joins each) and throw
+  // the other ~13/14ths away in memory. Nothing about the rendered output
+  // changes when it does that, which is precisely why the existing fullSchedule
+  // tests could not catch it, so the assertion has to be on the query itself.
+  it("reads only the selected date's assignments, not the whole term", async () => {
+    const dates = saturdays("2026-05-30", 4);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Alice");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    for (const date of dates) {
+      await createShift(term.id, dept.id, person.id, date, "VOLUNTEER");
+    }
+
+    const findMany = vi.spyOn(prisma.shiftAssignment, "findMany");
+    try {
+      const result = await fullSchedule(isoDateKey(dates[0]));
+
+      // The page still renders exactly what it did before the narrowing.
+      expect(result.departments).toHaveLength(1);
+      expect(result.departments[0].volunteers.map((v) => v.id)).toEqual([person.id]);
+
+      expect(findMany).toHaveBeenCalledTimes(1);
+      const where = findMany.mock.calls[0][0]?.where as
+        | { clinicDate?: { gte?: Date; lt?: Date } }
+        | undefined;
+      const dayAfter = isoDateKey(new Date(dates[0].getTime() + 86400000));
+      expect(where?.clinicDate?.gte?.toISOString()).toBe(`${isoDateKey(dates[0])}T00:00:00.000Z`);
+      expect(where?.clinicDate?.lt?.toISOString()).toBe(`${dayAfter}T00:00:00.000Z`);
+    } finally {
+      findMany.mockRestore();
+    }
   });
 });
 

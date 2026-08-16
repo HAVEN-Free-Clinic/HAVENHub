@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+/**
+ * The largest upload a Server Action can actually receive, in MB.
+ *
+ * Vercel rejects a request body over ~4.5 MB with FUNCTION_PAYLOAD_TOO_LARGE
+ * before any app code runs, so a limit above this cannot be honored: it only
+ * changes the message the user does not get (#75). Every upload path except
+ * SCORM packages goes through a Server Action. The uploads.maxMb setting caps
+ * its input at the same 4 (src/platform/settings/registry.ts).
+ */
+const SERVER_ACTION_MAX_UPLOAD_MB = 4;
+
 const schema = z
   .object({
     DATABASE_URL: z.string().min(1),
@@ -97,20 +108,39 @@ const schema = z
     // Action, which the platform hard-limits to ~4.5 MB regardless of the app's own
     // limit, so a larger advertised limit just fails opaquely at the edge (#75). The
     // uploads.maxMb admin setting is likewise capped at 4 in the settings registry.
+    //
+    // CLAMPED to that same 4, not merely defaulted to it (audit 14,
+    // max-upload-mb-env-default-bypasses-the-4mb-cap). The registry cap only
+    // constrains what an admin can type into the settings form; the env value
+    // flows around it, both as `uploads.maxMb`'s envDefault and directly through
+    // config.MAX_UPLOAD_MB at the validation sites in my-info, recruitment
+    // submissions, incidents, and support attachments. .env.example shipped
+    // MAX_UPLOAD_MB=5 (a stale rationale: Airtable's 5 MB attachment cap, and the
+    // Airtable mirror is gone), so any deployment copied from it advertised a
+    // size that FUNCTION_PAYLOAD_TOO_LARGE rejects before app code runs.
+    //
+    // Clamped rather than rejected on purpose: any environment that copied the
+    // old example has 5 set today, and refusing to boot is the one failure mode
+    // worse than a too-generous limit. SCORM packages are unaffected -- they
+    // bypass Server Actions entirely via a presigned R2 PUT with its own 75 MB
+    // ceiling (src/app/api/learning/upload-url/route.ts).
     MAX_UPLOAD_MB: z
       .string()
       .default("4")
       .transform(Number)
       .pipe(
-        z.number().superRefine((val, ctx) => {
-          if (Number.isNaN(val) || val <= 0) {
-            ctx.addIssue({
-              code: "custom",
-              path: [],
-              message: "MAX_UPLOAD_MB must be a positive number",
-            });
-          }
-        })
+        z
+          .number()
+          .superRefine((val, ctx) => {
+            if (Number.isNaN(val) || val <= 0) {
+              ctx.addIssue({
+                code: "custom",
+                path: [],
+                message: "MAX_UPLOAD_MB must be a positive number",
+              });
+            }
+          })
+          .transform((val) => Math.min(val, SERVER_ACTION_MAX_UPLOAD_MB))
       ),
     // Compliance reminder cadence: how many days between reminder emails.
     // Default is 7 (weekly). Rejected if not a positive finite number.

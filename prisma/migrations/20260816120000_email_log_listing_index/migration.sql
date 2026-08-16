@@ -1,0 +1,33 @@
+-- The admin email monitor's DEFAULT listing (audit 14, DM-3).
+--
+-- listEmails (src/modules/admin/services/email.ts) runs with NO filter, ORDER BY
+-- "createdAt" DESC, "id" DESC, LIMIT 50. The existing ("status", "createdAt")
+-- index leads with status, so an unfiltered query cannot use it at all: every
+-- visit to /admin/email sequentially scanned and sorted the fastest-growing
+-- table in the app (one row per email; a campaign fans out one per recipient) to
+-- return fifty rows. Ascending on purpose -- a btree scans backwards just as
+-- cheaply, and carrying the "id" tiebreaker means the ordering is satisfied by
+-- the index alone, with no sort node.
+--
+-- CONCURRENTLY, per the rolling-deploy rule in docs/DEPLOY.md: `prisma migrate
+-- deploy` runs at the START of the Vercel build while the PREVIOUS deployment
+-- still serves traffic, so a plain CREATE INDEX would hold a SHARE lock blocking
+-- every INSERT into EmailLog -- the interactive enqueue-flush path included --
+-- for the length of the build. No table rewrite either way.
+--
+-- ONE STATEMENT PER MIGRATION FILE, and this is load-bearing, not style.
+-- Measured on this toolchain (Prisma 6.19.3, 2026-08-16): the migration engine
+-- sends a file's SQL as a single simple query, and Postgres wraps a
+-- multi-statement simple query in an implicit transaction, which CONCURRENTLY
+-- refuses to run inside ("ERROR: CREATE INDEX CONCURRENTLY cannot run inside a
+-- transaction block", SQLSTATE 25001). A file holding exactly one statement gets
+-- no implicit transaction and applies cleanly. Putting both of these indexes in
+-- one file failed on the first try, and a failed migration wedges every
+-- subsequent deploy with P3009 until a human resolves it against production.
+-- The sibling index lives in 20260816120100_email_log_sent_today_index.
+--
+-- IF NOT EXISTS is doing real work: a CONCURRENTLY build that fails partway
+-- leaves an INVALID index rather than nothing, and the retry must not then fail
+-- on a duplicate name. If this index ever shows invalid in pg_index, DROP INDEX
+-- CONCURRENTLY it and re-run this statement by hand; a re-deploy will skip it.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "EmailLog_createdAt_id_idx" ON "EmailLog"("createdAt", "id");

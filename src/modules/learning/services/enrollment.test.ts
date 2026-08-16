@@ -467,3 +467,58 @@ it("getCourseForLearner does not resurface a prior term's completed SCO cmi for 
     expect(sco.cmi.suspendData).toBeNull();
   }
 });
+
+// --- A next (PLANNING) term: what is even satisfiable there (audit 14, L1) ---
+//
+// The read side takes a termId so a member's next-term checklist and the schedule
+// builder's banner agree. The write side does not, and cannot: a SCORM commit is a
+// bare CMI snapshot with no term in it, so persistScoCmi always records against the
+// ACTIVE term. A PER_TERM course therefore has no way to ever be completed FOR a
+// next term, and listing it there asserted an outstanding item nobody could clear.
+
+/** A learner who belongs to both the ACTIVE term and a future PLANNING term. */
+async function seedNextTerm(recurrence: "ONCE" | "PER_TERM") {
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const learner = await prisma.person.create({ data: { name: "Lee", status: "ACTIVE" } });
+  const active = await prisma.term.create({
+    data: { code: "SU26", name: "Current", status: "ACTIVE", startDate: new Date("2026-01-01"), endDate: new Date("2026-06-30") },
+  });
+  const next = await prisma.term.create({
+    data: { code: "FA26", name: "Next", status: "PLANNING", startDate: new Date("2026-09-01"), endDate: new Date("2026-12-31") },
+  });
+  for (const termId of [active.id, next.id]) {
+    await prisma.termMembership.create({
+      data: { personId: learner.id, termId, departmentId: dept.id, status: "ACTIVE", kind: "VOLUNTEER" },
+    });
+  }
+  const course = await prisma.course.create({
+    data: {
+      title: "Intro",
+      scormEntryHref: "index.html",
+      scormVersion: "1.2",
+      recurrence,
+      scormScos: [{ id: "ITEM-A", title: "hb", href: "index.html" }],
+      departments: { create: [{ departmentId: dept.id }] },
+    },
+  });
+  return { learner, course, active, next };
+}
+
+it("getMyCourses omits a PER_TERM course for a next term, which no commit could ever complete", async () => {
+  const { learner, course, active, next } = await seedNextTerm("PER_TERM");
+
+  // Finish it for the term the learner is actually in. That is the ONLY term a
+  // SCORM commit can land in, so it is the best any member can possibly do.
+  await persistScoCmi(learner.id, course.id, "ITEM-A", { lessonStatus: "completed", scoreRaw: 90, suspendData: null, lessonLocation: null });
+  expect((await getMyCourses(learner.id, active.id)).find((r) => r.id === course.id)?.status).toBe("COMPLETE");
+
+  // Before the fix this row came back NOT_STARTED for the next term, permanently:
+  // read at termId = next, written at termId = active.
+  expect((await getMyCourses(learner.id, next.id)).find((r) => r.id === course.id)).toBeUndefined();
+});
+
+it("getMyCourses still lists a ONCE course for a next term, where a completion does carry over", async () => {
+  const { learner, course, next } = await seedNextTerm("ONCE");
+  const rows = await getMyCourses(learner.id, next.id);
+  expect(rows.find((r) => r.id === course.id)?.status).toBe("NOT_STARTED");
+});

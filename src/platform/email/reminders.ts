@@ -5,7 +5,7 @@
  * streams, each with its own cadence and its own atomic claim:
  *
  *   HIPAA leg (compliance-reminder, `compliance.reminderIntervalDays`, 7 by default)
- *     Driven by effectiveComplianceStatus. Unsatisfied for every status except
+ *     Driven by effectiveCompliance. Unsatisfied for every status except
  *     COMPLIANT, so EXPIRING_SOON keeps producing the renewal nudge.
  *
  *     This leg MUST read `status` and not ClearanceSummary.missing:
@@ -37,7 +37,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { log, errorAttrs } from "@/platform/logging";
-import { effectiveComplianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
@@ -187,7 +187,7 @@ export async function runClearanceReminders(
 
   // 3. Full cert history per candidate, newest-first. Order by (personId asc,
   //    uploadedAt desc) then group per personId, preserving newest-first order so
-  //    effectiveComplianceStatus can fall back to an older still-valid verified cert
+  //    effectiveCompliance can fall back to an older still-valid verified cert
   //    when the newest is an early renewal awaiting verification.
   const allCerts = await prisma.hipaaCertificate.findMany({
     where: { personId: { in: personIds } },
@@ -270,11 +270,17 @@ export async function runClearanceReminders(
    // re-sending a HIPAA nag is worse than delaying one by an interval.
    try {
     const certs = certsByPerson.get(person.id) ?? [];
-    const cert = certs[0] ?? null;
     // Effective (all-certs) status: an early renewal awaiting verification must not
     // flip a still-cleared member back to PENDING_VERIFICATION and re-trigger nags.
     // EXPIRING_SOON is still surfaced so the renewal nudge holds.
-    const status = effectiveComplianceStatus(certs, activeTerm.endDate, now);
+    //
+    // `cert` comes from the SAME call, not from certs[0]. The two differ exactly
+    // when the fallback fires, and this email prints the expiry date: reading it
+    // off certs[0] told a mid-renewal member their coverage ran to the new
+    // upload's date, when the status describing them came from the older cert
+    // expiring far sooner. A renewal nudge quoting the wrong date is worse than
+    // none (audit 14, L3).
+    const { status, cert } = effectiveCompliance(certs, activeTerm.endDate, now);
     const clearance = clearanceByPerson.get(person.id);
 
     // A term can disable the HIPAA step. loadClearanceMap drops a disabled step from

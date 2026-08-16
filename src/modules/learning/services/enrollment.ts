@@ -4,7 +4,13 @@ import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import { coursesForMember, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
+import {
+  coursesForMember,
+  coursesSatisfiableInTerm,
+  splitByRecurrence,
+  type AssignableCourse,
+  type MemberMembership,
+} from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -172,11 +178,22 @@ export type MyCourseRow = {
 export async function getMyCourses(personId: string, termId?: string): Promise<MyCourseRow[]> {
   const ids = await assignedCourseIds(personId, termId);
   if (ids.length === 0) return [];
-  const courses = await prisma.course.findMany({
+  const assigned = await prisma.course.findMany({
     where: { id: { in: ids } },
     orderBy: { position: "asc" },
     select: { id: true, title: true, description: true, recurrence: true },
   });
+
+  // A PER_TERM course is only satisfiable in the ACTIVE term, because that is the
+  // only term persistScoCmi will ever write an attempt against. Listing it for a
+  // next term put a permanently-NOT_STARTED row on the member's next-term
+  // checklist that no amount of studying could clear (audit 14, L1). See
+  // coursesSatisfiableInTerm; loadClearanceMap applies the identical rule, which
+  // is what keeps this checklist and the builder's banner agreeing.
+  const activeTerm = await activeTermId();
+  const resolvedTermId = termId ?? activeTerm;
+  const courses = coursesSatisfiableInTerm(assigned, resolvedTermId === activeTerm);
+  if (courses.length === 0) return [];
 
   // Scope the progress lookup by term for PER_TERM courses only; ONCE courses stay
   // unscoped so a prior-term completion still counts (today's behavior, unchanged --
@@ -185,7 +202,6 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
   // term), so a PER_TERM course's status agrees with which term this call is
   // actually answering assignment for -- including a next-term checklist call, not
   // just the live term.
-  const resolvedTermId = termId ?? (await activeTermId());
   const { onceIds, perTermIds } = splitByRecurrence(courses);
   const progress = await prisma.courseProgress.findMany({
     where: {

@@ -270,16 +270,34 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
             ? "term-batch"
             : "generate";
 
-  // Load data for both tabs in parallel.
+  // Load only what the tab being rendered actually uses, in parallel (audit 14,
+  // epic-history-unbounded-client-payload).
+  //
+  // Every one of these was loaded on every visit and serialized into the client
+  // component's props, whichever tab was on screen. getEpicRequestHistory is the
+  // expensive one: EVERY YnhhTicket ever recorded, each with its submitter,
+  // subject person, attachments, and requests-with-people, and it has no bound at
+  // all -- the Tracker renders the OPEN ones and History the CLOSED ones, so the
+  // set only ever grows. listDepartmentsWithMembers is the same shape of problem
+  // one step down (every department with its full membership). Both were being
+  // paid for by someone opening the default Generate tab to make one PDF.
+  //
+  // The remaining unbounded case is the Tracker/History pair itself, which still
+  // receives the whole ticket history; narrowing that needs a paged loader in
+  // itcm.ts and a paged table, and is worth doing before the archive is large.
+  const needsHistory = activeTab === "tracker" || activeTab === "history";
+  const needsGenerate = activeTab === "generate";
+  const needsTracker = activeTab === "tracker";
   const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
     await Promise.all([
-      listDepartmentsWithMembers(),
-      getEpicRequestHistory(),
-      listPendingDeactivations(),
-      listEpicAuthorizers(),
-      listIncidentPeople(),
-      listPendingEpicRequests(),
-      listLinkableTechRequests(),
+      needsGenerate ? listDepartmentsWithMembers() : [],
+      needsHistory ? getEpicRequestHistory() : [],
+      needsGenerate ? listPendingDeactivations() : [],
+      // The generator form and the Term batch tab both offer an authorizer.
+      needsGenerate || activeTab === "term-batch" ? listEpicAuthorizers() : [],
+      needsTracker ? listIncidentPeople() : [],
+      activeTab === "pending" ? listPendingEpicRequests() : [],
+      needsTracker ? listLinkableTechRequests() : [],
     ]);
 
   // The Term batch tab can target a term before it goes active, so resolve the

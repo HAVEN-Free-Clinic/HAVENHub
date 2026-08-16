@@ -6,6 +6,7 @@ import {
   certExpiresAt,
   complianceStatus,
   effectiveComplianceStatus,
+  effectiveCompliance,
   overallClearance,
   hipaaNeedsTrainingLink,
 } from "./rules";
@@ -279,6 +280,66 @@ describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () =>
       { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) }, // verified but expired
     ];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
+  });
+});
+
+/**
+ * Audit 14 (L3 / hipaa-badge-expiry-from-unverified-cert): the status alone does
+ * not tell a caller WHICH certificate it came from, so the HIPAA panel and the
+ * weekly reminder both read the expiry off certs[0]. Mid-renewal that is the new
+ * unverified upload while the status describes the older verified cert, so a
+ * member whose coverage runs out next month was shown a date a year away.
+ */
+describe("effectiveCompliance returns the cert the status came from", () => {
+  const now = noon(2026, 7, 15);
+
+  it("returns the older VERIFIED cert when an unverified renewal sits on top of it", () => {
+    const renewal = { completionDate: noon(2026, 7, 10), verifiedAt: null };
+    const verified = { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) };
+
+    const { status, cert } = effectiveCompliance([renewal, verified], null, now);
+
+    expect(status).toBe("COMPLIANT");
+    // The date a badge or reminder may advertise is THIS cert's expiry (2027-06-01),
+    // not the unverified renewal's (2027-07-10).
+    expect(cert).toBe(verified);
+    expect(certExpiresAt(cert!.completionDate!)).toEqual(certExpiresAt(noon(2026, 6, 1)));
+  });
+
+  it("returns the newest cert whenever no fallback fires", () => {
+    const newest = { completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) };
+    expect(effectiveCompliance([newest], null, now).cert).toBe(newest);
+  });
+
+  it("returns the newest cert when the fallback finds nothing usable, so the caller still has a row", () => {
+    const unverified = { completionDate: noon(2026, 7, 10), verifiedAt: null };
+    const expired = { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) };
+    const { status, cert } = effectiveCompliance([unverified, expired], null, now);
+    expect(status).toBe("PENDING_VERIFICATION");
+    expect(cert).toBe(unverified);
+  });
+
+  it("returns no cert at all when there are none", () => {
+    expect(effectiveCompliance([], null, now)).toEqual({ status: "NO_CERTIFICATE", cert: null });
+  });
+
+  it("agrees with effectiveComplianceStatus on every status it reports", () => {
+    const cases: Array<{ completionDate: Date | null; verifiedAt: Date | null }[]> = [
+      [],
+      [{ completionDate: noon(2026, 7, 10), verifiedAt: null }],
+      [{ completionDate: null, verifiedAt: null }],
+      [
+        { completionDate: noon(2026, 7, 10), verifiedAt: null },
+        { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) },
+      ],
+      [
+        { completionDate: null, verifiedAt: null },
+        { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) },
+      ],
+    ];
+    for (const certs of cases) {
+      expect(effectiveCompliance(certs, null, now).status).toBe(effectiveComplianceStatus(certs, null, now));
+    }
   });
 });
 

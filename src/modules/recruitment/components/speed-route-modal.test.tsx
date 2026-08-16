@@ -44,7 +44,7 @@ type Handlers = {
   onReject?: (applicationId: string) => Promise<{ error?: string }>;
 };
 
-function mount({ onRoute, onReject }: Handlers) {
+function mount({ onRoute, onReject, rows }: Handlers & { rows?: SpeedRouteRow[] }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -53,8 +53,8 @@ function mount({ onRoute, onReject }: Handlers) {
       <SpeedRouteModal
         open
         onClose={() => {}}
-        rows={[row(), row({ applicationId: "app2", name: "Bo Applicant" })]}
-        departments={["ITCM"]}
+        rows={rows ?? [row(), row({ applicationId: "app2", name: "Bo Applicant" })]}
+        departments={["ITCM", "SRHD"]}
         onRoute={onRoute ?? (async () => ({}))}
         onReject={onReject ?? (async () => ({}))}
       />,
@@ -123,6 +123,41 @@ describe("SpeedRouteModal when the route action REJECTS", () => {
 
     expect(alertText()).toContain(ACTION_REJECTED_MESSAGE);
     expect(dialogTitle()).toContain("(1 of 2)");
+  });
+});
+
+describe("SpeedRouteModal for an applicant a department handed back", () => {
+  /**
+   * Audit 14 (REC-2): a returned applicant is PENDING with no routed department,
+   * so they queue in the middle tier like anyone else -- and their first ranked
+   * choice, which the "1" key routes to, is usually the department that just
+   * declined them. The modal offered it, and the lead re-queued them there with
+   * one keystroke.
+   */
+  const returned = [
+    row({
+      departmentChoices: ["ITCM", "SRHD"],
+      returnedFromDepartmentCode: "ITCM",
+      returnedReason: "not a fit for us",
+      proposedDepartmentCode: null,
+    }),
+  ];
+
+  it("does not offer the declining department as a ranked target", () => {
+    mount({ rows: returned });
+    expect(buttonNamed("1. ITCM")).toBeUndefined();
+    expect(buttonNamed("1. SRHD")).toBeDefined();
+  });
+
+  it("routes the number key to the next department, never back to the decliner", async () => {
+    const routed: string[] = [];
+    mount({ rows: returned, onRoute: async (_id, dept) => { routed.push(dept); return {}; } });
+
+    await act(async () => {
+      buttonNamed("1. SRHD")?.click();
+    });
+
+    expect(routed).toEqual(["SRHD"]);
   });
 });
 

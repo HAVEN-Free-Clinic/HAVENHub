@@ -1139,6 +1139,19 @@ model EmailLog {
   @@unique([campaignRunId, toEmail])
   @@index([personId])
   @@index([status, createdAt])
+  /// The admin email monitor's DEFAULT listing: no filter, ORDER BY createdAt
+  /// DESC, id DESC, LIMIT 50 (listEmails in src/modules/admin/services/email.ts).
+  /// [status, createdAt] cannot serve it -- status is the leading column and the
+  /// unfiltered case has no equality on it -- so every visit sequentially scanned
+  /// and sorted the fastest-growing table in the app. Declared ascending because
+  /// a btree scans backwards just as cheaply, and the id tiebreaker is part of
+  /// the index so the ordering is fully satisfied without a sort node.
+  /// (audit 14, DM-3.)
+  @@index([createdAt, id])
+  /// The "Sent today" tile: status = SENT AND sentAt >= start-of-day. sentAt is
+  /// not in any other index, so this counted by scanning every SENT row ever.
+  /// (audit 14, DM-3.)
+  @@index([status, sentAt])
 }
 
 /// Admin override of a code-default email template, keyed by descriptor key (e.g. "layout", "compliance-reminder").

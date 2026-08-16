@@ -65,6 +65,15 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
       ...(course.recurrence === "PER_TERM" ? { termId: term.id } : {}),
     },
     select: { personId: true, lessonStatus: true, scoreRaw: true, completedAt: true },
+    // The map below is last-wins, and a ONCE course is read unscoped, so one
+    // person can match more than one row (a course toggled to PER_TERM, run for
+    // a term or two, then toggled back leaves a row per term). Without an order,
+    // whichever row the planner happened to return won, so a director could see
+    // an in-progress row beat the learner's real completion. Completed rows sort
+    // last and therefore win; id is a TOTAL tiebreak, deliberately not createdAt,
+    // which ties at the millisecond and is a known flake source in this repo.
+    // Same defect and same fix as loadClearanceMap (audit 14, L4).
+    orderBy: [{ completedAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
   });
   const byPerson = new Map(progressRows.map((p) => [p.personId, p]));
 

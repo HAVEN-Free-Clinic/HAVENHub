@@ -145,6 +145,7 @@ export async function getApplicantIdentity(): Promise<ApplicantIdentity | null> 
 // ---------------------------------------------------------------------------
 
 import { queueEmail } from "@/platform/email/send";
+import { clientIpForRateLimit } from "@/platform/auth/client-ip";
 import { log } from "@/platform/logging";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -153,6 +154,7 @@ import { pickPortalEmailBase } from "./portal-routing";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_MAX = 3; // per identical email address
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Coarse abuse backstops for this PUBLIC, unauthenticated send endpoint. The
 // per-email limit alone does nothing against a script iterating distinct victim
@@ -164,6 +166,18 @@ const RATE_MAX = 3; // per identical email address
 const IP_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const IP_RATE_MAX = 5; // per client IP per window
 const GLOBAL_DAILY_MAX = 800; // portal links issued / 24h across all requesters
+/**
+ * Per-address share of that daily budget, and the reason the budget is no longer
+ * something one requester can eat.
+ *
+ * RATE_MAX alone permits 3 links every 15 minutes = 288/day for a SINGLE address,
+ * i.e. more than a third of GLOBAL_DAILY_MAX; three addresses exhausted it
+ * outright and then every real applicant's sign-in link was silently dropped for
+ * 24 hours, with nothing user-visible to explain it (audit 14, UNAUTH-01). Ten a
+ * day is far beyond any honest "resend it, I lost the first one" loop and caps
+ * one requester at ~1% of the shared budget.
+ */
+const EMAIL_DAILY_MAX = 10; // portal links issued / 24h per email address
 const ipHits = new Map<string, number[]>();
 
 function ipRateLimited(ip: string | null): boolean {
@@ -190,22 +204,36 @@ export async function requestMagicLink(email: string, next?: string | null): Pro
   const emailLower = email.trim().toLowerCase();
   const hdrs = await headers();
 
-  // Per-IP backstop (best-effort, per-instance). x-forwarded-for is a comma list;
-  // the first hop is the client. Silently skip when limited -- no oracle to callers.
-  const forwardedFor = hdrs.get("x-forwarded-for");
-  const clientIp = forwardedFor ? forwardedFor.split(",")[0]!.trim() : null;
-  if (ipRateLimited(clientIp)) return;
+  // Per-IP backstop (best-effort, per-instance). Silently skip when limited --
+  // no oracle to callers. See clientIpForRateLimit for why the IP is read from
+  // the right-hand end of the forwarded chain and not the left.
+  if (ipRateLimited(clientIpForRateLimit(hdrs))) return;
 
   const recent = await prisma.applicantPortalToken.count({
     where: { emailLower, createdAt: { gt: new Date(Date.now() - RATE_WINDOW_MS) } },
   });
   if (recent >= RATE_MAX) return;
 
+  // Per-address daily ceiling, checked BEFORE the global one so no single
+  // requester can walk the shared budget down for everybody else. See
+  // EMAIL_DAILY_MAX.
+  const recentForEmail = await prisma.applicantPortalToken.count({
+    where: { emailLower, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
+  });
+  if (recentForEmail >= EMAIL_DAILY_MAX) {
+    log.warn("[portal-auth] Daily magic-link ceiling reached for this address; skipping send.", {
+      recentForEmail,
+    });
+    return;
+  }
+
   // Hard global daily ceiling: bounds total outbound so a distributed flood can't
   // exhaust the shared mailbox and silently break ALL app email (member logins,
-  // reminders, notifications). Legit clinic volume is far below this.
+  // reminders, notifications). Legit clinic volume is far below this, and with
+  // the per-address cap in front of it reaching this line now takes 80+ distinct
+  // addresses rather than three.
   const globalRecent = await prisma.applicantPortalToken.count({
-    where: { createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    where: { createdAt: { gt: new Date(Date.now() - DAY_MS) } },
   });
   if (globalRecent >= GLOBAL_DAILY_MAX) {
     log.warn("[portal-auth] Global daily magic-link ceiling reached; skipping send.", { globalRecent });

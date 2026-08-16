@@ -461,7 +461,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "maintenance.enabled",
     category: "Maintenance",
     label: "Maintenance mode",
-    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Only a Platform Admin (the \"*\" grant) keeps using the hub normally, so check who holds it before relying on this. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
+    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Anyone who can reach this page keeps using the hub normally, so whoever turns it on can always turn it back off. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
     input: { type: "boolean" },
     schema: z.boolean(),
     envDefault: () => false,

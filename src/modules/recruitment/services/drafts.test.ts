@@ -109,6 +109,52 @@ it("rejects saving when the cycle is not open", async () => {
   await expect(saveDraft("closed-cyc", ID, { answers: {} })).rejects.toBeInstanceOf(DraftError);
 });
 
+// --- Bounds on what an autosave may persist (audit 14, UNAUTH-03) ---
+
+it("refuses an oversized draft, and writes nothing", async () => {
+  await openCycle("huge-cyc");
+  const oneMegabyte = "x".repeat(1024 * 1024);
+  await expect(
+    saveDraft("huge-cyc", ID, { answers: { essay: oneMegabyte } }),
+  ).rejects.toBeInstanceOf(DraftError);
+  // Not merely refused: nothing about the applicant was created either.
+  expect(await getDraft("huge-cyc", ID)).toBeNull();
+  expect(await prisma.applicant.count()).toBe(0);
+});
+
+it("refuses a draft with thousands of keys", async () => {
+  await openCycle("wide-cyc");
+  const answers = Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`k${i}`, "v"]));
+  await expect(saveDraft("wide-cyc", ID, { answers })).rejects.toBeInstanceOf(DraftError);
+});
+
+it("refuses a nested structure no form control can emit", async () => {
+  await openCycle("deep-cyc");
+  await expect(
+    saveDraft("deep-cyc", ID, { answers: { nested: { a: { b: { c: "deep" } } } } }),
+  ).rejects.toBeInstanceOf(DraftError);
+});
+
+it("still saves a real draft: long text, a checkbox group, and a signature data URL", async () => {
+  await openCycle("real-cyc");
+  await saveDraft("real-cyc", ID, {
+    answers: {
+      // Comfortably longer than any honest essay answer.
+      why_haven: "words ".repeat(4000),
+      // A checkbox group serializes to an array of strings.
+      languages: ["English", "Spanish", "Mandarin"],
+      // A drawn signature rides along as a PNG data URL until submit converts it.
+      sig__agreement: `data:image/png;base64,${"A".repeat(60_000)}`,
+      consent: true,
+      years: 2,
+      unset: null,
+    },
+  });
+  const draft = await getDraft("real-cyc", ID);
+  expect(draft?.answers.languages).toEqual(["English", "Spanish", "Mandarin"]);
+  expect(String(draft?.answers.sig__agreement)).toContain("data:image/png;base64,");
+});
+
 it("scopes a draft to the identity (other identity sees nothing)", async () => {
   await openCycle("iso-cyc");
   await saveDraft("iso-cyc", ID, { answers: { a: 1 } });

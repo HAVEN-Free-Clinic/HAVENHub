@@ -1,6 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { prisma } from "@/platform/db";
 import { requirePersonSession } from "@/platform/auth/session";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { decideInterview } from "@/modules/recruitment/services/interview-decisions";
@@ -33,6 +34,19 @@ function bounce(cycleId: string, opts?: { error?: string; promoted?: string; sen
  */
 export async function promoteFromWaitlistAction(cycleId: string, formData: FormData) {
   const person = await requirePersonSession();
+  // Refuse the whole promote on an archived cycle, BEFORE the decide step. Every
+  // other half of this flow is already blocked once a cycle is archived --
+  // sendAcceptanceEmail refuses, and createOrResendContract refuses the onboarding
+  // link the acceptance promises -- so going ahead would flip the applicant to
+  // ACCEPT and mint an Acceptance that can never be notified or onboarded, which is
+  // strictly worse for them than staying on the waitlist. Un-archiving is the way
+  // through (see unarchiveCycle), so the message says so (audit 14, REC-5).
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { status: true } });
+  if (cycle?.status === "ARCHIVED") {
+    redirect(bounce(cycleId, {
+      error: "This cycle is archived, so an acceptance could not be emailed or onboarded. Un-archive it from the cycle overview first.",
+    }));
+  }
   const applicationIdInput = String(formData.get("applicationId") ?? "").trim();
   const interviewId = String(formData.get("interviewId") ?? "").trim() || null;
   const name = String(formData.get("applicantName") ?? "").trim() || "Applicant";

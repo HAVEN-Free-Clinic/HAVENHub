@@ -52,6 +52,31 @@ it("refuses a Yale address with use-yale and sends nothing", async () => {
   expect(await prisma.memberLoginToken.count()).toBe(0);
 });
 
+it("caps daily links PER ADDRESS, so one requester cannot spend the shared budget", async () => {
+  // Same defect as the applicant portal's UNAUTH-01 (audit 14): the only daily
+  // ceiling was global, so a handful of addresses could exhaust it and lock every
+  // non-Yale member out of their only route into the hub for 24 hours.
+  const person = await seedActive("casey@example.org");
+  const anHourAgo = new Date(Date.now() - 60 * 60 * 1000); // outside the 15-minute window
+  await prisma.memberLoginToken.createMany({
+    data: Array.from({ length: 10 }, (_, i) => ({
+      emailLower: "casey@example.org",
+      personId: person.id,
+      tokenHash: `seeded-${i}`,
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: anHourAgo,
+    })),
+  });
+
+  expect(await requestMemberLoginLink("casey@example.org")).toBe("sent"); // still no oracle
+  expect(await prisma.emailLog.count()).toBe(0);
+
+  // The cap is theirs alone: a different member is served normally.
+  await seedActive("robin@example.org", "Robin Diaz");
+  await requestMemberLoginLink("robin@example.org");
+  expect(await prisma.emailLog.count()).toBe(1);
+});
+
 it("rate-limits to 3 links per 15 minutes per email", async () => {
   await seedActive("casey@example.org");
   await requestMemberLoginLink("casey@example.org");

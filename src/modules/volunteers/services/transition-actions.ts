@@ -28,11 +28,40 @@ import { MAX_BULK_OFFBOARD } from "../transition-limits";
 import { flagForOffboarding, executeOffboard, OffboardForbiddenError } from "./offboarding";
 
 export class TransitionBatchTooLargeError extends Error {
-  constructor(public readonly max: number = MAX_BULK_OFFBOARD) {
-    super(`Select at most ${max} people to offboard at once.`);
+  constructor(
+    public readonly max: number = MAX_BULK_OFFBOARD,
+    /** The action being refused, so the flag path does not say "offboard". */
+    verb: "offboard" | "flag" = "offboard",
+  ) {
+    super(`Select at most ${max} people to ${verb} at once.`);
     this.name = "TransitionBatchTooLargeError";
   }
 }
+
+/**
+ * The largest batch bulkFlag will accept (audit 14, bulk-flag-uncapped).
+ *
+ * Deliberately NOT MAX_BULK_OFFBOARD. Flagging is the cheap, reversible half of
+ * the transition, and transition-tab.tsx tells the user in so many words to
+ * "flag them all now and offboard in batches" when their selection exceeds the
+ * offboard cap -- so borrowing 25 here would break the workflow the UI
+ * prescribes, on the whole graduating cohort, every term.
+ *
+ * What still needs bounding is the loop: personIds arrives straight from
+ * FormData, flagForOffboarding runs ~6 sequential queries per person, and
+ * nothing in the app requires the caller to be a director (the page gates on
+ * volunteers.view). An uncapped POST is therefore a cheap way for any
+ * signed-in member to make the database do unbounded work, and a batch large
+ * enough to exceed the function's wall clock half-applies, since each person
+ * commits independently.
+ *
+ * 250 is ten times the offboard cap: comfortably above a full term roster
+ * (low hundreds at launch), roughly 1,500 round trips, and small enough that
+ * the loop cannot outrun the platform's default function duration. This page
+ * declares no maxDuration; if a roster ever approaches this number, declare one
+ * and recalculate rather than just raising it.
+ */
+export const MAX_BULK_FLAG = 10 * MAX_BULK_OFFBOARD;
 
 export type BulkOutcome = { personId: string; name: string };
 export type BulkSkip = BulkOutcome & { reason: string };
@@ -60,6 +89,10 @@ export async function bulkFlag(
   personIds: string[],
   note?: string
 ): Promise<BulkResult> {
+  if (personIds.length > MAX_BULK_FLAG) {
+    throw new TransitionBatchTooLargeError(MAX_BULK_FLAG, "flag");
+  }
+
   const names = await nameMap(personIds);
   const succeeded: BulkOutcome[] = [];
   const skipped: BulkSkip[] = [];

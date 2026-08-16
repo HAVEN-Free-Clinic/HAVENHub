@@ -91,6 +91,18 @@ it("sendAcceptanceEmail does not email an applicant who withdrew", async () => {
   expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
 });
 
+it("sendAcceptanceEmail refuses on an archived cycle, whose acceptance can never be onboarded (audit 14, REC-5)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
+
+  // createOrResendContract hard-blocks the onboarding link on exactly this status,
+  // so emailing the offer would promise something the hub cannot deliver.
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "cycle_archived" });
+  expect(await prisma.emailLog.count()).toBe(0);
+  expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
+});
+
 it("requires review_all", async () => {
   const { plain, cycle } = await seed();
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);

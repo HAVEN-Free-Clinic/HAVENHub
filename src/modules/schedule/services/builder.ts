@@ -436,6 +436,64 @@ export async function setPatientsBooked(
 }
 
 /**
+ * Sets or clears `proceduresBooked` on the clinic-wide ClinicDay row, from the
+ * RHD readiness panel in the builder.
+ *
+ * Scoped to the reproductive health department the panel is rendered for, NOT to
+ * schedule.manage_attendings the way {@link upsertClinicDay} is. The number is
+ * the reproductive health director's to keep; it only ever lived on the
+ * attending form because that form owned the whole ClinicDay row. The attending
+ * schedule no longer offers the field, so this is its one writer.
+ *
+ * The department is re-derived and checked against RHD_CODES rather than trusted
+ * from the form: the row this writes is clinic-wide, so without that check the
+ * director of ANY department the actor manages could set the reproductive health
+ * number by posting their own departmentId.
+ */
+export async function setProceduresBooked(
+  actor: string,
+  opts: { termId: string; departmentId: string; dateKey: string; proceduresBooked: number | null }
+): Promise<void> {
+  await scopeCheck(actor, opts.departmentId);
+
+  const dept = await prisma.department.findUnique({
+    where: { id: opts.departmentId },
+    select: { code: true },
+  });
+  if (!dept || !RHD_CODES.has(dept.code)) {
+    throw new BuilderForbiddenError(
+      "Procedures booked is set from the reproductive health schedule.",
+    );
+  }
+
+  const term = await loadEditableTerm(opts.termId);
+  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+  }
+
+  const before = await prisma.clinicDay.findUnique({
+    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    select: { proceduresBooked: true },
+  });
+
+  await prisma.clinicDay.upsert({
+    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    create: { termId: term.id, clinicDate, proceduresBooked: opts.proceduresBooked },
+    update: { proceduresBooked: opts.proceduresBooked },
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "schedule.procedures_booked",
+    entityType: "ClinicDay",
+    entityId: `${term.id}|${opts.dateKey}`,
+    before: { proceduresBooked: before?.proceduresBooked ?? null },
+    after: { proceduresBooked: opts.proceduresBooked },
+  });
+}
+
+/**
  * Sets or clears the director availability override for a membership.
  *
  * dateKeys non-null: validates each is a clinic date, stores canonical
@@ -538,9 +596,9 @@ export async function acknowledgeAvailability(
  *
  * Throws BuilderValidationError, which runAction turns into an inline error
  * rather than a 500, so call it inside an action's `work` closure. Shared by the
- * builder's patients-booked and the attending grid's procedures-booked, which
- * must reject the same inputs -- a negative or fractional count reaching the
- * column would make the readiness cap warning silently wrong.
+ * builder's patients-booked and the RHD readiness panel's procedures-booked,
+ * which must reject the same inputs -- a negative or fractional count reaching
+ * the column would make the readiness cap warning silently wrong.
  */
 export function parseBookedCount(raw: string, label: string): number | null {
   if (raw.trim() === "") return null;
@@ -969,11 +1027,26 @@ export type BuilderAssignmentEntry = {
 export type BuilderRhd = {
   readiness: ClinicReadiness;
   /**
-   * The per-DAY row (director on point, procedures booked). Who is covering
-   * lives on `readiness.attendings`, one entry per staffed slot; the panel is
-   * read-only, so it needs names rather than an options list to select from.
+   * The per-DAY row. Who is covering lives on `readiness.attendings`, one entry
+   * per staffed slot; the panel shows names rather than an options list, because
+   * /schedule/attendings owns that write.
+   *
+   * `directorName` on this row is legacy: it is still written by the Airtable
+   * import and read as a fallback below, but nothing in the app types it any
+   * more. Who is directing is a fact about the schedule (see `directors`).
    */
   clinic: ClinicDay | null;
+  /**
+   * The directors actually on the reproductive health schedule for this date,
+   * derived from their DIRECTOR-role shift assignments across the RHD
+   * departments. This replaced the hand-typed "director on point" field: the
+   * schedule already knows, and a second place to say it was only ever a way for
+   * the two to disagree.
+   *
+   * Carries person ids so the panel can link a name through to their profile,
+   * which is the question a director actually has when they read this row.
+   */
+  directors: { id: string; name: string }[];
 };
 
 export type BuilderView = {
@@ -1006,6 +1079,17 @@ export type BuilderView = {
   clearedPersonIds: string[];
   pendingRequestCount: number;
   rhd: BuilderRhd | null;
+  /**
+   * Contact addresses for everyone assigned to the selected date in the selected
+   * department, deduped and sorted, for the copyable shift email list.
+   *
+   * Every role, shadows included: the list exists so a director can mail the
+   * people who will be in the building, and a shadow is one of them. Someone
+   * with no contactEmail on file is simply absent -- the list is a convenience,
+   * not a roster, and a blank entry would silently break a paste into a To:
+   * field.
+   */
+  shiftEmails: string[];
 };
 
 /**
@@ -1047,6 +1131,7 @@ export async function builderView(
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
+      shiftEmails: [],
     };
   }
 
@@ -1084,6 +1169,7 @@ export async function builderView(
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
+      shiftEmails: [],
     };
   }
 
@@ -1116,7 +1202,7 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, licensedRN: true } },
+        person: { select: { id: true, name: true, licensedRN: true, contactEmail: true } },
       },
     }),
     prisma.termMembership.findMany({
@@ -1211,6 +1297,18 @@ export async function builderView(
 
   // Capacity for the selected date.
   const selectedAssignments = selectedDateKey ? allAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
+
+  // The copyable shift email list. Built from the ASSIGNMENTS rather than the
+  // department's members, so it is exactly the people working this date, and it
+  // still carries someone who has since lost their membership but is still on
+  // the schedule -- they are turning up, so they should get the email.
+  const shiftEmails = [
+    ...new Set(
+      selectedAssignments
+        .map((a) => a.person.contactEmail?.trim())
+        .filter((e): e is string => Boolean(e)),
+    ),
+  ].sort();
 
   // Offboarding / removeMembership leave the ShiftAssignment row behind, so a
   // departed person would still inflate the day's capacity metrics (onShift,
@@ -1347,6 +1445,7 @@ export async function builderView(
       .map(([personId]) => personId),
     pendingRequestCount: pendingCount,
     rhd,
+    shiftEmails,
   };
 }
 
@@ -1465,12 +1564,23 @@ async function buildRhdBlock(
     personIds.length > 0
       ? prisma.person.findMany({
           where: { id: { in: personIds } },
-          select: { id: true, contactEmail: true, licensedRN: true },
+          select: { id: true, name: true, contactEmail: true, licensedRN: true },
         })
       : Promise.resolve([]),
     verifiedLanguagesByPerson(personIds),
   ]);
   const personMap = new Map(persons.map((p) => [p.id, p]));
+
+  // Who is directing, read off the schedule instead of typed by hand. Deduped
+  // because one person can direct two of the three RHD departments on the same
+  // date, and sorted so the row does not reshuffle between renders.
+  const directors = [
+    ...new Map(
+      selectedRhdAssignments
+        .filter((a) => a.role === "DIRECTOR")
+        .map((a) => [a.personId, { id: a.personId, name: personMap.get(a.personId)?.name ?? "Unknown" }]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 
   function toRhdPerson(personId: string): RhdPersonLite {
     const p = personMap.get(personId);
@@ -1499,7 +1609,11 @@ async function buildRhdBlock(
   const readiness = computeClinicReadiness({
     date: selectedDateKey,
     attendings,
-    director: clinic?.directorName ?? null,
+    // Derived from the schedule, falling back to the stored name only when
+    // nobody is assigned. The stored value is no longer typed anywhere in the
+    // app, but the Airtable import still writes it for historical dates, and a
+    // past clinic day should not lose the director it recorded.
+    director: directors.map((d) => d.name).join(", ") || clinic?.directorName || null,
     sctsOnShift,
     jctsOnShift,
     ccrhOnShift,
@@ -1512,5 +1626,5 @@ async function buildRhdBlock(
     ? (({ attendings: _attendings, ...rest }) => rest)(clinic) as ClinicDay
     : null;
 
-  return { readiness, clinic: clinicRow };
+  return { readiness, clinic: clinicRow, directors };
 }

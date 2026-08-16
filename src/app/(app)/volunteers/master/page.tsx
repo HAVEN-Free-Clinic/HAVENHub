@@ -252,7 +252,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
               type="search"
               name="q"
               defaultValue={q ?? ""}
-              placeholder="Name or NetID..."
+              placeholder="Name, NetID, or email..."
             />
           </Field>
         </div>
@@ -333,6 +333,11 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
 
                   return (
                     <TR key={row.person.id}>
+                      {/* NetID, email and phone sit under the name rather than
+                          in columns of their own: the table already runs eleven
+                          wide, and three more would push the clearance badges
+                          off screen on any laptop. The full identity is on the
+                          profile page the name links to. */}
                       <TD className="font-medium">
                         <Link
                           href={`/volunteers/compliance/${row.person.id}`}
@@ -340,6 +345,11 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                         >
                           {row.person.name}
                         </Link>
+                        <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
+                          {[row.person.netId, row.person.contactEmail, row.person.phone]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
                       </TD>
                       <TD className="text-foreground-soft text-sm">
                         {row.departments.join(", ")}

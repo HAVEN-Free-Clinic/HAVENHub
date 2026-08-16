@@ -372,14 +372,18 @@ export async function masterCompliance(
     }
   }
 
-  // 4. Apply q filter (name or netId, case-insensitive contains).
+  // 4. Apply q filter (name, netId or email, case-insensitive contains).
+  //    Email is searchable because the roster now shows it, and because it
+  //    matches what /admin/people has always accepted -- someone pasting the
+  //    address off an email to look a member up should land on them.
   const qLower = q?.trim().toLowerCase();
 
   const scope = Array.from(personMap.values()).filter(({ person }) => {
     if (!qLower) return true;
     const nameMatch = person.name?.toLowerCase().includes(qLower) ?? false;
     const netIdMatch = person.netId?.toLowerCase().includes(qLower) ?? false;
-    return nameMatch || netIdMatch;
+    const emailMatch = person.contactEmail?.toLowerCase().includes(qLower) ?? false;
+    return nameMatch || netIdMatch || emailMatch;
   });
 
   // 5. Resolve verifier names for all newest certs in scope in one query.

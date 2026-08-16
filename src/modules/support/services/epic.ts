@@ -41,7 +41,9 @@ import {
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import { onEpicSubmitted, onEpicResolved } from "./epic-ticket-sync";
+import { onEpicSubmitted, onEpicResolved, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
+import { normalizeEpicId, normalizeServiceRequestNumber } from "./identifiers";
+import { SupportStateError } from "./tech-request";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -65,6 +67,26 @@ export class EpicStateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "EpicStateError";
+  }
+}
+
+/**
+ * Runs an identifier normaliser, re-throwing its SupportStateError as this
+ * file's EpicStateError.
+ *
+ * The message is worth carrying across: it names the character that failed and
+ * is written to be read by the person retyping the value. Every caller of this
+ * file catches the Epic error family and nothing else, so an unmapped
+ * SupportStateError would escape to the route's error boundary, which discards
+ * the message and shows a generic failure -- the same trap documented on
+ * resolveIncident in itcm.ts.
+ */
+function asEpicError<T>(normalize: () => T): T {
+  try {
+    return normalize();
+  } catch (err) {
+    if (err instanceof SupportStateError) throw new EpicStateError(err.message);
+    throw err;
   }
 }
 
@@ -183,17 +205,30 @@ export async function createEpicRequest(
  * throws, and rolls back its own ticket rather than reassigning a request or
  * orphaning a ticket.
  *
+ * `serviceRequestNumber` is optional and usually absent: YNHH IT issues the
+ * RITM once they pick the work up, so it is normally recorded later through
+ * itcm.ts's updateServiceRequestNumber. It is accepted here for the case where
+ * the ticket was raised with YNHH first and is being recorded in the hub after
+ * the fact, which is the only way the submission note below can carry a real
+ * number rather than its "no SR# on file yet" fallback.
+ *
  * Audits "epic.ticket_create" with requestIds.
  */
 export async function createTicket(
   actorPersonId: string,
-  input: { requestIds: string[]; description?: string | null }
+  input: { requestIds: string[]; description?: string | null; serviceRequestNumber?: string | null }
 ): Promise<YnhhTicket> {
   await requireManageEpic(actorPersonId);
 
   if (input.requestIds.length === 0) {
     throw new EpicStateError("requestIds must not be empty.");
   }
+
+  // Validated BEFORE the transaction: a malformed number must not leave a
+  // ticket created and its requests claimed as SUBMITTED.
+  const serviceRequestNumber = input.serviceRequestNumber?.trim()
+    ? asEpicError(() => normalizeServiceRequestNumber(input.serviceRequestNumber!))
+    : null;
 
   const requests = await prisma.epicRequest.findMany({
     where: { id: { in: input.requestIds } },
@@ -221,6 +256,7 @@ export async function createTicket(
         status: "OPEN",
         submittedById: actorPersonId,
         description: input.description ?? null,
+        serviceRequestNumber,
       },
     });
 
@@ -259,6 +295,13 @@ export async function createTicket(
  *
  * Requires support.manage_requests. Ticket must exist (EpicNotFoundError).
  * Audits "epic.ticket_sr".
+ *
+ * A SECOND writer for this column, kept only because it predates the tracker's.
+ * itcm.ts's updateServiceRequestNumber is the one the UI calls; this has no
+ * caller outside its own tests. Both normalise the value and both push it to
+ * Intercom, deliberately: the whole reason the number was invisible to agents
+ * was a writer that updated the column and told nobody, and leaving a second
+ * one that still behaves that way just waits for someone to wire a form to it.
  */
 export async function setTicketServiceRequestNumber(
   actorPersonId: string,
@@ -270,9 +313,11 @@ export async function setTicketServiceRequestNumber(
   const ticket = await prisma.ynhhTicket.findUnique({ where: { id: ticketId } });
   if (!ticket) throw new EpicNotFoundError(`Ticket not found: ${ticketId}`);
 
+  const normalized = asEpicError(() => normalizeServiceRequestNumber(srNumber));
+
   await prisma.ynhhTicket.update({
     where: { id: ticketId },
-    data: { serviceRequestNumber: srNumber },
+    data: { serviceRequestNumber: normalized },
   });
 
   await recordAudit({
@@ -280,8 +325,13 @@ export async function setTicketServiceRequestNumber(
     action: "epic.ticket_sr",
     entityType: "YnhhTicket",
     entityId: ticketId,
-    after: { serviceRequestNumber: srNumber },
+    before: { serviceRequestNumber: ticket.serviceRequestNumber },
+    after: { serviceRequestNumber: normalized },
   });
+
+  if (normalized !== ticket.serviceRequestNumber) {
+    await syncYnhhServiceRequestToIntercom(ticketId);
+  }
 }
 
 /**
@@ -352,7 +402,12 @@ export async function completeRequest(
   if (needsEpicId && (!epicId || !epicId.trim())) {
     throw new EpicStateError(`An epicId is required to complete a ${req.kind} request.`);
   }
-  const writtenEpicId: string | null = needsEpicId ? epicId!.trim() : null;
+  // Normalised (and rejected if it is clearly not an identifier) before the
+  // claim below, for the same reason the blank check is: this value is typed
+  // off a YNHH email and lands on Person.epicId, which every later MODIFY,
+  // RENEW and DEACTIVATE is raised against. A pasted label or a lowercase
+  // spelling here propagates into requests YNHH cannot action.
+  const writtenEpicId: string | null = needsEpicId ? asEpicError(() => normalizeEpicId(epicId!)) : null;
 
   // Atomic claim BEFORE any side effect, matching cancelEpicRequest /
   // createTicket / reconcile: the status read above and this write are not in one

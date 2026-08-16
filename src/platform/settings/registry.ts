@@ -157,7 +157,14 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "email.sender",
     category: "Email",
     label: "Email sender address",
-    help: "From-address used when sending via Microsoft Graph. Required before enabling graph email.",
+    // One setting, two incompatible meanings, and the help text used to name only
+    // the first (audit 14, EMAIL-3). Under Graph this must be a Yale mailbox the
+    // connected account has Send-As on; under Maileroo it must be on the verified
+    // Maileroo domain, because MailerooTransport PINS it and ignores every
+    // per-message `from`. Switching transport without changing this address makes
+    // every send fail permanently as a 4xx, and nothing told the admin to look.
+    help:
+      "From-address for outbound email. Under Microsoft Graph this must be a mailbox the connected account can Send-As. Under Maileroo it must be on your verified Maileroo domain, and it overrides every per-template sender. Change it when you switch transport, then run a sender test.",
     input: { type: "text" },
     schema: z.string(),
     envDefault: () => config.EMAIL_SENDER ?? "",

@@ -104,3 +104,52 @@ describe("getTemplateForEdit sender info", () => {
     expect(t.inheritedSender.fromEmail).toBe("recruit@yale.edu");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The layout's {{{ body }}} slot (audit 14, EMAIL-6)
+//
+// The layout is the single wrapper every platform email renders inside. Both
+// ways of losing its raw slot used to validate cleanly, because `body` IS a
+// declared layout variable -- and the editor's "Insert a variable" chips hand
+// the admin the broken double-braced form. One admin action, every outbound
+// email, no error at send time.
+// ---------------------------------------------------------------------------
+
+describe("layout body slot", () => {
+  it("rejects a layout saved without the {{{ body }}} slot", async () => {
+    await expect(
+      saveTemplateOverride(null, "layout", {
+        subject: "unused",
+        body: "<html><body><h1>HAVEN</h1><footer>bye</footer></body></html>",
+      })
+    ).rejects.toBeInstanceOf(TemplateValidationError);
+  });
+
+  it("rejects a double-braced {{ body }}, which would deliver escaped markup", async () => {
+    await expect(
+      saveTemplateOverride(null, "layout", {
+        subject: "unused",
+        body: "<html><body>{{ body }}</body></html>",
+      })
+    ).rejects.toThrow(/triple-braced/);
+  });
+
+  it("accepts a layout that keeps the raw slot", async () => {
+    await saveTemplateOverride(null, "layout", {
+      subject: "unused",
+      body: "<html><body><h1>HAVEN</h1>{{{ body }}}</body></html>",
+    });
+    const t = await getTemplateForEdit("layout");
+    expect(t.body).toContain("{{{ body }}}");
+  });
+
+  // The rule is layout-specific: an ordinary template has no body slot at all.
+  it("does not impose the slot on non-layout templates", async () => {
+    await saveTemplateOverride(null, "recruitment.acceptance", {
+      subject: "Welcome",
+      body: "<p>Congratulations.</p>",
+    });
+    const t = await getTemplateForEdit("recruitment.acceptance");
+    expect(t.body).toContain("Congratulations");
+  });
+});

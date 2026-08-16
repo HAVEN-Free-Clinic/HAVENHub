@@ -180,6 +180,33 @@ describe("runCheckInInvites", () => {
     expect(await runCheckInInvites(SATURDAY_MORNING)).toEqual({ skipped: true, queued: 0 });
   });
 
+  // audit 14, CLINIC-01. A closed Saturday stays in Term.clinicDates by design
+  // (the schema says so, and createTerm seeds every Saturday), and closure is a
+  // flag on ClinicDay. Only the ATTENDING-facing readers honoured it, so on a
+  // cancelled clinic the doctors were stood down and every assigned volunteer
+  // was still emailed "You are scheduled for clinic today".
+  it("skips a clinic date that has been closed", async () => {
+    const { term } = await seed();
+    const clinicDate = term.clinicDates[0];
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate, isClosed: true },
+    });
+
+    expect(await runCheckInInvites(SATURDAY_MORNING)).toEqual({ skipped: true, queued: 0 });
+    expect(await prisma.emailLog.count()).toBe(0);
+  });
+
+  it("still runs when a ClinicDay row exists but the day is open", async () => {
+    const { term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: term.clinicDates[0], isClosed: false },
+    });
+
+    const result = await runCheckInInvites(SATURDAY_MORNING);
+    expect(result.skipped).toBe(false);
+    expect(result.queued).toBeGreaterThan(0);
+  });
+
   it("does not send: it only enqueues", async () => {
     await seed();
     await runCheckInInvites(SATURDAY_MORNING);

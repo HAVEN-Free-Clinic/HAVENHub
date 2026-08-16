@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
@@ -42,7 +43,11 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
   if (!term) return { skipped: true, queued: 0 };
 
   const todayKey = await displayTodayKey(now);
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === todayKey);
+  // Skips a CLOSED Saturday as well as a non-clinic day. Without this the
+  // morning-of invite went to every assigned volunteer on a day the clinic had
+  // been declared closed, telling them to come in -- while the attending twin of
+  // this job already bailed on the same flag (audit 14, CLINIC-01).
+  const clinicDate = await resolveOpenClinicDate(term, todayKey);
   if (!clinicDate) return { skipped: true, queued: 0 };
 
   const assignments = await prisma.shiftAssignment.findMany({

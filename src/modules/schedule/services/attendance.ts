@@ -1,8 +1,8 @@
 import type { CheckInMethod } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
+import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { evaluateFence, type Coords } from "@/modules/schedule/engine/geofence";
 
@@ -37,7 +37,11 @@ async function todaysClinicDate(now: Date): Promise<{ termId: string; clinicDate
   const term = await getActiveTerm();
   if (!term) return null;
   const todayKey = await displayTodayKey(now);
-  const match = term.clinicDates.find((d) => isoDateKey(d) === todayKey);
+  // A closed Saturday is not a clinic day. This backs isClinicDayToday (the
+  // Check-in nav tab), getCheckInState, checkInSelf, markPresent and
+  // undoAttendance, all of which read Term.clinicDates alone and so stayed live
+  // on a day Faculty Relations had declared closed (audit 14, CLINIC-01).
+  const match = await resolveOpenClinicDate(term, todayKey);
   return match ? { termId: term.id, clinicDate: match } : null;
 }
 

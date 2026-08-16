@@ -295,7 +295,21 @@ export function buildEpicResolutionNote(
 }
 
 /**
- * Posts an Epic/YNHH detail note (see the two builders above) into a linked
+ * Builds the staff-only note for a YNHH service request number arriving (or
+ * being corrected) after the fact, which is the normal case: YNHH IT issues
+ * the RITM only once they have picked the ticket up, so the submission note
+ * above is almost always written before there is a number to put in it.
+ *
+ * Says what an agent can DO with it, because the number is otherwise just an
+ * opaque string in a note: there is no ServiceNow integration, so chasing this
+ * means a human quoting it to YNHH IT.
+ */
+export function buildYnhhServiceRequestNote(serviceRequestNumber: string): string {
+  return `YNHH service request number recorded: ${serviceRequestNumber}. Quote this to YNHH IT when chasing the Epic account; the hub has no direct line into their queue.`;
+}
+
+/**
+ * Posts an Epic/YNHH detail note (see the builders above) into a linked
  * ticket's Intercom conversation. Same never-throws, fail-closed contract as
  * notifyIntercomStatusChange -- the TechRequest.status write this accompanies
  * has already committed via setStatus by the time epic-ticket-sync.ts calls

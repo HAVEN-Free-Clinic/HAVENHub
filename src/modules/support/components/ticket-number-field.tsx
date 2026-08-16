@@ -28,7 +28,7 @@ export function TicketNumberField({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <Input
           autoFocus
           value={value}
@@ -60,6 +60,12 @@ export function TicketNumberField({
         >
           <X className="h-3.5 w-3.5" aria-hidden />
         </Button>
+        {/* Says where this goes, because it is no longer only a hub record:
+            saving pushes the number onto every linked Intercom ticket and posts
+            a staff note. Worth knowing before typing a guess into the box. */}
+        <span className="basis-full text-xs text-subtle-foreground">
+          Saving sends this to the linked Intercom ticket.
+        </span>
       </div>
     );
   }

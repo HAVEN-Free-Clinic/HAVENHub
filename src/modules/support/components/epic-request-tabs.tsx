@@ -42,9 +42,11 @@ import type {
   DepartmentWithMembers,
   EpicAuthorizer,
   EpicRequestHistoryRow,
+  LinkableTechRequest,
   PendingDeactivation,
   PendingEpicRequestRow,
 } from "@/modules/support/services/itcm";
+import { Combobox, type ComboboxOption } from "@/platform/ui/combobox";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { TicketNumberField } from "./ticket-number-field";
 import { TermBatchTab } from "./term-batch-tab";
@@ -63,6 +65,8 @@ type Props = {
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
   pending: PendingEpicRequestRow[];
+  /** Open support tickets an Epic request can be attached to, for the Tracker's picker. */
+  linkableTickets: LinkableTechRequest[];
   rollup: EpicRollup | null;
   termOptions: TermOption[];
   liveTermId: string | null;
@@ -267,6 +271,7 @@ function IncidentBody({ row }: { row: EpicRequestHistoryRow }) {
 function TrackerTable({
   history,
   nowIso,
+  linkableTickets,
   closeTicketAction,
   updateServiceRequestNumberAction,
   resolveIncidentAction,
@@ -277,6 +282,7 @@ function TrackerTable({
 }: {
   history: EpicRequestHistoryRow[];
   nowIso: string;
+  linkableTickets: LinkableTechRequest[];
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   resolveIncidentAction: (ticketId: string, resolution: string) => Promise<void>;
@@ -357,7 +363,19 @@ function TrackerTable({
                         <input type="hidden" name="requestId" value={r.id} />
                         {r.kind === "NEW" || r.kind === "MODIFY" ? (
                           <>
-                            <Input name="epicId" aria-label="Epic ID" placeholder="Epic ID" className="w-32" required />
+                            {/* Prefilled on a MODIFY: that request changes someone's
+                                ACCESS, not their Epic ID, so the value coming back
+                                from YNHH is the one already on the record. Blank on a
+                                NEW, where YNHH issues the ID and there is nothing to
+                                prefill from. */}
+                            <Input
+                              name="epicId"
+                              aria-label="Epic ID"
+                              placeholder="Epic ID"
+                              defaultValue={r.kind === "MODIFY" ? r.person.epicId ?? "" : ""}
+                              className="w-32"
+                              required
+                            />
                             <SubmitButton size="sm" variant="outline" pendingLabel="Completing…">
                               Complete
                             </SubmitButton>
@@ -411,20 +429,16 @@ function TrackerTable({
                         Support #{r.techRequest.number}
                       </Link>
                     ) : (
-                      <form action={linkEpicRequestAction} className="flex items-center gap-1">
-                        <input type="hidden" name="requestId" value={r.id} />
-                        <Input
-                          name="ticketNumber"
-                          type="number"
-                          min={1}
-                          placeholder="Ticket #"
-                          aria-label="Link to support ticket number"
-                          className="w-24"
+                      // Only while the request is still live. Offering "link to a
+                      // support ticket" beside a COMPLETED request invited a
+                      // pointless write and read as unfinished work.
+                      (r.status === "PENDING" || r.status === "SUBMITTED") && (
+                        <LinkTicketControl
+                          requestId={r.id}
+                          tickets={linkableTickets}
+                          action={linkEpicRequestAction}
                         />
-                        <SubmitButton size="sm" variant="ghost" pendingLabel="Linking…">
-                          Link
-                        </SubmitButton>
-                      </form>
+                      )
                     )}
                   </div>
                 ))}
@@ -437,6 +451,71 @@ function TrackerTable({
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Link-to-support-ticket control
+// ---------------------------------------------------------------------------
+
+/**
+ * Attaches an Epic request to an open support ticket, by picking one.
+ *
+ * This replaced a bare number box. Typing the number meant knowing it from
+ * memory or from another tab, and a wrong one either bounced with "No support
+ * ticket #N found" or -- worse, and silently -- attached the Epic request to a
+ * real but unrelated ticket, which nothing downstream can detect because the
+ * number is a valid identifier either way. The picker only ever offers tickets
+ * the link would actually succeed against.
+ *
+ * The option VALUE is still the ticket number, not its id, so the service
+ * (linkEpicRequestToTicket) is unchanged and keeps its own "no such ticket"
+ * guard for a list that went stale while the page sat open.
+ */
+function LinkTicketControl({
+  requestId,
+  tickets,
+  action,
+}: {
+  requestId: string;
+  tickets: LinkableTechRequest[];
+  action: (formData: FormData) => Promise<void>;
+}) {
+  const [picked, setPicked] = useState("");
+
+  if (tickets.length === 0) {
+    return (
+      <span className="text-xs text-subtle-foreground">No open support ticket to link</span>
+    );
+  }
+
+  const options: ComboboxOption[] = tickets.map((t) => ({
+    value: String(t.number),
+    // Number first: it is what someone arriving from Intercom or an email has
+    // in hand, and what makes the option findable by typing.
+    label: `#${t.number} · ${t.subject} · ${t.requesterName}`,
+  }));
+
+  return (
+    <form action={action} className="flex items-center gap-1">
+      <input type="hidden" name="requestId" value={requestId} />
+      <div className="w-64">
+        <Combobox
+          name="ticketNumber"
+          options={options}
+          placeholder="Link to support ticket…"
+          ariaLabel="Link to a support ticket"
+          emptyLabel="No matching open ticket"
+          onValueChange={setPicked}
+        />
+      </div>
+      {/* Disabled until something is actually chosen: the combobox clears its
+          value when the text is edited after a selection, so an enabled button
+          beside filled-looking text would post nothing and bounce. */}
+      <SubmitButton size="sm" variant="ghost" pendingLabel="Linking…" disabled={!picked}>
+        Link
+      </SubmitButton>
+    </form>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // History table
@@ -590,6 +669,18 @@ function PendingTab({
         <Field label="YNHH ticket description (optional)">
           <Input name="description" placeholder="Optional" className="w-72" />
         </Field>
+        {/* Usually blank, and that is fine: YNHH IT issues the RITM once they
+            pick the work up, so it is normally added from the Tracker later.
+            Offered here for the case where the ticket was raised with YNHH
+            first, which is the only way the note posted into the linked
+            Intercom conversation can carry a real number instead of
+            "no SR# on file yet". */}
+        <Field
+          label="YNHH service request number (optional)"
+          hint="Only if YNHH has already given you one. Otherwise add it from the Tracker when it arrives."
+        >
+          <Input name="serviceRequestNumber" placeholder="e.g. RITM0345759" className="w-72" />
+        </Field>
         <FormActions>
           <SubmitButton variant="primary" pendingLabel="Creating…">
             Create YNHH ticket
@@ -612,6 +703,7 @@ export function EpicRequestTabs({
   authorizers,
   incidentPeople,
   pending,
+  linkableTickets,
   rollup,
   termOptions,
   liveTermId,
@@ -659,6 +751,7 @@ export function EpicRequestTabs({
           <TrackerTable
             history={history}
             nowIso={nowIso}
+            linkableTickets={linkableTickets}
             closeTicketAction={closeTicketAction}
             updateServiceRequestNumberAction={updateServiceRequestNumberAction}
             resolveIncidentAction={resolveIncidentAction}

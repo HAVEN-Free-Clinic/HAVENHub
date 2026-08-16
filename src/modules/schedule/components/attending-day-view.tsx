@@ -3,8 +3,8 @@
  *
  * The Day view's counterpart to the grid: the grid fills one column across the
  * term, this fills one date across every column, plus the per-day fields that
- * have nowhere to live in a person x date matrix (specialty clinic, director on
- * point, procedures booked, the closure note).
+ * have nowhere to live in a person x date matrix (specialty clinic, the closure
+ * note).
  *
  * Deliberately ONE form per date. A <form> cannot legally wrap <td>s, so laying
  * this out as a table row would force the controls outside the form and
@@ -21,7 +21,6 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { FormActions } from "@/platform/ui/form";
-import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { formatCalendarDate } from "@/platform/dates";
 import type {
@@ -144,47 +143,26 @@ export function AttendingDayView({
             </Select>
           </div>
 
+          {/* Director on point and Procedures booked used to sit here. Both were
+              reproductive health's, not Faculty Relations': the director is a
+              fact about the schedule (the builder now reads it off the DIRECTOR
+              assignments), and the booked count is edited in the RHD readiness
+              panel, beside the cap warning it drives. */}
           {clinicalEditable && (
-            <>
-              <div className="space-y-1">
-                <span className="block text-xs font-medium text-foreground-soft">Specialty clinic</span>
-                <Select
-                  name="specialtyId"
-                  defaultValue={row.specialtyId ?? ""}
-                  aria-label={`Specialty clinic on ${row.dateKey}`}
-                  className="text-sm"
-                >
-                  <option value="">None</option>
-                  {specialtyClinicOptions.map((sp) => (
-                    <option key={sp.id} value={sp.id}>{sp.name}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <span className="block text-xs font-medium text-foreground-soft">Director on point</span>
-                <Input
-                  name="directorName"
-                  defaultValue={row.directorName ?? ""}
-                  placeholder="Optional"
-                  aria-label={`Director on point for ${row.dateKey}`}
-                  className="text-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <span className="block text-xs font-medium text-foreground-soft">Procedures booked</span>
-                <Input
-                  name="proceduresBooked"
-                  type="number"
-                  min={0}
-                  defaultValue={row.proceduresBooked ?? ""}
-                  placeholder="Optional"
-                  aria-label={`Procedures booked for ${row.dateKey}`}
-                  className="text-sm"
-                />
-              </div>
-            </>
+            <div className="space-y-1">
+              <span className="block text-xs font-medium text-foreground-soft">Specialty clinic</span>
+              <Select
+                name="specialtyId"
+                defaultValue={row.specialtyId ?? ""}
+                aria-label={`Specialty clinic on ${row.dateKey}`}
+                className="text-sm"
+              >
+                <option value="">None</option>
+                {specialtyClinicOptions.map((sp) => (
+                  <option key={sp.id} value={sp.id}>{sp.name}</option>
+                ))}
+              </Select>
+            </div>
           )}
         </div>
 

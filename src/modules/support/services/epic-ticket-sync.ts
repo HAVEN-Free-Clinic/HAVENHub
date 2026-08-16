@@ -49,8 +49,14 @@
 
 import type { EpicRequestKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { pushYnhhServiceRequest } from "@/platform/intercom/tickets";
 import { setStatus, TERMINAL_STATUSES } from "./manage";
-import { buildEpicSubmissionNote, buildEpicResolutionNote, notifyEpicYnhhNote } from "./notifications";
+import {
+  buildEpicSubmissionNote,
+  buildEpicResolutionNote,
+  buildYnhhServiceRequestNote,
+  notifyEpicYnhhNote,
+} from "./notifications";
 
 /**
  * Called after one or more EpicRequests have been committed as SUBMITTED
@@ -96,6 +102,70 @@ export async function onEpicSubmitted(actorPersonId: string, ynhhTicketId: strin
 
     if (updated.intercomConversationId) {
       await notifyEpicYnhhNote(updated, buildEpicSubmissionNote(entries, ticket));
+    }
+  }
+}
+
+/**
+ * Pushes a YNHH ticket's service request number out to every Intercom ticket
+ * that is waiting on it.
+ *
+ * This closes the gap that made the SR# effectively invisible outside the hub.
+ * The number does not exist when a YNHH ticket is opened -- YNHH IT issues it
+ * afterwards -- so the submission note above almost always rendered its
+ * "no SR# on file yet" fallback, and the pencil that records the number later
+ * wrote the column and told nobody. An agent in Intercom looking at a ticket
+ * parked on AWAITING_YNHH had no way to reach YNHH's side of it.
+ *
+ * Two writes per linked ticket, because they serve different readers:
+ *   - the ticket ATTRIBUTE, which is what an agent scans without opening
+ *     anything (requires the workspace attribute; see pushYnhhServiceRequest);
+ *   - a staff-only conversation NOTE, which is the durable record of when the
+ *     number arrived and what it was, and which lands even in a workspace
+ *     where the attribute was never created.
+ *
+ * Best-effort throughout, matching every other outbound Intercom path here:
+ * the number has already been committed by the time this runs, and an
+ * unreachable Intercom must not turn recording it into a failed save.
+ * Terminal tickets are skipped -- they are closed out, and an attribute write
+ * would reopen nothing but would misreport them as live YNHH work.
+ */
+export async function syncYnhhServiceRequestToIntercom(ynhhTicketId: string): Promise<void> {
+  const ticket = await prisma.ynhhTicket.findUnique({
+    where: { id: ynhhTicketId },
+    select: { serviceRequestNumber: true },
+  });
+  // Nothing to push. Clearing a number deliberately does NOT blank the Intercom
+  // attribute: the far more likely cause of an empty value is a typo being
+  // corrected, and a two-step fix would otherwise flash "no SR#" at anyone
+  // reading the ticket in between.
+  if (!ticket?.serviceRequestNumber) return;
+
+  const requests = await prisma.epicRequest.findMany({
+    where: { ticketId: ynhhTicketId, techRequestId: { not: null } },
+    select: { techRequestId: true },
+  });
+  const techRequestIds = [...new Set(requests.map((r) => r.techRequestId as string))];
+  if (techRequestIds.length === 0) return;
+
+  const linked = await prisma.techRequest.findMany({
+    where: { id: { in: techRequestIds } },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      intercomTicketId: true,
+      intercomConversationId: true,
+    },
+  });
+
+  for (const t of linked) {
+    if (TERMINAL_STATUSES.includes(t.status)) continue;
+    if (t.intercomTicketId) {
+      await pushYnhhServiceRequest(t.intercomTicketId, ticket.serviceRequestNumber);
+    }
+    if (t.intercomConversationId) {
+      await notifyEpicYnhhNote(t, buildYnhhServiceRequestNote(ticket.serviceRequestNumber));
     }
   }
 }

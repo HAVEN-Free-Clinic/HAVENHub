@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
+// findMemberRecordByClaim is mocked here only so this file's module graph
+// resolves; the email fallback that calls it is never opted into below. Its
+// real behavior -- the Yale-domain gate that decides whether an emailed address
+// may name a Person at all -- is exercised against a real database in
+// identity.email-fallback.test.ts, because a mock of that function cannot fail
+// the way a wrong gate would.
+vi.mock("@/platform/auth/match-person", () => ({
+  getActivePerson: vi.fn(),
+  findMemberRecordByClaim: vi.fn(),
+}));
 
-import { getActivePerson } from "@/platform/auth/match-person";
+import { findMemberRecordByClaim, getActivePerson } from "@/platform/auth/match-person";
 import {
   resolveIntercomIdentity,
   resolveIdentityFromConversation,
@@ -39,7 +48,7 @@ describe("resolveIntercomIdentity", () => {
 
     const result = await resolveIntercomIdentity("p1");
 
-    expect(result).toEqual({ ok: true, personId: "p1", name: "Sam Rivera" });
+    expect(result).toEqual({ ok: true, personId: "p1", name: "Sam Rivera", via: "external_id" });
   });
 
   it("refuses when Intercom returns a contact for a different external_id", async () => {
@@ -153,7 +162,10 @@ describe("resolveIntercomIdentity", () => {
 });
 
 /** Conversation-shaped fetch stub: Intercom nests contacts one level deep. */
-function mockConversationOnce(status: number, contacts: Array<{ external_id?: string | null }>) {
+function mockConversationOnce(
+  status: number,
+  contacts: Array<{ id?: string | null; external_id?: string | null }>
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -172,7 +184,7 @@ describe("resolveIdentityFromConversation", () => {
 
     const result = await resolveIdentityFromConversation("conv_1");
 
-    expect(result).toEqual({ ok: true, personId: "p1", name: "Sam Rivera" });
+    expect(result).toEqual({ ok: true, personId: "p1", name: "Sam Rivera", via: "external_id" });
   });
 
   it("asks Intercom who owns the conversation rather than trusting an asserted id", async () => {
@@ -225,6 +237,25 @@ describe("resolveIdentityFromConversation", () => {
     const result = await resolveIdentityFromConversation("conv_nope");
 
     expect(result).toEqual({ ok: false, reason: "unverified" });
+  });
+
+  /**
+   * The production shape that motivated the fallback (2026-08-16): Intercom
+   * stamps a lead it auto-created from an inbound email with an external_id of
+   * its OWN -- a UUID -- so the "no external_id" guard above never fires and
+   * getActivePerson is handed a value that cannot name a Person. Without opting
+   * in, this must still refuse, and must not go looking for a second way to
+   * identify the sender.
+   */
+  it("refuses an Intercom-generated external_id, and does not reach for the email fallback unless asked", async () => {
+    mockConversationOnce(200, [{ id: "c1", external_id: "d7aa2e5b-0a02-4e06-b8d9-36ff176d80fb" }]);
+    mocked(getActivePerson).mockResolvedValue(null);
+
+    const result = await resolveIdentityFromConversation("conv_1");
+
+    expect(result).toEqual({ ok: false, reason: "unknown_person" });
+    expect(mocked(findMemberRecordByClaim)).not.toHaveBeenCalled();
+    expect((globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 
   it("refuses an offboarded member even though the conversation still resolves", async () => {

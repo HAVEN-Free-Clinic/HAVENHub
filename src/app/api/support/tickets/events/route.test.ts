@@ -18,7 +18,7 @@ vi.mock("@/modules/support/services/notifications", () => ({
   notifyTicketSubmitted: vi.fn(),
 }));
 
-import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
+import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 import { createTechRequestFromConversation } from "@/modules/support/services/tech-request";
 
@@ -292,16 +292,126 @@ describe("POST /api/support/tickets/events", () => {
       expect(ticket?.requesterId).not.toBe(impersonated.id);
     });
 
-    it("refuses with the shared undifferentiated message when identity does not resolve, and creates no ticket", async () => {
+    /**
+     * A sender we cannot attribute a ticket to is a permanent property of the
+     * payload, not an auth failure and not something a redelivery fixes. This
+     * used to answer 401, which made Intercom retry a delivery that could only
+     * ever fail again -- observed in production on 2026-08-16, where one
+     * email-sourced ticket produced a permanently failing webhook. Acknowledged
+     * as a no-op instead, with the reason surviving only in the audit row.
+     */
+    it("acknowledges without retrying, and creates no ticket, when identity is permanently unresolvable", async () => {
       mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "no_contact" });
 
       const { POST } = await import("./route");
       const res = await POST(signedReq(ticketCreatedPayload()));
       const json = await res.json();
 
-      expect(res.status).toBe(401);
-      expect(json.error).toBe(UNIDENTIFIED_MESSAGE);
+      expect(res.status).toBe(200);
+      expect(json.ignored).toBe(true);
       expect(await prisma.techRequest.count()).toBe(0);
+    });
+
+    it("keeps the refusal reason in the audit trail and out of the response body", async () => {
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "unknown_person" });
+
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(ticketCreatedPayload()));
+      const json = await res.json();
+
+      expect(JSON.stringify(json)).not.toContain("unknown_person");
+      const rows = await prisma.auditLog.findMany({ where: { action: "intercom_ticket_sync.unverified" } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].after).toMatchObject({ reason: "unknown_person", source: "webhook" });
+    });
+
+    /**
+     * The one refusal a retry CAN fix. Folding it in with the permanent ones
+     * would drop a real member's ticket over a momentary Intercom outage, so it
+     * keeps a 5xx and Intercom keeps trying.
+     */
+    it("asks Intercom to retry when the identity lookup itself failed", async () => {
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: false, reason: "lookup_failed" });
+
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(ticketCreatedPayload()));
+
+      expect(res.status).toBe(503);
+      expect(await prisma.techRequest.count()).toBe(0);
+    });
+
+    /**
+     * The wiring for the email fallback. Nothing else in this suite would
+     * notice if the option stopped being passed -- identity resolution is
+     * mocked here -- and without it every email-originated ticket goes back to
+     * being invisible to the Hub.
+     */
+    it("opts into the verified-email fallback, which is what lets an emailed ticket resolve at all", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: true, personId: person.id, name: person.name });
+
+      const { POST } = await import("./route");
+      await POST(signedReq(ticketCreatedPayload()));
+
+      expect(mocked(resolveIdentityFromConversation)).toHaveBeenCalledWith("ticket_1", {
+        allowVerifiedEmailFallback: true,
+      });
+    });
+
+    it("audits a ticket attributed by email, so the weaker evidence is on the record", async () => {
+      const person = await createPerson("Tobias Liu");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({
+        ok: true,
+        personId: person.id,
+        name: person.name,
+        via: "verified_email",
+      });
+
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(ticketCreatedPayload()));
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      const rows = await prisma.auditLog.findMany({
+        where: { action: "intercom_ticket_sync.email_attributed" },
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].after).toMatchObject({ ticketNumber: json.number, requesterId: person.id });
+    });
+
+    it("does not audit an email attribution for a ticket resolved the strong way", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({
+        ok: true,
+        personId: person.id,
+        name: person.name,
+        via: "external_id",
+      });
+
+      const { POST } = await import("./route");
+      await POST(signedReq(ticketCreatedPayload()));
+
+      expect(
+        await prisma.auditLog.count({ where: { action: "intercom_ticket_sync.email_attributed" } })
+      ).toBe(0);
+    });
+
+    it("does not re-audit the email attribution on an idempotent retry", async () => {
+      const person = await createPerson("Tobias Liu");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({
+        ok: true,
+        personId: person.id,
+        name: person.name,
+        via: "verified_email",
+      });
+
+      const { POST } = await import("./route");
+      await POST(signedReq(ticketCreatedPayload()));
+      await POST(signedReq(ticketCreatedPayload()));
+
+      expect(
+        await prisma.auditLog.count({ where: { action: "intercom_ticket_sync.email_attributed" } })
+      ).toBe(1);
     });
 
     it("is idempotent: a retry of the same ticket.created event creates no second ticket", async () => {

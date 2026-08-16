@@ -402,9 +402,17 @@ export async function getCurrentClinicChannelLink(
     // accrues ~one channel per week, so a single page covers years; we do not
     // page. If a Team ever exceeds ~200 channels, this would need @odata.nextLink
     // handling to stay reliable.
+    //
+    // $select is required, not an optimisation. Without it Graph populates each
+    // channel's `email` property, which Microsoft documents as an expensive
+    // operation that makes this endpoint slow. A clinic Team holds one channel
+    // per clinic week, so that per-channel cost grew with the team until every
+    // list call ran past the 8s budget and timed out -- the resolve then never
+    // succeeded, so the last-known-good fallback was never seeded. Requesting
+    // only the fields we use drops `email` and keeps the call inside the budget.
     const url = `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(
       resolvedGroupId
-    )}/channels`;
+    )}/channels?$select=id,displayName,webUrl`;
     const channels = await listGraphChannels(url, token, fetchImpl, sleep, startedAt, stats);
     const channel = matchChannel(channels, dateStr);
     if (channel?.webUrl) {

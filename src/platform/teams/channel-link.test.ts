@@ -153,6 +153,24 @@ describe("getCurrentClinicChannelLink", () => {
     );
   });
 
+  it("lists channels with $select so Graph skips the slow email field", async () => {
+    // Without $select Graph populates each channel's `email`, which it documents
+    // as an expensive operation. On a clinic Team of many weekly channels that
+    // cost pushed every list call past the 8s budget, so the resolve timed out.
+    const fetchImpl = okChannelsFetch();
+    await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      ...lastGood,
+    });
+    const url = (fetchImpl.mock.calls[0] as unknown as [string])[0];
+    expect(url).toContain("$select=id,displayName,webUrl");
+    expect(url).not.toContain("email");
+  });
+
   it("returns null when groupId is unset (no Graph call)", async () => {
     const fetchImpl = vi.fn();
     const result = await getCurrentClinicChannelLink({

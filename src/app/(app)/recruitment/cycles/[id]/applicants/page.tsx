@@ -10,6 +10,7 @@ import { Table, THead, TR, TD, SortableTH } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
+import { serviceGapsForCycle } from "@/modules/recruitment/services/service-gap";
 import { formatScoreSummary, scoreAverage } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
@@ -64,6 +65,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     can(person.personId, "recruitment.access"),
   ]);
   const canScore = scope.all || canScorePerm;
+  // Who is coming back after sitting terms out. Batched for the whole roster
+  // (see serviceGapsForCycle) rather than per row: the Type column says
+  // "Renewal" for a continuous returner and a lapsed one alike, and which of the
+  // two an applicant is changes how the row reads.
+  const serviceGaps = await serviceGapsForCycle(
+    apps.map((a) => a.applicant.applicantPersonId).filter((p): p is string => Boolean(p)),
+    cycle.termId,
+  );
   const speedItems: SpeedScoreItem[] = canScore
     ? apps
         .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
@@ -137,6 +146,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         <tbody>
           {pageApps.map((a) => {
             const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
+            const gap = a.applicant.applicantPersonId ? serviceGaps.get(a.applicant.applicantPersonId) : undefined;
             return (
               <TR key={a.id}>
                 <TD>
@@ -159,7 +169,26 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   </span>
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
-                <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
+                <TD className="text-foreground-soft">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {applicantTypeLabel(a.applicantType)}
+                    {/* "Renewal" alone hides the difference between someone who
+                        worked last Saturday and someone back after a year off.
+                        The detail page names the terms; this is the triage cue. */}
+                    {gap && gap.missedTerms.length > 0 && (
+                      <Badge
+                        tone="warning"
+                        title={`Last on the roster in ${gap.lastTerm.name}; not a member for ${gap.missedTerms
+                          .map((t) => t.name)
+                          .join(", ")}`}
+                      >
+                        {gap.missedTerms.length === 1
+                          ? "1 term off"
+                          : `${gap.missedTerms.length} terms off`}
+                      </Badge>
+                    )}
+                  </span>
+                </TD>
                 <TD className="text-foreground-soft">
                   {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)))}
                 </TD>

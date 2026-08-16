@@ -21,11 +21,53 @@
  *     rest of the pipeline (submit to YNHH, set SR#, complete, email) is
  *     worked on the Epic Requests page, not here.
  *   - ticket-level attachments (Task 7): rendered only when the ticket has
- *     any (detail.attachments comes straight off getTechRequest's include).
+ *     any (detail.attachments comes straight off getTechRequest's include)
+ *     AND `showCorrespondence` is set. A support.view_all_requests auditor
+ *     reaches this component but is not entitled to the ticket's files or its
+ *     comment thread, and getTechRequest returns both regardless of viewer.
  *
  * All action props are optional so this component still renders (with the
  * relevant section hidden) for any caller that has not been updated to pass
  * them.
+ *
+ * --- Intercom-linked tickets (docs/superpowers/specs/2026-08-12-intercom-ticket-sync-design.md) ---
+ *
+ * A ticket with intercomConversationId set came in through (or was promoted
+ * to) an Intercom conversation, and per "Where the work happens" it is
+ * managed there, not here: this component becomes a read-only record for it
+ * rather than a workspace. Concretely that means, relative to the unlinked
+ * behavior above:
+ *   - the owner-facing cancel button is hidden (isLinked check below).
+ *   - the entire manager control panel (assign / status / priority /
+ *     resolve / cancel / close) is hidden, with no exception. A linked
+ *     EPIC ticket used to keep the status control alone, because epic.ts was
+ *     the only thing that could ever set AWAITING_YNHH and hiding it would
+ *     have stranded that state; now epic.ts drives AWAITING_YNHH itself (see
+ *     epic-ticket-sync.ts) whenever an attached Epic request is submitted to
+ *     YNHH, and moves it back once none remain outstanding, so a linked EPIC
+ *     ticket is read-only like any other linked ticket.
+ *   - the Epic access section keeps its attach/cancel forms on an EPIC
+ *     ticket, linked or not. This is the one place the read-only rule stops,
+ *     and it is a boundary rather than an exception: Intercom took over the
+ *     CONVERSATION, while the Epic to YNHH to ITCM workflow never left the
+ *     Hub because Intercom cannot model it. Gating these on linkage would
+ *     strand that workflow entirely now that every EPIC ticket arrives
+ *     already linked via the ticket.created webhook -- an attach form hidden
+ *     on linked tickets is one nobody can reach, so no EpicRequest could ever
+ *     be raised. That failure is silent: the page renders correctly and
+ *     simply has no way forward. See showEpicMutations below.
+ *   - the comment thread still shows existing comments, but the reply form
+ *     is hidden (CommentThread's showReplyForm prop) -- correspondence goes
+ *     through the conversation instead.
+ *   - a banner explains where the work happens and links into it, so a
+ *     manager who used to work this ticket here is not left hunting for a
+ *     disabled button.
+ * None of this reruns server actions or deletes them -- only the UI
+ * affordances are removed. A linked ticket an agent moves to (or out of) a
+ * terminal state does so through Intercom itself, not through this
+ * component: applyIntercomTicketStateChange (intercom-sync.ts) writes
+ * TechRequest.status directly from the inbound webhook, independent of
+ * whatever this page renders.
  */
 
 import { PageHeader } from "@/platform/ui/page-header";
@@ -35,9 +77,12 @@ import { Field, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import { Badge } from "@/platform/ui/badge";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { isIntercomConfigured, intercomConversationUrl } from "@/platform/intercom/config";
+import { ContinueConversationButton } from "@/platform/intercom/messenger-actions";
 import type { TechRequestStatus, TechRequestPriority, EpicRequestKind } from "@prisma/client";
 import { SupportStatusBadge, STATUS_LABELS } from "./status-badge";
 import { CommentThread } from "./comment-thread";
@@ -100,6 +145,14 @@ type TicketDetailProps = {
   cancelEpicAction?: (formData: FormData) => Promise<void>;
   /** Active departments+members for the attach picker. Only needed when canManage. */
   departments?: DepartmentWithMembers[];
+  /**
+   * Whether the ticket's correspondence -- comment thread and attachment list --
+   * belongs to this viewer. False for a support.view_all_requests auditor, who
+   * tracks a ticket's progress without reading its conversation or files. Comes
+   * from ticketViewCapabilities so the rule lives in one place; defaults true so
+   * existing manager/requester call sites are unaffected.
+   */
+  showCorrespondence?: boolean;
 };
 
 export async function TicketDetail({
@@ -118,9 +171,46 @@ export async function TicketDetail({
   attachEpicAction,
   cancelEpicAction,
   departments = [],
+  showCorrespondence = true,
 }: TicketDetailProps) {
   const isOpen = !TERMINAL_STATUSES.includes(detail.status);
   const zone = await getDisplayTimeZone();
+
+  // The golden rule (see the module doc comment): a ticket is "managed in
+  // Intercom" purely by having a conversation link, independent of whether
+  // Intercom happens to be configured on THIS deploy right now. A ticket
+  // linked before an env var was rolled back must not spring back to full
+  // Hub interactivity just because the var is gone -- the correspondence
+  // still lives in Intercom regardless.
+  const isLinked = detail.intercomConversationId !== null;
+
+  // Every manager mutation (assign, status, priority, resolve, cancel,
+  // close) moves fully to Intercom for a linked ticket, no exceptions --
+  // epic.ts now drives AWAITING_YNHH itself (epic-ticket-sync.ts), so there
+  // is no longer a manual-status carve-out to make here.
+  const showManagerMutations = !isLinked;
+  // Epic mutations are NOT a link-conditional control, and this is not an
+  // exception to the read-only rule so much as the boundary of what that rule
+  // was ever about. Intercom took over the CONVERSATION; the Epic to YNHH to
+  // ITCM workflow never left the Hub, because Intercom cannot model it.
+  //
+  // Gating these on !isLinked strands the workflow completely now that Epic
+  // tickets originate in Intercom: every EPIC ticket arrives already linked
+  // via the ticket.created webhook, so an attach form hidden on linked
+  // tickets is an attach form nobody can ever reach, and no EpicRequest could
+  // be raised at all. The failure would be silent -- the page renders fine,
+  // it just has no way forward.
+  const showEpicMutations = detail.category === "EPIC";
+  const showCommentForm = !isLinked;
+  const showCancelOwn = !isLinked;
+
+  // Only rendered when Intercom is live right now (see messenger-actions.tsx's
+  // doc comment on why a stale link must not be offered against an unbooted
+  // widget), separately from isLinked above -- the two can disagree if the
+  // app id was rolled back after this ticket was linked.
+  const intercomLive = isIntercomConfigured();
+  const conversationId = detail.intercomConversationId;
+  const conversationUrl = conversationId && intercomLive ? intercomConversationUrl(conversationId) : null;
 
   // The current assignee may have lost support.manage_requests since being
   // assigned; make sure they still show up as a selectable (and selected)
@@ -139,6 +229,32 @@ export async function TicketDetail({
         action={<SupportStatusBadge status={detail.status} />}
       />
 
+      {isLinked && (
+        <section>
+          <Card className="flex flex-wrap items-center justify-between gap-4 border-brand/20 bg-brand-faint">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">This ticket is managed in Intercom</p>
+              <p className="mt-1 text-sm text-foreground-soft">
+                {canManage
+                  ? "Reply, reassign, and change its priority in the Intercom conversation -- the Hub shows this ticket as a record of it."
+                  : "Reply and get updates in the conversation -- the Hub shows this ticket as a record of it."}
+              </p>
+            </div>
+            {canManage
+              ? conversationUrl && (
+                  <ExternalLinkButton href={conversationUrl} variant="primary" size="sm">
+                    Open in Intercom
+                  </ExternalLinkButton>
+                )
+              : isRequester &&
+                intercomLive &&
+                conversationId && (
+                  <ContinueConversationButton conversationId={conversationId} variant="primary" size="sm" />
+                )}
+          </Card>
+        </section>
+      )}
+
       <section>
         <SectionHeader className="mb-2">Description</SectionHeader>
         <Card>
@@ -155,7 +271,7 @@ export async function TicketDetail({
         </section>
       )}
 
-      {isRequester && isOpen && cancelOwnAction && (
+      {isRequester && isOpen && showCancelOwn && cancelOwnAction && (
         <section>
           <form action={cancelOwnAction}>
             <ConfirmButton label="Cancel my request" confirmLabel="Cancel it?" />
@@ -168,7 +284,8 @@ export async function TicketDetail({
         setStatusAction &&
         setPriorityAction &&
         resolveAction &&
-        cancelAction && (
+        cancelAction &&
+        showManagerMutations && (
           <section>
             <SectionHeader className="mb-2">Manager controls</SectionHeader>
             {isOpen ? (
@@ -271,7 +388,7 @@ export async function TicketDetail({
                         YNHH SR#: {r.ticket.serviceRequestNumber ?? "(not set)"}
                       </span>
                     )}
-                    {isOpen && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
+                    {showEpicMutations && isOpen && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
                       <form action={cancelEpicAction} className="ml-auto">
                         <input type="hidden" name="epicRequestId" value={r.id} />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">
@@ -286,7 +403,7 @@ export async function TicketDetail({
               <p className="text-sm text-muted-foreground">No Epic requests attached yet.</p>
             )}
 
-            {isOpen && attachEpicAction && (
+            {showEpicMutations && isOpen && attachEpicAction && (
               <form action={attachEpicAction} className="space-y-3 border-t border-border pt-4">
                 <Field label="Request type">
                   <Select name="epicKind" defaultValue="NEW" className="w-48">
@@ -313,7 +430,7 @@ export async function TicketDetail({
         </section>
       )}
 
-      {detail.attachments.length > 0 && (
+      {showCorrespondence && detail.attachments.length > 0 && (
         <section>
           <SectionHeader className="mb-2">Attachments</SectionHeader>
           <Card>
@@ -327,6 +444,7 @@ export async function TicketDetail({
           comments={comments}
           canManage={canManage}
           action={commentAction}
+          showReplyForm={showCommentForm}
         />
       )}
     </div>

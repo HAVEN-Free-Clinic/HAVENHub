@@ -9,10 +9,18 @@
  * the Prisma `where` clause, never in a filter applied after the query.
  *
  * This module deliberately never queries incidents, strikes, applications,
- * or applicants: those are confidential or carry personal essays, and this
+ * or live applicants: those are confidential or carry personal essays, and this
  * repo has already leaked strike data to the wrong audience once (#165).
  * Leaving them out of the palette index is a product decision, not an
  * oversight to "complete" later.
+ *
+ * HistoricalApplicant is the one apparent exception, and it is not really one.
+ * The row it indexes is an IDENTITY -- a name, a NetID, an email -- with no
+ * essay, score, or decision on it, and it is gated on exactly the permission
+ * that opens /recruitment/history, a page that already lists those same three
+ * columns for every imported identity at once. The palette surfaces nothing
+ * that gate does not already show; a hit's outcome trail lives on the detail
+ * page, behind the same check. Applications and live applicants stay out.
  */
 
 import { cache } from "react";
@@ -20,6 +28,12 @@ import { prisma } from "@/platform/db";
 import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { canAccessModule } from "@/platform/modules/access";
 import { getModule } from "@/platform/modules/registry";
+import {
+  findHistoricalApplicants,
+  historicalApplicantLabel,
+  historicalApplicantWhere,
+  looksLikeEmail,
+} from "@/platform/recruitment/historical-applicants";
 import type { EntityHit } from "@/platform/search/types";
 
 /**
@@ -34,8 +48,9 @@ const LIMIT = 5;
 const MIN_QUERY = 2;
 
 /**
- * Search people, recruitment cycles, and support requests for the command
- * palette, scoped to what `personId` is allowed to see. Wrapped in React's
+ * Search people, recruitment cycles, imported recruitment history, and support
+ * requests for the command palette, scoped to what `personId` is allowed to
+ * see. Wrapped in React's
  * `cache()` so repeated calls with the same (personId, query) pair within one
  * request share a single set of queries rather than re-running them.
  */
@@ -50,7 +65,13 @@ export const searchEntities = cache(async function searchEntities(
   // below from that one Set. Nothing below this point may run a query before
   // its gate has been checked here.
   const perms = await getEffectivePermissions(personId);
-  const canManageRequests = hasPermission(perms, "support.manage_requests");
+  // Either support permission widens the ticket search to everyone's requests:
+  // both audiences can open any ticket from /support/all, so a search that
+  // returned only the auditor's own would be narrower than the list they
+  // already have.
+  const canSearchAllRequests =
+    hasPermission(perms, "support.manage_requests") ||
+    hasPermission(perms, "support.view_all_requests");
   const canRecruitmentAccess = hasPermission(perms, "recruitment.access");
 
   // People: each tier needs the destination page's gate AND the module layout
@@ -109,15 +130,46 @@ export const searchEntities = cache(async function searchEntities(
     for (const c of cycles) {
       hits.push({ id: c.id, label: c.title, sub: c.status, href: `/recruitment/cycles/${c.id}`, group: "Cycles" });
     }
+
+    // Imported recruitment history. Same gate as Cycles above and for the same
+    // reason: both /recruitment/history and its detail page require
+    // recruitment.access outright, so a broader gate would surface names that
+    // bounce to /no-access on click.
+    //
+    // This is the group that makes someone who applied in 2022 and never joined
+    // findable at all: they have no Person row, so the People query above can
+    // never return them however the viewer spells the name.
+    //
+    // The query, its named-first ordering, and the label fallback all come from
+    // the shared platform helper -- the history page runs the identical read, and
+    // the nameless-identity traps behind both (#528, #534) are only fixed once
+    // if there is only one copy of them.
+    const historical = await findHistoricalApplicants(historicalApplicantWhere(q), LIMIT);
+    for (const a of historical) {
+      const label = historicalApplicantLabel(a);
+      // NetID first: it is the strongest identifier and the shortest. The email
+      // is the fallback, unless the label is already that same email (which is
+      // what a nameless identity renders as) or the column holds one of the ~20
+      // non-address values the import carried through.
+      const email = looksLikeEmail(a.primaryEmail) && a.primaryEmail !== label ? a.primaryEmail : null;
+      hits.push({
+        id: a.id,
+        label,
+        sub: a.netId ?? email,
+        href: `/recruitment/history/${a.id}`,
+        group: "Recruitment history",
+      });
+    }
   }
 
-  // Requests: everyone may search their own; only a support.manage_requests
-  // holder may search everyone's. The scoping is baked into the `where`
-  // clause itself, not filtered out of an unscoped result afterward.
+  // Requests: everyone may search their own; a support.manage_requests or
+  // support.view_all_requests holder may search everyone's. The scoping is baked
+  // into the `where` clause itself, not filtered out of an unscoped result
+  // afterward.
   const requestWhere: { subject: { contains: string; mode: "insensitive" }; requesterId?: string } = {
     subject: { contains: q, mode: "insensitive" },
   };
-  if (!canManageRequests) requestWhere.requesterId = personId;
+  if (!canSearchAllRequests) requestWhere.requesterId = personId;
   const requests = await prisma.techRequest.findMany({
     where: requestWhere,
     select: { id: true, subject: true, status: true },

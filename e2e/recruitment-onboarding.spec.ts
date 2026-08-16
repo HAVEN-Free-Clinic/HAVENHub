@@ -97,11 +97,33 @@ test("onboarding: accept via department decision, then send onboarding link", as
 
   // --- Onboarding page: send link, assert banner + row status ---
   await page.goto(`/recruitment/cycles/${cycleId}/onboarding`);
-  // The checkbox is only rendered when no contract exists yet; one row expected.
-  await page.locator('input[name="acceptanceId"]').first().check();
-  await page.click('button:has-text("Send onboarding links")');
-  // Success banner: "Sent 1 onboarding link(s)."
+
+  // Nothing is selected on load, so every bulk action starts disabled.
+  const sendLinks = page.getByRole("button", { name: /^Send links/ });
+  await expect(sendLinks).toBeDisabled();
+
+  // Select-all picks up the one selectable row and enables Send.
+  await page.getByRole("checkbox", { name: "Select all" }).check();
+  await expect(page.getByText("1 selected")).toBeVisible();
+  await expect(sendLinks).toHaveText(/Send links \(1\)/);
+  await sendLinks.click();
+
   await expect(page.getByText(/Sent 1 onboarding link\(s\)\./)).toBeVisible();
-  // Status column flips to "Sent" (contract.status === "PENDING")
-  await expect(page.getByRole("cell", { name: "Sent" })).toBeVisible();
+  // Anchor the status badge exactly: "Sent" is a substring of other copy on the page
+  // (the banner above, and the status filter's own "Sent" option), and the row's
+  // Status cell also holds a per-row "Withdraw" button, so filtering the whole
+  // cell's text against /^Sent$/ never matches. Scope to the row, then match the
+  // badge's own exact text node.
+  const onaRow = page.getByRole("row", { name: /Ona Boarder/ });
+  await expect(onaRow.getByText("Sent", { exact: true })).toBeVisible();
+
+  // The row is now PENDING, so Promote has nothing eligible but Withdraw does.
+  await page.getByRole("checkbox", { name: /^Select Ona Boarder$/ }).check();
+  await expect(page.getByRole("button", { name: /^Promote \(0\)/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^Withdraw \(1\)/ })).toBeEnabled();
+
+  // Status filter narrows the table and prunes the selection with it.
+  await page.getByLabel("Filter by status").selectOption("SUBMITTED");
+  await expect(page.getByText("No applicants match these filters.")).toBeVisible();
+  await expect(page.getByText("1 selected")).toHaveCount(0);
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODULES } from "./registry";
+import { filterNavItems } from "./access";
 
 describe("module registry", () => {
   it("has unique module ids", () => {
@@ -73,15 +74,30 @@ describe("module registry", () => {
   it("marks every schedule tab whose real gate is data-driven with dynamicGate", () => {
     // Builder, Approvals and Attendings are dropped by schedule/layout.tsx from
     // the module tab row using capability checks (canManageAnyScheduleDept,
-    // manageableRequestDepartmentIds, canManageAnyRhdDept) that no permission
+    // manageableRequestDepartmentIds, canManageAnyAttendingRoster) that no permission
     // string can express. Without dynamicGate the global nav's Schedule dropdown
     // offers all three to any schedule.view holder -- and every seeded volunteer
     // role holds schedule.view -- so the links bounce to /no-access. Losing the
     // marker silently reintroduces those dead ends, hence this assertion.
+    //
+    // Check in joins them for a different reason: its gate (isClinicDayToday)
+    // is a calendar fact, not a permission, so the global dropdown still can't
+    // resolve it -- offering the tab on a non-clinic day would land on a page
+    // with nothing to do, not /no-access, but the marker is the same mechanism.
+    //
+    // Coverage is Attendings' read-only twin on a wider gate (schedule.edit_all
+    // OR schedule.manage_attendings). "Either of two permissions" is not a
+    // permission string either, so it carries the marker for the same reason.
     const schedule = MODULES.find((m) => m.id === "schedule")!;
     const gated = schedule.nav.filter((n) => n.dynamicGate).map((n) => n.href);
     expect(gated.sort()).toEqual(
-      ["/schedule/builder", "/schedule/requests", "/schedule/attendings"].sort(),
+      [
+        "/schedule/builder",
+        "/schedule/requests",
+        "/schedule/attendings",
+        "/schedule/coverage",
+        "/schedule/check-in",
+      ].sort(),
     );
   });
 
@@ -90,6 +106,19 @@ describe("module registry", () => {
       m.nav.filter((n) => n.dynamicGate).map((n) => `${m.id}:${n.href}`),
     );
     expect(gated.every((h) => h.startsWith("schedule:"))).toBe(true);
+  });
+
+  it("offers a support view-only auditor the All requests tab but not the Epic tools tab", () => {
+    // The Epic / YNHH tab is the one destructive surface in the module (it
+    // generates and submits access requests), so the read-only grant must never
+    // reach it. Asserting both halves here keeps the two tabs from being
+    // widened together by a careless edit to the manifest.
+    const support = MODULES.find((m) => m.id === "support")!;
+    const labels = filterNavItems(support.nav, new Set(["support.view_all_requests"])).map(
+      (i) => i.label
+    );
+    expect(labels).toContain("All requests");
+    expect(labels).not.toContain("Epic / YNHH tools");
   });
 
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {

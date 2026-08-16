@@ -22,9 +22,8 @@ export default async function NewPersonPage() {
         epicId: (formData.get("epicId") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,
         gradYear: (formData.get("gradYear") as string) || null,
-        spanishSelfReported: formData.get("spanishSelfReported") === "on",
-        spanishVerified: formData.get("spanishVerified") === "on",
         licensedRN: formData.get("licensedRN") === "on",
+        blockerGateExempt: formData.get("blockerGateExempt") === "on",
       });
     } catch (err) {
       if (err instanceof PersonConflictError) {

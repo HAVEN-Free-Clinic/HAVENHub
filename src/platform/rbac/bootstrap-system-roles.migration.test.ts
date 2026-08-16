@@ -8,15 +8,29 @@ import { SYSTEM_ROLES } from "@/platform/rbac/system-roles";
 /**
  * The bootstrap migration is the ONLY thing that seeds the SYSTEM_ROLES on a fresh
  * production/staging database (prisma/seed.ts refuses non-localhost URLs). This test
- * applies it to an empty database and asserts the resulting roles, grants, and
- * kind-target baseline assignments exactly match src/platform/rbac/system-roles.ts,
- * so a fresh `migrate deploy` yields a working RBAC baseline (#13). Non-vacuous:
- * dropping a grant from the migration's VALUES list fails the grant-set assertion.
+ * applies it, plus every later grant-backfill migration that touches RoleGrant, to an
+ * empty database and asserts the resulting roles, grants, and kind-target baseline
+ * assignments exactly match src/platform/rbac/system-roles.ts, so a fresh
+ * `migrate deploy` yields a working RBAC baseline (#13). Non-vacuous: dropping a grant
+ * from either migration's VALUES/INSERT fails the grant-set assertion.
+ *
+ * The bootstrap file itself is a frozen snapshot of SYSTEM_ROLES as of the date it was
+ * written (#13): every grant added to a role AFTER that date ships as its own
+ * migration.sql (see prisma/migrations/*_grant*, *_*_permission for precedent), which
+ * a truly fresh `migrate deploy` also runs, in order, against the roles the bootstrap
+ * migration just created. So this list must gain one entry every time such a migration
+ * ships alongside a SYSTEM_ROLES change, or this test starts asserting a
+ * fresh-database end state that production will never actually have.
  */
-const MIGRATION_SQL = join(
-  process.cwd(),
+const MIGRATION_SQL_FILES = [
   "prisma/migrations/20260726000000_bootstrap_system_roles/migration.sql",
-);
+  // schedule.manage_attendance backfilled onto Director (see system-roles.ts).
+  "prisma/migrations/20260807130000_schedule_manage_attendance_grant/migration.sql",
+  // The Faculty Relations Manager role itself, which maintains the attending
+  // roster and schedule. A whole role rather than a grant on an existing one:
+  // attendings belong to no department, so this cannot hang off a directorship.
+  "prisma/migrations/20260813160000_faculty_relations_role/migration.sql",
+].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple
 // commands per call, so split the file into statements. Strip '--' comment lines
@@ -34,8 +48,10 @@ function statementsOf(sql: string): string[] {
 }
 
 async function applyBootstrapMigration() {
-  for (const stmt of statementsOf(readFileSync(MIGRATION_SQL, "utf8"))) {
-    await prisma.$executeRawUnsafe(stmt);
+  for (const file of MIGRATION_SQL_FILES) {
+    for (const stmt of statementsOf(readFileSync(file, "utf8"))) {
+      await prisma.$executeRawUnsafe(stmt);
+    }
   }
 }
 

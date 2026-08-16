@@ -70,12 +70,19 @@ const ROUTES: RouteCase[] = [
 
   // Schedule: requireModuleAccess("schedule") = schedule.view.
   // All three seeded roles carry schedule.view, so the list pages have no
-  // meaningful denied case. Attendings gates on canManageAnyRhdDept (a
-  // data-driven capability: admin has schedule.edit_all -> all depts including
-  // RHD; volunteer manages nothing).
+  // meaningful denied case. Attendings is the exception: it maintains the
+  // roster and books coverage, so it gates on managing a service line and a
+  // volunteer is denied. What a volunteer needs from it -- who is attending on
+  // the shift THEY work -- is on /schedule instead.
+  //
+  // Coverage is the read-only twin of Attendings on a wider gate
+  // (schedule.edit_all OR schedule.manage_attendings). A volunteer holds
+  // neither, so it is denied to them just the same -- the point of the wider
+  // gate is the directors between those two, not the whole clinic.
   { path: "/schedule", allowed: "admin" },
   { path: "/schedule/full", allowed: "admin" },
   { path: "/schedule/attendings", allowed: "admin", denied: "volunteer" },
+  { path: "/schedule/coverage", allowed: "admin", denied: "volunteer" },
 
   // Training: requirePersonSession only
   { path: "/training", allowed: "admin" },

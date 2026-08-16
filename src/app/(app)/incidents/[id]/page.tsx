@@ -20,6 +20,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
+import { loadClearedSet } from "@/platform/clearance";
 import {
   getReport,
   CONCERN_TYPES,
@@ -27,9 +29,10 @@ import {
   IncidentForbiddenError,
 } from "@/modules/incidents/services/report";
 import { DISCIPLINARY_CATEGORIES } from "@/modules/incidents/services/disciplinary";
-import { reviewReportAction, decideStrikeAction } from "../actions";
-import { peopleWithAnyPermission } from "@/platform/rbac/holders";
+import { listReportForwards, recentForwardEmails } from "@/modules/incidents/services/forward";
+import { reviewReportAction, decideStrikeAction, forwardReportAction } from "../actions";
 import { detailReviewerDisclosure } from "../disclosure";
+import { ForwardForm } from "../forward-form";
 import type {
   IncidentReportStatus,
   PatientImpact,
@@ -38,6 +41,7 @@ import type {
   StrikeDecision,
 } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { PersonName } from "@/platform/ui/person-name";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -126,15 +130,11 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
   // rethrow below, and getReport's own NotFound/Forbidden still resolve to
   // notFound() exactly as before.
   let result: Awaited<ReturnType<typeof getReport>>;
-  let reviewers: Awaited<ReturnType<typeof peopleWithAnyPermission>>;
   try {
-    [result, reviewers] = await Promise.all([
-      getReport(actor.personId, id),
-      // Same query notifyReviewersOfSubmission runs when a report is filed
-      // (report.ts), read live so the count reflects who currently holds
-      // incidents.manage rather than a value frozen at submission time.
-      peopleWithAnyPermission(["incidents.manage"]),
-    ]);
+    // incidentAudience() used to run alongside this purely to produce the
+    // headcount the disclosure quoted. The disclosure quotes no number now, so
+    // the permission-holder query is gone from every render of this page.
+    result = await getReport(actor.personId, id);
   } catch (err) {
     if (err instanceof IncidentNotFoundError || err instanceof IncidentForbiddenError) {
       notFound();
@@ -142,6 +142,22 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     throw err;
   }
   const { report, canManage } = result;
+
+  // Forwarding is a reviewer-only surface, so neither read runs for the
+  // reporter viewing their own report: they cannot forward, and the trail of who
+  // received it outside the clinic is not theirs to see.
+  const [suggestions, forwards] = canManage
+    ? await Promise.all([recentForwardEmails(), listReportForwards(report.id)])
+    : [[] as string[], [] as Awaited<ReturnType<typeof listReportForwards>>];
+
+  // Verified badges on the linked subjects. Gated on volunteers.view, so the
+  // reporter viewing their own report never sees the clearance of the person
+  // they reported -- that would hand a reporter a compliance detail about their
+  // subject as a side effect of filing.
+  const canSeeClearance = await can(actor.personId, "volunteers.view");
+  const clearedIds = await loadClearedSet(
+    canSeeClearance ? report.subjects.map((s) => s.person.id) : []
+  );
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -188,7 +204,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                 <ul className="space-y-1">
                   {report.subjects.map((s) => (
                     <li key={s.id} className="flex items-center gap-2">
-                      <span>{s.person.name}</span>
+                      <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} />
                       {s.strikeDecision && (
                         <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
                       )}
@@ -260,7 +276,17 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
             <dt className="text-xs text-subtle-foreground">Anonymity</dt>
             <dd className="mt-0.5 text-sm text-foreground">
               {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
-              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure(reviewers.length)}</p>
+              {/* The reporter's own words on why. Only ever set alongside an
+                  anonymity request (submitReport clears it otherwise), and this
+                  page is reachable only by the reporter and by reviewers who are
+                  not linked as subjects, so it never reaches the person the
+                  report is about. */}
+              {report.anonymous && report.anonymousReason && (
+                <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">
+                  &ldquo;{report.anonymousReason}&rdquo;
+                </p>
+              )}
+              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure()}</p>
             </dd>
           </div>
           <div>
@@ -393,6 +419,34 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               .
             </p>
           )}
+        </Card>
+      )}
+
+      {/* Forwarding sits in its own card, deliberately apart from the reviewer
+          controls above. Those change the report's state inside the clinic and
+          are reversible; this sends it OUTSIDE the organization and is not. The
+          trail of past forwards renders directly above the form so a reviewer
+          sees who already received it before choosing to send it again. */}
+      {canManage && (
+        <Card>
+          <SectionHeader>Forward outside the clinic</SectionHeader>
+          {forwards.length > 0 && (
+            <ul className="mt-3 space-y-1 text-sm text-foreground-soft">
+              {forwards.map((f) => (
+                <li key={f.id}>
+                  Sent to <span className="text-foreground">{f.toEmail}</span> by{" "}
+                  {f.forwardedBy.name} on <DateOnly value={f.createdAt} />
+                  {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <ForwardForm
+            action={forwardReportAction}
+            targetIdName="reportId"
+            targetId={report.id}
+            suggestions={suggestions}
+          />
         </Card>
       )}
     </div>

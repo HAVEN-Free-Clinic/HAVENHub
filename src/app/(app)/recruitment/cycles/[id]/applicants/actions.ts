@@ -7,8 +7,9 @@ import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
-import { routeApplication, decideRoutedApplication, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
+import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
+import { reopenWithdrawnApplication, WithdrawError } from "@/modules/recruitment/services/withdraw";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
@@ -73,14 +74,22 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   const person = await requirePersonSession();
   const outcome = String(formData.get("outcome") ?? "");
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  if (!["ACCEPT", "REJECT", "WAITLIST"].includes(outcome)) {
+  // RETURN is not a decision: it hands the applicant back to the recruitment
+  // lead with the application still PENDING. It shares this action because it
+  // shares the form (one outcome picker, one notes box), but it routes to a
+  // different service function.
+  if (!["ACCEPT", "REJECT", "WAITLIST", "RETURN"].includes(outcome)) {
     redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
   }
   try {
-    await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+    if (outcome === "RETURN") {
+      await returnToRouting(applicationId, person.personId, notes);
+    } else {
+      await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+    }
     await captureEvent({
       distinctId: person.personId,
-      event: "application_decided",
+      event: outcome === "RETURN" ? "application_returned_to_routing" : "application_decided",
       properties: { cycle_id: cycleId, application_id: applicationId, outcome },
       groups: await termGroupForCycle(cycleId),
     });
@@ -149,6 +158,29 @@ export async function reopenDecisionAction(cycleId: string, applicationId: strin
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
       redirect(bounce(cycleId, applicationId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "reopened" }));
+}
+
+/** Undo an applicant's self-withdrawal. Gated on recruitment.manage_cycles in
+ *  the service, so a reviewer without it gets the refusal message, not a crash. */
+export async function reopenWithdrawnAction(cycleId: string, applicationId: string) {
+  const person = await requirePersonSession();
+  try {
+    await reopenWithdrawnApplication(applicationId, person.personId);
+    // The inverse of application_withdrawn. Without it a reversed withdrawal still
+    // counts as a permanent one in every trend, overstating the withdrawal rate.
+    await captureEvent({
+      distinctId: person.personId,
+      event: "application_withdrawal_reopened",
+      properties: { cycle_id: cycleId, application_id: applicationId },
+      groups: await termGroupForCycle(cycleId),
+    });
+  } catch (err) {
+    if (err instanceof WithdrawError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
     }
     throw err;
   }

@@ -4,6 +4,8 @@ const ROLE_EMAILS = {
   admin: "j.carney@yale.edu",
   director: "dev.director@yale.edu",
   volunteer: "dev.volunteer@yale.edu",
+  /** Holds support.view_all_requests and nothing else. */
+  supportAuditor: "dev.support-auditor@yale.edu",
 } as const;
 
 export type Role = keyof typeof ROLE_EMAILS;

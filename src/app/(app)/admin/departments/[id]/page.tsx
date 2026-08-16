@@ -48,6 +48,9 @@ export default async function EditDepartmentPage({ params }: PageProps) {
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
         requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
+        autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
+        // optionalInt is Number-based, not parseInt, so "5.5" survives.
+        hoursPerShift: optionalInt(formData.get("hoursPerShift")),
       });
     } catch (err) {
       if (err instanceof DepartmentValidationError || err instanceof DepartmentNotFoundError) {

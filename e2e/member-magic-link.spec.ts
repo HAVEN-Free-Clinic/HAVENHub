@@ -18,6 +18,9 @@ import { prisma, seedActiveMember } from "./fixtures";
  * "Local development" dev-credentials form below it), so the member field is
  * targeted by its unique id (#member-email) rather than getByLabel, which
  * would violate Playwright's strict mode.
+ *
+ * The member form is collapsed behind a "No yale.edu email?" disclosure, so
+ * every test here opens it before touching the field.
  */
 test("non-Yale active member signs in via emailed link", async ({ page }) => {
   const { person, cleanup } = await seedActiveMember();
@@ -25,6 +28,7 @@ test("non-Yale active member signs in via emailed link", async ({ page }) => {
   try {
     // --- Request the link from the non-Yale member form ---
     await page.goto("/login");
+    await page.getByRole("button", { name: /No yale.edu email\?/i }).click();
     await page.locator("#member-email").fill(email);
     await page.getByRole("button", { name: /Email me a sign-in link/i }).click();
     await expect(page.getByText(/we have sent a sign-in link/i)).toBeVisible();
@@ -60,6 +64,7 @@ test("a @yale.edu address is told to use Yale sign-in and queues no member link 
 }) => {
   const email = `e2e-yale-${Date.now()}@yale.edu`;
   await page.goto("/login");
+  await page.getByRole("button", { name: /No yale.edu email\?/i }).click();
   await page.locator("#member-email").fill(email);
   await page.getByRole("button", { name: /Email me a sign-in link/i }).click();
   // Exact copy is `Use "Sign in with Yale" above.`; matching on "That is a Yale

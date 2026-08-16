@@ -10,6 +10,7 @@ import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { NavForm } from "@/platform/ui/nav-form";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 type PageProps = {
   searchParams: Promise<{ q?: string; status?: string; page?: string }>;
@@ -57,9 +58,13 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
     membershipCountMap = new Map(counts.map((c) => [c.personId, c._count.id]));
   }
 
+  // Verified language badges, one bulk query for the page rather than per row.
+  const verifiedLanguages = await verifiedLanguagesByPerson(rows.map((r) => r.id));
+
   const rowsWithCounts = rows.map((r) => ({
     ...r,
     _membershipCount: membershipCountMap.get(r.id) ?? 0,
+    verifiedLanguages: verifiedLanguages.get(r.id) ?? [],
   }));
 
   function hrefFor(p: number): string {

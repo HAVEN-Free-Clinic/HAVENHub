@@ -21,21 +21,63 @@ so a broken migration is never promoted. But two consequences follow, below.
 `prisma migrate deploy` runs at the **start** of the build, while Vercel keeps the
 **previous** deployment serving traffic until the new build finishes and is promoted
 (minutes later). For a schema-**narrowing** change (`DROP COLUMN` / `DROP TABLE` /
-`RENAME` / type-narrow), the old code — whose generated Prisma client still `SELECT`s
-the dropped column on every query — runs against the already-migrated schema for the
+`RENAME` / type-narrow), the old code (whose generated Prisma client still `SELECT`s
+the dropped column on every query) runs against the already-migrated schema for the
 whole build window. On a hot table like `Person` (read on essentially every
 authenticated request via the session/onboarding gate), that means **app-wide 500s
 until promotion completes**.
 
+### What actually decides whether the old deployment breaks
+
+Not "does the old code reference the column". **Does the old client's generated SQL
+name the column.** Prisma emits an explicit column list, and which columns it names
+comes from `schema.prisma`, not from your application code. Measured against a
+database with the column dropped and a client that still declares it (audit 13,
+2026-08-13):
+
+| Query shape | Result |
+| --- | --- |
+| `findFirst({ where })`, no projection | **fails**, 42703 |
+| `findFirst({ where, include: {...} })` | **fails**, 42703 (`include` names relations; every scalar is still emitted) |
+| `findFirst({ where, select: {...} })` | survives |
+| `count()` | survives |
+
+The consequence is the important part: **splitting into two releases does not on its
+own save you.** In release N the field is still in `schema.prisma` (it has to be, or
+the `DROP` migration would already be written), so release N's client still emits it,
+and release N is exactly what is serving traffic when release N+1's migration lands.
+An earlier version of this runbook claimed otherwise, and it has already cost two
+incidents in two days:
+
+- `2ce40c15` dropped seven `TechRequest` columns. `/support/[id]` (an `include:`
+  query) and the Intercom `ticket.created` webhook (no projection) 500'd for the
+  whole build window.
+- `20260812232000_person_languages` dropped `Person.spanishSelfReported`. Because
+  `getActivePerson` runs on **every authenticated request** for session validation
+  and had no projection, this was not one module, it was the whole authenticated
+  app. Production filed it as
+  `PrismaClientKnownRequestError: The column Person.spanishSelfReported does not
+  exist in the current database` from `prisma.person.findUnique()` (issues #597,
+  #598, 2026-08-13).
+
+Both read paths are now projected (`PERSON_SCALARS`, `TICKET_SCALARS`).
+
 Rule:
 
 - **Additive migrations** (`ADD COLUMN ... NOT NULL DEFAULT x`, new nullable columns,
-  new tables) are safe in a single release — this is the common case.
-- **Destructive migrations** must be split across **two releases**:
-  1. Release **N**: stop referencing the column/table in code (deploys cleanly; old
-     code tolerates the column still being present).
-  2. Release **N+1**: ship the `DROP`.
-- Deploy any destructive change **off-peak** (not a clinic day, not recruitment crunch).
+  new tables) are safe in a single release. This is the common case.
+- **Before narrowing a table, give its read paths an explicit `select:`.** That is the
+  only change in this list that actually closes the window rather than shortening it.
+  Ship it in release **N**; `tsc` will tell you if the projection is missing a field a
+  caller uses. Then ship the `DROP` in release **N+1**.
+- Prefer **not dropping at all** when the column is merely dead: leaving a nullable,
+  unread column costs nothing and carries no deploy window.
+- Deploy any destructive change **off-peak** (not a clinic day, not recruitment
+  crunch), and expect a window on any table whose read paths are not fully projected.
+- The window is a property of running `migrate deploy` inside `buildCommand`. Moving
+  migrations to a post-promotion step would remove it entirely, at the cost of a
+  deploy that can be live before its schema is. Not done; noted so the tradeoff is
+  on the record.
 
 ## 2. A failed migration wedges the whole pipeline
 
@@ -48,7 +90,7 @@ DDL syntax errors but **cannot** catch data-dependent failures:
 
 These pass CI green and fail at the production build. When `migrate deploy` fails it
 records the migration as failed in `_prisma_migrations`, and **every subsequent
-`migrate deploy` — including the build for the fix — aborts with P3009** until a human
+`migrate deploy`, including the build for the fix, aborts with P3009** until a human
 resolves it directly against prod. All deploys (including urgent security fixes) are
 blocked until then.
 
@@ -80,7 +122,7 @@ use) so a data-dependent failure surfaces before the `main` build.
 > pre-migration code runs it against the already-migrated schema and will error. Roll
 > forward with a fix instead, or pair the code rollback with a database restore.
 
-## 3. Cron scheduling is external — monitor it
+## 3. Cron scheduling is external: monitor it
 
 There is **no Vercel cron** (`vercel.json` declares no `crons`). Every scheduled job is
 fired by an external scheduler (**cron-job.org**, free tier) hitting `/api/cron/*` with
@@ -105,7 +147,7 @@ Mitigations in place / to set up:
   stale (`src/platform/cron-heartbeat.ts`).
 - **External dead-man's-switch (recommended):** point each cron-job.org job at (or add)
   a free healthchecks.io / cronitor check so a **missed** tick pushes an alert to the
-  admins — the heartbeat banner only shows if someone opens `/admin`.
+  admins: the heartbeat banner only shows if someone opens `/admin`.
 - **Turn on cron-job.org's built-in per-job failure email** so a non-200 is noticed.
 
 ### Rotating `CRON_SECRET`

@@ -1,6 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { claimLanguage } from "@/platform/languages";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { isoDateKey } from "@/platform/dates";
@@ -58,6 +59,11 @@ export async function promoteContracts(
       include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
+    // A withdrawn applicant must never reach the roster. Withdrawal deliberately
+    // leaves the acceptance and contract intact (tearing them down would cascade
+    // away signatures, DOB, and the HIPAA cert), so the contract still looks
+    // promotable and nothing else downstream would catch this.
+    if (contract.acceptance.application.status === "WITHDRAWN") { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
     // than one department would otherwise land the person on two rosters. SRR
     // must resolve the conflict on the Decisions page first.
@@ -102,6 +108,15 @@ export async function promoteContracts(
         });
         if (claimed.count === 0) throw new ContractAlreadyClaimedError(contract.id);
 
+        // Re-read inside the transaction: a withdrawal committing between the
+        // guard above and this claim must abort the promotion, not race it.
+        // ContractAlreadyClaimedError is the benign "counted as skipped" path,
+        // and rolling back here un-does the claim we just made.
+        const withdrawn = await tx.application.count({
+          where: { id: contract.acceptance.applicationId, status: "WITHDRAWN" },
+        });
+        if (withdrawn > 0) throw new ContractAlreadyClaimedError(contract.id);
+
         // Normalize the applicant-typed identity to the codebase-wide invariant
         // (trimmed + lowercase, empty -> null) before matching OR writing. Every
         // other Person write goes through people.ts normalize(); promotion creates
@@ -141,7 +156,6 @@ export async function promoteContracts(
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
               gradYear: person.gradYear ?? contract.gradYear,
               epicId: person.epicId ?? contract.existingEpicId,
-              spanishSelfReported: person.spanishSelfReported || contract.spanishSelfReported,
               licensedRN: person.licensedRN || contract.licensedRN,
               // Carry onboarding-collected member data (don't clobber an existing value).
               dateOfBirth: person.dateOfBirth ?? contract.dateOfBirth,
@@ -158,7 +172,6 @@ export async function promoteContracts(
               netId: normNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
-              spanishSelfReported: contract.spanishSelfReported,
               licensedRN: contract.licensedRN,
               dateOfBirth: contract.dateOfBirth,
               dietaryRestrictions: contract.dietaryRestrictions,
@@ -168,6 +181,22 @@ export async function promoteContracts(
           });
         }
         const effectiveEpicId = person.epicId ?? contract.existingEpicId ?? null;
+
+        // Language claims become self-reported PersonLanguage rows, which is
+        // what puts the new member into the interpreting department's review
+        // queue. These are CLAIMS: nothing here marks anything verified, so they
+        // gate no scheduling until a human assesses them.
+        //
+        // Two sources, unioned:
+        //   - the APPLICATION's standard language question (any language), and
+        //   - the onboarding contract's Spanish checkbox, kept because it is a
+        //     separate later statement and an applicant may have skipped the
+        //     application question.
+        const claimedLanguages = new Set<string>(application?.languagesClaimed ?? []);
+        if (contract.spanishSelfReported) claimedLanguages.add("es");
+        for (const code of claimedLanguages) {
+          await claimLanguage(person.id, code, tx);
+        }
 
         // One ACTIVE membership per (person, term, department) is the intended
         // state: changeMembershipKind soft-removes the old row when swapping

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
+import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction } from "../actions";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -19,8 +20,12 @@ import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { Alert } from "@/platform/ui/alert";
+import { getRehireFlag } from "@/modules/incidents/services/disciplinary";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
+import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -30,11 +35,20 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (!app) notFound();
   const person = await requirePersonSession();
   if (app.cycleId !== id) notFound();
-  const [scope, managesCycles, canScorePerm, acceptances] = await Promise.all([
+  const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances, history] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
     can(person.personId, "recruitment.score"),
+    // This page admits committee scorers and scoped reviewers who lack
+    // recruitment.access, but the cycle overview enforces it, so the breadcrumb
+    // must not offer them a link that bounces to /no-access.
+    can(person.personId, "recruitment.access"),
     listAcceptances(applicationId),
+    getApplicantHistory({
+      netId: app.applicant.netId,
+      emails: [app.applicant.email],
+      excludeApplicationId: applicationId,
+    }),
   ]);
   const seeAll = scope.all || managesCycles;
   // Committee scoring applies to both tracks; only routing is volunteer-only.
@@ -47,6 +61,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const eligible = seeAll
     ? app.cycle.departments
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
+  // Do-not-rehire, when this applicant is a known past member. Advisory: it is
+  // rendered for the reviewer to weigh, and deliberately does not gate, filter,
+  // or hide anything on this page. Only resolvable for an applicant already
+  // linked to a Person; a returning alum who has not been matched yet shows no
+  // flag, which is a limitation of the link, not a statement about them.
+  const rehireFlag = app.applicant.applicantPersonId
+    ? await getRehireFlag(app.applicant.applicantPersonId)
+    : null;
+
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
   const rankIds = [...new Set([...app.subcommitteeRanking, app.assignedSubcommitteeId].filter((x): x is string => Boolean(x)))];
@@ -80,6 +103,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     <div className="max-w-2xl space-y-6">
       <SetBreadcrumb
         trail={cycleTrail({
+          canOpenOverview,
           cycleId: id,
           cycleTitle: app.cycle.title,
           section: { label: "Applicants", slug: "applicants" },
@@ -96,6 +120,40 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             : ""
         }`}
       />
+
+      {/* Advisory flag on a returning applicant. Placed above the application so
+          a reviewer sees it before forming a view, not after. It is information
+          for them to weigh, not a decision: nothing here rejects, filters, or
+          hides the application, and the applicant is never told it exists. */}
+      {rehireFlag?.doNotRehire && (
+        <Alert tone="warning">
+          <p className="font-medium">This person is flagged do-not-rehire.</p>
+          {rehireFlag.note && <p className="mt-1">{rehireFlag.note}</p>}
+          <p className="mt-1 text-xs">
+            Flagged by {rehireFlag.setByName ?? "an unknown reviewer"}
+            {rehireFlag.setAt ? <> on <DateTime value={rehireFlag.setAt} /></> : null}. Weigh it
+            alongside the application; it does not decide the outcome on its own.
+          </p>
+        </Alert>
+      )}
+
+      <ApplicantHistory history={history} title="Past applications" pendingApplication />
+
+      {app.status === "WITHDRAWN" && (
+        <div className="space-y-3">
+          <Alert tone="warning">
+            This applicant withdrew themselves
+            {app.withdrawnAt && <> on <DateTime value={app.withdrawnAt} /></>}. They are out of the
+            review queue. Any acceptance or onboarding contract is untouched and still needs to be resolved
+            separately.
+          </Alert>
+          {managesCycles && (
+            <form action={reopenWithdrawnAction.bind(null, id, applicationId)}>
+              <ConfirmButton label="Reopen" confirmLabel="Reopen this application?" size="sm" />
+            </form>
+          )}
+        </div>
+      )}
 
       {sections.map((section) => {
         // The ranking is hoisted into its own column at submission (submissions.ts
@@ -269,6 +327,22 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   </form>
                 )}
               </div>
+            ) : app.returnedToRoutingAt ? (
+              // Handed back by a department. The lead re-routes from the routing
+              // control above; this states who declined and why so that decision
+              // is not made blind.
+              <div className="mt-3 space-y-1">
+                <p className="text-sm text-foreground-soft">
+                  <strong className="text-foreground">{app.returnedFromDepartmentCode}</strong> returned this
+                  applicant for re-routing on <DateTime value={app.returnedToRoutingAt} />.
+                </p>
+                {app.returnedReason && (
+                  <p className="text-sm text-foreground-soft">&ldquo;{app.returnedReason}&rdquo;</p>
+                )}
+                <p className="text-xs text-subtle-foreground">
+                  Route them to another department above, or reject the application.
+                </p>
+              </div>
             ) : (
               <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
             )
@@ -291,11 +365,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       <option value="ACCEPT">Accept</option>
                       <option value="REJECT">Reject</option>
                       <option value="WAITLIST">Waitlist</option>
+                      {/* Not a decision: hands the applicant back to the
+                          recruitment lead with the application still open, for
+                          routing to a different department. */}
+                      <option value="RETURN">Not a fit for us, return for re-routing</option>
                     </Select>
                   </Field>
                 </div>
                 <div className="min-w-[12rem] flex-1">
-                  <Field label="Notes" hint="Optional.">
+                  <Field label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently.">
                     <Input name="notes" />
                   </Field>
                 </div>

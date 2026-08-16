@@ -28,8 +28,17 @@ const schema = z
     RHD_ATTENDINGS_TABLE_ID: z.string().default("tblxDJehirZSLFJna"),
     RHD_CLINICS_TABLE_ID: z.string().default("tbl0HrOcMHUQL0a6C"),
     // Email transport: "log" prints to stdout (default, safe for development/CI);
-    // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below).
-    EMAIL_TRANSPORT: z.enum(["log", "graph"]).default("log"),
+    // "graph" sends via Microsoft Graph delegated OAuth flow (requires the OAuth vars below);
+    // "maileroo" sends via the Maileroo HTTP API (requires MAILEROO_API_KEY).
+    //
+    // Graph is bound to a Yale shared mailbox and inherits Exchange Online's
+    // ~30 messages/minute submission cap; Maileroo is a dedicated ESP with no
+    // comparable per-minute ceiling, sending from our own verified domain.
+    // Teams DMs always use Graph regardless of this setting -- see
+    // resolveTeamsTransport, which keys off "is a live transport selected", not
+    // off "is Graph selected".
+    EMAIL_TRANSPORT: z.enum(["log", "graph", "maileroo"]).default("log"),
+    MAILEROO_API_KEY: z.string().optional(),
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
@@ -71,6 +80,17 @@ const schema = z
     // Uploads: local filesystem storage for HIPAA certificates.
     // Mount this as a persistent volume in production (SpinUp).
     UPLOAD_DIR: z.string().default("./uploads"),
+    // Cloudflare R2 object storage, used in every deployed environment. All four
+    // are required together: see the all-or-nothing superRefine below.
+    R2_ACCOUNT_ID: z.string().optional(),
+    R2_ACCESS_KEY_ID: z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
+    R2_BUCKET: z.string().optional(),
+    // Yalies API key (https://yalies.io/api), used to auto-source Yale College
+    // profile photos by netId. Optional: when unset, photo auto-sourcing is
+    // inert and only self-uploaded photos exist. Server-only, never logged.
+    // Requests MUST use https; Yalies revokes keys used over plain HTTP.
+    YALIES_API_KEY: z.string().optional(),
     // Maximum allowed upload size in megabytes. Stored as a string in env; transformed to
     // a number. Rejected if not a positive finite number.
     // Default is 4 MB: every upload path except SCORM packages goes through a Server
@@ -109,11 +129,13 @@ const schema = z
           }
         })
       ),
-    // Number of reminder emails sent before escalating to the director.
-    // Default is 3. Rejected if not a positive finite number.
-    COMPLIANCE_ESCALATION_THRESHOLD: z
+    // Onboarding reminder cadence: how many days between onboarding-requirement
+    // emails. Default is 1 (daily), much faster than the HIPAA cadence because these
+    // are tasks a new member should finish in their first week. Rejected if not a
+    // positive finite number.
+    ONBOARDING_REMINDER_INTERVAL_DAYS: z
       .string()
-      .default("3")
+      .default("1")
       .transform(Number)
       .pipe(
         z.number().superRefine((val, ctx) => {
@@ -121,7 +143,7 @@ const schema = z
             ctx.addIssue({
               code: "custom",
               path: [],
-              message: "COMPLIANCE_ESCALATION_THRESHOLD must be a positive number",
+              message: "ONBOARDING_REMINDER_INTERVAL_DAYS must be a positive number",
             });
           }
         })
@@ -143,9 +165,90 @@ const schema = z
           }
         })
       ),
+    // Clinic check-in geofence centre latitude. MUST be confirmed against the
+    // actual clinic entrance before production use: a centre fifty metres off is
+    // a fence that fails people at the door.
+    CLINIC_CHECKIN_LATITUDE: z
+      .string()
+      .default("41.3025")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val < -90 || val > 90) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_LATITUDE must be between -90 and 90",
+            });
+          }
+        })
+      ),
+    // Clinic check-in geofence centre longitude. See CLINIC_CHECKIN_LATITUDE.
+    CLINIC_CHECKIN_LONGITUDE: z
+      .string()
+      .default("-72.937")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val < -180 || val > 180) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_LONGITUDE must be between -180 and 180",
+            });
+          }
+        })
+      ),
+    // How near the geofence centre a volunteer must be to self check in, in metres.
+    // Rejected if not a positive finite number.
+    CLINIC_CHECKIN_RADIUS_METERS: z
+      .string()
+      .default("250")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_RADIUS_METERS must be a positive number",
+            });
+          }
+        })
+      ),
+    // Location fixes less precise than this (coords.accuracy, in metres) are
+    // rejected as unusable rather than guessed at. Rejected if not a positive
+    // finite number.
+    CLINIC_CHECKIN_MAX_ACCURACY_METERS: z
+      .string()
+      .default("200")
+      .transform(Number)
+      .pipe(
+        z.number().superRefine((val, ctx) => {
+          if (!Number.isFinite(val) || val <= 0) {
+            ctx.addIssue({
+              code: "custom",
+              path: [],
+              message: "CLINIC_CHECKIN_MAX_ACCURACY_METERS must be a positive number",
+            });
+          }
+        })
+      ),
     // IANA display time zone for rendering real timestamps. Deploy-time seed;
     // admins can override live via the display.timeZone setting.
     DISPLAY_TIME_ZONE: z.string().default("America/New_York"),
+    // walletwallet.dev API key for issuing Apple/Google Wallet passes (volunteer
+    // passport). Optional: when unset, the wallet feature is off and no HTTP
+    // call is ever attempted (see src/modules/passport/services/wallet-client.ts).
+    WALLETWALLET_API_KEY: z.string().optional(),
+    /// Pro tier unlocks the brand colour and the logo/icon/strip images. The
+    /// clinic is on a time-limited trial, so this is a separate switch from the
+    /// key: when the trial lapses, set it false and branded fields stop being
+    /// sent, with the card falling back to the free tier's colorPreset. No code
+    /// change, and no branded fields sent to an account that ignores them.
+    WALLETWALLET_PRO: z
+      .preprocess((v) => (v === "" || v === undefined ? false : v === "true" || v === true), z.boolean())
+      .default(false),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
@@ -186,6 +289,78 @@ const schema = z
           message: "required when EMAIL_TRANSPORT is graph",
         });
       }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // Maileroo needs an API key and a From address. The address must be on a
+    // domain verified in the Maileroo dashboard, which we cannot check here --
+    // the admin confirms it with a sender test send.
+    if (env.EMAIL_TRANSPORT !== "maileroo") return;
+    for (const key of ["MAILEROO_API_KEY", "EMAIL_SENDER"] as const) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "required when EMAIL_TRANSPORT is maileroo",
+        });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // R2 configuration is all-or-nothing. With a partial config, storage falls
+    // back to local disk -- and on Vercel the function filesystem is ephemeral,
+    // so uploads appear to succeed and then vanish on the next deploy, with no
+    // error anywhere. Refuse to boot instead of losing files quietly.
+    const keys = [
+      "R2_ACCOUNT_ID",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "R2_BUCKET",
+    ] as const;
+    const present = keys.filter((key) => env[key]);
+    if (present.length === 0 || present.length === keys.length) return;
+    for (const key of keys) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message:
+            "required when any other R2_* variable is set (R2 config is all-or-nothing)",
+        });
+      }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // The all-or-nothing check above only fires once SOME R2_* var is set, so a
+    // deployment with NONE of them validated cleanly and silently selected the
+    // local-disk driver (src/platform/storage/index.ts keys r2Active off
+    // R2_BUCKET). That is the one case where the failure is invisible: a
+    // half-configured store was already refused at boot, but a completely
+    // unconfigured one booted fine and then broke every upload path in the app
+    // at once -- HIPAA certificates, drawn signatures, incident and support
+    // attachments, recruitment files, branding images, SCORM packages, member
+    // photos -- and only at the moment a real user tried. On Vercel the function
+    // filesystem is read-only outside /tmp, so the write throws; point UPLOAD_DIR
+    // at /tmp instead and the write succeeds and the bytes vanish on the next
+    // invocation, which is worse. Refuse to boot instead, matching what the
+    // comment above already says this config wants.
+    if (env.NODE_ENV !== "production") return;
+    // Demo/staging deploys are the documented escape hatch for running without
+    // the full infrastructure, and they never hold live volunteer data (see
+    // DEMO_MODE's own comment), so they keep the local-disk fallback. The real
+    // production deploy runs with DEMO_MODE off and is the one this guards.
+    if (env.DEMO_MODE) return;
+    // `next build` runs with NODE_ENV=production but without runtime secrets, so
+    // this is a boot-time check, not a build-time one -- same carve-out and same
+    // reason as the Azure block above.
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
+    if (!env.R2_BUCKET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["R2_BUCKET"],
+        message:
+          "object storage is required in production: without it every upload falls back to the local filesystem, which is read-only or ephemeral on a deployed host",
+      });
     }
   });
 

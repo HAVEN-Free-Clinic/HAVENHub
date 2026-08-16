@@ -11,6 +11,7 @@ import { formatDateOnly } from "@/platform/dates";
 import { prisma } from "@/platform/db";
 import { OnboardForm } from "./onboard-form";
 import { NextStepsScreen } from "./next-steps-screen";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
@@ -34,6 +35,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
             Need a new link? <SupportLink email={support.email}>{support.label}</SupportLink>
           </p>
         )}
+        <CopyrightNotice className="mt-10" />
       </main>
     );
   }
@@ -93,6 +95,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
           </p>
         )}
         <NextStepsScreen steps={steps} />
+        <CopyrightNotice className="mt-10" />
       </main>
     );
   }
@@ -174,6 +177,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         }}
         departments={departments}
       />
+      <CopyrightNotice className="mt-10" />
     </main>
   );
 }

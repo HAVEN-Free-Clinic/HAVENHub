@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
+import { Card } from "@/platform/ui/card";
 import { prisma } from "@/platform/db";
+import { isIntercomConfigured } from "@/platform/intercom/config";
+import { AskInMessengerButton } from "@/platform/intercom/messenger-actions";
 import { createTechRequest, SupportForbiddenError, SupportStateError } from "@/modules/support/services/tech-request";
 import { notifyTicketSubmitted } from "@/modules/support/services/notifications";
 import { persistAttachment } from "@/modules/support/services/attachments";
@@ -73,6 +76,33 @@ export default async function SubmitPage() {
       groups: await activeTermGroup(),
     });
     redirect(`/support/${req.id}?submitted=1`);
+  }
+
+  // Chat is where support conversations actually happen now (see the design
+  // doc's "Where the work happens"), so when Intercom is configured this
+  // page's only job is to open the Messenger -- one path in, not a form
+  // sitting next to a competing "or chat instead" link.
+  //
+  // The form is not deleted, only reached a different way: unset
+  // NEXT_PUBLIC_INTERCOM_APP_ID (an ops lever, no deploy) and this branch
+  // falls through to it below. That is the fallback intake path for an
+  // Intercom outage, when chat cannot reach anyone at all -- an intake path
+  // that only exists inside a third party means no support intake at all
+  // during one.
+  if (isIntercomConfigured()) {
+    return (
+      <>
+        <PageHeader title="Get help" description="Chat with IT Support to get help or ask a question." />
+        <div className="mt-8">
+          <Card className="flex flex-col items-start gap-4">
+            <p className="text-sm text-muted-foreground">
+              Start a conversation in the Messenger and an IT Support agent will pick it up from there.
+            </p>
+            <AskInMessengerButton variant="primary">Ask in Messenger</AskInMessengerButton>
+          </Card>
+        </div>
+      </>
+    );
   }
 
   return (

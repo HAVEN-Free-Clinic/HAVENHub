@@ -211,7 +211,8 @@ describe("filterAccessibleModules", () => {
 
   describe("recruitment nav for the four extraIds viewer shapes", () => {
     // Exercises the real MODULES registry entry for recruitment (accessPermission
-    // "recruitment.access", nav: [{ label: "Cycles", href: "/recruitment" }])
+    // "recruitment.access", nav: [{ label: "Cycles", href: "/recruitment" },
+    // { label: "History", href: "/recruitment/history", permission: "recruitment.access" }])
     // against every shape of viewer the (app) layout can produce via
     // recruitmentGlobalNav. Guards the fix for the dead "Cycles" link a bare
     // panelist used to see: a module admitted ONLY via extraIds must build its
@@ -225,9 +226,12 @@ describe("filterAccessibleModules", () => {
       return result.find((m) => m.id === "recruitment");
     }
 
-    it("1. normal recruitment staff (recruitment.access held): unaffected, nav is the registry item", () => {
+    it("1. normal recruitment staff (recruitment.access held): unaffected, nav is the registry items", () => {
       const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set());
-      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }]);
+      expect(recruitment?.nav).toEqual([
+        { label: "Cycles", href: "/recruitment" },
+        { label: "History", href: "/recruitment/history" },
+      ]);
       expect(recruitment?.href).toBe("/recruitment");
     });
 
@@ -248,7 +252,11 @@ describe("filterAccessibleModules", () => {
       // applies here (canAccessModule is true), so the registry nav is kept
       // and extended, not replaced.
       const recruitment = recruitmentNav(new Set(["recruitment.access"]), new Set(["recruitment"]), [MY_INTERVIEWS]);
-      expect(recruitment?.nav).toEqual([{ label: "Cycles", href: "/recruitment" }, MY_INTERVIEWS]);
+      expect(recruitment?.nav).toEqual([
+        { label: "Cycles", href: "/recruitment" },
+        { label: "History", href: "/recruitment/history" },
+        MY_INTERVIEWS,
+      ]);
       expect(recruitment?.href).toBe("/recruitment");
     });
   });
@@ -294,6 +302,20 @@ describe("filterNavItems", () => {
     expect(filterNavItems(nav, new Set(["*"]))).toEqual(nav);
   });
 
+  it("keeps an item when the viewer holds ANY ONE of several listed permissions", () => {
+    // A tab serving two audiences (e.g. support "All requests", open to both a
+    // manager and a view-only auditor) lists both permissions; holding either
+    // is enough, and holding neither still drops it.
+    const shared: ModuleNavItem = {
+      label: "All requests",
+      href: "/support/all",
+      permission: ["support.manage_requests", "support.view_all_requests"],
+    };
+    expect(filterNavItems([shared], new Set(["support.manage_requests"]))).toEqual([shared]);
+    expect(filterNavItems([shared], new Set(["support.view_all_requests"]))).toEqual([shared]);
+    expect(filterNavItems([shared], new Set(["support.something_else"]))).toEqual([]);
+  });
+
   it("still returns dynamicGate items, so the module tab row is unaffected", () => {
     // Only the global-nav path (filterAccessibleModules) skips them. The module
     // layout filters this output further using the real capability check, so
@@ -308,10 +330,16 @@ describe("registry nav permissions", () => {
     for (const mod of MODULES) {
       const declared = new Set(mod.permissions);
       for (const item of mod.nav) {
-        if (item.permission) {
+        if (!item.permission) continue;
+        // An any-of item must have EVERY listed permission declared, not just
+        // one: a typo in the second entry would otherwise ride along unnoticed
+        // behind a valid first entry, and the tab would silently never open for
+        // the audience that entry was added for.
+        const required = Array.isArray(item.permission) ? item.permission : [item.permission];
+        for (const permission of required) {
           expect(
-            declared.has(item.permission),
-            `${mod.id} nav "${item.label}" requires undeclared permission "${item.permission}"`,
+            declared.has(permission),
+            `${mod.id} nav "${item.label}" requires undeclared permission "${permission}"`,
           ).toBe(true);
         }
       }
@@ -337,6 +365,19 @@ describe("top-nav module filtering (regression for limited roles)", () => {
   it("shows recruitment to a committee scorer (recruitment.score only, no recruitment.access)", () => {
     const result = filterAccessibleModules(MODULES, new Set(["recruitment.score"]));
     expect(result.map((m) => m.id)).toContain("recruitment");
+  });
+
+  it("admits a committee scorer to recruitment but hides the History tab, which hard-gates on recruitment.access", () => {
+    // recruitment.score alone grants the module tile (additionalAccessPermissions)
+    // but not the "History" nav item, which is gated with permission:
+    // "recruitment.access" precisely so a scorer-only viewer is never handed a
+    // dead link into /recruitment/history (that page bounces them to /no-access).
+    const result = filterAccessibleModules(MODULES, new Set(["recruitment.score"]));
+    const recruitment = result.find((m) => m.id === "recruitment");
+    expect(recruitment).toBeDefined();
+    expect(recruitment?.nav).not.toContainEqual(
+      expect.objectContaining({ label: "History" }),
+    );
   });
 });
 

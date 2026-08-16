@@ -55,6 +55,17 @@ test("apply: draw a signature field and submit; it persists as a png blob", asyn
   // Draw on the signature canvas with real pointer movement.
   const canvas = apply.locator('canvas[aria-label^="Signature signature pad"]');
   await expect(canvas).toBeVisible();
+  // Scroll it in before measuring. boundingBox() is VIEWPORT-relative and
+  // page.mouse takes viewport coordinates, so a canvas below the fold yields
+  // coordinates the drag never reaches and the stroke silently lands nowhere.
+  // toBeVisible does not catch this: Playwright's "visible" means a non-empty
+  // box, not on-screen. Every other interaction here goes through click() or
+  // fill(), which auto-scroll, so this is the one place that has to ask.
+  //
+  // It broke when the standard language question (18 checkboxes) was added to
+  // the seeded identity section above the canvas. Any field added there would
+  // do it again, which is why this scrolls rather than assuming a layout.
+  await canvas.scrollIntoViewIfNeeded();
   const box = (await canvas.boundingBox())!;
   await apply.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
   await apply.mouse.down();

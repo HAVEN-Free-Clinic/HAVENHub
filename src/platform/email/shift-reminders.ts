@@ -4,6 +4,7 @@ import { shiftReminderContext } from "./templates/shift";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
+import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
@@ -21,7 +22,7 @@ export const ROLE_LABEL: Record<ShiftRole, string> = {
 export type ReminderAssignment = {
   personId: string;
   role: ShiftRole;
-  department: { code: string; name: string };
+  department: { id: string; code: string; name: string };
   person: { id: string; name: string; contactEmail: string | null; entraObjectId: string | null };
 };
 
@@ -37,6 +38,22 @@ export type BuildShiftRemindersInput = {
   targetDate: Date;
   teamsChannelUrl: string;
   baseUrl: string;
+  /**
+   * Department id -> the attending(s) covering THAT department on this clinic
+   * date, already formatted for the email. A department with no attending (or
+   * one that maps to no schedule column) is simply absent, and its recipients
+   * get no attending line at all.
+   *
+   * Per department rather than one clinic-wide string: the schedule is a single
+   * grid with a column per team, and telling a behavioral health volunteer the
+   * primary care attending's name is worse than telling them nothing.
+   *
+   * Resolved by the caller (ClinicDay + the slot-to-department mapping) rather
+   * than derived from `assignments`: an attending is not a Person and holds no
+   * ShiftAssignment, so unlike the EDs / Clinical Advisors / directors lists
+   * there is nothing in the assignment rows to derive it from.
+   */
+  attendingNamesByDepartmentId: Record<string, string>;
 };
 
 function firstNameOf(name: string): string {
@@ -65,7 +82,7 @@ function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
  * choice deterministic regardless of the order the caller passes assignments.
  */
 export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedReminder[] {
-  const { assignments, targetDate, teamsChannelUrl, baseUrl } = input;
+  const { assignments, targetDate, teamsChannelUrl, baseUrl, attendingNamesByDepartmentId } = input;
 
   const clinicDateLabel = formatCalendarDate(targetDate, {
     weekday: "long",
@@ -77,6 +94,11 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   const hipaaComplianceUrl = `${baseUrl}/my-info`;
   const shiftSwapUrl = `${baseUrl}/schedule`;
   const masterScheduleUrl = `${baseUrl}/schedule/full`;
+  // Epic problems now go through the Hub's own IT ticketing. This used to be a
+  // hardcoded Airtable form, so those tickets never entered the system built to
+  // track them. Built from baseUrl like every other link here, rather than a
+  // literal host, so it follows the deployment.
+  const helpDeskUrl = `${baseUrl}/support/new`;
 
   const edsOnShift = uniqueNamesById(
     assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person),
@@ -146,8 +168,13 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
         edsOnShift: edsOnShift.join(", "),
         deptDirectorsOnShift: deptDirectorsOnShift.join(", "),
         clinicalAdvisorsOnShift: clinicalAdvisorsOnShift.join(", "),
+        // The headline shift's department, matching departmentName above, so
+        // the attending named is the one covering the shift the email leads
+        // with rather than an arbitrary one of the recipient's teams.
+        attendingOnShift: attendingNamesByDepartmentId[primary.department.id] ?? "",
         teamsChannelUrl,
         hipaaComplianceUrl,
+        helpDeskUrl,
         shiftSwapUrl,
         masterScheduleUrl,
       }),
@@ -198,7 +225,7 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       departmentId: true,
       clinicDate: true,
       role: true,
-      department: { select: { code: true, name: true } },
+      department: { select: { id: true, code: true, name: true } },
       person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
     },
   });
@@ -225,7 +252,35 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   const teamsChannelUrl = channelLink?.webUrl ?? "";
   const baseUrl = await getSetting<string>("app.baseUrl");
 
-  const prepared = buildShiftReminders({ assignments, targetDate, teamsChannelUrl, baseUrl });
+  // The attending covering each department scheduled today.
+  //
+  // Per department rather than one clinic-wide list: the schedule is a single
+  // grid with a column per team, and departmentAttendingsForDates resolves a
+  // department to its columns through ClinicSlot.departmentId plus one hop of
+  // DepartmentDelegation. Only the departments actually on shift are resolved.
+  //
+  // A closed date, no assignment, an unmapped department, and a deactivated
+  // attending all collapse to an absent entry, which buildShiftReminders turns
+  // into "" and the template's {{#if}} hides rather than printing an empty line.
+  const scheduledDepartmentIds = [...new Set(assignments.map((a) => a.department.id))];
+  const attendingNamesByDepartmentId: Record<string, string> = {};
+  await Promise.all(
+    scheduledDepartmentIds.map(async (departmentId) => {
+      const byDate = await departmentAttendingsForDates(term.id, [targetDate], departmentId);
+      const names = (byDate.get(targetKey) ?? [])
+        .map((a) => `${a.name} (${a.slotLabel})`)
+        .join(", ");
+      if (names) attendingNamesByDepartmentId[departmentId] = names;
+    }),
+  );
+
+  const prepared = buildShiftReminders({
+    assignments,
+    targetDate,
+    teamsChannelUrl,
+    baseUrl,
+    attendingNamesByDepartmentId,
+  });
 
   // Idempotency: skip anyone already sent a shift-reminder within the last 6
   // days, which scopes to the current clinic week so a re-fired Monday cron

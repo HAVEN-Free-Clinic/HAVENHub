@@ -22,6 +22,21 @@ export function isDbUnreachableError(err: unknown): boolean {
   );
 }
 
+/**
+ * True when `err` indicates the schema is behind the code: the queried table
+ * (P2021) or column (P2022) does not exist. The database answered fine; a
+ * migration is missing or was rolled back. Read-only callers that hold a safe
+ * fallback can degrade gracefully instead of surfacing a 500, exactly as they do
+ * for an unreachable server.
+ */
+export function isSchemaMissingError(err: unknown): boolean {
+  // P2021 table does not exist, P2022 column does not exist.
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    ["P2021", "P2022"].includes(err.code)
+  );
+}
+
 /** True when `err` is a Prisma unique-constraint (P2002) violation. */
 export function isUniqueConstraintError(err: unknown): err is Prisma.PrismaClientKnownRequestError {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";

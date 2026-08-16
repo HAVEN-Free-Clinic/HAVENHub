@@ -13,6 +13,7 @@ import { cardClasses } from "@/platform/ui/card";
 import { Input, Field } from "@/platform/ui/input";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import type { DayMetrics, Quota } from "@/modules/schedule/engine/capacity";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 // ---------------------------------------------------------------------------
 // Tone helpers
@@ -73,7 +74,7 @@ export function CapacityPanel({
 
   return (
     <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
-      <h2 className="text-sm font-semibold text-foreground-soft">Capacity</h2>
+      <SectionHeader as="h2" level="title" className="text-sm">Capacity</SectionHeader>
 
       {/* Headcount */}
       <div className="flex flex-wrap items-center gap-2 text-sm">

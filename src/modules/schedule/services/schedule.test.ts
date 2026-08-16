@@ -181,6 +181,263 @@ describe("mySchedule", () => {
     expect(live.shifts[0].department.code).toBe("ITCM");
   });
 
+  /**
+   * Who is attending is a member-facing fact, scoped to the member's own team.
+   *
+   * Both attending pages are gated, so a volunteer's own schedule is the only
+   * place they can look up who is on the shift they work. The schedule is one
+   * clinic-wide grid with a column per team, and the card shows only the column
+   * covering THEIR department -- resolved through ClinicSlot.departmentId plus
+   * one hop of DepartmentDelegation. Naming the whole day's coverage told a
+   * primary care volunteer about a doctor who does not cover them.
+   */
+  describe("attendings on a shift", () => {
+    /**
+     * The clinic's columns, mapped to the departments they cover as the seed
+     * maps them: the primary care columns to PCAR, "RHD Attending" to SRHD.
+     */
+    async function clinicColumns() {
+      const pcar = await createDepartment("PCAR");
+      const srhd = await createDepartment("SRHD");
+      const morning = await prisma.clinicSlot.create({
+        data: {
+          label: "9am-12pm",
+          startTime: "09:00",
+          endTime: "12:00",
+          order: 0,
+          allowsMultiple: true,
+          departmentId: pcar.id,
+        },
+      });
+      const rhd = await prisma.clinicSlot.create({
+        data: {
+          label: "RHD Attending",
+          startTime: "09:00",
+          endTime: "13:00",
+          order: 1,
+          departmentId: srhd.id,
+        },
+      });
+      return { morning, rhd, pcar, srhd };
+    }
+
+    /** A clinical team whose attending comes from `parent` via delegation. */
+    async function managedDept(code: string, parentId: string) {
+      const dept = await createDepartment(code);
+      await prisma.departmentDelegation.create({
+        data: { managerDepartmentId: parentId, managedDepartmentId: dept.id },
+      });
+      return dept;
+    }
+
+    async function attending(scheduleName: string, isActive = true) {
+      return prisma.attending.create({ data: { scheduleName, fullName: scheduleName, isActive } });
+    }
+
+    it("shows the member's OWN department attending, not the whole day's coverage", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, rhd, srhd } = await clinicColumns();
+      // SCTS is not named on any column: it reaches "RHD Attending" because
+      // SRHD manages it, which is how the clinic already models these teams.
+      const dept = await managedDept("SCTS", srhd.id);
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const peggy = await attending("Peggy Bia");
+      const frank = await attending("Frank Bia");
+      const finch = await attending("Finch");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: {
+            create: [
+              { slotId: morning.id, attendingId: peggy.id, order: 0 },
+              { slotId: morning.id, attendingId: frank.id, order: 1 },
+              { slotId: rhd.id, attendingId: finch.id },
+            ],
+          },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+
+      // The two primary care attendings are on the same clinic day and are
+      // deliberately absent: they do not cover this member.
+      expect(live.shifts[0].attendings.map((a) => [a.name, a.slotLabel])).toEqual([
+        ["Finch", "RHD Attending"],
+      ]);
+    });
+
+    it("gives a department named on the columns all of its own, in column order", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, pcar } = await clinicColumns();
+      const person = await createPerson("Cara Advisor");
+      await createMembership(person.id, term.id, pcar.id, "DIRECTOR");
+      await createShift(term.id, pcar.id, person.id, dates[0], "DIRECTOR");
+
+      const peggy = await attending("Peggy Bia");
+      const frank = await attending("Frank Bia");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: {
+            create: [
+              { slotId: morning.id, attendingId: peggy.id, order: 0 },
+              { slotId: morning.id, attendingId: frank.id, order: 1 },
+            ],
+          },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].attendings.map((a) => a.name)).toEqual(["Peggy Bia", "Frank Bia"]);
+    });
+
+    it("shows nothing to a department that maps to no column", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning } = await clinicColumns();
+      // Pharmacy is on no column and under no clinical parent.
+      const dept = await createDepartment("PHAM");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const peggy = await attending("Peggy Bia");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: { create: [{ slotId: morning.id, attendingId: peggy.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      // Silence, not another team's attending: "not announced" is honest where
+      // naming the primary care doctor would not be.
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+
+    it("answers each shift separately when a member works two teams the same day", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, rhd, pcar, srhd } = await clinicColumns();
+      const sctp = await managedDept("SCTP", pcar.id);
+      const scts = await managedDept("SCTS", srhd.id);
+      const person = await createPerson("Bo Both");
+      await createMembership(person.id, term.id, sctp.id, "VOLUNTEER");
+      await createMembership(person.id, term.id, scts.id, "VOLUNTEER");
+      await createShift(term.id, sctp.id, person.id, dates[0], "VOLUNTEER");
+      await createShift(term.id, scts.id, person.id, dates[0], "VOLUNTEER");
+
+      const peggy = await attending("Peggy Bia");
+      const finch = await attending("Finch");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: {
+            create: [
+              { slotId: morning.id, attendingId: peggy.id },
+              { slotId: rhd.id, attendingId: finch.id },
+            ],
+          },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      // One date, two shifts, two different answers -- which is why the lookup
+      // is keyed by (date, department) rather than by date alone.
+      const byDept = new Map(
+        live.shifts.map((s) => [s.department.code, s.attendings.map((a) => a.name)]),
+      );
+      expect(byDept.get("SCTP")).toEqual(["Peggy Bia"]);
+      expect(byDept.get("SCTS")).toEqual(["Finch"]);
+    });
+
+    // Each of the three below books the member's OWN column, so the empty
+    // result proves the rule under test. Booking a column that does not cover
+    // them would pass for the wrong reason -- the department scoping alone
+    // would empty the list whatever the rule did.
+
+    // Only the dates the member actually works, never the whole term.
+    it("attaches nothing to a date the member does not work", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, pcar } = await clinicColumns();
+      const dept = await managedDept("SCTP", pcar.id);
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const a = await attending("Peggy Bia");
+      // Booked on the SECOND date, which this member does not work.
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[1],
+          attendings: { create: [{ slotId: morning.id, attendingId: a.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts).toHaveLength(1);
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+
+    it("omits a deactivated attending rather than naming them as covering", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, pcar } = await clinicColumns();
+      const dept = await managedDept("SCTP", pcar.id);
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const retired = await attending("Dr. Retired", false);
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          attendings: { create: [{ slotId: morning.id, attendingId: retired.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+
+    // A closed date staffs nobody; naming anyone would contradict the closure.
+    it("attaches nothing on a closed clinic date", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const { morning, pcar } = await clinicColumns();
+      const dept = await managedDept("SCTP", pcar.id);
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const a = await attending("Peggy Bia");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          isClosed: true,
+          attendings: { create: [{ slotId: morning.id, attendingId: a.id }] },
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].attendings).toEqual([]);
+    });
+  });
+
+
   it("resolves SELF tier after a self-update", async () => {
     const dates = saturdays("2026-05-30", 4);
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -471,6 +728,36 @@ describe("fullSchedule", () => {
     expect(isoDateKey(result.selectedDate!)).toBe(key);
   });
 
+  // The language badges on /schedule/full are read at the point of care to
+  // decide who can interpret for a patient. A self-reported claim has not been
+  // assessed by the interpreting department, so surfacing it here would invite
+  // exactly the reliance the assessment exists to prevent. Only verified rows
+  // may appear; an assessed-and-declined row must not resurface either.
+  it("exposes verified languages only, never self-reported or declined ones", async () => {
+    const dates = saturdays("2026-05-30", 2);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Dana");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    await prisma.personLanguage.createMany({
+      data: [
+        // Verified: belongs on the schedule.
+        { personId: person.id, language: "ht", selfReported: true, verified: true, verifiedAt: new Date() },
+        // Claimed but never assessed.
+        { personId: person.id, language: "pt", selfReported: true, verified: false },
+        // Assessed and declined.
+        { personId: person.id, language: "fr", selfReported: true, verified: false, verifiedAt: new Date() },
+      ],
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const volunteer = result.departments[0].volunteers.find((v) => v.id === person.id)!;
+
+    expect(volunteer.verifiedLanguages).toEqual(["ht"]);
+  });
+
   it("default selects the next upcoming date when now is between two clinic dates", async () => {
     const dates = saturdays("2026-05-30", 3); // d[0], d[1], d[2]
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -533,6 +820,32 @@ describe("fullSchedule", () => {
 
     expect(deptResult.shadows).toHaveLength(1);
     expect(deptResult.shadows[0].name).toBe("Shadow");
+  });
+
+  // Shift flags used to be attached to VOLUNTEER rows only, so a director on the
+  // triage post was invisible to everyone reading the full schedule -- the exact
+  // lookup the page exists for. Every role now carries its assignment's tags.
+  it("exposes shift tags on director and shadow rows, not just volunteers", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+
+    const director = await createPerson("Tagged Director");
+    const shadow = await createPerson("Tagged Shadow");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(shadow.id, term.id, dept.id, "VOLUNTEER");
+
+    await createShift(term.id, dept.id, director.id, dates[0], "DIRECTOR", { triage: true });
+    await createShift(term.id, dept.id, shadow.id, dates[0], "SHADOW", { remote: true });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    const deptResult = result.departments[0];
+
+    expect(deptResult.directors[0].tags.triage).toBe(true);
+    expect(deptResult.directors[0].tags.remote).toBe(false);
+    expect(deptResult.shadows[0].tags.remote).toBe(true);
+    expect(deptResult.shadows[0].tags.triage).toBe(false);
   });
 
   it("conflict: person in two depts on the SAME Saturday appears in both conflict maps", async () => {
@@ -666,6 +979,7 @@ describe("fullSchedule", () => {
     expect(result.clinicDates).toHaveLength(0);
     expect(result.selectedDate).toBeNull();
     expect(result.departments).toHaveLength(0);
+    expect(result.attendance.size).toBe(0);
   });
 
   // #62: offboarding / removeMembership leave the ShiftAssignment row, so the
@@ -687,9 +1001,81 @@ describe("fullSchedule", () => {
     const names = result.departments.flatMap((d) => d.volunteers.map((v) => v.name));
     expect(names).toEqual(["Active Vol"]);
   });
+
+  it("returns attendance for the selected date alongside the roster", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Attendee");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    await prisma.clinicAttendance.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        personId: person.id,
+        method: "STAFF",
+      },
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    expect(result.attendance.get(person.id)?.method).toBe("STAFF");
+  });
+
+  it("returns an empty attendance map when nobody has checked in", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("NoShow");
+    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+    expect(result.attendance.size).toBe(0);
+  });
+
+  // fullSchedule filters a REMOVED member out of the visible roster (#62 above),
+  // but attendanceForDate is keyed purely off ClinicAttendance rows, independent
+  // of TermMembership status. Guards against a tempting-but-wrong "fix" that
+  // filters the attendance map by the same active-member set as the roster: the
+  // page only ever looks up attendance for people it already lists, so a stray
+  // record for a departed person must stay retrievable rather than be silently
+  // dropped by an over-eager filter here.
+  it("does not filter the attendance map by roster membership", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("AABB");
+    const departed = await createPerson("Departed Vol");
+
+    await createMembership(departed.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, departed.id, dates[0], "VOLUNTEER");
+    await prisma.clinicAttendance.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        personId: departed.id,
+        method: "STAFF",
+      },
+    });
+
+    const result = await fullSchedule(isoDateKey(dates[0]));
+
+    // Roster excludes the departed volunteer entirely (no department shows up,
+    // since their assignment was the only one on this date).
+    expect(result.departments).toHaveLength(0);
+    // But the attendance map itself is untouched by the roster filter.
+    expect(result.attendance.has(departed.id)).toBe(true);
+  });
 });
 
 describe("updateMyAvailability", () => {
+  // Availability closes on the term's first clinic date, so every test that
+  // expects a SUCCESSFUL save has to run before it. These fixtures use
+  // saturdays("2026-05-30", ...), which is in the past in real time, so `now`
+  // has to be pinned rather than left to the wall clock.
+  const BEFORE_CLINICS = utc(2026, 5, 1);
+
   it("happy path: updates both memberships of a two-dept person, clears acknowledgedAt, stores canonical noon-UTC dates, writes one audit row", async () => {
     const dates = saturdays("2026-05-30", 4);
     const term = await createTerm("ACTIVE", "SU26", dates);
@@ -710,7 +1096,7 @@ describe("updateMyAvailability", () => {
       new Date(Date.UTC(2026, dates[2].getUTCMonth(), dates[2].getUTCDate(), 0, 0, 0)),
     ];
 
-    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates });
+    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates, now: BEFORE_CLINICS });
 
     const updatedA = await prisma.termMembership.findUniqueOrThrow({ where: { id: memA.id } });
     const updatedB = await prisma.termMembership.findUniqueOrThrow({ where: { id: memB.id } });
@@ -767,10 +1153,10 @@ describe("updateMyAvailability", () => {
     const badDate = new Date(Date.UTC(2026, 6, 1, 0, 0, 0)); // 2026-07-01
 
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
     ).rejects.toThrow("2026-07-01");
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
     ).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 
@@ -799,7 +1185,7 @@ describe("updateMyAvailability", () => {
     const midnight = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0));
     const noon = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 12));
 
-    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon] });
+    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon], now: BEFORE_CLINICS });
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(1);
@@ -817,13 +1203,44 @@ describe("updateMyAvailability", () => {
     });
 
     await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
+      updateMyAvailability(person.id, { termId: term.id, dates: [], now: BEFORE_CLINICS }),
     ).resolves.toBeUndefined();
 
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
     expect(updated.selfAvailabilityDates).toHaveLength(0);
     expect(updated.availabilityUpdatedAt).not.toBeNull();
     expect(updated.availabilityAcknowledgedAt).toBeNull();
+  });
+
+  // Availability is the INPUT to building the schedule. Once clinics start the
+  // schedule is live and published, so a silent self-edit would desync the
+  // roster from what the clinic is working off; changes have to go through
+  // swap/drop, where a director approves and the partner is told.
+  it("refuses a save once the term's first clinic date has arrived", async () => {
+    const dates = saturdays("2026-05-30", 3);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("ITCM");
+    const person = await createPerson("Late Larry");
+    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", {
+      selfAvailabilityDates: [dates[0]],
+      availabilityUpdatedAt: utc(2026, 5, 1),
+    });
+
+    // The first clinic day itself, not the day after: the lock takes effect the
+    // moment the clinic is running.
+    const onFirstClinicDay = utc(2026, 5, 30);
+
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
+    ).rejects.toBeInstanceOf(AvailabilityValidationError);
+    await expect(
+      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
+    ).rejects.toThrow(/locked/i);
+
+    // The rejected save wrote nothing: their original availability survives.
+    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
+    expect(after.selfAvailabilityDates).toHaveLength(1);
+    expect(isoDateKey(after.selfAvailabilityDates[0])).toBe(isoDateKey(dates[0]));
   });
 
   it("rejects an availability save for a term with no clinic dates, so an empty grid can't wipe the baseline (#90)", async () => {

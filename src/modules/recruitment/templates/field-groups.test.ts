@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { identitySection, eligibilitySection, languagesSection, acknowledgementsSection, availabilitySection } from "./field-groups";
+import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 
 describe("field-group builders", () => {
   it("identitySection has the three stable identity keys and is NEW-only", () => {
@@ -47,10 +48,33 @@ describe("field-group builders", () => {
     }
   });
 
-  it("languagesSection gates other_languages_detail on other_languages = yes", () => {
+  // The old free-text "any other languages?" pair is gone on purpose. A typed
+  // answer cannot be matched to a language, so nothing downstream could act on
+  // it; the standard multi-select is what lets an application answer flow into
+  // the verification queue. publishCycle enforces the same three properties on
+  // every cycle, so a regression here is a regression there.
+  it("languagesSection asks the standard language question, with resolvable option values", () => {
     const s = languagesSection();
-    const detail = s.fields.find((f) => f.key === "other_languages_detail")!;
-    expect(detail.visibleWhen).toEqual({ field: "other_languages", op: "is", value: "yes" });
+    const field = s.fields.find((f) => f.key === LANGUAGES_FIELD_KEY)!;
+    expect(field.type).toBe("MULTI_SELECT");
+    for (const o of field.options ?? []) {
+      expect(languageCodeFromAnswer(o.value)).not.toBeNull();
+    }
+  });
+
+  // Load-bearing, not cosmetic. submissions.ts reads the answer out of
+  // visibleFields, and a NEW-only section is not visible to a renewal, so
+  // scoping this to NEW would silently give every returning applicant an empty
+  // languagesClaimed. Returning volunteers are exactly the people most likely to
+  // have no language on record, having applied before the question existed.
+  it("languagesSection is asked of returning applicants too", () => {
+    expect(languagesSection().appliesTo).toBe("BOTH");
+  });
+
+  it("languagesSection no longer carries the unmatchable free-text language fields", () => {
+    const keys = languagesSection().fields.map((f) => f.key);
+    expect(keys).not.toContain("other_languages");
+    expect(keys).not.toContain("other_languages_detail");
   });
 
   it("eligibilitySection gates medical_certifications and medical_details on licensed_professional = yes", () => {

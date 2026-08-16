@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { prisma, isDbUnreachableError } from "@/platform/db";
+import { prisma, isDbUnreachableError, isSchemaMissingError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { config } from "@/platform/config";
 import { log, errorAttrs } from "@/platform/logging";
@@ -39,10 +39,11 @@ export class SettingValidationError extends Error {
 /**
  * Resolve a setting: validated DB override -> env default. An invalid stored
  * value logs a warning and falls back to the default; it never throws to the
- * caller. A brief DB outage (server unreachable) likewise degrades to the env
- * default rather than throwing -- getSetting runs on every page render via
- * generateMetadata, so a momentary Neon blip must not become a site-wide 500.
- * An unregistered key throws (programmer error).
+ * caller. A brief DB outage (server unreachable) or a missing Setting table
+ * (schema behind the code) likewise degrades to the env default rather than
+ * throwing -- getSetting runs on every page render via generateMetadata, so
+ * neither a momentary Neon blip nor an unmigrated database must become a
+ * site-wide 500. An unregistered key throws (programmer error).
  */
 export async function getSetting<T = unknown>(key: string): Promise<T> {
   const def = getSettingDef(key);
@@ -58,6 +59,15 @@ export async function getSetting<T = unknown>(key: string): Promise<T> {
       // The safe answer is the env default. Return it without caching so the
       // next read picks up the real stored value as soon as the DB recovers.
       log.warn(`[settings] database unreachable resolving "${key}"; using default`, errorAttrs(err));
+      return def.envDefault() as T;
+    }
+    if (isSchemaMissingError(err)) {
+      // Same safe answer, but log loud: the schema is behind the code. Run the
+      // migrations to restore stored overrides.
+      log.error(
+        `[settings] Setting table missing resolving "${key}"; using default -- run db:migrate`,
+        errorAttrs(err)
+      );
       return def.envDefault() as T;
     }
     throw err;
@@ -90,6 +100,13 @@ export async function getSettingUncached<T = unknown>(key: string): Promise<T> {
       log.warn(`[settings] database unreachable resolving "${key}"; using default`, errorAttrs(err));
       return def.envDefault() as T;
     }
+    if (isSchemaMissingError(err)) {
+      log.error(
+        `[settings] Setting table missing resolving "${key}"; using default -- run db:migrate`,
+        errorAttrs(err)
+      );
+      return def.envDefault() as T;
+    }
     throw err;
   }
   return (row ? resolveStored(def, row.value).value : def.envDefault()) as T;
@@ -107,11 +124,12 @@ export type ResolvedSetting = {
 
 /**
  * Resolve every setting in a category for rendering a form group. Like
- * getSetting, a brief DB outage (server unreachable) degrades to the env
- * defaults -- an admin viewing /admin/settings during a momentary Neon blip
- * sees the default-valued form rather than a 500. The overrides simply read as
- * empty, so every setting shows its default with isOverridden=false until the
- * DB recovers; the result is not cached, so the next render reflects reality.
+ * getSetting, a brief DB outage (server unreachable) or a missing Setting table
+ * (schema behind the code) degrades to the env defaults -- an admin viewing
+ * /admin/settings during a momentary Neon blip, or against an unmigrated
+ * database, sees the default-valued form rather than a 500. The overrides simply
+ * read as empty, so every setting shows its default with isOverridden=false; the
+ * result is not cached, so the next render reflects reality.
  */
 export async function getCategory(category: string): Promise<ResolvedSetting[]> {
   const defs = SETTINGS.filter((d) => d.category === category && !d.hidden);
@@ -125,6 +143,12 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
     if (isDbUnreachableError(err)) {
       log.warn(
         `[settings] database unreachable resolving category "${category}"; using defaults`,
+        errorAttrs(err)
+      );
+      rows = [];
+    } else if (isSchemaMissingError(err)) {
+      log.error(
+        `[settings] Setting table missing resolving category "${category}"; using defaults -- run db:migrate`,
         errorAttrs(err)
       );
       rows = [];

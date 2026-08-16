@@ -8,7 +8,9 @@ function person(id: string, name: string, email: string | null = `${id}@x.org`):
   return { id, name, contactEmail: email, entraObjectId: null };
 }
 function row(p: ReminderAssignment["person"], code: string, deptName: string, role: ReminderAssignment["role"]): ReminderAssignment {
-  return { personId: p.id, role, department: { code, name: deptName }, person: p };
+  // Department ids are derived from the code so a test row is self-consistent:
+  // the attending map below is keyed by id, and the two must agree.
+  return { personId: p.id, role, department: { id: `dept-${code}`, code, name: deptName }, person: p };
 }
 
 describe("buildShiftReminders", () => {
@@ -19,6 +21,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     expect(out).toHaveLength(1);
     expect(out[0].context.firstName).toBe("Val");
@@ -45,6 +48,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     expect(out).toHaveLength(4);
     const volReminder = out.find((r) => r.person.id === "v")!;
@@ -60,6 +64,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     expect(out[0].context.deptDirectorsOnShift).toBe("");
   });
@@ -71,6 +76,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "https://teams/x",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     expect(out[0].context.teamsChannelUrl).toBe("https://teams/x");
   });
@@ -85,6 +91,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     expect(out).toHaveLength(1);
     expect(String(out[0].context.additionalShifts)).toContain("Pharmacy");
@@ -103,9 +110,66 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     const volReminder = out.find((r) => r.person.id === "v")!;
     expect(volReminder.context.deptDirectorsOnShift).toBe("Sam Lee, Sam Lee");
+  });
+
+  it("names each recipient's OWN department attending, not the whole clinic day's", () => {
+    const primary = person("p", "Pat Primary");
+    const behavioral = person("b", "Bev Behavioral");
+    const out = buildShiftReminders({
+      assignments: [
+        row(primary, "SCTP", "Senior Primary Care", "VOLUNTEER"),
+        row(behavioral, "BVHD", "Behavioral Health", "VOLUNTEER"),
+      ],
+      targetDate: TARGET,
+      teamsChannelUrl: "",
+      baseUrl: BASE,
+      attendingNamesByDepartmentId: {
+        "dept-SCTP": "Peggy Bia (9am-12pm)",
+        "dept-BVHD": "Morgan Ellis (BHD Clinic)",
+      },
+    });
+    expect(out.find((r) => r.person.id === "p")!.context.attendingOnShift).toBe("Peggy Bia (9am-12pm)");
+    expect(out.find((r) => r.person.id === "b")!.context.attendingOnShift).toBe("Morgan Ellis (BHD Clinic)");
+  });
+
+  it("leaves attendingOnShift empty for a department with no attending mapped", () => {
+    const vol = person("v", "Val Volunteer");
+    const out = buildShiftReminders({
+      assignments: [row(vol, "PHAM", "Pharmacy", "VOLUNTEER")],
+      targetDate: TARGET,
+      teamsChannelUrl: "",
+      baseUrl: BASE,
+      // Pharmacy maps to no schedule column, so it is absent from the map.
+      attendingNamesByDepartmentId: { "dept-SCTP": "Peggy Bia (9am-12pm)" },
+    });
+    // "" rather than another team's attending: the template's {{#if}} then hides
+    // the line entirely instead of naming a doctor who does not cover them.
+    expect(out[0].context.attendingOnShift).toBe("");
+  });
+
+  it("uses the headline shift's department when a person works two teams that day", () => {
+    const both = person("b", "Bo Both");
+    const out = buildShiftReminders({
+      assignments: [
+        row(both, "SCTP", "Senior Primary Care", "VOLUNTEER"),
+        row(both, "PHAM", "Pharmacy", "SHADOW"),
+      ],
+      targetDate: TARGET,
+      teamsChannelUrl: "",
+      baseUrl: BASE,
+      attendingNamesByDepartmentId: {
+        "dept-SCTP": "Peggy Bia (9am-12pm)",
+        "dept-PHAM": "Should Not Appear",
+      },
+    });
+    // SCTP sorts last by code, so it drives the headline -- and the attending
+    // named must be the one covering that same shift, not the other one.
+    expect(out[0].context.departmentName).toBe("Senior Primary Care");
+    expect(out[0].context.attendingOnShift).toBe("Peggy Bia (9am-12pm)");
   });
 
   it("omits the department-directors list for a director recipient but shows it to volunteers and shadows", () => {
@@ -123,6 +187,7 @@ describe("buildShiftReminders", () => {
       targetDate: TARGET,
       teamsChannelUrl: "",
       baseUrl: BASE,
+      attendingNamesByDepartmentId: {},
     });
     // A director is on shift themselves and does not need the directors list.
     expect(out.find((r) => r.person.id === "d1")!.context.deptDirectorsOnShift).toBe("");

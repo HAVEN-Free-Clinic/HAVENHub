@@ -25,7 +25,7 @@ export async function ClinicChannelCard() {
       </span>
       <span className="min-w-0">
         <span className="block text-[11px] font-bold uppercase tracking-wider text-brand-fg">
-          This week&apos;s clinic
+          This week&apos;s Teams Channel
         </span>
         <span className="mt-0.5 block truncate text-sm font-medium text-foreground-soft">
           {clinicChannel.displayName}

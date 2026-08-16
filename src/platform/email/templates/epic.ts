@@ -26,6 +26,13 @@ export type EpicEmailParams = {
   epicId?: string | null;
   departmentNames?: string[];
   kind?: "NEW" | "MODIFY" | "RENEW";
+  /**
+   * The temporary password YNHH sets on a new account, quoted in the activation
+   * email's setup steps. Resolved by the caller from the `epic.temporaryPassword`
+   * setting so this module stays pure. Empty or absent omits the clause entirely
+   * rather than promising a password the email does not then give.
+   */
+  temporaryPassword?: string | null;
 };
 
 /** The three epic template keys. */
@@ -124,11 +131,14 @@ export function epicOnboardingContext(params: EpicEmailParams): Record<string, u
  * Build the flat render-engine context for the epic-activation template.
  */
 export function epicActivationContext(params: EpicEmailParams): Record<string, unknown> {
-  const { personName, epicId } = params;
+  const { personName, epicId, temporaryPassword } = params;
   const epicIdDisplay = epicId ? esc(epicId) : "pending assignment";
   return {
     personName,
     epicIdDisplay,
+    // Trimmed so a setting left as whitespace reads as "unset" to the {{#if}}
+    // guard rather than rendering "the temporary password:  ".
+    temporaryPassword: temporaryPassword?.trim() ?? "",
   };
 }
 
@@ -136,11 +146,14 @@ export function epicActivationContext(params: EpicEmailParams): Record<string, u
  * Build the flat render-engine context for the epic-password-reset template.
  */
 export function epicPasswordResetContext(params: EpicEmailParams): Record<string, unknown> {
-  const { personName, epicId } = params;
+  const { personName, epicId, temporaryPassword } = params;
   const epicIdDisplay = epicId ? esc(epicId) : "pending assignment";
   return {
     personName,
     epicIdDisplay,
+    // See epicActivationContext: trimmed so a whitespace-only setting reads as
+    // unset to the {{#if}} guards rather than announcing an empty password.
+    temporaryPassword: temporaryPassword?.trim() ?? "",
   };
 }
 
@@ -183,6 +196,11 @@ export const epicDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
+      {
+        name: "temporaryPassword",
+        label: "Epic temporary password (from Settings > Integrations)",
+        sampleValue: "SecureCare4u#00",
+      },
     ],
     defaultSubject: "[HAVEN] New Epic Account Set-up",
     defaultBody: `<p>Hello {{ personName }},</p>
@@ -202,7 +220,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
 <h2>Instructions for Setting Up Epic Account</h2>
 <ul>
 <li>If you haven't already, please download the Yale VPN at <a href="https://studenttechnology.yale.edu/new-students/set-virtual-private-network-vpn">https://studenttechnology.yale.edu/new-students/set-virtual-private-network-vpn</a>. Some users may find it easier to set up Epic access while using the Yale VPN.</li>
-<li>Click <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a> and choose the Log-in option to enter your Epic ID and the temporary password: SecureCare4u#25. Alternatively, you can sign into <a href="https://owa.ynhh.org">https://owa.ynhh.org</a> to reset your temporary password if you are facing issues with the password reset portal.</li>
+<li>Click <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a> and choose the Log-in option to enter your Epic ID{{#if temporaryPassword}} and the temporary password: {{ temporaryPassword }}{{/if}}. Alternatively, you can sign into <a href="https://owa.ynhh.org">https://owa.ynhh.org</a> to reset your temporary password if you are facing issues with the password reset portal.</li>
 <li>Create a new password using the YNHHS password requirements: minimum of 15 characters, at least 1 uppercase letter, 1 lowercase letter, and 1 number; it cannot be one of your last 6 passwords. Passwords expire every 365 days.</li>
 <li>Please write down your password as soon as you create it, so you don't forget it!</li>
 <li>After you create your new password, set up the option to reset your password by YNHHS SMS Password Reset Code in the future by selecting the "My Details" tab and adding your mobile phone number. If you don't receive a text message when you attempt to reset your password in the future, please call the Helpdesk at 203-688-4357 to complete the set-up.</li>
@@ -227,18 +245,23 @@ ${EPIC_DOWNLOAD_AND_NOTES_HTML}
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
+      {
+        name: "temporaryPassword",
+        label: "Epic temporary password (from Settings > Integrations)",
+        sampleValue: "SecureCare4u#00",
+      },
     ],
     defaultSubject: "[HAVEN] Epic Account Reset",
     defaultBody: `<p>Hello {{ personName }},</p>
 
 <p>Your Epic account has been successfully re-activated by YNHH.</p>
 
-<h3>ATTENTION: your password has been reset to "SecureCare4u#25" due to inactivity. Please log in to your account within 48 hours, as your access will expire due to inactivity!</h3>
+<h3>ATTENTION: your password has been reset{{#if temporaryPassword}} to "{{ temporaryPassword }}"{{/if}} due to inactivity. Please log in to your account within 48 hours, as your access will expire due to inactivity!</h3>
 
 <p>If you have any issues with your access or have issues logging in, you can reply to this email or call the YNHH Help Desk directly at 203-688-4357 (they are available 24/7). If you have trouble logging in on your personal device, try using the Yale VPN or Yale Secure network to access Epic first.</p>
 
-<p>Your Network/Epic ID is: {{{ epicIdDisplay }}}<br>
-Your temporary password: <strong>SecureCare4u#25</strong></p>
+<p>Your Network/Epic ID is: {{{ epicIdDisplay }}}{{#if temporaryPassword}}<br>
+Your temporary password: <strong>{{ temporaryPassword }}</strong>{{/if}}</p>
 
 <ul>
 <li>If you haven't already, please download the Yale VPN at <a href="https://studenttechnology.yale.edu/new-students/set-virtual-private-network-vpn">https://studenttechnology.yale.edu/new-students/set-virtual-private-network-vpn</a>. Some users may find it easier to set up Epic access while using the Yale VPN.</li>

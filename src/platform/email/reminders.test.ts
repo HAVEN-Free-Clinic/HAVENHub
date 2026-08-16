@@ -1,5 +1,5 @@
 /**
- * Integration tests for the compliance reminder engine (runComplianceReminders).
+ * Integration tests for the clearance reminder engine (runClearanceReminders).
  *
  * Each test resets the database and builds its own fixture set. The "now"
  * parameter is pinned so dedup windows and cert expiry are deterministic.
@@ -9,16 +9,16 @@
  * EXPIRING_SOON: valid today but fails term bar OR within 60d of expiry.
  * EXPIRED: expiresAt < now.
  *
- * All assertions use EmailLog.template to distinguish reminder vs escalation rows.
+ * All assertions use EmailLog.template to distinguish one stream's rows from another's.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { runComplianceReminders } from "./reminders";
+import { runClearanceReminders } from "./reminders";
 import * as channel from "@/platform/notifications/channel";
 
-// resolveChannel is spied per-test (the Teams-routing cases). runComplianceReminders
+// resolveChannel is spied per-test (the Teams-routing cases). runClearanceReminders
 // now reads the channel itself, so a leaked spy would mis-route later tests. Restore
 // after every test to keep them isolated.
 afterEach(() => {
@@ -127,8 +127,23 @@ async function emailLogCount(template: string): Promise<number> {
 }
 
 async function getReminderRow(personId: string) {
-  return prisma.complianceReminder.findUnique({ where: { personId } });
+  return prisma.memberReminderState.findUnique({ where: { personId } });
 }
+
+/**
+ * Backdate a person's memberships so they are past the onboarding grace period.
+ * Fixtures create memberships at wall-clock "now", which is well after the pinned
+ * NOW the engine is called with, so without this every fixture member looks like
+ * they joined in the future and the grace guard suppresses their onboarding email.
+ */
+async function backdateMemberships(personId: string, when: Date) {
+  await prisma.termMembership.updateMany({
+    where: { personId },
+    data: { createdAt: when },
+  });
+}
+
+const LONG_AGO = new Date("2026-01-01T00:00:00.000Z");
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -138,8 +153,14 @@ beforeEach(resetDb);
 
 describe("no active term", () => {
   it("returns all-zero result and sends no emails", async () => {
-    const result = await runComplianceReminders(NOW);
-    expect(result).toEqual({ remindersSent: 0, escalationsSent: 0, reset: 0, skipped: 0 });
+    const result = await runClearanceReminders(NOW);
+    expect(result).toEqual({
+      hipaaRemindersSent: 0,
+      onboardingRemindersSent: 0,
+      digestsSent: 0,
+      reset: 0,
+      skipped: 0,
+    });
     expect(await emailLogCount("compliance-reminder")).toBe(0);
   });
 });
@@ -157,9 +178,9 @@ describe("person with no active membership in active term", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER", "REMOVED");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
     expect(await emailLogCount("compliance-reminder")).toBe(0);
     expect(await getReminderRow(person.id)).toBeNull();
   });
@@ -170,17 +191,16 @@ describe("person with no active membership in active term", () => {
 // ---------------------------------------------------------------------------
 
 describe("first run - EXPIRED volunteer, no row", () => {
-  it("creates compliance-reminder EmailLog, row with remindersSent=1, result.remindersSent=1", async () => {
+  it("creates compliance-reminder EmailLog, row with remindersSent=1, result.hipaaRemindersSent=1", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("Alice", "alice@example.com");
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
-    expect(result.escalationsSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(1);
     expect(result.reset).toBe(0);
     expect(result.skipped).toBe(0);
 
@@ -190,8 +210,6 @@ describe("first run - EXPIRED volunteer, no row", () => {
     expect(row).not.toBeNull();
     expect(row!.remindersSent).toBe(1);
     expect(row!.lastRemindedAt).not.toBeNull();
-    expect(row!.lastStatus).toBe("EXPIRED");
-    expect(row!.escalatedAt).toBeNull();
   });
 });
 
@@ -207,12 +225,12 @@ describe("immediate second run - within dedup window", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    await runComplianceReminders(NOW);
+    await runClearanceReminders(NOW);
     // Run again immediately with the same "now"
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
     expect(result.skipped).toBeGreaterThanOrEqual(1);
-    expect(result.remindersSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
     // Only 1 email total from both runs
     expect(await emailLogCount("compliance-reminder")).toBe(1);
 
@@ -233,87 +251,15 @@ describe("third run - now advanced past the interval", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    await runComplianceReminders(NOW);
+    await runClearanceReminders(NOW);
     const now2 = advanceNow(ADVANCE_DAYS);
-    const result = await runComplianceReminders(now2);
+    const result = await runClearanceReminders(now2);
 
-    expect(result.remindersSent).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(1);
     expect(await emailLogCount("compliance-reminder")).toBe(2);
 
     const row = await getReminderRow(person.id);
     expect(row!.remindersSent).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Escalation threshold reached on a past-interval run
-// ---------------------------------------------------------------------------
-
-describe("escalation at threshold", () => {
-  it("sends escalation to director at remindersSent=3, then no second escalation on next run", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Alice", "alice@example.com");
-    const director = await createPerson("Director Bob", "bob@example.com");
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give the director a compliant cert so they are not a reminder candidate themselves.
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Run 1: remindersSent=1 (no escalation; threshold is 3)
-    await runComplianceReminders(NOW);
-    // Run 2: remindersSent=2
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    // Run 3: remindersSent=3 => threshold reached, escalation fires
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.remindersSent).toBe(1);
-    expect(r3.escalationsSent).toBe(1);
-
-    expect(await emailLogCount("compliance-reminder")).toBe(3);
-    expect(await emailLogCount("compliance-escalation")).toBe(1);
-
-    const row = await getReminderRow(volunteer.id);
-    expect(row!.remindersSent).toBe(3);
-    expect(row!.escalatedAt).not.toBeNull();
-
-    // Run 4: past-interval again. Another reminder is sent but NOT another escalation
-    const r4 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 3));
-
-    expect(r4.remindersSent).toBe(1);
-    expect(r4.escalationsSent).toBe(0);
-
-    expect(await emailLogCount("compliance-escalation")).toBe(1); // still only 1
-    const row4 = await getReminderRow(volunteer.id);
-    expect(row4!.remindersSent).toBe(4);
-  });
-
-  it("deep-links the escalation notification to /volunteers, a page directors can open, not /admin (#70)", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-    const volunteer = await createPerson("Alice", "alice@example.com");
-    const director = await createPerson("Director Bob", "bob@example.com");
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Three runs reach the escalation threshold and notify the director.
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    const notif = await prisma.notification.findFirstOrThrow({
-      where: { personId: director.id, type: "compliance-escalation" },
-    });
-    // The seeded Director baseline holds volunteers.view (the /volunteers compliance
-    // surface) but NOT admin.access, so the old /admin link resolved to /no-access
-    // for the escalation's entire intended audience.
-    expect(notif.link).toMatch(/\/volunteers$/);
-    expect(notif.link).not.toContain("/admin");
   });
 });
 
@@ -326,7 +272,7 @@ describe("COMPLIANT reset", () => {
     await addCert(person.id, EXPIRED_COMPLETION);
 
     // Build up a non-zero reminder row
-    await runComplianceReminders(NOW);
+    await runClearanceReminders(NOW);
     const emailsBefore = await emailLogCount("compliance-reminder");
     expect(emailsBefore).toBe(1);
 
@@ -336,19 +282,16 @@ describe("COMPLIANT reset", () => {
       data: { completionDate: COMPLIANT_COMPLETION },
     });
 
-    const result = await runComplianceReminders(advanceNow(ADVANCE_DAYS));
+    const result = await runClearanceReminders(advanceNow(ADVANCE_DAYS));
 
     expect(result.reset).toBe(1);
-    expect(result.remindersSent).toBe(0);
-    expect(result.escalationsSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
     // No new email after reset
     expect(await emailLogCount("compliance-reminder")).toBe(emailsBefore);
 
     const row = await getReminderRow(person.id);
     expect(row!.remindersSent).toBe(0);
     expect(row!.lastRemindedAt).toBeNull();
-    expect(row!.lastStatus).toBeNull();
-    expect(row!.escalatedAt).toBeNull();
   });
 });
 
@@ -371,16 +314,17 @@ describe("NO_CERTIFICATE and UNKNOWN_DATE persons", () => {
     await addCert(unknownDate.id, null);
     // noCert has no cert at all
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(2);
+    expect(result.hipaaRemindersSent).toBe(2);
     expect(await emailLogCount("compliance-reminder")).toBe(2);
 
+    // Each is claimed independently: one row apiece, each counted once.
     const noCertRow = await getReminderRow(noCert.id);
-    expect(noCertRow!.lastStatus).toBe("NO_CERTIFICATE");
+    expect(noCertRow!.remindersSent).toBe(1);
 
     const unknownRow = await getReminderRow(unknownDate.id);
-    expect(unknownRow!.lastStatus).toBe("UNKNOWN_DATE");
+    expect(unknownRow!.remindersSent).toBe(1);
   });
 });
 
@@ -389,145 +333,26 @@ describe("NO_CERTIFICATE and UNKNOWN_DATE persons", () => {
 // ---------------------------------------------------------------------------
 
 describe("person with no contactEmail", () => {
-  it("is skipped, no row created, skipped counter incremented", async () => {
+  it("is skipped and never counted as reminded, but is still marked stalled", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("NoEmail Person", null); // no contactEmail
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
     expect(result.skipped).toBeGreaterThanOrEqual(1);
-    expect(result.remindersSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
     expect(await emailLogCount("compliance-reminder")).toBe(0);
-    // No row should be created for the no-email person
-    expect(await getReminderRow(person.id)).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Director escalation: excludes the volunteer themselves
-// ---------------------------------------------------------------------------
-
-describe("escalation excludes the volunteer when they are also a director", () => {
-  it("does not send an escalation to the volunteer-director themselves", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    // person is both VOLUNTEER and DIRECTOR in the same dept
-    const selfDirector = await createPerson("SelfDirector", "self@example.com");
-    await addMembership(selfDirector.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(selfDirector.id, term.id, dept.id, "DIRECTOR");
-    await addCert(selfDirector.id, EXPIRED_COMPLETION);
-
-    // run 3 times to reach threshold
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    // No escalation email should be sent because the only director IS the volunteer
-    expect(r3.escalationsSent).toBe(0);
-    expect(await emailLogCount("compliance-escalation")).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Director escalation deduplication: director of two of volunteer's departments
-// ---------------------------------------------------------------------------
-
-describe("director who directs two of the volunteer's departments gets only one escalation email", () => {
-  it("sends exactly one compliance-escalation to a shared director", async () => {
-    const term = await createTerm();
-    const deptA = await createDepartment("ANAT");
-    const deptB = await createDepartment("BIOL");
-
-    const volunteer = await createPerson("MultiDept Volunteer", "vol@example.com");
-    const director = await createPerson("Shared Director", "dir@example.com");
-
-    // volunteer is in BOTH departments
-    await addMembership(volunteer.id, term.id, deptA.id, "VOLUNTEER");
-    await addMembership(volunteer.id, term.id, deptB.id, "VOLUNTEER");
-
-    // director directs BOTH departments
-    await addMembership(director.id, term.id, deptA.id, "DIRECTOR");
-    await addMembership(director.id, term.id, deptB.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give director a compliant cert so they are not a reminder candidate themselves.
-    await addCert(director.id, COMPLIANT_COMPLETION);
-
-    // Three runs to reach escalation threshold
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    // Director is deduped to exactly 1 escalation email (not 2)
-    expect(r3.escalationsSent).toBe(1);
-    expect(await emailLogCount("compliance-escalation")).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Multiple directors in same department
-// ---------------------------------------------------------------------------
-
-describe("multiple directors in the volunteer's department", () => {
-  it("sends one escalation email per director", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Volunteer", "vol@example.com");
-    const dir1 = await createPerson("Director One", "dir1@example.com");
-    const dir2 = await createPerson("Director Two", "dir2@example.com");
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(dir1.id, term.id, dept.id, "DIRECTOR");
-    await addMembership(dir2.id, term.id, dept.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-    // Give directors compliant certs so they are not reminder candidates themselves.
-    await addCert(dir1.id, COMPLIANT_COMPLETION);
-    await addCert(dir2.id, COMPLIANT_COMPLETION);
-
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.escalationsSent).toBe(2);
-    expect(await emailLogCount("compliance-escalation")).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Director without contactEmail is skipped in escalation
-// ---------------------------------------------------------------------------
-
-describe("director with no contactEmail", () => {
-  it("is skipped in escalation, escalationsSent is 0", async () => {
-    const term = await createTerm();
-    const dept = await createDepartment("PCAR");
-
-    const volunteer = await createPerson("Volunteer", "vol@example.com");
-    const director = await createPerson("No Email Director", null); // no contactEmail
-
-    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
-    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
-
-    await addCert(volunteer.id, EXPIRED_COMPLETION);
-
-    await runComplianceReminders(NOW);
-    await runComplianceReminders(advanceNow(ADVANCE_DAYS));
-    const r3 = await runComplianceReminders(advanceNow(ADVANCE_DAYS * 2));
-
-    expect(r3.escalationsSent).toBe(0);
-    expect(await emailLogCount("compliance-escalation")).toBe(0);
-
-    // escalatedAt must be set even when no director email goes out: the threshold
-    // was met and we attempted escalation, so the once-per-streak guard must fire.
-    const row = await getReminderRow(volunteer.id);
-    expect(row!.remindersSent).toBe(3);
-    expect(row!.escalatedAt).not.toBeNull();
+    // The row now exists and carries stalledSince even though nothing was sent: an
+    // unreachable member is precisely who the weekly director digest must surface.
+    // What must NOT happen is being counted as reminded.
+    const row = await getReminderRow(person.id);
+    expect(row).not.toBeNull();
+    expect(row!.stalledSince).not.toBeNull();
+    expect(row!.remindersSent).toBe(0);
+    expect(row!.lastRemindedAt).toBeNull();
   });
 });
 
@@ -543,9 +368,9 @@ describe("COMPLIANT person with no existing reminder row", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, COMPLIANT_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
     expect(result.reset).toBe(0);
     expect(result.skipped).toBe(0);
     expect(await emailLogCount("compliance-reminder")).toBe(0);
@@ -566,20 +391,18 @@ describe("COMPLIANT person with already-zeroed reminder row", () => {
     await addCert(person.id, COMPLIANT_COMPLETION);
 
     // Create a zeroed reminder row manually
-    await prisma.complianceReminder.create({
+    await prisma.memberReminderState.create({
       data: {
         personId: person.id,
         remindersSent: 0,
         lastRemindedAt: null,
-        lastStatus: null,
-        escalatedAt: null,
       },
     });
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
     expect(result.reset).toBe(0);
-    expect(result.remindersSent).toBe(0);
+    expect(result.hipaaRemindersSent).toBe(0);
   });
 });
 
@@ -595,11 +418,11 @@ describe("EXPIRING_SOON person", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRING_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(1);
     const row = await getReminderRow(person.id);
-    expect(row!.lastStatus).toBe("EXPIRING_SOON");
+    expect(row!.remindersSent).toBe(1);
   });
 });
 
@@ -623,11 +446,11 @@ describe("Teams channel routing", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    await runComplianceReminders(NOW);
+    await runClearanceReminders(NOW);
 
     const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
     expect(teams).not.toBeNull();
-    expect(teams?.title).toBe("Compliance reminder");
+    expect(teams?.title).toBe("HIPAA certification reminder");
   });
 
   // #132: under the shipped default channel ("email"), notify() queues nothing
@@ -647,14 +470,16 @@ describe("Teams channel routing", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
     expect(result.skipped).toBeGreaterThanOrEqual(1);
-    expect(result.remindersSent).toBe(0);
-    // Nothing was queued on any channel, and no reminder-state row was created.
+    expect(result.hipaaRemindersSent).toBe(0);
+    // Nothing was queued on any channel, and the claim was never taken.
     expect(await emailLogCount("compliance-reminder")).toBe(0);
     expect(await prisma.teamsMessage.count({ where: { type: "compliance-reminder" } })).toBe(0);
-    expect(await getReminderRow(person.id)).toBeNull();
+    const row = await getReminderRow(person.id);
+    expect(row!.remindersSent).toBe(0);
+    expect(row!.lastRemindedAt).toBeNull();
   });
 
   it("reminds a Teams-only member (no contactEmail) when the channel is teams", async () => {
@@ -670,20 +495,26 @@ describe("Teams channel routing", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, EXPIRED_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(1);
     const teams = await prisma.teamsMessage.findFirst({ where: { type: "compliance-reminder" } });
     expect(teams).not.toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// HIPAA-compliant person with an EHS gap still receives a compliance-reminder
+// A non-HIPAA gap no longer produces a compliance-reminder
+//
+// These two cases used to assert the opposite: the bundled reminder covered EHS and
+// profile as well, so a HIPAA-compliant member with either gap still received one.
+// The split moves that copy to the onboarding-reminder stream, so this template must
+// now stay silent. The positive coverage (an onboarding-reminder IS sent) lands with
+// the onboarding leg.
 // ---------------------------------------------------------------------------
 
-describe("EHS gap reminder", () => {
-  it("sends a compliance-reminder to a HIPAA-compliant person who has a missing EHS training", async () => {
+describe("EHS gap no longer triggers the HIPAA reminder", () => {
+  it("sends no compliance-reminder to a HIPAA-compliant person who has a missing EHS training", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("EHS Gap Volunteer", "ehsgap@example.com");
@@ -696,21 +527,15 @@ describe("EHS gap reminder", () => {
     const actor = await prisma.person.create({ data: { name: "EHS Admin", status: "ACTIVE" } });
     await createTraining({ name: "BBP Clinical", requiredForAll: true }, actor.id);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
-    const emailCount = await emailLogCount("compliance-reminder");
-    expect(emailCount).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// HIPAA-compliant person with an incomplete profile still receives a reminder
-// (full-clearance coverage: the reminder now spans profile/training/learning too)
-// ---------------------------------------------------------------------------
-
-describe("profile gap reminder", () => {
-  it("sends a compliance-reminder to a HIPAA-compliant person whose profile is incomplete", async () => {
+describe("profile gap no longer triggers the HIPAA reminder", () => {
+  it("sends no compliance-reminder to a HIPAA-compliant person whose profile is incomplete", async () => {
     const term = await createTerm();
     const dept = await createDepartment("PCAR");
     const person = await createPerson("Profile Gap Volunteer", "profilegap@example.com");
@@ -719,9 +544,283 @@ describe("profile gap reminder", () => {
     await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
     await addCert(person.id, COMPLIANT_COMPLETION);
 
-    const result = await runComplianceReminders(NOW);
+    const result = await runClearanceReminders(NOW);
 
-    expect(result.remindersSent).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stream separation: each leg fires only for its own gap
+// ---------------------------------------------------------------------------
+
+describe("stream separation", () => {
+  it("sends only a HIPAA reminder when HIPAA is the sole gap", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(1);
+    expect(result.onboardingRemindersSent).toBe(0);
     expect(await emailLogCount("compliance-reminder")).toBe(1);
+    expect(await emailLogCount("onboarding-reminder")).toBe(0);
+  });
+
+  it("sends only an onboarding reminder when HIPAA is current but the profile is incomplete", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    // No phone: createPerson defaults one, so clear it to open the profile gap.
+    const person = await createPerson("Alice", "alice@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(result.onboardingRemindersSent).toBe(1);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+    expect(await emailLogCount("onboarding-reminder")).toBe(1);
+  });
+
+  it("keeps nudging an EXPIRING_SOON certificate even though clearance treats it as complete", async () => {
+    // deriveHipaaTaskState maps EXPIRING_SOON to COMPLETE, so `hipaa` is absent from
+    // ClearanceSummary.missing. The HIPAA leg must read `status` directly, or the
+    // renewal nudge silently disappears.
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRING_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(1);
+    expect(await emailLogCount("compliance-reminder")).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Independent cadences: the onboarding leg is much faster than the HIPAA one
+// ---------------------------------------------------------------------------
+
+describe("independent cadences", () => {
+  it("sends the onboarding reminder daily while the HIPAA reminder waits out its 7-day window", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    await runClearanceReminders(NOW);
+    // Two days later: past the 1-day onboarding interval, inside the 7-day HIPAA one.
+    // Not one day: the claim is a strict `lastRemindedAt < now - interval`, so at
+    // exactly +1 day the cutoff equals the stamp and the claim correctly loses.
+    const result = await runClearanceReminders(advanceNow(2));
+
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(result.onboardingRemindersSent).toBe(1);
+    expect(await emailLogCount("compliance-reminder")).toBe(1);
+    expect(await emailLogCount("onboarding-reminder")).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Onboarding grace period
+// ---------------------------------------------------------------------------
+
+describe("onboarding grace period", () => {
+  it("suppresses the onboarding reminder for a member whose membership is a day old", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(person.id, new Date(NOW.getTime() - 1 * MS_PER_DAY));
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.onboardingRemindersSent).toBe(0);
+    expect(await emailLogCount("onboarding-reminder")).toBe(0);
+  });
+
+  it("releases the member once the grace period has elapsed", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(person.id, new Date(NOW.getTime() - 3 * MS_PER_DAY));
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.onboardingRemindersSent).toBe(1);
+  });
+
+  it("does not gate the HIPAA reminder on the grace period", async () => {
+    // An expired certificate is urgent regardless of how new the member is.
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+    await backdateMemberships(person.id, new Date(NOW.getTime() - 1 * MS_PER_DAY));
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stalledSince: stamped on the first nag, cleared when both legs are satisfied
+// ---------------------------------------------------------------------------
+
+describe("stalledSince", () => {
+  it("stamps on the first nag and holds steady across later runs", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    await runClearanceReminders(NOW);
+    const first = (await getReminderRow(person.id))!.stalledSince;
+    expect(first).not.toBeNull();
+
+    await runClearanceReminders(advanceNow(ADVANCE_DAYS));
+    expect((await getReminderRow(person.id))!.stalledSince?.getTime()).toBe(first?.getTime());
+  });
+
+  it("clears when both legs are satisfied", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Alice", "alice@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EXPIRED_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    await runClearanceReminders(NOW);
+    // Replace the expired cert with a compliant one.
+    await prisma.hipaaCertificate.deleteMany({ where: { personId: person.id } });
+    await addCert(person.id, COMPLIANT_COMPLETION);
+
+    const result = await runClearanceReminders(advanceNow(ADVANCE_DAYS));
+
+    expect(result.reset).toBe(1);
+    const row = await getReminderRow(person.id);
+    expect(row!.stalledSince).toBeNull();
+    expect(row!.remindersSent).toBe(0);
+    expect(row!.onboardingRemindersSent).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekly per-director clearance digest
+// ---------------------------------------------------------------------------
+
+describe("weekly clearance digest", () => {
+  it("sends one digest per director per ISO week across repeated daily runs", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const volunteer = await createPerson("Alice", "alice@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    // NOW is 2026-06-01, a Monday (ISO week 2026-W23). Run every day of that week.
+    for (let d = 0; d < 7; d++) {
+      await runClearanceReminders(advanceNow(d));
+    }
+    expect(await emailLogCount("clearance-digest")).toBe(1);
+
+    // The following Monday opens a new ISO week and a second digest.
+    await runClearanceReminders(advanceNow(7));
+    expect(await emailLogCount("clearance-digest")).toBe(2);
+  });
+
+  it("sends one digest covering both departments to a director of two", async () => {
+    const term = await createTerm();
+    const pcar = await createDepartment("PCAR");
+    const jctp = await createDepartment("JCTP");
+    const a = await createPerson("Alice", "alice@example.com");
+    const b = await createPerson("Bella", "bella@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(a.id, term.id, pcar.id, "VOLUNTEER");
+    await addMembership(b.id, term.id, jctp.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, pcar.id, "DIRECTOR");
+    await addMembership(director.id, term.id, jctp.id, "DIRECTOR");
+    await addCert(a.id, EXPIRED_COMPLETION);
+    await addCert(b.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    for (const p of [a, b, director]) await backdateMemberships(p.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.digestsSent).toBe(1);
+    expect(await emailLogCount("clearance-digest")).toBe(1);
+    const digest = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "clearance-digest" },
+    });
+    expect(digest.html).toContain("Alice");
+    expect(digest.html).toContain("Bella");
+  });
+
+  it("skips a director whose departments are fully cleared", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const volunteer = await createPerson("Alice", "alice@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, COMPLIANT_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.digestsSent).toBe(0);
+    expect(await emailLogCount("clearance-digest")).toBe(0);
+  });
+
+  it("includes a member no channel can reach, which is exactly who a director must chase", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    // No contactEmail and no Teams identity: unreachable under every channel.
+    const volunteer = await createPerson("Ghost", null);
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(volunteer.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(volunteer.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(result.digestsSent).toBe(1);
+    const digest = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "clearance-digest" },
+    });
+    expect(digest.html).toContain("Ghost");
   });
 });

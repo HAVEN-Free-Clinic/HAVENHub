@@ -65,6 +65,22 @@ it("allows saveDraft inside the window", async () => {
   expect((await getDraft("win-inside", ID))?.answers).toEqual({ first_name: "Reed" });
 });
 
+it("surfaces a WITHDRAWN row as WITHDRAWN, not as a resumable draft", async () => {
+  // DraftView.status used to be typed "DRAFT" | "SUBMITTED" and getDraft cast to
+  // it, so the third enum value reached /apply/[slug] disguised as one of the two
+  // the wizard can act on, and the page handed a withdrawn applicant their old
+  // answers back. The status the page branches on is the real column value.
+  await openCycle("withdrawn-cyc");
+  await saveDraft("withdrawn-cyc", ID, { answers: { first_name: "Reed" } });
+  const draft = await getDraft("withdrawn-cyc", ID);
+  await prisma.application.update({
+    where: { id: draft!.applicationId },
+    data: { status: "WITHDRAWN", withdrawnAt: new Date() },
+  });
+
+  expect((await getDraft("withdrawn-cyc", ID))?.status).toBe("WITHDRAWN");
+});
+
 it("creates a draft on first save and updates it on the next", async () => {
   await openCycle();
   expect(await getDraft("draft-cyc", ID)).toBeNull();

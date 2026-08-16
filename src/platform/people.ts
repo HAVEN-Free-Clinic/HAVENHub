@@ -20,6 +20,22 @@
 import { Prisma, type Person } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
+// One sanctioned platform -> module import, the same shape as the onboarding
+// gate's exception in auth/session.ts and the clearance facade in
+// clearance.ts. setPersonStatusField is the SINGLE convergence point for
+// every offboard path (admin people page and the volunteers executeOffboard
+// flow both call here -- see the docstring below), and OFFBOARDABLE_TERM
+// means the current term's membership is about to become REMOVED. Snapshotting
+// the service record has to happen before that flip, or a graduating member's
+// final term is lost; there is no platform-owned home for that snapshot logic
+// to move to. See the call site below for why it runs before, but outside,
+// the offboard transaction.
+// eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
+import { issueServiceCredential } from "@/modules/passport/services/credential";
+// eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
+import { revokeWalletPasses } from "@/modules/passport/services/wallet-pass";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 
 /**
  * The terms an offboard is allowed to touch: everything except ARCHIVED.
@@ -86,9 +102,8 @@ export type PersonInput = {
   yaleAffiliation?: string | null;
   gradYear?: string | null;
   dietaryRestrictions?: string | null;
-  spanishSelfReported?: boolean;
-  spanishVerified?: boolean;
   licensedRN?: boolean;
+  blockerGateExempt?: boolean;
 };
 
 /**
@@ -128,13 +143,13 @@ export async function createPersonRecord(
         epicId: data.epicId ?? null,
         yaleAffiliation: data.yaleAffiliation ?? null,
         gradYear: data.gradYear ?? null,
-        spanishSelfReported: data.spanishSelfReported ?? false,
-        spanishVerified: data.spanishVerified ?? false,
         licensedRN: data.licensedRN ?? false,
-        // An admin setting "verified" on create is itself a verification event.
-        ...(data.spanishVerified
-          ? { spanishVerifiedAt: new Date(), spanishVerifiedById: actorPersonId }
-          : {}),
+        blockerGateExempt: data.blockerGateExempt ?? false,
+        // The spanishVerified-on-create branch that used to sit here is gone
+        // with the columns. A language is now a PersonLanguage row, and an
+        // admin creating a person does not assess one: recordLanguageAssessment
+        // is the only path that stamps a verification, so it stays attributable
+        // to the interpreting department rather than to whoever typed the form.
       },
     });
 
@@ -154,9 +169,8 @@ export async function createPersonRecord(
         epicId: person.epicId,
         yaleAffiliation: person.yaleAffiliation,
         gradYear: person.gradYear,
-        spanishSelfReported: person.spanishSelfReported,
-        spanishVerified: person.spanishVerified,
         licensedRN: person.licensedRN,
+        blockerGateExempt: person.blockerGateExempt,
       },
     });
 
@@ -182,9 +196,8 @@ export async function updatePersonFields(
     "yaleAffiliation",
     "gradYear",
     "dietaryRestrictions",
-    "spanishSelfReported",
-    "spanishVerified",
     "licensedRN",
+    "blockerGateExempt",
   ];
 
   try {
@@ -221,18 +234,9 @@ export async function updatePersonFields(
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
       }
-      // Verification stamping: setting verified true records who/when; clearing
-      // it returns the person to the interpreting-department review queue.
-      if (changedKeys.includes("spanishVerified")) {
-        if (data.spanishVerified) {
-          updateData.spanishVerifiedAt = new Date();
-          updateData.spanishVerifiedById = actorPersonId;
-        } else {
-          updateData.spanishVerifiedAt = null;
-          updateData.spanishVerifiedById = null;
-        }
-      }
-
+      // Language capability is no longer a Person column: it lives in
+      // PersonLanguage and is set through recordLanguageAssessment, which stamps
+      // the assessor and timestamp itself. There is nothing to mirror here.
       const updated = await tx.person.update({ where: { id: personId }, data: updateData });
       return { updated, changedKeys, beforeSnapshot };
     });
@@ -310,7 +314,10 @@ export async function setPersonStatusField(
   status: "ACTIVE" | "OFFBOARDED",
   opts: SetPersonStatusOptions = {}
 ): Promise<Person> {
-  const existingOrNull = await prisma.person.findUnique({ where: { id: personId } });
+  const existingOrNull = await prisma.person.findUnique({
+    where: { id: personId },
+    select: PERSON_SCALARS,
+  });
   if (!existingOrNull) throw new PersonNotFoundError(personId);
   const existing = existingOrNull;
 
@@ -329,11 +336,82 @@ export async function setPersonStatusField(
   // a second offboard call does not produce a duplicate (idempotent). On
   // reactivation the open DEACTIVATE request is cancelled: the person is back,
   // so revocation is no longer needed.
+  //
+  // Passport: offboarding also freezes a service-credential snapshot of the
+  // person's current record (see the try/catch immediately below) before the
+  // transaction removes their current term's membership.
+  //
+  // That snapshot is gated on this offboard being the one that actually removes
+  // something (see snapshotWorthTaking below): re-taking it overwrites the only
+  // copy with a strictly poorer one.
   let removedMemberships = 0;
   let cancelledEpicRequestIds: string[] = [];
   let deactivationRequestId: string | null = null;
   let cancelledDeactivationRequestIds: string[] = [];
   let cancelledShiftRequestCount = 0;
+
+  // The snapshot is gated, because re-taking it DESTROYS data. Issuance upserts
+  // the single ServiceCredential row and there is no history table, so whatever
+  // a re-snapshot computes replaces the previous one outright. And a second
+  // offboard can only ever compute LESS: the first one already flipped those
+  // memberships to REMOVED, and reactivation is status-only and deliberately
+  // does not restore them (see the comment above), so nothing can recompute the
+  // terms the first offboard removed. The snapshot IS the preservation
+  // mechanism. Two conditions, both required:
+  //
+  //   1. Not already OFFBOARDED. A repeat offboard of an offboarded person has
+  //      nothing new to preserve, and the older snapshot is the richer one.
+  //   2. This offboard is actually about to remove a membership. If the person
+  //      holds none in OFFBOARDABLE_TERM scope, the flip below destroys no
+  //      input, so a record computed after it is identical to one computed now
+  //      -- there is nothing to freeze, and freezing anyway is exactly how an
+  //      empty record lands on top of a good one (offboard, reactivate without
+  //      restoring memberships, offboard again).
+  //
+  // Recruitment-derived service needs no protection here either way:
+  // HistoricalApplication rows are untouched by an offboard, so that part of
+  // the record stays computable forever and the member can still issue it from
+  // /my-info.
+  //
+  // Reachable from executeOffboard and from a reactivated returning alum in
+  // promotion.ts as well, which is why the gate lives at this chokepoint and
+  // not at the call sites.
+  const snapshotWorthTaking =
+    status === "OFFBOARDED" &&
+    existing.status !== "OFFBOARDED" &&
+    (await prisma.termMembership.count({
+      where: { personId, status: "ACTIVE", ...OFFBOARDABLE_TERM },
+    })) > 0;
+
+  if (snapshotWorthTaking) {
+    // Freeze the service record while the current term's membership is still
+    // ACTIVE. OFFBOARDABLE_TERM scopes the sweep below (inside the transaction)
+    // to non-archived terms, so a graduating member's final term is about to
+    // become REMOVED and a record computed after that point would silently
+    // omit it. This has to run BEFORE the flip, but deliberately OUTSIDE the
+    // $transaction below: issueServiceCredential's audit write
+    // (recordAudit(..., tx)) is written to rethrow instead of swallow when
+    // passed a transaction client (see audit.ts), because Postgres marks a
+    // transaction aborted at the wire level the instant any statement in it
+    // fails -- so a caught-and-continued failure in here would still poison
+    // the transaction, and the very next statement (the termMembership
+    // updateMany) would blow up uncaught with "current transaction is
+    // aborted", rolling back the entire offboard. Calling it against the
+    // singleton client here means it runs on its own connection with its own
+    // best-effort audit (which swallows on that path), so nothing it does can
+    // touch the offboard transaction. It is an upsert, so if the transaction
+    // below is later aborted by assertInvariant, the snapshot just reflects
+    // this still-active person's current, accurate record and is safely
+    // overwritten by the next real issuance -- no incorrect state results.
+    //
+    // Best-effort: a credential failure must never block an offboard, which is
+    // a safety-relevant operation (it revokes access). Log and continue.
+    try {
+      await issueServiceCredential(personId);
+    } catch (error) {
+      log.error("[passport] offboard snapshot failed", errorAttrs(error, { personId }));
+    }
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     if (status === "OFFBOARDED") {
@@ -435,6 +513,18 @@ export async function setPersonStatusField(
         : { cancelledDeactivationRequestIds }),
     },
   });
+
+  // Outside the transaction on purpose: this makes a network call to the wallet
+  // vendor, and a timeout inside the transaction would hold a database
+  // connection open across a round trip and could roll back the offboard.
+  // Best-effort; the reconciliation cron retries anything that fails here.
+  if (status === "OFFBOARDED") {
+    try {
+      await revokeWalletPasses(personId);
+    } catch (error) {
+      log.error("[passport] offboard wallet revoke failed", errorAttrs(error, { personId }));
+    }
+  }
 
   return updated;
 }

@@ -13,6 +13,14 @@
  *
  * updatePersonFields (from @/platform/people) is used for all epicId writes:
  * it diffs and audits person.update. Do not duplicate that logic here.
+ *
+ * createTicket, completeRequest, and cancelEpicRequest also call into
+ * epic-ticket-sync.ts (onEpicSubmitted / onEpicResolved) once their own write
+ * has committed: any EpicRequest attached to a support ticket
+ * (EpicRequest.techRequestId) drives that TechRequest's status to
+ * AWAITING_YNHH on submission and back to IN_PROGRESS once nothing on it is
+ * still with YNHH. See that module's doc comment for the full transition
+ * rules -- this file never writes TechRequest.status directly.
  */
 
 import type { EpicRequest, YnhhTicket } from "@prisma/client";
@@ -24,6 +32,7 @@ import { updatePersonFields, PersonNotFoundError } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 import {
   epicOnboardingContext,
   epicActivationContext,
@@ -32,6 +41,7 @@ import {
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { onEpicSubmitted, onEpicResolved } from "./epic-ticket-sync";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -108,7 +118,10 @@ export async function createEpicRequest(
     throw new EpicForbiddenError("You can only submit an epic request for yourself.");
   }
 
-  const person = await prisma.person.findUnique({ where: { id: input.personId } });
+  const person = await prisma.person.findUnique({
+    where: { id: input.personId },
+    select: PERSON_SCALARS,
+  });
   if (!person) throw new EpicNotFoundError(`Person not found: ${input.personId}`);
   if (person.status !== "ACTIVE") {
     throw new EpicStateError("Cannot create an epic request for a non-ACTIVE person.");
@@ -232,6 +245,12 @@ export async function createTicket(
     after: { requestIds: input.requestIds },
   });
 
+  // See epic-ticket-sync.ts: moves every linked TechRequest among these
+  // requests to AWAITING_YNHH. Runs after the transaction above has
+  // committed, matching the rest of this file's "side effects after the
+  // write" ordering.
+  await onEpicSubmitted(actorPersonId, ticket.id);
+
   return ticket;
 }
 
@@ -310,7 +329,10 @@ export async function completeRequest(
     );
   }
 
-  const person = await prisma.person.findUnique({ where: { id: req.personId } });
+  const person = await prisma.person.findUnique({
+    where: { id: req.personId },
+    select: PERSON_SCALARS,
+  });
   if (!person) throw new EpicNotFoundError("Person for this request no longer exists.");
 
   // Access-granting kinds may only be completed for an ACTIVE person. This
@@ -368,6 +390,10 @@ export async function completeRequest(
     // For NEW/MODIFY record the epicId actually written; for RENEW and DEACTIVATE omit it (no write occurred).
     after: { kind: req.kind, epicId: writtenEpicId },
   });
+
+  // See epic-ticket-sync.ts: moves the linked TechRequest back to IN_PROGRESS
+  // once nothing attached to it is still SUBMITTED. Never auto-resolves.
+  await onEpicResolved(actorPersonId, requestId, "COMPLETED");
 }
 
 /**
@@ -424,6 +450,10 @@ export async function sendEpicEmail(
     // DEACTIVATE has no onboarding/activation/renewal email variant, so it maps
     // to undefined here (the epic email templates only model NEW/MODIFY/RENEW).
     kind: req.kind === "DEACTIVATE" ? undefined : req.kind,
+    // Read at send time, not baked into the template, so IT can update it the
+    // moment YNHH rotates it instead of waiting on a deploy. Only the activation
+    // email uses it; the other two context builders ignore it.
+    temporaryPassword: await getSetting<string>("epic.temporaryPassword"),
   };
 
   const contextBuilders: Record<EpicTemplateKey, (p: EpicEmailParams) => Record<string, unknown>> = {
@@ -503,6 +533,10 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
     entityId: requestId,
     after: { status: "CANCELLED" },
   });
+
+  // See epic-ticket-sync.ts: moves the linked TechRequest back to IN_PROGRESS
+  // once nothing attached to it is still SUBMITTED. Never auto-resolves.
+  await onEpicResolved(actorPersonId, requestId, "CANCELLED");
 }
 
 /**

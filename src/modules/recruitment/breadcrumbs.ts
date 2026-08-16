@@ -28,18 +28,39 @@ export type CycleSection = { label: string; slug: string };
  *
  *   Hub > Recruitment > {cycle title} [> {section}] [> {leaf}]
  *
- * The cycle crumb links to the cycle overview and the section crumb links to
- * the section index, so any crumb above the current page is navigable.
+ * The section crumb links to the section index, so any crumb above the current
+ * page is navigable.
+ *
+ * The cycle crumb links to the cycle overview only when `canOpenOverview` is
+ * true, because the overview enforces `recruitment.access`
+ * (`cycles/[id]/page.tsx`) while the cycle SUBTREE gate admits committee
+ * scorers and department-scoped reviewers who lack it. Three pages inside a
+ * cycle are reachable without that permission -- Applicants, an applicant
+ * detail, and Speed route -- and on those the overview link would bounce the
+ * viewer to /no-access.
+ *
+ * The cycles index already routes such viewers around the overview
+ * (`recruitment/page.tsx`: `hasAccess ? .../${id} : .../${id}/applicants`), so
+ * linking it here would reintroduce the dead end that page deliberately
+ * avoids. When the viewer cannot open it, the crumb keeps the cycle title as
+ * plain text and the section crumb below it remains the navigable step up.
+ *
+ * Defaults to true: the other eleven callers all sit behind
+ * `recruitment.access` and are unaffected. Same role-aware reasoning as
+ * `interviewDetailTrail` below.
  */
 export function cycleTrail(opts: {
   cycleId: string;
   cycleTitle: string;
   section?: CycleSection;
   leaf?: string;
+  canOpenOverview?: boolean;
 }): Crumb[] {
-  const { cycleId, cycleTitle, section, leaf } = opts;
+  const { cycleId, cycleTitle, section, leaf, canOpenOverview = true } = opts;
   const base = `/recruitment/cycles/${cycleId}`;
-  const crumbs = recruitmentTrail({ label: cycleTitle, href: base });
+  const crumbs = recruitmentTrail(
+    canOpenOverview ? { label: cycleTitle, href: base } : { label: cycleTitle },
+  );
   if (section) crumbs.push({ label: section.label, href: `${base}/${section.slug}` });
   if (leaf) crumbs.push({ label: leaf });
   return crumbs;

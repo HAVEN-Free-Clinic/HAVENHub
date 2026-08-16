@@ -12,14 +12,17 @@
  *     support.manage_requests holder.
  *   - Cycles: no result without recruitment capability; results for a
  *     recruitment.access holder.
+ *   - Recruitment history: gated identically to Cycles, and the one group that
+ *     can surface someone who has no Person row at all.
  *   - A query under two characters always returns [].
- *   - Never surfaces a group outside People/Cycles/Requests (no incidents,
- *     applications, applicants).
+ *   - Never surfaces a group outside the four in ENTITY_GROUPS (no incidents,
+ *     applications, live applicants).
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { ENTITY_GROUPS } from "@/platform/search/types";
 import { searchEntities } from "./entities";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +47,29 @@ async function grantPermission(personId: string, permission: string) {
     },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
+}
+
+/**
+ * An imported historical identity. firstName/lastName default to empty strings
+ * rather than null because that is what the interest-form import wrote: both
+ * columns are NOT NULL, so "nameless" is two empty strings.
+ */
+async function createHistorical(opts: {
+  firstName?: string;
+  lastName?: string;
+  primaryEmail: string;
+  netId?: string;
+  otherEmails?: string[];
+}) {
+  return prisma.historicalApplicant.create({
+    data: {
+      firstName: opts.firstName ?? "",
+      lastName: opts.lastName ?? "",
+      primaryEmail: opts.primaryEmail,
+      netId: opts.netId ?? null,
+      emails: { create: [opts.primaryEmail, ...(opts.otherEmails ?? [])].map((email) => ({ email })) },
+    },
+  });
 }
 
 /** A minimal active Term, needed as a RecruitmentCycle FK. */
@@ -201,11 +227,94 @@ describe("searchEntities permission scoping", () => {
     expect(hits.filter((h) => h.group === "Cycles")).toEqual([]);
   });
 
-  it("never returns a group outside People, Cycles, or Requests", async () => {
+  it("returns no recruitment history to someone with no recruitment capability", async () => {
+    await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    const hits = await searchEntities(plain, "Lovelace");
+    expect(hits.filter((h) => h.group === "Recruitment history")).toEqual([]);
+  });
+
+  it("returns no recruitment history to a recruitment.score-only viewer", async () => {
+    // Same reasoning as the Cycles case above: /recruitment/history and its
+    // detail page both require recruitment.access outright, so a score-only
+    // reviewer would get names that bounce to /no-access on click.
+    await grantPermission(admin, "recruitment.score");
+    await createHistorical({ firstName: "Ada", lastName: "Lovelace", primaryEmail: "ada@yale.edu" });
+    const hits = await searchEntities(admin, "Lovelace");
+    expect(hits.filter((h) => h.group === "Recruitment history")).toEqual([]);
+  });
+
+  // The point of the whole group: someone who applied years ago and never
+  // joined has no Person row, so no amount of People searching finds them.
+  it("finds a past applicant who has no Person row at all", async () => {
+    await grantPermission(admin, "recruitment.access");
+    const ghost = await createHistorical({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      primaryEmail: "ada@yale.edu",
+      netId: "al2345",
+    });
+    // The full name, because that is what someone actually types into a
+    // palette, and it is stored across two columns so neither one contains it.
+    const hits = await searchEntities(admin, "Ada Lovelace");
+    const hit = hits.find((h) => h.group === "Recruitment history");
+    expect(hit?.id).toBe(ghost.id);
+    expect(hit?.label).toBe("Ada Lovelace");
+    expect(hit?.href).toBe(`/recruitment/history/${ghost.id}`);
+    // NetID is the strongest disambiguator between two identical names.
+    expect(hit?.sub).toBe("al2345");
+  });
+
+  it("finds a past applicant by NetID and by a secondary email", async () => {
+    await grantPermission(admin, "recruitment.access");
+    const ghost = await createHistorical({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      primaryEmail: "ada@yale.edu",
+      netId: "al2345",
+      otherEmails: ["ada.lovelace@gmail.com"],
+    });
+    for (const term of ["al2345", "lovelace@gmail"]) {
+      const hits = await searchEntities(admin, term);
+      expect(hits.find((h) => h.group === "Recruitment history")?.id).toBe(ghost.id);
+    }
+  });
+
+  // 151 imported identities have empty-string names. They stay findable by
+  // email, label as that email, and must not repeat it in the sub-line.
+  it("labels a nameless identity with its email and does not repeat it in the sub-line", async () => {
+    await grantPermission(admin, "recruitment.access");
+    const ghost = await createHistorical({ primaryEmail: "ghost@yale.edu" });
+    const hits = await searchEntities(admin, "ghost");
+    const hit = hits.find((h) => h.group === "Recruitment history");
+    expect(hit?.id).toBe(ghost.id);
+    expect(hit?.label).toBe("ghost@yale.edu");
+    expect(hit?.sub).toBeNull();
+  });
+
+  // The #534 shape, at the palette's much tighter cap of 5: nameless rows sort
+  // ahead of every real name on lastName asc, so an unsplit query would fill
+  // the whole group with them and the named match would never be seen.
+  it("ranks named identities ahead of nameless ones within the per-group cap", async () => {
+    await grantPermission(admin, "recruitment.access");
+    for (let i = 0; i < 6; i++) {
+      await createHistorical({ primaryEmail: `nameless${i}@yale.edu` });
+    }
+    const named = await createHistorical({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      primaryEmail: "ada@yale.edu",
+    });
+    const history = (await searchEntities(admin, "yale.edu")).filter(
+      (h) => h.group === "Recruitment history",
+    );
+    expect(history[0]?.id).toBe(named.id);
+  });
+
+  it("never returns a group outside the four in ENTITY_GROUPS", async () => {
     await grantPermission(admin, "*");
     const hits = await searchEntities(admin, "ab");
     const groups = new Set(hits.map((h) => h.group));
-    for (const g of groups) expect(["People", "Cycles", "Requests"]).toContain(g);
+    for (const g of groups) expect(ENTITY_GROUPS).toContain(g);
   });
 
   it("returns nothing for a query under two characters", async () => {

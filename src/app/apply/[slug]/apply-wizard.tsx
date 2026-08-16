@@ -9,7 +9,7 @@ import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
-import { Button, buttonClasses } from "@/platform/ui/button";
+import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Field, ReadonlyField } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
@@ -20,6 +20,7 @@ import { prefillString } from "@/modules/recruitment/components/field-prefill";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { cx } from "@/platform/ui/cx";
 import { PortalNotice } from "../portal-notice";
+import { YaleSignInButton } from "../yale-sign-in-button";
 
 type Def = {
   slug: string;
@@ -174,7 +175,6 @@ export function ApplyWizard({
   });
 
   const lockedKeys = useMemo(() => new Set(prefill?.lockedKeys ?? []), [prefill]);
-  const loginHref = `/login?callbackUrl=${encodeURIComponent(`/apply/${def.slug}?type=renewal`)}`;
   const renewalGate = applicantType === "RENEWAL" && !signedIn;
   const roleNoun = def.track === "DIRECTOR" ? "director" : "volunteer";
   // Resolves a department code to its display name through the same
@@ -540,7 +540,11 @@ export function ApplyWizard({
             {renewalGate && (
               <Card className="space-y-3">
                 <p className="text-sm text-foreground">Returning {roleNoun}s sign in with Yale so we can verify your renewal and fill in your information.</p>
-                <a href={loginHref} className={buttonClasses("primary", "lg", "w-full sm:w-auto")}>Sign in with Yale</a>
+                {/* The button lives inside a <form> (block-level), so sm:w-auto
+                    would not shrink-wrap it the way it did on the old inline-flex
+                    <a>. sm:w-fit makes the block form hug the inner w-full
+                    Button's natural content width instead. */}
+                <YaleSignInButton next={`/apply/${def.slug}?type=renewal`} className="w-full sm:w-fit" />
               </Card>
             )}
           </>

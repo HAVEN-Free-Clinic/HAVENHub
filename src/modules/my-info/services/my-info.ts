@@ -33,6 +33,8 @@ import { extractCompletionDate } from "@/platform/compliance/parser";
 import type { ParsedDate } from "@/platform/compliance/parser";
 import { notifyDatelessCertReview, notifyCertNeedsVerification } from "@/platform/compliance/review-notifications";
 import { recordSelfWithdrawal } from "@/platform/offboarding/self-withdrawal";
+import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
+import { activeTermGroup } from "@/platform/posthog/groups";
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -250,6 +252,24 @@ export async function withdrawFromTerm(personId: string, reason?: string | null)
     entityType: "Person",
     entityId: personId,
     after: { termId: activeTerm.id, count, reason: cleanReason },
+  });
+
+  // Fires only past the `count === 0` return above, so it counts real departures
+  // rather than no-op clicks. The reason is free text a member typed, so only its
+  // presence is sent -- never the text. A department group is attached only when
+  // exactly one department is leaving, per the rule in posthog/groups.ts.
+  await captureEvent({
+    distinctId: personId,
+    event: "volunteer_self_withdrew",
+    properties: {
+      membership_count: count,
+      department_count: departmentCodes.length,
+      departments: departmentCodes.join(","),
+      has_reason: !!cleanReason,
+    },
+    groups: await activeTermGroup(
+      departmentCodes.length === 1 ? { [GROUP_DEPARTMENT]: departmentCodes[0] } : undefined,
+    ),
   });
 
   try {

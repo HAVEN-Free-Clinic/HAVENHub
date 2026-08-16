@@ -61,6 +61,12 @@ export default defineConfig({
     env: {
       DATABASE_URL: databaseUrl,
       DATABASE_URL_UNPOOLED: databaseUrlUnpooled,
+      // Keeps the content blocker gate out of the suite. It mounts only when
+      // this is set, and a modal that cannot be dismissed would fail every spec
+      // behind it. Cleared explicitly rather than left to chance: the env below
+      // is merged OVER process.env, so a value in the developer's own shell (set
+      // to verify the gate by hand) would otherwise reach the dev server.
+      NEXT_PUBLIC_INTERCOM_APP_ID: "",
     },
     // Caveat: when a server is already listening on 3100 this reuses it as-is,
     // and the guard above cannot vouch for a database it did not configure. Port

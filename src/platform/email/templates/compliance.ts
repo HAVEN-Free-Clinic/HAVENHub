@@ -1,11 +1,10 @@
 /**
  * Compliance email templates for HAVEN Hub.
  *
- * Two templates are provided:
- *   - compliance-reminder: sent directly to a volunteer whose HIPAA cert is
- *     expiring, expired, or missing.
- *   - compliance-escalation: sent to a department director when a volunteer
- *     has not responded to reminders.
+ * These cover the HIPAA certificate lifecycle: the member-facing reminder for a cert
+ * that is expiring, expired, or missing, the manager-facing date-review and
+ * verification-review notices, and the member-facing "your certificate is verified"
+ * confirmation. Everything else needed for clearance lives in ./clearance.ts.
  *
  * Each template is expressed as a TemplateDescriptor (for the registry + admin
  * UI) plus a typed context-builder function that maps the original params into
@@ -32,22 +31,6 @@ export type ComplianceReminderParams = {
   appUrl?: string;
   /** Resolved `branding.brandColor`, used for the CTA button background. */
   brandColor?: string;
-  /** Names of required EHS trainings the member has not yet completed. */
-  ehsMissing?: string[];
-  /** Other outstanding clearance items beyond HIPAA/EHS (profile, training, learning),
-   *  as ready-to-display sentences. */
-  otherItems?: string[];
-};
-
-export type ComplianceEscalationParams = {
-  directorName: string;
-  volunteerName: string;
-  departmentName: string;
-  status: ComplianceStatus;
-  /** Names of required EHS trainings the volunteer has not yet completed. */
-  ehsMissing?: string[];
-  /** Other outstanding clearance items beyond HIPAA/EHS (profile, training, learning). */
-  otherItems?: string[];
 };
 
 export type ComplianceDateReviewParams = {
@@ -67,13 +50,8 @@ function fmtDate(d: Date | null): string {
   return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
 }
 
-/** Render outstanding-item sentences as <li> rows for the {{{ otherItemsHtml }}} slot.
- *  Items are internal, hardcoded labels (no user input), so no escaping is needed. */
-function itemsToHtml(items: string[]): string {
-  return items.map((i) => `<li>${i}</li>`).join("");
-}
-
-const READABLE_STATUS: Record<ComplianceStatus, string> = {
+/** Short human phrase per HIPAA status. Consumed by the director-facing digest. */
+export const READABLE_STATUS: Record<ComplianceStatus, string> = {
   EXPIRING_SOON: "expiring soon",
   EXPIRED: "expired",
   NO_CERTIFICATE: "no certificate on file",
@@ -130,12 +108,9 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
       actionLine =
         "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance.";
       break;
-    case "COMPLIANT":
-      // HIPAA is current, but the person has outstanding EHS items (otherwise
-      // isFullyCompliant would have prevented a reminder from being sent).
-      statusLine = "Your HIPAA certificate is on file and current.";
-      actionLine = "No HIPAA action is needed from you right now.";
-      break;
+    // No COMPLIANT branch: the engine only calls this for a member whose HIPAA
+    // status is actually unsatisfied. A COMPLIANT status reaching here means the
+    // caller's gate is wrong, so the default throw below is the right answer.
     default:
       throw new Error(`Unexpected reminder status: ${p.status}`);
   }
@@ -147,35 +122,6 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
     showCta,
     ctaUrl: `${p.appUrl ?? ""}/my-info`,
     brandColor: p.brandColor ?? "",
-    ehsMissingList: (p.ehsMissing ?? []).join(", "),
-    hasEhsGap: (p.ehsMissing ?? []).length > 0,
-    otherItemsHtml: itemsToHtml(p.otherItems ?? []),
-    hasOtherItems: (p.otherItems ?? []).length > 0,
-  };
-}
-
-/**
- * Build the flat render-engine context for the compliance-escalation template.
- *
- * UNKNOWN_DATE and PENDING_VERIFICATION are waiting on a coordinator (to set the
- * completion date / verify the cert), so the volunteer cannot act on them. The
- * template must not tell the director the volunteer "has not responded" for
- * those statuses -- `hipaaPendingCoordinator` selects the non-blaming copy,
- * mirroring the reassurance the reminder already gives the volunteer.
- */
-export function complianceEscalationContext(p: ComplianceEscalationParams): Record<string, unknown> {
-  return {
-    directorName: p.directorName,
-    volunteerName: p.volunteerName,
-    departmentName: p.departmentName,
-    readableStatus: READABLE_STATUS[p.status],
-    ehsMissingList: (p.ehsMissing ?? []).join(", "),
-    hasEhsGap: (p.ehsMissing ?? []).length > 0,
-    otherItemsHtml: itemsToHtml(p.otherItems ?? []),
-    hasOtherItems: (p.otherItems ?? []).length > 0,
-    hipaaActionable: p.status !== "COMPLIANT",
-    hipaaPendingCoordinator:
-      p.status === "UNKNOWN_DATE" || p.status === "PENDING_VERIFICATION",
   };
 }
 
@@ -260,12 +206,8 @@ export const complianceDescriptors: TemplateDescriptor[] = [
         label: "Brand color for the call-to-action button background (hex)",
         sampleValue: "#00356b",
       },
-      { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
-      { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
-      { name: "otherItemsHtml", label: "Pre-rendered <li> rows for other outstanding items (profile, training, learning)", sampleValue: "<li>Complete your assigned learning courses</li>" },
-      { name: "hasOtherItems", label: "True when there are outstanding items beyond HIPAA/EHS", sampleValue: "false" },
     ],
-    defaultSubject: "[HAVEN] Compliance reminder",
+    defaultSubject: "[HAVEN] HIPAA certification reminder",
     defaultBody: `<p>Hello {{ personName }},</p>
 
 <p>{{ statusLine }}</p>
@@ -278,41 +220,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       <a href="{{ ctaUrl }}" style="display: inline-block; padding: 12px 24px; font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none;">Open HAVEN Hub &rarr;</a>
     </td>
   </tr>
-</table>{{else}}<p>{{ actionLine }}</p>{{/if}}{{#if hasEhsGap}}
-
-<p>Your EHS training is incomplete. The following item(s) still need to be completed: {{ ehsMissingList }}.</p><p>Please complete these through Yale EHS. Reach out to your director if you are unsure how.</p>{{/if}}{{#if hasOtherItems}}
-
-<p>You still have the following to finish before you are cleared to volunteer:</p>
-<ul>{{{ otherItemsHtml }}}</ul>{{/if}}
-
-<p>Thank you,<br>HAVEN Free Clinic</p>`,
-  },
-  {
-    key: "compliance-escalation",
-    name: "Compliance: escalation",
-    category: "transactional",
-    group: "compliance",
-    variables: [
-      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
-      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
-      { name: "departmentName", label: "Department name", sampleValue: "Cardiology" },
-      { name: "readableStatus", label: "Human-readable HIPAA compliance status", sampleValue: "expired" },
-      { name: "ehsMissingList", label: "Comma-separated list of missing required EHS training names", sampleValue: "Blood Borne Pathogens" },
-      { name: "hasEhsGap", label: "True when one or more required EHS trainings are incomplete", sampleValue: "false" },
-      { name: "hipaaActionable", label: "True when the HIPAA status itself is non-compliant (false when only EHS is outstanding)", sampleValue: "true" },
-      { name: "hipaaPendingCoordinator", label: "True when the HIPAA status is waiting on a coordinator (UNKNOWN_DATE / PENDING_VERIFICATION), so the volunteer cannot act", sampleValue: "false" },
-      { name: "otherItemsHtml", label: "Pre-rendered <li> rows for other outstanding items (profile, training, learning)", sampleValue: "<li>Finish this term's volunteer training</li>" },
-      { name: "hasOtherItems", label: "True when there are outstanding items beyond HIPAA/EHS", sampleValue: "false" },
-    ],
-    defaultSubject: "[HAVEN] Volunteer compliance needs attention",
-    defaultBody: `<p>Hello {{ directorName }},</p>
-
-{{#if hipaaActionable}}{{#if hipaaPendingCoordinator}}<p>{{ volunteerName }} in {{ departmentName }} has a HIPAA certificate on file that is pending action from the compliance team ({{ readableStatus }}). Only a coordinator can clear this, so no follow-up with {{ volunteerName }} is needed for HIPAA yet.</p>{{else}}<p>{{ volunteerName }} in {{ departmentName }} is not HIPAA compliant ({{ readableStatus }}) and has not responded to reminders. Please follow up.</p>{{/if}}{{else}}<p>{{ volunteerName }} in {{ departmentName }} has outstanding clearance requirements and has not responded to reminders. Please follow up.</p>{{/if}}{{#if hasEhsGap}}
-
-<p>Outstanding EHS training: {{ ehsMissingList }}.</p>{{/if}}{{#if hasOtherItems}}
-
-<p>Other outstanding items for {{ volunteerName }}:</p>
-<ul>{{{ otherItemsHtml }}}</ul>{{/if}}
+</table>{{else}}<p>{{ actionLine }}</p>{{/if}}
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

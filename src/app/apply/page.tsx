@@ -7,10 +7,11 @@ import { findReturningMember } from "@/modules/recruitment/services/returning-me
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { PortalShell } from "./portal-shell";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { StatusCard } from "./status-card";
 import { BrandBackdrop } from "@/platform/branding/brand-backdrop";
 import { HavenLogo } from "@/platform/ui/haven-logo";
-import { buttonClasses, Button } from "@/platform/ui/button";
+import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { cardClasses } from "@/platform/ui/card";
 import { getSetting } from "@/platform/settings/service";
@@ -19,11 +20,12 @@ import { SupportLink } from "@/platform/branding/support-link";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { cx } from "@/platform/ui/cx";
+import { YaleSignInButton } from "./yale-sign-in-button";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalHome({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
-  const { next } = await searchParams;
+export default async function PortalHome({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
+  const { next, error } = await searchParams;
   const identity = await getApplicantIdentity();
 
   if (!identity) {
@@ -37,7 +39,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     const safeNext = safeNextPath(next);
     const deepLink = safeNext === PORTAL_HOME ? undefined : safeNext;
     return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+      <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden p-6">
         <BrandBackdrop />
         <div className="glass-panel relative z-10 w-full max-w-md rounded-2xl p-8 shadow-xl">
           <HavenLogo className="mx-auto h-8 text-brand-fg" />
@@ -51,12 +53,13 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
             Sign in to start a new application, pick up where you left off, or check your status.
           </p>
 
-          <a
-            href={`/login?callbackUrl=${encodeURIComponent(safeNext)}`}
-            className={buttonClasses("primary", "lg", "mt-6 w-full")}
-          >
-            Sign in with Yale
-          </a>
+          {error === "signin" && (
+            <Alert tone="error" className="mt-6">
+              We couldn&apos;t sign you in with Yale. Please try again.
+            </Alert>
+          )}
+
+          <YaleSignInButton next={safeNext} className="mt-6" />
 
           <div className="mt-6 border-t border-border-subtle pt-6">
             <p className="mb-3 text-center text-sm text-muted-foreground">
@@ -71,6 +74,8 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
             </p>
           )}
         </div>
+
+        <CopyrightNotice tone="onBrand" className="relative z-10 text-center" />
       </div>
     );
   }

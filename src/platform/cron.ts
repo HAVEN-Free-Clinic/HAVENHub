@@ -16,24 +16,17 @@
  * how to re-provision the external schedules.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { constantTimeBearerMatch } from "./security";
 
 /**
  * Authorize a cron invocation. The external scheduler (cron-job.org) is
  * configured to send `Authorization: Bearer $CRON_SECRET` on every job. We fail
  * closed: no secret configured -> every request is rejected. The token is
- * compared in constant time so a forged header cannot recover the secret
- * byte-by-byte through response-timing differences.
+ * compared in constant time (see constantTimeBearerMatch) so a forged header
+ * cannot recover the secret byte-by-byte through response-timing differences.
  */
 export function authorizeCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
-  const provided = req.headers.get("authorization");
-  if (!provided) return false;
-  const expected = Buffer.from(`Bearer ${secret}`);
-  const actual = Buffer.from(provided);
-  // timingSafeEqual requires equal-length buffers, so guard length first. The
-  // expected length is fixed, so this comparison leaks no useful signal.
-  if (actual.length !== expected.length) return false;
-  return timingSafeEqual(actual, expected);
+  return constantTimeBearerMatch(req.headers.get("authorization"), secret);
 }

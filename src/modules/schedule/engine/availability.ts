@@ -50,3 +50,31 @@ export function isAvailableOn(t: AvailabilityTiers, date: Date): boolean {
   const queryKey = isoDateKey(date);
   return dates.some((d) => isoDateKey(d) === queryKey);
 }
+
+/**
+ * Is self-availability closed for a term?
+ *
+ * Availability is the input to building the schedule, so it is editable only
+ * until the term's clinics actually start. From the first clinic date onward
+ * the schedule is live and every change has to go through the swap/drop request
+ * flow, where a director approves it and the counterparty is notified. Letting a
+ * member silently withdraw their availability after that point would desync the
+ * roster from the schedule already published to the clinic.
+ *
+ * Compared as YYYY-MM-DD day keys, never as timestamps: clinic dates are
+ * noon-UTC calendar markers, so a raw instant comparison would leave the form
+ * open for the first twelve hours of the clinic day. `todayKey` must be the
+ * DISPLAY-zone day (displayTodayKey), not isoDateKey(new Date()), or the lock
+ * lands ~4 hours early each evening when UTC has already rolled over. Plain
+ * string comparison is correct for zero-padded ISO keys.
+ *
+ * A term with no clinic dates is never locked: there is nothing to be late for.
+ */
+export function isAvailabilityLocked(input: {
+  clinicDateKeys: string[];
+  todayKey: string;
+}): boolean {
+  if (input.clinicDateKeys.length === 0) return false;
+  const first = input.clinicDateKeys.reduce((a, b) => (a < b ? a : b));
+  return input.todayKey >= first;
+}

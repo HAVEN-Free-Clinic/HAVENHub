@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type HistoricalOutcome, type HistoricalStage, type Track } from "@prisma/client";
 import { readFileSync } from "node:fs";
 
 /** Playwright does not auto-load .env; read DATABASE_URL from env with a .env fallback. */
@@ -84,6 +84,33 @@ export async function seedComplianceMember(
   return { person, cleanup: () => cleanupPerson(person.id) };
 }
 
+/**
+ * A PLANNING term far enough in the future to win getNextTerm's
+ * `orderBy: { startDate: "desc" }`, so the transition report resolves to THIS
+ * term even on a dev database that already has one in planning.
+ */
+export async function seedPlanningTerm(code: string) {
+  const term = await prisma.term.create({
+    data: {
+      code,
+      name: `E2E Planning ${code}`,
+      startDate: new Date("2099-01-01"),
+      endDate: new Date("2099-05-01"),
+      status: "PLANNING",
+    },
+  });
+  return {
+    term,
+    cleanup: async () => {
+      await prisma.termMembership.deleteMany({ where: { termId: term.id } });
+      await prisma.offboardFlag.deleteMany({ where: { termId: term.id } });
+      await prisma.term.delete({ where: { id: term.id } }).catch((e) =>
+        console.warn("[e2e cleanup] term delete failed, row may be leaked:", e instanceof Error ? e.message : e),
+      );
+    },
+  };
+}
+
 export async function seedNotification(
   personId: string,
   opts: { type?: string; title?: string; body?: string; link?: string } = {}
@@ -136,17 +163,22 @@ export async function seedRhdAttending(
   opts: { scheduleName?: string; fullName?: string } = {}
 ) {
   const t = tag();
-  const attending = await prisma.rhdAttending.create({
+  // ONE clinic-wide roster: attendings belong to no department, they have a
+  // specialty. Reproductive health is used so the readiness panel has something
+  // to read; the seed provisions the specialty in every environment.
+  const specialty = await prisma.attendingSpecialty.findUnique({ where: { code: "RHD" } });
+  const attending = await prisma.attending.create({
     data: {
       scheduleName: opts.scheduleName ?? `E2E Attending ${t}`,
       fullName: opts.fullName ?? `E2E Attending ${t}`,
+      specialtyId: specialty?.id ?? null,
       isActive: true,
     },
   });
   return {
     attending,
     cleanup: () =>
-      prisma.rhdAttending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
+      prisma.attending.delete({ where: { id: attending.id } }).then(() => {}).catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
   };
 }
 
@@ -233,4 +265,220 @@ export async function seedCapacityConfig(
       }).catch((e) => console.warn("[e2e cleanup] capacity reset failed:", e instanceof Error ? e.message : e));
     },
   };
+}
+
+/**
+ * Seeds a HistoricalApplicant (+ one known email) from the Airtable-import
+ * history tables, optionally with a single prior-cycle HistoricalApplication,
+ * for the recruitment-history e2e coverage. Deleting the applicant cascades to
+ * its emails and applications (see the onDelete: Cascade relations in
+ * prisma/schema.prisma), so cleanup is a single delete.
+ *
+ * The email is stored lowercased: getApplicantHistory matches archive rows by
+ * lower-casing whatever email it is given, and matching "goes through the
+ * emails relation, never [primaryEmail]" per the model's own doc comment, so
+ * this mirrors what a real import produces.
+ */
+export async function seedHistoricalApplicant(opts: {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  netId?: string;
+  application?: {
+    cycleLabel: string;
+    cycleCode?: string;
+    track?: Track;
+    departmentChoices?: string[];
+    furthestStage?: HistoricalStage;
+    outcome?: HistoricalOutcome;
+    submittedAt?: Date;
+  };
+}) {
+  const t = tag();
+  const emailLower = opts.email.trim().toLowerCase();
+  const application = opts.application;
+  const applicant = await prisma.historicalApplicant.create({
+    data: {
+      firstName: opts.firstName ?? "E2E",
+      lastName: opts.lastName ?? `History ${t}`,
+      primaryEmail: emailLower,
+      netId: opts.netId ?? null,
+      emails: { create: [{ email: emailLower }] },
+      ...(application
+        ? {
+            applications: {
+              create: [
+                {
+                  sourceBaseId: "e2e",
+                  sourceTableId: "e2e",
+                  sourceRecordId: t,
+                  cycleCode: application.cycleCode ?? `E2E-${t}`,
+                  cycleLabel: application.cycleLabel,
+                  track: application.track ?? "VOLUNTEER",
+                  departmentChoices: application.departmentChoices ?? [],
+                  furthestStage: application.furthestStage ?? "APPLIED",
+                  outcome: application.outcome ?? "NO_DECISION",
+                  submittedAt: application.submittedAt ?? new Date("2023-09-01T00:00:00Z"),
+                },
+              ],
+            },
+          }
+        : {}),
+    },
+  });
+  return {
+    applicant,
+    cleanup: () =>
+      prisma.historicalApplicant
+        .delete({ where: { id: applicant.id } })
+        .then(() => {})
+        .catch((e) => console.warn("[e2e cleanup] delete failed, row may be leaked:", e instanceof Error ? e.message : e)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Clinic check-in fixtures
+// ---------------------------------------------------------------------------
+
+/** The app's configured display zone, mirroring getDisplayTimeZone's default
+ *  (a bare seed never writes this Setting row, so it falls back the same way
+ *  config.DISPLAY_TIME_ZONE does). Read directly rather than importing the
+ *  Next-only settings service into this standalone Prisma client. */
+async function resolveDisplayZone(): Promise<string> {
+  const row = await prisma.setting.findUnique({ where: { key: "display.timeZone" } });
+  return typeof row?.value === "string" && row.value.trim() ? row.value : "America/New_York";
+}
+
+/** Calendar day (YYYY-MM-DD) of `date` as it reads in `zone`. */
+function ymdInZone(date: Date, zone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** UTC calendar day of a noon-UTC-anchored clinic date, matching isoDateKey. */
+function isoDateKeyUTC(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Ensures "today" (the app's display-zone calendar day) is one of the active
+ * term's clinic dates. Check-in, attendance, and the dashboard's clinic-today
+ * card all gate on todaysClinicDate matching an entry in Term.clinicDates,
+ * and the seeded term's dates are a fixed range (or, on a bare-migrated DB,
+ * empty), so most days this needs a temporary date added to make check-in
+ * e2e-testable at all.
+ *
+ * Idempotent and non-destructive: when today already IS a seeded clinic date,
+ * this is a no-op and cleanup does nothing, so it never clobbers a real date.
+ */
+export async function seedTodayClinicDate() {
+  const term = await activeTerm();
+  const zone = await resolveDisplayZone();
+  const todayKey = ymdInZone(new Date(), zone);
+  const existing = term.clinicDates.find((d) => isoDateKeyUTC(d) === todayKey);
+  const clinicDate = existing ?? new Date(`${todayKey}T12:00:00Z`);
+
+  if (!existing) {
+    await prisma.term.update({
+      where: { id: term.id },
+      data: { clinicDates: [...term.clinicDates, clinicDate] },
+    });
+  }
+
+  return {
+    termId: term.id,
+    clinicDate,
+    todayKey,
+    cleanup: async () => {
+      if (existing) return;
+      await prisma.term
+        .update({ where: { id: term.id }, data: { clinicDates: term.clinicDates } })
+        .catch((e) => console.warn("[e2e cleanup] clinicDates restore failed:", e instanceof Error ? e.message : e));
+    },
+  };
+}
+
+/**
+ * An onboarded (gate-cleared), ACTIVE VOLUNTEER: phone set (clears the
+ * "profile" onboarding task) and a verified, currently-valid HIPAA cert
+ * (clears "hipaa"). A bare-seeded department has no Course, EhsTraining, or
+ * isTermTraining RecruitmentCycle rows, so training/learning/ehs all resolve
+ * NOT_REQUIRED -- these two are the only tasks that matter. Passes
+ * enforceOnboarding, so this person can sign themselves in via the dev-login
+ * credentials flow and reach any gated (app) route, not just be the *target*
+ * of another session's action (unlike seedComplianceMember, which never signs
+ * in as itself).
+ *
+ * The dev-login credentials provider only matches a person by a
+ * Yale-asserted email claim (see matchPersonByClaim step 3), so the
+ * contactEmail here MUST be @yale.edu or sign-in silently fails to match
+ * anyone.
+ *
+ * Pass `assignment` to also seed a ShiftAssignment for this person, which is
+ * what getCheckInState/fullSchedule use to treat them as scheduled today.
+ */
+export async function seedOnboardedVolunteer(
+  deptCode: string,
+  opts: {
+    assignment?: { clinicDate: Date; role?: "VOLUNTEER" | "DIRECTOR"; remote?: boolean };
+  } = {}
+) {
+  const term = await activeTerm();
+  const department = await dept(deptCode);
+  const t = tag();
+  const email = `e2e-checkin-${t}@yale.edu`;
+  const person = await prisma.person.create({
+    data: {
+      name: `E2E Volunteer ${t}`,
+      contactEmail: email,
+      phone: "203-555-0199",
+    },
+  });
+  await prisma.termMembership.create({
+    data: { personId: person.id, termId: term.id, departmentId: department.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  await prisma.hipaaCertificate.create({
+    data: {
+      personId: person.id,
+      fileName: "e2e.pdf",
+      storedName: `${t}.pdf`,
+      size: 100,
+      mimeType: "application/pdf",
+      completionDate: daysFromNow(-10),
+      verifiedAt: new Date(),
+    },
+  });
+  if (opts.assignment) {
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: term.id,
+        departmentId: department.id,
+        personId: person.id,
+        clinicDate: opts.assignment.clinicDate,
+        role: opts.assignment.role ?? "VOLUNTEER",
+        remote: opts.assignment.remote ?? false,
+      },
+    });
+  }
+  return { person, email, cleanup: () => cleanupPerson(person.id) };
+}
+
+/**
+ * Records a director-recorded (STAFF-method) attendance row directly, for
+ * tests that need a person to already be "Here" without exercising the
+ * check-in flow itself. Cascades away with the person; no separate cleanup.
+ */
+export async function seedAttendance(termId: string, clinicDate: Date, personId: string) {
+  return prisma.clinicAttendance.create({
+    data: { termId, clinicDate, personId, method: "STAFF" },
+  });
 }

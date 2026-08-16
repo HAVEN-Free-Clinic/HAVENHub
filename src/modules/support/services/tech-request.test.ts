@@ -17,10 +17,13 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createTechRequest,
+  createTechRequestFromConversation,
   listMyRequests,
   getTechRequest,
   listAllRequests,
+  isManager,
   SupportNotFoundError,
+  SupportStateError,
 } from "./tech-request";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +80,77 @@ describe("createTechRequest", () => {
   });
 });
 
+describe("createTechRequestFromConversation", () => {
+  it("creates a SUBMITTED ticket owned by the requester and stamps the conversation id", async () => {
+    const p = await createPerson("Alice");
+    const { ticket, created } = await createTechRequestFromConversation(p.id, {
+      intercomConversationId: "conv_1",
+      category: "GENERAL_IT",
+      subject: "Laptop won't connect",
+      description: "Wifi drops on the clinic floor.",
+    });
+    expect(created).toBe(true);
+    expect(ticket.status).toBe("SUBMITTED");
+    expect(ticket.requesterId).toBe(p.id);
+    expect(ticket.intercomConversationId).toBe("conv_1");
+  });
+
+  it("is idempotent: a second call for the same conversation id returns the same ticket unchanged", async () => {
+    const p = await createPerson("Alice");
+    const first = await createTechRequestFromConversation(p.id, {
+      intercomConversationId: "conv_1",
+      category: "GENERAL_IT",
+      subject: "Laptop won't connect",
+      description: "Wifi drops on the clinic floor.",
+    });
+    // A retry can arrive with a different body (Fin re-composing its call) --
+    // the existing ticket must come back unchanged regardless.
+    const second = await createTechRequestFromConversation(p.id, {
+      intercomConversationId: "conv_1",
+      category: "OTHER",
+      subject: "Different subject",
+      description: "Different description",
+    });
+
+    expect(second.created).toBe(false);
+    expect(second.ticket.id).toBe(first.ticket.id);
+    expect(second.ticket.number).toBe(first.ticket.number);
+    expect(second.ticket.category).toBe("GENERAL_IT");
+    expect(await prisma.techRequest.count()).toBe(1);
+  });
+
+  it("survives two genuinely concurrent calls for the same conversation id without a raw constraint error", async () => {
+    const p = await createPerson("Alice");
+    const input = {
+      intercomConversationId: "conv_race",
+      category: "GENERAL_IT" as const,
+      subject: "Laptop won't connect",
+      description: "Wifi drops on the clinic floor.",
+    };
+    const [a, b] = await Promise.all([
+      createTechRequestFromConversation(p.id, input),
+      createTechRequestFromConversation(p.id, input),
+    ]);
+
+    expect(a.ticket.number).toBe(b.ticket.number);
+    // Exactly one of the two calls did the actual insert.
+    expect([a.created, b.created].filter(Boolean)).toHaveLength(1);
+    expect(await prisma.techRequest.count()).toBe(1);
+  });
+
+  it("rejects a blank subject", async () => {
+    const p = await createPerson("Alice");
+    await expect(
+      createTechRequestFromConversation(p.id, {
+        intercomConversationId: "conv_1",
+        category: "OTHER",
+        subject: "  ",
+        description: "x",
+      })
+    ).rejects.toThrow(SupportStateError);
+  });
+});
+
 describe("read access", () => {
   it("listMyRequests returns only the caller's tickets", async () => {
     const a = await createPerson("Alice");
@@ -106,5 +180,32 @@ describe("read access", () => {
   it("listAllRequests requires the manage permission", async () => {
     const p = await createPerson("Alice");
     await expect(listAllRequests(p.id, {})).rejects.toThrow(/permission/i);
+  });
+
+  it("listAllRequests admits a view-only holder", async () => {
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    const { rows } = await listAllRequests(auditor.id, {});
+    expect(rows.map((r) => r.subject)).toEqual(["S"]);
+  });
+
+  it("getTechRequest lets a view-only holder read any ticket", async () => {
+    const owner = await createPerson("Owner");
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    const req = await createTechRequest(owner.id, { category: "OTHER", subject: "S", description: "d" });
+    const detail = await getTechRequest(auditor.id, req.id);
+    expect(detail.id).toBe(req.id);
+  });
+
+  it("view-only alone does not make someone a manager", async () => {
+    // The distinction the whole permission rests on: read paths widen, every
+    // write path (assignment, status, comments, Epic tools) keeps gating on
+    // isManager, so granting view-only must never satisfy it.
+    const auditor = await createPerson("Auditor");
+    await grantPermission(auditor.id, "support.view_all_requests");
+    expect(await isManager(auditor.id)).toBe(false);
   });
 });

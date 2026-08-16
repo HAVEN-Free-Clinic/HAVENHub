@@ -45,7 +45,24 @@ test.afterEach(async () => {
 // Test 1: My schedule + availability panel
 // ---------------------------------------------------------------------------
 
-test("Jack opens /schedule and sees the My availability heading and Save availability button", async ({
+/**
+ * Availability closes on a term's FIRST clinic date, after which changes go
+ * through swap/drop requests instead (isAvailabilityLocked, availability.ts).
+ *
+ * The seeded live term SU26 runs 2026-05-30 to 2026-09-26, so its clinics have
+ * long since started and its availability is correctly read-only. That is what
+ * this test asserts.
+ *
+ * The EDITABLE path is not reachable from the seed at all, because the seed
+ * defines exactly one term and its first clinic date is in the past. Its
+ * coverage lives in the integration suite instead
+ * (src/modules/schedule/services/schedule.test.ts, describe("updateMyAvailability"),
+ * which pins `now` before the first clinic date). To restore end-to-end coverage
+ * of the editable form, the seed needs a PLANNING term with future clinic dates;
+ * that is a shared-fixture change with its own blast radius, so it is deliberately
+ * not done here.
+ */
+test("Jack opens /schedule and sees availability locked once the term's clinics have started", async ({
   page,
 }) => {
   await devLogin(page, "j.carney@yale.edu");
@@ -58,13 +75,10 @@ test("Jack opens /schedule and sees the My availability heading and Save availab
   // "My availability" section heading (h2)
   await expect(page.locator("h2").filter({ hasText: "My availability" })).toBeVisible();
 
-  // At least one clinic-date checkbox must be present
-  // The form renders one checkbox per clinic date in the active term (SU26 has 18 Saturdays)
-  const firstCheckbox = page.locator('input[type="checkbox"][name="dates"]').first();
-  await expect(firstCheckbox).toBeVisible();
-
-  // Save availability button
-  await expect(page.getByRole("button", { name: "Save availability" })).toBeVisible();
+  // Locked: the editor is withheld and the member is pointed at swap/drop.
+  await expect(page.getByText("Availability is locked now that clinics have started.")).toBeVisible();
+  await expect(page.locator('input[type="checkbox"][name="dates"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Save availability" })).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -78,8 +92,8 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
   await page.goto("/schedule/full");
   await page.waitForURL((url) => url.pathname === "/schedule/full");
 
-  // Hero eyebrow label ("Full Schedule"); the h1 now renders the selected date.
-  await expect(page.locator("p").filter({ hasText: "Full Schedule" }).first()).toBeVisible();
+  // Page title, rendered by PageHeader with title="Full Schedule".
+  await expect(page.getByRole("heading", { name: "Full Schedule" })).toBeVisible();
 
   // Date tab strip: links inside the nav[aria-label="Schedule dates"]
   // displayDate("2026-05-30") = "May 30th", etc.
@@ -108,83 +122,37 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
 // ---------------------------------------------------------------------------
 
 /**
- * dev.volunteer (dev.volunteer@yale.edu, VADM VOLUNTEER) opens /schedule,
- * toggles the FIRST checkbox (checking if unchecked, unchecking if checked),
- * saves, verifies persistence via reload, then restores the original state.
+ * A rank-and-file volunteer sees the same lock a director does, and still sees
+ * what they had submitted.
  *
- * Residue: none. The second save restores exactly the original availability,
- * leaving the DB in its pre-test state.
+ * This test previously did a full toggle-save-reload-restore round trip against
+ * the editable form. That form no longer renders for the seeded live term (see
+ * the note on the availability test above), so the round trip is not reachable
+ * end-to-end from this fixture. The save path itself stays covered at the
+ * integration level in src/modules/schedule/services/schedule.test.ts, which
+ * exercises persistence, canonical noon-UTC storage, multi-membership mirroring,
+ * dedup, and the lock rejection.
  *
- * Note: dev.volunteer has an ACTIVE VADM membership in SU26. The availability
- * form renders up to 18 date checkboxes. The test is agnostic about which
- * dates are pre-checked.
+ * Residue: none. This test only reads.
  */
-test("dev.volunteer availability round trip: toggle first checkbox, save, reload, verify, restore", async ({
+test("dev.volunteer sees their submitted availability read-only once clinics have started", async ({
   page,
 }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/schedule");
   await page.waitForURL((url) => url.pathname === "/schedule");
 
-  // The availability form must be present (dev.volunteer is on the SU26 roster)
-  const firstCheckbox = page.locator('input[type="checkbox"][name="dates"]').first();
-  await expect(firstCheckbox).toBeVisible();
+  await expect(page.locator("h2").filter({ hasText: "My availability" })).toBeVisible();
 
-  // Record initial state
-  const wasChecked = await firstCheckbox.isChecked();
+  // Locked, and pointing at the flow that does notify a director.
+  await expect(page.getByText("Availability is locked now that clinics have started.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save availability" })).toHaveCount(0);
 
-  // Toggle: uncheck if checked, check if unchecked
-  if (wasChecked) {
-    await firstCheckbox.uncheck();
-  } else {
-    await firstCheckbox.check();
-  }
-
-  // Capture the date value so we can re-identify the checkbox after reload
-  const dateValue = await firstCheckbox.getAttribute("value");
-  expect(dateValue).not.toBeNull();
-
-  // Save
-  await page.getByRole("button", { name: "Save availability" }).click();
-
-  // The server redirects to /schedule?saved=1, but the toast reader consumes that param
-  // and strips it, so waiting on it being present is a race. There is no useful URL
-  // predicate either: this page redirects to itself, so any pathname check is already
-  // true at click time and Playwright returns immediately without waiting. The toast is
-  // the only real post-navigation signal, so assert it directly with a budget that
-  // covers a cold server round trip plus hydration.
-  await expect(page.getByText("Availability saved successfully.")).toBeVisible({ timeout: 30_000 });
-
-  // Reload to confirm persistence (a fresh server render reads from the DB)
-  await page.goto("/schedule");
-  await page.waitForURL((url) => url.pathname === "/schedule");
-
-  // Re-locate the same checkbox by its date value
-  const checkboxAfterReload = page.locator(`input[type="checkbox"][name="dates"][value="${dateValue}"]`);
-  await expect(checkboxAfterReload).toBeVisible();
-
-  // The state must have flipped
-  const newChecked = await checkboxAfterReload.isChecked();
-  expect(newChecked).toBe(!wasChecked);
-
-  // --- Restore original state ---
-  if (newChecked) {
-    await checkboxAfterReload.uncheck();
-  } else {
-    await checkboxAfterReload.check();
-  }
-
-  await page.getByRole("button", { name: "Save availability" }).click();
-  // Same self-redirect as above: no URL predicate can wait here, so the toast is the signal.
-  await expect(page.getByText("Availability saved successfully.")).toBeVisible({ timeout: 30_000 });
-
-  // Confirm restored
-  await page.goto("/schedule");
-  await page.waitForURL((url) => url.pathname === "/schedule");
-
-  const checkboxRestored = page.locator(`input[type="checkbox"][name="dates"][value="${dateValue}"]`);
-  await expect(checkboxRestored).toBeVisible();
-  expect(await checkboxRestored.isChecked()).toBe(wasChecked);
+  // The lock must not hide what they submitted: a member still needs to see the
+  // dates they are on the hook for, which is the whole reason the read-only view
+  // renders the date list rather than just the message.
+  const lockedSection = page.locator("section").filter({ hasText: "My availability" });
+  await expect(lockedSection).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -206,8 +174,7 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  // "Schedule Builder" renders as a paragraph (breadcrumb) in the refactored builder layout.
-  await expect(page.locator("p", { hasText: "Schedule Builder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Schedule Builder" })).toBeVisible();
 
   // Select VADM department from the Department select.
   await selectDeptByCode(page, "VADM");
@@ -542,8 +509,8 @@ test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM
 
   // Clean up so the test is idempotent.
   // Scope Remove to the Shadows subsection to avoid hitting a Director's Remove button.
-  const shadowsPara = assignedSection.locator("p", { hasText: /^Shadows/ });
-  const removeBtn = shadowsPara.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
+  const shadowsHeading = assignedSection.getByRole("heading", { name: /^Shadows/ });
+  const removeBtn = shadowsHeading.locator("xpath=following-sibling::*").getByRole("button", { name: "Remove" }).first();
   await removeBtn.click();
   // Use page-level locator for the confirm button to avoid React re-render scoping issues.
   const confirmBtn = page.getByRole("button", { name: "Remove this shadow?" }).first();
@@ -567,7 +534,7 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
   await page.waitForURL((url) => url.searchParams.get("date") !== null);
-  await page.getByRole("link", { name: "Grid view" }).click();
+  await page.getByRole("link", { name: "Grid", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("view") === "grid");
 
   await page.getByRole("link", { name: "Shadow" }).click();
@@ -598,16 +565,18 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
 
   // Switch to Day view for cleanup. The grid's force:true click can land in an adjacent
   // row due to the sticky member column's z-index geometry; Day view remove is reliable.
-  await page.getByRole("link", { name: "Day view" }).click();
-  await page.waitForURL((url) => url.searchParams.get("view") === "saturday");
+  // Day view emits neither ?view nor ?mode (the unified URL contract), so wait for
+  // ?view to drop rather than for a "saturday" value that no longer appears.
+  await page.getByRole("link", { name: "Day", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("view") === null);
 
   // Remove the seeded member's shadow assignment from the Day view Assigned section.
   const assignedSection = page.locator("section").filter({
     has: page.locator("h2").filter({ hasText: /^Assigned$/ }),
   });
-  const shadowsPara = assignedSection.locator("p", { hasText: /^Shadows/ });
+  const shadowsHeading = assignedSection.getByRole("heading", { name: /^Shadows/ });
   // Find the member's specific card in the shadows list and click its Remove button.
-  const shadowCard = shadowsPara.locator("xpath=following-sibling::*").locator("div.rounded-2xl").filter({
+  const shadowCard = shadowsHeading.locator("xpath=following-sibling::*").locator("div.rounded-2xl").filter({
     has: page.locator("span", { hasText: memberGridName }),
   });
   await expect(shadowCard).toBeVisible({ timeout: 5_000 });
@@ -619,14 +588,20 @@ test("Builder grid shadow assign: Jack toggles Shadow and assigns from a grid ce
   await page.waitForLoadState("networkidle");
 
   // Switch back to Grid Shadow view and confirm the cell shows Assign again.
-  await page.getByRole("link", { name: "Grid view" }).click();
+  await page.getByRole("link", { name: "Grid", exact: true }).click();
   await page.waitForLoadState("networkidle");
   await page.getByRole("link", { name: "Shadow" }).click();
   await page.waitForLoadState("networkidle");
   await expect(page.getByRole("button", { name: cellLabel! })).toBeVisible({ timeout: 10_000 });
 });
 
-test("RHD attendings: add one and see it in the readiness dropdown", async ({ page }) => {
+// Attending scheduling lives on /schedule/attendings for every service line.
+// It used to be a form inside the builder's reproductive-health readiness panel,
+// which is why this test once drove the builder; the panel is read-only now.
+//
+// The page has two views. Day is the one with the per-column selects, so this
+// test asks for it explicitly rather than relying on whichever is default.
+test("attendings: add one, then schedule it on a clinic date", async ({ page }) => {
   const name = `Test-${Date.now()}`;
   await devLogin(page, "j.carney@yale.edu");
 
@@ -637,17 +612,74 @@ test("RHD attendings: add one and see it in the readiness dropdown", async ({ pa
   await page.fill('input[name="fullName"]', `Dr. ${name}`);
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
 
-  // It appears in the builder readiness Attending dropdown for an RHD dept (SCTS).
-  await page.goto("/schedule/builder");
-  await selectDeptByCode(page, "SCTS");
-  await page.getByRole("button", { name: "Go" }).click();
-  await page.waitForLoadState("networkidle");
-  await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").first().click();
+  // It becomes assignable on every column of the selected clinic date. The Day
+  // view is one card wrapping one form, whose slot selects are named
+  // `slot:<id>` and whose Save submits that date alone.
+  await page.goto("/schedule/attendings?view=day");
+  await page.waitForURL((url) => url.searchParams.get("view") === "day");
+  const day = page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first();
+  const cell = day.locator('select[name^="slot:"]').first();
+  await expect(cell).toBeVisible();
+  const option = cell.locator("option", { hasText: name });
+  await expect(option).toHaveCount(1);
+  const optionValue = await option.getAttribute("value");
+
+  // Actually schedule it: this is the thing the page now exists to do, and the
+  // half that a "does the dropdown contain it" assertion never reached.
+  await cell.selectOption({ label: name });
+  await day.getByRole("button", { name: "Save" }).click();
   await page.waitForLoadState("networkidle");
 
-  const attendingSelect = page.locator('select[name="attendingId"]');
-  await expect(attendingSelect).toBeVisible();
-  await expect(attendingSelect.locator("option", { hasText: name })).toHaveCount(1);
+  // Round-trips through the DB rather than merely rendering optimistically.
+  // This is the assertion that caught the controls being dropped on submit: the
+  // day row saved while its attendings did not, because they sat outside the
+  // form and a server action serialises only the form's descendants.
+  await expect(
+    page.locator("form").filter({ has: page.locator('select[name^="slot:"]') }).first()
+      .locator('select[name^="slot:"]').first(),
+  ).toHaveValue(optionValue!);
+});
+
+// The grid is the default view and the one that mirrors the volunteer builder:
+// a row per attending, a column per date, one click per cell.
+test("attendings: schedule one from the grid, then clear it", async ({ page }) => {
+  const name = `Grid-${Date.now()}`;
+  await devLogin(page, "j.carney@yale.edu");
+
+  await page.goto("/schedule/attendings/new");
+  await page.fill('input[name="scheduleName"]', name);
+  await page.fill('input[name="fullName"]', `Dr. ${name}`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/attendings");
+
+  const grid = page.getByRole("table", { name: "Attending schedule grid" });
+  await expect(grid).toBeVisible();
+  const row = grid.getByRole("row").filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+
+  // Assign into whichever column the toolbar currently targets. Anchored on the
+  // accessible name rather than a cell index, so a change to how many dates the
+  // term spans does not silently retarget the click.
+  const assign = row.getByRole("button", { name: new RegExp(`^Assign ${name} to `) }).first();
+  await expect(assign).toBeVisible();
+  await assign.click();
+  await page.waitForLoadState("networkidle");
+
+  // The cell flips to the filled state, which is a two-click arm/confirm remove.
+  const filled = page.getByRole("table", { name: "Attending schedule grid" })
+    .getByRole("row").filter({ hasText: name })
+    .getByRole("button", { name: new RegExp(`^Remove ${name} from `) }).first();
+  await expect(filled).toBeVisible();
+
+  await filled.click(); // arms
+  await page.getByRole("button", { name: /^Confirm remove\./ }).first().click();
+  await page.waitForLoadState("networkidle");
+
+  // Back to an empty cell: the round trip actually cleared the row.
+  await expect(
+    page.getByRole("table", { name: "Attending schedule grid" })
+      .getByRole("row").filter({ hasText: name })
+      .getByRole("button", { name: new RegExp(`^Assign ${name} to `) }).first(),
+  ).toBeVisible();
 });

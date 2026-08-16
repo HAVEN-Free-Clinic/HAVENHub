@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { RecruitmentCycle, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
@@ -8,6 +9,7 @@ import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { clinicDateOptions, resolveAvailabilityOptions } from "../templates/clinic-dates";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
+import { LANGUAGES_FIELD_KEY, LANGUAGE_QUESTION, languageCodeFromAnswer } from "@/platform/languages";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -86,6 +88,15 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
         { sectionId: identity.id, cycleId: created.id, key: "first_name", label: "First name", type: "SHORT_TEXT", required: true, order: 0 },
         { sectionId: identity.id, cycleId: created.id, key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true, order: 1 },
         { sectionId: identity.id, cycleId: created.id, key: "email", label: "Yale email", type: "EMAIL", required: true, order: 2 },
+        // Standard across every cycle, and guarded at publish (see
+        // publishCycle): the answers feed the interpreting department's
+        // verification queue at promotion, which only works if the question is
+        // the same shape everywhere. Free text would not be mappable to a
+        // language code, so this is a MULTI_SELECT over the shared catalog.
+        //
+        // Not required: a volunteer who speaks only English answers nothing,
+        // and forcing a selection would produce noise in the review queue.
+        { sectionId: identity.id, cycleId: created.id, ...LANGUAGE_QUESTION, options: [...LANGUAGE_QUESTION.options], order: 3 },
       ],
     });
     return created;
@@ -95,7 +106,8 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
   return cycle;
 }
 
-export async function getCycle(id: string) {
+/** The uncached read. Call this from mutations; render paths want getCycle. */
+async function loadCycle(id: string) {
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id },
     include: {
@@ -108,6 +120,23 @@ export async function getCycle(id: string) {
   // stored snapshot. Resolving here covers the form builder and ApplyPreview.
   return { ...cycle, sections: resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates) };
 }
+
+/**
+ * The cycle plus its full form definition, memoized per render.
+ *
+ * This is the heaviest read in the module (term clinic dates, every section,
+ * every field, plus a resolveAvailabilityOptions pass) and every one of the 12
+ * pages under /recruitment/cycles/[id] needs it. cache() means the layout and
+ * its page share one query instead of each paying for their own, so a server
+ * component added to that tree later cannot quietly reintroduce the duplicate
+ * (#512 / PR #510, where the layout was doing exactly that).
+ *
+ * Mutations must call loadCycle instead. React's cache lives for the request,
+ * not the render, so a server action that read through here before writing
+ * would leave the pre-write row memoized for the revalidated render that
+ * follows it in the same request, and the page would paint stale.
+ */
+export const getCycle = cache(loadCycle);
 
 /** A cycle with its full form definition (sections -> fields), as returned by getCycle. */
 export type CycleWithForm = NonNullable<Awaited<ReturnType<typeof getCycle>>>;
@@ -130,7 +159,11 @@ export async function listArchivedCycles(): Promise<RecruitmentCycle[]> {
 }
 
 export async function publishCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
-  const cycle = await getCycle(id);
+  // loadCycle, not getCycle: this reads the cycle and then writes it, so going
+  // through the memoized read would leave the DRAFT row cached for the render
+  // that publishCycleAction revalidates into, and the overview would keep
+  // showing the DRAFT badge until a manual reload.
+  const cycle = await loadCycle(id);
   if (!cycle) throw new CyclePublishError("Cycle not found.");
   if (cycle.status !== "DRAFT") throw new CyclePublishError("Only a DRAFT cycle can be published.");
 
@@ -138,6 +171,38 @@ export async function publishCycle(id: string, actorId: string): Promise<Recruit
   const keys = new Set(allFields.map((f) => f.key));
   if (!keys.has("first_name") || !keys.has("last_name") || !keys.has("email")) {
     throw new CyclePublishError("Identity fields (first name, last name, email) are required before publishing.");
+  }
+
+  // The language question is standard and locked across cycles. Its answers are
+  // what put a new member into the interpreting department's verification queue
+  // at promotion, so a cycle that dropped it, renamed its key, or changed it to
+  // free text would silently produce members whose languages are never verified.
+  // Checked at publish rather than on every edit so a builder can reorder and
+  // restructure freely, and finds out before the form goes live.
+  const languageField = allFields.find((f) => f.key === LANGUAGES_FIELD_KEY);
+  if (!languageField) {
+    throw new CyclePublishError(
+      `The standard language question ("${LANGUAGES_FIELD_KEY}") is required before publishing. It feeds language verification.`,
+    );
+  }
+  if (languageField.type !== "MULTI_SELECT") {
+    throw new CyclePublishError(
+      "The language question must stay a multi-select so its answers map to known languages.",
+    );
+  }
+  {
+    // Options may be reordered or narrowed, but every one must resolve to a
+    // known language: an unrecognized option is an answer nobody can verify.
+    // Options are {value,label}; the value is what a submitted answer carries.
+    const opts = Array.isArray(languageField.options) ? (languageField.options as unknown[]) : [];
+    const unknown = opts
+      .map((o) => String((o as { value?: unknown })?.value ?? o))
+      .filter((o) => languageCodeFromAnswer(o) === null);
+    if (unknown.length > 0) {
+      throw new CyclePublishError(
+        `The language question has options that are not known languages: ${unknown.join(", ")}.`,
+      );
+    }
   }
 
   const hasDeptSupplement = cycle.sections.some((s) => s.departmentCode !== null);

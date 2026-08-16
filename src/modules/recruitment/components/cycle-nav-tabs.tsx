@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { TabRow, type TabItem } from "@/platform/ui/tab-row";
+import { TabRow, scrollActiveTabIntoView, type TabItem } from "@/platform/ui/tab-row";
 
 /**
  * Persistent tab bar for a single cycle's workspace (Overview, Form,
@@ -31,9 +32,15 @@ import { TabRow, type TabItem } from "@/platform/ui/tab-row";
  *    on every Contract or Quiz page. So a prefix match is suppressed when a
  *    more specific (longer-href) item in the same list also matches the
  *    pathname -- the most specific href always wins.
+ *
+ * Auto-scroll-to-active on narrow viewports copies module-nav.tsx's approach
+ * verbatim: this row carries up to 12 items (more than any module nav), so it
+ * overflows far more readily, and the ledger from the ModuleNav refactor
+ * records that behaviour as must-preserve wherever TabRow is used.
  */
 export function CycleNavTabs({ items }: { items: TabItem[] }) {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
 
   function isActive(item: TabItem): boolean {
     if (pathname === item.href) return true;
@@ -46,5 +53,24 @@ export function CycleNavTabs({ items }: { items: TabItem[] }) {
     return !isSuppressedBySibling;
   }
 
-  return <TabRow variant="segmented" label="Cycle sections" items={items} isActive={isActive} />;
+  // Keep the active tab in view when the row scrolls horizontally on narrow
+  // screens. This row carries up to 13 tabs, so it overflows far more readily
+  // than any module nav.
+  //
+  // Must not use scrollIntoView: it scrolls every scrollable ancestor including
+  // the document, which nudged the page on every cycle page load and raced
+  // Playwright's click on Publish. See scrollActiveTabIntoView.
+  useEffect(() => {
+    scrollActiveTabIntoView(navRef.current);
+  }, [pathname]);
+
+  return (
+    <TabRow
+      variant="segmented"
+      label="Cycle sections"
+      items={items}
+      isActive={isActive}
+      navRef={navRef}
+    />
+  );
 }

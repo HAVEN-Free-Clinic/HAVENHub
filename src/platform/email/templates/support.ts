@@ -8,14 +8,20 @@
  *     confirmation that we logged their request.
  *   - support.ticket_manager_alert: fired on create; the manager-facing alert
  *     that a new ticket needs triage.
- *   - support.request_assigned: fired when a manager assigns (or reassigns) a
- *     ticket.
- *   - support.status_changed: fired on any status transition.
- *   - support.comment_added: fired when a PUBLIC comment is posted (internal
- *     comments are not notified).
- *   - support.request_resolved: fired when a ticket moves to RESOLVED.
+ *   - support.status_changed: fired on any status transition, and ONLY for a
+ *     ticket with no intercomConversationId -- a linked ticket's member hears
+ *     about it in their Intercom conversation instead.
+ *   - support.comment_added: same linked/unlinked split, and internal comments
+ *     are never notified.
+ *   - support.request_resolved: same linked/unlinked split.
  *
- * All six keys must exist here before any support.* notification can render:
+ * There is deliberately no assignment template. Assignment is triage
+ * bookkeeping between IT managers, who now work tickets in Intercom's inbox,
+ * where assignment is shown and notified natively; a second Hub-authored email
+ * saying the same thing is noise in a channel nobody watches for it. The
+ * requester was never told about assignment either way.
+ *
+ * All five keys must exist here before any support.* notification can render:
  * renderEmail() throws "Unknown email template: <key>" for an unregistered key.
  */
 
@@ -64,26 +70,6 @@ export const supportDescriptors: TemplateDescriptor[] = [
 Category: {{ category }}</p>
 
 <p><a href="{{ link }}">Review and assign it</a></p>
-
-<p>Thank you,<br>HAVEN IT Support</p>`,
-  },
-  {
-    key: "support.request_assigned",
-    name: "IT Support: request assigned",
-    category: "transactional",
-    group: "support",
-    variables: [
-      { name: "ticketNumber", label: "Ticket number", sampleValue: "42" },
-      { name: "subject", label: "Ticket subject", sampleValue: "Laptop won't connect to WiFi" },
-      { name: "assigneeName", label: "Name of the person the ticket was assigned to", sampleValue: "Pat Manager" },
-      { name: "link", label: "Absolute link to the ticket", sampleValue: "https://hub.havenfreeclinic.org/support/abc123" },
-    ],
-    defaultSubject: "[HAVEN] IT Support ticket #{{ ticketNumber }} assigned",
-    defaultBody: `<p>Hello,</p>
-
-<p>IT Support ticket <strong>#{{ ticketNumber }}: {{ subject }}</strong> has been assigned to {{ assigneeName }}.</p>
-
-<p><a href="{{ link }}">View the ticket</a></p>
 
 <p>Thank you,<br>HAVEN IT Support</p>`,
   },

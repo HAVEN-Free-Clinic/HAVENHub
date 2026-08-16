@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveAvailability, isAvailableOn, type AvailabilityTiers } from "./availability";
+import {
+  resolveAvailability,
+  isAvailableOn,
+  isAvailabilityLocked,
+  type AvailabilityTiers,
+} from "./availability";
 
 // UTC helpers
 function utc(year: number, month: number, day: number, hour = 12): Date {
@@ -106,5 +111,37 @@ describe("isAvailableOn", () => {
       directorSetAt: null,
     };
     expect(isAvailableOn(tiers, query)).toBe(true);
+  });
+});
+
+describe("isAvailabilityLocked", () => {
+  const DATES = ["2026-09-12", "2026-09-19", "2026-09-26"];
+
+  it("is open before the first clinic date", () => {
+    expect(isAvailabilityLocked({ clinicDateKeys: DATES, todayKey: "2026-09-11" })).toBe(false);
+  });
+
+  // The lock lands ON the first clinic day, not the day after: once the clinic
+  // is running, the schedule built from this availability is already in use.
+  it("is locked on the first clinic date itself", () => {
+    expect(isAvailabilityLocked({ clinicDateKeys: DATES, todayKey: "2026-09-12" })).toBe(true);
+  });
+
+  it("stays locked for the rest of the term", () => {
+    expect(isAvailabilityLocked({ clinicDateKeys: DATES, todayKey: "2026-11-30" })).toBe(true);
+  });
+
+  // Term.clinicDates is a raw Postgres array with no ordering guarantee (the
+  // check-in seed appends today's date to the end regardless of where it falls),
+  // so the lock must find the EARLIEST date rather than trusting position 0.
+  it("uses the earliest clinic date even when the array is unordered", () => {
+    const unordered = ["2026-09-26", "2026-09-12", "2026-09-19"];
+    expect(isAvailabilityLocked({ clinicDateKeys: unordered, todayKey: "2026-09-12" })).toBe(true);
+  });
+
+  // A term whose calendar has not been published yet has nothing to be late for,
+  // and the page withholds the form in that state for a separate reason (#90).
+  it("is never locked when the term has no clinic dates", () => {
+    expect(isAvailabilityLocked({ clinicDateKeys: [], todayKey: "2099-01-01" })).toBe(false);
   });
 });

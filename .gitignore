@@ -3,12 +3,20 @@ node_modules
 .env
 .env.local
 .env*.local
+# Every .env variant EXCEPT the committed template. The narrower patterns above
+# did not match a real backup (.env.bak-prescrub) holding a live Azure AD secret
+# and an Airtable PAT; only GitHub push protection stopped it reaching the remote.
+.env.*
+!.env.example
 *.tsbuildinfo
 next-env.d.ts
 .vercel/
 playwright-report/
 test-results/
-coverage/
+# Root-anchored: unanchored, this matched ANY directory named "coverage" at any
+# depth, which silently swallowed the src/app/(app)/schedule/coverage route.
+# The file existed locally and was never committed, so the page 404'd in CI only.
+/coverage/
 uploads/
 
 # Claude Code session data, worktrees, agent tooling

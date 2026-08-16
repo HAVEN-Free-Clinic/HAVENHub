@@ -51,6 +51,34 @@ test("a full admin sees every module inline, with nothing pushed behind More", a
   await expect(nav.getByRole("button", { name: "More" })).toHaveCount(0);
 });
 
+test("the toolbar does not overflow its own width on a phone", async ({ page }) => {
+  // The desktop assertion above only ever guarded 1280px. Narrow widths were
+  // reasoned about but never measured, and they are the riskier case: the
+  // active-term label was already hidden below `sm`, so the search trigger
+  // added roughly 36px there with nothing given back.
+  //
+  // Asserting "no More button" is wrong here. Below `sm` the module row is
+  // deliberately replaced by the hamburger menu, so More is legitimately
+  // absent and the assertion would pass vacuously. What actually matters is
+  // that the toolbar's own contents fit inside it, so the pill never spills
+  // sideways and never forces the page to scroll horizontally.
+  await devSignIn(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+
+  const overflow = await page.evaluate(() => {
+    const bar = document.querySelector(".glass-bar") as HTMLElement | null;
+    if (!bar) return null;
+    return {
+      barOverflow: bar.scrollWidth - bar.clientWidth,
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(overflow, "expected a .glass-bar toolbar to be present").not.toBeNull();
+  expect(overflow!.barOverflow, "toolbar contents overflow the toolbar at 375px").toBeLessThanOrEqual(0);
+  expect(overflow!.documentOverflow, "page scrolls horizontally at 375px").toBeLessThanOrEqual(0);
+});
+
 test("Escape closes an open dropdown and returns focus to its chevron", async ({ page }) => {
   // Not unit-testable: vitest runs in node with no jsdom, so GlobalNav's
   // interaction lives here. See src/platform/ui/global-nav.test.tsx.

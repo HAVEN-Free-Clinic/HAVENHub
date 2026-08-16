@@ -26,7 +26,12 @@ describe("createCycle", () => {
     });
     expect(cycle.status).toBe("DRAFT");
     const fields = await prisma.formField.findMany({ where: { cycleId: cycle.id } });
-    expect(fields.map((f) => f.key).sort()).toEqual(["email", "first_name", "last_name"]);
+    // The standard language question is seeded alongside identity on every
+    // cycle: its answers feed language verification at promotion, so it cannot
+    // be opt-in per cycle.
+    expect(fields.map((f) => f.key).sort()).toEqual(
+      ["email", "first_name", "languages_spoken", "last_name"],
+    );
   });
 
   it("canonicalizes + de-duplicates departments so seedDefaultForm never collides on a repeated/alias code", async () => {
@@ -506,11 +511,11 @@ describe("archiveCycle", () => {
 });
 
 describe("createCycle seedDefaultForm", () => {
-  it("default (no flag) keeps only the minimal 3 identity fields", async () => {
+  it("default (no flag) keeps only the minimal identity fields plus the standard language question", async () => {
     const { person, term } = await seedTermAndPerson();
     const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-min", departments: ["MDIC"], acceptsRenewals: false, createdById: person.id });
     const keys = (await prisma.formField.findMany({ where: { cycleId: cycle.id } })).map((f) => f.key).sort();
-    expect(keys).toEqual(["email", "first_name", "last_name"]);
+    expect(keys).toEqual(["email", "first_name", "languages_spoken", "last_name"]);
   });
 
   it("with the flag materializes the full track template + quiz + dept supplement", async () => {

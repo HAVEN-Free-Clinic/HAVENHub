@@ -22,6 +22,9 @@ export type PersonSession = {
   name: string | null;
   email: string | null;
   themePreference: string | null;
+  photoVersion: number;
+  /** True when an admin has exempted this person from the content blocker gate. */
+  blockerGateExempt: boolean;
 };
 
 /**
@@ -108,6 +111,8 @@ export async function requirePersonSession(): Promise<PersonSession> {
     name: person.name,
     email: person.contactEmail ?? session.user?.email ?? null,
     themePreference: person.themePreference ?? null,
+    photoVersion: person.photoVersion,
+    blockerGateExempt: person.blockerGateExempt,
   };
   await enforceOnboarding(person.id);
   return result;

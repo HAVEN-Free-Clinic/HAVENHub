@@ -46,14 +46,20 @@ import {
   DisciplinaryNotFoundError,
   DisciplinaryValidationError,
 } from "@/modules/incidents/services/disciplinary";
-import { linkableReports } from "@/modules/incidents/services/report";
+import {
+  linkableReports,
+  IncidentForbiddenError,
+  IncidentNotFoundError,
+} from "@/modules/incidents/services/report";
 import { notifyStrikeIssued } from "@/modules/incidents/services/strike-notifications";
+import { forwardStrike, forwardsByAction, recentForwardEmails, IncidentForwardError } from "@/modules/incidents/services/forward";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { DisciplinaryAction } from "@prisma/client";
 import { StrikeRow } from "./strike-row";
 import { formatCalendarDate } from "@/platform/dates";
+import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -140,6 +146,11 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   }
   const accessForbidden = forbiddenMessage !== null;
 
+  // Policy limit, read once for the whole table. Configurable rather than a
+  // constant because "three strikes" is a clinic policy number, not a property
+  // of the software.
+  const strikeThreshold = await getSetting<number>("incidents.strikeThreshold");
+
   // Load active departments for the filter bar, scoped to what the viewer can
   // actually filter by: a non-central director may only filter departments they
   // manage (listActions rejects anything else), so offering all ~15 departments
@@ -174,6 +185,17 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       })
     : [];
   const reportLabelById = new Map(linkedReports.map((r) => [r.id, `Incident report #${r.number}`]));
+
+  // Forwarding is a central-reviewer surface, so both reads are skipped for a
+  // director who only holds incidents.view_strikes. One batched query for the
+  // whole page, not one per row.
+  // forwardsByAction([]) short-circuits without querying, so the non-manager
+  // branch stays a no-op while keeping the map's element type (a bare `new Map()`
+  // would erase it and make every row's `f` implicitly any).
+  const [forwardSuggestions, forwardsByStrike] = await Promise.all([
+    canManageAll ? recentForwardEmails() : Promise.resolve([] as string[]),
+    forwardsByAction(canManageAll ? rows.map((r) => r.action.id) : []),
+  ]);
 
   function buildHref(targetPage: number): string {
     const params = new URLSearchParams();
@@ -261,6 +283,30 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       await notifyStrikeIssued({ action, actorPersonId: actor.personId });
     }
 
+    revalidatePath("/incidents/strikes");
+    redirect("/incidents/strikes");
+  }
+
+  // Consumed as a prop by StrikeRow's forward control below. Mirrors
+  // forwardReportAction on the report page; both delegate the directory check to
+  // the service, so a tampered form cannot introduce an address.
+  async function forwardStrikeForm(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("incidents.manage");
+    const actionId = (formData.get("actionId") as string | null) ?? "";
+    try {
+      await forwardStrike(actor.personId, actionId, {
+        emails: formData.getAll("emails").map(String).filter(Boolean),
+        note: String(formData.get("note") ?? ""),
+      });
+    } catch (err) {
+      if (err instanceof IncidentForwardError) {
+        redirect(`/incidents/strikes?error=validation&message=${encodeURIComponent(err.message)}`);
+      }
+      if (err instanceof IncidentForbiddenError) redirect("/incidents/strikes?error=forbidden");
+      if (err instanceof IncidentNotFoundError) redirect("/incidents/strikes?error=not-found");
+      throw err;
+    }
     revalidatePath("/incidents/strikes");
     redirect("/incidents/strikes");
   }
@@ -556,7 +602,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 </TR>
               </THead>
               <tbody>
-                {rows.map(({ action, personName, issuedByName, strikes }) => (
+                {rows.map(({ action, personName, issuedByName, strikes, ordinal }) => (
                   <StrikeRow
                     key={action.id}
                     action={{
@@ -581,10 +627,22 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     personName={personName}
                     issuedByName={issuedByName}
                     strikes={strikes}
+                    ordinal={ordinal}
+                    strikeThreshold={strikeThreshold}
                     canManageAll={canManageAll}
                     reportOptions={reportComboOptions}
                     deleteAction={deleteActionForm}
                     linkReport={linkReportForm}
+                    suggestions={forwardSuggestions}
+                    // Flattened to plain data: StrikeRow is a client component,
+                    // so no Prisma row or Date instance may cross the boundary.
+                    forwards={(forwardsByStrike.get(action.id) ?? []).map((f) => ({
+                      id: f.id,
+                      toEmail: f.toEmail,
+                      note: f.note,
+                      forwardedByName: f.forwardedBy.name,
+                    }))}
+                    forwardStrike={forwardStrikeForm}
                   />
                 ))}
               </tbody>

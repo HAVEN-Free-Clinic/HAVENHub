@@ -7,6 +7,22 @@ const base = {
   NODE_ENV: "development",
 };
 
+/**
+ * The extra variables a real production boot must carry: Azure for sign-in and
+ * an R2 bucket for object storage. Spread alongside `base` by any test asserting
+ * something OTHER than those two production requirements, so adding a third one
+ * later does not send a dozen unrelated tests red.
+ */
+const prodExtras = {
+  AZURE_AD_CLIENT_ID: "id",
+  AZURE_AD_CLIENT_SECRET: "secret",
+  AZURE_AD_TENANT_ID: "tenant",
+  R2_ACCOUNT_ID: "acct123",
+  R2_ACCESS_KEY_ID: "akid",
+  R2_SECRET_ACCESS_KEY: "secret",
+  R2_BUCKET: "havenhub-uploads",
+};
+
 describe("loadConfig", () => {
   it("accepts a valid development env without Azure vars", () => {
     const config = loadConfig(base);
@@ -46,10 +62,8 @@ describe("loadConfig", () => {
   it("accepts production env when Azure variables are present", () => {
     const config = loadConfig({
       ...base,
+      ...prodExtras,
       NODE_ENV: "production",
-      AZURE_AD_CLIENT_ID: "id",
-      AZURE_AD_CLIENT_SECRET: "secret",
-      AZURE_AD_TENANT_ID: "tenant",
     });
     expect(config.AZURE_AD_TENANT_ID).toBe("tenant");
   });
@@ -113,10 +127,9 @@ describe("loadConfig", () => {
 
   // --- Compliance reminder cadence config ---
 
-  it("defaults COMPLIANCE_REMINDER_INTERVAL_DAYS to 7 and COMPLIANCE_ESCALATION_THRESHOLD to 3", () => {
+  it("defaults COMPLIANCE_REMINDER_INTERVAL_DAYS to 7", () => {
     const config = loadConfig(base);
     expect(config.COMPLIANCE_REMINDER_INTERVAL_DAYS).toBe(7);
-    expect(config.COMPLIANCE_ESCALATION_THRESHOLD).toBe(3);
   });
 
   it("rejects COMPLIANCE_REMINDER_INTERVAL_DAYS 'abc' naming the variable", () => {
@@ -135,24 +148,6 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ ...base, COMPLIANCE_REMINDER_INTERVAL_DAYS: "-1" })
     ).toThrowError(/COMPLIANCE_REMINDER_INTERVAL_DAYS/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD 'abc' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "abc" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '0' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "0" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
-  });
-
-  it("rejects COMPLIANCE_ESCALATION_THRESHOLD '-1' naming the variable", () => {
-    expect(() =>
-      loadConfig({ ...base, COMPLIANCE_ESCALATION_THRESHOLD: "-1" })
-    ).toThrowError(/COMPLIANCE_ESCALATION_THRESHOLD/);
   });
 
   // --- RHD table IDs ---
@@ -245,6 +240,27 @@ describe("loadConfig", () => {
     expect(config.EMAIL_SENDER).toBe("noreply@example.com");
   });
 
+  it("rejects maileroo mode without the API key or a sender, naming each missing key", () => {
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "maileroo" })
+    ).toThrowError(/MAILEROO_API_KEY/);
+    expect(() =>
+      loadConfig({ ...base, EMAIL_TRANSPORT: "maileroo" })
+    ).toThrowError(/EMAIL_SENDER/);
+  });
+
+  it("accepts maileroo mode with the API key and sender, requiring no Graph OAuth vars", () => {
+    const config = loadConfig({
+      ...base,
+      EMAIL_TRANSPORT: "maileroo",
+      MAILEROO_API_KEY: "maileroo-key",
+      EMAIL_SENDER: "noreply@havenfreeclinic.org",
+    });
+    expect(config.EMAIL_TRANSPORT).toBe("maileroo");
+    expect(config.MAILEROO_API_KEY).toBe("maileroo-key");
+    expect(config.GRAPH_OAUTH_TENANT_ID).toBeUndefined();
+  });
+
   // --- Teams clinic channel config ---
 
   it("exposes TEAMS_CLINIC_GROUP_ID when provided", () => {
@@ -298,5 +314,93 @@ describe("loadConfig", () => {
   it("exposes ENV_BANNER_LABEL when provided", () => {
     const config = loadConfig({ ...base, ENV_BANNER_LABEL: "Staging" });
     expect(config.ENV_BANNER_LABEL).toBe("Staging");
+  });
+
+  // --- R2 storage config ---
+
+  const r2 = {
+    R2_ACCOUNT_ID: "acct123",
+    R2_ACCESS_KEY_ID: "akid",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "havenhub-uploads",
+  };
+
+  it("accepts an env with no R2 variables at all (local disk storage)", () => {
+    const config = loadConfig(base);
+    expect(config.R2_BUCKET).toBeUndefined();
+  });
+
+  it("accepts a complete R2 configuration", () => {
+    const config = loadConfig({ ...base, ...r2 });
+    expect(config.R2_BUCKET).toBe("havenhub-uploads");
+    expect(config.R2_ACCOUNT_ID).toBe("acct123");
+  });
+
+  it("rejects a partial R2 configuration, naming the missing variable", () => {
+    // A partial config silently falls back to local disk. On Vercel the function
+    // filesystem is ephemeral, so every upload would vanish on the next deploy
+    // with no error. It has to fail at boot instead.
+    const { R2_SECRET_ACCESS_KEY: _omitted, ...partial } = r2;
+    expect(() => loadConfig({ ...base, ...partial })).toThrowError(
+      /R2_SECRET_ACCESS_KEY/
+    );
+  });
+
+  it("rejects a production env with NO R2 variables at all (audit13 finding 1)", () => {
+    // The all-or-nothing check above only fires once SOME R2_* var is set, so
+    // this case -- the one an operator actually reaches by forgetting the whole
+    // block -- used to validate cleanly and silently select the local-disk
+    // driver. That is the invisible failure: a deployed host's filesystem is
+    // read-only or ephemeral, so every upload path in the app breaks at once and
+    // only at the moment a real user tries.
+    const prodNoR2 = {
+      ...base,
+      NODE_ENV: "production",
+      AZURE_AD_CLIENT_ID: "id",
+      AZURE_AD_CLIENT_SECRET: "secret",
+      AZURE_AD_TENANT_ID: "tenant",
+    };
+    expect(() => loadConfig(prodNoR2)).toThrowError(/R2_BUCKET/);
+  });
+
+  it("accepts a production env with a complete R2 configuration", () => {
+    const config = loadConfig({ ...base, ...prodExtras, NODE_ENV: "production" });
+    expect(config.R2_BUCKET).toBe("havenhub-uploads");
+  });
+
+  it("still allows local disk in development", () => {
+    // Local dev, CI, and the test suite all run on the disk driver by design.
+    expect(() => loadConfig(base)).not.toThrow();
+  });
+
+  it("exempts a DEMO_MODE production deploy from the R2 requirement", () => {
+    // DEMO_MODE is the documented escape hatch for running without the full
+    // infrastructure and never holds live volunteer data, so it keeps the
+    // local-disk fallback. The real production deploy runs with it off.
+    const config = loadConfig({
+      ...base,
+      NODE_ENV: "production",
+      DEMO_MODE: "true",
+    });
+    expect(config.R2_BUCKET).toBeUndefined();
+  });
+
+  it("skips the R2 requirement during next build (NEXT_PHASE)", () => {
+    // Same carve-out and same reason as the Azure block: `next build` runs with
+    // NODE_ENV=production but without runtime secrets, so this is a boot-time
+    // check, not a build-time one.
+    process.env.NEXT_PHASE = "phase-production-build";
+    try {
+      const config = loadConfig({ ...base, NODE_ENV: "production" });
+      expect(config.R2_BUCKET).toBeUndefined();
+    } finally {
+      delete process.env.NEXT_PHASE;
+    }
+  });
+
+  it("rejects a lone R2_ACCOUNT_ID rather than silently using local disk", () => {
+    expect(() => loadConfig({ ...base, R2_ACCOUNT_ID: "acct123" })).toThrowError(
+      /R2_BUCKET/
+    );
   });
 });

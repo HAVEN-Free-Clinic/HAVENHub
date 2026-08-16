@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import { promoteContracts, parseAvailabilityDates } from "./promotion";
-import { spanishReviewWhere } from "@/platform/spanish-review";
+import { languageReviewWhere } from "@/platform/languages";
 
 async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[] } = {}) {
   const term = await prisma.term.create({ data: {
@@ -257,12 +257,24 @@ it("maps spanishSelfReported + licensedRN onto the Person, leaves verified false
   expect(res.created).toBe(1);
 
   const person = await prisma.person.findFirstOrThrow({ where: { netId: "rn1" } });
-  expect(person.spanishSelfReported).toBe(true);
   expect(person.licensedRN).toBe(true);
-  expect(person.spanishVerified).toBe(false);
 
-  const queue = await prisma.person.findMany({ where: spanishReviewWhere(), select: { id: true } });
-  expect(queue.map((r) => r.id)).toContain(person.id);
+  // The contract's Spanish claim becomes a self-reported PersonLanguage row.
+  // Crucially NOT verified: intake states a claim, and only the interpreting
+  // department can turn that into a capability that gates scheduling.
+  const es = await prisma.personLanguage.findUniqueOrThrow({
+    where: { personId_language: { personId: person.id, language: "es" } },
+  });
+  expect(es.selfReported).toBe(true);
+  expect(es.verified).toBe(false);
+  expect(es.verifiedAt).toBeNull();
+
+  // verifiedAt null is exactly what puts them in the review queue.
+  const queue = await prisma.personLanguage.findMany({
+    where: languageReviewWhere(),
+    select: { personId: true },
+  });
+  expect(queue.map((r) => r.personId)).toContain(person.id);
 });
 
 it("promotes a TRANSFER applicant into the accepted department, not their prior one", async () => {

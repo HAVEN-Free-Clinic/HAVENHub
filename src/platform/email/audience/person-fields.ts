@@ -195,9 +195,14 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     compile: (cond, ctx) => {
       const value = typeof cond.value === "string" ? cond.value.trim() : "";
       if (value !== "DIRECTOR" && value !== "VOLUNTEER") return MATCH_NOBODY;
+      // With no active term there is no roster to hold a role on. The old
+      // `termId: ctx.activeTermId ?? ""` did match nobody, but only because no
+      // membership carries an empty term id -- say it outright, the way the
+      // other term-scoped fields do, so the guarantee does not rest on that.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
       return {
         memberships: {
-          some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", kind: value },
+          some: { termId: ctx.activeTermId, status: "ACTIVE", kind: value },
         },
       };
     },
@@ -208,11 +213,15 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     group: "Status & roles",
     kind: "multiEnum",
     operators: ["in"],
-    compile: (cond, ctx) => ({
-      memberships: {
-        some: { termId: ctx.activeTermId ?? "", status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
-      },
-    }),
+    compile: (cond, ctx) => {
+      // Same no-active-term guard as `role` above, and for the same reason.
+      if (!ctx.activeTermId) return MATCH_NOBODY;
+      return {
+        memberships: {
+          some: { termId: ctx.activeTermId, status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
+        },
+      };
+    },
   },
   {
     key: "complianceStatus",
@@ -248,13 +257,20 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     operators: ["isTrue", "isFalse"],
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
+  // Language capability moved off Person into PersonLanguage, so these compile
+  // to a relation filter. `isFalse` uses `none`, which correctly includes people
+  // with no language rows at all; a naive `some: { verified: false }` would only
+  // match people who were assessed and failed.
   {
     key: "spanishVerified",
     label: "Spanish-speaking (verified)",
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishVerified: cond.op === "isTrue" }),
+    compile: (cond) =>
+      cond.op === "isTrue"
+        ? { languages: { some: { language: "es", verified: true, verifiedAt: { not: null } } } }
+        : { languages: { none: { language: "es", verified: true, verifiedAt: { not: null } } } },
   },
   {
     key: "spanishSelfReported",
@@ -262,7 +278,10 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     group: "Attributes",
     kind: "boolean",
     operators: ["isTrue", "isFalse"],
-    compile: (cond) => ({ spanishSelfReported: cond.op === "isTrue" }),
+    compile: (cond) =>
+      cond.op === "isTrue"
+        ? { languages: { some: { language: "es", selfReported: true } } }
+        : { languages: { none: { language: "es", selfReported: true } } },
   },
   {
     key: "licensedRN",

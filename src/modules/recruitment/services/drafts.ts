@@ -1,4 +1,7 @@
+import type { ApplicationStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { canSubmitToCycle } from "./cycle-window";
+import { isInvitedTo } from "./invites";
 import { getSetting } from "@/platform/settings/service";
 import type { ApplicantIdentity } from "./portal-auth";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -45,7 +48,13 @@ function mergeDraftAnswers(
 
 export type DraftView = {
   applicationId: string;
-  status: "DRAFT" | "SUBMITTED";
+  /** The real column type. This deliberately does NOT narrow to the two states
+   *  the wizard can act on: it used to say "DRAFT" | "SUBMITTED", and getDraft
+   *  reached the third value through a cast, so widening ApplicationStatus with
+   *  WITHDRAWN compiled silently and /apply/[slug] handed a withdrawn applicant
+   *  the wizard back, prefilled with their old answers. Every consumer must
+   *  decide what it does with a status it cannot continue. */
+  status: ApplicationStatus;
   applicantType: ApplicantType;
   renewalDepartment: string | null;
   answers: Record<string, unknown>;
@@ -78,7 +87,7 @@ export async function getDraft(slug: string, identity: ApplicantIdentity): Promi
   if (!app) return null;
   return {
     applicationId: app.id,
-    status: app.status as "DRAFT" | "SUBMITTED",
+    status: app.status,
     applicantType: app.applicantType,
     renewalDepartment: app.renewalDepartment,
     answers: (app.answers as Record<string, unknown>) ?? {},
@@ -97,11 +106,14 @@ export async function saveDraft(
   const { cycle, applicant } = row;
 
   const now = new Date();
-  const open =
-    cycle.status === "OPEN" &&
-    (!cycle.opensAt || cycle.opensAt <= now) &&
-    (!cycle.closesAt || cycle.closesAt >= now);
-  if (!open) throw new DraftError("This application is closed.");
+  // An invited applicant may save a draft to a cycle that is closed to everyone
+  // else. Every applicant-facing gate asks canSubmitToCycle for exactly this
+  // reason: an invite that worked on the page but not on autosave would let
+  // someone type a full application and silently lose it.
+  const invited = await isInvitedTo(cycle.id, identity.email);
+  if (!canSubmitToCycle(cycle, now, { invited })) {
+    throw new DraftError("This application is closed.");
+  }
 
   // Never trust client-supplied file answers on autosave; file refs are written
   // only by uploadDraftFile. Use the stripped set for both the update-merge and the
@@ -235,8 +247,10 @@ export async function uploadDraftFile(
   if (!row) throw new DraftError("Application not found.");
   const { cycle, applicant } = row;
   const now = new Date();
-  const open = cycle.status === "OPEN" && (!cycle.opensAt || cycle.opensAt <= now) && (!cycle.closesAt || cycle.closesAt >= now);
-  if (!open) throw new DraftError("This application is closed.");
+  const invited = await isInvitedTo(cycle.id, identity.email);
+  if (!canSubmitToCycle(cycle, now, { invited })) {
+    throw new DraftError("This application is closed.");
+  }
   const app = applicant?.applications[0];
   if (!app || app.status === "SUBMITTED") throw new DraftError("No editable draft.");
 

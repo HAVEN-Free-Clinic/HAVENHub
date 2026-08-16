@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
+import { PERSON_SCALARS } from "@/platform/person-scalars";
 
 /**
  * Login → Person resolution (spec §5). SECURITY LAYERING: the NextAuth signIn
@@ -36,6 +37,21 @@ export function netIdFromUpn(upn: string): string | null {
   if (domain?.toLowerCase() !== "yale.edu") return null;
   if (!local) return null;
   return isNetIdShaped(local) ? local.toLowerCase() : null;
+}
+
+/**
+ * The Yale address for a NetID, which is the account a Yale-managed service
+ * (Teams, Entra) knows the person by.
+ *
+ * Lives here, next to netIdFromUpn, because this file already owns the
+ * NetID-to-address relationship. The domain was previously hardcoded in
+ * member-magic-link.ts and in the UPN parser above, do not add a fourth copy.
+ *
+ * Lowercased and trimmed so the result compares directly against stored
+ * lowercase columns such as Applicant.emailLower.
+ */
+export function yaleEmailForNetId(netId: string): string {
+  return `${netId.trim().toLowerCase()}@yale.edu`;
 }
 
 /**
@@ -129,10 +145,20 @@ export async function findMemberRecordByClaim(
  * Memoized per request via React cache() so the multiple guards a single render
  * runs (shared layout + module layout + page) hit the DB once; the cache is
  * per-request, so a status change still takes effect on the next navigation.
+ *
+ * PERSON_SCALARS rather than an implied column list, because this is the single
+ * most exposed query in the app: it runs on every authenticated request, so a
+ * Person column dropped by a migration takes down the whole authenticated app
+ * for the length of a Vercel build rather than one module. That is not
+ * hypothetical here -- see PERSON_SCALARS' doc comment for the production
+ * incident (#597, #598) that this projection exists to prevent recurring.
  */
 export const getActivePerson = cache(
   async (personId: string): Promise<Person | null> => {
-    const person = await prisma.person.findUnique({ where: { id: personId } });
+    const person = await prisma.person.findUnique({
+      where: { id: personId },
+      select: PERSON_SCALARS,
+    });
     if (!person || person.status !== "ACTIVE") return null;
     return person;
   }

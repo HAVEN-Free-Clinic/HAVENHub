@@ -7,6 +7,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
@@ -59,7 +60,7 @@ export default async function LoginPage({
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? DEFAULT_ERROR) : null;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-6">
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden p-6">
       {/* Full-bleed brand backdrop, softened to read airy rather than heavy */}
       <Image
         src="/brand/login-building.webp"
@@ -130,13 +131,14 @@ export default async function LoginPage({
         )}
 
         {memberLinkEnabled && (
-          <div className="mt-6 border-t border-border-subtle pt-6">
-            <p className="text-center text-xs text-muted-foreground">
-              No yale.edu email? Get a one-time sign-in link by email.
-            </p>
-            <div className="mt-3">
-              <MemberSignInForm callbackUrl={safeCallbackUrl} />
-            </div>
+          <div className="mt-6 border-t border-border-subtle pt-4">
+            {/* Collapsed by default: Yale SSO is the path for nearly everyone.
+                An expired member link is the one case where the error copy
+                points at this form, so open it up front there. */}
+            <MemberSignInForm
+              callbackUrl={safeCallbackUrl}
+              defaultOpen={error === "MemberLinkExpired"}
+            />
           </div>
         )}
 
@@ -191,6 +193,8 @@ export default async function LoginPage({
           </form>
         )}
       </div>
+
+      <CopyrightNotice tone="onBrand" className="relative z-10 text-center" />
     </div>
   );
 }

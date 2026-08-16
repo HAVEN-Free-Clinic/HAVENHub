@@ -15,7 +15,7 @@ const complianceCtx = {
 };
 
 describe("person fields", () => {
-  it("exposes a whitelist with options", () => {
+  it("exposes all expected person field keys in order", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
@@ -168,13 +168,33 @@ describe("text operators", () => {
 });
 
 describe("booleans and relations", () => {
-  it("spanishVerified / spanishSelfReported / licensedRN -> direct boolean", () => {
-    expect(personFieldWhere({ field: "spanishVerified", op: "isTrue" }, ctx)).toEqual({ spanishVerified: true });
-    expect(personFieldWhere({ field: "spanishVerified", op: "isFalse" }, ctx)).toEqual({ spanishVerified: false });
-    expect(personFieldWhere({ field: "spanishSelfReported", op: "isTrue" }, ctx)).toEqual({ spanishSelfReported: true });
-    expect(personFieldWhere({ field: "spanishSelfReported", op: "isFalse" }, ctx)).toEqual({ spanishSelfReported: false });
+  it("licensedRN -> direct boolean", () => {
     expect(personFieldWhere({ field: "licensedRN", op: "isTrue" }, ctx)).toEqual({ licensedRN: true });
     expect(personFieldWhere({ field: "licensedRN", op: "isFalse" }, ctx)).toEqual({ licensedRN: false });
+  });
+
+  // Language capability moved off Person into PersonLanguage, so these compile
+  // to relation filters rather than column comparisons. The audience keys are
+  // unchanged, so campaigns saved before the move keep working.
+  it("spanishVerified -> some/none verified 'es' row", () => {
+    const verifiedEs = { language: "es", verified: true, verifiedAt: { not: null } };
+    expect(personFieldWhere({ field: "spanishVerified", op: "isTrue" }, ctx)).toEqual({
+      languages: { some: verifiedEs },
+    });
+    // `none`, not `some: { verified: false }`: the false case must include
+    // people with no language row at all, not only those assessed and failed.
+    expect(personFieldWhere({ field: "spanishVerified", op: "isFalse" }, ctx)).toEqual({
+      languages: { none: verifiedEs },
+    });
+  });
+
+  it("spanishSelfReported -> some/none self-reported 'es' row", () => {
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isTrue" }, ctx)).toEqual({
+      languages: { some: { language: "es", selfReported: true } },
+    });
+    expect(personFieldWhere({ field: "spanishSelfReported", op: "isFalse" }, ctx)).toEqual({
+      languages: { none: { language: "es", selfReported: true } },
+    });
   });
 
   // #68: "open" is PENDING or SUBMITTED everywhere else in the app; matching only
@@ -287,5 +307,18 @@ describe("relation-backed conditions (compliance program additions)", () => {
       expect(personFieldWhere({ field, op: "isTrue" }, noTerm)).toEqual({ id: { in: [] } });
       expect(personFieldWhere({ field, op: "isFalse" }, noTerm)).toEqual({ id: { in: [] } });
     }
+  });
+
+  // role and department are term-scoped too, but take eq/in rather than the
+  // boolean operators above, so they need their own no-active-term assertions.
+  // Both used to lean on `termId: ""` matching no membership by accident; these
+  // pin the match-nobody guarantee to an explicit guard instead.
+  it("role and department match nobody when there is no active term", () => {
+    const noTerm = { activeTermId: null };
+    expect(personFieldWhere({ field: "role", op: "eq", value: "DIRECTOR" }, noTerm)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, noTerm)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, noTerm)).toEqual({
+      id: { in: [] },
+    });
   });
 });

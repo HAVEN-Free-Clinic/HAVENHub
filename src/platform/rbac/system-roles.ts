@@ -22,7 +22,15 @@ export const SYSTEM_ROLES: SystemRole[] = [
     // learning.access: directors are assigned department/org-wide courses like
     // any active member, so they must be able to open them or the onboarding
     // gate locks them out of the app (issue #65).
-    grants: ["schedule.view", "volunteers.view", "learning.access", "incidents.view_strikes"],
+    // schedule.manage_attendance: directors run clinic day and mark walk-in
+    // attendance when self check-in cannot happen.
+    grants: [
+      "schedule.view",
+      "volunteers.view",
+      "learning.access",
+      "incidents.view_strikes",
+      "schedule.manage_attendance",
+    ],
   },
   {
     name: "Volunteer",
@@ -33,6 +41,15 @@ export const SYSTEM_ROLES: SystemRole[] = [
     name: "Compliance Manager",
     description: "Master compliance view across the clinic",
     grants: ["volunteers.view", "volunteers.manage_compliance"],
+  },
+  {
+    name: "Faculty Relations Manager",
+    description: "Maintains the attending roster, the attending schedule, and attending credentialing",
+    // Attendings are faculty, not clinic members: they hold no TermMembership
+    // and belong to no department, so this cannot be a department-scoped
+    // directorship. schedule.view comes along because the roster is only
+    // meaningful next to the schedule it staffs.
+    grants: ["schedule.view", "schedule.manage_attendings"],
   },
   {
     name: "Volunteer Operations Manager",

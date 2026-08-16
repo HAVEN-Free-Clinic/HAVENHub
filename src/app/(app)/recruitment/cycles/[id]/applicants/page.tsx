@@ -55,9 +55,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
-  const [scope, canScorePerm] = await Promise.all([
+  const [scope, canScorePerm, canOpenOverview] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.score"),
+    // This page admits committee scorers and scoped reviewers who lack
+    // recruitment.access, but the cycle overview enforces it, so the breadcrumb
+    // must not offer them a link that bounces to /no-access.
+    can(person.personId, "recruitment.access"),
   ]);
   const canScore = scope.all || canScorePerm;
   const speedItems: SpeedScoreItem[] = canScore
@@ -94,6 +98,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     <div className="space-y-6">
       <SetBreadcrumb
         trail={cycleTrail({
+          canOpenOverview,
           cycleId: id,
           cycleTitle: cycle.title,
           section: { label: "Applicants", slug: "applicants" },
@@ -135,12 +140,23 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             return (
               <TR key={a.id}>
                 <TD>
-                  <Link
-                    className="font-medium text-foreground hover:text-brand-fg"
-                    href={`/recruitment/cycles/${id}/applicants/${a.id}`}
-                  >
-                    {a.applicant.firstName} {a.applicant.lastName}
-                  </Link>
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <Link
+                      className="font-medium text-foreground hover:text-brand-fg"
+                      href={`/recruitment/cycles/${id}/applicants/${a.id}`}
+                    >
+                      {a.applicant.firstName} {a.applicant.lastName}
+                    </Link>
+                    {/* Recruited by invite link rather than through the open
+                        form, which usually means the application arrived after
+                        the deadline. Reviewers are otherwise given no way to
+                        tell, and it changes how the application reads. */}
+                    {a.invited && (
+                      <Badge tone="brand" title="Applied through an invitation link">
+                        Invited
+                      </Badge>
+                    )}
+                  </span>
                 </TD>
                 <TD className="text-foreground-soft">{a.applicant.email}</TD>
                 <TD className="text-foreground-soft">{applicantTypeLabel(a.applicantType)}</TD>
@@ -151,6 +167,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   <Badge>{applicationStageLabel[applicationStage({
                     scoreCount: a.committeeScores.length,
                     routedDepartmentCode: a.routedDepartmentCode,
+                    returnedToRoutingAt: a.returnedToRoutingAt,
                     applicationDecision: a.decision,
                     interviews: a.interviews,
                   })]}</Badge>

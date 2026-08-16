@@ -24,10 +24,23 @@ export const MODULES: ModuleManifest[] = [
       "schedule.edit_own_dept",
       "schedule.edit_all",
       "schedule.manage_requests",
+      // Deliberately unscoped (not department-scoped, unlike the permissions
+      // above): the operational reality is one front-desk staffer marking
+      // walk-ins present across every department, not per-department checks.
+      "schedule.manage_attendance",
+      // Also unscoped, for the same kind of reason: there is ONE attending
+      // roster and ONE attending schedule for the whole clinic, maintained by
+      // Faculty Relations. Attendings are not members of a department, so a
+      // department-scoped grant could not express who may edit them.
+      "schedule.manage_attendings",
     ],
     status: "active",
     nav: [
       { label: "My schedule", href: "/schedule" },
+      // Data-driven: only meaningful on a clinic date, and schedule/layout.tsx
+      // drops it otherwise. dynamicGate keeps it out of the global dropdown,
+      // which cannot resolve "is today a clinic day".
+      { label: "Check in", href: "/schedule/check-in", dynamicGate: true },
       { label: "Full schedule", href: "/schedule/full" },
       // Builder, Approvals and Attendings all gate on a data-driven capability
       // (managing a schedule department / an RHD department / at least one
@@ -43,6 +56,12 @@ export const MODULES: ModuleManifest[] = [
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
+      // Read-only view of the same schedule, for a WIDER audience than the
+      // builder: anyone holding clinic-wide schedule rights runs a clinic day
+      // and needs to look coverage up without being able to change it. Also
+      // data-driven (schedule.edit_all OR schedule.manage_attendings), so the
+      // layout resolves it and the global dropdown stays out of it.
+      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true },
     ],
   },
   {
@@ -72,6 +91,7 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
       "volunteers.verify_spanish",
+      "volunteers.manage_board_attendance",
     ],
     status: "active",
     nav: [
@@ -81,7 +101,11 @@ export const MODULES: ModuleManifest[] = [
       { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
-      { label: "Spanish review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
+      // Label says Language; the href and permission keep their historical
+      // spanish names because renaming a route breaks bookmarks and renaming a
+      // permission means re-granting it in production. Neither is user-visible.
+      { label: "Language review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
+      { label: "Board meetings", href: "/volunteers/board-meetings", permission: "volunteers.manage_board_attendance" },
       { label: "Offboarding", href: "/volunteers/offboarding", permission: "volunteers.view" },
     ],
   },
@@ -91,6 +115,14 @@ export const MODULES: ModuleManifest[] = [
     description: "Report a professional-standards concern; review reports and manage strikes",
     icon: ShieldAlert,
     // No accessPermission: open to any signed-in matched person so anyone can file a report.
+    //
+    // There is deliberately NO permission for "receives incident escalations".
+    // incidents.escalation_recipient used to exist for exactly that, aimed at
+    // medical directors -- but a permission can only be granted to a Person with
+    // an account, and the advisors it was meant for are third parties with no Hub
+    // account at all. It could never have reached them. Forwarding a report or a
+    // strike outside the clinic is now an address a reviewer types, per matter
+    // (see modules/incidents/services/forward.ts).
     permissions: ["incidents.manage", "incidents.view_strikes"],
     status: "active",
     nav: [
@@ -164,7 +196,14 @@ export const MODULES: ModuleManifest[] = [
     additionalAccessPermissions: ["recruitment.score"],
     permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all", "recruitment.score"],
     status: "active",
-    nav: [{ label: "Cycles", href: "/recruitment" }],
+    nav: [
+      { label: "Cycles", href: "/recruitment" },
+      // /recruitment/history hard-gates on recruitment.access (no committee-scorer
+      // carve-out like the Cycles index has), so gate the tab the same way --
+      // otherwise a score-only reviewer (admitted via additionalAccessPermissions
+      // above) sees a tab that bounces to /no-access.
+      { label: "History", href: "/recruitment/history", permission: "recruitment.access" },
+    ],
   },
   {
     id: "learning",
@@ -194,12 +233,22 @@ export const MODULES: ModuleManifest[] = [
     icon: LifeBuoy,
     // No accessPermission: open to any signed-in matched person (like my-info),
     // so anyone can submit. Manager tabs gate on support.manage_requests.
-    permissions: ["support.manage_requests"],
+    //
+    // support.view_all_requests is the read-only half of manage_requests: it
+    // opens the cross-clinic queue to someone who needs to answer "where is my
+    // request?" without being able to work a ticket. It reaches ONLY the "All
+    // requests" tab -- never Epic / YNHH tools, which submits real access
+    // requests.
+    permissions: ["support.manage_requests", "support.view_all_requests"],
     status: "active",
     nav: [
       { label: "My requests", href: "/support" },
       { label: "Submit a request", href: "/support/new" },
-      { label: "All requests", href: "/support/all", permission: "support.manage_requests" },
+      {
+        label: "All requests",
+        href: "/support/all",
+        permission: ["support.manage_requests", "support.view_all_requests"],
+      },
       { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
     ],
   },

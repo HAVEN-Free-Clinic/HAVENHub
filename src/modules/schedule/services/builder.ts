@@ -9,12 +9,13 @@
  * Typed errors: BuilderForbiddenError, BuilderValidationError.
  */
 
-import type { RhdClinic, Term } from "@prisma/client";
+import type { ClinicDay, Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
@@ -25,8 +26,14 @@ import { computeDayMetrics } from "../engine/capacity";
 import type { DayMetrics } from "../engine/capacity";
 import { summarizeNotCleared } from "../engine/banner";
 import type { DeptBanner } from "../engine/banner";
-import { computeClinicReadiness } from "../engine/rhd";
-import type { ClinicReadiness, RhdPersonLite, Attending } from "../engine/rhd";
+import { computeClinicReadiness, PROCEDURE_KEYS } from "../engine/rhd";
+import type {
+  ClinicReadiness,
+  RhdPersonLite,
+  ReadinessAttending,
+  ProcedureKey,
+  ProcedureStatus,
+} from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +80,18 @@ async function loadEditableTerm(termId: string): Promise<Term> {
 // ---------------------------------------------------------------------------
 
 export const RHD_CODES = new Set(["SCTS", "JCTS", "CCRH"]);
+
+/**
+ * Which columns of the clinic-wide attending schedule staff reproductive health.
+ *
+ * The readiness panel is about procedure coverage, so it must count the RHD
+ * attending and nobody else: the 9am-12pm primary care attendings are on the
+ * same clinic day but do not make an IUD bookable.
+ *
+ * Matched by LABEL because the slot list is Faculty Relations' to edit; renaming
+ * the column here is the deliberate way to re-point the panel.
+ */
+export const RHD_SLOT_LABELS = new Set(["RHD Attending"]);
 
 // ---------------------------------------------------------------------------
 // Input allow-lists
@@ -515,80 +534,383 @@ export async function acknowledgeAvailability(
 }
 
 /**
- * Upserts the RhdClinic row for a term+date.
+ * Parse a booked-count field ("" -> null, else a non-negative integer).
  *
- * Actor must manage at least one RHD-family department (SCTS, JCTS, CCRH).
- * The dateKey must be a clinic date in the active term.
+ * Throws BuilderValidationError, which runAction turns into an inline error
+ * rather than a 500, so call it inside an action's `work` closure. Shared by the
+ * builder's patients-booked and the attending grid's procedures-booked, which
+ * must reject the same inputs -- a negative or fractional count reaching the
+ * column would make the readiness cap warning silently wrong.
  */
-export async function upsertRhdClinic(
+export function parseBookedCount(raw: string, label: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new BuilderValidationError(`${label} must be a whole number of 0 or more.`);
+  }
+  return n;
+}
+
+/**
+ * A YYYY-MM-DD key as the noon-UTC instant clinic dates are anchored at, or null
+ * when the key is not a real calendar date.
+ *
+ * Noon, not midnight, so the row lands on the same instant a later term-calendar
+ * edit would produce for the same day -- otherwise adding the date to the term
+ * would create a SECOND ClinicDay beside the on-call one.
+ */
+function dateKeyToNoonUtc(key: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+  const d = new Date(`${key}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  // Round-trip check: JS normalizes impossible dates (2026-02-30) into a valid
+  // day in the next month rather than returning NaN.
+  return d.toISOString().slice(0, 10) === key ? d : null;
+}
+
+/** Whether a date falls inside the term's calendar window, inclusive. */
+function withinTerm(d: Date, term: { startDate: Date; endDate: Date }): boolean {
+  const key = isoDateKey(d);
+  return key >= isoDateKey(term.startDate) && key <= isoDateKey(term.endDate);
+}
+
+/**
+ * Upserts one clinic date of the clinic-wide attending schedule.
+ *
+ * Requires schedule.manage_attendings: there is ONE schedule for the whole
+ * clinic, maintained by Faculty Relations. This used to be scoped to the
+ * director of a "service line", which was the wrong shape -- attendings belong
+ * to no department, and reproductive health and primary care are columns of one
+ * grid rather than separate schedules.
+ *
+ * Every field is optional and only what is passed gets written, so the grid can
+ * save one cell without disturbing the rest of the row.
+ *
+ * The dateKey must fall inside the term. A date the term does not list as a
+ * clinic date is accepted for the ON-CALL attending alone: on call covers the
+ * week leading up to the next clinic day, so someone holds the pager across a
+ * break week even though the clinic itself does not run. Everything else on such
+ * a date is refused rather than silently dropped -- the builder shows those
+ * dates closed, and a slot assignment reaching here means the caller disagrees
+ * with what the manager was shown.
+ */
+export async function upsertClinicDay(
   actor: string,
   opts: {
     termId: string;
     dateKey: string;
-    attendingId?: string | null;
+    /**
+     * Slot id -> the attendings covering it. An EMPTY array unstaffs that slot.
+     * Only the slots present here are touched; omitting the field entirely (a
+     * director-name-only save) leaves every assignment standing.
+     */
+    attendingsBySlot?: Record<string, string[]>;
+    onCallAttendingId?: string | null;
+    specialtyId?: string | null;
+    isClosed?: boolean;
+    closedNote?: string | null;
     directorName?: string | null;
     proceduresBooked?: number | null;
   }
 ): Promise<void> {
-  // Scope: must manage at least one RHD department.
-  const manageable = await manageableScheduleDepartmentIds(actor);
-  const rhdDepts = await prisma.department.findMany({
-    where: { code: { in: [...RHD_CODES] } },
-    select: { id: true },
-  });
-  const rhdIds = new Set(rhdDepts.map((d) => d.id));
-  const hasRhd = manageable.some((id) => rhdIds.has(id));
-  if (!hasRhd) throw new BuilderForbiddenError("Actor does not manage any RHD-family department.");
+  if (!(await can(actor, "schedule.manage_attendings"))) {
+    throw new BuilderForbiddenError("You do not manage the attending schedule.");
+  }
 
   const term = await loadEditableTerm(opts.termId);
+  const listed = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
 
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  // A date the term does not list still gets a row when it carries on call, so
+  // resolve it from the key itself. Noon UTC matches how clinic dates are
+  // anchored, so the (term, date) unique key lands on the same instant a later
+  // calendar edit would produce.
+  const clinicDate = listed ?? dateKeyToNoonUtc(opts.dateKey);
   if (!clinicDate) {
-    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+    throw new BuilderValidationError(`${opts.dateKey} is not a valid date.`);
+  }
+  if (!listed) {
+    if (!withinTerm(clinicDate, term)) {
+      throw new BuilderValidationError(`${opts.dateKey} falls outside ${term.name}.`);
+    }
+    // On call is the one field a non-clinic date carries. `isClosed` is allowed
+    // through only as `true`, which is what the builder already renders for such
+    // a date -- accepting `false` would let a save contradict it.
+    const assignsSlots = Object.values(opts.attendingsBySlot ?? {}).some((ids) => ids.length > 0);
+    const setsDayFields =
+      assignsSlots ||
+      (opts.specialtyId ?? null) !== null ||
+      (opts.directorName ?? null) !== null ||
+      (opts.proceduresBooked ?? null) !== null ||
+      ("isClosed" in opts && opts.isClosed === false);
+    if (setsDayFields) {
+      throw new BuilderValidationError(
+        `${opts.dateKey} is not a clinic date in ${term.name}, so only the on-call attending can be set.`,
+      );
+    }
   }
 
-  // attendingId is a foreign key read verbatim from FormData. Validate it before the
-  // upsert so a stale/tampered id surfaces a friendly validation error rather than a
-  // raw Prisma P2003 that runAction rethrows as a 500 (mirrors the dateKey check above).
-  if (opts.attendingId != null) {
-    const attending = await prisma.rhdAttending.findUnique({
-      where: { id: opts.attendingId },
-      select: { id: true },
+  // Slot ids, attending ids and the specialty are foreign keys read verbatim
+  // from FormData. Validate before the write so a stale or tampered id surfaces
+  // a friendly validation error rather than a raw Prisma P2003 that runAction
+  // rethrows as a 500.
+  const assignments = await resolveSlotAssignments(opts.attendingsBySlot);
+  if (opts.onCallAttendingId) await assertAttendingExists(opts.onCallAttendingId, "on-call attending");
+  if (opts.specialtyId) {
+    const specialty = await prisma.attendingSpecialty.findUnique({
+      where: { id: opts.specialtyId },
+      select: { runsSpecialtyClinic: true },
     });
-    if (!attending) throw new BuilderValidationError("Selected attending no longer exists.");
+    if (!specialty) throw new BuilderValidationError("That specialty no longer exists.");
+    if (!specialty.runsSpecialtyClinic) {
+      throw new BuilderValidationError("That specialty does not run a specialty clinic.");
+    }
   }
 
-  const rhdClinicBefore = await prisma.rhdClinic.findFirst({
-    where: { termId: term.id, clinicDate },
-    select: { attendingId: true, directorName: true, proceduresBooked: true },
+  const dayFields = {
+    ...("onCallAttendingId" in opts && { onCallAttendingId: opts.onCallAttendingId ?? null }),
+    ...("specialtyId" in opts && { specialtyId: opts.specialtyId ?? null }),
+    ...("isClosed" in opts && { isClosed: opts.isClosed ?? false }),
+    ...("closedNote" in opts && { closedNote: opts.closedNote ?? null }),
+    ...("directorName" in opts && { directorName: opts.directorName ?? null }),
+    ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
+    // A date the term does not list is closed as a fact, not a setting. Written
+    // rather than left derived because readers that go straight to ClinicDay --
+    // the member shift card, the reminder emails -- filter on this column and
+    // would otherwise treat an on-call-only row as an open clinic day.
+    ...(listed ? {} : { isClosed: true }),
+  };
+
+  const before = await prisma.clinicDay.findUnique({
+    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    select: auditSelect,
   });
 
-  const rhdClinicAfter = await prisma.rhdClinic.upsert({
-    where: { termId_clinicDate: { termId: term.id, clinicDate } },
-    create: {
-      termId: term.id,
-      clinicDate,
-      attendingId: opts.attendingId ?? null,
-      directorName: opts.directorName ?? null,
-      proceduresBooked: opts.proceduresBooked ?? null,
-    },
-    update: {
-      ...("attendingId" in opts && { attendingId: opts.attendingId ?? null }),
-      ...("directorName" in opts && { directorName: opts.directorName ?? null }),
-      ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
-    },
-    select: { attendingId: true, directorName: true, proceduresBooked: true },
+  // One transaction: a cell save is one edit to the reader, so a per-day field
+  // must not land while its slot assignments fail, or vice versa.
+  const after = await prisma.$transaction(async (tx) => {
+    const day = await tx.clinicDay.upsert({
+      where: { termId_clinicDate: { termId: term.id, clinicDate } },
+      create: { termId: term.id, clinicDate, ...dayFields },
+      update: dayFields,
+      select: { id: true },
+    });
+
+    if (assignments) {
+      for (const { slotId, attendingIds } of assignments) {
+        // Replace-set per slot: the cell posts everyone it shows, so removing a
+        // name from the cell must delete that row rather than merge.
+        await tx.clinicDayAttending.deleteMany({ where: { clinicDayId: day.id, slotId } });
+        if (attendingIds.length > 0) {
+          await tx.clinicDayAttending.createMany({
+            data: attendingIds.map((attendingId, order) => ({
+              clinicDayId: day.id,
+              slotId,
+              attendingId,
+              order,
+            })),
+          });
+        }
+      }
+    }
+
+    return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
   });
 
   await recordAudit({
     actorPersonId: actor,
-    action: "schedule.rhd_clinic",
-    entityType: "RhdClinic",
+    action: "schedule.clinic_day",
+    entityType: "ClinicDay",
     entityId: `${term.id}|${opts.dateKey}`,
-    ...(rhdClinicBefore && {
-      before: { attendingId: rhdClinicBefore.attendingId, directorName: rhdClinicBefore.directorName, proceduresBooked: rhdClinicBefore.proceduresBooked },
-    }),
-    after: { attendingId: rhdClinicAfter.attendingId, directorName: rhdClinicAfter.directorName, proceduresBooked: rhdClinicAfter.proceduresBooked },
+    ...(before && { before: auditShape(before) }),
+    after: auditShape(after),
+  });
+}
+
+/**
+ * Add or remove ONE attending in one slot of one clinic date.
+ *
+ * The grid's cell toggle. Separate from {@link upsertClinicDay}, whose
+ * `attendingsBySlot` is a replace-set: a grid cell knows only about itself, and
+ * making it post the slot's whole contents would mean a stale page silently
+ * unassigning the colleague someone else added while it was open.
+ *
+ * Slot assignment is refused on a date the term does not list as a clinic date,
+ * matching what the builder renders for such a date -- it is closed, and only
+ * the on-call attending crosses that line.
+ */
+export async function setSlotAttending(
+  actor: string,
+  opts: {
+    termId: string;
+    dateKey: string;
+    slotId: string;
+    attendingId: string;
+    /** True to put them in the slot, false to take them out. */
+    assigned: boolean;
+  },
+): Promise<void> {
+  if (!(await can(actor, "schedule.manage_attendings"))) {
+    throw new BuilderForbiddenError("You do not manage the attending schedule.");
+  }
+
+  const term = await loadEditableTerm(opts.termId);
+  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in ${term.name}.`);
+  }
+
+  // Both ids arrive verbatim from a form. Validate before the write so a stale
+  // or tampered id surfaces a friendly error rather than a raw Prisma P2003.
+  const slot = await prisma.clinicSlot.findUnique({
+    where: { id: opts.slotId },
+    select: { id: true, label: true, allowsMultiple: true },
+  });
+  if (!slot) throw new BuilderValidationError("That schedule column no longer exists.");
+  await assertAttendingExists(opts.attendingId, "attending");
+
+  const before = await prisma.clinicDay.findUnique({
+    where: { termId_clinicDate: { termId: term.id, clinicDate } },
+    select: auditSelect,
+  });
+
+  const after = await prisma.$transaction(async (tx) => {
+    const day = await tx.clinicDay.upsert({
+      where: { termId_clinicDate: { termId: term.id, clinicDate } },
+      create: { termId: term.id, clinicDate },
+      update: {},
+      select: { id: true },
+    });
+
+    if (!opts.assigned) {
+      await tx.clinicDayAttending.deleteMany({
+        where: { clinicDayId: day.id, slotId: slot.id, attendingId: opts.attendingId },
+      });
+      return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
+    }
+
+    // A single-attending column holds one person, so assigning REPLACES whoever
+    // is there. The grid shows that column's occupant in the cell, so the
+    // manager can see what they are displacing before they click.
+    if (!slot.allowsMultiple) {
+      await tx.clinicDayAttending.deleteMany({ where: { clinicDayId: day.id, slotId: slot.id } });
+    }
+
+    const existing = await tx.clinicDayAttending.count({
+      where: { clinicDayId: day.id, slotId: slot.id },
+    });
+    // Idempotent on the unique (day, slot, attending): clicking twice, or two
+    // managers clicking at once, must not 500 on a duplicate key.
+    await tx.clinicDayAttending.upsert({
+      where: {
+        clinicDayId_slotId_attendingId: {
+          clinicDayId: day.id,
+          slotId: slot.id,
+          attendingId: opts.attendingId,
+        },
+      },
+      create: {
+        clinicDayId: day.id,
+        slotId: slot.id,
+        attendingId: opts.attendingId,
+        order: existing,
+      },
+      update: {},
+    });
+
+    return tx.clinicDay.findUniqueOrThrow({ where: { id: day.id }, select: auditSelect });
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "schedule.clinic_day",
+    entityType: "ClinicDay",
+    entityId: `${term.id}|${opts.dateKey}`,
+    ...(before && { before: auditShape(before) }),
+    after: auditShape(after),
+  });
+}
+
+/** What the audit trail records about a clinic day, before and after. */
+const auditSelect = {
+  isClosed: true,
+  closedNote: true,
+  onCallAttendingId: true,
+  specialtyId: true,
+  directorName: true,
+  proceduresBooked: true,
+  attendings: { select: { slotId: true, attendingId: true, order: true } },
+} as const;
+
+type AuditRow = {
+  isClosed: boolean;
+  closedNote: string | null;
+  onCallAttendingId: string | null;
+  specialtyId: string | null;
+  directorName: string | null;
+  proceduresBooked: number | null;
+  attendings: Array<{ slotId: string; attendingId: string; order: number }>;
+};
+
+function auditShape(r: AuditRow) {
+  return {
+    isClosed: r.isClosed,
+    closedNote: r.closedNote,
+    onCallAttendingId: r.onCallAttendingId,
+    specialtyId: r.specialtyId,
+    directorName: r.directorName,
+    proceduresBooked: r.proceduresBooked,
+    // Sorted so a reordered fetch does not read as a change in the audit diff.
+    attendings: [...r.attendings]
+      .sort((a, b) => (a.slotId === b.slotId ? a.order - b.order : a.slotId < b.slotId ? -1 : 1))
+      .map((a) => ({ slotId: a.slotId, attendingId: a.attendingId })),
+  };
+}
+
+async function assertAttendingExists(id: string, label: string): Promise<void> {
+  const found = await prisma.attending.findUnique({ where: { id }, select: { id: true } });
+  if (!found) throw new BuilderValidationError(`That ${label} no longer exists.`);
+}
+
+/**
+ * Validate posted slot assignments.
+ *
+ * Returns null when the caller submitted nothing, which must mean "leave the
+ * assignments alone" rather than "clear them": a director-name-only save lands
+ * here.
+ *
+ * Both ids are posted by the form, so both are checked: the slot must be a real
+ * column, and every attending must be on the roster. A slot that does not allow
+ * multiple attendings is held to one, so the constraint the schedule shows is
+ * the constraint the service enforces.
+ */
+async function resolveSlotAssignments(
+  attendingsBySlot: Record<string, string[]> | undefined
+): Promise<Array<{ slotId: string; attendingIds: string[] }> | null> {
+  if (!attendingsBySlot) return null;
+  const entries = Object.entries(attendingsBySlot);
+  if (entries.length === 0) return null;
+
+  const [slots, roster] = await Promise.all([
+    prisma.clinicSlot.findMany({ select: { id: true, label: true, allowsMultiple: true } }),
+    prisma.attending.findMany({ select: { id: true } }),
+  ]);
+  const slotById = new Map(slots.map((s) => [s.id, s]));
+  const onRoster = new Set(roster.map((a) => a.id));
+
+  return entries.map(([slotId, rawIds]) => {
+    const slot = slotById.get(slotId);
+    if (!slot) throw new BuilderValidationError("That time slot no longer exists.");
+
+    // Dedupe: the unique index would reject a repeat anyway, and a cell that
+    // names the same person twice is a slip rather than something to fail on.
+    const attendingIds = [...new Set(rawIds.filter(Boolean))];
+    for (const id of attendingIds) {
+      if (!onRoster.has(id)) throw new BuilderValidationError("That attending is not on the roster.");
+    }
+    if (!slot.allowsMultiple && attendingIds.length > 1) {
+      throw new BuilderValidationError(`${slot.label} takes one attending.`);
+    }
+    return { slotId, attendingIds };
   });
 }
 
@@ -609,7 +931,7 @@ export type BuilderMemberIntake = {
 
 export type BuilderMember = {
   membershipId: string;
-  person: { id: string; name: string; spanishVerified: boolean; licensedRN: boolean };
+  person: { id: string; name: string; verifiedLanguages: string[]; licensedRN: boolean };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
   overrideActive: boolean;
@@ -641,13 +963,17 @@ export type BuilderAssignmentEntry = {
    * view instead of a raw personId cuid. Members are always in `members`; this is
    * the fallback source for everyone else.
    */
-  person: { name: string; spanishVerified: boolean; licensedRN: boolean };
+  person: { name: string; verifiedLanguages: string[]; licensedRN: boolean };
 };
 
 export type BuilderRhd = {
   readiness: ClinicReadiness;
-  attendingOptions: { id: string; scheduleName: string }[];
-  clinic: RhdClinic | null;
+  /**
+   * The per-DAY row (director on point, procedures booked). Who is covering
+   * lives on `readiness.attendings`, one entry per staffed slot; the panel is
+   * read-only, so it needs names rather than an options list to select from.
+   */
+  clinic: ClinicDay | null;
 };
 
 export type BuilderView = {
@@ -671,6 +997,13 @@ export type BuilderView = {
   banner: DeptBanner[];
   /** Map: personId -> array of other-department names with same-day conflict. */
   conflicts: Record<string, string[]>;
+  /**
+   * Members fully cleared for the date being built, for the verified badge.
+   * Plain string[] rather than a Set so it survives the RSC boundary intact.
+   * Computed from the same loadClearanceMap pass that feeds `banner`, so a badge
+   * and the banner can never disagree about the same person.
+   */
+  clearedPersonIds: string[];
   pendingRequestCount: number;
   rhd: BuilderRhd | null;
 };
@@ -710,6 +1043,7 @@ export async function builderView(
       capacity: emptyMetrics,
       hasCapacityConfig: false,
       banner: [],
+    clearedPersonIds: [],
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
@@ -746,6 +1080,7 @@ export async function builderView(
       capacity: emptyMetrics,
       hasCapacityConfig: false,
       banner: [],
+    clearedPersonIds: [],
       conflicts: {},
       pendingRequestCount: 0,
       rhd: null,
@@ -781,7 +1116,7 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, spanishVerified: true, licensedRN: true } },
+        person: { select: { id: true, name: true, licensedRN: true } },
       },
     }),
     prisma.termMembership.findMany({
@@ -799,6 +1134,13 @@ export async function builderView(
     }),
   ]);
 
+  // Verified language capabilities for everyone on this board, in one query.
+  // Only VERIFIED languages reach the builder: a self-reported claim is an
+  // intake signal and must not read as a capability a director can schedule on.
+  const languageMap = await verifiedLanguagesByPerson([
+    ...new Set([...allAssignments.map((a) => a.personId), ...members.map((m) => m.person.id)]),
+  ]);
+
   // Build assignmentsByDate.
   const assignmentsByDate: Record<string, Record<string, BuilderAssignmentEntry>> = {};
   for (const a of allAssignments) {
@@ -809,7 +1151,7 @@ export async function builderView(
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
       person: {
         name: a.person.name,
-        spanishVerified: a.person.spanishVerified,
+        verifiedLanguages: languageMap.get(a.personId) ?? [],
         licensedRN: a.person.licensedRN,
       },
     };
@@ -850,7 +1192,7 @@ export async function builderView(
       person: {
         id: m.person.id,
         name: m.person.name,
-        spanishVerified: m.person.spanishVerified,
+        verifiedLanguages: languageMap.get(m.person.id) ?? [],
         licensedRN: m.person.licensedRN,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
@@ -879,14 +1221,14 @@ export async function builderView(
   const activeMemberIds = new Set(members.map((m) => m.person.id));
   const capacityAssignments = selectedAssignments.filter((a) => activeMemberIds.has(a.personId));
 
-  // Build a set of person details for spanish/RN counts.
-  const personById = new Map(members.map((m) => [m.person.id, m.person]));
-
   const onShiftPeople = capacityAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
-  const spanishCount = onShiftPeople.filter((a) => {
-    const p = personById.get(a.personId) ?? a.person;
-    return p.spanishVerified;
-  }).length;
+  // Spanish specifically: the capacity model asks how many Spanish speakers are
+  // on shift, because that is what bounds how many Spanish-speaking patients the
+  // clinic can see. Reads from the language map now rather than a Person column,
+  // so it counts a VERIFIED capability and nothing else.
+  const spanishCount = onShiftPeople.filter((a) =>
+    (languageMap.get(a.personId) ?? []).includes("es"),
+  ).length;
 
   const capacity = computeDayMetrics(
     {
@@ -911,11 +1253,18 @@ export async function builderView(
   // Build a memberById Map for O(1) lookups instead of O(n) linear scan per assignee.
   const memberById = new Map(members.map((m) => [m.person.id, m]));
 
-  const bannerClearance = await loadClearanceMap(
-    volunteerAssigneesOnDate.map((a) => a.personId),
-    term.id,
-    now
-  );
+  // ONE clearance pass covering both consumers: the not-cleared banner (volunteer
+  // assignees on this date) and the verified badge on every assignable member
+  // card. Widening the existing call is free relative to making a second one --
+  // loadClearanceMap's cost is per-call, not per-person -- and it guarantees the
+  // banner and the badges can never disagree about the same person.
+  //
+  // Note this deliberately passes `now`, the builder's reference time, so a
+  // badge answers "cleared for the date being built" rather than "cleared today".
+  const clearanceScope = [
+    ...new Set([...volunteerAssigneesOnDate.map((a) => a.personId), ...members.map((m) => m.person.id)]),
+  ];
+  const bannerClearance = await loadClearanceMap(clearanceScope, term.id, now);
 
   const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
     const person = memberById.get(a.personId)?.person ?? a.person;
@@ -969,11 +1318,13 @@ export async function builderView(
     }
   }
 
-  // RHD block.
-  let rhd: BuilderRhd | null = null;
-  if (RHD_CODES.has(selectedDept.code)) {
-    rhd = await buildRhdBlock(term, departments, selectedDateKey, allTermAssignments);
-  }
+  // RHD block. Still reproductive-health-only: the readiness panel is about
+  // procedure coverage (IUD, Nexplanon), which no other part of the clinic has.
+  // It reads the RHD Attending column of the clinic-wide schedule rather than a
+  // schedule of its own.
+  const rhd = RHD_CODES.has(selectedDept.code)
+    ? await buildRhdBlock(term, departments, selectedDateKey, allTermAssignments)
+    : null;
 
   return {
     departments: deptLites,
@@ -989,6 +1340,11 @@ export async function builderView(
       selectedDept.idealHeadcount != null || selectedDept.patientCapacityPerProvider != null,
     banner,
     conflicts,
+    // Plain string[], not a Set: this crosses into components and a Set would
+    // not survive serialization intact. Callers rebuild a Set if they want O(1).
+    clearedPersonIds: [...bannerClearance]
+      .filter(([, summary]) => summary.cleared)
+      .map(([personId]) => personId),
     pendingRequestCount: pendingCount,
     rhd,
   };
@@ -1008,7 +1364,7 @@ type MinimalAssignment = {
 
 /**
  * Builds the RHD block for the builderView.
- * Loads RhdClinic (with attending included), attending options, and computes readiness.
+ * Loads ClinicDay (with attending included), attending options, and computes readiness.
  *
  * departments: the already-fetched list from builderView. If all three RHD codes
  * (SCTS, JCTS, CCRH) are present in it, no extra department query is needed.
@@ -1044,40 +1400,57 @@ async function buildRhdBlock(
 
   const deptIdToCode = new Map(rhdDepts.map((d) => [d.id, d.code]));
 
-  // Fetch attending options and clinic (with attending included) in parallel.
-  const [attendingOptions, clinic] = await Promise.all([
-    prisma.rhdAttending.findMany({
-      where: { isActive: true },
-      select: { id: true, scheduleName: true },
-      orderBy: { scheduleName: "asc" },
-    }),
-    prisma.rhdClinic.findFirst({
-      where: { termId: term.id, clinicDate },
-      include: {
-        attending: true,
+  // The day's row, with only the REPRODUCTIVE HEALTH coverage. The schedule is
+  // clinic-wide, so the panel filters to the slots that staff this clinic rather
+  // than counting the primary care or behavioral health columns as its own.
+  const clinic = await prisma.clinicDay.findFirst({
+    where: { termId: term.id, clinicDate },
+    include: {
+      attendings: {
+        where: { slot: { label: { in: [...RHD_SLOT_LABELS] } } },
+        // Slot order, so the panel lists the day the way it is worked.
+        orderBy: [{ slot: { order: "asc" } }, { order: "asc" }],
+        include: {
+          slot: { select: { label: true } },
+          attending: {
+            include: {
+              capabilities: { select: { value: true, capability: { select: { key: true } } } },
+            },
+          },
+        },
       },
-    }),
-  ]);
+    },
+  });
 
-  // Map the included attending to the engine Attending shape.
-  let attending: Attending | null = null;
-  if (clinic?.attending) {
-    const att = clinic.attending;
-    attending = {
+  // Project each attending's stored answers onto the engine's fixed six-key
+  // record. The engine is a port and wants all six present; the store keeps only
+  // non-"unknown" answers, so an absent key is unknown -- which is also the right
+  // answer if this line has stopped asking that question.
+  //
+  // One entry per STAFFED slot. The engine unions them into per-day coverage,
+  // because procedures booked is a per-day number.
+  //
+  // DEACTIVATED attendings are excluded, so a slot they still occupy reads as a
+  // gap here exactly as it does on the attending schedule. Previously the name
+  // was resolved from the active roster (showing "Not set") while their
+  // qualifications still fed the procedure row, so the panel could claim IUD
+  // coverage from someone it simultaneously showed as not covering.
+  const attendings: ReadinessAttending[] = (clinic?.attendings ?? []).filter((row) => row.attending.isActive).map((row) => {
+    const att = row.attending;
+    const byKey = new Map(att.capabilities.map((c) => [c.capability.key, c.value]));
+    const procedures = Object.fromEntries(
+      PROCEDURE_KEYS.map((k) => [k, (byKey.get(k) ?? "unknown") as ProcedureStatus]),
+    ) as Record<ProcedureKey, ProcedureStatus>;
+
+    return {
       id: att.id,
       scheduleName: att.scheduleName,
       fullName: att.fullName,
-      procedures: {
-        iudIn: att.iudIn as "yes" | "no" | "unknown",
-        iudOut: att.iudOut as "yes" | "no" | "unknown",
-        nexplanon: att.nexplanon as "yes" | "no" | "unknown",
-        gac: att.gac as "yes" | "no" | "unknown",
-        emb: att.emb as "yes" | "no" | "unknown",
-        seesMale: att.seesMale as "yes" | "no" | "unknown",
-      },
+      slotLabel: row.slot.label,
+      procedures,
       notes: att.notes ?? undefined,
     };
-  }
+  });
 
   // Build RhdPersonLite lists for each RHD department on the selected date.
   const selectedRhdAssignments = allTermAssignments.filter(
@@ -1088,12 +1461,15 @@ async function buildRhdBlock(
   );
 
   const personIds = [...new Set(selectedRhdAssignments.map((a) => a.personId))];
-  const persons = personIds.length > 0
-    ? await prisma.person.findMany({
-        where: { id: { in: personIds } },
-        select: { id: true, contactEmail: true, licensedRN: true, spanishVerified: true },
-      })
-    : [];
+  const [persons, rhdLanguages] = await Promise.all([
+    personIds.length > 0
+      ? prisma.person.findMany({
+          where: { id: { in: personIds } },
+          select: { id: true, contactEmail: true, licensedRN: true },
+        })
+      : Promise.resolve([]),
+    verifiedLanguagesByPerson(personIds),
+  ]);
   const personMap = new Map(persons.map((p) => [p.id, p]));
 
   function toRhdPerson(personId: string): RhdPersonLite {
@@ -1102,7 +1478,7 @@ async function buildRhdBlock(
       id: personId,
       email: p?.contactEmail ?? "",
       licensedRN: p?.licensedRN ?? false,
-      spanishVerified: p?.spanishVerified ?? false,
+      spanishVerified: (rhdLanguages.get(personId) ?? []).includes("es"),
     };
   }
 
@@ -1122,7 +1498,7 @@ async function buildRhdBlock(
 
   const readiness = computeClinicReadiness({
     date: selectedDateKey,
-    attending,
+    attendings,
     director: clinic?.directorName ?? null,
     sctsOnShift,
     jctsOnShift,
@@ -1131,21 +1507,10 @@ async function buildRhdBlock(
     maxProceduresPerClinic: await getSetting<number>("rhd.maxProcedures"),
   });
 
-  // Strip the included attending relation before returning to match RhdClinic type.
-  const clinicRow: RhdClinic | null = clinic
-    ? (({ attending: _attending, ...rest }) => rest)(clinic) as RhdClinic
+  // Strip the included relation before returning to match the ClinicDay type.
+  const clinicRow: ClinicDay | null = clinic
+    ? (({ attendings: _attendings, ...rest }) => rest)(clinic) as ClinicDay
     : null;
 
-  // Options are active attendings only, but a clinic can still reference a
-  // now-inactive attending (deactivating one does not cascade to RhdClinic). Union
-  // the currently-assigned attending in so the Select shows it as selected --
-  // otherwise it renders "-- none --" and re-saving the clinic form (to edit any
-  // other field) silently unassigns the attending.
-  const attendingOptionsWithCurrent =
-    clinic?.attending && !attendingOptions.some((o) => o.id === clinic.attending!.id)
-      ? [...attendingOptions, { id: clinic.attending.id, scheduleName: clinic.attending.scheduleName }]
-          .sort((a, b) => a.scheduleName.localeCompare(b.scheduleName))
-      : attendingOptions;
-
-  return { readiness, attendingOptions: attendingOptionsWithCurrent, clinic: clinicRow };
+  return { readiness, clinic: clinicRow };
 }

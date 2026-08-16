@@ -216,6 +216,38 @@ describe("notifyStrikeIssued", () => {
     expect(directorNotes[0].body).not.toContain("2 strikes");
   });
 
+
+  it("does NOT email external supervisors when a strike is issued", async () => {
+    // Issuing a strike used to blind-copy every address in
+    // a configured address list. Reaching outside the clinic is now a per-strike
+    // forward a reviewer types (forward.ts), so issuance itself must reach
+    // nobody outside the clinic at all.
+    const term = await createTerm();
+    const dept = await createDepartment("SCTM");
+    const central = await createPerson("Central", "sn-ext-c");
+    const subject = await createPerson("Subject", "sn-ext-s");
+    // A director must exist: notifyStrikeIssued returns early when there is
+    // nobody internal to notify, and that early return sits ABOVE the external
+    // send. Without one, this test would pass against the old code too.
+    const director = await createPerson("Director", "sn-ext-d");
+    await grantPermission(central.id, "incidents.manage");
+    await createMembership(subject.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+
+    const action = await strike(central.id, subject.id);
+    await notifyStrikeIssued({ action, actorPersonId: central.id });
+
+    expect(await prisma.emailLog.count({ where: { toEmail: "md@yale.edu" } })).toBe(0);
+  });
+
+  // The strictest rule in this file. A confidential strike comes from an
+  // anonymous report (decideStrike sets confidential from report.anonymous), and
+  // escalation recipients hold no view_strikes at all, so announcing it to them
+  // would widen the audience for an anonymous report beyond the reviewers who
+  // handled it.
+
+
+
   it("is a no-op, not a throw, when the subject no longer exists", async () => {
     const central = await createPerson("Central", "sn-throw-c");
     const subject = await createPerson("Subject", "sn-throw-s");

@@ -1,0 +1,253 @@
+"use client";
+
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ShieldAlert } from "lucide-react";
+import posthog from "posthog-js";
+import { SupportLink } from "@/platform/branding/support-link";
+import { useFocusTrap } from "@/platform/ui/use-focus-trap";
+import {
+  browserProbeDeps,
+  probeContentBlocker,
+  type BlockedProbe,
+  type ProbeResult,
+} from "./blocker-probe";
+
+/**
+ * Announced to screen readers after each re-check. The visible feedback is a
+ * button label and, on success, a dialog that simply vanishes, which is nothing
+ * at all to someone who cannot see it, in the one dialog they cannot leave.
+ */
+const CHECKING_MESSAGE = "Checking whether HAVEN Hub is still blocked.";
+const STILL_BLOCKED_MESSAGE = "Still blocked. Parts of HAVEN Hub cannot load.";
+const CLEARED_MESSAGE = "Nothing is blocked now. You can carry on.";
+const CHECK_FAILED_MESSAGE = "That check could not finish. Try again.";
+
+/**
+ * Blocks the hub when a content blocker is breaking the Intercom Messenger.
+ *
+ * There is deliberately no way through. A member whose Messenger is blocked
+ * cannot reach support and has no sign anything is wrong, so the gate demands
+ * the blocker come off rather than letting them discover it at the moment they
+ * need help. The false-positive risk that creates is answered in the probe (see
+ * ./blocker-probe), not here: by the time this renders, a blocked request has
+ * been confirmed twice against a control probe that proves the network works.
+ *
+ * The residual risk the probe cannot answer is a correlated one: an Intercom
+ * outage at the network layer looks exactly like a blocker to the browser, and
+ * would gate everyone at once. That is why mounting this is conditional on the
+ * support.blockerGateEnabled setting, which ops can flip off in seconds without
+ * a deploy and without taking the Messenger down with it. See the (app) layout.
+ *
+ * Does NOT reuse the Modal primitive. Modal renders an unconditional close
+ * button and calls onClose on Escape and backdrop click; a no-op onClose would
+ * leave a dead X on screen, which reads as broken exactly when the page most
+ * needs to be trusted. It shares Modal's focus trap through useFocusTrap, and
+ * its scroll lock by construction, but not its dismissal contract.
+ */
+export function BlockerGate({ appId, supportEmail }: { appId: string; supportEmail: string }) {
+  const [failed, setFailed] = useState<BlockedProbe[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  const probe = useRef<Promise<ProbeResult> | null>(null);
+  const reported = useRef(false);
+  const rechecking = useRef(false);
+  const recheckId = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // One probe per full page load. This component lives in the (app) layout, so
+  // it survives soft navigation and must not re-probe on every route change.
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      // A backgrounded tab throttles fetches, which would read as a block.
+      // Defer rather than stand down: opening the hub in a background tab must
+      // not buy a free pass, so the listener below picks it up on first view.
+      if (document.visibilityState !== "visible") return;
+      // Cache the PROMISE, not a "started" boolean. StrictMode (next dev, and
+      // the Playwright web server) mounts, cleans up, and mounts again, and
+      // refs survive that cycle: a boolean guard let the first mount claim the
+      // only probe while its own cleanup marked the result cancelled, so the
+      // gate never fired in dev at all. Sharing the in-flight promise gives the
+      // surviving mount the same single probe's answer.
+      let pending = probe.current;
+      if (!pending) {
+        pending = probeContentBlocker(appId, browserProbeDeps());
+        probe.current = pending;
+      }
+      const result = await pending;
+      if (cancelled || !result.blocked) return;
+      // Report once. Every later visibilitychange re-awaits the same settled
+      // promise, and without this it would re-raise a gate the member has
+      // already cleared and double-count the telemetry.
+      if (reported.current) return;
+      reported.current = true;
+      setFailed(result.failed);
+      // /ingest is same-origin proxied, so this usually survives the very
+      // blocker that triggered it. It is the only way to learn how often the
+      // gate fires and how many people it strands.
+      posthog.capture("content_blocker_gate_shown", { probes: result.failed });
+    }
+    void run();
+    document.addEventListener("visibilitychange", run);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", run);
+    };
+  }, [appId]);
+
+  const recheck = useCallback(async () => {
+    // The button and the window-focus listener fire independently, so two
+    // re-checks can otherwise overlap: one started while still blocked, then a
+    // second after the member really did turn the blocker off. The stale
+    // "blocked" landing last would put the gate back on top of whatever page
+    // they had moved on to. A ref, not the `checking` state, because a stale
+    // closure would read the value from before the first click.
+    if (rechecking.current) return;
+    rechecking.current = true;
+    const id = ++recheckId.current;
+    setChecking(true);
+    setAnnouncement(CHECKING_MESSAGE);
+    try {
+      const result = await probeContentBlocker(appId, browserProbeDeps());
+      // Belt and braces with the in-flight guard: a superseded request must
+      // never apply its result, whatever future trigger reaches this.
+      if (id !== recheckId.current) return;
+      if (result.blocked) {
+        setFailed(result.failed);
+        setAnnouncement(STILL_BLOCKED_MESSAGE);
+        return;
+      }
+      setFailed(null);
+      setAnnouncement(CLEARED_MESSAGE);
+      posthog.capture("content_blocker_gate_cleared");
+    } catch {
+      // A probe that could not finish has proved nothing, so leave the gate
+      // exactly as it stands and invite another go.
+      setAnnouncement(CHECK_FAILED_MESSAGE);
+    } finally {
+      // Unconditional: neither the superseded return above nor a throw may
+      // leave the only button in an undismissable dialog disabled forever.
+      rechecking.current = false;
+      setChecking(false);
+    }
+  }, [appId]);
+
+  // Turning a blocker off means leaving the tab for the extension menu, so
+  // catch them on the way back rather than making them find the button.
+  useEffect(() => {
+    if (!failed) return;
+    function onFocus() {
+      void recheck();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [failed, recheck]);
+
+  // Shared with Modal. The re-check button disables itself while it runs, which
+  // blurs focus to <body>, so the hook's pull-back is load-bearing here.
+  useFocusTrap(panelRef, failed !== null);
+
+  // Scroll lock. No Escape handler on purpose: Escape must do nothing.
+  useEffect(() => {
+    if (!failed) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [failed]);
+
+  // The live region outlives the dialog on purpose: a screen reader announces a
+  // region reliably when its TEXT changes, not when the region itself appears,
+  // so the "you can carry on" message has to land in a node that was already
+  // there while the dialog was up.
+  if (!failed && !announcement) return null;
+
+  return createPortal(
+    <>
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+      {failed ? (
+        // Above the help bubble and the toast viewport, both of which sit at z-50.
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
+            className="glass-panel flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-auto rounded-2xl p-6 outline-none"
+          >
+            <div className="flex items-start gap-3">
+              <ShieldAlert aria-hidden className="mt-0.5 h-6 w-6 shrink-0 text-brand-fg" />
+              <div className="min-w-0">
+                <h2 id={titleId} className="text-base font-semibold text-foreground">
+                  Turn off whatever is blocking this page to continue
+                </h2>
+                {/* Describes the symptom, not a diagnosis. We can see that the
+                    request never left the browser; we cannot see what stopped
+                    it, and a blocker is only the likeliest cause.
+
+                    Deliberately broader than what the probe measures. Detection
+                    only proves the Messenger is broken, but naming support
+                    alone invites "I do not need support right now" and makes a
+                    hard block look disproportionate. What the member actually
+                    faces is an app they cannot use, so the copy speaks to that.
+                    Anything aggressive enough to kill the Messenger is
+                    routinely killing other requests too. */}
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Something on this browser or network is blocking HAVEN Hub, so critical
+                  parts of the app will not work. A content blocker is the usual cause.
+                  Turn it off for this site to continue.
+                </p>
+              </div>
+            </div>
+
+            <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+              <li>
+                <span className="font-medium text-foreground">Extensions</span> (uBlock
+                Origin, AdBlock, Ghostery): click the extension icon in your toolbar, then
+                disable it for this site.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Brave</span>: click the
+                Shields icon in the address bar and turn Shields off for this site.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Safari</span>: turn off
+                content blockers for this site in Settings, then reload.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">
+                  A managed device or network
+                </span>{" "}
+                (a clinic laptop, or a home filter like Pi-hole) may block this where you
+                cannot change it yourself. Email us and we will sort it out.
+              </li>
+            </ul>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <span className="text-xs text-muted-foreground">
+                Still stuck?{" "}
+                <SupportLink email={supportEmail}>Email the IT team</SupportLink>
+              </span>
+              <button
+                type="button"
+                data-testid="blocker-recheck"
+                onClick={() => void recheck()}
+                disabled={checking}
+                className="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
+              >
+                {checking ? "Checking..." : "I've turned it off"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>,
+    document.body,
+  );
+}

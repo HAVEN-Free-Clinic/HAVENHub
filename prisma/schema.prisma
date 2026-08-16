@@ -130,6 +130,27 @@ model Person {
   /// match the settings registry's string select and avoid a Prisma enum migration.
   themePreference                String?
   gradYear                       String?
+  /// Profile photo state. Bytes live in object storage under the fixed key
+  /// "people/<personId>"; photoKey is null when the person has no photo.
+  /// Auto-sourced from Yalies for Yale College students, or self-uploaded.
+  photoKey                       String?
+  /// "yalies" (auto-sourced) or "upload" (member or admin supplied). Decides
+  /// whether removing the photo suppresses future Yalies pulls.
+  photoSource                    String?
+  /// Monotonic cache-buster for the ?v= query param on both photo routes.
+  /// NEVER reset on removal: reusing a version pins browsers to a stale image
+  /// (the same trap documented in platform/branding/assets.ts).
+  photoVersion                   Int                        @default(0)
+  photoUpdatedAt                 DateTime?
+  /// Set by removing a Yalies-sourced photo, meaning "do not use my Yale photo".
+  /// Cleared only by the target person's OWN upload, never by someone else's
+  /// (e.g. an admin) uploading on their behalf. Removing a self-uploaded photo
+  /// does NOT set it.
+  photoSuppressed                Boolean                    @default(false)
+  /// Last Yalies attempt, success or miss. Null means never attempted.
+  photoSyncedAt                  DateTime?
+  /// Consecutive misses, driving the retry backoff. Reset to 0 on success.
+  photoSyncMisses                Int                        @default(0)
   status                         PersonStatus               @default(ACTIVE)
   /// Airtable record id this person was imported from. Retained for the
   /// read-only Airtable import scripts (see scripts/import-*.ts); the outbound
@@ -172,6 +193,8 @@ model Person {
   incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
   /// Incident-report attachments this person uploaded.
   incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
+  /// Incident reports and strikes this person forwarded outside the clinic.
+  incidentForwardsSent           IncidentForward[]          @relation("incidentForwardForwardedBy")
   /// Email log rows addressed to or triggered by this person.
   emailLogs                      EmailLog[]                 @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
@@ -180,12 +203,18 @@ model Person {
   emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
   recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
-  complianceReminder             ComplianceReminder?
+  complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
+  /// Clinic attendance rows for this person.
+  clinicAttendances              ClinicAttendance[]         @relation("clinicAttendancePerson")
+  /// Clinic attendance rows this person recorded on someone else's behalf.
+  clinicAttendancesRecorded      ClinicAttendance[]         @relation("clinicAttendanceRecordedBy")
   schedulePublications           SchedulePublication[]      @relation("schedulePublishedBy")
   recruitmentCyclesCreated       RecruitmentCycle[]         @relation("RecruitmentCycleCreatedBy")
+  /// Invite links this person issued to admit an applicant past a closed deadline.
+  recruitmentInvitesCreated      RecruitmentInvite[]        @relation("recruitmentInviteCreatedBy")
   recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
   applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
   contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
@@ -198,7 +227,10 @@ model Person {
   trainings                      Training[]                 @relation("trainingPerson")
   trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
   subcommitteeAssignments        Application[]              @relation("applicationSubcommitteeAssigner")
+  boardAttendance                BoardMeetingAttendance[]   @relation("boardAttendancePerson")
+  boardAttendanceRecorded        BoardMeetingAttendance[]   @relation("boardAttendanceRecorder")
   applicationsRouted             Application[]              @relation("applicationRoutedBy")
+  applicationsReturned           Application[]              @relation("applicationReturnedBy")
   applicationsDecided            Application[]              @relation("applicationDecidedBy")
   courseProgress                 CourseProgress[]
   scoProgress                    ScoProgress[]
@@ -211,18 +243,47 @@ model Person {
   shiftRequestsTargeted          ShiftRequest[]             @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided           ShiftRequest[]             @relation("shiftRequestDecidedBy")
-  /// Self-reported at onboarding (or set by an admin). Intake signal only; does NOT gate scheduling.
-  spanishSelfReported            Boolean                    @default(false)
-  /// Interpreting-department-confirmed Spanish capability. Gates clinical scheduling.
-  spanishVerified                Boolean                    @default(false)
-  /// When the interpreting department (or an admin override) recorded the verification. Null = never assessed.
-  spanishVerifiedAt              DateTime?
-  /// Verifier's Person id. Bare id (no FK), mirroring HipaaCertificate.verifiedById.
-  spanishVerifiedById            String?
+  /// Languages claimed and/or assessed. Replaced the four spanish* columns:
+  /// Spanish is now the row with language = "es", with no special casing.
+  languages                      PersonLanguage[]           @relation("personLanguages")
   /// Self-reported RN licensure. No verification workflow.
   licensedRN                     Boolean                    @default(false)
+  /// Marks someone the clinic would not take back, for the recruitment team's
+  /// attention if they apply again.
+  ///
+  /// STRICTLY ADVISORY. Nothing in the application flow reads this to reject,
+  /// filter, or hide an applicant: it surfaces to a human reviewer who decides.
+  /// An automatic rejection would be unfair (the applicant is never told the flag
+  /// exists, so cannot contest it) and undiscoverable when set in error, since
+  /// the application would simply never appear. Do not wire it into a query that
+  /// removes people from a list.
+  ///
+  /// Set only with incidents.manage. `doNotRehireNote` is the reviewer-facing
+  /// reason; the setter and timestamp are kept so the flag is attributable.
+  doNotRehire                    Boolean                    @default(false)
+  doNotRehireNote                String?
+  /// Bare id (no FK), mirroring the other verifier/setter columns.
+  doNotRehireSetById             String?
+  doNotRehireSetAt               DateTime?
+  /// Exempts this person from the content blocker gate. Set by an admin for
+  /// people on a managed device or network they cannot change themselves, who
+  /// are correctly detected as blocked and genuinely cannot comply.
+  blockerGateExempt              Boolean                    @default(false)
+  /// Most recent successful sign-in. Last value only, never a history: enough
+  /// to spot a dormant account without keeping a movement log of a volunteer.
+  lastLoginAt                    DateTime?
+  /// Raw user agent from that sign-in. Parsed for display by describeUserAgent.
+  lastLoginUserAgent             String?
+  /// Coarse location from Vercel's geo headers. City and country only, never an
+  /// IP address. Absent outside Vercel, so null in local development.
+  lastLoginCity                  String?
+  lastLoginCountry               String?
   createdAt                      DateTime                   @default(now())
   updatedAt                      DateTime                   @updatedAt
+  historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
+  calendarFeedToken              CalendarFeedToken?
+  serviceCredential              ServiceCredential?
+  walletPasses                   WalletPass[]
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.
@@ -261,9 +322,11 @@ model Term {
   /// Offboard flags raised for this term.
   offboardFlags        OffboardFlag[]
   shiftAssignments     ShiftAssignment[]
+  clinicAttendances    ClinicAttendance[]
   shiftRequests        ShiftRequest[]
   scheduleDays         ScheduleDay[]
-  rhdClinics           RhdClinic[]
+  clinicDays           ClinicDay[]
+  boardMeetings        BoardMeeting[]
   schedulePublications SchedulePublication[]
   recruitmentCycles    RecruitmentCycle[]
   trainings            Training[]
@@ -272,6 +335,7 @@ model Term {
   scoProgress          ScoProgress[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+  walletPasses         WalletPass[]
 }
 
 /// Per-term override of the onboarding checklist. A missing row for a given kind
@@ -316,6 +380,16 @@ model Department {
   schedulePublications       SchedulePublication[]
   courseDepartments          CourseDepartment[]
   ehsTrainingDepartments     EhsTrainingDepartment[]
+  /// Schedule columns whose attending covers this department (see ClinicSlot.departmentId).
+  attendingSlots             ClinicSlot[]
+  /// Hours one shift in this department is worth, for the volunteer service
+  /// record. Shift length is NOT uniform clinic-wide (confirmed with ops
+  /// 2026-08-12), which is why this is per-department rather than one setting.
+  ///
+  /// Null means "not configured" and must render as "not recorded", never as
+  /// zero hours: a fabricated total on a document a member hands to a residency
+  /// application is worse than an honest omission.
+  hoursPerShift              Decimal?                @db.Decimal(4, 2)
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
@@ -328,6 +402,16 @@ model Department {
   requiresEpicVolunteer      EpicRequirement         @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
   epicGuidance               String?
+  /// Skip committee scoring for applicants whose FIRST choice is this department,
+  /// routing them straight to its directors at submit.
+  ///
+  /// For clinical departments (JCTS, SCTS, JCTP, SCTP, VADM) where the decision is
+  /// credential verification by the department rather than a committee judgment of
+  /// fit. A flag rather than a hardcoded code list because departments are
+  /// admin-maintained: a new clinical department must be coverable without a deploy.
+  ///
+  /// Defaults to false so creating a department never silently bypasses scoring.
+  autoRouteApplicants        Boolean                 @default(false)
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 }
@@ -350,6 +434,14 @@ model Subcommittee {
 /// One row per "manager department oversees managed department" edge. Used to
 /// extend a director's compliance scope beyond their own department(s) by one
 /// hop (no recursion). Example: PCAR manages SCTP and JCTP.
+/// One department oversees another for COMPLIANCE purposes: a director of the
+/// manager also oversees the managed department's members, one hop, no further.
+///
+/// That is the whole meaning. It is deliberately NOT a clinic service line, an
+/// attending roster, or a scheduling right. Use Department.hasAttendingRoster for
+/// the first two and manageableScheduleDepartmentIds for the third. Inferring a
+/// service line from these edges is what put an oversight-only pair (VADC/VADM)
+/// on the attending schedule as a clinic line.
 model DepartmentDelegation {
   id                  String     @id @default(cuid())
   managerDepartmentId String
@@ -533,6 +625,7 @@ enum ApplicantType {
 enum ApplicationStatus {
   DRAFT
   SUBMITTED
+  WITHDRAWN
 }
 
 enum InterviewDecision {
@@ -619,6 +712,10 @@ model EpicRequest {
 model YnhhTicket {
   id                   String                  @id @default(cuid())
   serviceRequestNumber String?
+  /// Airtable "YNHH Ticket Tracker" record this ticket was imported from.
+  /// Null for tickets opened natively in the hub. See
+  /// scripts/import-support-history.ts.
+  airtableRecordId     String?                 @unique
   description          String?
   /// One-off incident subject. Set for standalone YNHH incidents logged directly (not Epic batches).
   subject              String?
@@ -644,6 +741,11 @@ enum TechRequestCategory {
   DUO_MFA
   GENERAL_IT
   TEAMS
+  /// Problems with HAVEN Hub itself (bugs, access, feature requests), as opposed
+  /// to the external systems the other categories cover. Added once Intercom
+  /// became the support front door and Hub reports needed somewhere to land
+  /// other than GENERAL_IT, where they were indistinguishable from Yale IT work.
+  HAVEN_HUB
   OTHER
 }
 
@@ -673,28 +775,36 @@ enum CommentVisibility {
 /// links to an EpicRequest once a manager promotes it. Cascade-deleted with the
 /// requester (the subject of the request).
 model TechRequest {
-  id            String              @id @default(cuid())
-  number        Int                 @unique @default(autoincrement())
-  requesterId   String
-  category      TechRequestCategory
-  epicSubtype   EpicRequestKind?
-  subject       String
-  description   String
-  priority      TechRequestPriority @default(MEDIUM)
-  status        TechRequestStatus   @default(SUBMITTED)
-  assignedToId  String?
-  resolution    String?
-  resolvedAt    DateTime?
-  // EPIC intake fields captured at submit, used when promoting to an EpicRequest.
-  epicJobTitle  String?
-  epicMirrorId  String?
-  epicStartDate DateTime?
-  epicEndDate   DateTime?
-  worksAtYnhh   Boolean?
-  govId         String?
-  netId         String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id                     String              @id @default(cuid())
+  number                 Int                 @unique @default(autoincrement())
+  /// Airtable "Tech Requests" record this ticket was imported from. Null for
+  /// tickets submitted natively in the hub. See
+  /// scripts/import-support-history.ts.
+  airtableRecordId       String?             @unique
+  requesterId            String
+  category               TechRequestCategory
+  epicSubtype            EpicRequestKind?
+  subject                String
+  description            String
+  priority               TechRequestPriority @default(MEDIUM)
+  status                 TechRequestStatus   @default(SUBMITTED)
+  assignedToId           String?
+  resolution             String?
+  resolvedAt             DateTime?
+  /// The Intercom conversation this ticket was opened from, when it came in through
+  /// support chat rather than the Hub form. Unique: a conversation maps to at most one
+  /// ticket, which is what makes the create path idempotent under Intercom retries.
+  intercomConversationId String?             @unique
+  /// The Intercom Ticket this record is linked to, a DIFFERENT Intercom object from
+  /// intercomConversationId: the conversation resolves identity and receives internal
+  /// notes, while the ticket carries state (Direction 3's inbound sync) and the "Hub
+  /// ticket number" attribute (the write-back the conversation-only id could never
+  /// reach). Unique: a ticket maps to at most one TechRequest, which is what makes
+  /// ticket.created idempotent under Intercom's webhook retries. Collapsing these two
+  /// ids into one field is the mistake the design doc records costing an afternoon.
+  intercomTicketId       String?             @unique
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
 
   /// Subject of the request. Cascade: tickets belong to the requester.
   requester    Person        @relation("techRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
@@ -779,6 +889,8 @@ model DisciplinaryAction {
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
   issuedBy        Person          @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
+  forwards        IncidentForward[]
+
   @@unique([reportId, personId])
   @@index([personId])
 }
@@ -803,6 +915,13 @@ model IncidentReport {
   issueNature           IssueNature?
   priorOccurrence       PriorOccurrence?
   priorOccurrenceDetail String?
+  /// Why the reporter asked to stay anonymous to the subject. Optional even when
+  /// `anonymous` is set: this form is a safety-reporting path, so a required
+  /// justification would add friction exactly where friction deters reporting.
+  /// Reviewer-facing only, and never rendered to the subject -- anonymity drives
+  /// a confidential strike (see decideStrike), and this text would often identify
+  /// the reporter to anyone who knows the shift.
+  anonymousReason       String?                    @db.Text
   status                IncidentReportStatus       @default(SUBMITTED)
   reviewNotes           String?                    @db.Text
   resolvedById          String?
@@ -816,6 +935,7 @@ model IncidentReport {
   attachments           IncidentReportAttachment[]
   subjects              IncidentReportSubject[]
   strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
+  forwards              IncidentForward[]
 
   @@index([status])
   @@index([reporterId])
@@ -843,6 +963,45 @@ model IncidentReportSubject {
   @@unique([reportId, personId])
   @@index([reportId])
   @@index([personId])
+}
+
+/// One disclosure of an incident report, or of an issued strike, to a clinical
+/// supervisor OUTSIDE the Hub. Written every time a reviewer forwards, and
+/// rendered back on the source record as a visible trail.
+///
+/// This exists because the disclosure leaves the organization and cannot be
+/// walked back. EmailLog already records that a message was sent, but a reviewer
+/// deciding whether to forward needs to see, on the report itself, who has
+/// already received it -- and an after-the-fact audit needs it attached to the
+/// record rather than reconstructed from mail logs.
+///
+/// Exactly one of reportId / actionId is set. DB-LEVEL GUARD LIVES IN RAW SQL
+/// (see the migration): a CHECK constraint, following the RoleAssignment
+/// precedent, because Prisma cannot express "exactly one of these".
+model IncidentForward {
+  id           String              @id @default(cuid())
+  reportId     String?
+  actionId     String?
+  /// Address as sent. Stored rather than referenced: the settings directory is
+  /// free text and an entry can be edited or removed after a forward, which must
+  /// not rewrite or orphan the historical record of who actually received it.
+  toEmail      String
+  /// Display name at the time of sending, when the directory entry had one.
+  toName       String?
+  /// The reviewer's optional covering note, included in the email body.
+  note         String?             @db.Text
+  forwardedById String
+  createdAt    DateTime            @default(now())
+  /// Cascade: the trail belongs to the report.
+  report       IncidentReport?     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Cascade: the trail belongs to the strike.
+  action       DisciplinaryAction? @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  /// Restrict: the forwarding reviewer is the accountable party on a disclosure
+  /// that left the clinic, so the record must not lose them.
+  forwardedBy  Person              @relation("incidentForwardForwardedBy", fields: [forwardedById], references: [id], onDelete: Restrict)
+
+  @@index([reportId])
+  @@index([actionId])
 }
 
 /// A file attached to an incident report. Bytes live in storage under storedName
@@ -996,14 +1155,23 @@ model RecruitmentCycleEmail {
 /// Per-person HIPAA reminder state. Drives the weekly cadence (lastRemindedAt),
 /// the escalation threshold (remindersSent), and the once-only director
 /// escalation (escalatedAt). Reset to zero when the person becomes COMPLIANT.
-model ComplianceReminder {
-  id             String    @id @default(cuid())
-  personId       String    @unique
-  remindersSent  Int       @default(0)
-  lastRemindedAt DateTime?
-  lastStatus     String?
-  escalatedAt    DateTime?
-  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+/// Per-person reminder state for the clearance engine. One row per person, with an
+/// independent claim per leg: `lastRemindedAt` paces the HIPAA reminder, and
+/// `onboardingLastRemindedAt` paces the onboarding-requirements reminder, which runs
+/// on a much shorter interval. `stalledSince` is stamped on the first nag of a streak
+/// and cleared when both legs are satisfied; the weekly director digest sorts and
+/// flags on it. Mapped to the original table name so the rename cost no migration.
+model MemberReminderState {
+  id                       String    @id @default(cuid())
+  personId                 String    @unique
+  remindersSent            Int       @default(0)
+  lastRemindedAt           DateTime?
+  onboardingRemindersSent  Int       @default(0)
+  onboardingLastRemindedAt DateTime?
+  stalledSince             DateTime?
+  person                   Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@map("ComplianceReminder")
 }
 
 /// Idempotency marker for periodic reminder dispatches (shift reminders + schedule
@@ -1188,37 +1356,395 @@ model SchedulePublication {
   @@index([termId])
 }
 
-/// RHD attending physicians and their procedure qualification matrix.
-/// Procedure values are "yes" | "no" | "unknown" strings (legacy semantics).
-model RhdAttending {
-  id           String      @id @default(cuid())
-  scheduleName String      @unique
-  fullName     String
-  iudIn        String      @default("unknown")
-  iudOut       String      @default("unknown")
-  nexplanon    String      @default("unknown")
-  gac          String      @default("unknown")
-  emb          String      @default("unknown")
-  seesMale     String      @default("unknown")
-  notes        String?
-  isActive     Boolean     @default(true)
-  clinics      RhdClinic[]
+/// A language a person claims and/or has been assessed on.
+///
+/// Replaces the Spanish-only booleans that used to live on Person
+/// (spanishSelfReported / spanishVerified / spanishVerifiedAt /
+/// spanishVerifiedById). The field shape is deliberately identical to those, so
+/// the interpreting department's review queue generalized without changing its
+/// semantics: a row with `verifiedAt` null is awaiting human assessment, and
+/// `verifiedAt` non-null means assessed, whether the answer was yes or no.
+///
+/// ONE source of truth. There is no Spanish special case anywhere: Spanish is
+/// simply the row with language = "es".
+model PersonLanguage {
+  id           String    @id @default(cuid())
+  personId     String
+  /// Lowercase code from LANGUAGE_CODES (src/platform/languages.ts), not free
+  /// text, so the same language cannot appear as "Spanish", "spanish", and
+  /// "Espanol" on three different people.
+  language     String
+  /// Claimed by the person at intake. A claim, never a qualification.
+  selfReported Boolean   @default(false)
+  /// The assessment OUTCOME. Meaningless until verifiedAt is set; read the two
+  /// together, never this alone.
+  verified     Boolean   @default(false)
+  /// Non-null once a human has assessed, yes OR no. This is what removes the
+  /// person from the review queue, so a "no" settles the question rather than
+  /// leaving them queued forever.
+  verifiedAt   DateTime?
+  /// Bare id (no FK), mirroring the spanishVerifiedById it replaces.
+  verifiedById String?
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// Cascade: the claim belongs to the person.
+  person       Person    @relation("personLanguages", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, language])
+  @@index([language])
 }
 
-/// Per-Saturday RHD clinic row (attending on duty, director on point,
-/// procedures booked). One row per clinic date per term.
-model RhdClinic {
-  id               String        @id @default(cuid())
-  termId           String
+/// A board meeting, held roughly every two weeks and attended by directors.
+///
+/// Term-scoped because the director roster is: attendance is recorded against
+/// whoever holds an ACTIVE DIRECTOR membership in the term, resolved live rather
+/// than snapshotted, matching how the schedule builder resolves its roster.
+model BoardMeeting {
+  id          String                   @id @default(cuid())
+  termId      String
+  /// Noon-UTC anchored calendar date; compare by UTC day key, never a raw
+  /// timestamp. Same convention as Term.clinicDates.
+  meetingDate DateTime
+  title       String?
+  notes       String?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  /// Restrict: term deletion is blocked while attendance history references it.
+  term        Term                     @relation(fields: [termId], references: [id], onDelete: Restrict)
+  attendance  BoardMeetingAttendance[]
+
+  @@unique([termId, meetingDate])
+  @@index([termId])
+}
+
+/// How one director was marked for one board meeting.
+///
+/// The absence of a row means "not yet recorded", NOT "absent": a meeting
+/// nobody has taken attendance for must not silently accrue absences against
+/// every director. ABSENT is only ever an explicit choice.
+///
+/// The director contract states that two unexcused absences equal one strike,
+/// which is why EXCUSED and ABSENT are distinct values rather than a boolean.
+/// Reaching that threshold surfaces the count to a human; it does not create a
+/// strike automatically, matching the strike-limit decision in the incidents
+/// module.
+model BoardMeetingAttendance {
+  id           String                @id @default(cuid())
+  meetingId    String
+  personId     String
+  status       BoardAttendanceStatus
+  note         String?
+  recordedById String?
+  recordedAt   DateTime              @default(now())
+  /// Cascade: the record belongs to the meeting.
+  meeting      BoardMeeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  /// Cascade: the record is meaningless without the person.
+  person       Person                @relation("boardAttendancePerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Restrict: who recorded it is part of the record.
+  recordedBy   Person?               @relation("boardAttendanceRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, personId])
+  @@index([personId])
+}
+
+enum BoardAttendanceStatus {
+  PRESENT
+  EXCUSED
+  ABSENT
+}
+
+/// A clinical specialty an attending practises in.
+///
+/// Doubles as the roster's grouping (Primary Care, Reproductive Health,
+/// Behavioral Health) and, for those flagged `runsSpecialtyClinic`, as the
+/// rotating clinic named in the schedule's Specialty Clinic column (Dermatology,
+/// Neurology, Nephrology). Kept as data rather than an enum because the roster
+/// gains specialties as the clinic adds services.
+model AttendingSpecialty {
+  id                  String                @id @default(cuid())
+  /// Short code used in the schedule grid and imports, e.g. "RHD".
+  code                String                @unique
+  /// What people read, e.g. "Reproductive Health".
+  name                String                @unique
+  /// Whether this specialty can be named as the day's rotating Specialty Clinic.
+  runsSpecialtyClinic Boolean               @default(false)
+  order               Int
+  attendings          Attending[]
+  capabilities        AttendingCapability[]
+  clinicDays          ClinicDay[]
+
+  @@index([order])
+}
+
+/// One qualification asked about attendings, e.g. "IUD In" or "Can sign GAC".
+///
+/// `specialtyId` scopes the question: set, only attendings in that specialty are
+/// asked (the six reproductive-health procedures); null, everyone is (signing
+/// GAC spans primary care and reproductive health, per the term sheets).
+///
+/// This replaced six columns hardcoded onto every attending, which meant a
+/// primary care attending carried six reproductive-health fields and no other
+/// question could be asked without a migration.
+///
+/// `key` is the stable machine name. The reproductive-health readiness engine
+/// reads its six BY KEY, so renaming one silently blanks that column of the
+/// panel; the label is free to change.
+model AttendingCapability {
+  id          String                     @id @default(cuid())
+  /// Stable machine name, e.g. "iudIn".
+  key         String                     @unique
+  /// What the form and roster table show, e.g. "IUD In".
+  label       String
+  /// Display order in the matrix.
+  order       Int
+  /// Null means every attending is asked.
+  specialtyId String?
+  specialty   AttendingSpecialty?        @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  values      AttendingCapabilityValue[]
+
+  @@index([specialtyId])
+}
+
+/// One attending's answer to one capability question.
+///
+/// A MISSING row means "unknown", so adding a capability does not require
+/// backfilling every attending, and readers must treat absence and "unknown"
+/// identically rather than as a gap.
+model AttendingCapabilityValue {
+  id           String              @id @default(cuid())
+  attendingId  String
+  capabilityId String
+  /// "yes" | "no" | "unknown" (legacy semantics, kept so the ported readiness
+  /// engine and the imports need no value translation).
+  value        String              @default("unknown")
+  attending    Attending           @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+  capability   AttendingCapability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  @@unique([attendingId, capabilityId])
+  @@index([attendingId])
+  @@index([capabilityId])
+}
+
+/// An attending physician on the clinic's roster.
+///
+/// ONE central roster, maintained by Faculty Relations (the
+/// schedule.manage_attendings permission), not a per-department list. An
+/// attending is not a member of a service line; they have a SPECIALTY and cover
+/// whichever slots the schedule puts them in, and many cover more than one area
+/// across a term.
+///
+/// `scheduleName` is how the schedule and the reminder email name them ("Peggy
+/// Bia"); `fullName` is the roster's formal form ("Bia, Margaret"). They differ
+/// often enough that importing the term sheets depends on the distinction.
+model Attending {
+  id            String                  @id @default(cuid())
+  /// How the schedule grid names them. Unique so a schedule cell resolves.
+  scheduleName  String                  @unique
+  fullName      String
+  /// Post-nominals as written on the contact sheet, e.g. "MD, MPH". Free text:
+  /// the real values include MD, DO, PA-C, APRN, PsyD, MBBS and combinations.
+  credentials   String?
+  specialtyId   String?
+  email         String?
+  phone         String?
+  notes         String?
+  isActive      Boolean                 @default(true)
+  specialty     AttendingSpecialty?     @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  capabilities  AttendingCapabilityValue[]
+  clinicDays    ClinicDayAttending[]
+  /// Clinic dates where they hold the on-call week (see ClinicDay.onCallAttending).
+  onCallDays    ClinicDay[]             @relation("clinicDayOnCall")
+  credentialing AttendingCredentialing?
+
+  @@index([specialtyId])
+  @@index([isActive])
+}
+
+/// A named column of the attending schedule: a window of the clinic day that is
+/// staffed separately, e.g. "9am-12pm", "RHD Attending", "BHD Clinic".
+///
+/// CLINIC-WIDE, not per department. The schedule is one grid covering the whole
+/// Saturday; reproductive health and behavioral health are columns in it, not
+/// separate schedules. Editable by Faculty Relations, because the columns drift
+/// between terms.
+///
+/// Times are "HH:MM" in the display time zone. They are labels for humans, not
+/// scheduling arithmetic: volunteer shifts remain date-only (ShiftAssignment),
+/// so nothing joins a volunteer to a slot.
+model ClinicSlot {
+  id             String               @id @default(cuid())
+  /// What the grid column shows, e.g. "9am-12pm".
+  label          String               @unique
+  startTime      String
+  endTime        String
+  /// Column order, left to right.
+  order          Int
+  /// Whether more than one attending may cover this slot on one date. The
+  /// 9am-12pm column really does carry two, which is why the schedule sheet
+  /// repeats that header twice.
+  allowsMultiple Boolean              @default(false)
+  /// The department whose members this column's attending covers, e.g. the
+  /// "RHD Attending" column covers SRHD. Null means the column belongs to no
+  /// department (Specialty Clinic, Shadowing) and is shown to nobody's shift.
+  ///
+  /// Many columns may point at ONE department -- primary care is staffed by both
+  /// the 9am-12pm and 11am-2pm columns, and a PCAR volunteer is covered by both.
+  ///
+  /// Departments the column does NOT name still resolve through it by one-hop
+  /// DepartmentDelegation: SCTP and JCTP are managed by PCAR, so they read the
+  /// PCAR columns without each having to be named here. That keeps this mapping
+  /// at the handful of clinical parents rather than one row per department.
+  departmentId   String?
+  department     Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  assignments    ClinicDayAttending[]
+
+  @@index([order])
+  @@index([departmentId])
+}
+
+/// One attending covering one slot of one clinic day.
+///
+/// Unique on (day, slot, attending) rather than (day, slot): a slot may carry
+/// several attendings, and the only thing forbidden is naming the same person
+/// twice in one slot.
+///
+/// A MISSING row means that slot is unstaffed. Deactivating an attending does
+/// NOT remove the row, so the grid can still show the stale assignment and a
+/// manager can see the gap; only a hard delete cascades.
+model ClinicDayAttending {
+  id          String     @id @default(cuid())
+  clinicDayId String
+  slotId      String
+  attendingId String
+  /// Order within the slot, so two attendings in one column read consistently.
+  order       Int        @default(0)
+  clinicDay   ClinicDay  @relation(fields: [clinicDayId], references: [id], onDelete: Cascade)
+  slot        ClinicSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  attending   Attending  @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicDayId, slotId, attendingId])
+  @@index([clinicDayId])
+  @@index([slotId])
+  @@index([attendingId])
+}
+
+/// One clinic date's attending coverage, clinic-wide.
+///
+/// Unique on (term, date): there is ONE schedule for the Saturday, with a column
+/// per slot, which is how Faculty Relations actually keeps it. Per-service-line
+/// clinic rows were a mis-modelling of that single grid.
+model ClinicDay {
+  id                String               @id @default(cuid())
+  termId            String
   /// Noon-UTC anchored calendar date; compare by UTC day key.
-  clinicDate       DateTime
-  attendingId      String?
-  directorName     String?
-  proceduresBooked Int?
-  term             Term          @relation(fields: [termId], references: [id], onDelete: Restrict)
-  attending        RhdAttending? @relation(fields: [attendingId], references: [id], onDelete: SetNull)
+  clinicDate        DateTime
+  /// The clinic does not run this Saturday (holidays, breaks). Kept as a flag
+  /// rather than removing the date, because the term calendar still has it and
+  /// the schedule shows it as closed rather than as an unstaffed gap.
+  isClosed          Boolean              @default(false)
+  /// Why, when closed, e.g. "HAVEN FREE CLINIC CLOSED".
+  closedNote        String?
+  /// Holds the on-call pager for the week LEADING UP TO THE NEXT clinic day, not
+  /// for this one. Stored on the date its row sits on because that is how the
+  /// schedule is read and sent, but the coverage window runs forward.
+  onCallAttendingId String?
+  /// The rotating specialty clinic running this date, if any (Derm, Neuro,
+  /// Nephro). Separate from the attending covering it, since the sheet often
+  /// names the clinic before the doctor is settled.
+  specialtyId       String?
+  /// Reproductive health director on point for the day.
+  directorName      String?
+  /// Procedures booked for the day, for the readiness cap warning.
+  proceduresBooked  Int?
+  term              Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
+  onCallAttending   Attending?           @relation("clinicDayOnCall", fields: [onCallAttendingId], references: [id], onDelete: SetNull)
+  specialty         AttendingSpecialty?  @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  attendings        ClinicDayAttending[]
 
   @@unique([termId, clinicDate])
+  @@index([onCallAttendingId])
+  @@index([specialtyId])
+}
+
+/// Faculty Relations' onboarding pipeline for one attending.
+///
+/// Mirrors the credentialing tracker the FCRL director keeps by hand. The stages
+/// are deliberately independent booleans rather than one status enum: they are
+/// chased in parallel and completed out of order, and a single status could not
+/// say "forms in, NPDB clear, still waiting on the steering committee".
+model AttendingCredentialing {
+  id                              String    @id @default(cuid())
+  attendingId                     String    @unique
+  /// 1) info email sent to the interested attending.
+  infoEmailSent                   Boolean   @default(false)
+  /// 2) credentialing forms received back.
+  formsReceived                   Boolean   @default(false)
+  /// 3) NPDB check requested, and OAPD (faculty affairs) cleared.
+  npdbCheck                       Boolean   @default(false)
+  oapd                            Boolean   @default(false)
+  /// 2b) FTCA coverage, when the attending needs it.
+  needsFtca                       Boolean   @default(false)
+  ftcaSubmitted                   Boolean   @default(false)
+  /// 4) Yale-affiliated attendings go to the medical directors.
+  medDirectorApprovalNeeded       Boolean   @default(false)
+  medDirectorApproved             Boolean   @default(false)
+  /// 5) community providers go to the steering committee instead.
+  steeringCommitteeApprovalNeeded Boolean   @default(false)
+  steeringCommitteeApproved       Boolean   @default(false)
+  /// 6) cleared to be handed to the clinical advisors.
+  approved                        Boolean   @default(false)
+  notes                           String?
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+  attending                       Attending @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+}
+
+/// How an attendance record came to exist. SELF_GEO passed the geofence;
+/// SELF_REMOTE is a telehealth volunteer for whom the fence does not apply;
+/// STAFF was recorded by a director when self check-in was not possible.
+enum CheckInMethod {
+  SELF_GEO
+  SELF_REMOTE
+  STAFF
+}
+
+/// One row per person per clinic day. Its existence IS the attendance fact;
+/// absence is derived (an assignment with no row, on a past clinic date), never
+/// stored. Keyed per person rather than per assignment because a person may hold
+/// assignments in two departments on one clinic date and still arrives once.
+model ClinicAttendance {
+  id             String        @id @default(cuid())
+  termId         String
+  /// Noon-UTC anchored calendar date, matching Term.clinicDates and
+  /// ShiftAssignment.clinicDate. Compare by UTC day key, never raw timestamp.
+  clinicDate     DateTime
+  personId       String
+  /// True arrival instant, NOT date-anchored. Kept so punctuality and hours can
+  /// be derived later over data collected from day one.
+  checkedInAt    DateTime      @default(now())
+  method         CheckInMethod
+  /// Rounded metres from the configured fence centre. Null for SELF_REMOTE and
+  /// STAFF. Raw coordinates are deliberately never persisted (privacy).
+  distanceMeters Int?
+  /// The fix's reported accuracy in metres, kept for tuning the thresholds.
+  accuracyMeters Int?
+  /// The staff member who recorded it. Null for self check-in.
+  recordedById   String?
+  note           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  /// Restrict: term deletion is blocked while attendance history references it.
+  term       Term    @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// Cascade: attendance belongs to the person and dies with them.
+  person     Person  @relation("clinicAttendancePerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// SetNull: the record survives the recorder being deleted.
+  recordedBy Person? @relation("clinicAttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([termId, clinicDate, personId])
+  @@index([termId, clinicDate])
+  @@index([personId, termId])
 }
 
 model RecruitmentCycle {
@@ -1253,6 +1779,7 @@ model RecruitmentCycle {
   trainings    Training[]
   cycleEmails  RecruitmentCycleEmail[]
   contract     RecruitmentCycleContract?
+  invites      RecruitmentInvite[]
 
   @@index([status, track])
 }
@@ -1264,6 +1791,49 @@ model RecruitmentCycleContract {
   updatedAt DateTime @updatedAt
 
   cycle RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+}
+
+/// A single-use link that admits ONE applicant to a cycle they could not
+/// otherwise apply to, so someone can be recruited selectively after the
+/// deadline without reopening the cycle to the public.
+///
+/// ONLY THE HASH IS STORED, like ApplicantPortalToken and MemberLoginToken: the
+/// raw token is shown to staff once, at generation, and is unrecoverable
+/// afterwards. Anyone holding the DB still cannot use a link.
+///
+/// The link is ANONYMOUS until claimed. It burns at the invitee's first sign-in
+/// rather than at submit, and stamps claimedByEmailLower then. Both halves of
+/// that matter: burning at submit would leave a live link circulating for as
+/// long as someone takes to finish a draft, and burning at page load would strip
+/// the invite from anyone who abandoned the form and came back, stranding them
+/// mid-application. Binding to the claimant's email is what lets them return.
+model RecruitmentInvite {
+  id       String @id @default(cuid())
+  cycleId  String
+  tokenHash String @unique
+  /// Staff-facing note ("info-session walk-up", "Dr. Patel's referral") so an
+  /// outstanding invite is identifiable in the list. Never shown to the applicant.
+  label    String?
+  /// Null = never expires. Defaults to 14 days out at creation.
+  expiresAt   DateTime?
+  /// Set at the invitee's first sign-in, together with claimedByEmailLower.
+  claimedAt   DateTime?
+  /// The applicant identity that claimed it. Lets them resume a draft after the
+  /// single-use token itself is spent.
+  claimedByEmailLower String?
+  /// Set when staff revoke an unclaimed invite. Kept rather than deleted so the
+  /// audit trail of who was invited survives.
+  revokedAt   DateTime?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Restrict: the issuing staffer is the accountable party for admitting someone
+  /// past a closed deadline.
+  createdBy Person           @relation("recruitmentInviteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([cycleId])
+  @@index([claimedByEmailLower])
 }
 
 model FormSection {
@@ -1329,36 +1899,59 @@ model Applicant {
 }
 
 model Application {
-  id                       String            @id @default(cuid())
-  cycleId                  String
-  applicantId              String
-  answers                  Json
-  applicantType            ApplicantType     @default(NEW)
-  departmentChoices        String[]
-  renewalDepartment        String?
+  id                         String            @id @default(cuid())
+  cycleId                    String
+  applicantId                String
+  answers                    Json
+  applicantType              ApplicantType     @default(NEW)
+  departmentChoices          String[]
+  renewalDepartment          String?
   // For a TRANSFER applicant: a snapshot of the department codes they were an
   // active member of at submit time (where they are coming from). Empty for
   // NEW and RENEWAL.
-  transferFromDepartments  String[]          @default([])
+  transferFromDepartments    String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
-  subcommitteeRanking      String[]
-  assignedSubcommitteeId   String?
-  assignedSubcommitteeById String?
-  assignedSubcommitteeAt   DateTime?
-  routedDepartmentCode     String?
-  routedById               String?
-  routedAt                 DateTime?
+  subcommitteeRanking        String[]
+  /// Language CODES the applicant said they speak, hoisted at submit from the
+  /// standard languages question (see LANGUAGES_FIELD_KEY). Hoisted rather than
+  /// left in `answers` so promotion can turn them into PersonLanguage claims
+  /// without re-parsing a JSON blob whose field key a cycle could have changed.
+  languagesClaimed           String[]
+  assignedSubcommitteeId     String?
+  assignedSubcommitteeById   String?
+  assignedSubcommitteeAt     DateTime?
+  routedDepartmentCode       String?
+  routedById                 String?
+  routedAt                   DateTime?
+  // Second-choice discretion. A department that decides an applicant is not a fit
+  // for THEM, rather than not a fit for the clinic, returns the application to the
+  // recruitment lead instead of rejecting it. The three fields below are set
+  // together and cleared together by routeApplication, so a non-null
+  // returnedToRoutingAt is the single marker for "awaiting re-routing".
+  //
+  // routedDepartmentCode is cleared on return (the declining department must drop
+  // out of their own review queue), so the department that declined is recorded
+  // here instead. Only the MOST RECENT return is kept; the full decline history
+  // lives in the audit log under recruitment.return_to_routing.
+  returnedToRoutingAt        DateTime?
+  returnedFromDepartmentCode String?
+  returnedById               String?
+  returnedReason             String?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
-  decision                 InterviewDecision @default(PENDING)
-  decidedById              String?
-  decidedAt                DateTime?
-  decisionNotes            String?
-  status                   ApplicationStatus @default(SUBMITTED)
-  submittedAt              DateTime?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  decision                   InterviewDecision @default(PENDING)
+  decidedById                String?
+  decidedAt                  DateTime?
+  decisionNotes              String?
+  status                     ApplicationStatus @default(SUBMITTED)
+  /// Set when the applicant removed themselves through the portal. Null on every
+  /// other row. Withdrawal is a declaration only: it never deletes acceptances,
+  /// interviews, or onboarding contracts, which have their own guarded teardown.
+  withdrawnAt                DateTime?
+  submittedAt                DateTime?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
 
   cycle                  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   applicant              Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
@@ -1368,6 +1961,7 @@ model Application {
   assignedSubcommittee   Subcommittee?    @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?          @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
   routedBy               Person?          @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  returnedBy             Person?          @relation("applicationReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   decidedBy              Person?          @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
@@ -1791,5 +2385,190 @@ model MemberLoginToken {
   createdAt  DateTime  @default(now())
 
   @@index([emailLower])
+  @@index([personId])
+}
+
+/// Long-lived, revocable credential for a member's personal calendar feed.
+/// Stored in PLAINTEXT on purpose: the member must be able to re-read this URL
+/// months later to add the calendar on a second device, and a hash cannot be
+/// reversed. Same tradeoff Google Calendar makes with its own secret iCal
+/// address. The feed exposes shift dates only and contains no patient data.
+model CalendarFeedToken {
+  personId      String    @id
+  token         String    @unique
+  createdAt     DateTime  @default(now())
+  /// Last time a calendar client fetched the feed. Written at most hourly so an
+  /// unauthenticated endpoint cannot amplify writes.
+  lastFetchedAt DateTime?
+  /// Cascade: the feed belongs to the person and dies with them.
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+enum HistoricalStage {
+  APPLIED
+  ADVANCED
+  FINAL_ROUND
+  ACCEPTED
+  ONBOARDED
+}
+
+enum HistoricalOutcome {
+  ACCEPTED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+  INELIGIBLE
+  NO_DECISION
+  UNKNOWN
+}
+
+model HistoricalApplicant {
+  id           String  @id @default(cuid())
+  /// Lowercased, and only when the source value passes isNetIdShaped(). The
+  /// strongest join key available: stable across a student's whole Yale career.
+  netId        String? @unique
+  /// Display only. Matching goes through the emails relation, never this column.
+  primaryEmail String
+  firstName    String
+  lastName     String
+  /// Resolved at import and re-resolved on every re-run, so a 2024 reject who
+  /// joins in 2026 retroactively gains their history. Never load-bearing: the
+  /// reviewer card matches on netId/email directly, because most past applicants
+  /// have no Person row at all.
+  personId     String?
+  person       Person? @relation("historicalApplicantPerson", fields: [personId], references: [id], onDelete: SetNull)
+
+  emails       HistoricalApplicantEmail[]
+  applications HistoricalApplication[]
+  interests    HistoricalInterest[]
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  @@index([personId])
+  @@index([lastName, firstName])
+}
+
+model HistoricalApplicantEmail {
+  id          String @id @default(cuid())
+  applicantId String
+  /// Lowercased and unique ACROSS ALL applicants. The database enforces what the
+  /// identity pass computes: a merge bug fails loudly on insert instead of
+  /// silently splitting one person into two half-timelines.
+  email       String @unique
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@index([applicantId])
+}
+
+model HistoricalApplication {
+  id             String @id @default(cuid())
+  applicantId    String
+  /// Provenance and idempotency key. Re-running the import updates in place.
+  sourceBaseId   String
+  sourceTableId  String
+  sourceRecordId String
+
+  cycleCode  String // "V-FA25"
+  cycleLabel String // "Fall 2025 Volunteer Recruitment"
+  track      Track
+  /// Plain string, no FK. History must outlive a Term being renamed or absent.
+  termCode   String?
+
+  applicantType     ApplicantType?
+  /// Hub department CODES, resolved at import. Strings rather than FKs: BVHD,
+  /// SCTP, SCTS and INTP appear across the old bases and may since have been
+  /// renamed or retired. A FK would either block the import or silently rewrite
+  /// history when a department row is edited.
+  departmentChoices String[]       @default([])
+  resultDepartment  String?
+
+  furthestStage HistoricalStage
+  outcome       HistoricalOutcome
+  submittedAt   DateTime?
+  decidedAt     DateTime?
+  /// Source values no adapter could map, kept verbatim for auditing. Never rendered.
+  unmappedNotes Json?
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceBaseId, sourceTableId, sourceRecordId])
+  @@index([applicantId, submittedAt])
+  @@index([cycleCode])
+}
+
+model HistoricalInterest {
+  id             String    @id @default(cuid())
+  applicantId    String
+  sourceBaseId   String
+  sourceTableId  String
+  sourceRecordId String
+  submittedAt    DateTime?
+
+  applicant HistoricalApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceBaseId, sourceTableId, sourceRecordId])
+  @@index([applicantId])
+}
+
+/// A member's service record, frozen at issuance. One row per person, re-issued
+/// in place when the member regenerates.
+///
+/// The record is stored rather than recomputed on read so that the certificate
+/// PDF and the public credential page always agree, and so a public URL can
+/// never surface a record the member did not publish (a corrected term, a
+/// department they left, a shift count that moved).
+model ServiceCredential {
+  id            String    @id @default(cuid())
+  personId      String    @unique
+  /// Unguessable public token. Null until the member opts into publishing, and
+  /// nulled again on unpublish, which is what makes the public page 404.
+  publicToken   String?   @unique
+  /// When the member last retracted their public page. Distinguishes "never
+  /// published" (null) from "published, then chose not to be" (set), which
+  /// publicToken alone cannot express because both leave it null.
+  ///
+  /// Adding a wallet badge auto-publishes so the badge can carry a verifiable
+  /// QR, but ONLY when this is null. Without it, a member who unpublished would
+  /// be silently re-published by their next badge refresh, overriding a choice
+  /// they made deliberately.
+  unpublishedAt DateTime?
+  /// The full ServiceRecord as issued. Never recomputed on read.
+  record        Json
+  issuedAt      DateTime  @default(now())
+  /// Set only by a deliberate admin revocation (falsified service, record issued
+  /// in error). Offboarding does NOT set this: the credential is a past-tense
+  /// claim and a member who graduates normally did serve those terms.
+  revokedAt     DateTime?
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+/// A term-scoped wallet badge. One per person per term, expiring at term end.
+///
+/// The pass asserts PRESENT standing, which is why it is term-scoped and revoked
+/// on offboard, unlike ServiceCredential (a past-tense record that survives
+/// offboarding). serialNumber is the vendor's handle for update and revoke.
+model WalletPass {
+  id            String    @id @default(cuid())
+  personId      String
+  termId        String
+  serialNumber  String    @unique
+  /// Google's "Save to Wallet" link. Persisted because it is a SIGNED JWT that
+  /// cannot be reconstructed from the serial, and the vendor's PUT (refresh)
+  /// response returns only {serialNumber, lastUpdated, notifiedDevices,
+  /// unchanged} -- verified against the live API on 2026-08-10. Without storing
+  /// it, a re-issue has no link to hand back.
+  googleSaveUrl String?
+  /// The vendor's hosted install page (Add to Apple / Add to Google). Currently
+  /// deterministic from the serial, but stored rather than derived so a change
+  /// to their URL shape cannot silently break every existing badge.
+  shareUrl      String?
+  issuedAt      DateTime  @default(now())
+  revokedAt     DateTime?
+  person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// Restrict: a term with issued badges must not be deletable out from under them.
+  term          Term      @relation(fields: [termId], references: [id], onDelete: Restrict)
+
+  @@unique([personId, termId])
   @@index([personId])
 }

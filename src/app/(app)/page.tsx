@@ -9,6 +9,8 @@ import {
   Check,
   Clock,
   ChevronRight,
+  ClipboardCheck,
+  UserRound,
 } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
@@ -21,6 +23,7 @@ import { ClinicChannelCard } from "./clinic-channel-card";
 import { EpicAccessCard } from "./epic-access-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
+import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards, type ActionCard } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
@@ -30,7 +33,7 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey, formatCalendarDate, formatForDateInput } from "@/platform/dates";
+import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
@@ -182,7 +185,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
@@ -194,6 +197,7 @@ export default async function HubPage() {
     reviewScope(person.personId),
     getDisplayTimeZone(),
     getActiveTerm(),
+    getCheckInState(person.personId),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
@@ -332,6 +336,26 @@ export default async function HubPage() {
     backfill,
   });
 
+  // Clinic check-in gets its own banner above the action feed rather than a tile
+  // inside it. In the tile grid it rendered identically to the navigation
+  // shortcuts (same size, same weight), so on a clinic morning the one
+  // time-sensitive action on the page read as another shortcut. Priority bought
+  // it the leftmost slot, which is position, not prominence.
+  //
+  // Gated on actually being scheduled: a banner for an unscheduled person would
+  // dead-end on the check-in page's NOT_ASSIGNED refusal.
+  const showCheckInBanner =
+    accessible.has("schedule") && checkIn.clinicDate !== null && checkIn.assignmentCount > 0;
+  // checkedInAt is a real instant (not a calendar marker like clinicDate), so it
+  // renders in the configurable display zone rather than the server's own zone,
+  // matching how every other instant in the app is shown.
+  const checkedInLabel = checkIn.existing
+    ? formatTimeOnly(checkIn.existing.checkedInAt, await getDisplayTimeZone(), {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
   return (
     <>
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
@@ -386,6 +410,18 @@ export default async function HubPage() {
                     <Repeat aria-hidden className="h-4 w-4 text-white/70" /> {nextTags.join(" · ")}
                   </span>
                 )}
+                {/* The attending covering THIS member's department that day.
+                    Omitted entirely when there is none -- an unstaffed column,
+                    a department that maps to no column, or a schedule not
+                    published yet all read as "not announced", which is honest,
+                    where an empty "Attending:" label would read as a gap. */}
+                {next.attendings.length > 0 && (
+                  <span className="inline-flex items-center gap-2">
+                    <UserRound aria-hidden className="h-4 w-4 text-white/70" />
+                    {next.attendings.length > 1 ? "Attendings" : "Attending"}:{" "}
+                    {next.attendings.map((a) => a.name).join(", ")}
+                  </span>
+                )}
               </div>
 
               {accessible.has("schedule") && (
@@ -417,6 +453,42 @@ export default async function HubPage() {
                     className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
                   >
                     Go to my schedule <ArrowRight aria-hidden className="h-4 w-4" />
+                  </Link>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Clinic check-in: prompt, then a quiet confirmation once checked in. */}
+          {showCheckInBanner && (
+            <Card pad={false} className="mt-4 p-5">
+              {checkedInLabel ? (
+                <div className="flex items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-success-foreground">
+                    <Check aria-hidden className="h-[18px] w-[18px]" />
+                  </span>
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    Checked in at {checkedInLabel}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-fg">
+                      <ClipboardCheck aria-hidden className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-lg font-semibold text-foreground">Clinic today</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        Check in when you arrive at the clinic.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/schedule/check-in"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+                  >
+                    Check in <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
                 </div>
               )}

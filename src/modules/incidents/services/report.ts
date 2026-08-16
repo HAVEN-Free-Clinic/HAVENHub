@@ -61,7 +61,7 @@ export const CONCERN_TYPES = [
 export const CONCERN_TYPE_VALUES: string[] = CONCERN_TYPES.map((t) => t.value);
 
 /** value -> human label, for building the comma-separated concernSummary in notification emails. */
-const CONCERN_LABELS: Record<string, string> = Object.fromEntries(CONCERN_TYPES.map((t) => [t.value, t.label]));
+export const CONCERN_LABELS: Record<string, string> = Object.fromEntries(CONCERN_TYPES.map((t) => [t.value, t.label]));
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -106,6 +106,9 @@ export type SubmitReportInput = {
   priorOccurrence?: PriorOccurrence | null;
   priorOccurrenceDetail?: string | null;
   anonymous?: boolean;
+  /** Why the reporter wants to stay anonymous to the subject. Ignored unless
+   *  `anonymous` is set, so unchecking the box cannot leave orphaned text. */
+  anonymousReason?: string | null;
   files?: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
 };
 
@@ -211,6 +214,48 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Audience
+// ---------------------------------------------------------------------------
+
+/** A person who receives incident notifications, and whether they can act. */
+export type IncidentAudienceMember = {
+  id: string;
+  name: string;
+  entraObjectId: string | null;
+  contactEmail: string | null;
+  /**
+   * True for incidents.manage holders, who can open the review queue. False for
+   * escalation-only recipients, whose emails must omit the review link rather
+   * than offer one that bounces them off a page they cannot see.
+   */
+  canReview: boolean;
+};
+
+/**
+ * Everyone who receives incident notifications: incidents.manage reviewers.
+ *
+ * THE SINGLE SOURCE OF THIS AUDIENCE. Every caller that notifies must go through
+ * here rather than reintroducing a bare peopleWithAnyPermission at a call site.
+ *
+ * It used to also fold in incidents.escalation_recipient holders, and separately
+ * blind-copy a list of external addresses. Both are gone: the permission could
+ * never reach the third-party advisors it was built for (they have no account to
+ * grant it to), and the blind copy sent every matter to everyone. Reaching
+ * outside the clinic is now a per-matter forward (forward.ts).
+ */
+
+export async function incidentAudience(): Promise<IncidentAudienceMember[]> {
+  const reviewers = await peopleWithAnyPermission(["incidents.manage"]);
+  return reviewers.map((r) => ({
+    id: r.id,
+    name: r.name,
+    entraObjectId: r.entraObjectId,
+    contactEmail: r.contactEmail,
+    canReview: true,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Notifications (best-effort -- never throws out of a committed mutation)
 // ---------------------------------------------------------------------------
 
@@ -233,20 +278,30 @@ async function notifyReviewersOfSubmission(
   actorPersonId: string
 ): Promise<void> {
   try {
-    // Exclude every linked subject from the reviewer set, even one who requested
-    // no strike, so no subject is ever alerted about a report about themselves.
-    const reviewers = (await peopleWithAnyPermission(["incidents.manage"])).filter(
+    // Exclude every linked subject from the audience, even one who requested no
+    // strike, so no subject is ever alerted about a report about themselves.
+    // Applies to escalation recipients too: being copied for visibility must not
+    // become a way to learn of a report against yourself.
+    const reviewers = (await incidentAudience()).filter(
       (r) => !subjectPersonIds.includes(r.id)
     );
-    if (reviewers.length === 0) return;
+    // Deliberately NOT an early return. External supervisors are an independent
+    // audience: if nobody currently holds incidents.manage, they are the only
+    // people who would hear about the report at all, and returning here would
+    // silently drop them too.
 
     const baseUrl = await getSetting<string>("app.baseUrl");
-    const reviewLink = `${baseUrl}/incidents/review`;
+    const reviewQueueUrl = `${baseUrl}/incidents/review`;
     const concernSummary = report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ");
     const hasStrikeRequest = pendingSubjectNames.length > 0;
     const subjectNames = pendingSubjectNames.join(", ");
 
     for (const reviewer of reviewers) {
+      // Escalation-only recipients get the substance without a link: the review
+      // queue requires incidents.manage, so offering it would send them to a
+      // no-access page. The templates guard the link paragraph on a non-empty
+      // value, so passing "" omits it rather than shipping a dead anchor.
+      const reviewLink = reviewer.canReview ? reviewQueueUrl : "";
       const submittedRendered = await renderEmail(
         "incidents.report_submitted",
         reportSubmittedContext({
@@ -266,7 +321,10 @@ async function notifyReviewersOfSubmission(
           summary: report.immediateRisk
             ? `Incident report #${report.number} was submitted and flagged as an immediate risk (${concernSummary}).`
             : `Incident report #${report.number} was submitted (${concernSummary}).`,
-          link: reviewLink,
+          // `|| null` not `??`: the template path uses "" for an escalation-only
+          // recipient, and an empty string would otherwise be stored as a
+          // clickable-but-empty Teams action.
+          link: reviewLink || null,
         },
         triggeredById: actorPersonId,
       });
@@ -294,6 +352,17 @@ async function notifyReviewersOfSubmission(
         });
       }
     }
+
+    // --- External clinical supervisors: deliberately NOT notified here ---
+    //
+    // Submission used to blind-copy every address in
+    // incidents.externalEscalationEmails. That setting is now a DIRECTORY a
+    // reviewer forwards from case by case (forward.ts), because sending every
+    // matter to every supervisor was the thing reviewers wanted to stop.
+    //
+    // Nothing replaces this call site: a report reaches outside the clinic only
+    // when a reviewer decides it should, and that decision leaves an
+    // IncidentForward record on the report.
   } catch (err) {
     log.error("[incidents] failed to notify reviewers of a submitted report", errorAttrs(err, { reportId: report.id }));
   }
@@ -444,7 +513,12 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
 
   // Every linked person must exist.
   for (const s of subjects) {
-    const person = await prisma.person.findUnique({ where: { id: s.personId } });
+    // Existence check only, so it selects the id alone rather than the row.
+    // Narrower than PERSON_SCALARS and inherently immune to a dropped column.
+    const person = await prisma.person.findUnique({
+      where: { id: s.personId },
+      select: { id: true },
+    });
     if (!person) throw new IncidentNotFoundError(`Subject ${s.personId} not found.`);
   }
 
@@ -474,6 +548,11 @@ export async function submitReport(actorPersonId: string, input: SubmitReportInp
     data: {
       reporterId: actorPersonId,
       anonymous: input.anonymous ?? false,
+      // Only stored alongside a live anonymity request. A reporter who typed a
+      // reason and then unchecked the box must not leave the explanation behind
+      // on a report that is not anonymous, where it would read as an unexplained
+      // aside about a colleague.
+      anonymousReason: input.anonymous ? (input.anonymousReason?.trim() || null) : null,
       concernTypes,
       description: input.description,
       occurredAt: input.occurredAt ?? null,
@@ -629,7 +708,7 @@ export async function getReport(
   id: string
 ): Promise<{
   report: IncidentReport & {
-    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { name: string } }>;
+    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { id: string; name: string } }>;
     reporter: { name: string };
     attachments: IncidentReportAttachment[];
   };
@@ -638,7 +717,8 @@ export async function getReport(
   const report = await prisma.incidentReport.findUnique({
     where: { id },
     include: {
-      subjects: { include: { person: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+      // person.id is selected so the detail page can badge a cleared subject.
+      subjects: { include: { person: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
       reporter: { select: { name: true } },
       attachments: true,
     },

@@ -113,16 +113,43 @@ describe("resolveTeamsTransport", () => {
     _resetSettingsCache();
   });
 
-  async function setTransport(value: "log" | "graph") {
+  async function setTransport(value: "log" | "graph" | "maileroo") {
     await prisma.setting.create({ data: { key: "email.transport", value } });
     _resetSettingsCache();
   }
 
-  it("returns the log transport when email.transport is not graph", async () => {
+  /** Store a mailer credential so mailConnectionStatus() reports connected. */
+  async function connectMailer() {
+    await prisma.mailCredential.create({
+      data: { id: "mailer", refreshToken: "refresh-token", account: "hfc.it@yale.edu" },
+    });
+  }
+
+  it("returns the log transport when email.transport is log", async () => {
     await setTransport("log");
     vi.stubEnv("NODE_ENV", "production"); // even in prod, log mode is fine
     const t = await resolveTeamsTransport();
     expect(t).toBeInstanceOf(LogTeamsTransport);
+  });
+
+  // Teams DMs only ever go over Graph, so a non-graph EMAIL transport says
+  // nothing about how a DM is sent -- it only says the deployment is live. When
+  // this keyed off `=== "graph"`, selecting maileroo silently handed every DM to
+  // LogTeamsTransport, which *succeeds*: drainTeamsQueue marks the row LOGGED
+  // (terminal success), never retries, and never fires the email fallback, so the
+  // recipient is reached on no channel while the monitor stays green.
+  it("does not silently degrade Teams to the log transport when maileroo is selected", async () => {
+    await setTransport("maileroo");
+    vi.stubEnv("NODE_ENV", "production");
+    await expect(resolveTeamsTransport()).rejects.toThrow(/no mailer account is connected/);
+  });
+
+  it("uses Graph for Teams when maileroo is selected and the mailer is connected", async () => {
+    await setTransport("maileroo");
+    await connectMailer();
+    vi.stubEnv("NODE_ENV", "production");
+    const t = await resolveTeamsTransport();
+    expect(t).toBeInstanceOf(GraphTeamsTransport);
   });
 
   it("falls back to the log transport in dev/CI when graph is selected but the mailer is not connected", async () => {

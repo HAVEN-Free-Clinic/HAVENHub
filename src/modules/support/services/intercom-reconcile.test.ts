@@ -51,6 +51,19 @@ function mockFetchByTicket(responses: Record<string, { ok: boolean; status?: num
   );
 }
 
+/** Answers every GET /tickets/{id} with the same label, recording which ids were asked for. */
+function mockFetchRecording(label: string): string[] {
+  const asked: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      asked.push(String(url).split("/tickets/")[1] ?? "");
+      return { ok: true, status: 200, json: async () => ({ ticket_state_internal_label: label }) };
+    })
+  );
+  return asked;
+}
+
 beforeEach(async () => {
   await resetDb();
   vi.stubEnv("INTERCOM_ACCESS_TOKEN", "access-token");
@@ -167,5 +180,106 @@ describe("reconcileIntercomTickets", () => {
     expect(summary).toEqual({ checked: 2, inSync: 1, mismatched: 1, unmappedIntercomState: 0, unreachable: 0 });
     expect((await prisma.techRequest.findUnique({ where: { id: inSync.id } }))?.status).toBe("SUBMITTED");
     expect((await prisma.techRequest.findUnique({ where: { id: mismatched.id } }))?.status).toBe("SUBMITTED");
+  });
+
+  /**
+   * The sweep is capped per run so a large backlog cannot time out mid-scan.
+   * Without a cursor persisted between runs, every run restarted from
+   * `orderBy: id asc` -- so the (cap + 1)th linked ticket onwards was never
+   * read by any run, ever, while the summary reported a clean sweep. A backstop
+   * for silently missed status syncs that silently misses statuses is worse
+   * than none, because it is trusted (audit 14, SUP-4).
+   *
+   * maxRows stands in for the 500-row production ceiling so this can be
+   * exercised with three rows instead of five hundred; the cursor logic under
+   * test is identical either way.
+   */
+  describe("cursor", () => {
+    async function seedThree() {
+      const person = await createPerson("Sam Rivera");
+      // ids are cuids, so seeding order does not fix scan order; the sweep
+      // walks id-ascending and the assertions below follow that same order.
+      const tickets = [
+        await createLinkedTicket(person.id, "ticket_a"),
+        await createLinkedTicket(person.id, "ticket_b"),
+        await createLinkedTicket(person.id, "ticket_c"),
+      ];
+      return tickets.sort((x, y) => (x.id < y.id ? -1 : 1));
+    }
+
+    it("resumes past where the previous capped run stopped, instead of re-scanning the same head", async () => {
+      const ordered = await seedThree();
+      const asked = mockFetchRecording("Submitted");
+
+      await reconcileIntercomTickets({ maxRows: 2 });
+      expect(asked).toEqual([ordered[0].intercomTicketId, ordered[1].intercomTicketId]);
+
+      asked.length = 0;
+      const second = await reconcileIntercomTickets({ maxRows: 2 });
+
+      // The third ticket is the one the uncursored sweep could never reach.
+      expect(asked).toEqual([ordered[2].intercomTicketId]);
+      expect(second.checked).toBe(1);
+    });
+
+    it("persists the cursor between runs in the Setting table", async () => {
+      const ordered = await seedThree();
+      mockFetchRecording("Submitted");
+
+      await reconcileIntercomTickets({ maxRows: 2 });
+
+      const row = await prisma.setting.findUnique({ where: { key: "intercom.reconcileCursor" } });
+      expect((row?.value as { lastId?: string } | null)?.lastId).toBe(ordered[1].id);
+    });
+
+    /**
+     * A sweep that only ever moved forward would check each ticket once and
+     * then go quiet, which is the opposite of a drift detector's job: drift
+     * appears at any time on a ticket that was in sync yesterday.
+     */
+    it("wraps back to the start once it reaches the end of the table", async () => {
+      const ordered = await seedThree();
+      const asked = mockFetchRecording("Submitted");
+
+      await reconcileIntercomTickets({ maxRows: 2 });
+      await reconcileIntercomTickets({ maxRows: 2 });
+
+      const row = await prisma.setting.findUnique({ where: { key: "intercom.reconcileCursor" } });
+      expect((row?.value as { lastId?: string | null } | null)?.lastId).toBeNull();
+
+      asked.length = 0;
+      await reconcileIntercomTickets({ maxRows: 2 });
+      expect(asked).toEqual([ordered[0].intercomTicketId, ordered[1].intercomTicketId]);
+    });
+
+    // A run that fits inside its budget has nothing to resume from, so it must
+    // not leave a cursor behind that would make the NEXT run skip the head of
+    // the table.
+    it("leaves no cursor when a single run covers everything", async () => {
+      await seedThree();
+      mockFetchRecording("Submitted");
+
+      await reconcileIntercomTickets();
+
+      const row = await prisma.setting.findUnique({ where: { key: "intercom.reconcileCursor" } });
+      expect((row?.value as { lastId?: string | null } | null)?.lastId).toBeNull();
+    });
+
+    // A cursor outlives the row it names: the ticket it points at can be
+    // deleted between runs. The sweep resumes after that id rather than
+    // failing or restarting.
+    it("survives a cursor pointing at a ticket that has since been deleted", async () => {
+      const ordered = await seedThree();
+      const asked = mockFetchRecording("Submitted");
+
+      await reconcileIntercomTickets({ maxRows: 2 });
+      await prisma.techRequest.delete({ where: { id: ordered[1].id } });
+
+      asked.length = 0;
+      const summary = await reconcileIntercomTickets({ maxRows: 2 });
+
+      expect(asked).toEqual([ordered[2].intercomTicketId]);
+      expect(summary.checked).toBe(1);
+    });
   });
 });

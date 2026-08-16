@@ -206,8 +206,47 @@ export function mapIntercomTicketTypeToCategory(ticketTypeName: string | null): 
 // ---------------------------------------------------------------------------
 
 export type ApplyStateChangeResult =
-  | { ok: true; changed: boolean; ticket: TechRequest }
+  | { ok: true; changed: boolean; ticket: TechRequest; stale?: boolean }
   | { ok: false; reason: "unmapped_state" | "ticket_not_found" };
+
+/**
+ * The event timestamp carried by the most recent Intercom-origin status change
+ * already applied to this ticket, or null when there is none to compare against.
+ *
+ * Read out of the audit trail rather than a column on TechRequest, because the
+ * row recording "an Intercom event moved this ticket" already exists, is written
+ * in the same function that applies the change, and is indexed by
+ * (entityType, entityId) -- so the ordering guard needs no schema change and no
+ * second source of truth that could disagree with the audit log.
+ *
+ * Fails OPEN in every ambiguous case (no prior row, a row predating this field,
+ * an unparseable value): the guard exists to reject a demonstrably older event,
+ * and "we cannot tell" must stay the pre-guard behavior of applying it rather
+ * than becoming a new way for a real state change to be dropped. recordAudit is
+ * fire-and-forget on the singleton path (platform/audit.ts), so a lost audit row
+ * degrades this to exactly the behavior that shipped before audit 14 -- never to
+ * something worse.
+ */
+async function lastAppliedEventAt(techRequestId: string): Promise<Date | null> {
+  const row = await prisma.auditLog.findFirst({
+    where: {
+      entityType: "TechRequest",
+      entityId: techRequestId,
+      action: "intercom_ticket_sync.status_change",
+    },
+    // id breaks a createdAt tie: two rows can share a timestamp at Postgres'
+    // resolution, and which one is "latest" must not depend on scan order.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { after: true },
+  });
+
+  const after = row?.after;
+  if (!after || typeof after !== "object" || Array.isArray(after)) return null;
+  const at = (after as Record<string, unknown>).intercomEventAt;
+  if (typeof at !== "string") return null;
+  const parsed = new Date(at);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 /**
  * Applies an Intercom-driven ticket state change to the TechRequest linked by
@@ -228,6 +267,18 @@ export type ApplyStateChangeResult =
  * because the Hub's OWN UI happens to gate that transition when a manager
  * tries it from this side.
  *
+ * Staleness guard: `occurredAt` is when Intercom says the event happened (the
+ * webhook envelope's own timestamp; see the route's extractEventTimestamp). An
+ * event older than the last one already applied is refused as a no-op rather
+ * than written. Intercom does not guarantee delivery ORDER and retries failed
+ * deliveries for hours, so without this the only thing standing between a
+ * ticket and a silent revert was status equality -- which says nothing about
+ * age: an "In progress" delivery that lost a race to, or was retried after, a
+ * "Resolved" one would quietly drag the ticket backwards, and the reconciliation
+ * sweep would then report the Hub and Intercom as disagreeing with no way to
+ * tell which side was stale (audit 14, finding 4). Arrival order is not trusted
+ * because it is not a property Intercom offers.
+ *
  * Scope is deliberately narrow: only `status` is written. resolvedAt and
  * resolution (which resolveRequest sets together with status RESOLVED) are
  * Hub-authored fields with no equivalent in an Intercom state-change event --
@@ -235,7 +286,8 @@ export type ApplyStateChangeResult =
  */
 export async function applyIntercomTicketStateChange(
   intercomTicketId: string,
-  internalLabel: string
+  internalLabel: string,
+  occurredAt: Date | null = null
 ): Promise<ApplyStateChangeResult> {
   const status = mapIntercomTicketStateToStatus(internalLabel);
   if (!status) {
@@ -259,11 +311,54 @@ export async function applyIntercomTicketStateChange(
     // later redelivery may resolve on its own. Logged either way so a
     // genuinely orphaned ticket id is visible.
     log.warn("[support] Intercom ticket.state.updated for an unknown ticket id", { intercomTicketId });
+    // Audited like every sibling refusal in this module. A log line is not a
+    // record: it ages out of retention and cannot be joined to the ticket it
+    // concerns, so the one refusal that leaves the Hub and Intercom genuinely
+    // out of sync was also the only one with nothing durable to find later
+    // (audit 14, finding 5). A repeat of the same intercomTicketId here is the
+    // signature of a permanently orphaned Intercom ticket rather than a
+    // transient ordering race, and that distinction is only visible across
+    // rows.
+    await recordAudit({
+      actorPersonId: null,
+      action: "intercom_ticket_sync.ticket_not_found",
+      entityType: "TechRequest",
+      after: { intercomTicketId, internalLabel, mappedStatus: status },
+    });
     return { ok: false, reason: "ticket_not_found" };
   }
 
   if (existing.status === status) {
     return { ok: true, changed: false, ticket: existing };
+  }
+
+  // Checked only for a real transition: a redelivery that agrees with the
+  // current status already returned above, so the extra read below only
+  // happens when something is genuinely about to be written.
+  if (occurredAt) {
+    const appliedAt = await lastAppliedEventAt(existing.id);
+    if (appliedAt && occurredAt.getTime() < appliedAt.getTime()) {
+      log.warn("[support] refusing an out-of-order Intercom ticket state change", {
+        intercomTicketId,
+        internalLabel,
+        occurredAt: occurredAt.toISOString(),
+        lastAppliedAt: appliedAt.toISOString(),
+      });
+      await recordAudit({
+        actorPersonId: null,
+        action: "intercom_ticket_sync.stale_event",
+        entityType: "TechRequest",
+        entityId: existing.id,
+        before: { status: existing.status },
+        after: {
+          status,
+          source: "intercom",
+          occurredAt: occurredAt.toISOString(),
+          lastAppliedAt: appliedAt.toISOString(),
+        },
+      });
+      return { ok: true, changed: false, ticket: existing, stale: true };
+    }
   }
 
   const updated = await prisma.techRequest.update({
@@ -277,7 +372,12 @@ export async function applyIntercomTicketStateChange(
     entityType: "TechRequest",
     entityId: existing.id,
     before: { status: existing.status },
-    after: { status, source: "intercom" },
+    // intercomEventAt is what lastAppliedEventAt reads back on the NEXT
+    // delivery, so this field is load-bearing rather than descriptive: drop it
+    // and the ordering guard above silently stops rejecting anything. Null when
+    // the payload carried no usable timestamp, which reads back as "cannot
+    // tell" and fails open.
+    after: { status, source: "intercom", intercomEventAt: occurredAt ? occurredAt.toISOString() : null },
   });
 
   return { ok: true, changed: true, ticket: updated };

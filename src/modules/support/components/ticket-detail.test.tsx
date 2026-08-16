@@ -128,11 +128,20 @@ describe("TicketDetail: unlinked ticket (no intercomConversationId)", () => {
   });
 });
 
-describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
+/**
+ * Every fixture here carries intercomTicketId as well as intercomConversationId,
+ * because that pair is what "Intercom manages this ticket" actually means: the
+ * conversation holds the correspondence, and the TICKET id is what
+ * applyIntercomTicketStateChange looks a row up by. These fixtures used to set
+ * the conversation id alone and assert the manager panel was hidden, which
+ * described a ticket no system could move at all -- see the unsynced-ticket
+ * suite below (audit 14, SUP-2).
+ */
+describe("TicketDetail: synced ticket (both Intercom ids set)", () => {
   it("removes every manager mutation control and shows the Intercom banner instead", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
-    const detail = baseDetail({ intercomConversationId: "conv-123" });
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: "ticket-123" });
     const html = renderToStaticMarkup(
       await TicketDetail({
         detail,
@@ -169,7 +178,7 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
   it("removes the requester's own cancel button and offers Continue in Messenger instead", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
-    const detail = baseDetail({ intercomConversationId: "conv-123" });
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: "ticket-123" });
     const html = renderToStaticMarkup(
       await TicketDetail({
         detail,
@@ -191,6 +200,7 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
     const detail = baseDetail({
       intercomConversationId: "conv-123",
+      intercomTicketId: "ticket-123",
       epicRequests: [
         {
           id: "epic-1",
@@ -237,7 +247,7 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
   it("keeps the Epic attach form on a linked EPIC ticket, since that workflow stays in the Hub", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
-    const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123" });
+    const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123", intercomTicketId: "ticket-123" });
     const html = renderToStaticMarkup(
       await TicketDetail({
         detail,
@@ -270,7 +280,7 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
   it("shows no Manager controls section for a linked EPIC ticket, same as any other linked ticket", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
-    const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123" });
+    const detail = baseDetail({ category: "EPIC", intercomConversationId: "conv-123", intercomTicketId: "ticket-123" });
     const html = renderToStaticMarkup(
       await TicketDetail({
         detail,
@@ -301,7 +311,7 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
 
   it("renders no deep link when the app id is unset, even though the ticket is linked", async () => {
     // NEXT_PUBLIC_INTERCOM_APP_ID intentionally left unset.
-    const detail = baseDetail({ intercomConversationId: "conv-123" });
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: "ticket-123" });
     const html = renderToStaticMarkup(
       await TicketDetail({
         detail,
@@ -324,5 +334,100 @@ describe("TicketDetail: linked ticket (intercomConversationId set)", () => {
     expect(html).toContain("This ticket is managed in Intercom");
     expect(html).not.toContain("Open in Intercom");
     expect(html).not.toContain("app.intercom.com");
+  });
+});
+
+/**
+ * A ticket with a conversation but NO Intercom Ticket -- which is every ticket
+ * Fin's custom action opens, since no Intercom Ticket exists at that moment.
+ *
+ * Hiding the manager panel on the conversation id made this ticket unmanageable
+ * from BOTH sides at once: Intercom cannot drive its status (every inbound path
+ * keys on intercomTicketId, which is null here) and the Hub would not offer a
+ * control either, so it sat at whatever status it was created with,
+ * permanently, while the page rendered as though everything were fine (audit
+ * 14, SUP-2).
+ */
+describe("TicketDetail: linked but unsynced ticket (conversation id, no Intercom ticket id)", () => {
+  it("keeps the manager control panel, because nothing else can move this ticket's status", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: null });
+    const html = renderToStaticMarkup(
+      await TicketDetail({
+        detail,
+        canManage: true,
+        isRequester: false,
+        managers: [],
+        assignAction: noop,
+        setStatusAction: noop,
+        setPriorityAction: noop,
+        resolveAction: noop,
+        cancelAction: noop,
+        comments,
+        commentAction: noop,
+        attachEpicAction: noop,
+        cancelEpicAction: noop,
+        departments: [],
+      })
+    );
+
+    expect(html).toContain("Manager controls");
+    expect(html).toContain("Update status");
+    expect(html).toContain("Update assignee");
+    expect(html).toContain("Update priority");
+    expect(html).toContain("Resolve ticket");
+  });
+
+  // The banner has to agree with the page. Telling a manager to change the
+  // status in Intercom, while the Hub renders the status control right below
+  // it, sends them looking for a control that does not exist on a ticket
+  // Intercom has no state object for.
+  it("says the conversation is in Intercom, not that the ticket is managed there", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: null });
+    const html = renderToStaticMarkup(
+      await TicketDetail({
+        detail,
+        canManage: true,
+        isRequester: false,
+        managers: [],
+        assignAction: noop,
+        setStatusAction: noop,
+        setPriorityAction: noop,
+        resolveAction: noop,
+        cancelAction: noop,
+        comments,
+        commentAction: noop,
+      })
+    );
+
+    expect(html).toContain("This conversation is in Intercom");
+    expect(html).not.toContain("This ticket is managed in Intercom");
+    expect(html).toContain("Open in Intercom");
+  });
+
+  // The correspondence really does live in Intercom for this ticket, so the
+  // reply form and the requester's own cancel stay hidden. Only the status
+  // control surface changes, which is the whole of what was broken.
+  it("still routes correspondence to Intercom, keeping the reply form and owner cancel hidden", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+    const detail = baseDetail({ intercomConversationId: "conv-123", intercomTicketId: null });
+    const html = renderToStaticMarkup(
+      await TicketDetail({
+        detail,
+        canManage: false,
+        isRequester: true,
+        cancelOwnAction: noop,
+        comments,
+        commentAction: noop,
+      })
+    );
+
+    expect(html).not.toContain("Cancel my request");
+    expect(html).not.toContain(">Reply<");
+    expect(html).toContain("continue-conversation");
   });
 });

@@ -3,7 +3,7 @@ import { isDbUnreachableError, prisma } from "@/platform/db";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { isWebhookConfigured, intercomWebhookSecret } from "@/platform/intercom/config";
 import { verifyIntercomWebhookSignature } from "@/platform/intercom/webhooks";
-import { resolveIdentityFromConversation, UNIDENTIFIED_MESSAGE } from "@/platform/intercom/identity";
+import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { extractTicketStateInternalLabel, pushTicketNumber } from "@/platform/intercom/tickets";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
@@ -170,19 +170,49 @@ async function handleTicketCreated(item: Record<string, unknown>): Promise<Respo
   // from any contact/requester-shaped field on the webhook payload itself.
   // This path writes a TechRequest, so a value trusted from the payload
   // would let a forged requester file a ticket as somebody else.
-  const identity = await resolveIdentityFromConversation(conversationId);
+  //
+  // This is the ONE call site that opts into the email fallback. See that
+  // option's doc comment for the production failure that motivated it, for the
+  // Yale-domain gate it runs through, and for why the same reasoning must not
+  // be carried over to the MCP tools.
+  const identity = await resolveIdentityFromConversation(conversationId, {
+    allowVerifiedEmailFallback: true,
+  });
   if (!identity.ok) {
-    // Same audit action and same undifferentiated message as the
-    // from-conversation route's identical refusal -- see that route's doc
-    // comment for why the caller never learns which of the underlying
-    // reasons applied.
+    // Same audit action as the from-conversation route's identical refusal,
+    // and the reason still survives only there -- never in the response.
     await recordAudit({
       actorPersonId: null,
       action: "intercom_ticket_sync.unverified",
       entityType: "TechRequest",
       after: { reason: identity.reason, source: "webhook" },
     });
-    return Response.json({ error: UNIDENTIFIED_MESSAGE }, { status: 401 });
+
+    // Status code decides whether Intercom redelivers, so it has to answer
+    // "could this same payload ever succeed?" rather than "did we like it?".
+    //
+    // lookup_failed is the only reason here that a retry can fix: Intercom
+    // unreachable, timed out, or a token problem. It keeps a 5xx, and Intercom
+    // keeps trying.
+    if (identity.reason === "lookup_failed") {
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+
+    // Everything else is permanent for THIS payload -- the sender is not a
+    // member we can attribute a ticket to, and no number of redeliveries will
+    // change that. This used to return 401, which read as an auth failure it is
+    // not (the signature check above is this endpoint's auth gate, and it
+    // passed) and made Intercom retry forever: on 2026-08-16 a single
+    // email-sourced ticket produced a permanently failing delivery that could
+    // only ever fail again. Acknowledged as a deliberate no-op instead, exactly
+    // like the unhandled-topic branch in POST, so Intercom's delivery dashboard
+    // shows failures only where something is genuinely retryable.
+    //
+    // Body carries no reason. Nothing reads it -- this is server-to-server, and
+    // UNIDENTIFIED_MESSAGE belongs on the from-conversation route, where Fin
+    // actually says it to a member -- so there is no reason to put the
+    // distinction anywhere but the audit row.
+    return Response.json({ ignored: true }, { status: 200 });
   }
 
   try {
@@ -195,6 +225,21 @@ async function handleTicketCreated(item: Record<string, unknown>): Promise<Respo
     });
 
     if (created) {
+      // Attribution by the weaker evidence is worth a row of its own. The
+      // ticket reads identically to a Messenger-originated one from here on, so
+      // this is the only place that records the requester was matched on an
+      // emailed address rather than on an id our Messenger wrote. Only on first
+      // creation: a redelivery re-attributes nothing.
+      if (identity.via === "verified_email") {
+        await recordAudit({
+          actorPersonId: null,
+          action: "intercom_ticket_sync.email_attributed",
+          entityType: "TechRequest",
+          entityId: ticket.id,
+          after: { intercomTicketId: ticketId, ticketNumber: ticket.number, requesterId: identity.personId },
+        });
+      }
+
       // Best-effort: the ticket already exists by this point, so a failed
       // write-back is a cosmetic problem, not a reason to fail the webhook.
       const pushed = await pushTicketNumber(ticketId, ticket.number);

@@ -1,4 +1,4 @@
-import { getActivePerson } from "@/platform/auth/match-person";
+import { findMemberRecordByClaim, getActivePerson } from "@/platform/auth/match-person";
 import { log, errorAttrs } from "@/platform/logging";
 import { intercomAccessToken } from "./config";
 
@@ -26,8 +26,29 @@ const INTERCOM_API_VERSION = "2.14";
  */
 export const INTERCOM_LOOKUP_TIMEOUT_MS = 5_000;
 
+/**
+ * WHICH evidence established a successful identity, so a caller that cares can
+ * tell the two apart -- today that is the ticket.created webhook, which audits
+ * a ticket attributed by the weaker of the two.
+ *
+ * "external_id" is the strong form: the contact carries a Person id our own
+ * Messenger wrote there after an authenticated Hub session, so Intercom's
+ * record is downstream of a real sign-in.
+ *
+ * "verified_email" is the weaker form, and is only ever reachable by opting in
+ * (see ConversationIdentityOptions). The evidence is an email ADDRESS on the
+ * contact, which for an email-sourced conversation originates in a `From:`
+ * header -- assertable by anyone who can send mail, not by anyone who can sign
+ * in. See resolveByContactEmail for the gate that narrows it and for why the
+ * one caller that opts in can afford it.
+ *
+ * Optional purely so a test double can stay terse; both resolvers below always
+ * set it.
+ */
+export type IdentityEvidence = "external_id" | "verified_email";
+
 export type ResolvedIdentity =
-  | { ok: true; personId: string; name: string | null }
+  | { ok: true; personId: string; name: string | null; via?: IdentityEvidence }
   | { ok: false; reason: IdentityFailureReason };
 
 /**
@@ -81,15 +102,19 @@ export const UNIDENTIFIED_MESSAGE =
  * returns these -- observed in this workspace) or with several is not something
  * we can pin to one member, and guessing which is exactly the kind of judgement
  * that turns into a cross-account read.
+ *
+ * options.allowVerifiedEmailFallback widens this for exactly one caller; the
+ * default is the behavior described above, unchanged.
  */
 export async function resolveIdentityFromConversation(
-  conversationId: string
+  conversationId: string,
+  options: ConversationIdentityOptions = {}
 ): Promise<ResolvedIdentity> {
   const token = intercomAccessToken();
   if (!token) return { ok: false, reason: "lookup_failed" };
 
   const endpoint = "conversations/:id";
-  let contacts: Array<{ external_id?: string | null }> = [];
+  let contacts: Array<{ id?: string | null; external_id?: string | null }> = [];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), INTERCOM_LOOKUP_TIMEOUT_MS);
   try {
@@ -117,7 +142,7 @@ export async function resolveIdentityFromConversation(
       return { ok: false, reason: "lookup_failed" };
     }
     const body = (await res.json()) as {
-      contacts?: { contacts?: Array<{ external_id?: string | null }> };
+      contacts?: { contacts?: Array<{ id?: string | null; external_id?: string | null }> };
     };
     contacts = body.contacts?.contacts ?? [];
   } catch (err) {
@@ -139,14 +164,149 @@ export async function resolveIdentityFromConversation(
   // Exactly one, or we cannot say who is asking.
   if (contacts.length !== 1) return { ok: false, reason: "no_contact" };
 
-  const externalId = contacts[0]?.external_id;
-  // A contact with no external_id never booted our Messenger (a lead, or an
-  // Intercom-native contact), so there is no Person behind it to authorize.
-  if (!externalId) return { ok: false, reason: "no_contact" };
+  const contact = contacts[0];
+  const externalId = contact?.external_id;
 
-  // Same revocation check as the id path: Intercom's record can outlive ours.
-  const person = await getActivePerson(externalId);
-  if (!person) return { ok: false, reason: "unknown_person" };
+  // The strong path, tried first and always: an external_id our Messenger
+  // wrote, naming a Person who is still active. Same revocation check as the
+  // id path, because Intercom's record can outlive ours.
+  if (externalId) {
+    const person = await getActivePerson(externalId);
+    if (person) return { ok: true, personId: person.id, name: person.name, via: "external_id" };
+  }
+
+  // The opt-in weak path. Reached in two shapes, both of which the strong path
+  // above has just failed on: no external_id at all, or one that names nobody
+  // active. An Intercom-generated UUID is the second shape -- see
+  // resolveByContactEmail for why the old code could not tell it from the
+  // first.
+  if (options.allowVerifiedEmailFallback && contact?.id) {
+    const fallback = await resolveByContactEmail(contact.id);
+    if (fallback.ok) {
+      return { ok: true, personId: fallback.personId, name: fallback.name, via: "verified_email" };
+    }
+    // "We could not ask" must not be reported as "they are not a member": the
+    // one caller that opts into this fallback treats a permanent refusal as a
+    // deliberate no-op and stops retrying, which would silently drop a real
+    // member's ticket over a momentary Intercom outage.
+    if (fallback.transient) return { ok: false, reason: "lookup_failed" };
+  }
+
+  // Refuse with exactly the reason this function returned before the fallback
+  // existed, so the audit trail keeps distinguishing "that contact never
+  // booted our Messenger" from "it did, but names nobody active".
+  if (!externalId) return { ok: false, reason: "no_contact" };
+  return { ok: false, reason: "unknown_person" };
+}
+
+export type ConversationIdentityOptions = {
+  /**
+   * Allow identity to be established from the contact's EMAIL ADDRESS when
+   * external_id establishes nothing.
+   *
+   * Off by default, and deliberately opt-in per call site rather than a
+   * blanket widening: this is weaker evidence than the external_id path, and
+   * every caller should have to say out loud that its blast radius can afford
+   * it.
+   *
+   * Why it is needed at all: the pre-existing `!external_id` guard encoded the
+   * belief that a contact who never booted our Messenger has no external_id to
+   * check. Production disproved it on 2026-08-16. A member emailed support from
+   * a yale.edu address, Intercom auto-created a LEAD for the sender and stamped
+   * it with an external_id of its OWN -- a UUID, not a Person cuid -- so the
+   * guard did not fire, getActivePerson was handed a UUID, and the ticket was
+   * refused as "unknown_person". Correct, and useless: every email-originated
+   * ticket from a real member was invisible to the Hub, and each one left a
+   * webhook Intercom retried forever.
+   *
+   * The trust question this raises is real and is not waved away. On the
+   * external_id path Intercom's record is downstream of a Hub sign-in. Here the
+   * address is a `From:` header, which is asserted by whoever sent the mail.
+   * Two things make it affordable for the ticket.created webhook specifically:
+   * the matching runs through findMemberRecordByClaim, whose email step already
+   * only accepts a Yale-domain claim (a stored personal address can never be
+   * reached this way), and the worst outcome on that route is a ticket filed
+   * under the wrong member's NAME -- it grants no read of anyone's data. Do not
+   * extend this to the MCP tools on that reasoning: those read a member's own
+   * record back to whoever is asking, where the same spoof is a cross-account
+   * read.
+   */
+  allowVerifiedEmailFallback?: boolean;
+};
+
+type EmailFallbackResult =
+  | { ok: true; personId: string; name: string | null }
+  | { ok: false; transient: boolean };
+
+/**
+ * Second-chance identity: fetch the contact, and match the email Intercom holds
+ * for it against a Person.
+ *
+ * A second HTTP call, deliberately. The conversation payload's contact entries
+ * carry only `type`, `id`, and `external_id` -- verified against the live
+ * workspace on 2026-08-16 -- so there is no email on the response the caller
+ * already has. It runs only after the external_id path has failed, which on the
+ * ticket.created webhook is the uncommon case, so this is not a per-call cost.
+ *
+ * MATCHING IS NOT IMPLEMENTED HERE. It delegates to findMemberRecordByClaim,
+ * which is match-person.ts's single definition of "this claim names that
+ * Person" and carries the Yale-domain gate on its email step. That file's own
+ * doc comment asks in as many words that the rules be changed only there, and a
+ * second hand-rolled copy of a trust gate here is the drift it is warning
+ * about. What that function does NOT do is check status -- it is documented as
+ * the no-status-gate variant -- so getActivePerson still runs afterwards, which
+ * is what keeps an offboarded member from being resolved by an address that is
+ * still on their old contact.
+ *
+ * Distinguishes "no match" from "could not ask": every failure to REACH
+ * Intercom returns transient:true, so the caller can refuse in a way that still
+ * gets retried. A 404 (no such contact) is a real answer, not an outage.
+ */
+async function resolveByContactEmail(contactId: string): Promise<EmailFallbackResult> {
+  const token = intercomAccessToken();
+  if (!token) return { ok: false, transient: true };
+
+  const endpoint = "contacts/:id";
+  let email: string | null = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INTERCOM_LOOKUP_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${INTERCOM_API}/contacts/${encodeURIComponent(contactId)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Intercom-Version": INTERCOM_API_VERSION,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (res.status === 404) return { ok: false, transient: false };
+    if (!res.ok) {
+      log.warn("[intercom] contact lookup failed", {
+        endpoint,
+        version: INTERCOM_API_VERSION,
+        status: res.status,
+      });
+      return { ok: false, transient: true };
+    }
+    const body = (await res.json()) as { email?: string | null };
+    email = typeof body.email === "string" ? body.email.trim() : null;
+  } catch (err) {
+    log.warn("[intercom] contact lookup failed", errorAttrs(err, { endpoint, version: INTERCOM_API_VERSION }));
+    return { ok: false, transient: true };
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  // A contact with no address on it is a real answer too: there is nothing to
+  // match, and nothing a retry would change.
+  if (!email) return { ok: false, transient: false };
+
+  const match = await findMemberRecordByClaim({ upn: email, email });
+  if (!match) return { ok: false, transient: false };
+
+  const person = await getActivePerson(match.id);
+  if (!person) return { ok: false, transient: false };
 
   return { ok: true, personId: person.id, name: person.name };
 }
@@ -250,5 +410,5 @@ export async function resolveIntercomIdentity(claimedPersonId: string): Promise<
   const person = await getActivePerson(claimedPersonId);
   if (!person) return { ok: false, reason: "unknown_person" };
 
-  return { ok: true, personId: person.id, name: person.name };
+  return { ok: true, personId: person.id, name: person.name, via: "external_id" };
 }

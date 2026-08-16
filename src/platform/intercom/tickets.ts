@@ -417,6 +417,27 @@ export async function pushTicketState(ticketId: string, stateLabel: string): Pro
  * an unreachable Intercom must not manufacture a mismatch report.
  */
 export async function fetchTicketState(ticketId: string): Promise<string | null> {
+  return extractTicketStateInternalLabel(await fetchTicket(ticketId));
+}
+
+/**
+ * The whole Ticket object, for the callers that need more of it than its state.
+ *
+ * Split out of fetchTicketState (which is now a one-line composition over it)
+ * rather than given a second implementation, because everything interesting
+ * here is the parts a copy would get subtly wrong: the pinned API version, the
+ * read timeout, and the never-throw posture. The recovery script
+ * (scripts/recover-intercom-ticket.ts) needs the ticket's attributes and type
+ * as well as its state, and a script with its own hand-rolled fetch is the
+ * copy that rots first.
+ *
+ * Returns the parsed body, or null on anything that is not a 2xx -- same
+ * fail-closed shape as every other read in this module. Untyped on purpose: the
+ * shape varies by ticket type and by API version, and each caller already
+ * type-guards the specific fields it reads (extractTicketStateInternalLabel is
+ * the in-repo example).
+ */
+export async function fetchTicket(ticketId: string): Promise<unknown | null> {
   const token = intercomAccessToken();
   if (!token) return null;
 
@@ -442,7 +463,7 @@ export async function fetchTicketState(ticketId: string): Promise<string | null>
       });
       return null;
     }
-    return extractTicketStateInternalLabel(await res.json());
+    return await res.json();
   } catch (err) {
     // Catches a network failure and an abort (the timeout above) alike -- see
     // the matching comment in identity.ts.

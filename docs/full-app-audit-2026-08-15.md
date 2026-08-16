@@ -722,3 +722,35 @@ Recorded here rather than silently dropped.
   `clinic-checkin-invites` is configured Saturday-only when the route expects
   daily, and add the dead-man's-switch push alert `docs/DEPLOY.md` still marks
   "(recommended)".
+
+---
+
+## Issue-tracker triage (2026-08-16)
+
+Every open item on GitHub and in PostHog Error Tracking was worked to closure.
+Both are now at zero.
+
+**GitHub: 7 open, all auto-filed from PostHog, all closed.**
+
+| # | Verdict | Cause |
+|---|---------|-------|
+| 631, 630, 629 | Not planned | One `next dev` run against a database with no schema. `The table public.Setting does not exist`, six events in 200ms on one day, stack rooted in `.next/dev/`. |
+| 598, 597 | Completed | The dropped-column incident `PERSON_SCALARS` exists to prevent. Column gone from the schema, projection guard in place, and the missed sign-in path closed by DM-1 this round. |
+| 580 | Not planned | The visitor's Zotero Connector extension talking to its own dead background worker. |
+| 529 | Not planned | HTTP 429 from PostHog's own asset CDN while fetching the replay recorder, passed through the `/ingest/static` rewrite. One event, staging, internal account. |
+
+**What the triage actually found.** Four of the seven were not defects, and the
+finding is that they were filed at all: local dev and third-party extension
+exceptions were reaching the shared PostHog project, becoming Error Tracking
+issues, and auto-filing GitHub issues that sat in the open list beside real
+defects. Tagging local events `environment: "development"` (OBS-05) did not stop
+this, because the event is still captured. Both sources are now dropped before
+capture -- `onRequestError` returns early when `VERCEL_ENV` is unset (dev, tests,
+CI, but *not* staging or preview), and a third `before_send` predicate drops
+exceptions thrown entirely inside a browser extension.
+
+**And one thing the triage corrected.** The PostHog issue for #597/#598 carries
+`source: src/platform/auth/match-person.ts`. The sign-in path was not merely the
+half that *would* break next time, as DM-1 was written up -- it is where the
+original outage fired, and the first round of that fix hardened `getActivePerson`
+while leaving the function that actually threw unprojected. Closed this round.

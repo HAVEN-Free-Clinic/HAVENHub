@@ -58,6 +58,9 @@ describe("onRequestError", () => {
       router_kind: "App Router",
       route_path: "/recruitment",
       route_type: "action",
+      // Staging, preview and local dev share this PostHog project with
+      // production (audit 14, OBS-05).
+      environment: expect.any(String),
     });
     expect(flush).toHaveBeenCalledTimes(1);
   });

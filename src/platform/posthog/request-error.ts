@@ -65,6 +65,10 @@ export async function onRequestError(
       router_kind: context.routerKind,
       route_path: context.routePath,
       route_type: context.routeType,
+      // Staging, preview and local dev share this PostHog project with
+      // production, so a server exception with no path context was previously
+      // unattributable (audit 14, OBS-05).
+      environment: process.env.VERCEL_ENV ?? "development",
     });
     await client.flush();
   } catch {

@@ -246,6 +246,29 @@ const schema = z
     /// key: when the trial lapses, set it false and branded fields stop being
     /// sent, with the card falling back to the free tier's colorPreset. No code
     /// change, and no branded fields sent to an account that ignores them.
+    // ---- Observability and integrations -----------------------------------
+    // These were read straight off process.env and were absent from this schema
+    // entirely, so they were neither typed nor discoverable and a typo in one
+    // produced silence rather than an error (audit 14, OBS-07).
+    //
+    // Declared `.optional()` on purpose, NOT required-in-production. Telemetry
+    // and a support-chat widget are not the same class of dependency as object
+    // storage: losing R2 destroys uploads, whereas losing PostHog costs
+    // visibility. Refusing to boot production because analytics is
+    // misconfigured would convert an observability outage into a total one.
+    NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: z.string().optional(),
+    NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
+    POSTHOG_API_KEY: z.string().optional(),
+    // Fails closed when unset: authorizeCron rejects every request, so all ten
+    // scheduled jobs stop. That rejection is now logged (src/platform/cron.ts),
+    // and the /admin cron panel flags every job stale via its firstSeen anchor.
+    CRON_SECRET: z.string().optional(),
+    NEXT_PUBLIC_INTERCOM_APP_ID: z.string().optional(),
+    INTERCOM_ACCESS_TOKEN: z.string().optional(),
+    INTERCOM_MESSENGER_SECRET: z.string().optional(),
+    INTERCOM_WEBHOOK_SECRET: z.string().optional(),
+    INTERCOM_BOT_ADMIN_ID: z.string().optional(),
+    INTERCOM_MCP_BEARER_TOKEN: z.string().optional(),
     WALLETWALLET_PRO: z
       .preprocess((v) => (v === "" || v === undefined ? false : v === "true" || v === true), z.boolean())
       .default(false),

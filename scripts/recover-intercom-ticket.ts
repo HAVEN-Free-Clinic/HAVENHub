@@ -49,6 +49,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { recordAudit } from "@/platform/audit";
 import { intercomAccessToken } from "@/platform/intercom/config";
 import { resolveIdentityFromConversation } from "@/platform/intercom/identity";
 import { extractTicketStateInternalLabel, fetchTicket, pushTicketNumber } from "@/platform/intercom/tickets";
@@ -163,6 +164,28 @@ async function main() {
       description: ticket.description,
     });
     console.log(`  Created Hub ticket #${created.number}.`);
+
+    // The same row handleTicketCreated writes, for the same reason: this is the
+    // only place recording that the requester was matched on an emailed address
+    // rather than on an id our Messenger wrote. Recovering a ticket outside the
+    // webhook must not be a way for that fact to go unrecorded -- "which
+    // tickets were attributed by the weaker evidence?" has to have a complete
+    // answer, and a recovered ticket reads identically to any other from here
+    // on.
+    if (identity.via === "verified_email") {
+      await recordAudit({
+        actorPersonId: null,
+        action: "intercom_ticket_sync.email_attributed",
+        entityType: "TechRequest",
+        entityId: created.id,
+        after: {
+          intercomTicketId: ticketId,
+          ticketNumber: created.number,
+          requesterId: identity.personId,
+          source: "recovery_script",
+        },
+      });
+    }
 
     // Best-effort, exactly as on the webhook: the row is what matters, the
     // attribute write is cosmetic.

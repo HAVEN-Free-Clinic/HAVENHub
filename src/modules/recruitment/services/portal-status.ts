@@ -1,6 +1,6 @@
 import { prisma } from "@/platform/db";
 import type { ApplicantIdentity } from "./portal-auth";
-import { isCycleOpen } from "./cycle-window";
+import { canSubmitToCycle } from "./cycle-window";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 
@@ -46,6 +46,30 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
   const deptName = new Map(depts.map((d) => [d.code, d.name]));
 
   const now = new Date();
+
+  // Which of these cycles this applicant was personally invited to.
+  //
+  // cycle-window.ts is explicit that "every applicant-facing gate must call
+  // canSubmitToCycle, not isCycleOpen, or an invite will work on one path and
+  // bounce on another". The three WRITE paths obeyed it; this READ path did not,
+  // so an invited applicant with a saved draft in a closed cycle was shown
+  // "Applications closed" with no Continue link and no way to discard -- while
+  // the server would still have accepted the submission. Their emailed invite was
+  // no help either: it is single-use, so re-opening it says "no longer valid"
+  // (audit 14, REC-1).
+  const invitedCycleIds = new Set(
+    (
+      await prisma.recruitmentInvite.findMany({
+        where: {
+          cycleId: { in: applicants.map((a) => a.cycleId) },
+          claimedByEmailLower: identity.email,
+          revokedAt: null,
+        },
+        select: { cycleId: true },
+      })
+    ).map((i) => i.cycleId)
+  );
+
   const views: ApplicantStatusView[] = [];
   for (const a of applicants) {
     const app = a.applications[0];
@@ -61,7 +85,7 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       // applications. Once the cycle closes, the destination form rejects the
       // submission, so do not offer a dead "Continue" link here. Discarding is
       // gated the same way: after close there is nothing left to discard toward.
-      const open = isCycleOpen(a.cycle, now);
+      const open = canSubmitToCycle(a.cycle, now, { invited: invitedCycleIds.has(a.cycleId) });
       views.push(open
         ? { ...base, state: "DRAFT", headline: "Draft", detail: "Continue your application", canContinue: true, withdraw: { kind: "discard_draft" } }
         : { ...base, state: "DRAFT", headline: "Applications closed", detail: "This cycle is no longer accepting applications.", canContinue: false, withdraw: null });

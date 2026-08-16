@@ -218,10 +218,31 @@ export async function sweepAbandonedDrafts(olderThanDays = 30): Promise<{ delete
         ],
       },
     },
-    select: { id: true, applicantId: true, cycleId: true, answers: true },
+    select: { id: true, applicantId: true, cycleId: true, answers: true, applicant: { select: { emailLower: true } } },
   });
+
+  // An INVITED applicant may still submit to a cycle that is closed to everyone
+  // else, so their draft is not abandoned just because the window shut -- and the
+  // doc comment above already states the rule this sweep is meant to honour:
+  // "deleting it (and their uploads) would be irreversible data loss". The cycle
+  // filter is the negation of isCycleOpen, which is invite-blind, so an invited
+  // applicant's draft and every file they uploaded were swept 30 days later
+  // (audit 14, REC-1).
+  const liveInvites = stale.length
+    ? await prisma.recruitmentInvite.findMany({
+        where: {
+          cycleId: { in: [...new Set(stale.map((a) => a.cycleId))] },
+          claimedByEmailLower: { in: [...new Set(stale.map((a) => a.applicant.emailLower))] },
+          revokedAt: null,
+        },
+        select: { cycleId: true, claimedByEmailLower: true },
+      })
+    : [];
+  const invited = new Set(liveInvites.map((i) => `${i.cycleId}|${i.claimedByEmailLower}`));
+
   let deleted = 0;
   for (const app of stale) {
+    if (invited.has(`${app.cycleId}|${app.applicant.emailLower}`)) continue;
     const answers = (app.answers as Record<string, unknown>) ?? {};
     const keys: string[] = [];
     for (const v of Object.values(answers)) {

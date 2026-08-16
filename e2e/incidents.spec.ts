@@ -313,13 +313,25 @@ test("multi-person report: director links two people, admin approves the single 
 
   // Exactly one strike lands on the ledger, for Dev Volunteer; Dev Director
   // carries none. Then clean it up.
+  //
+  // The row is found by the POINTER, not by the report narrative. On a report
+  // naming more than one person, decideStrike deliberately gives the strike
+  // "See incident report #N..." instead of the narrative, because the ledger is
+  // visible to each subject's own directors and the narrative describes everyone
+  // on the report -- so copying it onto Dev Volunteer's strike would show Dev
+  // Volunteer's directors what was alleged about Dev Director. The single-subject
+  // test above still asserts the narrative is carried across, which is where that
+  // behaviour is correct.
+  const pointer = `See incident report #${number}`;
   await page.goto("/incidents/strikes");
   await page.waitForURL((url) => url.pathname === "/incidents/strikes");
-  const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
+  const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: pointer });
   await expect(strikeRow).toBeVisible();
   await expect(
-    page.locator("tr").filter({ hasText: "Dev Director" }).filter({ hasText: description })
+    page.locator("tr").filter({ hasText: "Dev Director" }).filter({ hasText: pointer })
   ).toHaveCount(0);
+  // The guarantee itself: the multi-person narrative reached the ledger nowhere.
+  await expect(page.getByText(description)).toHaveCount(0);
 
   await confirmButtonClick(strikeRow, "Delete");
   await expect(strikeRow).not.toBeVisible();

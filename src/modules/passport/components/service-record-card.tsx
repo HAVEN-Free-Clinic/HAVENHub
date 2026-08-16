@@ -6,7 +6,20 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import type { IssuedCredential } from "../services/credential";
 
-type WalletPassLinks = { googleSaveUrl: string; shareUrl: string };
+/**
+ * What the wallet action hands back.
+ *
+ * publicToken is the credential token the badge's QR points at, because adding a
+ * badge auto-publishes the credential (see autoPublishForBadge). Optional, not
+ * required, because the /my-info server action declares its own narrower return
+ * type: treat "absent" exactly like "null", which is also what a member who
+ * previously unpublished gets.
+ */
+type WalletPassLinks = {
+  googleSaveUrl: string;
+  shareUrl: string;
+  publicToken?: string | null;
+};
 
 export function ServiceRecordCard({
   orgName,
@@ -109,6 +122,12 @@ export function ServiceRecordCard({
       const result = await issueWalletPass();
       if (result) {
         setWalletPass(result);
+        // The server just published this member's credential so the badge could
+        // carry a QR. Without adopting the token here the section above kept
+        // offering "Publish a shareable link" and HID the Unpublish control
+        // until a full reload, so the one member who wanted to undo the publish
+        // that had just happened had no control to do it with (audit 14).
+        if (result.publicToken) setToken(result.publicToken);
       } else {
         setWalletUnavailable(true);
       }

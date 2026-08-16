@@ -2,12 +2,25 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
+  CredentialForbiddenError,
   getCredential,
   getCredentialByToken,
   issueServiceCredential,
   publishCredential,
+  restoreServiceCredential,
+  revokeServiceCredential,
   unpublishCredential,
 } from "./credential";
+
+/** A person holding a role that grants exactly `permission`. */
+async function actorWith(permission: string) {
+  const person = await prisma.person.create({ data: { name: "Grace Hopper" } });
+  const role = await prisma.role.create({
+    data: { name: `role_${permission}`, grants: { create: [{ permission }] } },
+  });
+  await prisma.roleAssignment.create({ data: { personId: person.id, roleId: role.id } });
+  return person;
+}
 
 async function seedMember() {
   const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
@@ -169,6 +182,92 @@ describe("publishing", () => {
       data: { revokedAt: new Date() },
     });
 
+    expect(await getCredentialByToken(token)).toBeNull();
+  });
+});
+
+describe("admin revocation", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("takes a published credential off the public internet", async () => {
+    // The control the schema documents and nothing wrote until audit 14. It is
+    // also the ONLY retraction that reaches an offboarded member: unpublish
+    // lives on /my-info, behind a sign-in they no longer have.
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+    await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED" } });
+    const admin = await actorWith("admin.manage_people");
+
+    await revokeServiceCredential(admin.id, person.id);
+
+    expect(await getCredentialByToken(token)).toBeNull();
+    expect((await getCredential(person.id))!.revokedAt).not.toBeNull();
+  });
+
+  it("refuses an actor without the permission, leaving the page up", async () => {
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+    // A real, closely-related permission rather than a bare person: this must
+    // gate on the named one, not merely on "holds something".
+    const nosy = await actorWith("volunteers.view");
+
+    await expect(revokeServiceCredential(nosy.id, person.id)).rejects.toThrow(
+      CredentialForbiddenError,
+    );
+    expect(await getCredentialByToken(token)).not.toBeNull();
+  });
+
+  it("records who revoked it", async () => {
+    const { person } = await seedMember();
+    await publishCredential(person.id);
+    const admin = await actorWith("admin.manage_people");
+
+    await revokeServiceCredential(admin.id, person.id);
+
+    const entry = await prisma.auditLog.findFirst({ where: { action: "passport.revoke" } });
+    expect(entry!.actorPersonId).toBe(admin.id);
+    expect(entry!.entityId).toBe(person.id);
+  });
+
+  it("keeps the original timestamp when revoked twice", async () => {
+    // A second click must not rewrite when the retraction took effect.
+    const { person } = await seedMember();
+    await publishCredential(person.id);
+    const admin = await actorWith("admin.manage_people");
+
+    await revokeServiceCredential(admin.id, person.id);
+    const first = (await getCredential(person.id))!.revokedAt;
+    await revokeServiceCredential(admin.id, person.id);
+
+    expect((await getCredential(person.id))!.revokedAt).toBe(first);
+    expect(await prisma.auditLog.count({ where: { action: "passport.revoke" } })).toBe(1);
+  });
+
+  it("restores the credential at the SAME url it had before", async () => {
+    // Revocation keeps the token, so undoing a wrong decision gives the member
+    // back the link they already shared rather than a new one.
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+    const admin = await actorWith("admin.manage_people");
+    await revokeServiceCredential(admin.id, person.id);
+
+    await restoreServiceCredential(admin.id, person.id);
+
+    expect(await getCredentialByToken(token)).not.toBeNull();
+  });
+
+  it("refuses to restore without the permission", async () => {
+    const { person } = await seedMember();
+    const token = await publishCredential(person.id);
+    const admin = await actorWith("admin.manage_people");
+    await revokeServiceCredential(admin.id, person.id);
+    const nosy = await actorWith("volunteers.view");
+
+    await expect(restoreServiceCredential(nosy.id, person.id)).rejects.toThrow(
+      CredentialForbiddenError,
+    );
     expect(await getCredentialByToken(token)).toBeNull();
   });
 });

@@ -25,6 +25,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
+import { todayMarker } from "./term-day";
 
 /**
  * Either the singleton client or a transaction client.
@@ -74,8 +75,13 @@ export async function computeServiceRecord(
   // would print on their certificate under a footer that explains "Not
   // recorded" as PREDATING the clinic's records. Safe for the offboard
   // snapshot: that path targets the ACTIVE term, which has already started.
+  //
+  // Compared as a CALENDAR DAY, not an instant: startDate is a noon-UTC marker,
+  // so `lte: new Date()` treated a term starting TODAY as not yet started until
+  // 08:00 ET, and a certificate downloaded on the morning of day one omitted the
+  // term the member was standing in (audit 14). See term-day.ts.
   const memberships = await client.termMembership.findMany({
-    where: { personId, status: "ACTIVE", term: { startDate: { lte: new Date() } } },
+    where: { personId, status: "ACTIVE", term: { startDate: { lte: await todayMarker() } } },
     select: {
       kind: true,
       departmentId: true,

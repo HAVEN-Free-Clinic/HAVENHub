@@ -9,11 +9,13 @@
  * credential indefinitely.
  */
 
-import { prisma } from "@/platform/db";
+import { randomUUID } from "node:crypto";
+import { isUniqueConstraintError, prisma } from "@/platform/db";
 import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { computeServiceRecord } from "./service-record";
+import { todayMarker } from "./term-day";
 import { brandingDataUri } from "./wallet-branding";
 import { autoPublishForBadge } from "./credential";
 import {
@@ -48,9 +50,96 @@ export function shortenSince(label: string): string {
   return label;
 }
 
-export async function issueWalletPass(
-  personId: string,
-): Promise<{ googleSaveUrl: string; shareUrl: string } | null> {
+/**
+ * What a successful issue hands back: the two install links, plus the credential
+ * token the badge's QR now points at.
+ *
+ * publicToken is returned because adding a badge AUTO-PUBLISHES the credential
+ * (see autoPublishForBadge). Before audit 14 the caller was told nothing about
+ * that, so /my-info kept rendering "Publish a shareable link" and hid the
+ * Unpublish control until a full reload, leaving the member no way to undo a
+ * publish that had already happened. Null means nothing was published: the
+ * member previously unpublished, or the credential is revoked.
+ */
+export type WalletPassIssue = {
+  googleSaveUrl: string;
+  shareUrl: string;
+  publicToken: string | null;
+};
+
+/**
+ * A serial that names no vendor pass, written while a create is in flight so the
+ * (personId, termId) unique index acts as the lock. Prefixed rather than opaque
+ * so a row in this state is recognisable in the database, and random so two
+ * claims can never collide.
+ *
+ * A pending row left behind by a request that died mid-create heals itself: the
+ * next issue refreshes that serial, the vendor answers 404, and the GONE branch
+ * below retires the row and mints a replacement.
+ */
+function pendingSerial(): string {
+  return `pending_${randomUUID()}`;
+}
+
+/**
+ * Take exclusive ownership of this person's badge slot for this term, returning
+ * the placeholder serial that proves ownership, or null when someone else got
+ * there first.
+ *
+ * Why a claim at all: two overlapping "Add to wallet" calls both found no live
+ * row, both called createPass, and the second upsert overwrote serialNumber with
+ * its own. The first serial was then referenced by nothing, so neither
+ * revokeWalletPasses nor the sweep could reach it and a live, scannable badge
+ * survived every revoke path the app has (audit 14).
+ *
+ * Both branches are atomic claims in the codebase's established shape: a
+ * conditional write that selects and flips state in the SAME statement. The
+ * updateMany revives a revoked row only if it is still revoked (a concurrent
+ * caller that revived it first leaves count 0), and the insert leans on the
+ * (personId, termId) unique index, so the loser gets P2002 rather than a second
+ * vendor pass.
+ */
+async function claimIssueSlot(personId: string, termId: string): Promise<string | null> {
+  const claim = pendingSerial();
+
+  const revived = await prisma.walletPass.updateMany({
+    where: { personId, termId, revokedAt: { not: null } },
+    // The install URLs are cleared with the serial: they belong to the pass this
+    // row used to name, and handing them back for a different serial would send
+    // a member to install a badge nothing in this table can revoke.
+    data: {
+      serialNumber: claim,
+      revokedAt: null,
+      issuedAt: new Date(),
+      googleSaveUrl: null,
+      shareUrl: null,
+    },
+  });
+  if (revived.count === 1) return claim;
+
+  try {
+    await prisma.walletPass.create({ data: { personId, termId, serialNumber: claim } });
+    return claim;
+  } catch (error) {
+    // P2002 on (personId, termId) means a concurrent call holds the slot, or a
+    // live row appeared between the read above and now. Either way this call must
+    // NOT mint: the other one already has, or is about to.
+    if (isUniqueConstraintError(error)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Undo a claim the vendor never honoured. Scoped to the placeholder serial so
+ * this can never delete a row that names a real pass, and a delete (rather than
+ * a revoke) is what restores the pre-claim state: the row it may have replaced
+ * was already revoked, meaning its serial was already deleted at the vendor.
+ */
+async function releaseIssueSlot(personId: string, termId: string, claim: string): Promise<void> {
+  await prisma.walletPass.deleteMany({ where: { personId, termId, serialNumber: claim } });
+}
+
+export async function issueWalletPass(personId: string): Promise<WalletPassIssue | null> {
   if (!isWalletEnabled()) return null;
 
   const term = await getActiveTerm();
@@ -62,9 +151,22 @@ export async function issueWalletPass(
   // exactly the badge the reconciliation sweep just revoked for having an ended
   // term (see wallet-sweep.ts). The badge asserts PRESENT standing, so a term
   // that is over cannot back one.
-  if (term.endDate.getTime() < Date.now()) return null;
+  //
+  // Compared as a CALENDAR DAY, not an instant: endDate is a noon-UTC marker, so
+  // `< Date.now()` refused to issue a badge from 08:00 ET on the term's final
+  // clinic day, which is a day members are still on shift (audit 14). See
+  // term-day.ts.
+  if (term.endDate.getTime() < (await todayMarker()).getTime()) return null;
 
-  const membership = await prisma.termMembership.findFirst({
+  // Ordered, and the senior role wins, because a member can hold SEVERAL ACTIVE
+  // memberships in one term: the unique key is (person, term, department, kind),
+  // so a director who also volunteers in another department has two rows. The
+  // old findFirst took whatever Postgres returned first, so a director's badge
+  // could read "Volunteer" and name the wrong department, and could say something
+  // different after an unrelated write reordered the heap (audit 14). DIRECTOR
+  // beats VOLUNTEER for the same reason it does on the certificate (see
+  // computeServiceRecord), and department code breaks the remaining tie.
+  const memberships = await prisma.termMembership.findMany({
     where: { personId, termId: term.id, status: "ACTIVE" },
     select: {
       kind: true,
@@ -75,7 +177,9 @@ export async function issueWalletPass(
       // rendered when present.
       person: { select: { name: true, netId: true } },
     },
+    orderBy: { department: { code: "asc" } },
   });
+  const membership = memberships.find((m) => m.kind === "DIRECTOR") ?? memberships[0];
   if (!membership) return null;
 
   // The badge is present-tense, so it carries only the since-year, never a
@@ -232,23 +336,39 @@ export async function issueWalletPass(
       // The stored serial is deliberately NOT rewritten from the response: this
       // row's serial is the only handle revocation has, and it is what the pass
       // the member already installed was issued under.
-      return { googleSaveUrl: existing.googleSaveUrl, shareUrl: existing.shareUrl };
+      return {
+        googleSaveUrl: existing.googleSaveUrl,
+        shareUrl: existing.shareUrl,
+        publicToken: token,
+      };
     }
   }
 
-  const created = await createPass(input);
-  if (!created) return null;
-
-  await prisma.walletPass.upsert({
-    where: { personId_termId: { personId, termId: term.id } },
-    create: {
+  // Claim BEFORE minting. Nothing between here and the write below may mint a
+  // second vendor pass for this (person, term): see claimIssueSlot.
+  const claim = await claimIssueSlot(personId, term.id);
+  if (!claim) {
+    // The other caller is minting the badge this member asked for. Returning
+    // null renders the card's calm "not available right now" state, and the
+    // next click picks up the pass the winner created.
+    log.info("[passport] a wallet issue is already in flight, not minting a second pass", {
       personId,
       termId: term.id,
-      serialNumber: created.serialNumber,
-      googleSaveUrl: created.googleSaveUrl,
-      shareUrl: created.shareUrl,
-    },
-    update: {
+    });
+    return null;
+  }
+
+  const created = await createPass(input);
+  if (!created) {
+    await releaseIssueSlot(personId, term.id, claim);
+    return null;
+  }
+
+  // update, not upsert: the claim row is ours and no concurrent caller can hold
+  // it, so there is no second row for this (person, term) to reconcile with.
+  await prisma.walletPass.update({
+    where: { personId_termId: { personId, termId: term.id } },
+    data: {
       serialNumber: created.serialNumber,
       googleSaveUrl: created.googleSaveUrl,
       shareUrl: created.shareUrl,
@@ -257,7 +377,11 @@ export async function issueWalletPass(
     },
   });
 
-  return { googleSaveUrl: created.googleSaveUrl, shareUrl: created.shareUrl };
+  return {
+    googleSaveUrl: created.googleSaveUrl,
+    shareUrl: created.shareUrl,
+    publicToken: token,
+  };
 }
 
 /**

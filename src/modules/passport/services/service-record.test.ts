@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { computeServiceRecord } from "./service-record";
@@ -30,6 +30,12 @@ async function department(code = "ITCM", name = "Internal Medicine") {
 describe("computeServiceRecord", () => {
   beforeEach(async () => {
     await resetDb();
+  });
+
+  afterEach(() => {
+    // Only Date is faked in the calendar-day tests: faking every timer would
+    // stall the pg client's own timeouts mid-query.
+    vi.useRealTimers();
   });
 
   it("returns a row per ACTIVE membership, ascending by term start", async () => {
@@ -344,6 +350,39 @@ describe("computeServiceRecord", () => {
     const record = await computeServiceRecord(p.id);
 
     expect(record.terms.map((r) => r.termCode)).toEqual(["SU26"]);
+  });
+
+  it("includes a term that starts TODAY, from the first minute of that day", async () => {
+    // startDate is a noon-UTC calendar marker, so comparing it against a raw
+    // instant treated a term starting today as not yet started until 08:00 ET: a
+    // certificate downloaded on the morning of day one omitted the term the
+    // member was standing in. 09:00Z is 05:00 ET, before the old cutover and the
+    // same calendar day in both zones.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-01T09:00:00Z"));
+    const p = await person();
+    const d = await department();
+    const starting = await term("SU26", "2026-05-01", "ACTIVE");
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: starting.id, departmentId: d.id, kind: "VOLUNTEER" },
+    });
+
+    const record = await computeServiceRecord(p.id);
+
+    expect(record.terms.map((r) => r.termCode)).toEqual(["SU26"]);
+  });
+
+  it("still excludes a term starting TOMORROW", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-01T09:00:00Z"));
+    const p = await person();
+    const d = await department();
+    const tomorrow = await term("SU26", "2026-05-02", "PLANNING");
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: tomorrow.id, departmentId: d.id, kind: "VOLUNTEER" },
+    });
+
+    expect((await computeServiceRecord(p.id)).terms).toHaveLength(0);
   });
 
   it("reconstructs a pre-roster term from an ONBOARDED + ACCEPTED recruitment outcome", async () => {

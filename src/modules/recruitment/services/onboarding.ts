@@ -6,6 +6,7 @@ import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { decodeSignaturePng, SignatureError } from "./signature";
+import { normalizeIdentityKey } from "./identity-keys";
 import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
@@ -249,11 +250,16 @@ export async function lookupStoredEpicId(
   netId: string | null,
   email: string | null,
 ): Promise<string | null> {
-  const byNetId = netId
-    ? await prisma.person.findFirst({ where: { netId: { equals: netId, mode: "insensitive" } }, select: { epicId: true } })
+  // Same key promoteContracts matches on. `equals` is case-insensitive but
+  // whitespace-sensitive, and these columns carry untrimmed applicant keystrokes
+  // (audit 14, ONB-4).
+  const key = normalizeIdentityKey(netId);
+  const emailKey = normalizeIdentityKey(email);
+  const byNetId = key
+    ? await prisma.person.findFirst({ where: { netId: { equals: key, mode: "insensitive" } }, select: { epicId: true } })
     : null;
-  const matched = byNetId ?? (email
-    ? await prisma.person.findFirst({ where: { contactEmail: { equals: email, mode: "insensitive" } }, select: { epicId: true } })
+  const matched = byNetId ?? (emailKey
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: emailKey, mode: "insensitive" } }, select: { epicId: true } })
     : null);
   return matched?.epicId ?? null;
 }
@@ -277,12 +283,14 @@ export async function lookupHasAccount(
   netId: string | null,
   email: string | null,
 ): Promise<boolean> {
-  const byNetId = netId
-    ? await prisma.person.findFirst({ where: { netId: { equals: netId, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
+  const key = normalizeIdentityKey(netId);
+  const emailKey = normalizeIdentityKey(email);
+  const byNetId = key
+    ? await prisma.person.findFirst({ where: { netId: { equals: key, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
     : null;
   if (byNetId) return true;
-  const byEmail = email
-    ? await prisma.person.findFirst({ where: { contactEmail: { equals: email, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
+  const byEmail = emailKey
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: emailKey, mode: "insensitive" }, status: "ACTIVE" }, select: { id: true } })
     : null;
   return Boolean(byEmail);
 }

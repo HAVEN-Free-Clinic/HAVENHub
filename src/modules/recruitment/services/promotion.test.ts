@@ -38,11 +38,33 @@ afterEach(async () => { await resetDb(); });
 // so the applicant's raw typed netId/email must be lowercased + trimmed here to
 // keep the codebase-wide lowercase-NetID invariant and stay loginable.
 it("stores a NEW person's netId lowercased and trimmed", async () => {
-  const { srr, contract } = await seedSubmitted({ netId: "  JDC-42 ", email: " Applicant@Yale.EDU " });
+  const { srr, contract } = await seedSubmitted({ netId: "  JDC42 ", email: " Applicant@Yale.EDU " });
   await promoteContracts([contract.id], srr.id);
-  const person = await prisma.person.findFirstOrThrow({ where: { netId: "jdc-42" } });
-  expect(person.netId).toBe("jdc-42");
+  const person = await prisma.person.findFirstOrThrow({ where: { netId: "jdc42" } });
+  expect(person.netId).toBe("jdc42");
   expect(person.contactEmail).toBe("applicant@yale.edu");
+});
+
+// audit 14, ONB-3. isNetIdShaped is "the single definition, so the login path and
+// anything WRITING Person.netId agree on what belongs in that column" -- it feeds
+// the YNHH Epic access PDF and the Teams removal CSV. Every Airtable import path
+// applies it; promotion, now the primary path that creates a Person, did not. The
+// value is the applicant's own keystrokes in a plain SHORT_TEXT field with no
+// regex, so an email address or free text landed in that column.
+it("refuses to write a netId that is not NetID-shaped, rather than storing free text", async () => {
+  const { srr, contract } = await seedSubmitted({
+    netId: "applicant@yale.edu",
+    email: "applicant@yale.edu",
+  });
+  await promoteContracts([contract.id], srr.id);
+
+  const person = await prisma.person.findFirstOrThrow({
+    where: { contactEmail: "applicant@yale.edu" },
+  });
+  expect(person.netId).toBeNull();
+  // The contract keeps what they typed, so a reviewer can still see and correct it.
+  const stored = await prisma.onboardingContract.findUniqueOrThrow({ where: { id: contract.id } });
+  expect(stored.netId).toBe("applicant@yale.edu");
 });
 
 it("matches an existing person despite whitespace/case in the contract netId (no duplicate)", async () => {

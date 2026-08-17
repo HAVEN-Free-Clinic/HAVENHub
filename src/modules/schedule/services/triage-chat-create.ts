@@ -153,7 +153,17 @@ export async function createTriageChat(
   } catch (err) {
     // Nothing exists in Teams, so the claim must go too or the week is locked
     // out of a retry that would have worked.
-    await prisma.triageChat.delete({ where: { id: claimed.id } }).catch(() => {});
+    await prisma.triageChat.delete({ where: { id: claimed.id } }).catch((deleteErr) => {
+      // Deliberately not rethrown: the Graph error below is the one the ED needs
+      // to see. But a failed rollback leaves a claim row with no chat id, and
+      // every later attempt at this week then fails the unique constraint with
+      // no way to clear it from the UI. Log so that is diagnosable instead of a
+      // silent permanent lockout.
+      log.error(
+        "[triage-chats] failed to roll back the chat claim after a Graph create failure",
+        errorAttrs(deleteErr, { triageChatId: claimed.id, presetId: input.presetId }),
+      );
+    });
     throw err;
   }
 
@@ -260,9 +270,35 @@ export async function retryTriageChatMessage(
     select: { graphChatId: true, messagePostedAt: true },
   });
   if (chat.messagePostedAt) return;
-  await post(chat.graphChatId, textToTeamsHtml(messageBody));
-  await prisma.triageChat.update({
-    where: { id: triageChatId },
-    data: { messagePostedAt: new Date() },
+  // A row with no Graph chat id is a claim whose creation died between the
+  // Graph call and the database write. There is no chat to post into, and
+  // posting to "" would be a Graph request with an empty path segment.
+  if (!chat.graphChatId) {
+    throw new Error(
+      "This triage chat has no Microsoft Teams chat id recorded, so its message cannot be posted. The record is incomplete and needs an administrator.",
+    );
+  }
+  // An atomic claim, NOT a read-then-write. Two clicks on the confirmation
+  // page's Post button both read messagePostedAt as null a moment apart, and a
+  // plain guard lets both through: twenty people get the opening message twice.
+  // Taking the timestamp inside a conditional updateMany means exactly one
+  // caller wins and the loser returns without posting.
+  const claimedAt = new Date();
+  const claim = await prisma.triageChat.updateMany({
+    where: { id: triageChatId, messagePostedAt: null },
+    data: { messagePostedAt: claimedAt },
   });
+  if (claim.count === 0) return;
+  try {
+    await post(chat.graphChatId, textToTeamsHtml(messageBody));
+  } catch (err) {
+    // Release the claim so a later retry can try again, but only if it is still
+    // ours. Scoping the release to our own timestamp means we can never clear a
+    // concurrent winner's successful post.
+    await prisma.triageChat.updateMany({
+      where: { id: triageChatId, messagePostedAt: claimedAt },
+      data: { messagePostedAt: null },
+    });
+    throw err;
+  }
 }

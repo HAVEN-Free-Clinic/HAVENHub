@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { createTriageChat, TriageChatConflictError } from "./triage-chat-create";
+import { createTriageChat, retryTriageChatMessage, TriageChatConflictError } from "./triage-chat-create";
 import type { TriageChatDraft } from "./triage-chat-draft";
 
 beforeEach(resetDb);
@@ -246,5 +246,116 @@ describe("createTriageChat", () => {
     const audit = await prisma.auditLog.findFirstOrThrow();
     expect(audit.action).toBe("triage_chat.create");
     expect(audit.entityType).toBe("TriageChat");
+  });
+
+  it("promotes one directory-resolved member into the create when nobody has a stored id", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    // Nobody has signed into the Hub yet, the normal state early in a term, so
+    // every member has to come from a directory lookup.
+    draft.resolved = [
+      { member: draft.roster.members[0], userId: "oid-a", source: "directory" },
+      { member: draft.roster.members[1], userId: "oid-b", source: "directory" },
+    ];
+    const graph = graphStub();
+
+    await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        includePersonIds: draft.roster.members.map((m) => m.personId),
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    // Exactly one is promoted into the atomic create: promoting none would fail
+    // it (Graph needs a member), promoting both would give up the per-person
+    // failure isolation the incremental path exists for. The promoted member
+    // must NOT also be added incrementally, which is what the identity-based
+    // exclusion guarantees.
+    expect(graph.createGroupChat).toHaveBeenCalledWith({
+      topic: draft.topic,
+      memberIds: ["oid-service", "oid-a"],
+    });
+    expect(graph.addChatMember).toHaveBeenCalledTimes(1);
+    expect(graph.addChatMember).toHaveBeenCalledWith("chat-1", "oid-b");
+
+    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
+    expect(saved.members).toHaveLength(2);
+    expect(saved.members.every((m) => m.addedOk)).toBe(true);
+  });
+});
+
+describe("retryTriageChatMessage", () => {
+  async function seedChat(over: { graphChatId?: string; messagePostedAt?: Date | null } = {}) {
+    const fixtures = await seedDraftFixtures();
+    return prisma.triageChat.create({
+      data: {
+        presetId: fixtures.preset.id,
+        termId: fixtures.term.id,
+        clinicDate: CLINIC_DATE,
+        topic: "05.30.26 Ancillary",
+        graphChatId: over.graphChatId ?? "chat-1",
+        webUrl: "https://teams/1",
+        messagePostedAt: over.messagePostedAt ?? null,
+      },
+      select: { id: true },
+    });
+  }
+
+  it("posts the message and records when it went", async () => {
+    const chat = await seedChat();
+    const postChatMessage = vi.fn(async (_chatId: string, _bodyHtml: string) => {});
+    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage });
+
+    expect(postChatMessage).toHaveBeenCalledTimes(1);
+    expect(postChatMessage.mock.calls[0][0]).toBe("chat-1");
+    const saved = await prisma.triageChat.findUniqueOrThrow({ where: { id: chat.id } });
+    expect(saved.messagePostedAt).not.toBeNull();
+  });
+
+  it("does not post again once the message has been posted", async () => {
+    const chat = await seedChat({ messagePostedAt: new Date("2026-05-28T10:00:00Z") });
+    const postChatMessage = vi.fn(async () => {});
+    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage });
+    expect(postChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("posts only once when two retries race", async () => {
+    const chat = await seedChat();
+    const postChatMessage = vi.fn(async () => {});
+    // Both callers read messagePostedAt as null before either writes. A plain
+    // read-then-write guard sends the opening message to twenty people twice.
+    await Promise.all([
+      retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }),
+      retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }),
+    ]);
+    expect(postChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when the post fails, so a later retry can try again", async () => {
+    const chat = await seedChat();
+    const failing = vi.fn(async () => {
+      throw new Error("Graph post chat message failed: 502");
+    });
+    await expect(retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage: failing }))
+      .rejects.toThrow(/502/);
+
+    const afterFailure = await prisma.triageChat.findUniqueOrThrow({ where: { id: chat.id } });
+    expect(afterFailure.messagePostedAt).toBeNull();
+
+    const succeeding = vi.fn(async () => {});
+    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage: succeeding });
+    expect(succeeding).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a chat row that has no Graph chat id recorded", async () => {
+    const chat = await seedChat({ graphChatId: "" });
+    const postChatMessage = vi.fn(async () => {});
+    await expect(retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }))
+      .rejects.toThrow(/no Microsoft Teams chat id/i);
+    expect(postChatMessage).not.toHaveBeenCalled();
   });
 });

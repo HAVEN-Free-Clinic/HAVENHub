@@ -974,10 +974,18 @@ git commit -m "feat(teams): add a Graph group-chat client and the scopes it need
 - Create: `src/platform/teams/member-ids.test.ts`
 
 **Interfaces:**
-- Consumes: `lookupUserId` from `@/platform/teams/group-chat`; `TriageRosterMember` from `@/modules/schedule/services/triage-chats`.
+- Consumes: `lookupUserId` from `@/platform/teams/group-chat`. Deliberately NOT
+  the schedule module's `TriageRosterMember`: `eslint.config.mjs` forbids
+  `src/platform/**` from importing `@/modules/**` ("Platform code must not import
+  module code"), so this file declares its own structural input type instead and
+  the module's member type satisfies it without an adapter.
 - Produces:
-  - `type ResolvedMember = { member: TriageRosterMember; userId: string | null; source: "stored" | "directory" | "unresolved"; reason?: string }`
-  - `async function resolveMemberIds(members: TriageRosterMember[], deps?: { lookup?: (bind: string) => Promise<string | null> }): Promise<ResolvedMember[]>`
+  - `type ChatMemberCandidate = { personId: string; name: string; netId: string | null; contactEmail: string | null; departmentName: string; entraObjectId: string | null }`
+  - `type ResolvedMember<T extends ChatMemberCandidate = ChatMemberCandidate> = { member: T; userId: string | null; source: "stored" | "directory" | "unresolved"; reason?: string }`
+  - `async function resolveMemberIds<T extends ChatMemberCandidate>(members: T[], deps?: { lookup?: (bind: string) => Promise<string | null> }): Promise<ResolvedMember<T>[]>`
+
+Generic rather than a plain widening so Task 6 still sees the full
+`TriageRosterMember` on `.member` instead of the narrowed platform type.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -985,10 +993,9 @@ Create `src/platform/teams/member-ids.test.ts`:
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
-import { resolveMemberIds } from "./member-ids";
-import type { TriageRosterMember } from "@/modules/schedule/services/triage-chats";
+import { resolveMemberIds, type ChatMemberCandidate } from "./member-ids";
 
-function member(over: Partial<TriageRosterMember> = {}): TriageRosterMember {
+function member(over: Partial<ChatMemberCandidate> = {}): ChatMemberCandidate {
   return {
     personId: "p-1",
     name: "Goeun Lee",
@@ -1083,10 +1090,27 @@ Create `src/platform/teams/member-ids.ts`:
  * costs about twenty cheap directory reads once a week.
  */
 import { lookupUserId } from "./group-chat";
-import type { TriageRosterMember } from "@/modules/schedule/services/triage-chats";
 
-export type ResolvedMember = {
-  member: TriageRosterMember;
+/**
+ * What this module needs to resolve one person, declared here rather than
+ * imported from the schedule module.
+ *
+ * Structural on purpose: eslint forbids src/platform from importing
+ * @/modules (platform must not depend on module internals), and the schedule
+ * module's TriageRosterMember already has every field below, so it satisfies
+ * this shape with no adapter.
+ */
+export type ChatMemberCandidate = {
+  personId: string;
+  name: string;
+  netId: string | null;
+  contactEmail: string | null;
+  departmentName: string;
+  entraObjectId: string | null;
+};
+
+export type ResolvedMember<T extends ChatMemberCandidate = ChatMemberCandidate> = {
+  member: T;
   userId: string | null;
   source: "stored" | "directory" | "unresolved";
   /** Why the member could not be resolved. Shown to the ED verbatim. */
@@ -1094,7 +1118,7 @@ export type ResolvedMember = {
 };
 
 /** Yale sign-in names. lookupUserId matches UPN or mail, so either form works. */
-function candidates(member: TriageRosterMember): string[] {
+function candidates(member: ChatMemberCandidate): string[] {
   const out: string[] = [];
   if (member.netId) out.push(`${member.netId}@yale.edu`);
   if (member.contactEmail) out.push(member.contactEmail);
@@ -1109,12 +1133,12 @@ function candidates(member: TriageRosterMember): string[] {
  */
 const CONCURRENCY = 5;
 
-export async function resolveMemberIds(
-  members: TriageRosterMember[],
+export async function resolveMemberIds<T extends ChatMemberCandidate>(
+  members: T[],
   deps: { lookup?: (bind: string) => Promise<string | null> } = {},
-): Promise<ResolvedMember[]> {
+): Promise<ResolvedMember<T>[]> {
   const lookup = deps.lookup ?? ((bind: string) => lookupUserId(bind));
-  const results: ResolvedMember[] = new Array(members.length);
+  const results: ResolvedMember<T>[] = new Array(members.length);
 
   async function resolveOne(index: number): Promise<void> {
     const member = members[index];
@@ -1440,7 +1464,7 @@ export type TriageChatDraft = {
   topic: string;
   messageBody: string;
   roster: TriageRoster;
-  resolved: ResolvedMember[];
+  resolved: ResolvedMember<TriageRosterMember>[];
   warnings: string[];
   existingChat: { id: string; graphChatId: string; webUrl: string; messagePostedAt: Date | null } | null;
 };

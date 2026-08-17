@@ -45,6 +45,27 @@
  * built on it. They contain spaces, so they cannot collide with Intercom's own
  * reserved boot keys (app_id, user_id, email, name), which is what keeps a
  * spread of this record into the boot arguments safe.
+ *
+ * WORKSPACE PREREQUISITE, and it is not the same one the other attribute groups
+ * have. Every attribute in this codebase must exist on the contact model, but
+ * these two must ALSO carry `messenger_writable: true`, which Intercom does not
+ * set by default on a newly created attribute (verified against the live
+ * workspace on 2026-08-17: both came back false from POST /data_attributes and
+ * had to be flipped with a follow-up PUT).
+ *
+ * Why only these two. Every Hub attribute that predates them -- all seven
+ * audience booleans and all six profile strings -- sits at
+ * `messenger_writable: false` and works fine, because it arrives as a claim
+ * inside a signed JWT, which Intercom treats as server-authored. These arrive
+ * on an anonymous boot with no JWT to sign them, which is exactly the path that
+ * flag governs. Adding a new attribute here without setting it produces no
+ * error anywhere: the boot succeeds, Intercom drops the value, and the sidebar
+ * is simply empty.
+ *
+ * That flag is also, precisely, the spoofability described above: it is what
+ * permits a browser to write the attribute at all. These two being the only
+ * Hub attributes carrying it is deliberate, and no attribute anything trusts
+ * should ever join them.
  */
 export const VISITOR_NAME_ATTRIBUTE = "Portal sign-in name";
 export const VISITOR_EMAIL_ATTRIBUTE = "Portal sign-in email";

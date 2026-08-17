@@ -274,8 +274,11 @@ reconnect by the service account rather than an ITS request.
 for adding a chat member and would have been the obvious choice, but it
 requires tenant admin consent; `Chat.ReadWrite` is the documented
 higher-privileged alternative for the same call and does not.
-`needsReconnect()` in the oauth module already exists for scope growth and must
-be extended to check for both new scopes so the admin UI prompts.
+
+`teamsScopesGranted(scope)` in the oauth module already exists for exactly this
+(it gates the reconnect prompt on `/admin/email`) and must be extended to
+require the two new scopes, so an admin is told to reconnect rather than
+finding out from a failed lookup.
 
 ## The opening message
 

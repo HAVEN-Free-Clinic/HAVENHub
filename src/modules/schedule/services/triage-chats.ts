@@ -89,14 +89,22 @@ export function resolveTriageRoster(input: {
     return byDept !== 0 ? byDept : a.person.name.localeCompare(b.person.name);
   });
 
+  const byDepartment = new Map<string, { personId: string; name: string }[]>();
   const seen = new Set<string>();
   const members: TriageRosterMember[] = [];
-  const byDepartment = new Map<string, string[]>();
 
   for (const a of ordered) {
-    const names = byDepartment.get(a.department.name) ?? [];
-    if (!names.includes(a.person.name)) names.push(a.person.name);
-    byDepartment.set(a.department.name, names);
+    // Keyed on personId, NOT on the display name. Two different people can share
+    // a name, and dropping one of them from the printed roster while they sit in
+    // the chat is exactly the disagreement this function exists to prevent. A
+    // name printed twice is odd but honest; a member missing from the roster is
+    // not. Deduping here also covers one person holding two qualifying rows in
+    // the same department, which is what this guard was originally for.
+    const people = byDepartment.get(a.department.name) ?? [];
+    if (!people.some((p) => p.personId === a.personId)) {
+      people.push({ personId: a.personId, name: a.person.name });
+    }
+    byDepartment.set(a.department.name, people);
 
     if (seen.has(a.personId)) continue;
     seen.add(a.personId);
@@ -110,14 +118,20 @@ export function resolveTriageRoster(input: {
     });
   }
 
-  const namesForCode = (code: string): string[] =>
-    ordered
-      .filter((a) => a.department.code === code)
-      .map((a) => a.person.name)
-      .filter((name, i, all) => all.indexOf(name) === i);
+  const namesForCode = (code: string): string[] => {
+    const seenIds = new Set<string>();
+    const names: string[] = [];
+    for (const a of ordered) {
+      if (a.department.code !== code) continue;
+      if (seenIds.has(a.personId)) continue;
+      seenIds.add(a.personId);
+      names.push(a.person.name);
+    }
+    return names;
+  };
 
   const rosterBlock = [...byDepartment.entries()]
-    .map(([department, names]) => `- ${department}: ${names.join(", ")}`)
+    .map(([department, people]) => `- ${department}: ${people.map((p) => p.name).join(", ")}`)
     .join("\n");
 
   const contributing = new Set(ordered.map((a) => a.department.id));

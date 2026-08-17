@@ -112,4 +112,19 @@ describe("resolveTriageRoster", () => {
       entraObjectId: null,
     });
   });
+
+  it("keeps two same-named people in the same department as two roster entries", () => {
+    const roster = resolveTriageRoster({
+      assignments: [
+        assignment({ personId: "p-1", name: "Goeun Lee", department: BVHD }),
+        assignment({ personId: "p-2", name: "Goeun Lee", department: BVHD }),
+      ],
+      selectedDepartments: [BVHD],
+      alwaysIncludeDepartments: [],
+    });
+    // Both are really in the chat, so both must appear in the printed roster.
+    // Deduping the bullet by display name would silently drop one of them.
+    expect(roster.members).toHaveLength(2);
+    expect(roster.rosterBlock).toBe("- Behavioral Health: Goeun Lee, Goeun Lee");
+  });
 });

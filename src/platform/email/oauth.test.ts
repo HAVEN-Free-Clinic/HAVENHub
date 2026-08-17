@@ -150,8 +150,22 @@ describe("teamsScopesGranted", () => {
     expect(teamsScopesGranted("Mail.Send ChatMessage.Send")).toBe(false);
   });
 
-  it("returns true when both Chat.Create and ChatMessage.Send are present", () => {
-    expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(true);
+  it("is false when the chat scopes are present but the new ones are not", () => {
+    expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(false);
+  });
+
+  it("is false when User.ReadBasic.All is missing", () => {
+    expect(
+      teamsScopesGranted("Chat.Create ChatMessage.Send Chat.ReadWrite"),
+    ).toBe(false);
+  });
+
+  it("is true once every Teams scope is granted", () => {
+    expect(
+      teamsScopesGranted(
+        "Mail.Send Chat.Create ChatMessage.Send Chat.ReadWrite User.ReadBasic.All",
+      ),
+    ).toBe(true);
   });
 });
 

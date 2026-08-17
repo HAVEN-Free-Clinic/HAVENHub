@@ -39,6 +39,7 @@ describe("triage chat schema", () => {
       termId: term.id,
       clinicDate,
       topic: "05.30.26 Ancillary Triage Chat",
+      messageBody: "Hi everyone,\n\nRoster below.",
       graphChatId: "chat-1",
       webUrl: "https://teams.microsoft.com/l/chat/1",
     };
@@ -61,6 +62,7 @@ describe("triage chat schema", () => {
         termId: term.id,
         clinicDate: new Date("2026-05-30T12:00:00Z"),
         topic: "05.30.26 Ancillary Triage Chat",
+        messageBody: "Hi everyone,\n\nRoster below.",
         graphChatId: "chat-1",
         webUrl: "https://teams.microsoft.com/l/chat/1",
         members: {

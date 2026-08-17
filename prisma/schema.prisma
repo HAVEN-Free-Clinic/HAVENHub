@@ -1474,6 +1474,10 @@ model TriageChat {
   clinicDate      DateTime
   /// The rendered chat name, as sent to Graph.
   topic           String
+  /// The opening message exactly as sent, so a retry posts what the ED approved
+  /// rather than a re-render of the preset template. The ED edits this text on
+  /// the review screen, so the template is not a faithful record of it.
+  messageBody     String
   graphChatId     String
   webUrl          String
   /// Null until the opening message actually posts. Keeping the row with a null

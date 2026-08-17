@@ -2,12 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
+import { prisma } from "@/platform/db";
 import {
   createTriageChatPreset,
   updateTriageChatPreset,
   deactivateTriageChatPreset,
   TriageChatPresetValidationError,
 } from "@/modules/schedule/services/triage-chat-presets";
+import {
+  createTriageChat,
+  retryTriageChatMessage,
+  TriageChatConflictError,
+  TriageChatNotConnectedError,
+} from "@/modules/schedule/services/triage-chat-create";
 import type { ActionResult } from "@/platform/ui/run-action";
 
 const PERMISSION = "schedule.manage_triage_chats";
@@ -44,5 +51,50 @@ export async function deactivatePresetAction(presetId: string): Promise<ActionRe
   const session = await requirePermission(PERMISSION);
   await deactivateTriageChatPreset(session.personId, presetId);
   revalidatePath("/schedule/triage-chats");
+  return {};
+}
+
+export async function createTriageChatAction(
+  presetId: string,
+  formData: FormData,
+): Promise<ActionResult & { triageChatId?: string }> {
+  const session = await requirePermission(PERMISSION);
+  try {
+    const result = await createTriageChat({
+      presetId,
+      actorPersonId: session.personId,
+      topic: String(formData.get("topic") ?? ""),
+      messageBody: String(formData.get("messageBody") ?? ""),
+      includePersonIds: formData.getAll("includePersonIds").map(String),
+    });
+    revalidatePath("/schedule/triage-chats");
+    return { triageChatId: result.triageChatId };
+  } catch (err) {
+    if (err instanceof TriageChatConflictError || err instanceof TriageChatNotConnectedError) {
+      return { error: err.message };
+    }
+    // Graph errors carry the response body, which is the one thing that tells an
+    // operator a missing scope from a rejected member. Surface it verbatim.
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function retryMessageAction(triageChatId: string): Promise<ActionResult> {
+  await requirePermission(PERMISSION);
+  const chat = await prisma.triageChat.findUnique({
+    where: { id: triageChatId },
+    select: { presetId: true },
+  });
+  if (!chat) return { error: "That chat no longer exists." };
+  try {
+    // No message body to pass: the row already carries the text exactly as the
+    // ED approved it, so a retry re-posts that rather than a re-render of the
+    // preset template. This action takes no body, so there is nothing a client
+    // could tamper with either.
+    await retryTriageChatMessage(triageChatId);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  revalidatePath(`/schedule/triage-chats/${chat.presetId}/created`);
   return {};
 }

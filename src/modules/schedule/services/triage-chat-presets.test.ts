@@ -137,6 +137,7 @@ describe("triage chat presets", () => {
         termId: term.id,
         clinicDate,
         topic: "05.30.26 Ancillary",
+        messageBody: "Hi everyone,\n\nRoster below.",
         graphChatId: "chat-1",
         webUrl: "https://teams/1",
       },

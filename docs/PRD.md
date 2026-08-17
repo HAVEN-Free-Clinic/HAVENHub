@@ -587,12 +587,16 @@ admin setting.
   Azure credentials are missing); optional in development, where dev/demo
   credential login works under `DEMO_MODE`.
 - **Microsoft Graph (delegated OAuth):** one connected shared mailbox
-  (`hfc.it@yale.edu` by default) powers three things: sending email as the
+  (`hfc.it@yale.edu` by default) powers four things: sending email as the
   mailbox (`Mail.Send`, `Mail.Send.Shared`), Teams direct-message notifications
-  (`Chat.Create`, `ChatMessage.Send`), and the home-dashboard clinic Teams
-  channel link (`Channel.ReadBasic.All`, which needs tenant admin consent). An
-  administrator connects and reconnects the mailbox in Admin > Email; new scopes
-  require a one-time reconnect.
+  (`Chat.Create`, `ChatMessage.Send`), the home-dashboard clinic Teams
+  channel link (`Channel.ReadBasic.All`, which needs tenant admin consent), and
+  the weekly triage chats an Executive Director creates from Schedule > Triage
+  chats (`Chat.ReadWrite` to add members, `User.ReadBasic.All` to resolve
+  volunteers who have never signed into the Hub). An administrator connects and
+  reconnects the mailbox in Admin > Email; new scopes require a one-time
+  reconnect, and `/admin/email` prompts for it until the two triage-chat scopes
+  are granted.
 - **Airtable (one-way import):** people, rosters, schedules, and HIPAA
   certificates import from the HAVEN Management base, with dry-run previews and
   nightly reconciliation. An outbound mirror exists but is disabled by default

@@ -289,7 +289,13 @@ describe("createTriageChat", () => {
 });
 
 describe("retryTriageChatMessage", () => {
-  async function seedChat(over: { graphChatId?: string; messagePostedAt?: Date | null } = {}) {
+  async function seedChat(
+    over: {
+      graphChatId?: string;
+      messagePostedAt?: Date | null;
+      messageBody?: string;
+    } = {},
+  ) {
     const fixtures = await seedDraftFixtures();
     return prisma.triageChat.create({
       data: {
@@ -297,6 +303,7 @@ describe("retryTriageChatMessage", () => {
         termId: fixtures.term.id,
         clinicDate: CLINIC_DATE,
         topic: "05.30.26 Ancillary",
+        messageBody: over.messageBody ?? "Hi everyone",
         graphChatId: over.graphChatId ?? "chat-1",
         webUrl: "https://teams/1",
         messagePostedAt: over.messagePostedAt ?? null,
@@ -308,7 +315,7 @@ describe("retryTriageChatMessage", () => {
   it("posts the message and records when it went", async () => {
     const chat = await seedChat();
     const postChatMessage = vi.fn(async (_chatId: string, _bodyHtml: string) => {});
-    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage });
+    await retryTriageChatMessage(chat.id, { postChatMessage });
 
     expect(postChatMessage).toHaveBeenCalledTimes(1);
     expect(postChatMessage.mock.calls[0][0]).toBe("chat-1");
@@ -319,7 +326,7 @@ describe("retryTriageChatMessage", () => {
   it("does not post again once the message has been posted", async () => {
     const chat = await seedChat({ messagePostedAt: new Date("2026-05-28T10:00:00Z") });
     const postChatMessage = vi.fn(async () => {});
-    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage });
+    await retryTriageChatMessage(chat.id, { postChatMessage });
     expect(postChatMessage).not.toHaveBeenCalled();
   });
 
@@ -329,8 +336,8 @@ describe("retryTriageChatMessage", () => {
     // Both callers read messagePostedAt as null before either writes. A plain
     // read-then-write guard sends the opening message to twenty people twice.
     await Promise.all([
-      retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }),
-      retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }),
+      retryTriageChatMessage(chat.id, { postChatMessage }),
+      retryTriageChatMessage(chat.id, { postChatMessage }),
     ]);
     expect(postChatMessage).toHaveBeenCalledTimes(1);
   });
@@ -340,22 +347,29 @@ describe("retryTriageChatMessage", () => {
     const failing = vi.fn(async () => {
       throw new Error("Graph post chat message failed: 502");
     });
-    await expect(retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage: failing }))
+    await expect(retryTriageChatMessage(chat.id, { postChatMessage: failing }))
       .rejects.toThrow(/502/);
 
     const afterFailure = await prisma.triageChat.findUniqueOrThrow({ where: { id: chat.id } });
     expect(afterFailure.messagePostedAt).toBeNull();
 
     const succeeding = vi.fn(async () => {});
-    await retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage: succeeding });
+    await retryTriageChatMessage(chat.id, { postChatMessage: succeeding });
     expect(succeeding).toHaveBeenCalledTimes(1);
   });
 
   it("refuses a chat row that has no Graph chat id recorded", async () => {
     const chat = await seedChat({ graphChatId: "" });
     const postChatMessage = vi.fn(async () => {});
-    await expect(retryTriageChatMessage(chat.id, "Hi everyone", { postChatMessage }))
+    await expect(retryTriageChatMessage(chat.id, { postChatMessage }))
       .rejects.toThrow(/no Microsoft Teams chat id/i);
     expect(postChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("posts the message that was stored, not a re-render of the template", async () => {
+    const chat = await seedChat({ messageBody: "The exact text the ED approved" });
+    const postChatMessage = vi.fn(async (_chatId: string, _bodyHtml: string) => {});
+    await retryTriageChatMessage(chat.id, { postChatMessage });
+    expect(postChatMessage.mock.calls[0][1]).toContain("The exact text the ED approved");
   });
 });

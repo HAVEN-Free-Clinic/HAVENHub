@@ -131,6 +131,7 @@ export async function createTriageChat(
         termId: draft.term.id,
         clinicDate: draft.clinicDate,
         topic: input.topic,
+        messageBody: input.messageBody,
         graphChatId: "",
         webUrl: "",
         createdById: input.actorPersonId,
@@ -258,16 +259,22 @@ export async function createTriageChat(
   };
 }
 
-/** Post the opening message for a chat that was created without one. */
+/**
+ * Post the opening message for a chat that was created without one.
+ *
+ * Takes no messageBody: the row already carries the text exactly as the ED
+ * approved it on the review screen, which is what a retry must post. Reading it
+ * from the row (rather than accepting it as a parameter) means no caller can
+ * pass something the ED never saw.
+ */
 export async function retryTriageChatMessage(
   triageChatId: string,
-  messageBody: string,
   deps: { postChatMessage?: typeof graphPostChatMessage } = {},
 ): Promise<void> {
   const post = deps.postChatMessage ?? graphPostChatMessage;
   const chat = await prisma.triageChat.findUniqueOrThrow({
     where: { id: triageChatId },
-    select: { graphChatId: true, messagePostedAt: true },
+    select: { graphChatId: true, messagePostedAt: true, messageBody: true },
   });
   if (chat.messagePostedAt) return;
   // A row with no Graph chat id is a claim whose creation died between the
@@ -290,7 +297,7 @@ export async function retryTriageChatMessage(
   });
   if (claim.count === 0) return;
   try {
-    await post(chat.graphChatId, textToTeamsHtml(messageBody));
+    await post(chat.graphChatId, textToTeamsHtml(chat.messageBody));
   } catch (err) {
     // Release the claim so a later retry can try again, but only if it is still
     // ours. Scoping the release to our own timestamp means we can never clear a

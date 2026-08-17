@@ -137,6 +137,7 @@ describe("loadTriageChatDraft", () => {
         termId: term.id,
         clinicDate: CLINIC_DATE,
         topic: "05.30.26 Ancillary Triage Chat",
+        messageBody: "Hi everyone,\n\nRoster below.",
         graphChatId: "chat-1",
         webUrl: "https://teams.microsoft.com/l/chat/1",
       },

@@ -211,6 +211,23 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<string>({
+    key: "triageChats.alwaysIncludeDepartmentCodes",
+    category: "Operations",
+    label: "Triage chat leadership departments",
+    help: "Comma-separated department codes whose directors join EVERY triage chat, regardless of the triage tag. These are the small leadership and coordination groups (Executive Directors, Clinical Advisors, Patient Services), where 'who is on triage' is not the relevant question.",
+    input: { type: "text" },
+    // Format only. The codes cannot be checked against real departments here:
+    // SettingValidateCtx carries config and getSetting and no database handle,
+    // and registry.ts is imported widely enough that reaching for prisma would
+    // buy an import cycle. The draft loader reports an unmatched code as a
+    // warning on the review screen instead, next to the roster it affects.
+    schema: z
+      .string()
+      .regex(/^[A-Z0-9]+(,[A-Z0-9]+)*$/, "Comma-separated uppercase department codes, e.g. EXEC,PCAR,PATS"),
+    envDefault: () => "EXEC,PCAR,PATS",
+    secret: false,
+  }),
+  define<string>({
     key: "epic.temporaryPassword",
     category: "Integrations",
     label: "Epic temporary password",

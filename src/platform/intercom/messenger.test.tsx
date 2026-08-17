@@ -185,6 +185,96 @@ describe("IntercomMessenger", () => {
     });
   });
 
+  /**
+   * The attributes that let a support agent see who an ANONYMOUS /apply visitor
+   * signed in as (see visitor.ts). The case that actually matters in production
+   * is the 403 fallback, not the explicit visitor mode: /apply mounts
+   * identified and only discovers it is talking to an applicant when the token
+   * route refuses. If the fallback boot stopped carrying them, every applicant
+   * would go back to being nameless in the inbox and nothing else would break,
+   * so only an assertion on the boot arguments catches it.
+   */
+  describe("visitor attributes", () => {
+    const attrs = { "Portal sign-in name": "Jane Doe", "Portal sign-in email": "jane.doe@yale.edu" };
+
+    it("attaches them to an explicit visitor boot", async () => {
+      await mount(<IntercomMessenger appId="abc123" mode="visitor" visitorAttributes={attrs} />);
+      expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123", ...attrs });
+    });
+
+    it("attaches them to the 403 fallback boot -- the applicant case they exist for", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(403, { error: "Forbidden" }));
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          requireActiveMembership
+          visitorAttributes={attrs}
+        />
+      );
+      await act(async () => {});
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+      expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123", ...attrs });
+    });
+
+    it("attaches them to the 401 fallback boot as well", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(401, { error: "Unauthorized" }));
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          requireActiveMembership
+          visitorAttributes={attrs}
+        />
+      );
+      await act(async () => {});
+      expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123", ...attrs });
+    });
+
+    it("never sends them on an identified boot, which carries the signed profile attributes instead", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { token: "member-jwt", expiresInSeconds: 3600 }));
+      await mount(
+        <IntercomMessenger
+          appId="abc123"
+          mode="identified"
+          requireActiveMembership
+          visitorAttributes={attrs}
+        />
+      );
+      await act(async () => {});
+      expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123", intercom_user_jwt: "member-jwt" });
+      const [args] = bootIntercom.mock.calls[0] as [Record<string, unknown>];
+      expect("Portal sign-in name" in args).toBe(false);
+    });
+
+    it("leaves the boot byte-for-byte unchanged when there is nothing to send", async () => {
+      await mount(<IntercomMessenger appId="abc123" mode="visitor" visitorAttributes={undefined} />);
+      expect(bootIntercom).toHaveBeenCalledWith({ app_id: "abc123" });
+    });
+
+    /**
+     * The prop is a fresh object on every server render. If it were named in
+     * the effect's dependency array, a router.refresh() would shut the widget
+     * down and re-boot it underneath an open conversation -- the same bug the
+     * initialToken ref guards against, and equally silent.
+     */
+    it("re-rendering with an equal-but-new attributes object neither shuts down nor re-boots", async () => {
+      await mount(
+        <IntercomMessenger appId="abc123" mode="visitor" visitorAttributes={{ ...attrs }} />
+      );
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        mounted?.root.render(
+          <IntercomMessenger appId="abc123" mode="visitor" visitorAttributes={{ ...attrs }} />
+        );
+      });
+
+      expect(shutdown).not.toHaveBeenCalled();
+      expect(bootIntercom).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("identified mode -- server-minted initialToken", () => {
     it("boots immediately from a server-minted token, without fetching", async () => {
       await mount(

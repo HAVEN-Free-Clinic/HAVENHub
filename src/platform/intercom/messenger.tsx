@@ -78,6 +78,19 @@ export type IntercomMessengerMode = "identified" | "visitor";
 type ServerMintedToken = { token: string; expiresInSeconds: number };
 
 /**
+ * Custom attributes to attach to a VISITOR boot, and only to a visitor boot
+ * (see visitor.ts for what they are and what their evidence is worth).
+ *
+ * Allowed on every variant below rather than only the visitor one, because the
+ * boot this is for is the 401/403 fallback inside `mode: "identified"` -- the
+ * /apply portal mounts identified and discovers it is talking to an applicant
+ * only when the token route refuses. On a mount that boots identified for real
+ * these are simply never read: an identified contact already carries the signed
+ * profile attributes, which are the trustworthy version of the same idea.
+ */
+type VisitorAttributes = Record<string, string>;
+
+/**
  * Deliberately a union rather than one object with four optional fields, so
  * that the invariant in the doc comment above is a COMPILE ERROR rather than a
  * comment three files have to agree to honour.
@@ -101,18 +114,21 @@ type IntercomMessengerProps =
       mode: "visitor";
       requireActiveMembership?: never;
       initialToken?: never;
+      visitorAttributes?: VisitorAttributes;
     }
   | {
       appId: string;
       mode: "identified";
       requireActiveMembership?: false;
       initialToken?: ServerMintedToken | null;
+      visitorAttributes?: VisitorAttributes;
     }
   | {
       appId: string;
       mode: "identified";
       requireActiveMembership: true;
       initialToken?: never;
+      visitorAttributes?: VisitorAttributes;
     };
 
 export function IntercomMessenger({
@@ -120,6 +136,7 @@ export function IntercomMessenger({
   mode,
   requireActiveMembership = false,
   initialToken,
+  visitorAttributes,
 }: IntercomMessengerProps) {
   // Freeze the token this instance boots with. The effect below only ever needs
   // the FIRST token; every later one comes from its own fetch loop and is
@@ -136,9 +153,22 @@ export function IntercomMessenger({
   // nothing to depend on but the scalars below.
   const bootTokenRef = useRef(initialToken);
 
+  // Frozen for the same reason as bootTokenRef above, and it is the same bug if
+  // it is not: this is a fresh object on every server render, so naming it in
+  // the dependency array below would tear the widget down and re-boot it (via
+  // cleanup's shutdown()) on any router.refresh() or revalidating Server Action,
+  // underneath whatever conversation the visitor has open. The effect only ever
+  // needs the values it mounted with.
+  const visitorAttributesRef = useRef(visitorAttributes);
+
   useEffect(() => {
+    // Assembled once, used by both visitor boots below (the explicit mode, and
+    // identified mode's refusal fallback) so the two cannot drift into sending
+    // different arguments for what is the same anonymous boot.
+    const visitorBootArgs = { app_id: appId, ...visitorAttributesRef.current };
+
     if (mode === "visitor") {
-      Intercom({ app_id: appId });
+      Intercom(visitorBootArgs);
       // Immediately after the boot, never before it: the SDK only injects the
       // script this watches during the Intercom() call. Same at the two boot
       // sites below. See ./messenger-readiness for what reads the answer.
@@ -199,9 +229,11 @@ export function IntercomMessenger({
           // over to an anonymous one.
           //
           // Deliberately not routed through applyToken: this is the one boot
-          // that carries no token.
+          // that carries no token. It DOES carry the visitor attributes, and
+          // this is the boot they exist for -- on /apply the 403 branch is an
+          // applicant, and these are what tell the agent which one.
           if ((res.status === 401 || res.status === 403) && !booted) {
-            Intercom({ app_id: appId });
+            Intercom(visitorBootArgs);
             watchMessengerScript();
             booted = true;
             return;

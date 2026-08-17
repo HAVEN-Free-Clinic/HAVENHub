@@ -8,9 +8,10 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 // buttonClasses, not <Button> wrapping a <Link>: Button renders a real <button>
 // and has no asChild, so wrapping would nest a link inside a button. Styling the
-// Link is the pattern the rest of the schedule module already uses. "outline" is
-// this codebase's secondary-emphasis variant; buttonClasses has no "secondary"
-// option (variants are primary/outline/danger/ghost).
+// Link is the pattern the rest of the schedule module already uses. buttonClasses
+// has no "secondary" option (variants are primary/outline/danger/ghost); the
+// page's sole header CTA uses "primary", matching every other "New X" header
+// action in this codebase.
 import { buttonClasses } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { formatCalendarDate } from "@/platform/dates";
@@ -34,7 +35,7 @@ export default async function TriageChatsPage() {
         title="Triage chats"
         description="Create this week's Teams triage group chats. Members and the roster come from the clinic schedule."
         action={
-          <Link className={buttonClasses("outline", "md")} href="/schedule/triage-chats/new">
+          <Link className={buttonClasses("primary", "md")} href="/schedule/triage-chats/new">
             New preset
           </Link>
         }

@@ -40,6 +40,17 @@ export type TriageRoster = {
   clinicalAdvisors: string[];
   /** Selected departments that contributed nobody, for a review-screen warning. */
   emptyDepartments: string[];
+  /**
+   * Always-include departments that contributed nobody, for their own
+   * review-screen warning.
+   *
+   * Kept apart from `emptyDepartments` because the two mean different things to
+   * an ED: a selected department with no triage director on shift is a hole in
+   * the schedule, while an always-include department with nobody on shift also
+   * blanks that department's template variable ({{sessionCoordinators}},
+   * {{clinicalAdvisors}}) into whatever sentence the preset wraps it in.
+   */
+  emptyAlwaysIncludeDepartments: string[];
 };
 
 /** Department codes whose members also get their own template variable. */
@@ -134,17 +145,28 @@ export function resolveTriageRoster(input: {
     .map(([department, people]) => `- ${department}: ${people.map((p) => p.name).join(", ")}`)
     .join("\n");
 
+  // One contributing set for both answers. Built from `ordered` (every
+  // qualifying assignment) and NOT from `members` (deduped to one department per
+  // person): a director who also holds a triage shift in a selected department
+  // appears under only one of them in `members`, which would report the other as
+  // empty when it is not.
   const contributing = new Set(ordered.map((a) => a.department.id));
-  const emptyDepartments = selectedDepartments
-    .filter((d) => !contributing.has(d.id))
-    .map((d) => d.name)
-    .sort();
+  const emptyNames = (departments: TriageDepartment[]): string[] =>
+    departments
+      .filter((d) => !contributing.has(d.id))
+      .map((d) => d.name)
+      .sort();
 
   return {
     members,
     rosterBlock,
     sessionCoordinators: namesForCode(SESSION_COORDINATOR_CODE),
     clinicalAdvisors: namesForCode(CLINICAL_ADVISOR_CODE),
-    emptyDepartments,
+    emptyDepartments: emptyNames(selectedDepartments),
+    // A department can be both selected and always-include. It is reported once,
+    // as a selected department, rather than warned about twice.
+    emptyAlwaysIncludeDepartments: emptyNames(
+      alwaysIncludeDepartments.filter((d) => !selectedIds.has(d.id)),
+    ),
   };
 }

@@ -8,6 +8,18 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Alert } from "@/platform/ui/alert";
 import { ReviewForm } from "./review-form";
 
+/**
+ * A server action inherits the route segment config of the page it is invoked
+ * from, and this page's action is `createTriageChatAction`: one chat create, up
+ * to twenty sequential member adds, and a message post, every one of them a
+ * Graph call with an 8 second budget, on top of a draft load that does its own
+ * directory lookups. That is minutes, not the 10 to 15 seconds Vercel allows a
+ * function by default, and vercel.json sets no override. Killed mid-loop it
+ * leaves a real Teams chat with half its members and the week locked out of the
+ * UI, so the ceiling goes to the 300 the cron routes already use.
+ */
+export const maxDuration = 300;
+
 export function generateMetadata() {
   return buildPageMetadata({
     title: "Create triage chat",

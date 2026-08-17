@@ -50,6 +50,14 @@ export function ReviewForm({
         </Alert>
       ))}
 
+      {/*
+        The clinic week this screen was built for. The confirm re-resolves the
+        roster with a fresh now, so a page opened on Saturday and submitted on
+        Sunday would otherwise create next week's chat carrying this week's name,
+        text, and ticked checkboxes.
+      */}
+      <input type="hidden" name="clinicDateKey" value={draft.clinicDateKey} />
+
       <label className="block space-y-1">
         <span className="text-sm font-medium">Chat name</span>
         <Input name="topic" defaultValue={draft.topic} required />

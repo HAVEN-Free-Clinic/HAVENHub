@@ -16,6 +16,7 @@ import {
   getCurrentClinicChannelLink,
 } from "@/platform/teams/channel-link";
 import { resolveMemberIds, type ResolvedMember } from "@/platform/teams/member-ids";
+import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { renderTemplate } from "@/platform/email/render/render";
 import { esc } from "@/platform/email/render/escape";
@@ -89,6 +90,18 @@ export async function loadTriageChatDraft(
 
   const warnings: string[] = [];
 
+  // A closed Saturday stays in Term.clinicDates as a flagged ClinicDay rather
+  // than being removed, so the selector above happily picks one. A WARNING and
+  // not a block, by spec: the ED is the person who would know the clinic is
+  // running after all, and this feature is not the place to overrule them.
+  // resolveOpenClinicDate returns null for "not a clinic day at all" too, which
+  // cannot happen here because clinicDate came out of term.clinicDates.
+  if (!(await resolveOpenClinicDate(term, clinicDateKey))) {
+    warnings.push(
+      "This clinic date is marked closed in the attending schedule. Create the chat only if the clinic is actually running.",
+    );
+  }
+
   const codes = await alwaysIncludeCodes();
   const alwaysDepartments = await prisma.department.findMany({
     where: { code: { in: codes } },
@@ -158,6 +171,16 @@ export async function loadTriageChatDraft(
 
   for (const name of roster.emptyDepartments) {
     warnings.push(`${name} has no triage director on shift for this clinic date.`);
+  }
+  // An always-include department contributing nobody is quieter and worse than a
+  // selected one contributing nobody: its template variable
+  // ({{sessionCoordinators}}, {{clinicalAdvisors}}) renders as an empty string
+  // into whatever sentence the preset wraps around it, so the message reads
+  // "... will be the session coordinators" with nobody named and nothing said.
+  for (const name of roster.emptyAlwaysIncludeDepartments) {
+    warnings.push(
+      `${name} joins every triage chat but has nobody on shift for this clinic date, so the opening message will not name anyone from it.`,
+    );
   }
   if (roster.members.length === 0) {
     warnings.push("Nobody is on shift for this clinic date, so there is nobody to add.");

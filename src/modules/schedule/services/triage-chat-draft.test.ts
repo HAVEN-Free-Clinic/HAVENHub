@@ -116,6 +116,66 @@ describe("loadTriageChatDraft", () => {
     expect(draft!.warnings.join(" ")).toContain("Behavioral Health");
   });
 
+  it("warns, without blocking, when the clinic date has been closed", async () => {
+    const { preset, term } = await seed();
+    // A closed Saturday stays in Term.clinicDates and is taken out of service by
+    // this flag, so the draft still builds and the ED still gets the roster: the
+    // spec asks for a warning here, not a block.
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: true },
+    });
+    const draft = await loadTriageChatDraft(preset.id, {
+      now: NOW,
+      resolveIds: async (members) =>
+        members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
+    });
+    expect(draft).not.toBeNull();
+    expect(draft!.warnings.join(" ")).toContain("marked closed");
+    expect(draft!.roster.members.map((m) => m.name).sort()).toEqual(["Goeun Lee", "Phil Xu"]);
+  });
+
+  it("does not warn about a clinic date that is open", async () => {
+    const { preset, term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: false },
+    });
+    const draft = await loadTriageChatDraft(preset.id, {
+      now: NOW,
+      resolveIds: async (members) =>
+        members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
+    });
+    expect(draft!.warnings.join(" ")).not.toContain("marked closed");
+  });
+
+  it("warns when an always-include department has nobody on shift", async () => {
+    const { preset, phil } = await seed();
+    // The Executive Directors are always included, so nobody on shift there
+    // renders {{sessionCoordinators}} as an empty string into the middle of the
+    // opening message with nothing to say it happened.
+    await prisma.shiftAssignment.deleteMany({ where: { personId: phil.id } });
+    const draft = await loadTriageChatDraft(preset.id, {
+      now: NOW,
+      resolveIds: async (members) =>
+        members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
+    });
+    expect(draft!.roster.sessionCoordinators).toEqual([]);
+    expect(draft!.warnings.join(" ")).toContain(
+      "Executive Directors joins every triage chat but has nobody on shift",
+    );
+    // Still a warning and not a block: the rest of the roster is intact.
+    expect(draft!.roster.members.map((m) => m.name)).toEqual(["Goeun Lee"]);
+  });
+
+  it("does not warn about an always-include department that is staffed", async () => {
+    const { preset } = await seed();
+    const draft = await loadTriageChatDraft(preset.id, {
+      now: NOW,
+      resolveIds: async (members) =>
+        members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
+    });
+    expect(draft!.warnings.join(" ")).not.toContain("Executive Directors joins every triage chat");
+  });
+
   it("warns about an always-include code that matches no department", async () => {
     const { preset } = await seed();
     // Through the settings service, never a raw Setting insert: the resolver

@@ -66,6 +66,10 @@ export async function createTriageChatAction(
       topic: String(formData.get("topic") ?? ""),
       messageBody: String(formData.get("messageBody") ?? ""),
       includePersonIds: formData.getAll("includePersonIds").map(String),
+      // The clinic week the review screen was built for. The service re-derives
+      // the current week from a fresh now, so this is what lets it refuse a form
+      // that was opened before the week rolled over.
+      expectedClinicDateKey: String(formData.get("clinicDateKey") ?? ""),
     });
     revalidatePath("/schedule/triage-chats");
     return { triageChatId: result.triageChatId };

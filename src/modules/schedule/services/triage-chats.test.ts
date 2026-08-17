@@ -94,6 +94,46 @@ describe("resolveTriageRoster", () => {
     expect(roster.emptyDepartments).toEqual(["Laboratory"]);
   });
 
+  it("names an always-include department that has nobody on shift", () => {
+    // EXEC contributing nobody is what blanks {{sessionCoordinators}} into the
+    // middle of a sentence, so it needs its own answer rather than being folded
+    // into emptyDepartments (which is about the selected departments).
+    const roster = resolveTriageRoster({
+      assignments: [assignment({ name: "Matt Anderson", department: PCAR, triage: false })],
+      selectedDepartments: [BVHD],
+      alwaysIncludeDepartments: [EXEC, PCAR],
+    });
+    expect(roster.emptyAlwaysIncludeDepartments).toEqual(["Executive Directors"]);
+    expect(roster.emptyDepartments).toEqual(["Behavioral Health"]);
+  });
+
+  it("reports a department that is both selected and always-include only once", () => {
+    const roster = resolveTriageRoster({
+      assignments: [],
+      selectedDepartments: [EXEC],
+      alwaysIncludeDepartments: [EXEC],
+    });
+    expect(roster.emptyDepartments).toEqual(["Executive Directors"]);
+    expect(roster.emptyAlwaysIncludeDepartments).toEqual([]);
+  });
+
+  it("does not call a department empty because its only member was deduped elsewhere", () => {
+    // One person holding a qualifying shift in both departments lands under just
+    // one of them in members, so a members-derived answer would report the other
+    // as empty when it is staffed by exactly that person.
+    const roster = resolveTriageRoster({
+      assignments: [
+        assignment({ personId: "p-dual", name: "Dual Role", department: BVHD }),
+        assignment({ personId: "p-dual", name: "Dual Role", department: EXEC, triage: false }),
+      ],
+      selectedDepartments: [BVHD],
+      alwaysIncludeDepartments: [EXEC],
+    });
+    expect(roster.members.map((m) => m.name)).toEqual(["Dual Role"]);
+    expect(roster.emptyDepartments).toEqual([]);
+    expect(roster.emptyAlwaysIncludeDepartments).toEqual([]);
+  });
+
   it("carries the lookup candidates for each member", () => {
     const roster = resolveTriageRoster({
       assignments: [

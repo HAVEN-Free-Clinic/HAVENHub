@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { createTriageChat, retryTriageChatMessage, TriageChatConflictError } from "./triage-chat-create";
+import {
+  createTriageChat,
+  retryTriageChatMessage,
+  NOT_SELECTED_REASON,
+  TriageChatConflictError,
+} from "./triage-chat-create";
 import type { TriageChatDraft } from "./triage-chat-draft";
 
 beforeEach(resetDb);
@@ -54,6 +59,7 @@ function draftFor(fixtures: Awaited<ReturnType<typeof seedDraftFixtures>>): Tria
       sessionCoordinators: [],
       clinicalAdvisors: [],
       emptyDepartments: [],
+      emptyAlwaysIncludeDepartments: [],
     },
     resolved: [
       { member: storedMember, userId: "oid-stored", source: "stored" },
@@ -321,10 +327,224 @@ describe("createTriageChat", () => {
     ]);
 
     const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
-    const dropped = saved.members.find((m) => m.personName === draft.roster.members[1].name);
-    expect(dropped).toBeDefined();
-    expect(dropped?.addedOk).toBe(false);
-    expect(dropped?.error).toBe("Not found in the Microsoft directory.");
+    const dropped = saved.members.filter((m) => m.personName === draft.roster.members[1].name);
+    // Exactly one row. An unresolvable person is also absent from the keep-set,
+    // so the not-selected record must not claim them a second time with a reason
+    // that does not explain their absence.
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0].addedOk).toBe(false);
+    expect(dropped[0].error).toBe("Not found in the Microsoft directory.");
+  });
+
+  it("records the chat id the moment Graph returns it, before the member loop", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    // The row must already name the chat while the adds are still running: on a
+    // twenty-person roster this loop is where the function gets killed, and a
+    // row that learns the chat id only at the end leaves a real Teams chat
+    // nobody can reach behind a claim that locks the week out of the UI.
+    const recordedDuringLoop: { graphChatId: string; webUrl: string }[] = [];
+    const graph = graphStub({
+      addChatMember: vi.fn(async () => {
+        recordedDuringLoop.push(
+          await prisma.triageChat.findFirstOrThrow({
+            select: { graphChatId: true, webUrl: true },
+          }),
+        );
+      }),
+    });
+
+    await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        includePersonIds: [fixtures.stored.id, fixtures.looked.id],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(graph.addChatMember).toHaveBeenCalledTimes(1);
+    expect(recordedDuringLoop).toEqual([{ graphChatId: "chat-1", webUrl: "https://teams/1" }]);
+  });
+
+  it("records the chat id before the opening message is posted", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const recordedBeforePost: string[] = [];
+    const graph = graphStub({
+      postChatMessage: vi.fn(async () => {
+        const row = await prisma.triageChat.findFirstOrThrow({ select: { graphChatId: true } });
+        recordedBeforePost.push(row.graphChatId);
+        throw new Error("Graph post chat message failed: 502");
+      }),
+    });
+
+    const result = await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        includePersonIds: [fixtures.stored.id],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(result.messagePosted).toBe(false);
+    expect(recordedBeforePost).toEqual(["chat-1"]);
+    const saved = await prisma.triageChat.findFirstOrThrow();
+    expect(saved.graphChatId).toBe("chat-1");
+    expect(saved.messagePostedAt).toBeNull();
+  });
+
+  it("records a resolvable member who was not kept, without reporting them as a failure", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    const result = await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        // The ED unticked the second member, or they came onto the schedule
+        // after the review screen was opened. Both look like this.
+        includePersonIds: [fixtures.stored.id],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    // Not a failure: nagging an ED to hand-add somebody they deliberately
+    // unticked is wrong, and the alert on the confirmation page is a call to act.
+    expect(result.failures).toEqual([]);
+    expect(graph.addChatMember).not.toHaveBeenCalled();
+
+    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
+    expect(saved.members).toHaveLength(2);
+    const unkept = saved.members.find((m) => m.personName === "Never Signed In");
+    expect(unkept?.addedOk).toBe(false);
+    expect(unkept?.error).toBe(NOT_SELECTED_REASON);
+  });
+
+  it("refuses an empty chat name", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    await expect(
+      createTriageChat(
+        {
+          presetId: fixtures.preset.id,
+          actorPersonId: fixtures.stored.id,
+          // Whitespace only. `required` on the form is client-only, and an
+          // unnamed Teams chat cannot be renamed afterwards.
+          topic: "   ",
+          messageBody: draft.messageBody,
+          includePersonIds: [fixtures.stored.id],
+        },
+        { ...graph, loadDraft: async () => draft },
+      ),
+    ).rejects.toThrow(/chat name cannot be empty/i);
+
+    expect(graph.createGroupChat).not.toHaveBeenCalled();
+    expect(await prisma.triageChat.count()).toBe(0);
+  });
+
+  it("refuses an empty opening message", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    await expect(
+      createTriageChat(
+        {
+          presetId: fixtures.preset.id,
+          actorPersonId: fixtures.stored.id,
+          topic: draft.topic,
+          messageBody: "\n  \n",
+          includePersonIds: [fixtures.stored.id],
+        },
+        { ...graph, loadDraft: async () => draft },
+      ),
+    ).rejects.toThrow(/opening message cannot be empty/i);
+
+    expect(graph.createGroupChat).not.toHaveBeenCalled();
+    expect(await prisma.triageChat.count()).toBe(0);
+  });
+
+  it("stores and sends the trimmed topic and message", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: "  05.30.26 Ancillary  ",
+        messageBody: "  Hi everyone\n",
+        includePersonIds: [fixtures.stored.id],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(graph.createGroupChat).toHaveBeenCalledWith({
+      topic: "05.30.26 Ancillary",
+      memberIds: ["oid-service", "oid-stored"],
+    });
+    const saved = await prisma.triageChat.findFirstOrThrow();
+    expect(saved.topic).toBe("05.30.26 Ancillary");
+    expect(saved.messageBody).toBe("Hi everyone");
+  });
+
+  it("refuses a confirm whose clinic week rolled over while the page was open", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    await expect(
+      createTriageChat(
+        {
+          presetId: fixtures.preset.id,
+          actorPersonId: fixtures.stored.id,
+          topic: draft.topic,
+          messageBody: draft.messageBody,
+          includePersonIds: [fixtures.stored.id],
+          // Opened on the previous clinic week. The draft reloaded here is for
+          // 2026-05-30, so the topic, the message, and the ticked boxes in hand
+          // all describe a different Saturday than the roster now does.
+          expectedClinicDateKey: "2026-05-23",
+        },
+        { ...graph, loadDraft: async () => draft },
+      ),
+    ).rejects.toThrow(/clinic week changed/i);
+
+    expect(graph.createGroupChat).not.toHaveBeenCalled();
+    expect(await prisma.triageChat.count()).toBe(0);
+  });
+
+  it("creates when the clinic week the page was built for still matches", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        includePersonIds: [fixtures.stored.id],
+        expectedClinicDateKey: "2026-05-30",
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(graph.createGroupChat).toHaveBeenCalledTimes(1);
+    expect(await prisma.triageChat.count()).toBe(1);
   });
 });
 

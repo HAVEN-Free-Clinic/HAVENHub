@@ -180,8 +180,39 @@ export async function isEffectiveActiveAdmin(personId: string): Promise<boolean>
  * mutation rolls back if it stripped the last dept/kind-scoped admin path
  * (audit L7). Throws LastAdminError.
  */
-export async function assertActiveAdminRemainsTx(tx: Prisma.TransactionClient): Promise<void> {
-  const activeTerm = await getActiveTerm();
+/**
+ * True when at least one person is an effective admin with `term` active.
+ *
+ * Exposed for the term mutations, which need the BEFORE state to tell "this swap
+ * locked everyone out" apart from "this deployment never had an admin". The
+ * invariant is that a change must not REMOVE the last admin; requiring one to
+ * exist would turn an already-broken deployment (and every test fixture that
+ * does not seed RBAC) into one that cannot activate or archive a term either.
+ */
+export async function hasEffectiveActiveAdminTx(
+  tx: Prisma.TransactionClient,
+  term: { id: string } | null
+): Promise<boolean> {
+  return (await effectiveActiveAdminPersonIds(tx, term)).size > 0;
+}
+
+export async function assertActiveAdminRemainsTx(
+  tx: Prisma.TransactionClient,
+  /**
+   * The term to evaluate against, when the caller is the thing CHANGING which
+   * term is active (activateTerm, archiveTerm). Omit to resolve it normally.
+   *
+   * getActiveTerm() reads committed state and is React-cached per request, so
+   * inside a term swap it still returns the OUTGOING term -- which is precisely
+   * the wrong anchor for "will anyone be an admin after this commits?". Pass the
+   * intended term instead. `null` is a real value here, meaning "no term will be
+   * active", which is the allowed outcome of archiving the last one; `undefined`
+   * means "look it up" (audit 14, finding VRT-4).
+   */
+  activeTermOverride?: { id: string } | null
+): Promise<void> {
+  const activeTerm =
+    activeTermOverride !== undefined ? activeTermOverride : await getActiveTerm();
   const admins = await effectiveActiveAdminPersonIds(tx, activeTerm);
   if (admins.size === 0) {
     throw new LastAdminError(

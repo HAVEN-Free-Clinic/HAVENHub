@@ -53,6 +53,28 @@ describe("isFieldVisible", () => {
   it("malformed condition -> visible (fail open)", () => {
     expect(isFieldVisible({ nonsense: true }, {})).toBe(true);
   });
+
+  /**
+   * Audit 14: a group control posts one form value per sub-control under one
+   * name, so an untouched SUBCOMMITTEE_RANK arrives as ["", "", ""] (one per
+   * rank slot). The server built its answers map from FormData and saw three
+   * "answers"; the wizard's map had no entry for the key at all and saw none.
+   * The two disagreed about whether the dependent field was visible -- the
+   * client/server `visibleWhen` gap the 11th audit closed for scalar answers.
+   */
+  it("treats an all-empty group answer as unanswered, exactly like a scalar \"\"", () => {
+    expect(isFieldVisible(cond("isAnswered"), { q: ["", "", ""] })).toBe(false);
+    // A single real rank among the empty slots IS an answer.
+    expect(isFieldVisible(cond("isAnswered"), { q: ["", "sub-1", ""] })).toBe(true);
+  });
+
+  it("ignores the empty slots for the value ops too, so no condition matches \"\"", () => {
+    expect(isFieldVisible(cond("is", ""), { q: ["", ""] })).toBe(false);
+    expect(isFieldVisible(cond("isAnyOf", ["", "a"]), { q: ["", ""] })).toBe(false);
+    // isNot is unaffected: an empty slot was never the value being excluded.
+    expect(isFieldVisible(cond("isNot", "a"), { q: ["", "a"] })).toBe(false);
+    expect(isFieldVisible(cond("isNot", "a"), { q: ["", "b"] })).toBe(true);
+  });
 });
 
 describe("mergeDepartmentAnswer", () => {

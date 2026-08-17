@@ -28,6 +28,7 @@ import {
   setAssignment,
   toggleTag,
   setPatientsBooked,
+  setProceduresBooked,
   setAvailabilityOverride,
   acknowledgeAvailability,
   upsertClinicDay,
@@ -787,6 +788,39 @@ describe("toggleTag", () => {
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
+  // `specialty` is offered on EVERY department, unlike triage/walkin/cc which
+  // only SCTP and JCTP use, so it is exercised on a department with no med roles
+  // at all. Ops sets it to mark which med teams and CAs are covering the day's
+  // specialty clinic.
+  it("flips specialty on a department that uses no med roles", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("RHD", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    const args = { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "specialty" as const };
+    await toggleTag(director.id, args);
+
+    const row = await prisma.shiftAssignment.findFirst({
+      where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
+    });
+    expect(row!.specialty).toBe(true);
+    // The day's own specialty is unrelated to this flag, and setting one must
+    // not have touched the others.
+    expect(row!.triage).toBe(false);
+    expect(row!.remote).toBe(false);
+
+    await toggleTag(director.id, args);
+    const row2 = await prisma.shiftAssignment.findFirst({
+      where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
+    });
+    expect(row2!.specialty).toBe(false);
+  });
+
   it("throws BuilderForbiddenError for actor who does not manage the dept", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
@@ -897,6 +931,138 @@ describe("setPatientsBooked", () => {
     await expect(
       setPatientsBooked(outsider.id, { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), patientsBooked: 5 })
     ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+});
+
+describe("setProceduresBooked", () => {
+  it("upserts the clinic day for a reproductive health director", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const director = await createPerson("RHD Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+
+    await setProceduresBooked(director.id, {
+      termId: term.id,
+      departmentId: scts.id,
+      dateKey: isoDateKey(dates[0]),
+      proceduresBooked: 3,
+    });
+
+    const day = await prisma.clinicDay.findFirst({ where: { termId: term.id, clinicDate: dates[0] } });
+    expect(day?.proceduresBooked).toBe(3);
+  });
+
+  it("updates an existing day without disturbing its attending coverage", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const director = await createPerson("RHD Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+
+    const slot = await prisma.clinicSlot.create({
+      data: { label: "RHD Attending", startTime: "09:00", endTime: "13:00", order: 0 },
+    });
+    const attending = await prisma.attending.create({
+      data: { scheduleName: "Dr. Test", fullName: "Dr. Full Name" },
+    });
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        proceduresBooked: 1,
+        attendings: { create: [{ slotId: slot.id, attendingId: attending.id }] },
+      },
+    });
+
+    await setProceduresBooked(director.id, {
+      termId: term.id,
+      departmentId: scts.id,
+      dateKey: isoDateKey(dates[0]),
+      proceduresBooked: 7,
+    });
+
+    const day = await prisma.clinicDay.findFirst({
+      where: { termId: term.id, clinicDate: dates[0] },
+      include: { attendings: true },
+    });
+    expect(day?.proceduresBooked).toBe(7);
+    expect(day?.attendings).toHaveLength(1);
+  });
+
+  it("clears with null", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const director = await createPerson("RHD Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: dates[0], proceduresBooked: 4 },
+    });
+
+    await setProceduresBooked(director.id, {
+      termId: term.id,
+      departmentId: scts.id,
+      dateKey: isoDateKey(dates[0]),
+      proceduresBooked: null,
+    });
+
+    const day = await prisma.clinicDay.findFirst({ where: { termId: term.id, clinicDate: dates[0] } });
+    expect(day?.proceduresBooked).toBeNull();
+  });
+
+  // The row is clinic-wide, so the posted departmentId is a hint rather than an
+  // authority: without this check the director of any department the actor
+  // manages could set reproductive health's number.
+  it("refuses a director of a non-RHD department they legitimately manage", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const pcar = await createDepartment("PCAR");
+    const director = await createPerson("PCAR Director");
+    await createMembership(director.id, term.id, pcar.id, "DIRECTOR");
+
+    await expect(
+      setProceduresBooked(director.id, {
+        termId: term.id,
+        departmentId: pcar.id,
+        dateKey: isoDateKey(dates[0]),
+        proceduresBooked: 3,
+      })
+    ).rejects.toBeInstanceOf(BuilderForbiddenError);
+    expect(await prisma.clinicDay.count({ where: { termId: term.id } })).toBe(0);
+  });
+
+  it("refuses an outsider", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const outsider = await createPerson("Outsider");
+
+    await expect(
+      setProceduresBooked(outsider.id, {
+        termId: term.id,
+        departmentId: scts.id,
+        dateKey: isoDateKey(dates[0]),
+        proceduresBooked: 3,
+      })
+    ).rejects.toBeInstanceOf(BuilderForbiddenError);
+  });
+
+  it("refuses a date the term does not list as a clinic date", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const director = await createPerson("RHD Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+
+    await expect(
+      setProceduresBooked(director.id, {
+        termId: term.id,
+        departmentId: scts.id,
+        dateKey: "2026-07-01",
+        proceduresBooked: 3,
+      })
+    ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 });
 
@@ -2071,6 +2237,85 @@ describe("builderView", () => {
     });
     const notClearedIdsFuture = viewFuture.banner.flatMap((b) => b.notCleared.map((v) => v.id));
     expect(notClearedIdsFuture).toContain(certVol.id);
+  });
+
+  // Who is directing is read off the schedule now, not typed into a
+  // "director on point" box on the attending form.
+  it("rhd directors come from the DIRECTOR assignments on the date, deduped across departments", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    const jcts = await createDepartment("JCTS");
+    await createDepartment("CCRH");
+    const alice = await createPerson("Alice Adams");
+    const bob = await createPerson("Bob Brown");
+    await createMembership(alice.id, term.id, scts.id, "DIRECTOR");
+    await createMembership(alice.id, term.id, jcts.id, "DIRECTOR");
+    await createMembership(bob.id, term.id, scts.id, "DIRECTOR");
+    // One person directing two RHD departments on the same date must appear once.
+    await createShift(term.id, scts.id, alice.id, dates[0], "DIRECTOR");
+    await createShift(term.id, jcts.id, alice.id, dates[0], "DIRECTOR");
+    await createShift(term.id, scts.id, bob.id, dates[0], "DIRECTOR");
+
+    const view = await builderView(alice.id, {
+      departmentId: scts.id,
+      dateKey: isoDateKey(dates[0]),
+      termId: term.id,
+    });
+    expect(view.rhd!.directors.map((d) => d.name)).toEqual(["Alice Adams", "Bob Brown"]);
+    expect(view.rhd!.readiness.director).toBe("Alice Adams, Bob Brown");
+  });
+
+  it("rhd falls back to the stored director name only when nobody is scheduled", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const scts = await createDepartment("SCTS");
+    await createDepartment("JCTS");
+    await createDepartment("CCRH");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, scts.id, "DIRECTOR");
+    // Written by the Airtable import for a historical date; nothing in the app
+    // types it any more.
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: dates[0], directorName: "KM" },
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: scts.id,
+      dateKey: isoDateKey(dates[0]),
+      termId: term.id,
+    });
+    expect(view.rhd!.directors).toEqual([]);
+    expect(view.rhd!.readiness.director).toBe("KM");
+  });
+
+  it("shiftEmails lists everyone assigned on the selected date, deduped and sorted", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director", { contactEmail: "zeta@yale.edu" });
+    const vol = await createPerson("Volunteer", { contactEmail: "alpha@yale.edu" });
+    const shadow = await createPerson("Shadow", { contactEmail: "mid@yale.edu" });
+    const noEmail = await createPerson("No Email");
+    const otherDate = await createPerson("Other Date", { contactEmail: "other@yale.edu" });
+    for (const p of [director, vol, shadow, noEmail, otherDate]) {
+      await createMembership(p.id, term.id, dept.id, p.id === director.id ? "DIRECTOR" : "VOLUNTEER");
+    }
+    await createShift(term.id, dept.id, director.id, dates[0], "DIRECTOR");
+    await createShift(term.id, dept.id, vol.id, dates[0], "VOLUNTEER");
+    // Shadows are on shift too, so they belong in the mail.
+    await createShift(term.id, dept.id, shadow.id, dates[0], "SHADOW");
+    await createShift(term.id, dept.id, noEmail.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, otherDate.id, dates[1], "VOLUNTEER");
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      dateKey: isoDateKey(dates[0]),
+      termId: term.id,
+    });
+    // Sorted, and a member with no address on file is absent rather than blank:
+    // an empty entry would silently break a paste into a To: field.
+    expect(view.shiftEmails).toEqual(["alpha@yale.edu", "mid@yale.edu", "zeta@yale.edu"]);
   });
 
   it("rhd block is null for a non-RHD department", async () => {

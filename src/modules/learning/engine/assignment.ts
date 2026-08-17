@@ -61,6 +61,38 @@ export function splitByRecurrence<T extends { id: string; recurrence: CourseRecu
   return { onceIds, perTermIds };
 }
 
+/**
+ * Narrow a course list to the ones a member can actually COMPLETE for the term
+ * being asked about.
+ *
+ * The read side of learning is term-aware: getMyCourses and loadClearanceMap both
+ * accept a termId so a member's next-term checklist and the schedule builder's
+ * "not cleared" banner agree. The WRITE side is not, and cannot sensibly be: a
+ * SCORM commit is a bare CMI snapshot POST with no term in it, so persistScoCmi
+ * records the attempt against the term the learner is working in right now (the
+ * ACTIVE one) and isCourseAssignedTo authorizes against that same term.
+ *
+ * So for a PLANNING (next) term, a PER_TERM course's progress row can never come
+ * into existence: it is read from termId = next, written to termId = active. It
+ * read NOT_STARTED forever, which made every member permanently "not cleared" on
+ * the next-term builder banner, their own next-term checklist and the Epic
+ * roll-up, with no action anyone could take to clear it (audit 14, L1).
+ *
+ * Dropping the course from the non-active term is the smaller of the two fixes:
+ * threading a term through the write path would mean trusting (or inventing) a
+ * term for a commit that carries none, and would let a learner bank a completion
+ * for a term they are not yet in. A requirement nobody can satisfy asserts an
+ * outstanding item nobody can clear, so it is not a requirement for that term --
+ * it becomes one the moment that term goes ACTIVE. ONCE courses are unaffected:
+ * a completion counts forever, so it is satisfiable in any term.
+ */
+export function coursesSatisfiableInTerm<T extends { recurrence: CourseRecurrence }>(
+  courses: T[],
+  isActiveTerm: boolean
+): T[] {
+  return isActiveTerm ? courses : courses.filter((c) => c.recurrence !== "PER_TERM");
+}
+
 export function coursesForMember(params: {
   courses: AssignableCourse[];
   memberships: MemberMembership[];

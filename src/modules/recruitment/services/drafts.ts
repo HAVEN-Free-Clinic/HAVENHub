@@ -30,6 +30,59 @@ function stripFileAnswers(answers: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
+/**
+ * Bounds on what an autosave may write into Application.answers.
+ *
+ * saveDraft persisted whatever JSON the caller handed it, with no cap on size,
+ * key count, or value shape, for anyone holding a magic-link-verified email --
+ * which is to say for anyone who can receive mail at an address they chose. One
+ * scripted caller could park megabytes of arbitrary JSON in the column and
+ * repeat it (audit 14, UNAUTH-03).
+ *
+ * The numbers are deliberately far above any real application. The client only
+ * ever sends what its own form serializes: strings, or arrays of strings for a
+ * checkbox group. The one genuinely big value is a drawn SIGNATURE, which rides
+ * along as a PNG data URL (tens of KB each) until submit converts it to a Blob
+ * reference, and the byte cap is set with several of those in mind. A legitimate
+ * draft has never come close to any of these.
+ */
+const MAX_DRAFT_ANSWER_KEYS = 500;
+const MAX_DRAFT_ANSWER_KEY_LENGTH = 200;
+const MAX_DRAFT_ANSWER_ITEMS = 500;
+const MAX_DRAFT_ANSWER_BYTES = 512 * 1024;
+
+/** A value the apply form can actually produce: one form control's value. */
+function isDraftScalar(v: unknown): boolean {
+  return v === null || ["string", "number", "boolean"].includes(typeof v);
+}
+
+/**
+ * Reject an out-of-bounds answer set before it reaches the database. Throws
+ * DraftError, so the wizard shows its "your answers may not be saved" state
+ * rather than a 500; every message is deliberately generic, since the only
+ * caller who can trip these is not filling in the form by hand.
+ */
+function assertDraftAnswersWithinBounds(answers: Record<string, unknown>): void {
+  const entries = Object.entries(answers);
+  if (entries.length > MAX_DRAFT_ANSWER_KEYS) throw new DraftError("This draft has too many answers to save.");
+  for (const [key, value] of entries) {
+    if (key.length > MAX_DRAFT_ANSWER_KEY_LENGTH) throw new DraftError("This draft could not be saved.");
+    if (Array.isArray(value)) {
+      // A checkbox group. Nested arrays and objects are not something any
+      // control emits, so they are refused rather than stored.
+      if (value.length > MAX_DRAFT_ANSWER_ITEMS) throw new DraftError("This draft could not be saved.");
+      if (!value.every(isDraftScalar)) throw new DraftError("This draft could not be saved.");
+      continue;
+    }
+    if (!isDraftScalar(value)) throw new DraftError("This draft could not be saved.");
+  }
+  // Last, because it is the only check that has to serialize the whole set, and
+  // the shape checks above already guarantee that serializing is safe.
+  if (Buffer.byteLength(JSON.stringify(answers)) > MAX_DRAFT_ANSWER_BYTES) {
+    throw new DraftError("This draft is too large to save.");
+  }
+}
+
 /** Full-replace incoming (already file-free) answers, then overlay the stored
  *  draft's real file references. A file input cannot round-trip through the form's
  *  FormData, so each autosave arrives without it; overlaying the stored refs keeps
@@ -101,6 +154,14 @@ export async function saveDraft(
   identity: ApplicantIdentity,
   input: { answers: Record<string, unknown>; applicantType?: ApplicantType; renewalDepartment?: string | null },
 ): Promise<void> {
+  // Never trust client-supplied file answers on autosave; file refs are written
+  // only by uploadDraftFile. Use the stripped set for the bounds check and for
+  // both the update-merge and the create branches below. Stripping and checking
+  // run first, before any query: an abusive payload should cost this endpoint
+  // nothing but the parse it already paid for.
+  const cleanAnswers = stripFileAnswers(input.answers);
+  assertDraftAnswersWithinBounds(cleanAnswers);
+
   const row = await findRow(slug, identity);
   if (!row) throw new DraftError("Cycle not found.");
   const { cycle, applicant } = row;
@@ -114,11 +175,6 @@ export async function saveDraft(
   if (!canSubmitToCycle(cycle, now, { invited })) {
     throw new DraftError("This application is closed.");
   }
-
-  // Never trust client-supplied file answers on autosave; file refs are written
-  // only by uploadDraftFile. Use the stripped set for both the update-merge and the
-  // create branches below.
-  const cleanAnswers = stripFileAnswers(input.answers);
 
   const existing = applicant?.applications[0];
 
@@ -218,10 +274,31 @@ export async function sweepAbandonedDrafts(olderThanDays = 30): Promise<{ delete
         ],
       },
     },
-    select: { id: true, applicantId: true, cycleId: true, answers: true },
+    select: { id: true, applicantId: true, cycleId: true, answers: true, applicant: { select: { emailLower: true } } },
   });
+
+  // An INVITED applicant may still submit to a cycle that is closed to everyone
+  // else, so their draft is not abandoned just because the window shut -- and the
+  // doc comment above already states the rule this sweep is meant to honour:
+  // "deleting it (and their uploads) would be irreversible data loss". The cycle
+  // filter is the negation of isCycleOpen, which is invite-blind, so an invited
+  // applicant's draft and every file they uploaded were swept 30 days later
+  // (audit 14, REC-1).
+  const liveInvites = stale.length
+    ? await prisma.recruitmentInvite.findMany({
+        where: {
+          cycleId: { in: [...new Set(stale.map((a) => a.cycleId))] },
+          claimedByEmailLower: { in: [...new Set(stale.map((a) => a.applicant.emailLower))] },
+          revokedAt: null,
+        },
+        select: { cycleId: true, claimedByEmailLower: true },
+      })
+    : [];
+  const invited = new Set(liveInvites.map((i) => `${i.cycleId}|${i.claimedByEmailLower}`));
+
   let deleted = 0;
   for (const app of stale) {
+    if (invited.has(`${app.cycleId}|${app.applicant.emailLower}`)) continue;
     const answers = (app.answers as Record<string, unknown>) ?? {};
     const keys: string[] = [];
     for (const v of Object.values(answers)) {

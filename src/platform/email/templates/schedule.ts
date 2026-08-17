@@ -180,7 +180,7 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hi {{ directorName }},</p>
 <p><strong>{{ requesterName }}</strong> has submitted a <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong>{{#if partnerName}} with <strong>{{ partnerName }}</strong> ({{ partnerDate }}){{/if}} in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
-<p><a href="{{ requestsUrl }}">Review pending requests</a></p>`,
+{{#if requestsUrl}}<p><a href="{{ requestsUrl }}">Review pending requests</a></p>{{/if}}`,
   },
   {
     key: "schedule-request-denied-partner",

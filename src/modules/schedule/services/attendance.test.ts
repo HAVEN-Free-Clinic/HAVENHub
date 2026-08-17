@@ -415,3 +415,55 @@ describe("attendanceForDate", () => {
     expect(map.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Closed clinic days (audit 14, CLINIC-01)
+//
+// A closed Saturday stays in Term.clinicDates by design and is taken out of
+// service by a flag on ClinicDay. Every volunteer-facing resolver read
+// clinicDates alone, so on a cancelled clinic the Check-in tab stayed live and
+// people could record attendance for a clinic nobody had declared open, while
+// the attending twin of this logic already honoured the same flag.
+// ---------------------------------------------------------------------------
+
+describe("closed clinic days", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await configureFence();
+  });
+
+  it("getCheckInState reports it is not a clinic day when the day is closed", async () => {
+    const { term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: true },
+    });
+
+    const person = await prisma.person.findFirstOrThrow();
+    const state = await getCheckInState(person.id, SATURDAY_MORNING);
+    expect(state.clinicDate).toBeNull();
+    expect(state.termId).toBeNull();
+  });
+
+  it("checkInSelf refuses on a closed day", async () => {
+    const { term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: true },
+    });
+
+    const person = await prisma.person.findFirstOrThrow();
+    const result = await checkInSelf(person.id, { coords: CLINIC, accuracyMeters: 20 }, SATURDAY_MORNING);
+    expect(result).toEqual({ ok: false, reason: "NOT_A_CLINIC_DAY" });
+    expect(await prisma.clinicAttendance.count()).toBe(0);
+  });
+
+  it("an open ClinicDay row leaves check-in working", async () => {
+    const { term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: false },
+    });
+
+    const person = await prisma.person.findFirstOrThrow();
+    const state = await getCheckInState(person.id, SATURDAY_MORNING);
+    expect(state.clinicDate).not.toBeNull();
+  });
+});

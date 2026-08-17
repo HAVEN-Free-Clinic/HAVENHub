@@ -91,6 +91,18 @@ it("sendAcceptanceEmail does not email an applicant who withdrew", async () => {
   expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
 });
 
+it("sendAcceptanceEmail refuses on an archived cycle, whose acceptance can never be onboarded (audit 14, REC-5)", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { status: "ARCHIVED" } });
+
+  // createOrResendContract hard-blocks the onboarding link on exactly this status,
+  // so emailing the offer would promise something the hub cannot deliver.
+  expect(await sendAcceptanceEmail(clean.id, "SRHD")).toEqual({ sent: false, reason: "cycle_archived" });
+  expect(await prisma.emailLog.count()).toBe(0);
+  expect((await prisma.acceptance.findFirstOrThrow({ where: { applicationId: clean.id } })).emailedAt).toBeNull();
+});
+
 it("requires review_all", async () => {
   const { plain, cycle } = await seed();
   await expect(releaseDecisions(cycle.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
@@ -133,6 +145,22 @@ it("releaseSummary reports the counts", async () => {
   expect(s.conflictedApplications).toBe(1);
   expect(s.unnotified).toBe(1);
   expect(s.emailed).toBe(0);
+});
+
+// audit 14, REC-3. releaseDecisions skips WITHDRAWN applications when it emails,
+// but the summary counted them, so a withdrawn applicant's acceptance sat in
+// "Unnotified" forever: pressing Release left a counter no action could clear,
+// and SRR could not tell a real outstanding decision from a phantom.
+it("releaseSummary excludes a withdrawn applicant, so Release can clear the count", async () => {
+  const { srr, cycle, clean } = await seed();
+  await accept(clean.id, "SRHD", srr.id);
+  expect((await releaseSummary(cycle.id)).unnotified).toBe(1);
+
+  await prisma.application.update({ where: { id: clean.id }, data: { status: "WITHDRAWN" } });
+
+  const s = await releaseSummary(cycle.id);
+  expect(s.unnotified).toBe(0);
+  expect(s.acceptedApplications).toBe(0);
 });
 
 it("sendAcceptanceEmail sends the acceptance email for one acceptance and stamps emailedAt", async () => {

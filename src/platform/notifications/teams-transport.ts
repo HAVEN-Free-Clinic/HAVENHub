@@ -42,6 +42,20 @@ export class LogTeamsTransport implements TeamsTransport {
   }
 }
 
+/**
+ * Refuses per message, so the queue's own accounting handles it.
+ *
+ * See the note in resolveTeamsTransport: this exists so a misconfiguration
+ * becomes a per-row send failure (attempts -> FAILED -> stored email fallback)
+ * rather than an exception in the caller that stops the drain before it starts.
+ */
+export class UnconfiguredTeamsTransport implements TeamsTransport {
+  constructor(private readonly reason: string) {}
+  async send(): Promise<TeamsSendResult> {
+    throw new Error(this.reason);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GraphTeamsTransport
 // ---------------------------------------------------------------------------
@@ -155,7 +169,19 @@ export async function resolveTeamsTransport(): Promise<TeamsTransport> {
     // email is delivered. Keep the log fallback in dev/CI so local runs without a
     // connected mailer still work.
     if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
-      throw new Error(
+      // Returned, not thrown. The comment above promised that the throw would let
+      // drainTeamsQueue "requeue, exhaust the attempt budget, and deliver the
+      // stored fallbackSubject/fallbackHtml email" -- but resolveTeamsTransport is
+      // called by the CALLER, before drainTeamsQueue(transport), at both entry
+      // points (the enqueue flusher and the cron backstop). So the throw escaped
+      // before a single row was claimed: attempts stayed 0, TEAMS_MAX_ATTEMPTS was
+      // never reached, the fallback branch never ran, and rows sat QUEUED forever
+      // with no in-app recovery (retryTeamsMessage refuses QUEUED). It also
+      // aborted the whole cron tick, taking the email drain and the heartbeat with
+      // it (audit 14, NOTIF-1).
+      //
+      // Failing per-row instead makes the documented recovery real.
+      return new UnconfiguredTeamsTransport(
         `email.transport is '${transport}' (live) but no mailer account is connected -- refusing to route Teams DMs to the log transport in production (would record undelivered notifications as LOGGED and skip the email fallback)`,
       );
     }

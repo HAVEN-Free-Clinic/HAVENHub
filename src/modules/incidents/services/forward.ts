@@ -35,6 +35,7 @@ import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { forwardedExternalContext } from "@/platform/email/templates/incidents";
 import { IncidentNotFoundError, IncidentForbiddenError, CONCERN_LABELS } from "./report";
+import { isReportSubject, isStrikeSubject } from "./self-exclusion";
 
 /** A forward that cannot be sent as asked: no recipients, or a malformed address. */
 export class IncidentForwardError extends Error {
@@ -113,6 +114,16 @@ export async function forwardReport(
   const report = await prisma.incidentReport.findUnique({ where: { id: reportId } });
   if (!report) throw new IncidentNotFoundError();
 
+  // A linked subject may never forward the report about themselves, the same rule
+  // getReport and reviewReport already enforce. This path was missed, and it is
+  // the worst one to miss: the recipient list is free-typed, so a subject could
+  // send their own report to any address outside the clinic (audit 14).
+  if (await isReportSubject(actorPersonId, reportId)) {
+    throw new IncidentForbiddenError(
+      "You cannot forward an incident report that concerns you."
+    );
+  }
+
   const recipients = resolveRecipients(input.emails);
   const note = (input.note ?? "").trim();
   const actor = await prisma.person.findUniqueOrThrow({
@@ -187,6 +198,13 @@ export async function forwardStrike(
   if (action.confidential) {
     throw new IncidentForwardError(
       "A confidential strike cannot be forwarded outside the clinic."
+    );
+  }
+  // Same self-exclusion as forwardReport. Covers both "this strike is about me"
+  // and "this strike came from a report I am a subject of".
+  if (await isStrikeSubject(actorPersonId, action)) {
+    throw new IncidentForbiddenError(
+      "You cannot forward a strike that concerns you."
     );
   }
 

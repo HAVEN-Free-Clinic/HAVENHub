@@ -24,10 +24,16 @@ const bootIntercom = vi.fn();
 const shutdown = vi.fn();
 const update = vi.fn();
 
+const watchMessengerScript = vi.fn();
+
 vi.mock("@intercom/messenger-js-sdk", () => ({
   default: (...args: unknown[]) => bootIntercom(...args),
   shutdown: (...args: unknown[]) => shutdown(...args),
   update: (...args: unknown[]) => update(...args),
+}));
+
+vi.mock("./messenger-readiness", () => ({
+  watchMessengerScript: (...args: unknown[]) => watchMessengerScript(...args),
 }));
 
 const { IntercomMessenger } = await import("./messenger");
@@ -382,6 +388,45 @@ describe("IntercomMessenger", () => {
       unmount();
 
       expect(shutdown).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * The readiness watcher has to start at every boot, and only after one: it
+   * watches the <script> the SDK injects during Intercom(), so a call placed
+   * before the boot would find nothing to watch and settle "pending" forever.
+   *
+   * Nothing throws if these calls go missing. The Messenger still works, and
+   * the only visible consequence is somewhere else entirely -- the sign-in
+   * page's help link quietly emailing instead of opening the Messenger, on a
+   * page where nobody signed in is around to notice the difference. Hence a
+   * wiring assertion per boot path rather than trust.
+   */
+  describe("readiness watcher wiring", () => {
+    it("starts watching after a visitor boot", async () => {
+      await mount(<IntercomMessenger appId="abc123" mode="visitor" />);
+      expect(watchMessengerScript).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts watching after an identified boot", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { token: "jwt-1", expiresInSeconds: 3600 }));
+      await mount(<IntercomMessenger appId="abc123" mode="identified" />);
+      await act(async () => {});
+      expect(watchMessengerScript).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts watching after the 401/403 fallback boots visitor mode", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(403, { error: "Forbidden" }));
+      await mount(<IntercomMessenger appId="abc123" mode="identified" requireActiveMembership />);
+      await act(async () => {});
+      expect(watchMessengerScript).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not start watching when nothing booted -- a 404 injects no script", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(404, { error: "Not Found" }));
+      await mount(<IntercomMessenger appId="abc123" mode="identified" />);
+      await act(async () => {});
+      expect(watchMessengerScript).not.toHaveBeenCalled();
     });
   });
 

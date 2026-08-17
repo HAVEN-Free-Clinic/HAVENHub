@@ -36,7 +36,7 @@
  *   - no active term: empty rows + all-zero summary.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -125,10 +125,21 @@ function noon(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
 }
 
+/**
+ * Role.name is unique, and this fixture used to build it from Date.now() alone
+ * (audit 14, determinism -- the same shape the 11th audit found on term codes).
+ * "re-verify updates the stamp rather than failing" below grants the SAME
+ * permission to two people back to back, so the two names collide whenever both
+ * inserts land in one millisecond and the second create fails P2002. A counter
+ * cannot collide and, unlike Date.now() or Math.random(), makes the fixture
+ * deterministic: resetDb() truncates Role between tests, so it never runs out.
+ */
+let roleSeq = 0;
+
 async function grantPermission(personId: string, permission: string) {
   const role = await prisma.role.create({
     data: {
-      name: `Role-${permission}-${Date.now()}`,
+      name: `Role-${permission}-${++roleSeq}`,
       isSystem: false,
       grants: { create: [{ permission }] },
     },
@@ -1340,5 +1351,35 @@ describe("masterCompliance clearance field", () => {
     expect(row.clearance.cleared).toBe(false);
     expect(row.clearance.missing).toContain("ehs");
     expect(res.ehsMissingCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture determinism (audit 14)
+//
+// The 11th audit found term codes built as `SU26-${Date.now()}` colliding when
+// two were created in the same millisecond. The same shape survived here in
+// grantPermission, where Role.name is unique and "re-verify updates the stamp
+// rather than failing" grants the same permission twice in a row: on a fast
+// local Postgres both inserts can land inside one millisecond, and the run then
+// fails with a P2002 that reads exactly like a regression in verifyCertificate.
+//
+// Freezing the clock turns "rare and unattributable" into "every run".
+// ---------------------------------------------------------------------------
+
+describe("grantPermission fixture", () => {
+  it("names roles uniquely even when two grants land in the same millisecond", async () => {
+    const frozen = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      const first = await createPerson("Frozen One", "frz001");
+      const second = await createPerson("Frozen Two", "frz002");
+
+      await grantPermission(first.id, "volunteers.manage_compliance");
+      await grantPermission(second.id, "volunteers.manage_compliance");
+
+      expect(await prisma.role.count()).toBe(2);
+    } finally {
+      frozen.mockRestore();
+    }
   });
 });

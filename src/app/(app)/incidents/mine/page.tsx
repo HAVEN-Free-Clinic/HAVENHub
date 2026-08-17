@@ -32,6 +32,11 @@ type BadgeTone = "default" | "success" | "warning" | "critical";
 const STATUS_LABELS: Record<IncidentReportStatus, string> = {
   SUBMITTED: "Submitted",
   UNDER_REVIEW: "Under review",
+  // Reporter-facing wording, and the one place it differs from the reviewer
+  // queue's "Awaiting reporter": on their own list the reader IS the reporter,
+  // so the status has to read as a request addressed to them, not as a note
+  // about a third party they might scroll past.
+  AWAITING_INFO: "Your reply needed",
   RESOLVED: "Resolved",
   DISMISSED: "Dismissed",
 };
@@ -39,6 +44,9 @@ const STATUS_LABELS: Record<IncidentReportStatus, string> = {
 const STATUS_TONES: Record<IncidentReportStatus, BadgeTone> = {
   SUBMITTED: "default",
   UNDER_REVIEW: "warning",
+  // The only row on this page the reporter can act on, so it is the only one
+  // toned to ask for action.
+  AWAITING_INFO: "warning",
   RESOLVED: "success",
   DISMISSED: "default",
 };

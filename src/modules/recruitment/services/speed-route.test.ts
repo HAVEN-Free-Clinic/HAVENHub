@@ -60,6 +60,21 @@ describe("loadSpeedRouteBoard", () => {
     expect(row?.proposedDepartmentCode).toBeNull();
   });
 
+  it("proposes null, not the decliner, once a department handed the applicant back (audit 14, REC-2)", async () => {
+    const { lead, cycle, apps } = await seed();
+    // EDUC is every seeded applicant's first (and only) ranked choice, so before
+    // the fix this row proposed EDUC -- the department that just declined them --
+    // as the default for the tier select and "Apply top tier".
+    await prisma.application.update({
+      where: { id: apps[0] },
+      data: { returnedToRoutingAt: new Date(), returnedFromDepartmentCode: "EDUC" },
+    });
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    const row = [...board.top, ...board.middle, ...board.bottom].find((r) => r.applicationId === apps[0]);
+    expect(row?.returnedFromDepartmentCode).toBe("EDUC");
+    expect(row?.proposedDepartmentCode).toBeNull();
+  });
+
   it("rejects a viewer without review_all", async () => {
     const { other, cycle } = await seed();
     await expect(loadSpeedRouteBoard(cycle.id, other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);

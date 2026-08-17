@@ -224,4 +224,37 @@ describe("drainTeamsQueue", () => {
     expect(email?.toEmail).toBe("sam@x.com");
     expect(email?.subject).toBe("HIPAA compliance reminder");
   });
+
+  // audit 14, NOTIF-1. resolveTeamsTransport's production refusal used to THROW,
+  // and its own comment claimed that would let the drain "requeue, exhaust the
+  // attempt budget, and deliver the stored fallback email". It could not: the
+  // resolver runs in the CALLER, before drainTeamsQueue(transport), so the throw
+  // escaped before any row was claimed. attempts stayed 0, the fallback branch
+  // never ran, and rows sat QUEUED forever with no in-app recovery
+  // (retryTeamsMessage refuses QUEUED).
+  //
+  // With the refusal moved into the transport, the documented recovery is real:
+  // an unconfigured mailer now drives the row to FALLBACK and sends the email.
+  it("an unconfigured transport still reaches the email fallback (the promised recovery)", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Sam", contactEmail: "sam@x.com", entraObjectId: "e1" },
+    });
+    const row = await queueTeamsMessage(prisma, { personId: p.id, ...baseInput });
+
+    const { UnconfiguredTeamsTransport } = await import("./teams-transport");
+    const transport = new UnconfiguredTeamsTransport("no mailer account is connected");
+
+    for (let i = 0; i < TEAMS_MAX_ATTEMPTS; i++) {
+      await prisma.teamsMessage.updateMany({
+        where: { id: row.id, status: "QUEUED" },
+        data: { lockedAt: null },
+      });
+      await drainTeamsQueue(transport);
+    }
+
+    const after = await prisma.teamsMessage.findUnique({ where: { id: row.id } });
+    expect(after?.status).toBe("FALLBACK");
+    const email = await prisma.emailLog.findFirst({ where: { personId: p.id } });
+    expect(email?.toEmail).toBe("sam@x.com");
+  });
 });

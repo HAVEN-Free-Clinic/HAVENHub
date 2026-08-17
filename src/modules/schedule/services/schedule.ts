@@ -100,7 +100,7 @@ export type MyShift = {
   clinicDate: Date;
   department: Department;
   role: ShiftRole;
-  tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  tags: ShiftTags;
   /**
    * The attending covering THIS shift's department on this date, in
    * schedule-column order.
@@ -128,8 +128,20 @@ export type PersonLite = { id: string; name: string };
 /** Per-assignment shift flags. Set on EVERY role, not just volunteers: a
  *  director can hold the triage post or work the day remotely just as a
  *  volunteer can, and the full schedule is where the rest of the clinic looks
- *  those up. */
-export type ShiftTags = { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+ *  those up.
+ *
+ *  `specialty` says this person is covering the day's specialty clinic. Which
+ *  specialty that is comes from the day itself, not from here, so there is one
+ *  flag rather than one per specialty. It says nothing about being
+ *  specialty-trained; that is a person-level credential this deliberately does
+ *  not encode. */
+export type ShiftTags = {
+  triage: boolean;
+  walkin: boolean;
+  cc: boolean;
+  remote: boolean;
+  specialty: boolean;
+};
 
 export type TaggedPerson = PersonLite & {
   tags: ShiftTags;
@@ -237,7 +249,7 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     clinicDate: s.clinicDate,
     department: s.department,
     role: s.role,
-    tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote },
+    tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote, specialty: s.specialty },
     attendings: attendingsByShift.get(`${isoDateKey(s.clinicDate)}|${s.departmentId}`) ?? [],
   }));
 
@@ -389,11 +401,26 @@ export async function fullSchedule(
 
   const selectedKey = isoDateKey(selectedDate);
 
+  // The whole render is one date: the rows, the department list, the language
+  // badges, and the only conflicts that survive (same-day ones ON the selected
+  // date, see the computeConflicts call below). This used to fetch every
+  // assignment in the term and then throw ~13/14ths of them away in memory,
+  // which at launch scale (hundreds of volunteers, two shifts each, a ~14-date
+  // term) is thousands of rows with two joins read to render one Saturday
+  // (audit 14, fullschedule-loads-whole-term).
+  //
+  // A UTC-day range rather than `clinicDate: selectedDate`, because the filter
+  // this replaces compared UTC day KEYS: clinic dates are stored at noon UTC,
+  // but an assignment written from an import could carry any time on the day,
+  // and equality would silently drop it where the old code kept it.
+  const dayStart = new Date(`${selectedKey}T00:00:00.000Z`);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
   // Attendance for the selected date is independent of the assignment query
   // below, so fetch it concurrently rather than serially.
   const [rawAssignments, attendance] = await Promise.all([
     prisma.shiftAssignment.findMany({
-      where: { termId: term.id },
+      where: { termId: term.id, clinicDate: { gte: dayStart, lt: dayEnd } },
       select: {
         personId: true,
         departmentId: true,
@@ -403,6 +430,7 @@ export async function fullSchedule(
         walkin: true,
         cc: true,
         remote: true,
+        specialty: true,
         person: { select: { id: true, name: true, licensedRN: true } },
         department: { select: { id: true, name: true, code: true } },
       },
@@ -422,12 +450,15 @@ export async function fullSchedule(
       select: { personId: true, departmentId: true },
     })).map((m) => `${m.personId}|${m.departmentId}`),
   );
-  const allAssignments = rawAssignments.filter((a) =>
+  const selectedAssignments = rawAssignments.filter((a) =>
     activeMemberPairs.has(`${a.personId}|${a.departmentId}`),
   );
 
-  // Build engine entries for conflict computation.
-  const engineRows = allAssignments.map((a) => ({
+  // Build engine entries for conflict computation. One date's worth is enough:
+  // computeConflicts only reports a same-day conflict for a date the person is
+  // ALSO assigned on in the department being rendered, and its crossTerm list is
+  // discarded below, so entries from other dates could never reach the output.
+  const engineRows = selectedAssignments.map((a) => ({
     departmentId: a.departmentId,
     departmentName: a.department.name,
     personId: a.personId,
@@ -435,11 +466,6 @@ export async function fullSchedule(
     role: a.role as "DIRECTOR" | "VOLUNTEER" | "SHADOW",
   }));
   const allEntries = toScheduleEntries(engineRows);
-
-  // Group assignments on the selected date by departmentId, then by role.
-  const selectedAssignments = allAssignments.filter(
-    (a) => isoDateKey(a.clinicDate) === selectedKey
-  );
 
   // Departments that have at least one assignment on the selected date, built
   // from the department data already on the assignment rows (no extra query),
@@ -473,7 +499,7 @@ export async function fullSchedule(
     const person: TaggedPerson = {
       id: a.person.id,
       name: a.person.name,
-      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
       licensedRN: a.person.licensedRN,
     };

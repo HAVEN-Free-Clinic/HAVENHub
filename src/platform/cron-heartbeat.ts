@@ -35,6 +35,13 @@ export const CRON_JOBS: { id: string; label: string; maxStaleMs: number }[] = [
   { id: "recruitment-review-digest", label: "Recruitment review digest", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "schedule-reminders", label: "Schedule reminders", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "shift-reminders", label: "Weekly shift reminders", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly
+  // Was missing for as long as the job existed, so its heartbeat was written and
+  // never read and the panel could not flag it however long it stayed dead
+  // (audit 14, finding 4). Its recipients are attendings, who have no Person row
+  // and no in-app inbox, and Faculty Relations used to send this by hand -- so
+  // nothing else builds up to reveal the silence either. The registry test below
+  // now fails if a future route is added without an entry here.
+  { id: "attending-reminders", label: "Weekly attending reminders", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly
   { id: "clinic-checkin-invites", label: "Clinic check-in invites", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "wallet-passes", label: "Wallet badge reconciliation", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "intercom-reconcile", label: "Intercom ticket status reconciliation", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily

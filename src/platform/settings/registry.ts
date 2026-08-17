@@ -157,7 +157,14 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "email.sender",
     category: "Email",
     label: "Email sender address",
-    help: "From-address used when sending via Microsoft Graph. Required before enabling graph email.",
+    // One setting, two incompatible meanings, and the help text used to name only
+    // the first (audit 14, EMAIL-3). Under Graph this must be a Yale mailbox the
+    // connected account has Send-As on; under Maileroo it must be on the verified
+    // Maileroo domain, because MailerooTransport PINS it and ignores every
+    // per-message `from`. Switching transport without changing this address makes
+    // every send fail permanently as a 4xx, and nothing told the admin to look.
+    help:
+      "From-address for outbound email. Under Microsoft Graph this must be a mailbox the connected account can Send-As. Under Maileroo it must be on your verified Maileroo domain, and it overrides every per-template sender. Change it when you switch transport, then run a sender test.",
     input: { type: "text" },
     schema: z.string(),
     envDefault: () => config.EMAIL_SENDER ?? "",
@@ -454,7 +461,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "maintenance.enabled",
     category: "Maintenance",
     label: "Maintenance mode",
-    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Only a Platform Admin (the \"*\" grant) keeps using the hub normally, so check who holds it before relying on this. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
+    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Anyone who can reach this page keeps using the hub normally, so whoever turns it on can always turn it back off. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
     input: { type: "boolean" },
     schema: z.boolean(),
     envDefault: () => false,

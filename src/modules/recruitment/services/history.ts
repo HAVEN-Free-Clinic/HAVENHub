@@ -73,7 +73,22 @@ export async function getApplicantHistory(q: {
       where: { OR: liveOr },
       include: {
         applications: {
-          where: q.excludeApplicationId ? { id: { not: q.excludeApplicationId } } : undefined,
+          // Scoped by status, like every other reviewer-facing query in this
+          // module (listApplicantsForReview and listWaitlisted both use
+          // status: "SUBMITTED"). This one was not, so an UNSUBMITTED draft in
+          // any cycle became a history entry: stage "APPLIED", outcome
+          // "NO_DECISION", dated off createdAt because submittedAt is null, and
+          // counted in applicationCount. A reviewer opening a first-time
+          // applicant read "2nd application" about someone who has applied once,
+          // and the entry linked into a draft they never submitted (audit 14,
+          // REC-3).
+          //
+          // WITHDRAWN stays: liveOutcome and liveEntry model it deliberately, and
+          // a withdrawal IS part of an applicant's history. Only DRAFT is noise.
+          where: {
+            status: { in: ["SUBMITTED", "WITHDRAWN"] },
+            ...(q.excludeApplicationId ? { id: { not: q.excludeApplicationId } } : {}),
+          },
           include: {
             interviews: true,
             acceptances: { include: { contract: true } },

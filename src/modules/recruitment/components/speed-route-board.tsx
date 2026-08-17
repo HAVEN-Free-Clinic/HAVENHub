@@ -62,9 +62,15 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
                     aria-label={`Route ${r.name} to`}
                   >
                     <option value="" disabled>Department…</option>
-                    {h.departments.map((d) => (
-                      <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}</option>
-                    ))}
+                    {h.departments
+                      // Same exclusion the Returned card makes: a returned applicant
+                      // also appears in their score tier, and routing them back to the
+                      // department that declined them is refused server-side, so it
+                      // must not be offered here either (audit 14, REC-2).
+                      .filter((d) => d !== r.returnedFromDepartmentCode)
+                      .map((d) => (
+                        <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}</option>
+                      ))}
                   </Select>
                 </div>
                 <Button type="button" size="sm" variant="outline" disabled={h.busy || h.deptFor(r) === ""} onClick={() => h.onRoute(r.applicationId, h.deptFor(r))}>Route</Button>

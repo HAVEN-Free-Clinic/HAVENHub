@@ -56,6 +56,23 @@ export const MODULES: ModuleManifest[] = [
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
+      // Reference data for the roster above, so it lives beside it rather than in
+      // Admin. Putting it under /admin would have made it unreachable by the one
+      // role that owns attendings: Faculty Relations Manager holds
+      // schedule.manage_attendings but not admin.access, so the Admin module's
+      // accessPermission would have gated them out of their own configuration.
+      //
+      // A SIBLING href, not /schedule/attendings/specialties. ModuleNav's active
+      // rule prefix-matches any href with more than one segment, so nesting a tab
+      // under another tab's path lights BOTH of them up at once (and sends
+      // scrollActiveTabIntoView to the wrong one, since it takes the first
+      // aria-current match). No other module nests, which is why the rule has held
+      // so far. Keep tab hrefs flat.
+      {
+        label: "Specialties",
+        href: "/schedule/specialties",
+        permission: "schedule.manage_attendings",
+      },
       // Read-only view of the same schedule, for a WIDER audience than the
       // builder: anyone holding clinic-wide schedule rights runs a clinic day
       // and needs to look coverage up without being able to change it. Also

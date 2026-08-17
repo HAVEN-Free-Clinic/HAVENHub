@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
@@ -42,23 +43,46 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
   if (!term) return { skipped: true, queued: 0 };
 
   const todayKey = await displayTodayKey(now);
-  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === todayKey);
+  // Skips a CLOSED Saturday as well as a non-clinic day. Without this the
+  // morning-of invite went to every assigned volunteer on a day the clinic had
+  // been declared closed, telling them to come in -- while the attending twin of
+  // this job already bailed on the same flag (audit 14, CLINIC-01).
+  const clinicDate = await resolveOpenClinicDate(term, todayKey);
   if (!clinicDate) return { skipped: true, queued: 0 };
 
   const assignments = await prisma.shiftAssignment.findMany({
     where: { termId: term.id, clinicDate },
     select: {
+      departmentId: true,
       person: {
         select: { id: true, name: true, contactEmail: true, entraObjectId: true, status: true },
       },
     },
   });
 
+  // Removing someone from a department does not delete their existing shift
+  // assignments, so Person.status alone is not enough: a volunteer taken off one
+  // department's roster mid-term still held an assignment row and was still
+  // invited to turn up for it. The sibling shift-reminder cron already filters on
+  // ACTIVE membership keyed on (person, department) for exactly this reason,
+  // noting "a single-department removal is caught too, not just a full offboard";
+  // this job did not (audit 14, SCHED-2 / CLINIC-02).
+  const activeMemberships = await prisma.termMembership.findMany({
+    where: {
+      termId: term.id,
+      status: "ACTIVE",
+      personId: { in: [...new Set(assignments.map((a) => a.person.id))] },
+    },
+    select: { personId: true, departmentId: true },
+  });
+  const activePair = new Set(activeMemberships.map((m) => `${m.personId}|${m.departmentId}`));
+
   // One email per PERSON, not per assignment: someone on two departments'
   // schedules that day arrives once and should be asked once.
   const byPerson = new Map<string, (typeof assignments)[number]["person"]>();
   for (const a of assignments) {
     if (a.person.status !== "ACTIVE") continue;
+    if (!activePair.has(`${a.person.id}|${a.departmentId}`)) continue;
     byPerson.set(a.person.id, a.person);
   }
 

@@ -71,16 +71,22 @@ function roleGlyph(role: "DIRECTOR" | "VOLUNTEER" | "SHADOW" | null): string {
 }
 
 // Which tag abbreviations to show (dept-specific roles + remote always).
-function tagKeys(deptCode: string): Array<"triage" | "walkin" | "cc" | "remote"> {
+function tagKeys(deptCode: string): Array<"triage" | "walkin" | "cc" | "remote" | "specialty"> {
   const roles = rolesForDept(deptCode) as Array<"triage" | "walkin" | "cc">;
-  return [...roles, "remote"] as Array<"triage" | "walkin" | "cc" | "remote">;
+  // "remote" and "specialty" are offered for EVERY department, unlike the med
+  // roles above, which only SCTP and JCTP use. Any team can work remotely, and
+  // any team can be the one covering the day's specialty clinic.
+  return [...roles, "remote", "specialty"] as Array<
+    "triage" | "walkin" | "cc" | "remote" | "specialty"
+  >;
 }
 
-const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote", string> = {
+const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote" | "specialty", string> = {
   triage: "T",
   walkin: "W",
   cc: "C",
   remote: "R",
+  specialty: "S",
 };
 
 // ---------------------------------------------------------------------------

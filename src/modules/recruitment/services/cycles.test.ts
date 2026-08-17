@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  createCycle, publishCycle, closeCycle, listCycles, listArchivedCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle, archiveCycle,
+  createCycle, publishCycle, closeCycle, listCycles, listArchivedCycles, CyclePublishError, setCycleDepartments, setApplicationWindow, reopenCycle, archiveCycle, unarchiveCycle,
 } from "./cycles";
 
 async function seedTermAndPerson() {
@@ -507,6 +507,45 @@ describe("archiveCycle", () => {
   it("rejects a missing cycle", async () => {
     const { person } = await seedTermAndPerson();
     await expect(archiveCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  /**
+   * Audit 14 (archived-cycle-is-a-one-way-door): archiving does not merely hide a
+   * cycle, it hard-blocks releaseDecisions, onboarding links and the waitlist
+   * promote. Archiving with anyone still mid-pipeline stranded them permanently,
+   * because there was no transition out of ARCHIVED at all.
+   */
+  describe("unarchiveCycle", () => {
+    it("returns an ARCHIVED cycle to CLOSED, the state it was archived from", async () => {
+      const { person, cycle } = await closedCycle("unarchive-basic");
+      await archiveCycle(cycle.id, person.id);
+
+      const restored = await unarchiveCycle(cycle.id, person.id);
+
+      expect(restored.status).toBe("CLOSED");
+      // Back in the active list, and archivable again once the stragglers are done.
+      expect((await listCycles()).find((c) => c.id === cycle.id)).toBeDefined();
+      expect((await listArchivedCycles()).find((c) => c.id === cycle.id)).toBeUndefined();
+      expect((await archiveCycle(cycle.id, person.id)).status).toBe("ARCHIVED");
+    });
+
+    it("writes a recruitment.cycle_unarchive audit entry", async () => {
+      const { person, cycle } = await closedCycle("unarchive-audit");
+      await archiveCycle(cycle.id, person.id);
+      await unarchiveCycle(cycle.id, person.id);
+      const audit = await prisma.auditLog.findFirst({ where: { entityId: cycle.id, action: "recruitment.cycle_unarchive" } });
+      expect(audit).not.toBeNull();
+    });
+
+    it("rejects un-archiving a cycle that is not ARCHIVED", async () => {
+      const { person, cycle } = await closedCycle("unarchive-closed");
+      await expect(unarchiveCycle(cycle.id, person.id)).rejects.toBeInstanceOf(CyclePublishError);
+    });
+
+    it("rejects a missing cycle", async () => {
+      const { person } = await seedTermAndPerson();
+      await expect(unarchiveCycle("missing", person.id)).rejects.toBeInstanceOf(CyclePublishError);
+    });
   });
 });
 

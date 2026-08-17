@@ -1,7 +1,9 @@
 /**
  * Daily wallet badge reconciliation.
  *
- * Revokes badges whose term has ended or whose holder has been offboarded. The
+ * Revokes badges whose term has ended, whose holder has been offboarded, or
+ * whose holder no longer holds an ACTIVE membership anywhere (a mid-term roster
+ * removal or a self-withdrawal, neither of which touches Person.status). The
  * vendor offers no webhooks and no status endpoint, so this is the only thing
  * that guarantees a badge stops working after the app's best-effort revoke
  * paths (issuance overwrite, offboard) fail at the vendor. Safe to run

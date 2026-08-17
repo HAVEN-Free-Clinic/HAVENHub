@@ -28,7 +28,8 @@ import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { applicantWithdrewContext } from "@/platform/email/templates/recruitment";
 import { cleanupFiles } from "./upload";
-import { isCycleOpen } from "./cycle-window";
+import { canSubmitToCycle } from "./cycle-window";
+import { isInvitedTo } from "./invites";
 import type { ApplicantIdentity } from "./portal-auth";
 
 export class WithdrawError extends Error {
@@ -263,7 +264,14 @@ export async function discardDraft(slug: string, identity: ApplicantIdentity): P
   if (!row) throw new WithdrawError("Application not found.");
   const { cycle, applicant, application } = row;
   if (application.status !== "DRAFT") throw new WithdrawError("This application has already been submitted.");
-  if (!isCycleOpen(cycle, new Date())) throw new WithdrawError("This cycle is no longer accepting applications.");
+  // Invited applicants may submit to a cycle that is closed to everyone else, so
+  // they must be able to throw the draft away and start over too. Gating this on
+  // isCycleOpen left them holding a draft they could neither continue from the
+  // portal nor discard (audit 14, REC-1).
+  const invited = await isInvitedTo(cycle.id, identity.email);
+  if (!canSubmitToCycle(cycle, new Date(), { invited })) {
+    throw new WithdrawError("This cycle is no longer accepting applications.");
+  }
 
   const answers = (application.answers as Record<string, unknown> | null) ?? {};
   const keys: string[] = [];

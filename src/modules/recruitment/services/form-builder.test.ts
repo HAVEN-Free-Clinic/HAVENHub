@@ -134,6 +134,51 @@ it("creates a QUIZ section and a graded question with a correctValue", async () 
   expect(updated.correctValue).toBe("lyon");
 });
 
+describe("deleting the marked-correct answer choice (audit 14)", () => {
+  async function quizQuestion(slug: string) {
+    const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: slug, departments: [], createdById: srr.id, status: "OPEN" } });
+    const section = await addSection(cycle.id, { title: "Quiz", appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" });
+    const field = await addField(section.id, {
+      label: "Capital of France?", type: "SINGLE_SELECT", required: true,
+      options: [{ value: "paris", label: "Paris" }, { value: "lyon", label: "Lyon" }],
+      correctValue: "paris",
+    });
+    return field;
+  }
+
+  it("clears correctValue rather than leaving it pointing at a deleted option", async () => {
+    const field = await quizQuestion("quiz-orphan");
+
+    // The builder saves options and correctValue independently, so removing the
+    // correct choice is a plain options-only patch.
+    const updated = await updateField(field.id, { options: [{ value: "lyon", label: "Lyon" }] });
+
+    // Left as "paris" the grader compares every submission against a value no
+    // radio can produce, so the question is impossible and the makeup quiz
+    // unpassable. Ungraded is the honest state until a director re-marks one.
+    expect(updated.correctValue).toBeNull();
+  });
+
+  it("keeps correctValue when the marked option survives the edit", async () => {
+    const field = await quizQuestion("quiz-keep");
+    const updated = await updateField(field.id, {
+      options: [{ value: "paris", label: "Paris" }, { value: "nice", label: "Nice" }],
+    });
+    expect(updated.correctValue).toBe("paris");
+  });
+
+  it("honors a same-save re-mark: new options plus the new correct answer", async () => {
+    const field = await quizQuestion("quiz-remark");
+    const updated = await updateField(field.id, {
+      options: [{ value: "lyon", label: "Lyon" }, { value: "nice", label: "Nice" }],
+      correctValue: "nice",
+    });
+    expect(updated.correctValue).toBe("nice");
+  });
+});
+
 it("allows adding and deleting quiz questions on an OPEN cycle (quiz sections never affect applications)", async () => {
   const term = await prisma.term.create({ data: { code: "SU26", name: "S", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
   const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });

@@ -5,7 +5,7 @@ import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
-import { SupportLink } from "@/platform/branding/support-link";
+import { MessengerSupportLink } from "@/platform/intercom/messenger-support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { Input, Field } from "@/platform/ui/input";
@@ -86,8 +86,18 @@ export default async function LoginPage({
 
       {/* Centered glass card */}
       <div className="glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 shadow-xl">
-        {/* Brand lockup at the top of the card */}
-        <HavenLogo className="mx-auto h-8 text-brand-fg" />
+        {/* Brand lockup at the top of the card.
+
+            h-14 rather than h-8: at 32px the lockup sat well under the size of
+            the "Sign in" heading below it and read as an afterthought, which is
+            backwards for the first thing on the page.
+
+            text-brand-fg stays. It is not a recolor of a colored asset -- the
+            bundled logo is a white silhouette (public/brand/haven-logo-white.png,
+            which is what the branding route falls back to), so the mask fill is
+            the ONLY thing giving it a color at all. Dropping it renders the logo
+            white on a white card. */}
+        <HavenLogo className="mx-auto h-14 text-brand-fg" />
 
         <h1 className="mt-5 text-center text-2xl font-bold tracking-tight text-foreground">
           Sign in to {appName}
@@ -144,11 +154,18 @@ export default async function LoginPage({
 
         {/* Persistent help affordance, available before any error occurs.
             Hidden entirely when no support email is configured, so a
-            locked-out user is never shown a contact they cannot reach. */}
+            locked-out user is never shown a contact they cannot reach.
+
+            Opens the Intercom Messenger rather than a mail client whenever the
+            Messenger is actually up: this layout already boots it in visitor
+            mode (see ./layout.tsx), and a locked-out person gets an answer in
+            the chat far sooner than in an inbox. It stays a mailto link
+            underneath for the cases where the widget never loads at all --
+            content blocker, filtered network, integration switched off. */}
         {support.email && (
           <p className="mt-5 text-center text-sm text-muted-foreground">
             Trouble signing in?{" "}
-            <SupportLink email={support.email}>{support.label}</SupportLink>
+            <MessengerSupportLink email={support.email}>{support.label}</MessengerSupportLink>
           </p>
         )}
 

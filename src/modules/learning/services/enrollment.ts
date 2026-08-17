@@ -1,9 +1,16 @@
 import type { CourseRecurrence, Prisma } from "@prisma/client";
 import { prisma, runSerializable } from "@/platform/db";
+import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import { coursesForMember, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
+import {
+  coursesForMember,
+  coursesSatisfiableInTerm,
+  splitByRecurrence,
+  type AssignableCourse,
+  type MemberMembership,
+} from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -171,11 +178,22 @@ export type MyCourseRow = {
 export async function getMyCourses(personId: string, termId?: string): Promise<MyCourseRow[]> {
   const ids = await assignedCourseIds(personId, termId);
   if (ids.length === 0) return [];
-  const courses = await prisma.course.findMany({
+  const assigned = await prisma.course.findMany({
     where: { id: { in: ids } },
     orderBy: { position: "asc" },
     select: { id: true, title: true, description: true, recurrence: true },
   });
+
+  // A PER_TERM course is only satisfiable in the ACTIVE term, because that is the
+  // only term persistScoCmi will ever write an attempt against. Listing it for a
+  // next term put a permanently-NOT_STARTED row on the member's next-term
+  // checklist that no amount of studying could clear (audit 14, L1). See
+  // coursesSatisfiableInTerm; loadClearanceMap applies the identical rule, which
+  // is what keeps this checklist and the builder's banner agreeing.
+  const activeTerm = await activeTermId();
+  const resolvedTermId = termId ?? activeTerm;
+  const courses = coursesSatisfiableInTerm(assigned, resolvedTermId === activeTerm);
+  if (courses.length === 0) return [];
 
   // Scope the progress lookup by term for PER_TERM courses only; ONCE courses stay
   // unscoped so a prior-term completion still counts (today's behavior, unchanged --
@@ -184,7 +202,6 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
   // term), so a PER_TERM course's status agrees with which term this call is
   // actually answering assignment for -- including a next-term checklist call, not
   // just the live term.
-  const resolvedTermId = termId ?? (await activeTermId());
   const { onceIds, perTermIds } = splitByRecurrence(courses);
   const progress = await prisma.courseProgress.findMany({
     where: {
@@ -413,6 +430,34 @@ export async function persistScoCmi(
     // un-clearing a volunteer who already finished (standard LMS behavior).
     const scoComplete = sco.completed || existingSco?.completedAt != null;
     const scoCompletedAt = scoComplete ? (existingSco?.completedAt ?? new Date()) : null;
+
+    // A completion on the FIRST commit for this SCO, with no prior progress row at
+    // all, is the signature of a forged CMI snapshot.
+    //
+    // The beacon (api/learning/persist-cmi) authenticates the learner correctly but
+    // takes the CONTENT of `cmi` on trust, and deriveStatus is a plain string match
+    // on lessonStatus, so a POST of {lessonStatus: "passed"} marks a SCO complete
+    // without the content ever being loaded. That is not a defect unique to this
+    // app: SCORM 1.2 runs the courseware client-side and the package itself calls
+    // LMSSetValue("cmi.core.lesson_status", ...), so the learner's browser IS the
+    // authority by design and no SCORM LMS can close it without abandoning the
+    // standard. What makes it matter here is that completion LATCHES (above) and
+    // feeds the /get-started gate, the clinic clearance badge and the Epic roll-up,
+    // and the only reset is a package re-upload that wipes EVERY learner's progress.
+    //
+    // So this does not refuse: an honest short SCO can legitimately finish inside
+    // one commit window. It makes the shape visible, because an ordinary learner
+    // autocommits every 30s while they work and therefore almost always has a prior
+    // row (audit 14, UNAUTH-05).
+    if (sco.completed && !existingSco) {
+      log.warn("[learning] SCO completed on its first commit, with no prior progress", {
+        personId,
+        courseId,
+        scoId,
+        termId,
+        lessonStatus: cmi.lessonStatus,
+      });
+    }
     // Preserve a saved score / resume point / suspend_data when the incoming
     // snapshot omits it (null), instead of overwriting it. Revisiting an
     // already-scored SCO in the same session re-seeds its SCORM API from the stale

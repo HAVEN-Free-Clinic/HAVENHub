@@ -21,7 +21,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
-import { effectiveComplianceStatus } from "@/platform/compliance/rules";
+import { effectiveCompliance } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { getSetting } from "@/platform/settings/service";
 import {
@@ -226,7 +226,13 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   // badge in someone else's name. issueWalletPass is best-effort and returns
   // null (not a throw) whenever the wallet feature is off or the vendor call
   // fails, which the card renders as a calm, expected state.
-  async function issueWalletPassAction(): Promise<{ googleSaveUrl: string; shareUrl: string } | null> {
+  //
+  // The annotation is derived from issueWalletPass rather than retyped. Spelling
+  // it out by hand declared `{ googleSaveUrl, shareUrl } | null` and so typed
+  // away the `publicToken` the value actually carries, which is the kind of
+  // quiet drift that only surfaces when someone later needs that field and finds
+  // the compiler insisting it does not exist (audit 14).
+  async function issueWalletPassAction(): Promise<Awaited<ReturnType<typeof issueWalletPass>>> {
     "use server";
     const session = await requireModuleAccess("my-info");
     return issueWalletPass(session.personId);
@@ -236,7 +242,13 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   // beside it (effectiveComplianceStatus over the full cert history, with the
   // verified-fallback). Using complianceStatus(newestCert) here made the row show
   // PENDING_VERIFICATION for an early renewal while the banner showed "Cleared".
-  const status = effectiveComplianceStatus(
+  //
+  // effectiveCompliance (not ...Status) so the panel can badge the expiry of the
+  // certificate the status actually describes. Mid-renewal those are different
+  // rows, and reading the date off certificates[0] told a member "Compliant
+  // through <a year out>" from an upload nobody had verified yet, while their
+  // real coverage ran out next month (audit 14, L3).
+  const { status, cert: statusCert } = effectiveCompliance(
     certificates,
     activeTerm?.endDate ?? null
   );
@@ -325,6 +337,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             certificates={certificates}
             uploadAction={uploadAction}
             status={status}
+            statusCert={statusCert}
           />
         </section>
 

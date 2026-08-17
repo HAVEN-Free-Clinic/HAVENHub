@@ -13,7 +13,26 @@ vi.mock("./wallet-client", async (importOriginal) => {
 const revokePassMock = vi.mocked(revokePass);
 const isWalletEnabledMock = vi.mocked(isWalletEnabled);
 
-async function passFor(opts: { termStatus: "ACTIVE" | "ARCHIVED"; endDate: string; offboarded?: boolean }) {
+function department() {
+  return prisma.department.upsert({
+    where: { code: "ITCM" },
+    update: {},
+    create: { code: "ITCM", name: "Internal Medicine" },
+  });
+}
+
+/**
+ * A badge, plus the roster row that justifies it. The membership is created by
+ * default because a badge with no ACTIVE membership behind it is now itself a
+ * revoke criterion (see the mid-term removal tests below); a helper that omitted
+ * it would make every case look like a term-end case.
+ */
+async function passFor(opts: {
+  termStatus: "ACTIVE" | "ARCHIVED";
+  endDate: string;
+  offboarded?: boolean;
+  membershipStatus?: "ACTIVE" | "REMOVED";
+}) {
   const person = await prisma.person.create({
     data: { name: "Ada", status: opts.offboarded ? "OFFBOARDED" : "ACTIVE" },
   });
@@ -24,6 +43,16 @@ async function passFor(opts: { termStatus: "ACTIVE" | "ARCHIVED"; endDate: strin
       startDate: new Date("2026-01-01T12:00:00Z"),
       endDate: new Date(opts.endDate),
       status: opts.termStatus,
+    },
+  });
+  const dept = await department();
+  await prisma.termMembership.create({
+    data: {
+      personId: person.id,
+      termId: term.id,
+      departmentId: dept.id,
+      kind: "VOLUNTEER",
+      status: opts.membershipStatus ?? "ACTIVE",
     },
   });
   return prisma.walletPass.create({
@@ -39,6 +68,9 @@ describe("sweepWalletPasses", () => {
   });
 
   afterEach(() => {
+    // Only Date is faked (see the calendar-day tests): faking every timer would
+    // stall the pg client's own timeouts mid-query.
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -73,6 +105,99 @@ describe("sweepWalletPasses", () => {
     expect(row!.revokedAt).toBeNull();
   });
 
+  it("revokes the badge of a member removed from the roster mid-term", async () => {
+    // The gap the sweep had: withdrawFromTerm and a mid-term roster removal both
+    // flip the membership to REMOVED and leave Person.status ACTIVE, so neither
+    // of the two original criteria (term ended, person offboarded) fired. The
+    // badge asserts PRESENT standing and stayed scannable until term end.
+    await passFor({
+      termStatus: "ACTIVE",
+      endDate: "2099-01-01T12:00:00Z",
+      membershipStatus: "REMOVED",
+    });
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 1, failed: 0 });
+  });
+
+  it("revokes when the only ACTIVE membership left is in an ARCHIVED term", async () => {
+    // Standing is judged in the non-archived scope offboarding uses
+    // (OFFBOARDABLE_TERM). A membership in a term that is over is history, not a
+    // place here, so it must not keep a badge alive.
+    const pass = await passFor({
+      termStatus: "ACTIVE",
+      endDate: "2099-01-01T12:00:00Z",
+      membershipStatus: "REMOVED",
+    });
+    const old = await prisma.term.create({
+      data: {
+        code: "OLD1",
+        name: "Old",
+        startDate: new Date("2020-01-01T12:00:00Z"),
+        endDate: new Date("2020-06-01T12:00:00Z"),
+        status: "ARCHIVED",
+      },
+    });
+    const dept = await department();
+    await prisma.termMembership.create({
+      data: { personId: pass.personId, termId: old.id, departmentId: dept.id, kind: "VOLUNTEER" },
+    });
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 1, failed: 0 });
+  });
+
+  it("leaves the badge of a member who still holds a PLANNING-term membership", async () => {
+    // The other side of the same rule: this clinic rosters the next term ahead
+    // of the ACTIVE flip, so a PLANNING membership is a real place here.
+    const pass = await passFor({
+      termStatus: "ACTIVE",
+      endDate: "2099-01-01T12:00:00Z",
+      membershipStatus: "REMOVED",
+    });
+    const next = await prisma.term.create({
+      data: {
+        code: "NXT1",
+        name: "Next",
+        startDate: new Date("2099-01-02T12:00:00Z"),
+        endDate: new Date("2099-06-01T12:00:00Z"),
+        status: "PLANNING",
+      },
+    });
+    const dept = await department();
+    await prisma.termMembership.create({
+      data: { personId: pass.personId, termId: next.id, departmentId: dept.id, kind: "DIRECTOR" },
+    });
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 0, failed: 0 });
+    expect(revokePassMock).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a term ending TODAY as ended", async () => {
+    // endDate is a noon-UTC calendar marker, so comparing it against a raw
+    // instant made every badge for a term ending today sweepable from 08:00 ET,
+    // killing badges in the middle of the term's final clinic day. 16:00Z is
+    // noon in the display zone, well past that old cutover and still the same
+    // calendar day in both zones.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-31T16:00:00Z"));
+    await passFor({ termStatus: "ACTIVE", endDate: "2026-08-31T12:00:00Z" });
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 0, failed: 0 });
+    expect(revokePassMock).not.toHaveBeenCalled();
+  });
+
+  it("revokes once the term's last calendar day has passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T16:00:00Z"));
+    await passFor({ termStatus: "ACTIVE", endDate: "2026-08-31T12:00:00Z" });
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 1, failed: 0 });
+  });
+
   it("is idempotent: an already-revoked pass is not revoked again", async () => {
     const pass = await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-01T12:00:00Z" });
     await prisma.walletPass.update({ where: { id: pass.id }, data: { revokedAt: new Date() } });
@@ -80,5 +205,80 @@ describe("sweepWalletPasses", () => {
 
     expect(await sweepWalletPasses()).toEqual({ revoked: 0, failed: 0 });
     expect(revokePassMock).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Batching and failure isolation (audit 14 follow-up)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The whole badge population goes stale on the same day (every pass for a
+   * term whose endDate has passed), so these guard the behaviour that keeps
+   * that day's run inside the cron's 300s ceiling and keeps it making progress.
+   */
+
+  // The failure the serial loop had: one badge the vendor refuses used to be
+  // able to end the run for everything behind it. Here the refusal is counted
+  // and the rest are still revoked.
+  it("keeps revoking past a pass the vendor refuses", async () => {
+    const stuck = await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-01T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-02T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-03T12:00:00Z" });
+    revokePassMock.mockImplementation(async (serial: string) => serial !== stuck.serialNumber);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 2, failed: 1 });
+
+    // The refused one keeps its null revokedAt, so the next run retries it.
+    const after = await prisma.walletPass.findUniqueOrThrow({ where: { id: stuck.id } });
+    expect(after.revokedAt).toBeNull();
+  });
+
+  // A database write that fails must not abandon the passes after it either.
+  // revokePass degrades vendor errors to `false`, so this is the only path that
+  // can actually throw inside the loop.
+  it("keeps going when recording a revoke throws", async () => {
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-01T12:00:00Z" });
+    await passFor({ termStatus: "ARCHIVED", endDate: "2020-01-02T12:00:00Z" });
+    revokePassMock.mockResolvedValue(true);
+    const update = vi.spyOn(prisma.walletPass, "update").mockRejectedValueOnce(new Error("db down"));
+
+    const result = await sweepWalletPasses();
+    expect(result.revoked + result.failed).toBe(2);
+    expect(result.failed).toBe(1);
+    update.mockRestore();
+  });
+
+  // The bound itself. SWEEP_BATCH is 150, so this asserts the cap exists and
+  // that the remainder survives for the next run rather than being dropped --
+  // it does NOT re-assert the constant, which would just restate the source.
+  it("caps one run and leaves the remainder for the next", async () => {
+    const dept = await department();
+    const term = await prisma.term.create({
+      data: {
+        code: "TBATCH",
+        name: "Batch term",
+        startDate: new Date("2020-01-01T12:00:00Z"),
+        endDate: new Date("2020-06-01T12:00:00Z"),
+        status: "ARCHIVED",
+      },
+    });
+    // 151 badges: one more than the cap, so exactly one must be left behind.
+    for (let i = 0; i < 151; i += 1) {
+      const person = await prisma.person.create({ data: { name: `Ada ${i}`, status: "ACTIVE" } });
+      await prisma.termMembership.create({
+        data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+      });
+      await prisma.walletPass.create({
+        data: { personId: person.id, termId: term.id, serialNumber: `ser_batch_${i}` },
+      });
+    }
+    revokePassMock.mockResolvedValue(true);
+
+    expect(await sweepWalletPasses()).toEqual({ revoked: 150, failed: 0 });
+    expect(await prisma.walletPass.count({ where: { revokedAt: null } })).toBe(1);
+
+    // The next run finishes the job: the remainder is deferred, never dropped.
+    expect(await sweepWalletPasses()).toEqual({ revoked: 1, failed: 0 });
+    expect(await prisma.walletPass.count({ where: { revokedAt: null } })).toBe(0);
   });
 });

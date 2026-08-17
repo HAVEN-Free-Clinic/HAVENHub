@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
-import { peekInvite, claimInvite } from "@/modules/recruitment/services/invites";
+import { peekInvite, peekOwnClaimedInvite, claimInvite } from "@/modules/recruitment/services/invites";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { PortalShell } from "../../portal-shell";
@@ -38,6 +38,16 @@ export default async function InviteClaimPage({
 
   const invite = await peekInvite(token);
   if (!invite) {
+    // Before calling it dead: it may be THEIR OWN spent link. An invite is
+    // single-use, so the claimant re-opening the email they were sent -- to
+    // finish an application over several sittings, which is the normal shape --
+    // was told the link was no longer valid, by the system that spent it on them.
+    // Only ever matches a row already claimed by this signed-in email, so it
+    // admits nobody the token did not (audit 14, REC-1).
+    const identity = await getApplicantIdentity();
+    const own = identity ? await peekOwnClaimedInvite(token, identity.email) : null;
+    if (own) redirect(`/apply/${own.cycle.publicSlug}`);
+
     const support = await getSupportContact();
     return (
       <PortalShell>

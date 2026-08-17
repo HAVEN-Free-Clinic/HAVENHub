@@ -42,6 +42,39 @@ describe("routeApplication", () => {
     await expect(routeApplication(application.id, "NOPE", lead.id)).rejects.toBeInstanceOf(RoutingError);
   });
 
+  it("refuses to route an applicant back to the department that handed them back (audit 14, REC-2)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await returnToRouting(application.id, lead.id, "not a fit for us");
+
+    // EDUC is the applicant's first ranked choice, which is what the speed-route
+    // modal's "1" key and the tier table's default both propose.
+    await expect(routeApplication(application.id, "EDUC", lead.id)).rejects.toBeInstanceOf(RoutingError);
+
+    // The applicant is still waiting for a real re-routing decision, not silently
+    // re-queued at EDUC.
+    const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
+    expect(app.routedDepartmentCode).toBeNull();
+    expect(app.returnedFromDepartmentCode).toBe("EDUC");
+
+    // Any OTHER department is still fine, including a later route back to EDUC
+    // once MDIC has had them (the return marker is cleared by that routing).
+    await routeApplication(application.id, "MDIC", lead.id);
+    const rerouted = await routeApplication(application.id, "EDUC", lead.id);
+    expect(rerouted.routedDepartmentCode).toBe("EDUC");
+  });
+
+  it("skips a returned applicant in a batch tier route instead of aborting the batch (audit 14, REC-2)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await returnToRouting(application.id, lead.id, "not a fit for us");
+
+    const res = await applyTierRoutes([{ applicationId: application.id, departmentCode: "EDUC" }], lead.id);
+    expect(res.applied).toBe(0);
+    expect(res.skipped).toHaveLength(1);
+    expect(res.skipped[0].reason).toContain("EDUC");
+  });
+
   it("re-routing after a not-yet-emailed ACCEPT clears the old acceptance and resets the decision", async () => {
     const { lead, application } = await seed();
     await routeApplication(application.id, "EDUC", lead.id);
@@ -163,6 +196,24 @@ describe("returnToRouting", () => {
     await routeApplication(application.id, "EDUC", lead.id);
     const returned = await returnToRouting(application.id, lead.id, "   ");
     expect(returned.returnedReason).toBeNull();
+  });
+
+  it("resets a non-PENDING decision, so the applicant leaves the waitlist they were handed back from (audit 14, REC-6)", async () => {
+    const { lead, application } = await seed();
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "WAITLIST", lead.id, "hold for capacity");
+
+    const returned = await returnToRouting(application.id, lead.id, "not our fit after all");
+
+    // Left at WAITLIST the applicant stayed on the waitlist page with a null
+    // department and a Promote button that could only ever throw, because
+    // decideRoutedApplication requires a routed department and the return just
+    // cleared it.
+    expect(returned.decision).toBe("PENDING");
+    expect(returned.decidedAt).toBeNull();
+    expect(returned.decidedById).toBeNull();
+    expect(returned.decisionNotes).toBeNull();
+    expect(returned.routedDepartmentCode).toBeNull();
   });
 });
 

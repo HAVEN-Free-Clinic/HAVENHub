@@ -1,13 +1,30 @@
 import { PrismaClient, type HistoricalOutcome, type HistoricalStage, type Track } from "@prisma/client";
-import { readFileSync } from "node:fs";
 
-/** Playwright does not auto-load .env; read DATABASE_URL from env with a .env fallback. */
+/**
+ * The database these fixtures seed, mutate, and delete rows in.
+ *
+ * playwright.config.ts resolves it, asserts it is local, and publishes it into
+ * this process, so it is always set by the time a spec imports this file.
+ *
+ * There used to be a `.env` fallback here for the case where it was not set.
+ * That fallback is why this file is now written this way: `.env` holds the
+ * PRODUCTION Neon URL, so a local `npx playwright test` with nothing exported
+ * silently pointed the fixtures at live clinic data while the dev server ran
+ * against a throwaway database. CI never hit it, because CI exports
+ * DATABASE_URL. Failing loudly is the only safe behaviour here -- a fixture
+ * helper whose whole job is to delete rows must never guess which database it
+ * is deleting them from.
+ */
 function databaseUrl(): string {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const env = readFileSync(".env", "utf8");
-  const m = env.match(/^DATABASE_URL=['"]?([^'"\n]+)/m);
-  if (!m) throw new Error("DATABASE_URL not found in process.env or .env");
-  return m[1];
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Run the suite through `npx playwright test`, which " +
+        "resolves and validates a local database in playwright.config.ts. Do not point " +
+        "these fixtures at a database by hand: they create, mutate, and delete rows."
+    );
+  }
+  return url;
 }
 
 /** e2e-only client; NOT the app's server-only singleton. */

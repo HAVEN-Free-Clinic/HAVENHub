@@ -482,27 +482,29 @@ describe("resolveEmailTransport", () => {
   // The production counterpart of the test above: silently degrading to
   // LogTransport would let the drain stamp every row SENT while delivering
   // nothing, exactly as it would for a graph transport with no sender (#76).
-  it("throws instead of degrading to log in production when the Maileroo key is missing", async () => {
+  it("refuses PER MESSAGE in production when the Maileroo key is missing, so rows go FAILED", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
     await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
     _resetSettingsCache();
     vi.stubEnv("VERCEL_ENV", "production");
     try {
       await withApiKey(undefined, async () => {
-        await expect(resolveEmailTransport()).rejects.toThrow(/MAILEROO_API_KEY/);
+        const t = await resolveEmailTransport();
+        await expect(t.send({ to: "a@b.c", subject: "s", html: "<p>h</p>" })).rejects.toThrow(/MAILEROO_API_KEY/);
       });
     } finally {
       vi.unstubAllEnvs();
     }
   });
 
-  it("throws in production when maileroo is selected with no sender address", async () => {
+  it("refuses per message in production when maileroo is selected with no sender address", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
     _resetSettingsCache();
     vi.stubEnv("VERCEL_ENV", "production");
     try {
       await withApiKey("test-key", async () => {
-        await expect(resolveEmailTransport()).rejects.toThrow(/email\.sender/);
+        const t = await resolveEmailTransport();
+        await expect(t.send({ to: "a@b.c", subject: "s", html: "<p>h</p>" })).rejects.toThrow(/email\.sender/);
       });
     } finally {
       vi.unstubAllEnvs();

@@ -13,7 +13,9 @@ import {
   resolveIncident,
   getEpicRequestHistory,
   listIncidentPeople,
+  listLinkableTechRequests,
   resolveMirrorsByPerson,
+  updateServiceRequestNumber,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
 import { createTechRequest, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -721,6 +723,88 @@ describe("closeTicket", () => {
     const closed = await closeTicket(actor.id, ticket.id);
     expect(closed.status).toBe("CLOSED");
     expect(closed.closedAt).not.toBeNull();
+  });
+});
+
+describe("updateServiceRequestNumber", () => {
+  beforeEach(resetDb);
+
+  it("normalises the number so a pasted value matches a typed one", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
+      { personId: alice.id, mirrorEpicId: null },
+    ]);
+
+    const updated = await updateServiceRequestNumber(actor.id, ticket.id, "  ritm0345759 ");
+    expect(updated.serviceRequestNumber).toBe("RITM0345759");
+  });
+
+  it("rejects a value that is not an identifier, rather than storing it", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
+      { personId: alice.id, mirrorEpicId: null },
+    ]);
+
+    await expect(
+      updateServiceRequestNumber(actor.id, ticket.id, "RITM: RITM0345759")
+    ).rejects.toBeInstanceOf(SupportStateError);
+    expect(
+      (await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } })).serviceRequestNumber
+    ).toBeNull();
+  });
+
+  // A server action is a public endpoint in its own right; this was the one
+  // YNHH-ticket mutation relying purely on its page gate.
+  it("refuses an actor without support.manage_requests", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const nobody = await createPerson("Nobody");
+    const alice = await createPerson("Alice");
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
+      { personId: alice.id, mirrorEpicId: null },
+    ]);
+
+    await expect(
+      updateServiceRequestNumber(nobody.id, ticket.id, "RITM0345759")
+    ).rejects.toBeInstanceOf(SupportForbiddenError);
+  });
+
+  it("reports a missing ticket rather than throwing a raw Prisma error", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+
+    await expect(
+      updateServiceRequestNumber(actor.id, "no-such-ticket", "RITM0345759")
+    ).rejects.toBeInstanceOf(SupportNotFoundError);
+  });
+});
+
+describe("listLinkableTechRequests", () => {
+  beforeEach(resetDb);
+
+  // Offering a target the link would be refused against is the dead end the
+  // picker exists to remove (attachEpicRequests rejects a terminal ticket).
+  it("returns open tickets newest first and omits terminal ones", async () => {
+    const requester = await createPerson("Requester");
+    const open = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Open one",
+      description: "d",
+    });
+    const closed = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Closed one",
+      description: "d",
+    });
+    await prisma.techRequest.update({ where: { id: closed.id }, data: { status: "CLOSED" } });
+
+    const rows = await listLinkableTechRequests();
+    expect(rows.map((r) => r.id)).toEqual([open.id]);
+    expect(rows[0]).toMatchObject({ number: open.number, subject: "Open one", requesterName: "Requester" });
   });
 });
 

@@ -62,6 +62,9 @@ describe("issueWalletPass", () => {
   });
 
   afterEach(() => {
+    // Only Date is faked in the calendar-day tests below: faking every timer
+    // would stall the pg client's own timeouts mid-query.
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -71,7 +74,7 @@ describe("issueWalletPass", () => {
 
     const result = await issueWalletPass(person.id);
 
-    expect(result).toEqual({ googleSaveUrl: "https://g", shareUrl: "https://s" });
+    expect(result).toMatchObject({ googleSaveUrl: "https://g", shareUrl: "https://s" });
     const row = await prisma.walletPass.findUnique({
       where: { personId_termId: { personId: person.id, termId: term.id } },
     });
@@ -137,7 +140,7 @@ describe("issueWalletPass", () => {
     // The links come from the stored row, since the refresh response has none.
     // Before the URLs were persisted this returned {undefined, undefined} typed
     // as string, and the card rendered links with undefined hrefs.
-    expect(second).toEqual({ googleSaveUrl: "https://g", shareUrl: "https://s" });
+    expect(second).toMatchObject({ googleSaveUrl: "https://g", shareUrl: "https://s" });
 
     expect(await prisma.walletPass.count()).toBe(1);
     const row = await prisma.walletPass.findUnique({
@@ -291,7 +294,7 @@ describe("issueWalletPass", () => {
     createPassMock.mockResolvedValue(CREATED);
 
     // ser_old is already deleted at the vendor, so there is nothing to orphan.
-    expect(await issueWalletPass(person.id)).toEqual({
+    expect(await issueWalletPass(person.id)).toMatchObject({
       googleSaveUrl: "https://g",
       shareUrl: "https://s",
     });
@@ -331,6 +334,181 @@ describe("issueWalletPass", () => {
 
     expect(await issueWalletPass(person.id)).toBeNull();
     expect(createPassMock).not.toHaveBeenCalled();
+  });
+
+  it("issues on the term's LAST day rather than treating it as over", async () => {
+    // endDate is a noon-UTC calendar marker, so comparing it against a raw
+    // instant refused to issue from 08:00 ET on the final clinic day, a day
+    // members are still on shift. 16:00Z is noon in the display zone: past the
+    // old cutover, same calendar day in both zones.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-31T16:00:00Z"));
+    const { person } = await seedActiveMember(new Date("2026-08-31T12:00:00Z"));
+    createPassMock.mockResolvedValue(CREATED);
+
+    expect(await issueWalletPass(person.id)).not.toBeNull();
+    expect(createPassMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still refuses the day AFTER the term's last day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T16:00:00Z"));
+    const { person } = await seedActiveMember(new Date("2026-08-31T12:00:00Z"));
+    createPassMock.mockResolvedValue(CREATED);
+
+    expect(await issueWalletPass(person.id)).toBeNull();
+    expect(createPassMock).not.toHaveBeenCalled();
+  });
+
+  it("reports the token it auto-published, so the caller can show the retraction control", async () => {
+    // Adding a badge publishes the credential. The card has to learn that from
+    // the same call, or it keeps offering "Publish" and hides Unpublish until a
+    // full reload, leaving the member no way to undo what just happened.
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+
+    const result = await issueWalletPass(person.id);
+
+    const cred = await prisma.serviceCredential.findUnique({ where: { personId: person.id } });
+    expect(cred!.publicToken).toBeTruthy();
+    expect(result!.publicToken).toBe(cred!.publicToken);
+  });
+
+  it("reports a null token for a member who deliberately unpublished", async () => {
+    // Nothing was published, so the card must not start showing a public link.
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValue(CREATED);
+    await prisma.serviceCredential.create({
+      data: { personId: person.id, record: {}, publicToken: null, unpublishedAt: new Date() },
+    });
+
+    expect((await issueWalletPass(person.id))!.publicToken).toBeNull();
+  });
+});
+
+describe("two overlapping Add to wallet calls", () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.clearAllMocks();
+    isWalletEnabledMock.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("mints exactly one vendor pass, so no live serial is orphaned", async () => {
+    // Both calls used to find no row, both minted, and the second upsert
+    // overwrote serialNumber with its own. The first serial was then in nothing
+    // but the vendor's database: revokeWalletPasses and the sweep both work from
+    // the WalletPass row, so that badge survived offboarding and term end alike.
+    const { person, term } = await seedActiveMember();
+    let mints = 0;
+    createPassMock.mockImplementation(async () => {
+      mints += 1;
+      const n = mints;
+      // Hold the first mint open long enough for the second call to reach the
+      // same decision point, which is the whole race.
+      if (n === 1) await new Promise((resolve) => setTimeout(resolve, 30));
+      return {
+        serialNumber: `ser_${n}`,
+        googleSaveUrl: `https://g${n}`,
+        applePass: "b64",
+        shareUrl: `https://s${n}`,
+      };
+    });
+
+    const results = await Promise.all([issueWalletPass(person.id), issueWalletPass(person.id)]);
+
+    expect(mints).toBe(1);
+    // Exactly one row, and its serial is the one the vendor actually minted, so
+    // every revoke path can reach the badge that exists.
+    const rows = await prisma.walletPass.findMany({ where: { personId: person.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].serialNumber).toBe("ser_1");
+    expect(rows[0].termId).toBe(term.id);
+    // The loser gets the card's calm "not available right now" state rather than
+    // a second badge; the next click picks up the winner's pass.
+    expect(results.filter((r) => r !== null)).toHaveLength(1);
+  });
+
+  it("frees the claim when the vendor fails, so the next click can still issue", async () => {
+    const { person } = await seedActiveMember();
+    createPassMock.mockResolvedValueOnce(null);
+
+    expect(await issueWalletPass(person.id)).toBeNull();
+    expect(await prisma.walletPass.count()).toBe(0);
+
+    createPassMock.mockResolvedValue(CREATED);
+    expect(await issueWalletPass(person.id)).not.toBeNull();
+    const row = await prisma.walletPass.findFirst({ where: { personId: person.id } });
+    expect(row!.serialNumber).toBe("ser_1");
+  });
+});
+
+describe("which membership the badge names", () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.clearAllMocks();
+    isWalletEnabledMock.mockReturnValue(true);
+    createPassMock.mockResolvedValue(CREATED);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("names the DIRECTOR role even when a volunteer row was written first", async () => {
+    // The unique key is (person, term, department, kind), so a director who also
+    // volunteers elsewhere holds two ACTIVE rows. findFirst returned whichever
+    // one Postgres handed back, so a director's badge could read "Volunteer".
+    const { person, term } = await seedActiveMember();
+    const volunteerDept = await prisma.department.findUniqueOrThrow({ where: { code: "ITCM" } });
+    const directorDept = await prisma.department.create({
+      data: { code: "ZZED", name: "Executive" },
+    });
+    await prisma.termMembership.create({
+      data: {
+        personId: person.id,
+        termId: term.id,
+        departmentId: directorDept.id,
+        kind: "DIRECTOR",
+      },
+    });
+
+    await issueWalletPass(person.id);
+
+    const input = createPassMock.mock.calls[0][0];
+    expect(input.secondaryFields.find((f) => f.key === "role")!.value).toBe("Director");
+    // And the department that goes with the role it claims, not the other one.
+    expect(input.secondaryFields.find((f) => f.key === "department")!.value).toBe(
+      directorDept.code,
+    );
+    expect(input.secondaryFields.find((f) => f.key === "department")!.value).not.toBe(
+      volunteerDept.code,
+    );
+  });
+
+  it("breaks a same-role tie on department code, so re-issuing cannot change the card", async () => {
+    // Two volunteer rows in one term. Without a deterministic tiebreak the badge
+    // named whichever row came back first, which can change after an unrelated
+    // write reorders the heap: the same member's badge would say a different
+    // department on a refresh.
+    const { person, term } = await seedActiveMember();
+    const later = await prisma.department.create({ data: { code: "ZZZZ", name: "Zed" } });
+    const earlier = await prisma.department.create({ data: { code: "AAAA", name: "Ay" } });
+    for (const d of [later, earlier]) {
+      await prisma.termMembership.create({
+        data: { personId: person.id, termId: term.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+    }
+
+    await issueWalletPass(person.id);
+
+    expect(createPassMock.mock.calls[0][0].secondaryFields.find((f) => f.key === "department")!.value).toBe(
+      "AAAA",
+    );
   });
 });
 
@@ -427,7 +605,7 @@ describe("a pass that no longer exists at the vendor", () => {
 
     const result = await issueWalletPass(person.id);
 
-    expect(result).toEqual({ googleSaveUrl: "https://new-g", shareUrl: "https://new-s" });
+    expect(result).toMatchObject({ googleSaveUrl: "https://new-g", shareUrl: "https://new-s" });
     expect(createPassMock).toHaveBeenCalledTimes(1);
 
     // The row is replaced, not duplicated, and now carries the live serial.

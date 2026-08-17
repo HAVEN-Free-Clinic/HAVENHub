@@ -33,13 +33,31 @@ import { recordCronHeartbeat } from "@/platform/cron-heartbeat";
 import { dispatchDueCampaigns } from "@/platform/email/campaigns/dispatch";
 import { drainEmailQueue } from "@/platform/email/send";
 import { resolveEmailTransport } from "@/platform/email/transport";
-import { log, flushLogs } from "@/platform/logging";
+import { log, flushLogs, errorAttrs } from "@/platform/logging";
 import { drainTeamsQueue } from "@/platform/notifications/send";
 import { resolveTeamsTransport } from "@/platform/notifications/teams-transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/**
+ * Run one queue drain, converting a thrown failure into a reported one.
+ *
+ * Returns the drain's own result on success, or `{ error }` describing the
+ * failure, so one broken queue cannot stop the other or the heartbeat.
+ */
+async function drainSafely<T>(
+  queue: string,
+  run: () => Promise<T>
+): Promise<T | { error: string }> {
+  try {
+    return await run();
+  } catch (err) {
+    log.error(`[cron/email] ${queue} drain failed`, errorAttrs(err, { queue }));
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
@@ -48,11 +66,21 @@ export async function GET(req: Request): Promise<Response> {
 
   // One drain per tick -- each fully empties the eligible backlog and attempts
   // every QUEUED row at most once. See the header note: do not re-loop.
-  const transport = await resolveEmailTransport();
-  const emails = await drainEmailQueue(transport);
-
-  const teamsTransport = await resolveTeamsTransport();
-  const teams = await drainTeamsQueue(teamsTransport);
+  //
+  // The two drains are isolated from each other. They used to run bare, so
+  // anything thrown while resolving or draining one queue aborted the tick and
+  // took the other queue, the tick log and the heartbeat with it -- a single
+  // misconfiguration stalled BOTH queues and suppressed the signal that would
+  // have shown it (audit 14, EMAIL-1 / NOTIF-1). Each failure is now logged and
+  // reported in the tick summary; the heartbeat still records that the job ran,
+  // because "the scheduler is firing" and "every queue drained cleanly" are
+  // different questions and the panel answers the first.
+  const emails = await drainSafely("email", async () =>
+    drainEmailQueue(await resolveEmailTransport())
+  );
+  const teams = await drainSafely("teams", async () =>
+    drainTeamsQueue(await resolveTeamsTransport())
+  );
 
   log.info("[cron/email] backstop tick complete", {
     result: JSON.stringify({ dispatched: executed, errors, emails, teams }),

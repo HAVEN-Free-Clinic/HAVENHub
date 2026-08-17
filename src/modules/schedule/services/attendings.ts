@@ -447,6 +447,13 @@ export type AttendingScheduleRow = {
   onCallAttendingId: string | null;
   onCallName: string | null;
   specialtyId: string | null;
+  /**
+   * Legacy reproductive health fields, still carried on the row but no longer
+   * edited from this page. Who is directing is read off the schedule's DIRECTOR
+   * assignments (see BuilderRhd.directors), and procedures booked is edited in
+   * the builder's RHD readiness panel, beside the cap warning it drives. Both
+   * remain here because the Airtable import writes them for historical dates.
+   */
   directorName: string | null;
   proceduresBooked: number | null;
   /** One entry per slot the clinic defines, in column order, even when empty. */

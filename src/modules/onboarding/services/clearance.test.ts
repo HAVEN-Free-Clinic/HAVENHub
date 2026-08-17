@@ -184,6 +184,71 @@ describe("loadClearanceMap", () => {
     expect(singleLearning.state).toBe("IN_PROGRESS");
   });
 
+  it("does not require a PER_TERM course for a next (PLANNING) term, which no commit can satisfy (audit 14, L1)", async () => {
+    const term = await activeTerm();
+    const next = await prisma.term.create({
+      data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), status: "PLANNING" },
+    });
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+    const person = await memberWithProfile("Nia", dept.id, term.id);
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await validCert(person.id);
+    await prisma.course.create({
+      data: { title: "Annual Safety", recurrence: "PER_TERM", assignToAll: true, scormEntryHref: "index.html", position: 0 },
+    });
+
+    // For the ACTIVE term it is a real, clearable requirement.
+    const live = (await loadClearanceMap([person.id], term.id)).get(person.id)!;
+    expect(live.missing).toContain("learning");
+
+    // For the next term it is not: persistScoCmi records every attempt against the
+    // ACTIVE term, so this row could only ever read NOT_STARTED and the builder's
+    // banner called the member permanently not cleared with nothing they could do.
+    const planning = (await loadClearanceMap([person.id], next.id)).get(person.id)!;
+    expect(planning.tasks.find((t) => t.key === "learning")!.state).toBe("NOT_REQUIRED");
+    expect(planning.missing).not.toContain("learning");
+    expect(planning.cleared).toBe(true);
+  });
+
+  it("reads a ONCE course's completion from the completed row, not whichever row Postgres returns last (audit 14, L4)", async () => {
+    const termA = await prisma.term.create({
+      data: { code: "SU25", name: "Prior", startDate: new Date("2025-01-01"), endDate: new Date("2025-06-30"), status: "ARCHIVED" },
+    });
+    const term = await activeTerm();
+    const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });
+    const person = await memberWithProfile("Kai", dept.id, term.id);
+    await validCert(person.id);
+    const course = await prisma.course.create({
+      data: { title: "Intro", recurrence: "ONCE", assignToAll: true, scormEntryHref: "index.html", position: 0 },
+    });
+
+    // A ONCE course is read UNSCOPED, so a course that was PER_TERM for a while
+    // leaves one row per term behind. Insert the COMPLETE row first and the stale
+    // incomplete one second: with no ordering the last row wins the last-wins map,
+    // and the member read as not cleared here while their own checklist (which has
+    // always ordered) said Complete.
+    await prisma.courseProgress.create({
+      data: {
+        personId: person.id, courseId: course.id, termId: termA.id,
+        status: "COMPLETE", lessonStatus: "completed", completedAt: new Date("2025-03-01"),
+      },
+    });
+    await prisma.courseProgress.create({
+      data: {
+        personId: person.id, courseId: course.id, termId: term.id,
+        status: "IN_PROGRESS", lessonStatus: "incomplete", completedAt: null,
+      },
+    });
+
+    const summary = (await loadClearanceMap([person.id], term.id)).get(person.id)!;
+    expect(summary.tasks.find((t) => t.key === "learning")!.state).toBe("COMPLETE");
+    // And it agrees with the member's own checklist, which is the whole point.
+    const single = await getOnboardingStatus(person.id);
+    expect(single.tasks.find((t) => t.key === "learning")!.state).toBe("COMPLETE");
+  });
+
   it("honors the `now` argument for HIPAA cert expiry", async () => {
     const term = await activeTerm();
     const dept = await prisma.department.create({ data: { code: "PCAR", name: "Primary Care" } });

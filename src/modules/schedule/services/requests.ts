@@ -26,6 +26,7 @@ import {
 import type { ScheduleRowForValidation } from "../engine/requests";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { isPublished } from "./publication";
+import type { ShiftTags } from "./schedule";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -257,6 +258,25 @@ async function assertNoSwapCollision(
   }
 }
 
+/**
+ * The hub link vars every schedule template expects, built from the configured
+ * base URL so links resolve to the deployed host rather than a hardcoded one.
+ *
+ * Shared because it was NOT: `schedule-request-submitted-director` ends with an
+ * unconditional `<a href="{{ requestsUrl }}">Review pending requests</a>`, and
+ * only one of the three sites that render it supplied the variable. The renderer
+ * resolves a missing key to the empty string, so the daily approver reminder and
+ * the requester's "Send reminder" action both shipped `<a href="">` -- a dead
+ * button, to every approver, every day (audit 14).
+ *
+ * The template now also guards the CTA with `{{#if requestsUrl}}`, so a future
+ * caller that forgets this drops the button instead of shipping a broken one.
+ */
+export async function scheduleEmailUrls(): Promise<{ scheduleUrl: string; requestsUrl: string }> {
+  const baseUrl = (await getSetting<string>("app.baseUrl")).replace(/\/+$/, "");
+  return { scheduleUrl: `${baseUrl}/schedule`, requestsUrl: `${baseUrl}/schedule/requests` };
+}
+
 async function sendScheduleEmail(
   templateKey: string,
   to: string | null | undefined,
@@ -266,15 +286,9 @@ async function sendScheduleEmail(
 ): Promise<void> {
   if (!to) return;
   try {
-    // Supply the hub link vars from the configured base URL (every other email
-    // builds links this way), so the schedule templates' {{ scheduleUrl }} /
-    // {{ requestsUrl }} resolve to the deployed host instead of a hardcoded one.
-    const baseUrl = (await getSetting<string>("app.baseUrl")).replace(/\/+$/, "");
-    const withUrls = {
-      scheduleUrl: `${baseUrl}/schedule`,
-      requestsUrl: `${baseUrl}/schedule/requests`,
-      ...vars,
-    };
+    // (URL vars supplied by scheduleEmailUrls, shared with the two other render
+    // sites -- see its doc comment.)
+    const withUrls = { ...(await scheduleEmailUrls()), ...vars };
     // Route through the shared renderEmail path so schedule lifecycle emails get
     // the branded layout AND honor any admin EmailTemplate override, instead of
     // shipping the bare code-default fragment.
@@ -791,13 +805,14 @@ export async function approveRequest(
     }
 
     // Capture each moved person's existing role tags BEFORE any delete, so a swap
-    // carries triage/walk-in/cc/remote onto the person's new date instead of
-    // silently resetting them to defaults. Each person is removed from exactly one
-    // date per plan, so keying by personId is unambiguous.
-    const tagsByPerson = new Map<
-      string,
-      { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }
-    >();
+    // carries them onto the person's new date instead of silently resetting them
+    // to defaults. Each person is removed from exactly one date per plan, so
+    // keying by personId is unambiguous.
+    //
+    // ShiftTags rather than a fresh spelling of the same four-or-five booleans:
+    // a swap that quietly dropped a tag this map forgot to list would be close to
+    // undetectable, since the shift still moves and only the flag goes missing.
+    const tagsByPerson = new Map<string, ShiftTags>();
     for (const mutation of mutations) {
       if (mutation.op !== "remove") continue;
       const canonicalDate = clinicDateMap.get(mutation.dateKey);
@@ -811,7 +826,7 @@ export async function approveRequest(
             personId: mutation.personId,
           },
         },
-        select: { triage: true, walkin: true, cc: true, remote: true },
+        select: { triage: true, walkin: true, cc: true, remote: true, specialty: true },
       });
       if (existing) tagsByPerson.set(mutation.personId, existing);
     }
@@ -1220,6 +1235,7 @@ export async function remindDirectors(
       if (already) return 0;
       // Shared render path: branded layout + admin override, not a bare fragment.
       const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
+        ...(await scheduleEmailUrls()),
         directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
         requesterName: req.requester.name,
         requestType: isSwap ? "swap" : "drop",

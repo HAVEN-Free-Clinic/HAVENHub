@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { config } from "@/platform/config";
 import { log, errorAttrs } from "@/platform/logging";
 import { isMaintenanceExempt } from "./gate";
-import { isMaintenanceEnabled, holdsMaintenanceBypass } from "./status";
+import { isMaintenanceEnabled, isMaintenanceEnabledCached, holdsMaintenanceBypass } from "./status";
 
 /**
  * The maintenance decision for one request, made in the proxy so it covers
@@ -39,7 +39,14 @@ export async function isBlockedByMaintenance(request: NextRequest): Promise<bool
 
   let enabled: boolean;
   try {
-    enabled = await isMaintenanceEnabled();
+    // Two reads, cheap one first. The cached read is the hot path and answers
+    // "off" for essentially every request without touching the database; only a
+    // request we are about to bounce pays for the authoritative read, and only
+    // that read may actually block, because a 30s-stale "on" here plus a fresh
+    // "off" at the /maintenance page is exactly the redirect loop AUTH-MAINT-03
+    // reported (audit 14). Cost during a real window is one extra round trip on
+    // requests that were going to be redirected to a static page anyway.
+    enabled = (await isMaintenanceEnabledCached()) && (await isMaintenanceEnabled());
   } catch (err) {
     // Fail open, on purpose. getSetting already degrades to the registered
     // default (false) when the database is unreachable, so reaching this catch

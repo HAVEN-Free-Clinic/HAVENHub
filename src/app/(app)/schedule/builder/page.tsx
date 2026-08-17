@@ -17,6 +17,7 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { cardClasses } from "@/platform/ui/card";
 import { cx } from "@/platform/ui/cx";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -34,10 +35,13 @@ import {
   setAvailabilityOverride,
   acknowledgeAvailability,
   setPatientsBooked,
+  setProceduresBooked,
   parseBookedCount,
   BuilderForbiddenError,
   BuilderValidationError,
 } from "@/modules/schedule/services/builder";
+import { canManageAttendings } from "@/modules/schedule/services/attendings";
+import { viewableMemberIds } from "@/platform/member-profile";
 import {
   listDepartmentRequests,
   approveRequest,
@@ -61,6 +65,7 @@ import { BuilderToolbar, resolveBuilderView } from "@/modules/schedule/component
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
 import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
+import { ShiftEmailList } from "@/modules/schedule/components/shift-email-list";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayTodayKey } from "@/platform/dates/today";
 import Link from "next/link";
@@ -204,6 +209,28 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const showPublishControl = workingTerm.status === "PLANNING";
   const deptPublished = showPublishControl ? await isPublished(workingTerm.id, dept.id) : false;
 
+  // Which names on this board link through to a member profile. Resolved once
+  // for the whole page (see viewableMemberIds) rather than per name, and scoped:
+  // managing a department's SCHEDULE is not the same as being able to read why
+  // its volunteers are not cleared, so a schedule.edit_all holder who is not a
+  // director of the department gets names, not links.
+  const boardPersonIds = [
+    ...new Set([
+      ...members.map((m) => m.person.id),
+      // The selected date's assignees, which is what the Day view renders. An
+      // assignee absent from `members` is someone who lost their membership but
+      // is still on the schedule; they get a name and no link, correctly.
+      ...(selectedDateKey ? Object.keys(assignmentsByDate[selectedDateKey] ?? {}) : []),
+      // RHD directors can be from a sibling department this viewer does not
+      // manage, so they are asked about rather than assumed.
+      ...(data.rhd?.directors ?? []).map((d) => d.id),
+    ]),
+  ];
+  const [profileIds, managesAttendings] = await Promise.all([
+    viewableMemberIds(session.personId, boardPersonIds),
+    canManageAttendings(session.personId),
+  ]);
+
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
       dept: dept.id,
@@ -328,6 +355,35 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           departmentId,
           dateKey,
           patientsBooked: parseBookedCount(raw, "Patients booked"),
+        }),
+      domainErrors: [BuilderValidationError, BuilderForbiddenError],
+      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
+      revalidate: "/schedule/builder",
+      successRedirect: base,
+    });
+  }
+
+  /**
+   * Procedures booked for the clinic day, from the RHD readiness panel.
+   *
+   * Writes a CLINIC-WIDE ClinicDay row from a per-department form, so the
+   * service re-derives the department and refuses anything outside RHD_CODES;
+   * the departmentId in this FormData is a hint, not an authority.
+   */
+  async function proceduresBookedAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const departmentId = (formData.get("departmentId") as string) ?? "";
+    const dateKey = (formData.get("dateKey") as string) ?? "";
+    const raw = (formData.get("proceduresBooked") as string) ?? "";
+    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
+    await runAction({
+      work: () =>
+        setProceduresBooked(actor.personId, {
+          termId: workingTerm.id,
+          departmentId,
+          dateKey,
+          proceduresBooked: parseBookedCount(raw, "Procedures booked"),
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
       errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
@@ -568,6 +624,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 dept={dept}
                 selectedDateKey={selectedDateKey}
                 editable={editable}
+                profilePersonIds={profileIds}
                 assignAction={assignAction}
                 unassignAction={unassignAction}
                 toggleTagAction={toggleTagAction}
@@ -575,6 +632,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
 
               {/* Column 3: Sidebar */}
               <div className="flex flex-col gap-4">
+                {/* Everyone on shift, in one paste. Reproductive health has had
+                    this in its readiness panel for a while; every department
+                    mails its own Saturday, so every department gets it. */}
+                {selectedDateKey && (
+                  <section className={cardClasses({ pad: false }) + " px-4 py-3"}>
+                    <ShiftEmailList
+                      emails={data.shiftEmails}
+                      label={`${dept.code} shift emails`}
+                      emptyLabel="Nobody is assigned to this date yet."
+                    />
+                  </section>
+                )}
                 {editable && selectedDateKey && data.hasCapacityConfig && (
                   // Key on the selected date so a date-strip soft nav (search-params-only,
                   // which Next reconciles rather than remounts) actually REMOUNTS the panel
@@ -590,11 +659,24 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     dateKey={selectedDateKey!}
                   />
                 )}
-                {editable && data.rhd != null && selectedDateKey && (
-                  // Same remount-on-date fix (#9): the Attending <select> and Procedures
-                  // input otherwise kept the prior date's selection, silently overwriting
-                  // the new date's real attending on Save.
-                  <ReadinessPanel rhd={data.rhd!} />
+                {data.rhd != null && selectedDateKey && (
+                  // Keyed on the date for the same reason the capacity panel is
+                  // (#9): a date-strip soft nav reconciles rather than remounts,
+                  // so the Procedures-booked input would otherwise keep the prior
+                  // date's typed value and Save would write it onto the new date.
+                  //
+                  // Rendered on an archived term too, read-only: the readout is
+                  // history worth reading even where nothing can be changed.
+                  <ReadinessPanel
+                    key={selectedDateKey}
+                    rhd={data.rhd}
+                    canManageAttendings={managesAttendings}
+                    profilePersonIds={profileIds}
+                    editable={editable}
+                    departmentId={dept.id}
+                    dateKey={selectedDateKey}
+                    proceduresBookedAction={proceduresBookedAction}
+                  />
                 )}
                 {canManageRequests && (
                   <PendingRequests

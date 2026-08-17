@@ -73,10 +73,26 @@ export interface CaptureEventInput {
   flush?: boolean;
 }
 
+/**
+ * Which deployment produced this event.
+ *
+ * Production, staging, preview and local dev all write into ONE PostHog project
+ * (docs/DEPLOY.md has staging deliberately reusing production's PostHog vars),
+ * and staging runs a fork of the production database. Client events are already
+ * separable by `$host`, and server LOGS carry `deployment.environment.name` on
+ * the OTLP resource -- but server EVENTS carried nothing, so a staging or local
+ * run was indistinguishable from production in product analytics (audit 14,
+ * OBS-05).
+ *
+ * VERCEL_ENV is "production" | "preview" | "development" on Vercel and unset
+ * elsewhere, which is exactly the distinction wanted here.
+ */
+const ENVIRONMENT = process.env.VERCEL_ENV ?? "development";
+
 function cleanProperties(
   properties?: EventProperties,
 ): Record<string, string | number | boolean | null> {
-  const out: Record<string, string | number | boolean | null> = {};
+  const out: Record<string, string | number | boolean | null> = { environment: ENVIRONMENT };
   if (!properties) return out;
   for (const [key, value] of Object.entries(properties)) {
     if (value !== undefined) out[key] = value;

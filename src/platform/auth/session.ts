@@ -2,9 +2,10 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "./auth";
 import { getActivePerson, resolvePersonForLogin } from "./match-person";
-import { can } from "@/platform/rbac/engine";
+import { can, getEffectivePermissions } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getModule } from "@/platform/modules/registry";
+import { canAccessModule } from "@/platform/modules/access";
 import { isAllowlistedPath } from "./onboarding-allowlist";
 import { isGateClearedCached, markGateCleared } from "./onboarding-gate-cache";
 import { loginRedirectPath } from "./safe-next";
@@ -145,14 +146,34 @@ export async function requireAnyPermission(permissions: string[]): Promise<Perso
 }
 
 /**
- * Module route guard driven by the registry. Looks up the manifest and gates
- * on its accessPermission: when the module declares none, any signed-in matched
- * person may enter (requirePersonSession); otherwise the permission is required.
+ * Module route guard driven by the registry. Looks up the manifest and gates on
+ * it via canAccessModule: when the module declares no accessPermission, any
+ * signed-in matched person may enter; otherwise accessPermission OR any of the
+ * module's additionalAccessPermissions admits the viewer.
  * Throws for an unknown module id (programmer error, not a redirect).
+ *
+ * canAccessModule rather than a bare requirePermission(accessPermission) because
+ * this guard and the nav MUST answer the same question. It consulted only
+ * accessPermission, while the tile grid, the module row, and the module's own
+ * ModuleNav all asked canAccessModule, so every module with
+ * additionalAccessPermissions advertised itself to people this function then
+ * bounced: a Learning Coordinator holding learning.manage_courses (but not
+ * learning.access, which only the kind-scoped baselines hand out) saw a Learning
+ * link and got /no-access from it -- exactly the audience
+ * additionalAccessPermissions exists to admit (audit 14, AUTH-NAV-01). The same
+ * dead-end-result shape has now been reported four times, so the fix belongs in
+ * the one resolver both sides can share, not in each offending link.
+ *
+ * Landing on a module page is not the same as being able to do anything there:
+ * every page keeps its own requirePermission, and a module's landing page shows
+ * such a viewer whatever their grant actually opens (for Learning, the empty
+ * "no assigned courses" list, which is the honest answer for a manager).
  */
 export async function requireModuleAccess(moduleId: string): Promise<PersonSession> {
   const mod = getModule(moduleId);
   if (!mod) throw new Error(`Unknown module id: ${moduleId}`);
   if (!mod.accessPermission) return requirePersonSession();
-  return requirePermission(mod.accessPermission);
+  const person = await requirePersonSession();
+  if (!canAccessModule(mod, await getEffectivePermissions(person.personId))) redirect("/no-access");
+  return person;
 }

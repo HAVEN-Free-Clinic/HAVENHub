@@ -9,7 +9,22 @@ function truthy(v: unknown): boolean {
   return Boolean(v);
 }
 
-export function renderTemplate(source: string, context: Record<string, unknown>, opts: { escape?: boolean } = {}): string {
+/**
+ * @param opts.onUnknownName Called once per token whose name is ABSENT from the
+ *   context, so a caller that can report it (renderEmail) may. Deliberately a
+ *   callback rather than logging here: this function is pure and is used in
+ *   preview and test paths where a warning would be noise, and the send path is
+ *   the only place a silently-empty variable actually reaches someone.
+ *
+ *   Absence is the signal, NOT emptiness: a declared variable that is legitimately
+ *   null or "" renders empty on purpose and must stay quiet. `in` distinguishes
+ *   the two; a truthiness check could not.
+ */
+export function renderTemplate(
+  source: string,
+  context: Record<string, unknown>,
+  opts: { escape?: boolean; onUnknownName?: (name: string) => void } = {}
+): string {
   // Bodies and layouts render HTML, so {{var}} is HTML-escaped by default. Plain-text
   // contexts (e.g. an email Subject header) pass { escape: false } so an ampersand or
   // apostrophe in a value is emitted as-is rather than turned into an entity.
@@ -28,12 +43,19 @@ export function renderTemplate(source: string, context: Record<string, unknown>,
       if (t.type === "text") {
         out += t.value;
       } else if (t.type === "var") {
+        if (!(t.name in context)) opts.onUnknownName?.(t.name);
         const v = context[t.name];
         out += v === null || v === undefined ? "" : (escapeVars ? esc(String(v)) : String(v));
       } else if (t.type === "rawVar") {
+        if (!(t.name in context)) opts.onUnknownName?.(t.name);
         const v = context[t.name];
         out += v === null || v === undefined ? "" : String(v);
       } else if (t.type === "ifOpen") {
+        // Reported too: an {{#if}} on a name nobody supplies is always false, so
+        // the whole branch silently disappears from the email. That is the more
+        // dangerous version of this bug, not the milder one -- a missing {{var}}
+        // leaves a visible gap, a dropped {{#if}} leaves no trace at all.
+        if (!(t.name in context)) opts.onUnknownName?.(t.name);
         const cond = truthy(context[t.name]);
         const consequent = renderUntil(true);
         let alternate = "";

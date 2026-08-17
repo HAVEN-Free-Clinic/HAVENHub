@@ -141,7 +141,10 @@ describe("resolveTeamsTransport", () => {
   it("does not silently degrade Teams to the log transport when maileroo is selected", async () => {
     await setTransport("maileroo");
     vi.stubEnv("NODE_ENV", "production");
-    await expect(resolveTeamsTransport()).rejects.toThrow(/no mailer account is connected/);
+    const t = await resolveTeamsTransport();
+    await expect(
+      t.send({ recipientUserId: "u", bodyHtml: "<p>x</p>" } as never)
+    ).rejects.toThrow(/no mailer account is connected/);
   });
 
   it("uses Graph for Teams when maileroo is selected and the mailer is connected", async () => {
@@ -161,16 +164,22 @@ describe("resolveTeamsTransport", () => {
     expect(t).toBeInstanceOf(LogTeamsTransport);
   });
 
-  it("throws in production when graph is selected but the mailer is not connected", async () => {
+  it("refuses per message in production when graph is selected but the mailer is not connected", async () => {
     await setTransport("graph");
     vi.stubEnv("NODE_ENV", "production");
-    await expect(resolveTeamsTransport()).rejects.toThrow(/no mailer account is connected/);
+    const t = await resolveTeamsTransport();
+    await expect(
+      t.send({ recipientUserId: "u", bodyHtml: "<p>x</p>" } as never)
+    ).rejects.toThrow(/no mailer account is connected/);
   });
 
-  it("throws when VERCEL_ENV is production even if NODE_ENV is not", async () => {
+  it("refuses per message when VERCEL_ENV is production even if NODE_ENV is not", async () => {
     await setTransport("graph");
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("VERCEL_ENV", "production");
-    await expect(resolveTeamsTransport()).rejects.toThrow(/refusing to route Teams DMs/);
+    const t = await resolveTeamsTransport();
+    await expect(
+      t.send({ recipientUserId: "u", bodyHtml: "<p>x</p>" } as never)
+    ).rejects.toThrow(/refusing to route Teams DMs/);
   });
 });

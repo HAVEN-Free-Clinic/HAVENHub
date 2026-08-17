@@ -149,6 +149,139 @@ describe("createTechRequestFromConversation", () => {
       })
     ).rejects.toThrow(SupportStateError);
   });
+
+  /**
+   * The one thing an "idempotent, returns the existing row unchanged" path must
+   * still write. A ticket opened by Fin's custom action has a conversation id
+   * and no ticket id, because no Intercom Ticket exists yet; when Intercom
+   * later converts that conversation into a Ticket, the ticket.created webhook
+   * arrives with the SAME id. Returning early there left intercomTicketId null
+   * forever, and nothing else in the codebase ever writes that column -- so
+   * every inbound status path (which looks the row up BY that column) and the
+   * reconciliation sweep (which filters on it) lost the ticket permanently and
+   * silently (audit 14, SUP-1/INT-1).
+   */
+  describe("back-filling intercomTicketId", () => {
+    async function seedConversationOnly(personId: string) {
+      const { ticket } = await createTechRequestFromConversation(personId, {
+        intercomConversationId: "conv_1",
+        category: "GENERAL_IT",
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      });
+      expect(ticket.intercomTicketId).toBeNull();
+      return ticket;
+    }
+
+    it("links a conversation-only ticket when the ticket id finally arrives", async () => {
+      const p = await createPerson("Alice");
+      const seeded = await seedConversationOnly(p.id);
+
+      const result = await createTechRequestFromConversation(p.id, {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "conv_1",
+        category: "GENERAL_IT",
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      });
+
+      expect(result.created).toBe(false);
+      expect(result.linked).toBe(true);
+      expect(result.ticket.id).toBe(seeded.id);
+      expect(result.ticket.intercomTicketId).toBe("conv_1");
+      expect(await prisma.techRequest.count()).toBe(1);
+    });
+
+    it("audits the link, since nothing else records how a ticket acquired its Intercom ticket id", async () => {
+      const p = await createPerson("Alice");
+      const seeded = await seedConversationOnly(p.id);
+
+      await createTechRequestFromConversation(p.id, {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "conv_1",
+        category: "GENERAL_IT",
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      });
+
+      const rows = await prisma.auditLog.findMany({
+        where: { action: "support.intercom_ticket_link", entityId: seeded.id },
+      });
+      expect(rows).toHaveLength(1);
+      expect((rows[0].after as Record<string, unknown>).intercomTicketId).toBe("conv_1");
+    });
+
+    // Reporting `linked` on every retry would make the webhook re-push the Hub
+    // ticket number to Intercom on each redelivery.
+    it("reports linked only once, not on every subsequent retry", async () => {
+      const p = await createPerson("Alice");
+      await seedConversationOnly(p.id);
+      const input = {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "conv_1",
+        category: "GENERAL_IT" as const,
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      };
+
+      expect((await createTechRequestFromConversation(p.id, input)).linked).toBe(true);
+      expect((await createTechRequestFromConversation(p.id, input)).linked).toBe(false);
+    });
+
+    // Never repoints an existing link. Two conversations Intercom merged into
+    // one Ticket cannot both own it, and overwriting would hand the ticket id
+    // to whichever delivery arrived last.
+    it("leaves an existing intercomTicketId alone", async () => {
+      const p = await createPerson("Alice");
+      const first = await createTechRequestFromConversation(p.id, {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "ticket_original",
+        category: "GENERAL_IT",
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      });
+
+      const second = await createTechRequestFromConversation(p.id, {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "ticket_different",
+        category: "GENERAL_IT",
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      });
+
+      expect(second.linked).toBe(false);
+      expect(second.ticket.id).toBe(first.ticket.id);
+      expect(second.ticket.intercomTicketId).toBe("ticket_original");
+    });
+
+    // Concurrency, on the path that already had a race window: two deliveries
+    // for the same conversation can both pass the lookup before either writes.
+    // Exactly one may claim the (unique) ticket id, and neither may surface a
+    // raw constraint violation.
+    it("survives two concurrent back-fills for the same conversation", async () => {
+      const p = await createPerson("Alice");
+      const seeded = await seedConversationOnly(p.id);
+      const input = {
+        intercomConversationId: "conv_1",
+        intercomTicketId: "conv_1",
+        category: "GENERAL_IT" as const,
+        subject: "Laptop won't connect",
+        description: "Wifi drops on the clinic floor.",
+      };
+
+      const [a, b] = await Promise.all([
+        createTechRequestFromConversation(p.id, input),
+        createTechRequestFromConversation(p.id, input),
+      ]);
+
+      expect(a.ticket.id).toBe(seeded.id);
+      expect(b.ticket.id).toBe(seeded.id);
+      expect(
+        (await prisma.techRequest.findUniqueOrThrow({ where: { id: seeded.id } })).intercomTicketId
+      ).toBe("conv_1");
+      expect(await prisma.techRequest.count()).toBe(1);
+    });
+  });
 });
 
 describe("read access", () => {

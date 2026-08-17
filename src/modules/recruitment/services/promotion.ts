@@ -6,6 +6,8 @@ import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { isoDateKey } from "@/platform/dates";
 import { cancelOpenDeactivationRequestsTx } from "@/platform/people";
+import { isNetIdShaped } from "@/platform/auth/match-person";
+import { normalizeIdentityKey } from "./identity-keys";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 
@@ -125,8 +127,22 @@ export async function promoteContracts(
         // could match, and would defeat the lower(netId) unique index. Trimming the
         // match key also stops a whitespace-padded contract value from missing an
         // existing person and minting a duplicate.
-        const normNetId = contract.netId?.trim().toLowerCase() || null;
-        const normEmail = contract.email?.trim().toLowerCase() || null;
+        const normNetId = normalizeIdentityKey(contract.netId);
+        const normEmail = normalizeIdentityKey(contract.email);
+
+        // What may be WRITTEN into Person.netId is a narrower question than what
+        // may be matched on. isNetIdShaped is documented as "the single
+        // definition, so the login path and anything WRITING Person.netId agree
+        // on what belongs in that column" -- and every Airtable import path
+        // applies it. Promotion, now the primary production path that creates a
+        // Person, did not: the value is the applicant's own keystrokes in a plain
+        // SHORT_TEXT field with no regex, so an email address or free text landed
+        // in the column that feeds the YNHH Epic access PDF and the Teams removal
+        // CSV (audit 14, ONB-3).
+        //
+        // Still MATCHED on the raw-normalized value above, so a padded but valid
+        // NetID still finds its existing Person; only the write is gated.
+        const writableNetId = normNetId && isNetIdShaped(normNetId) ? normNetId : null;
 
         let person = normNetId
           ? await tx.person.findFirst({ where: { netId: { equals: normNetId, mode: "insensitive" } } })
@@ -169,7 +185,7 @@ export async function promoteContracts(
           person = await tx.person.create({
             data: {
               name: `${contract.firstName} ${contract.lastName}`.trim(),
-              netId: normNetId, contactEmail: normEmail, phone: contract.phone,
+              netId: writableNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
               licensedRN: contract.licensedRN,

@@ -16,6 +16,7 @@ import type { Term } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { assertActiveAdminRemainsTx, hasEffectiveActiveAdminTx } from "@/platform/rbac/last-admin";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -264,10 +265,27 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
           }
         }
 
+        // Which term is ACTIVE decides which RoleAssignments the engine honours:
+        // department- and kind-targeted grants resolve through the holder's ACTIVE
+        // memberships IN THE ACTIVE TERM. So a term swap can empty the effective
+        // admin set exactly the way removeMembership or deleteRole can, and every
+        // one of those siblings recomputes the invariant inside its transaction.
+        // This one did not (audit 14, finding VRT-4).
+        //
+        // Measured before and after, against the OUTGOING and INCOMING terms
+        // respectively: the rule is "do not REMOVE the last admin", so a
+        // deployment that had none to begin with is not blocked from flipping its
+        // terms. getActiveTerm() cannot supply either anchor here -- it is
+        // request-cached and reads committed state, so mid-swap it returns the
+        // outgoing term for both.
+        const hadAdmin = await hasEffectiveActiveAdminTx(tx, currentActive);
+
         const activatedTerm = await tx.term.update({
           where: { id },
           data: { status: "ACTIVE" },
         });
+
+        if (hadAdmin) await assertActiveAdminRemainsTx(tx, activatedTerm);
 
         return { displacedTerm, displacedStatus, cancelledRequests, activatedTerm };
       },
@@ -334,8 +352,23 @@ export async function archiveTerm(actorPersonId: string, id: string): Promise<Te
   // once the term is archived they can no longer be decided on any surface, so
   // leaving them PENDING is a dead-end for requester and approvers alike.
   const { updated, cancelledRequests } = await prisma.$transaction(async (tx) => {
+    // Leaving no ACTIVE term is allowed (see above), but leaving no ACTIVE ADMIN
+    // is not: department- and kind-targeted grants resolve through the active
+    // term, so archiving the last one can strip every admin path with no in-app
+    // way back. Same before/after shape as activateTerm.
+    const wasActive = await tx.term.findFirst({ where: { status: "ACTIVE" }, select: { id: true } });
+    const hadAdmin = await hasEffectiveActiveAdminTx(tx, wasActive);
+
     const term = await tx.term.update({ where: { id }, data: { status: "ARCHIVED" } });
     const cancelled = await cancelStalePendingRequests(tx, id);
+
+    if (hadAdmin) {
+      const stillActive = await tx.term.findFirst({
+        where: { status: "ACTIVE" },
+        select: { id: true },
+      });
+      await assertActiveAdminRemainsTx(tx, stillActive);
+    }
     return { updated: term, cancelledRequests: cancelled };
   });
 

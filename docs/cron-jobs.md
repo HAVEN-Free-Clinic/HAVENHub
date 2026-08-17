@@ -16,6 +16,24 @@ Because nothing is visible from `vercel.json`, **this file is the source of trut
 for what must be scheduled.** If an external schedule is dropped on re-provision,
 the job below silently stops running with no in-repo error.
 
+> **The cron-job.org dashboard is the authority on what is actually running.**
+> Each job there can be individually Active or Inactive, and several are
+> deliberately switched off before launch so reminder mail does not reach
+> volunteers early. This file says what *should* be scheduled; only the dashboard
+> says what *is*.
+>
+> **Do not infer liveness from PostHog logs.** Each route emits
+> `[cron/<id>] complete` unconditionally, but that log stream is lossy: measured
+> 2026-08-16, cron-job.org recorded `recruitment draft drain` as Successful
+> (865 ms) with no corresponding log line, and over 14 days two daily jobs logged
+> 5 and 2 completions respectively. The loss is in the OTLP export, not the
+> route. The in-app heartbeat is unaffected -- `recordCronHeartbeat` writes a
+> `Setting` row and `/admin` reads it back -- so use that, or the dashboard.
+>
+> Times below are UTC and are what the schedules *should* be. Two currently
+> differ in the dashboard: `schedule-reminders` fires at 12:00 UTC (not 15:00)
+> and `wallet-passes` at 04:00 UTC (not 05:00). Reconcile before launch.
+
 ## The jobs
 
 | Path | Trigger | Cadence | UTC schedule | What it does | What breaks if it stops |

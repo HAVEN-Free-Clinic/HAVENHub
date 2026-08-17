@@ -11,15 +11,13 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
   label: string;
   /** Label shown in the armed/confirm state. Defaults to "Confirm?". */
   confirmLabel?: string;
-  /** How long (ms) the armed state stays open before auto-resetting. Default 3000. */
-  timeout?: number;
 };
 
 /**
  * Destructive-action button that requires two separate clicks.
  *
  * First click arms the button (danger styling, "Confirm?" label). A second click
- * within the timeout submits the surrounding form; otherwise it auto-resets.
+ * submits the surrounding form.
  *
  * Implemented as ONE stable <Button> whose type/variant/label change between the
  * idle and armed states, rather than swapping between two different component
@@ -30,9 +28,21 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  * label lives in an aria-live region so the armed change is announced.
  *
  * It reads useFormStatus() itself so it can disable BOTH states while the confirmed
- * action is in flight and cancel the auto-reset timer, rather than reverting the
- * armed (disabled + spinner) SubmitButton to a live idle button mid-action and
- * letting a second click double-fire the destructive/email action (#78).
+ * action is in flight, rather than reverting the armed (disabled + spinner)
+ * SubmitButton to a live idle button mid-action and letting a second click
+ * double-fire the destructive/email action (#78).
+ *
+ * The armed state used to auto-reset on a 3s timer. That timer was removed in audit
+ * 14: 3s is shorter than a screen reader takes to finish speaking the aria-live
+ * "Confirm?" announcement, let alone to then move to the control and activate it, so
+ * the button had always disarmed itself again by the time an AT user could reach the
+ * confirm step. The result was that NO destructive action anywhere in the app was
+ * completable by screen reader, since every one of them routes through this button.
+ * Nothing replaces the timer as a clock (a timed disarm is a WCAG 2.2.1 time limit no
+ * matter how long it runs). The self-heal that keeps a stray armed button from
+ * sitting hot is now event-driven instead: moving focus off the control disarms it.
+ * That is reachable by mouse, keyboard, and AT alike, and cannot expire under a user
+ * who is simply reading slowly.
  *
  * Must be rendered inside a <form>; useFormStatus reads that form's state. Does NOT
  * use window.confirm, so it stays automation-friendly.
@@ -40,45 +50,31 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
 export function ConfirmButton({
   label,
   confirmLabel = "Confirm?",
-  timeout = 3000,
   className,
   onClick,
+  onBlur,
   disabled,
   ...rest
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
   const { pending } = useFormStatus();
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPending = useRef(false);
+  // Set synchronously by the confirm click, BEFORE React re-renders with
+  // pending=true. Submitting disables the button, the browser blurs the disabled
+  // node to <body>, and that blur would otherwise disarm us mid-flight and flip the
+  // control back to its idle look while the destructive action is still running --
+  // the exact state #78 exists to prevent. Reading a ref (not the `pending` state)
+  // makes the guard independent of whether the blur lands before or after that
+  // re-render.
+  const confirming = useRef(false);
 
-  function clearTimer() {
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }
-
-  function arm() {
-    setArmed(true);
-    clearTimer();
-    timerRef.current = setTimeout(() => {
-      setArmed(false);
-      timerRef.current = null;
-    }, timeout);
-  }
-
-  // Clean up on unmount.
-  useEffect(() => () => clearTimer(), []);
-
-  // While the confirmed action is in flight, cancel the auto-reset so the armed +
-  // disabled state can't revert to a live idle control mid-action (#78); disarm once
-  // it settles (for actions that don't navigate away).
+  // Disarm once the action settles, for actions that do not navigate away (#78).
   useEffect(() => {
     if (pending) {
-      clearTimer();
       wasPending.current = true;
     } else if (wasPending.current) {
       wasPending.current = false;
+      confirming.current = false;
       setArmed(false);
     }
   }, [pending]);
@@ -94,13 +90,17 @@ export function ConfirmButton({
       onClick={(e) => {
         onClick?.(e);
         if (armed) {
-          // Confirm click: let the native form submit proceed, but stop the timer
-          // from disarming us before the action's pending state takes over.
-          clearTimer();
+          // Confirm click: let the native form submit proceed.
+          confirming.current = true;
         } else {
           e.preventDefault();
-          arm();
+          setArmed(true);
         }
+      }}
+      onBlur={(e) => {
+        onBlur?.(e);
+        if (confirming.current || pending) return;
+        setArmed(false);
       }}
     >
       <span aria-live="polite" className="inline-flex items-center gap-2">

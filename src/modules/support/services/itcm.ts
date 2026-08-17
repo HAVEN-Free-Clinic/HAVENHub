@@ -24,7 +24,9 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
-import { onEpicSubmitted } from "./epic-ticket-sync";
+import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
+import { TERMINAL_STATUSES } from "./manage";
+import { normalizeServiceRequestNumber } from "./identifiers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -303,9 +305,39 @@ export type EpicRequestHistoryRow = {
   }[];
 };
 
-export async function getEpicRequestHistory(): Promise<EpicRequestHistoryRow[]> {
+/**
+ * Most CLOSED tickets one History page renders.
+ *
+ * The closed archive is the only part of this data set that grows without
+ * bound: an open ticket is bounded by how much work is in flight, but every
+ * ticket ever resolved stays closed forever, and each row carries its submitter,
+ * subject person, attachments, and requests-with-people into a client component.
+ * A cap is what stops the page getting slower every term for a table nobody
+ * scrolls to the end of. Older tickets remain readable through search on the
+ * individual request.
+ */
+export const EPIC_HISTORY_LIMIT = 200;
+
+/**
+ * Epic ticket history, narrowed to what the calling tab renders.
+ *
+ * `status` matters more than it looks: the Tracker shows OPEN tickets and
+ * History shows CLOSED ones, and before audit 14 both were served by one
+ * unfiltered query that fetched EVERY ticket ever recorded and shipped the whole
+ * set to the client, where the component threw away the half it did not want.
+ * Filtering in the query means the Tracker's payload is bounded by the work
+ * actually in flight rather than by the size of the archive.
+ */
+export async function getEpicRequestHistory(
+  opts: { status?: "OPEN" | "CLOSED"; take?: number } = {}
+): Promise<EpicRequestHistoryRow[]> {
   const tickets = await prisma.ynhhTicket.findMany({
-    orderBy: { submittedAt: "desc" },
+    where: opts.status ? { status: opts.status } : {},
+    // `id` as a total tiebreak: submittedAt alone ties on same-second imports
+    // (the Airtable backfill inserted in bulk), and a paged read whose order is
+    // not total can show the same row on two pages and skip another entirely.
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+    ...(opts.take ? { take: opts.take } : {}),
     include: {
       submittedBy: { select: { name: true } },
       person: { select: { name: true } },
@@ -388,8 +420,22 @@ export async function closeTicket(actorPersonId: string, ticketId: string) {
 }
 
 /**
- * Sets or updates the YNHH service request number on a ticket. Audits
- * "epic.ticket_sr" so a tracker SR edit leaves the same trail as the
+ * Sets or updates the YNHH service request number on a ticket, and pushes it
+ * out to every Intercom ticket waiting on that YNHH work.
+ *
+ * The push is the point. This value arrives AFTER the YNHH ticket is opened --
+ * YNHH IT issues the RITM when they pick the work up -- so it is written here
+ * far more often than at creation, and until now writing it told nobody: the
+ * column changed, an audit row landed, and the Intercom ticket an agent was
+ * actually looking at still said the request had gone to YNHH with no number.
+ * See syncYnhhServiceRequestToIntercom for what that push does and why it is
+ * best-effort.
+ *
+ * Enforces support.manage_requests internally. It was the one YNHH-ticket
+ * mutation here relying purely on its page gate, and a server action is a
+ * public endpoint in its own right.
+ *
+ * Audits "epic.ticket_sr" so a tracker SR edit leaves the same trail as the
  * single-ticket SR edit on the request detail page.
  */
 export async function updateServiceRequestNumber(
@@ -397,9 +443,21 @@ export async function updateServiceRequestNumber(
   ticketId: string,
   serviceRequestNumber: string
 ) {
+  if (!(await can(actorPersonId, MANAGE))) {
+    throw new SupportForbiddenError(`${MANAGE} is required.`);
+  }
+
+  const existing = await prisma.ynhhTicket.findUnique({
+    where: { id: ticketId },
+    select: { serviceRequestNumber: true },
+  });
+  if (!existing) throw new SupportNotFoundError(`YNHH ticket not found: ${ticketId}`);
+
+  const normalized = normalizeServiceRequestNumber(serviceRequestNumber);
+
   const ticket = await prisma.ynhhTicket.update({
     where: { id: ticketId },
-    data: { serviceRequestNumber },
+    data: { serviceRequestNumber: normalized },
   });
 
   await recordAudit({
@@ -407,8 +465,15 @@ export async function updateServiceRequestNumber(
     action: "epic.ticket_sr",
     entityType: "YnhhTicket",
     entityId: ticketId,
-    after: { serviceRequestNumber },
+    before: { serviceRequestNumber: existing.serviceRequestNumber },
+    after: { serviceRequestNumber: normalized },
   });
+
+  // Only when the value actually moved: re-saving the same number should not
+  // post a second note into every linked conversation.
+  if (normalized !== existing.serviceRequestNumber) {
+    await syncYnhhServiceRequestToIntercom(ticketId);
+  }
 
   return ticket;
 }
@@ -449,7 +514,12 @@ export async function logYnhhIncident(
     data: {
       subject,
       description: input.description?.trim() || null,
-      serviceRequestNumber: input.serviceRequestNumber?.trim() || null,
+      // Optional here, unlike the Epic path: a one-off incident is often logged
+      // before anything has been raised with YNHH at all. Normalised when
+      // present so it matches a later edit through updateServiceRequestNumber.
+      serviceRequestNumber: input.serviceRequestNumber?.trim()
+        ? normalizeServiceRequestNumber(input.serviceRequestNumber)
+        : null,
       personId: input.personId || null,
       status: "OPEN",
       submittedById: actorPersonId,
@@ -848,6 +918,47 @@ export type PendingEpicRequestRow = {
  * (listPendingDeactivations / reconcileDeactivationRequests); batching one
  * through the generic createTicket path here would bypass that pipeline.
  */
+/**
+ * The support tickets an Epic request can be linked to: every non-terminal
+ * TechRequest, newest first.
+ *
+ * Exists so the tracker can offer a picker instead of a free-text ticket
+ * NUMBER. Typing the number meant knowing it from memory or from another tab,
+ * and a wrong one either bounced ("No support ticket #N found") or, worse,
+ * silently attached the Epic request to a real but unrelated ticket -- a
+ * mistake nothing downstream could detect, since the number is a valid
+ * identifier either way.
+ *
+ * Terminal tickets are excluded to match attachEpicRequests, which refuses to
+ * attach to one: offering a target the write would reject is the dead end this
+ * change exists to remove.
+ */
+export type LinkableTechRequest = {
+  id: string;
+  number: number;
+  subject: string;
+  requesterName: string;
+};
+
+export async function listLinkableTechRequests(): Promise<LinkableTechRequest[]> {
+  const rows = await prisma.techRequest.findMany({
+    where: { status: { notIn: TERMINAL_STATUSES } },
+    orderBy: { number: "desc" },
+    select: {
+      id: true,
+      number: true,
+      subject: true,
+      requester: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    subject: r.subject,
+    requesterName: r.requester.name,
+  }));
+}
+
 export async function listPendingEpicRequests(): Promise<PendingEpicRequestRow[]> {
   const rows = await prisma.epicRequest.findMany({
     where: { status: "PENDING", ticketId: null, kind: { not: "DEACTIVATE" } },

@@ -41,7 +41,7 @@ import { prisma } from "@/platform/db";
 import { log, flushLogs } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import { requestApproverRecipients } from "@/modules/schedule/services/requests";
+import { requestApproverRecipients, scheduleEmailUrls } from "@/modules/schedule/services/requests";
 import {
   CADENCE,
   byUrgencyThenDate,
@@ -175,6 +175,9 @@ export async function GET(req: Request): Promise<Response> {
 
       try {
         const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
+          // Without these the template's "Review pending requests" CTA rendered
+          // as <a href=""> in every daily reminder (audit 14).
+          ...(await scheduleEmailUrls()),
           directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
           requesterName: pending.requester.name,
           requestType: isSwap ? "swap" : "drop",

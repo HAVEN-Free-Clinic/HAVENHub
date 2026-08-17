@@ -262,16 +262,45 @@ export async function reopenCycle(id: string, actorId: string): Promise<Recruitm
   return updated;
 }
 
-/** Archive a CLOSED cycle (CLOSED -> ARCHIVED), the terminal retire step. Drops
- *  the cycle out of listCycles and activates the ARCHIVED guards in
- *  setCycleDepartments, releaseDecisions, and onboarding. Terminal: there is no
- *  transition out of ARCHIVED. */
+/** Archive a CLOSED cycle (CLOSED -> ARCHIVED), the retire step. Drops the cycle
+ *  out of listCycles and activates the ARCHIVED guards in setCycleDepartments,
+ *  releaseDecisions, onboarding, and the waitlist promote. Reversible via
+ *  unarchiveCycle. */
 export async function archiveCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
   if (!cycle) throw new CyclePublishError("Cycle not found.");
   if (cycle.status !== "CLOSED") throw new CyclePublishError("Only a CLOSED cycle can be archived.");
   const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "ARCHIVED" } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_archive", entityType: "RecruitmentCycle", entityId: id });
+  return updated;
+}
+
+/**
+ * Un-archive a cycle (ARCHIVED -> CLOSED), the reverse of archiveCycle.
+ *
+ * Archiving used to be a one-way door, and it does not merely hide a cycle: it
+ * hard-blocks releaseDecisions, createOrResendContract (onboarding links), the
+ * waitlist promote, and setCycleDepartments. So archiving a cycle that still had
+ * anyone mid-pipeline -- an un-released decision, an acceptance with no onboarding
+ * link sent, a waitlisted applicant a department later wanted -- stranded that
+ * person permanently, with no in-app way back and no warning at the moment of
+ * archiving (audit 14, archived-cycle-is-a-one-way-door).
+ *
+ * A reverse is the smaller fix than refusing to archive with people mid-pipeline:
+ * refusing helps nobody already archived (there is still no way out for them), it
+ * needs a definition of "mid-pipeline" that would go stale as the pipeline grows,
+ * and it would block the ordinary, legitimate case of retiring a cycle whose
+ * stragglers were resolved outside the hub. Returning to CLOSED (not OPEN) is the
+ * exact state the cycle was archived from, so nothing about the public form or the
+ * application window changes: the only effect is that the blocked SRR actions work
+ * again, and the cycle can be archived a second time when they are done.
+ */
+export async function unarchiveCycle(id: string, actorId: string): Promise<RecruitmentCycle> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
+  if (!cycle) throw new CyclePublishError("Cycle not found.");
+  if (cycle.status !== "ARCHIVED") throw new CyclePublishError("Only an ARCHIVED cycle can be un-archived.");
+  const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { status: "CLOSED" } });
+  await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_unarchive", entityType: "RecruitmentCycle", entityId: id });
   return updated;
 }
 

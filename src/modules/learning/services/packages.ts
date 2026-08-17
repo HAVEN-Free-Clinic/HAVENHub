@@ -11,6 +11,58 @@ import { LearningAuthError, LearningValidationError } from "./errors";
 const MAX_FILES = 2000;
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100 MB unzipped
 
+/**
+ * How many package files are written to storage at once (audit 14,
+ * scorm-ingest-serial-uploads).
+ *
+ * The upload loop used to be strictly serial, so a package's wall clock was
+ * MAX_FILES round trips deep: a real eXeLearning export runs a few hundred small
+ * files, and at R2's ~40-80ms per PUT from iad1 that is 20-40s of pure latency
+ * for a 5 MB package -- inside a Server Action that, until this same audit,
+ * declared no maxDuration at all (the manage page now sets 300). A timeout here
+ * is not merely slow: files are written before the DB manifest update, so the
+ * course keeps serving the OLD package while a half-written new prefix is
+ * orphaned in storage, and the admin sees a generic action failure.
+ *
+ * Bounded rather than Promise.all over every entry: 2000 concurrent PUTs would
+ * hold 2000 buffers plus 2000 sockets and trip R2 rate limits, which is how a
+ * fix for a slow upload becomes a failed one. Eight is the usual sweet spot for
+ * small-object S3-compatible writes -- enough to hide per-request latency, few
+ * enough to stay well inside the function's memory and socket budget.
+ */
+const UPLOAD_CONCURRENCY = 8;
+
+/**
+ * Run `task` over `items` with at most `limit` in flight.
+ *
+ * Workers pull from a shared cursor rather than being handed a fixed slice, so
+ * one slow file cannot leave the other workers idle. The first rejection
+ * propagates through Promise.all; the remaining workers stop at their next
+ * cursor read, and their promises are still awaited by that Promise.all, so a
+ * second failure can never surface as an unhandled rejection.
+ */
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  let cursor = 0;
+  let failed = false;
+  const worker = async (): Promise<void> => {
+    while (!failed) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      try {
+        await task(items[index]);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 const CONTENT_TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8",
   htm: "text/html; charset=utf-8",
@@ -152,10 +204,15 @@ export async function ingestScormPackage(
   const oldKey = course.scormBlobKey;
   const blobKey = randomUUID();
 
-  for (const [name, bytes] of files) {
-    const rel = safeRelPath(name);
+  // Validate every entry name BEFORE the first write. safeRelPath throws, and
+  // when it threw mid-loop the entries ahead of the bad one were already in
+  // storage under the new prefix that nothing would ever clean up (the DB write
+  // that records blobKey never happens). Cheap string work, so do it all first.
+  const staged = files.map(([name, bytes]) => ({ rel: safeRelPath(name), bytes }));
+
+  await mapWithConcurrency(staged, UPLOAD_CONCURRENCY, async ({ rel, bytes }) => {
     await putObject(`scorm/${courseId}/${blobKey}/${rel}`, Buffer.from(bytes), contentTypeFor(rel));
-  }
+  });
 
   const updateCourse = prisma.course.update({
     where: { id: courseId },

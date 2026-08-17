@@ -13,7 +13,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { parseZonedInput } from "@/platform/dates/format";
 import { isoDateKey } from "@/platform/dates";
-import { mySchedule, type MyTermSchedule } from "../services/schedule";
+import { mySchedule, type MyTermSchedule, type ShiftTags } from "../services/schedule";
 import { buildCalendar, type CalendarEvent } from "./ics";
 
 export type FeedContext = {
@@ -36,12 +36,13 @@ const ROLE_LABELS: Record<ShiftRole, string> = {
   SHADOW: "Shadow",
 };
 
-function tagLabels(tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }): string[] {
+function tagLabels(tags: ShiftTags): string[] {
   const labels: string[] = [];
   if (tags.triage) labels.push("Triage");
   if (tags.walkin) labels.push("Walk-in");
   if (tags.cc) labels.push("Care coordinator");
   if (tags.remote) labels.push("Remote");
+  if (tags.specialty) labels.push("Specialty clinic");
   return labels;
 }
 

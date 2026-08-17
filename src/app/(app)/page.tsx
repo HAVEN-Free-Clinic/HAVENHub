@@ -31,7 +31,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining } from "@/modules/recruitment/services/training";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
-import { complianceStatus, certExpiresAt } from "@/platform/compliance/rules";
+import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
 import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -237,18 +237,28 @@ export default async function HubPage() {
   const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || orgName;
 
   // --- Compliance status (real data, same rules as My Info) ---
-  const newestCert = certificates[0] ?? null;
-  const status = complianceStatus(newestCert, term?.endDate ?? null);
-  const expiry =
-    newestCert?.completionDate != null ? fmtMonthYear(certExpiresAt(newestCert.completionDate)) : null;
+  // effectiveCompliance over the WHOLE history, not complianceStatus(certificates[0]).
+  // Mid-renewal the newest cert is an unverified upload while the member is still
+  // covered by an older verified one, and the card read the two halves from
+  // different rules: the task's checkmark came from the full history (cleared),
+  // the sub-text from the newest cert alone ("Awaiting verification"), so the card
+  // contradicted itself on exactly the members doing the right thing early
+  // (audit 14, L2).
+  const status = effectiveCompliance(certificates, term?.endDate ?? null).status;
 
-  // HIPAA sub copy, expiry aware, computed PER TERM: complianceStatus is
-  // term-sensitive (COMPLIANT requires expiresAt >= termEnd + 30d), so a cert that
-  // clears the live term but not a next term must read "Renew before ..." under
-  // that term's heading, not reuse the live term's "Valid through ..." (#87). The
-  // expiry date itself is term-independent (the cert's own expiry), so it closes over.
+  // HIPAA sub copy, expiry aware, computed PER TERM: the rules are term-sensitive
+  // (COMPLIANT requires expiresAt >= termEnd + 30d), so a cert that clears the
+  // live term but not a next term must read "Renew before ..." under that term's
+  // heading, not reuse the live term's "Valid through ..." (#87).
+  //
+  // The expiry is resolved inside the closure rather than hoisted, because WHICH
+  // cert is the effective one is itself term-dependent: the fallback only accepts
+  // an older cert that is COMPLIANT or EXPIRING_SOON *for that term*. Hoisting it
+  // would print one term's expiry under another term's heading.
   const hipaaSubForTerm = (termEnd: Date | null): string => {
-    const s = complianceStatus(newestCert, termEnd);
+    const { status: s, cert } = effectiveCompliance(certificates, termEnd);
+    const expiry =
+      cert?.completionDate != null ? fmtMonthYear(certExpiresAt(cert.completionDate)) : null;
     return s === "COMPLIANT"
       ? (expiry ? `Valid through ${expiry}` : "On file")
       : s === "EXPIRING_SOON"

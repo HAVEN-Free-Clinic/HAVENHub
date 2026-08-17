@@ -39,7 +39,7 @@ database with the column dropped and a client that still declares it (audit 13,
 | --- | --- |
 | `findFirst({ where })`, no projection | **fails**, 42703 |
 | `findFirst({ where, include: {...} })` | **fails**, 42703 (`include` names relations; every scalar is still emitted) |
-| `findFirst({ where, select: {...} })` | survives |
+| `findFirst({ where, select: {...} })` | survives **only if the select omits the dropped column** |
 | `count()` | survives |
 
 The consequence is the important part: **splitting into two releases does not on its
@@ -60,16 +60,39 @@ incidents in two days:
   exist in the current database` from `prisma.person.findUnique()` (issues #597,
   #598, 2026-08-13).
 
-Both read paths are now projected (`PERSON_SCALARS`, `TICKET_SCALARS`).
+Both read paths are now projected (`PERSON_SCALARS`, `TICKET_SCALARS`) -- but read the
+next paragraph before crediting that with anything.
+
+**A projection only helps if it omits the doomed column** (audit 14). Both of those
+constants were written to name *every* scalar of their model, which emits exactly the
+SQL a query with no projection emits, the about-to-be-dropped column included. Measured
+against a database with `Person.dietaryRestrictions` dropped and a client that still
+declares it (2026-08-16, Prisma 6.19.3): no projection **fails**, the full-width
+`PERSON_SCALARS` **fails identically**, the same projection minus that one column
+**survives**. `src/platform/person-scalars.ts` now carries a `PERSON_DROP_PENDING` list
+for exactly this: naming a column there in release **N** removes it from the projection
+and makes `tsc` fail at every reader, so release **N+1** can drop it safely. See that
+file for the procedure. `TICKET_SCALARS` (in
+`src/modules/support/services/tech-request.ts`) still has no equivalent, and neither
+does the Entra sign-in path (`matchPersonByClaim` runs three *unprojected* Person
+lookups, so a narrowing migration still refuses every new sign-in for the length of the
+build even when existing sessions survive).
 
 Rule:
 
 - **Additive migrations** (`ADD COLUMN ... NOT NULL DEFAULT x`, new nullable columns,
   new tables) are safe in a single release. This is the common case.
-- **Before narrowing a table, give its read paths an explicit `select:`.** That is the
-  only change in this list that actually closes the window rather than shortening it.
-  Ship it in release **N**; `tsc` will tell you if the projection is missing a field a
-  caller uses. Then ship the `DROP` in release **N+1**.
+- **Before narrowing a table, give its read paths a `select:` that OMITS the column
+  being dropped.** That is the only change in this list that actually closes the window
+  rather than shortening it. Ship it in release **N** (for `Person`, by adding the name
+  to `PERSON_DROP_PENDING`); `tsc` will then name every caller that still reads the
+  field. Then ship the `DROP` in release **N+1**.
+- **`DROP COLUMN` is not the only unsafe shape.** `SET NOT NULL` breaks the old code's
+  *writes* (it still INSERTs rows without the column), dropping a unique index or
+  constraint breaks every `upsert` whose `ON CONFLICT` targets it, and a `RENAME` is a
+  DROP and an ADD at once. `src/platform/migration-safety.ts` detects all of these and
+  its test fails CI unless the migration states its plan in a
+  `-- rolling-deploy: <reason>` comment.
 - Prefer **not dropping at all** when the column is merely dead: leaving a nullable,
   unread column costs nothing and carries no deploy window.
 - Deploy any destructive change **off-peak** (not a clinic day, not recruitment
@@ -132,10 +155,20 @@ fired by an external scheduler (**cron-job.org**, free tier) hitting `/api/cron/
 | --- | --- | --- |
 | `/api/cron/email` | ~30 min | Failed-send retries + scheduled campaigns stall (interactive mail still flows via enqueue-flush). |
 | `/api/cron/reminders` | daily | HIPAA/EHS compliance reminders + director escalations never sent. |
-| `/api/cron/shift-reminders` | weekly | Volunteers miss clinic-day notice. |
+| `/api/cron/shift-reminders` | weekly (Mon) | Volunteers miss clinic-day notice. |
+| `/api/cron/attending-reminders` | weekly (Mon) | Attendings miss their Saturday reminder, which Faculty Relations previously sent by hand. |
 | `/api/cron/recruitment-review-digest` | daily | Reviewers stop getting the digest. |
 | `/api/cron/recruitment-drafts` | daily | Abandoned drafts not swept. |
 | `/api/cron/schedule-reminders` | daily | Pending shift-swap approvals not chased. |
+| `/api/cron/clinic-checkin-invites` | daily | Volunteers get no check-in link; directors check people in by hand. |
+| `/api/cron/wallet-passes` | daily | An offboarded volunteer's wallet badge stays live and scannable indefinitely. |
+| `/api/cron/intercom-reconcile` | daily | Hub/Intercom ticket status drifts permanently with nothing to notice it. |
+
+All **ten** are listed here on purpose. This table carried six until audit 14,
+so an operator provisioning from it created six schedules and the other four
+existed only in `docs/cron-jobs.md`. Keep the two in sync (see the note at the
+end of this file), and remember each job can also be individually **Inactive**
+on cron-job.org.
 
 Because the enqueue-only jobs leave no backlog and no failed rows when dead, a stopped
 schedule is otherwise **invisible**.

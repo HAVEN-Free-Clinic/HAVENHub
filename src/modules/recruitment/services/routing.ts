@@ -27,6 +27,20 @@ export async function routeApplication(
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new RoutingError("That department is not part of this cycle.");
+  // A department that declined this applicant and handed them back is not a
+  // routing target for them again: it drops the applicant straight back into the
+  // queue that just said no, and the director sees a row they already disposed of.
+  // Guarded HERE rather than only in the board's pickers because every routing
+  // path funnels through this function, and two of them propose the decliner by
+  // default -- the speed-route modal's ranked number keys and the tier tables'
+  // department select both start from departmentChoices[0], which is usually the
+  // department the applicant was routed to (and returned by) in the first place
+  // (audit 14, REC-2).
+  if (app.returnedFromDepartmentCode === departmentCode) {
+    throw new RoutingError(
+      `${departmentCode} declined this applicant and handed them back. Route them to a different department, or reject the application.`,
+    );
+  }
 
   const previous = app.routedDepartmentCode;
   const isReroute = previous != null && previous !== departmentCode;
@@ -246,6 +260,19 @@ export async function returnToRouting(
         returnedFromDepartmentCode: departmentCode,
         returnedById: actorId,
         returnedReason: reason?.trim() || null,
+        // Reset the decision too. Handing an applicant back is a statement that
+        // THIS department is no longer deciding them, so a decision it already
+        // recorded cannot stand: a WAITLIST left in place kept the applicant on
+        // the waitlist page with a null department (listWaitlisted reads
+        // routedDepartmentCode, which this clears) and a Promote button that could
+        // only ever throw "Route this applicant to a department before deciding".
+        // Mirrors routeApplication, which resets the decision whenever the
+        // department that owns it changes. Any not-emailed acceptance was torn
+        // down just above, so nothing outlives the reset (audit 14, REC-6).
+        decision: "PENDING",
+        decidedById: null,
+        decidedAt: null,
+        decisionNotes: null,
       },
     });
     if (claimed.count === 0) {

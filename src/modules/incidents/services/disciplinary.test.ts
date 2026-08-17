@@ -440,7 +440,7 @@ describe("issueAction", () => {
 });
 
 describe("deleteAction", () => {
-  it("central can delete; audit before snapshot matches the full row", async () => {
+  it("central can delete; audit before snapshot carries metadata but NOT the narrative", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");
     const central = await createPerson("Central", "ctr001");
@@ -463,8 +463,15 @@ describe("deleteAction", () => {
     });
     expect(auditRow).not.toBeNull();
     const before = auditRow?.before as Record<string, unknown>;
-    expect(before.description).toBe("Serious incident");
     expect(before.personId).toBe(target.id);
+    expect(before.category).toBeDefined();
+    // /admin/audit renders payloads verbatim to any admin.view_audit holder, which
+    // is a wider audience than directorVisibility allows for a confidential strike
+    // and than subjectFacingDetail allows for its subject. Deleting a strike must
+    // not publish its text to that audience (audit 14).
+    expect(before.description).toBeUndefined();
+    expect(before.notes).toBeUndefined();
+    expect(before.followUpActions).toBeUndefined();
   });
 
   it("director cannot delete -> DisciplinaryForbiddenError", async () => {
@@ -1596,5 +1603,78 @@ describe("listMyStrikes", () => {
 
     expect(await listMyStrikes(mine.id)).toEqual([]);
     expect(await listMyStrikes(theirs.id)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-exclusion (audit 14)
+//
+// "A person linked as the subject of a report may never act on, or read, that
+// report, even holding incidents.manage." report.ts enforced it on getReport,
+// listReviewQueue, reviewReport and decideStrike; four sibling paths were missed.
+// Every case below makes the VIEWER the subject, which is exactly the shape no
+// pre-existing test used: they all act against a separate `target`, so this whole
+// class was invisible to a green suite.
+// ---------------------------------------------------------------------------
+
+describe("self-exclusion: a subject may not act on their own record", () => {
+  /** A central actor who is ALSO the subject of the strike returned. */
+  async function selfStrike() {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const issuer = await createPerson("Issuer", "iss-self");
+    const viewer = await createPerson("Viewer", "vw-self");
+    await grantPermission(issuer.id, "incidents.manage");
+    await grantPermission(viewer.id, "incidents.manage");
+    await createMembership(viewer.id, term.id, dept.id, "VOLUNTEER");
+    const action = await issueCentral(issuer.id, viewer.id, {
+      description: "I was on triage with her Saturday morning when she left.",
+      confidential: true,
+    });
+    return { viewer, issuer, action };
+  }
+
+  it("listActions redacts the narrative on the viewer's OWN row", async () => {
+    const { viewer, action } = await selfStrike();
+
+    const { rows } = await listActions(viewer.id, {});
+    const own = rows.find((r) => r.action.id === action.id);
+
+    expect(own).toBeDefined();
+    // Still listed, so the ledger's counts and ordinals stay honest.
+    expect(own!.action.description).not.toContain("triage");
+    // Confidential, so they get the same pointer /my-info already shows them.
+    expect(own!.action.description).toContain("Contact your department directors");
+    expect(own!.action.notes).toBeNull();
+    expect(own!.action.reportId).toBeNull();
+  });
+
+  it("listActions leaves OTHER people's rows untouched", async () => {
+    const { viewer, issuer } = await selfStrike();
+    const other = await createPerson("Other", "oth-self");
+    const theirs = await issueCentral(issuer.id, other.id, {
+      description: "Narrative about someone else.",
+    });
+
+    const { rows } = await listActions(viewer.id, {});
+    const row = rows.find((r) => r.action.id === theirs.id);
+    expect(row!.action.description).toBe("Narrative about someone else.");
+  });
+
+  it("deleteAction refuses a strike about the actor", async () => {
+    const { viewer, action } = await selfStrike();
+    await expect(deleteAction(viewer.id, action.id)).rejects.toBeInstanceOf(
+      DisciplinaryForbiddenError
+    );
+    expect(
+      await prisma.disciplinaryAction.findUnique({ where: { id: action.id } })
+    ).not.toBeNull();
+  });
+
+  it("linkActionToReport refuses a strike about the actor", async () => {
+    const { viewer, action } = await selfStrike();
+    await expect(linkActionToReport(viewer.id, action.id, null)).rejects.toBeInstanceOf(
+      DisciplinaryForbiddenError
+    );
   });
 });

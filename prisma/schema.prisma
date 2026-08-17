@@ -100,6 +100,14 @@ enum IncidentReportStatus {
   UNDER_REVIEW
   RESOLVED
   DISMISSED
+  /// A reviewer asked the reporter a question and is waiting on the answer.
+  /// Non-terminal, and distinct from UNDER_REVIEW on purpose: it is the only
+  /// status where the clinic is blocked on the reporter rather than on itself,
+  /// which is exactly the case the review queue needs to be able to surface.
+  /// Declared last because `ALTER TYPE ... ADD VALUE` appends, and keeping the
+  /// declaration order equal to the Postgres order stops migrate from seeing
+  /// drift on every later diff.
+  AWAITING_INFO
 }
 
 enum StrikeDecision {
@@ -193,6 +201,9 @@ model Person {
   incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
   /// Incident-report attachments this person uploaded.
   incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
+  /// Clarification messages this person wrote on an incident report, as either
+  /// the reviewer asking or the reporter answering.
+  incidentReportMessages         IncidentReportMessage[]    @relation("incidentReportMessageAuthor")
   /// Incident reports and strikes this person forwarded outside the clinic.
   incidentForwardsSent           IncidentForward[]          @relation("incidentForwardForwardedBy")
   /// Email log rows addressed to or triggered by this person.
@@ -936,9 +947,40 @@ model IncidentReport {
   subjects              IncidentReportSubject[]
   strikeActions         DisciplinaryAction[]       @relation("incidentReportStrikeAction")
   forwards              IncidentForward[]
+  messages              IncidentReportMessage[]
 
   @@index([status])
   @@index([reporterId])
+}
+
+/// One message in the clarification thread between a reviewer and the reporter
+/// of an incident report: a reviewer asking for more detail, or the reporter
+/// answering. Ordinary back-and-forth, deliberately NOT a general comment log --
+/// reviewer-to-reviewer notes live in IncidentReport.reviewNotes, which the
+/// reporter never sees.
+///
+/// Whether a row is a question or an answer is `authorId == report.reporterId`,
+/// not a stored column: a column would be a second copy of a fact the report
+/// already holds, free to drift away from it.
+///
+/// Confidentiality: readable only by the reporter and by holders of
+/// incidents.manage who are NOT linked as a subject of the report -- the same
+/// rule getReport enforces, re-derived in services/messages.ts rather than
+/// assumed from the caller. A subject of the report never sees this thread, and
+/// nothing here reaches the director-visible strike surface.
+model IncidentReportMessage {
+  id        String   @id @default(cuid())
+  reportId  String
+  authorId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  report IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Author of the message. Restrict: keep authorship stable for audit, matching
+  /// IncidentReport.reporter and TechRequestComment.author.
+  author Person         @relation("incidentReportMessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([reportId, createdAt])
 }
 
 /// Links an incident report to one person involved (one row per person) and
@@ -1097,6 +1139,19 @@ model EmailLog {
   @@unique([campaignRunId, toEmail])
   @@index([personId])
   @@index([status, createdAt])
+  /// The admin email monitor's DEFAULT listing: no filter, ORDER BY createdAt
+  /// DESC, id DESC, LIMIT 50 (listEmails in src/modules/admin/services/email.ts).
+  /// [status, createdAt] cannot serve it -- status is the leading column and the
+  /// unfiltered case has no equality on it -- so every visit sequentially scanned
+  /// and sorted the fastest-growing table in the app. Declared ascending because
+  /// a btree scans backwards just as cheaply, and the id tiebreaker is part of
+  /// the index so the ordering is fully satisfied without a sort node.
+  /// (audit 14, DM-3.)
+  @@index([createdAt, id])
+  /// The "Sent today" tile: status = SENT AND sentAt >= start-of-day. sentAt is
+  /// not in any other index, so this counted by scanning every SENT row ever.
+  /// (audit 14, DM-3.)
+  @@index([status, sentAt])
 }
 
 /// Admin override of a code-default email template, keyed by descriptor key (e.g. "layout", "compliance-reminder").
@@ -1274,6 +1329,19 @@ model ShiftAssignment {
   walkin       Boolean    @default(false)
   cc           Boolean    @default(false)
   remote       Boolean    @default(false)
+  /// This assignment is covering the day's specialty clinic.
+  ///
+  /// Deliberately a plain flag and NOT a link to AttendingSpecialty: which
+  /// specialty is running is a property of the DAY (ClinicDay.specialtyId), so
+  /// naming it again per person would be a second copy of one fact, free to
+  /// disagree with the day it belongs to. Ops asked for exactly this shape: one
+  /// toggle, "not differentiated by specialty", set per assignment like the tags
+  /// above rather than stored on the Person.
+  ///
+  /// It is also NOT a statement that someone is specialty-trained. That is a
+  /// person-level credential waiting on a real training process, and it will
+  /// need its own verified field when it arrives, the way PersonLanguage does.
+  specialty    Boolean    @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   /// Restrict: term deletion is blocked while schedule history references it.

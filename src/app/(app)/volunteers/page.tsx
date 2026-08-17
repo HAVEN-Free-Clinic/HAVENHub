@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -224,7 +225,26 @@ export default async function VolunteersPage() {
 
                     return (
                       <TR key={m.person.id}>
-                        <TD className="font-medium">{m.person.name}</TD>
+                        {/* Name links through to the member profile: contact
+                            details plus the reasons they are or are not cleared.
+                            Every row here is by construction in a department the
+                            viewer manages, which is exactly the profile page's
+                            own scope, so no link on this table can bounce.
+                            NetID and email sit underneath rather than in columns
+                            of their own: this table already runs ten wide, and
+                            "how do I reach this person" is the question that
+                            follows "are they cleared". */}
+                        <TD className="font-medium">
+                          <Link
+                            href={`/volunteers/compliance/${m.person.id}`}
+                            className="text-brand-fg underline underline-offset-2 hover:opacity-75"
+                          >
+                            {m.person.name}
+                          </Link>
+                          <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
+                            {[m.person.netId, m.person.contactEmail].filter(Boolean).join(" · ")}
+                          </span>
+                        </TD>
                         <TD>
                           <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
                             {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}

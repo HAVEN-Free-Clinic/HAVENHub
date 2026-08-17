@@ -10,6 +10,11 @@
  *   /onboard/<token>          onboarding contract, 21 days, never consumed on view
  *   /api/calendar/<token>     personal calendar feed, NEVER expires, polled forever
  *   /credential/<token>       published service record, no expiry until unpublished
+ *   /apply/i/<token>          recruitment invite (#613), single-use, peek-then-claim
+ *
+ * When a new route joins that list, it must be added here in the same change.
+ * /apply/i/ was not, and shipped a live unclaimed invite token into the analytics
+ * project on every claim-page view for as long as the feature existed (audit 14).
  *
  * posthog-js captures `$current_url` (and friends) verbatim on every pageview,
  * so without this the raw token is written into the analytics project as an
@@ -24,7 +29,12 @@
 const SECRET_PARAMS = ["token"];
 
 /** Path prefixes whose NEXT segment is a credential, not an identifier. */
-const SECRET_PATH_PREFIXES = ["/onboard/", "/api/calendar/", "/credential/"];
+const SECRET_PATH_PREFIXES = [
+  "/onboard/",
+  "/api/calendar/",
+  "/credential/",
+  "/apply/i/",
+];
 
 const REDACTED = "[redacted]";
 
@@ -110,6 +120,23 @@ function scrubQueryPair(pair: string, depth: number): string {
     decoded = decodeURIComponent(rawValue);
   } catch {
     return pair;
+  }
+
+  // A RELATIVE path in a query value, e.g. ?next=/apply/i/<token>. The apply
+  // portal builds exactly that when an unauthenticated visitor opens an invite
+  // link: it redirects to /apply?next=/apply/i/<token> so the claim survives
+  // sign-in. Without this branch the prefix rules above never see it, because
+  // `new URL(decoded)` throws on a relative path and the pair was returned
+  // untouched -- so the token leaked a second time, from the sign-in page (audit
+  // 14). Checked before the absolute-URL branch since it is the cheaper test.
+  if (decoded.startsWith("/")) {
+    const scrubbedPath = scrubPath(decoded, depth + 1);
+    if (scrubbedPath === decoded) return pair;
+    try {
+      return `${key}=${encodeURIComponent(scrubbedPath)}`;
+    } catch {
+      return pair;
+    }
   }
 
   let nestedUrl: URL;

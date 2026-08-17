@@ -57,6 +57,52 @@ async function aReport(reporterId: string) {
 
 beforeEach(resetDb);
 
+// ---------------------------------------------------------------------------
+// Self-exclusion (audit 14). Forwarding is the worst path to miss the rule on:
+// the recipient list is free-typed, so without these guards a manager who is the
+// subject could email the report about themselves to any outside address. Every
+// pre-existing case here uses a third-party subject, which is why the gap was
+// invisible.
+// ---------------------------------------------------------------------------
+describe("forwarding refuses an actor who is the subject", () => {
+  it("forwardReport refuses a linked subject who holds incidents.manage", async () => {
+    const reporter = await createPerson("Reporter", "rep-selffwd");
+    const manager = await createPerson("Manager", "mgr-selffwd");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["PROFESSIONAL_CONDUCT"],
+      description: "I was on triage with them Saturday morning.",
+      subjects: [{ personId: manager.id }],
+    });
+
+    await expect(
+      forwardReport(manager.id, report.id, { emails: ["advisor@ynhh.org"] })
+    ).rejects.toThrow(IncidentForbiddenError);
+    expect(await prisma.incidentForward.count()).toBe(0);
+  });
+
+  it("forwardStrike refuses a strike about the actor", async () => {
+    const issuer = await createPerson("Issuer", "iss-selffwd");
+    const manager = await createPerson("Manager2", "mgr2-selffwd");
+    await grantPermission(issuer.id, "incidents.manage");
+    await grantPermission(manager.id, "incidents.manage");
+
+    const action = await issueAction(issuer.id, {
+      personId: manager.id,
+      occurredAt: new Date("2026-04-01"),
+      category: "Attendance",
+      description: "Missed a shift.",
+      confidential: false,
+    });
+
+    await expect(
+      forwardStrike(manager.id, action.id, { emails: ["advisor@ynhh.org"] })
+    ).rejects.toThrow(IncidentForbiddenError);
+    expect(await prisma.incidentForward.count()).toBe(0);
+  });
+});
+
 describe("forwardReport", () => {
   it("refuses a non-manager", async () => {
     const reporter = await createPerson("Reporter");

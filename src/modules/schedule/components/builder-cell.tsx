@@ -20,11 +20,12 @@ import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder
 
 type Variant = "assign" | "tag" | "remove" | "grid" | "grid-filled";
 
-const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote", string> = {
+const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote" | "specialty", string> = {
   triage: "T",
   walkin: "W",
   cc: "C",
   remote: "R",
+  specialty: "S",
 };
 
 type Props = {
@@ -85,7 +86,7 @@ function GridFilledButton({
   useEffect(() => () => clearTimer(), []);
 
   const activeTags = assignment
-    ? (["triage", "walkin", "cc", "remote"] as const).filter(
+    ? (["triage", "walkin", "cc", "remote", "specialty"] as const).filter(
         (t) => assignment.tags[t],
       )
     : [];

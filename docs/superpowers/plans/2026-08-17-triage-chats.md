@@ -1696,7 +1696,7 @@ git commit -m "feat(schedule): assemble the triage chat draft from the week's sc
   - `class TriageChatConflictError extends Error`
   - `type TriageChatGraph = { createGroupChat; addChatMember; postChatMessage; lookupUserId }`
   - `async function createTriageChat(input: { presetId, actorPersonId, topic, messageBody, includePersonIds }, deps?): Promise<{ chatId: string; webUrl: string; messagePosted: boolean; failures: { name: string; reason: string }[] }>`
-  - `async function retryTriageChatMessage(triageChatId: string, deps?): Promise<void>`
+  - `async function retryTriageChatMessage(triageChatId: string, messageBody: string, deps?): Promise<void>`
 
 - [ ] **Step 1: Write the failing test**
 

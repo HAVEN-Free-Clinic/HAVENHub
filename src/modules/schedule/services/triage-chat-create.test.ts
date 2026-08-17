@@ -286,6 +286,46 @@ describe("createTriageChat", () => {
     expect(saved.members).toHaveLength(2);
     expect(saved.members.every((m) => m.addedOk)).toBe(true);
   });
+
+  it("records and reports a member the directory could not resolve, even though the form cannot submit them", async () => {
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    // The review form disables this person's checkbox, so they are absent from
+    // includePersonIds below. They are still on shift and still need adding by
+    // hand, so they must appear in the record and in the reported failures.
+    draft.resolved = [
+      { member: draft.roster.members[0], userId: "oid-stored", source: "stored" },
+      {
+        member: draft.roster.members[1],
+        userId: null,
+        source: "unresolved",
+        reason: "Not found in the Microsoft directory.",
+      },
+    ];
+    const graph = graphStub();
+
+    const result = await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        // Only the resolvable member; the other one's checkbox was disabled.
+        includePersonIds: [draft.roster.members[0].personId],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(result.failures).toEqual([
+      { name: draft.roster.members[1].name, reason: "Not found in the Microsoft directory." },
+    ]);
+
+    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
+    const dropped = saved.members.find((m) => m.personName === draft.roster.members[1].name);
+    expect(dropped).toBeDefined();
+    expect(dropped?.addedOk).toBe(false);
+    expect(dropped?.error).toBe("Not found in the Microsoft directory.");
+  });
 });
 
 describe("retryTriageChatMessage", () => {

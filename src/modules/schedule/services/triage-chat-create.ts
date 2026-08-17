@@ -105,7 +105,13 @@ export async function createTriageChat(
 
   const stored = selected.filter((r) => r.source === "stored" && r.userId);
   const directory = selected.filter((r) => r.source === "directory" && r.userId);
-  const unresolved = selected.filter((r) => !r.userId);
+  // Built from the FULL roster, deliberately NOT from the keep-set. The review
+  // form renders an unresolvable person's checkbox disabled, so they can never
+  // appear in includePersonIds, and filtering them through the keep-set would
+  // drop exactly the people the confirmation page exists to name. They are on
+  // shift, they belong in the chat, and a human has to add them by hand: that
+  // is only true if we record and report them.
+  const unresolved = draft.resolved.filter((r) => !r.userId);
 
   if (stored.length === 0 && directory.length === 0) {
     throw new Error("Nobody in this roster can be added to a chat.");

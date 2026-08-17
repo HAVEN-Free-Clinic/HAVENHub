@@ -788,6 +788,39 @@ describe("toggleTag", () => {
     ).rejects.toBeInstanceOf(BuilderValidationError);
   });
 
+  // `specialty` is offered on EVERY department, unlike triage/walkin/cc which
+  // only SCTP and JCTP use, so it is exercised on a department with no med roles
+  // at all. Ops sets it to mark which med teams and CAs are covering the day's
+  // specialty clinic.
+  it("flips specialty on a department that uses no med roles", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("RHD", { idealHeadcount: 4 });
+    const director = await createPerson("Director");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, volunteer.id, dates[0], "VOLUNTEER");
+
+    const args = { termId: term.id, departmentId: dept.id, dateKey: isoDateKey(dates[0]), personId: volunteer.id, tag: "specialty" as const };
+    await toggleTag(director.id, args);
+
+    const row = await prisma.shiftAssignment.findFirst({
+      where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
+    });
+    expect(row!.specialty).toBe(true);
+    // The day's own specialty is unrelated to this flag, and setting one must
+    // not have touched the others.
+    expect(row!.triage).toBe(false);
+    expect(row!.remote).toBe(false);
+
+    await toggleTag(director.id, args);
+    const row2 = await prisma.shiftAssignment.findFirst({
+      where: { termId: term.id, departmentId: dept.id, personId: volunteer.id },
+    });
+    expect(row2!.specialty).toBe(false);
+  });
+
   it("throws BuilderForbiddenError for actor who does not manage the dept", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

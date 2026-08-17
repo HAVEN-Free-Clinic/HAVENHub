@@ -86,7 +86,7 @@ describe("shiftsToEvents", () => {
 
   it("lists only the tags that are set", () => {
     const [event] = shiftsToEvents(
-      [term([shift({ tags: { triage: true, walkin: false, cc: false, remote: true } })])],
+      [term([shift({ tags: { triage: true, walkin: false, cc: false, remote: true, specialty: false } })])],
       PERSON_ID,
       CTX,
     );
@@ -145,7 +145,7 @@ describe("shiftsToEvents", () => {
   // directions and a travel-time estimate.
   it("leaves a remote shift with no location at all", () => {
     const [event] = shiftsToEvents(
-      [term([shift({ tags: { triage: false, walkin: false, cc: false, remote: true } })])],
+      [term([shift({ tags: { triage: false, walkin: false, cc: false, remote: true, specialty: false } })])],
       PERSON_ID,
       CTX,
     );

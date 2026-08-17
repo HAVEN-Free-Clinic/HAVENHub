@@ -862,6 +862,55 @@ describe("approveRequest", () => {
     expect(isoDateKey(vol2Shifts[0].clinicDate)).toBe(isoDateKey(dates[0]));
   });
 
+  // The swap deletes both assignments and recreates them on the other's date, so
+  // every tag has to be captured beforehand and replayed. Nothing tested that,
+  // and the failure is quiet: the shift still moves and only the flag goes
+  // missing, which nobody notices until a specialty clinic is short a med team.
+  it("approving a swap carries the shift tags onto each person's new date", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("AABB");
+    const director = await createPerson("Director");
+    const vol1 = await createPerson("Vol1");
+    const vol2 = await createPerson("Vol2");
+
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(vol1.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(vol2.id, term.id, dept.id, "VOLUNTEER");
+    const a1 = await createShift(term.id, dept.id, vol1.id, dates[0], "VOLUNTEER");
+    const a2 = await createShift(term.id, dept.id, vol2.id, dates[1], "VOLUNTEER");
+    await prisma.shiftAssignment.update({ where: { id: a1.id }, data: { specialty: true, triage: true } });
+    await prisma.shiftAssignment.update({ where: { id: a2.id }, data: { remote: true } });
+
+    const req = await createRequest(vol1.id, {
+      termId: term.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: vol2.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    await approveRequest(director.id, req.id);
+
+    const moved1 = await prisma.shiftAssignment.findFirstOrThrow({
+      where: { termId: term.id, departmentId: dept.id, personId: vol1.id },
+    });
+    const moved2 = await prisma.shiftAssignment.findFirstOrThrow({
+      where: { termId: term.id, departmentId: dept.id, personId: vol2.id },
+    });
+
+    // Each person keeps their OWN tags on the date they moved to; the tags do
+    // not swap with the dates.
+    expect(isoDateKey(moved1.clinicDate)).toBe(isoDateKey(dates[1]));
+    expect(moved1.specialty).toBe(true);
+    expect(moved1.triage).toBe(true);
+    expect(moved1.remote).toBe(false);
+
+    expect(isoDateKey(moved2.clinicDate)).toBe(isoDateKey(dates[0]));
+    expect(moved2.remote).toBe(true);
+    expect(moved2.specialty).toBe(false);
+  });
+
   it("rejects a swap onto a person no longer an active member of the department (audit #8/#25)", async () => {
     const dates = sixSaturdays();
     const term = await createTerm("ACTIVE", dates);

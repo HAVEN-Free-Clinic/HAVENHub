@@ -100,7 +100,10 @@ from a retired preset still resolves to a name.
 ### `TriageChatPresetDepartment`
 
 `presetId` + `departmentId`, unique on the pair. FK to `Department` with the
-same `Restrict` posture as the other department join tables.
+same `Cascade` posture as the other department join tables (`CourseDepartment`
+and `EhsTrainingDepartment` both cascade). An earlier draft of this spec said
+`Restrict`, which is not what those siblings do; the code follows the real
+idiom.
 
 ### `TriageChat` and `TriageChatMember`
 

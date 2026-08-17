@@ -1,0 +1,136 @@
+import type { ShiftRole } from "@prisma/client";
+
+/** A department as the resolver needs it: identity plus the label it prints. */
+export type TriageDepartment = { id: string; code: string; name: string };
+
+/** One ShiftAssignment row, narrowed to what the roster rules read. */
+export type TriageRosterAssignment = {
+  personId: string;
+  role: ShiftRole;
+  triage: boolean;
+  department: TriageDepartment;
+  person: {
+    id: string;
+    name: string;
+    netId: string | null;
+    contactEmail: string | null;
+    entraObjectId: string | null;
+  };
+};
+
+/**
+ * A person going into the chat. Carries every candidate the Graph layer can use
+ * to resolve them to an Entra object id. The resolver itself never touches the
+ * network, so reachability is decided later, by the layer that can ask.
+ */
+export type TriageRosterMember = {
+  personId: string;
+  name: string;
+  netId: string | null;
+  contactEmail: string | null;
+  entraObjectId: string | null;
+  departmentName: string;
+};
+
+export type TriageRoster = {
+  members: TriageRosterMember[];
+  /** Plain-text bulleted list, one line per contributing department. */
+  rosterBlock: string;
+  sessionCoordinators: string[];
+  clinicalAdvisors: string[];
+  /** Selected departments that contributed nobody, for a review-screen warning. */
+  emptyDepartments: string[];
+};
+
+/** Department codes whose members also get their own template variable. */
+const SESSION_COORDINATOR_CODE = "EXEC";
+const CLINICAL_ADVISOR_CODE = "PCAR";
+
+/**
+ * Turn one clinic date's assignments into the chat's membership and the roster
+ * block printed in the opening message. One pass produces both, which is the
+ * point: a bulleted list that can name somebody who is not in the chat is the
+ * bug this feature exists to remove.
+ *
+ * Selected departments contribute only their triage-tagged directors, because
+ * "who is fielding triage calls for this department" is exactly the question the
+ * chat asks. The always-include departments (EXEC, PCAR, PATS by default)
+ * contribute every director on shift instead: they are small leadership and
+ * coordination groups where the triage tag is not the relevant distinction.
+ *
+ * Callers must pass assignments ALREADY filtered to one clinic date and to
+ * people holding an ACTIVE TermMembership in the department they are assigned
+ * to. That filter is not optional and is not done here only because it needs the
+ * database: offboarding removes the membership but leaves future assignments in
+ * place until a director clears them, so without it an offboarded volunteer is
+ * added to a twenty-person chat.
+ */
+export function resolveTriageRoster(input: {
+  assignments: TriageRosterAssignment[];
+  selectedDepartments: TriageDepartment[];
+  alwaysIncludeDepartments: TriageDepartment[];
+}): TriageRoster {
+  const { assignments, selectedDepartments, alwaysIncludeDepartments } = input;
+
+  const selectedIds = new Set(selectedDepartments.map((d) => d.id));
+  const alwaysIds = new Set(alwaysIncludeDepartments.map((d) => d.id));
+
+  const qualifies = (a: TriageRosterAssignment): boolean => {
+    if (a.role !== "DIRECTOR") return false;
+    if (alwaysIds.has(a.department.id)) return true;
+    return selectedIds.has(a.department.id) && a.triage;
+  };
+
+  // Dedupe by person, keeping the FIRST department that qualified them once the
+  // list is in a deterministic order. Sorting before the walk (rather than
+  // relying on query order) is what makes the chosen department stable.
+  const ordered = [...assignments].filter(qualifies).sort((a, b) => {
+    const byDept = a.department.name.localeCompare(b.department.name);
+    return byDept !== 0 ? byDept : a.person.name.localeCompare(b.person.name);
+  });
+
+  const seen = new Set<string>();
+  const members: TriageRosterMember[] = [];
+  const byDepartment = new Map<string, string[]>();
+
+  for (const a of ordered) {
+    const names = byDepartment.get(a.department.name) ?? [];
+    if (!names.includes(a.person.name)) names.push(a.person.name);
+    byDepartment.set(a.department.name, names);
+
+    if (seen.has(a.personId)) continue;
+    seen.add(a.personId);
+    members.push({
+      personId: a.personId,
+      name: a.person.name,
+      netId: a.person.netId,
+      contactEmail: a.person.contactEmail,
+      entraObjectId: a.person.entraObjectId,
+      departmentName: a.department.name,
+    });
+  }
+
+  const namesForCode = (code: string): string[] =>
+    ordered
+      .filter((a) => a.department.code === code)
+      .map((a) => a.person.name)
+      .filter((name, i, all) => all.indexOf(name) === i);
+
+  const rosterBlock = [...byDepartment.entries()]
+    .map(([department, names]) => `- ${department}: ${names.join(", ")}`)
+    .join("\n");
+
+  const contributing = new Set(ordered.map((a) => a.department.id));
+  const emptyDepartments = selectedDepartments
+    .filter((d) => !contributing.has(d.id))
+    .map((d) => d.name)
+    .sort();
+
+  return {
+    members,
+    rosterBlock,
+    sessionCoordinators: namesForCode(SESSION_COORDINATOR_CODE),
+    clinicalAdvisors: namesForCode(CLINICAL_ADVISOR_CODE),
+    emptyDepartments,
+  };
+}

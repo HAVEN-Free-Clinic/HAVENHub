@@ -9,7 +9,7 @@ import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { fullSchedule } from "@/modules/schedule/services/schedule";
+import { fullSchedule, type ShiftTags } from "@/modules/schedule/services/schedule";
 import { markPresent, undoAttendance } from "@/modules/schedule/services/attendance";
 import { displayTodayKey } from "@/platform/dates/today";
 import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
@@ -151,11 +151,15 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
    * volunteers: the clinic needs to see which DIRECTOR is on triage or working
    * remotely, and that is exactly what the full schedule is consulted for.
    */
-  function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }) {
+  function shiftTags(tags: ShiftTags) {
     return (
       <>
         {tags.triage && <Badge tone="default">Triage</Badge>}
         {tags.walkin && <Badge tone="default">Walk-in</Badge>}
+        {/* Which specialty is running is a property of the day, so this badge
+            says only that the person is covering it. The day's own specialty is
+            shown once, at the top of the page, rather than repeated per name. */}
+        {tags.specialty && <Badge tone="default">Specialty</Badge>}
         {tags.cc && <Badge tone="default">CC</Badge>}
         {tags.remote && <Badge tone="default">Remote</Badge>}
       </>

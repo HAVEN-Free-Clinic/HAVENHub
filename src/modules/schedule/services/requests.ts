@@ -26,6 +26,7 @@ import {
 import type { ScheduleRowForValidation } from "../engine/requests";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { isPublished } from "./publication";
+import type { ShiftTags } from "./schedule";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -804,13 +805,14 @@ export async function approveRequest(
     }
 
     // Capture each moved person's existing role tags BEFORE any delete, so a swap
-    // carries triage/walk-in/cc/remote onto the person's new date instead of
-    // silently resetting them to defaults. Each person is removed from exactly one
-    // date per plan, so keying by personId is unambiguous.
-    const tagsByPerson = new Map<
-      string,
-      { triage: boolean; walkin: boolean; cc: boolean; remote: boolean }
-    >();
+    // carries them onto the person's new date instead of silently resetting them
+    // to defaults. Each person is removed from exactly one date per plan, so
+    // keying by personId is unambiguous.
+    //
+    // ShiftTags rather than a fresh spelling of the same four-or-five booleans:
+    // a swap that quietly dropped a tag this map forgot to list would be close to
+    // undetectable, since the shift still moves and only the flag goes missing.
+    const tagsByPerson = new Map<string, ShiftTags>();
     for (const mutation of mutations) {
       if (mutation.op !== "remove") continue;
       const canonicalDate = clinicDateMap.get(mutation.dateKey);
@@ -824,7 +826,7 @@ export async function approveRequest(
             personId: mutation.personId,
           },
         },
-        select: { triage: true, walkin: true, cc: true, remote: true },
+        select: { triage: true, walkin: true, cc: true, remote: true, specialty: true },
       });
       if (existing) tagsByPerson.set(mutation.personId, existing);
     }

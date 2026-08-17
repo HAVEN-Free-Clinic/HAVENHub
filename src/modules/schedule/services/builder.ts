@@ -21,6 +21,7 @@ import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
+import type { ShiftTags } from "./schedule";
 import { computeConflicts } from "../engine/conflicts";
 import { computeDayMetrics } from "../engine/capacity";
 import type { DayMetrics } from "../engine/capacity";
@@ -109,8 +110,19 @@ export const SHIFT_ROLES = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
 /**
  * Boolean tag columns toggleable on a ShiftAssignment. Guarded the same way as
  * SHIFT_ROLES so a bad `tag` never reaches `data: { [tag]: value }`.
+ *
+ * `specialty` marks an assignment as covering the day's specialty clinic. WHICH
+ * specialty is running belongs to the day (ClinicDay.specialtyId), so this is one
+ * flag rather than one per specialty.
  */
-export const SHIFT_TAGS = ["triage", "walkin", "cc", "remote"] as const;
+export const SHIFT_TAGS = ["triage", "walkin", "cc", "remote", "specialty"] as const;
+
+/**
+ * Derived from SHIFT_TAGS rather than retyped. toggleTag used to spell the union
+ * out separately, so adding a column meant remembering to edit both, and the
+ * allow-list could silently disagree with the type it was guarding.
+ */
+export type ShiftTag = (typeof SHIFT_TAGS)[number];
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -330,7 +342,7 @@ export async function setAssignment(
 }
 
 /**
- * Flips a boolean tag (triage, walkin, cc, remote) on an existing assignment.
+ * Flips one of the SHIFT_TAGS booleans on an existing assignment.
  *
  * Throws BuilderValidationError when no assignment row exists for the
  * person/date/department combination.
@@ -342,7 +354,7 @@ export async function toggleTag(
     departmentId: string;
     dateKey: string;
     personId: string;
-    tag: "triage" | "walkin" | "cc" | "remote";
+    tag: ShiftTag;
   }
 ): Promise<void> {
   await scopeCheck(actor, opts.departmentId);
@@ -1013,7 +1025,7 @@ export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrd
 
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
-  tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  tags: ShiftTags;
   /**
    * Identity of the assignee, carried from the loaded ShiftAssignment.person so a
    * non-member assignee (someone offboarded out of their ACTIVE membership while a
@@ -1234,7 +1246,7 @@ export async function builderView(
     if (!assignmentsByDate[dk]) assignmentsByDate[dk] = {};
     assignmentsByDate[dk][a.personId] = {
       role: a.role as "VOLUNTEER" | "SHADOW" | "DIRECTOR",
-      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       person: {
         name: a.person.name,
         verifiedLanguages: languageMap.get(a.personId) ?? [],

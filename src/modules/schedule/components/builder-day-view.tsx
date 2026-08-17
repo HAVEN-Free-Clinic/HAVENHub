@@ -256,7 +256,7 @@ export function BuilderDayView({
                     </div>
                     {editable && tags && (
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
+                        {([...rolesForDept(dept.code), "remote", "specialty"] as Array<"triage" | "walkin" | "cc" | "remote" | "specialty">).map((tag) => (
                           <BuilderCell
                             key={tag}
                             action={toggleTagAction}
@@ -310,7 +310,7 @@ export function BuilderDayView({
                     </div>
                     {editable && (
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {([...rolesForDept(dept.code), "remote"] as Array<"triage" | "walkin" | "cc" | "remote">).map((tag) => (
+                        {([...rolesForDept(dept.code), "remote", "specialty"] as Array<"triage" | "walkin" | "cc" | "remote" | "specialty">).map((tag) => (
                           <BuilderCell
                             key={tag}
                             action={toggleTagAction}

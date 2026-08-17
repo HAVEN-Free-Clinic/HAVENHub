@@ -100,7 +100,7 @@ export type MyShift = {
   clinicDate: Date;
   department: Department;
   role: ShiftRole;
-  tags: { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+  tags: ShiftTags;
   /**
    * The attending covering THIS shift's department on this date, in
    * schedule-column order.
@@ -128,8 +128,20 @@ export type PersonLite = { id: string; name: string };
 /** Per-assignment shift flags. Set on EVERY role, not just volunteers: a
  *  director can hold the triage post or work the day remotely just as a
  *  volunteer can, and the full schedule is where the rest of the clinic looks
- *  those up. */
-export type ShiftTags = { triage: boolean; walkin: boolean; cc: boolean; remote: boolean };
+ *  those up.
+ *
+ *  `specialty` says this person is covering the day's specialty clinic. Which
+ *  specialty that is comes from the day itself, not from here, so there is one
+ *  flag rather than one per specialty. It says nothing about being
+ *  specialty-trained; that is a person-level credential this deliberately does
+ *  not encode. */
+export type ShiftTags = {
+  triage: boolean;
+  walkin: boolean;
+  cc: boolean;
+  remote: boolean;
+  specialty: boolean;
+};
 
 export type TaggedPerson = PersonLite & {
   tags: ShiftTags;
@@ -237,7 +249,7 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     clinicDate: s.clinicDate,
     department: s.department,
     role: s.role,
-    tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote },
+    tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote, specialty: s.specialty },
     attendings: attendingsByShift.get(`${isoDateKey(s.clinicDate)}|${s.departmentId}`) ?? [],
   }));
 
@@ -418,6 +430,7 @@ export async function fullSchedule(
         walkin: true,
         cc: true,
         remote: true,
+        specialty: true,
         person: { select: { id: true, name: true, licensedRN: true } },
         department: { select: { id: true, name: true, code: true } },
       },
@@ -486,7 +499,7 @@ export async function fullSchedule(
     const person: TaggedPerson = {
       id: a.person.id,
       name: a.person.name,
-      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote },
+      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
       licensedRN: a.person.licensedRN,
     };

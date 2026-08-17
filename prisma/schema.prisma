@@ -1329,6 +1329,19 @@ model ShiftAssignment {
   walkin       Boolean    @default(false)
   cc           Boolean    @default(false)
   remote       Boolean    @default(false)
+  /// This assignment is covering the day's specialty clinic.
+  ///
+  /// Deliberately a plain flag and NOT a link to AttendingSpecialty: which
+  /// specialty is running is a property of the DAY (ClinicDay.specialtyId), so
+  /// naming it again per person would be a second copy of one fact, free to
+  /// disagree with the day it belongs to. Ops asked for exactly this shape: one
+  /// toggle, "not differentiated by specialty", set per assignment like the tags
+  /// above rather than stored on the Person.
+  ///
+  /// It is also NOT a statement that someone is specialty-trained. That is a
+  /// person-level credential waiting on a real training process, and it will
+  /// need its own verified field when it arrives, the way PersonLanguage does.
+  specialty    Boolean    @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   /// Restrict: term deletion is blocked while schedule history references it.

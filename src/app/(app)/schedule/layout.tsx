@@ -5,6 +5,8 @@ import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
 import { canManageAttendings, canViewAttendingCoverage } from "@/modules/schedule/services/attendings";
 import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
 import { isClinicDayToday } from "@/modules/schedule/services/attendance";
+import { filterNavItems } from "@/platform/modules/access";
+import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { ModuleNav } from "@/platform/ui/module-nav";
 import { moduleMetadata } from "@/platform/branding/metadata";
 
@@ -34,6 +36,17 @@ export function generateMetadata() {
 // All four carry `dynamicGate: true` in the registry, which keeps them out of
 // the *global* nav's Schedule dropdown (it cannot run these checks). This layout
 // remains the only place that decides whether they appear in the tab row.
+//
+// Tabs gated on a plain `permission` are NOT in this list. They are handled by
+// filterNavItems below, the same helper the other six module layouts use.
+//
+// This layout used to filter mod.nav by href alone, which made the href list
+// load-bearing for permission tabs too: one that nobody remembered to add was
+// shown to every schedule.view holder, and every seeded volunteer role holds
+// schedule.view, so it was a link straight to /no-access. Adding Specialties
+// surfaced that, and the answer is for the list to stop being exhaustive rather
+// than to keep remembering to extend it. Only add an href here when the gate is
+// something no permission string can express.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
 const COVERAGE_HREF = "/schedule/coverage";
@@ -43,13 +56,15 @@ const CHECK_IN_HREF = "/schedule/check-in";
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, managesAttendings, viewsCoverage, requestDeptIds, isClinicDay] = await Promise.all([
-    canManageAnyScheduleDept(personId),
-    canManageAttendings(personId),
-    canViewAttendingCoverage(personId),
-    manageableRequestDepartmentIds(personId),
-    isClinicDayToday(),
-  ]);
+  const [canBuild, managesAttendings, viewsCoverage, requestDeptIds, isClinicDay, perms] =
+    await Promise.all([
+      canManageAnyScheduleDept(personId),
+      canManageAttendings(personId),
+      canViewAttendingCoverage(personId),
+      manageableRequestDepartmentIds(personId),
+      isClinicDayToday(),
+      getEffectivePermissions(personId),
+    ]);
   const canApprove = requestDeptIds.length > 0;
   // Attendings is a management tool: it maintains the roster and books who
   // covers each clinic date, which Faculty Relations does. What a VOLUNTEER
@@ -59,7 +74,9 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
   // Coverage is the read-only twin of Attendings, on a WIDER gate: Faculty
   // Relations builds the schedule, but everyone holding clinic-wide schedule
   // rights runs a clinic day and has to be able to look coverage up.
-  const items = mod.nav.filter(
+  // Permission gates first, then the data-driven ones. Both apply: Approvals
+  // carries a permission AND a department check, and narrowing twice is right.
+  const items = filterNavItems(mod.nav, perms).filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
       (item.href !== ATTENDINGS_HREF || managesAttendings) &&

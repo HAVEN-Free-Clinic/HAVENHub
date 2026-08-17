@@ -125,4 +125,28 @@ describe("module registry", () => {
     const admin = MODULES.find((m) => m.id === "admin")!;
     expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");
   });
+
+  it("never nests one tab's href under another's, which would light up two tabs at once", () => {
+    // ModuleNav.isActive prefix-matches any href with MORE THAN ONE segment
+    // (the module root, e.g. "/admin", is exact-matched precisely so it does not
+    // claim every sub-page). So "/schedule/attendings" and a hypothetical
+    // "/schedule/attendings/specialties" would BOTH report active on the deeper
+    // page: two underlines, two aria-current="page" nodes, and
+    // scrollActiveTabIntoView scrolling to whichever comes first in the DOM
+    // rather than the real one. Tab rows are flat, so keep the hrefs flat too
+    // and give a sub-page a sibling path.
+    for (const mod of MODULES) {
+      const hrefs = mod.nav.map((n) => n.href);
+      for (const parent of hrefs) {
+        // Single-segment module roots are exempt from prefix matching.
+        if (parent.replace(/^\//, "").split("/").length < 2) continue;
+        for (const child of hrefs) {
+          expect(
+            child === parent || !child.startsWith(`${parent}/`),
+            `${mod.id} nav href "${child}" is nested under sibling tab "${parent}"`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
 });

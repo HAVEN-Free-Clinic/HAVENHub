@@ -326,6 +326,21 @@ describe("filterNavItems", () => {
 });
 
 describe("registry nav permissions", () => {
+  /**
+   * There is deliberately no allowlist for a tab that gates on ANOTHER module's
+   * permission, and adding one is almost certainly the wrong fix.
+   *
+   * The attending specialties editor tested that. It reads like reference data
+   * belonging to Admin while being governed by schedule.manage_attendings, which
+   * looked like a legitimate crossing. It was not: under /admin, the Admin
+   * module's own accessPermission gated out Faculty Relations Manager, the one
+   * role that owns attendings, so the page could not be opened by the person it
+   * was built for. Moving it beside the roster it configures made the crossing
+   * disappear.
+   *
+   * If a tab wants a permission its module does not declare, check whether the
+   * tab is in the wrong module before relaxing this rule.
+   */
   it("only references permissions its own module declares", () => {
     for (const mod of MODULES) {
       const declared = new Set(mod.permissions);

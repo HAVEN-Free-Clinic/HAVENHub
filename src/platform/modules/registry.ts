@@ -33,6 +33,10 @@ export const MODULES: ModuleManifest[] = [
       // Faculty Relations. Attendings are not members of a department, so a
       // department-scoped grant could not express who may edit them.
       "schedule.manage_attendings",
+      // Unscoped like the two above, and for the same kind of reason: there is
+      // ONE weekly triage chat per preset for the whole clinic, created by an
+      // Executive Director. A department-scoped grant could not express that.
+      "schedule.manage_triage_chats",
     ],
     status: "active",
     nav: [
@@ -72,6 +76,11 @@ export const MODULES: ModuleManifest[] = [
         label: "Specialties",
         href: "/schedule/specialties",
         permission: "schedule.manage_attendings",
+      },
+      {
+        label: "Triage chats",
+        href: "/schedule/triage-chats",
+        permission: "schedule.manage_triage_chats",
       },
       // Read-only view of the same schedule, for a WIDER audience than the
       // builder: anyone holding clinic-wide schedule rights runs a clinic day

@@ -182,8 +182,17 @@ The caller loads the term, resolves the clinic date, and reads assignments:
 `triageChats.alwaysIncludeDepartmentCodes`, a settings-registry entry of input
 type `text` holding a comma-separated list of department codes, defaulting to
 `"EXEC,PCAR,PATS"`. The registry has no multi-select input type, so a validated
-text field is the honest shape. The zod schema rejects unknown codes at save
-time rather than failing silently at chat-creation time.
+text field is the honest shape.
+
+The zod schema validates **format only** (comma-separated, non-empty,
+uppercase-alphanumeric codes). It cannot check that the codes name real
+departments: `SettingValidateCtx` carries `config` and `getSetting` and no
+database handle, and `registry.ts` is imported widely enough that reaching for
+prisma there is not worth an import cycle. So the loader resolves codes to
+departments and reports any that did not match as a warning on the review
+screen, where the ED is already reading the roster. A typo shows up as a named
+warning next to the members it failed to add rather than as a silently short
+roster.
 
 Configurable rather than hardcoded because department structure changes between
 years and an ED should not need a deploy to add one.

@@ -132,7 +132,7 @@ so every rule below is a unit test with no database.
 
 ```
 resolveTriageRoster({ assignments, selectedDepartmentIds, alwaysIncludeDepartmentIds })
-  -> { members: RosterMember[], rosterBlock: string, unreachable: RosterMember[] }
+  -> { members: RosterMember[], rosterBlock: string }
 ```
 
 The rules:
@@ -155,11 +155,11 @@ The rules:
 4. **Dedupe by person, group by department.** One entry per person even when
    they hold shifts in several selected departments. Grouped and sorted by
    department name for the roster block.
-5. **Classify reachability.** Each member carries the bind the Graph layer will
-   use: `entraObjectId` when present, otherwise `netId@yale.edu`. A person with
-   neither is `unreachable`: they appear in the roster block (they are on
-   shift, and hiding that would be worse) but cannot be added to the chat, and
-   the review screen says so.
+5. **Carry the lookup candidates.** Each member carries their
+   `entraObjectId` (may be null), `netId`, and `contactEmail`, which is
+   everything the Graph layer needs to resolve them. The resolver itself stays
+   pure and does no network work: reachability is decided at creation time, by
+   the layer that can actually ask the directory.
 
 The function returns the member list and the rendered roster block together.
 That is the point: they are the same data, so the bulleted list in the message
@@ -209,47 +209,73 @@ identical: a 403 for a missing scope and a 403 for an account that is not
 permitted to chat with a recipient carry completely different fixes, and Graph
 explains which in the body every time.
 
-Three functions:
+Four functions:
 
-- `createGroupChat({ topic, memberBinds })` posts to `/v1.0/chats` with
+- `lookupUserId(bind)` gets
+  `/v1.0/users?$filter=userPrincipalName eq '{bind}' or mail eq '{bind}'` with
+  `$select=id,displayName,userPrincipalName`. Returns the Entra object id, or
+  null when the directory has no match.
+- `createGroupChat({ topic, memberIds })` posts to `/v1.0/chats` with
   `chatType: "group"`, the topic, and one
   `#microsoft.graph.aadUserConversationMember` per member with
   `roles: ["owner"]`. Returns the chat id and `webUrl`.
-- `addChatMember(chatId, bind)` posts to `/v1.0/chats/{id}/members`.
+- `addChatMember(chatId, userId)` posts to `/v1.0/chats/{id}/members`.
 - `postChatMessage(chatId, bodyHtml)` posts to `/v1.0/chats/{id}/messages`,
   the same call `GraphTeamsTransport.send` already makes for 1:1 DMs.
 
-### Binding members, and the one thing we do not know
+### Binding members
 
-Graph's `user@odata.bind` accepts an Entra object id or a **user principal
-name**. It does not accept an arbitrary mail attribute. UPN and email are the
-same string in many tenants, but Yale is demonstrably not uniformly so: the
-service account this feature runs as is `hfc.admin@yale.edu` by mail and
-`hfc.admin@yu.yale.edu` by UPN.
+Graph's `user@odata.bind` accepts an Entra object id or a user principal name,
+not an arbitrary mail attribute. UPN and email are the same string in many
+tenants but demonstrably not uniformly at Yale: the service account this
+feature runs as is `hfc.admin@yale.edu` by mail and `hfc.admin@yu.yale.edu` by
+UPN. So the Hub never guesses at the format. It asks the directory.
 
-Rather than bet a twenty-person chat on that assumption holding for every
-director:
+Resolution order per roster member:
 
-1. **Create the chat with everyone who has an `entraObjectId`.** Those binds
-   are known-valid. In practice this is nearly everyone, because a person gets
-   an `entraObjectId` the first time they sign into the Hub and being on the
-   schedule generally means having signed in.
-2. **Add anyone else individually**, binding `netId@yale.edu`, via
-   `addChatMember`. One call per person, so a bad bind fails that person rather
-   than the whole create.
-3. **Report per-person failures.** Each one is written to `TriageChatMember`
-   with `addedOk = false` and Graph's error, and the confirmation screen lists
-   them with a copyable set of names to add by hand in Teams.
+1. **`Person.entraObjectId`** when set. This is the real object id, captured
+   from the token claim at sign-in, and needs no lookup.
+2. **Directory lookup** otherwise: `lookupUserId` against `netId@yale.edu`,
+   then against `contactEmail` if that misses. The filter matches on
+   `userPrincipalName` OR `mail`, so it does not matter which one Yale uses.
+   Lookups run with bounded parallelism (five at a time) since a roster is
+   about twenty people once a week.
+3. **Unresolved.** No stored id and no directory match. The person appears in
+   the roster block, because they are genuinely on shift, but cannot be added.
+   They are named on the review screen and the confirmation.
 
-If UPN-equals-email does hold at Yale, nothing about this changes; the failure
-list is simply always empty. If it does not, an ED gets a named list instead of
-a create call that fails with everyone's chat on the line.
+The resolved ids are **not written back to `Person.entraObjectId`**. That
+column is the SSO identity link `match-person.ts` uses to bind a login to a
+person, and it is `@unique`; a lookup that matched the wrong Ellen Smith would
+turn a display bug into an account takeover. The lookup runs fresh each time
+instead, which costs twenty cheap directory reads a week.
 
-**Scope change:** step 2 requires `ChatMember.ReadWrite` added to the `SCOPES`
-string in `src/platform/email/oauth.ts`. `Chat.Create` and `ChatMessage.Send`
-are already granted. Growing the scope string requires one admin reconnect;
-`needsReconnect()` in that same module already exists for exactly this and must
-be extended to check for the new scope so the admin UI prompts.
+### Creating and adding
+
+Because a create call is atomic, one bad member id fails the chat for everyone.
+So the two classes of id are used differently:
+
+1. **Create the chat with the service account plus every member whose id came
+   from `Person.entraObjectId`.** Those ids came from a real sign-in, so they
+   cannot be wrong. In practice this is nearly everyone. If that set is empty,
+   promote one directory-resolved member into the create so the chat is valid.
+2. **Add the directory-resolved members individually** via `addChatMember`. One
+   call per person, so a bad id fails that person rather than the whole chat.
+3. **Report per-person failures.** Each is written to `TriageChatMember` with
+   `addedOk = false` and Graph's error, and the confirmation lists them with a
+   copyable set of names to add by hand in Teams.
+
+**Scopes.** `Chat.ReadWrite` (for `addChatMember`) and `User.ReadBasic.All`
+(for `lookupUserId`) are added to the `SCOPES` string in
+`src/platform/email/oauth.ts`. Both have already been added to the app
+registration, and both are user-consentable in this tenant, so the cost is one
+reconnect by the service account rather than an ITS request.
+`ChatMember.ReadWrite` is the least-privileged permission Microsoft documents
+for adding a chat member and would have been the obvious choice, but it
+requires tenant admin consent; `Chat.ReadWrite` is the documented
+higher-privileged alternative for the same call and does not.
+`needsReconnect()` in the oauth module already exists for scope growth and must
+be extended to check for both new scopes so the admin UI prompts.
 
 ## The opening message
 
@@ -283,24 +309,28 @@ a `TriageChat` already exists for `(preset, clinicDate)`, a deep link into the
 existing chat. Presets are managed from here (create, edit, deactivate).
 
 **Review** (`/schedule/triage-chats/[presetId]/new`). Server-rendered from the
-resolver:
+resolver, with member ids resolved (including the directory lookups) so the ED
+sees reachability **before** committing rather than after:
 
 - Chat name, editable, prefilled from `nameTemplate`.
 - Member list grouped by department, each person with a checkbox so the ED can
-  drop someone, and each unreachable person clearly marked with why.
+  drop someone, and anyone the directory could not resolve clearly marked as
+  "cannot be added automatically".
 - Opening message, editable, prefilled from `messageTemplate`.
 - Warnings: closed clinic date, empty roster, a selected department with no
-  triage-flagged director on shift.
+  triage-flagged director on shift, an always-include code in the setting that
+  matches no department.
 
 **Confirm.** A server action that:
 
-1. Re-resolves the roster server-side. The form's checkbox state selects from
-   that set; it never supplies member identities. A form field must not be able
-   to name an arbitrary person into a chat.
+1. Re-resolves the roster server-side, including the directory lookups. The
+   form's checkbox state selects from that set; it never supplies member
+   identities or Entra ids. A form field must not be able to name an arbitrary
+   person into a chat.
 2. Inserts the `TriageChat` row, taking the `(presetId, clinicDate)` unique
    constraint as the claim.
-3. Creates the chat via Graph, then adds the fallback-bound members
-   individually, then posts the message.
+3. Creates the chat via Graph with the stored-id members, then adds the
+   directory-resolved members individually, then posts the message.
 4. Writes `TriageChatMember` rows and `messagePostedAt`.
 5. Records an audit entry via `recordAudit`
    (`triage_chat.create`, entityType `TriageChat`), because adding twenty
@@ -341,9 +371,14 @@ told what happened, which is strictly better than a queue guessing.
   `rosterBlock` name the same people.
 - **Name and message rendering** (unit): every variable substitutes; an unknown
   variable renders empty rather than throwing.
-- **Graph client** (unit, injected `fetch`): create/add/post success shapes,
-  error-body propagation, timeout behavior, and that one failing
-  `addChatMember` does not abort the others.
+- **Graph client** (unit, injected `fetch`): lookup/create/add/post success
+  shapes, error-body propagation, timeout behavior, a lookup returning no match
+  yielding null rather than throwing, and that one failing `addChatMember` does
+  not abort the others.
+- **Member id resolution** (unit, injected lookup): a stored `entraObjectId`
+  short-circuits the directory call entirely; a miss on `netId@yale.edu` falls
+  through to `contactEmail`; a person matched by neither is reported unresolved;
+  no resolved id is ever written back to `Person`.
 - **Server action** (DB): double submit yields exactly one chat; a failed
   message post still records the chat with `messagePostedAt` null; retry posts
   rather than re-creates; a checkbox naming a person outside the resolved
@@ -356,7 +391,6 @@ told what happened, which is strictly better than a queue guessing.
 
 ## Open questions
 
-None blocking. One fact to confirm against the live tenant during
-implementation: whether `netId@yale.edu` is a valid UPN bind for Yale student
-accounts. The design does not depend on the answer, and the fallback path
-reports the truth either way.
+None. The one that was open, whether `netId@yale.edu` is a valid UPN bind for
+Yale accounts, is answered by not needing to know: `lookupUserId` filters on
+`userPrincipalName` OR `mail` and uses whichever the directory returns.

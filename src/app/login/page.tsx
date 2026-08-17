@@ -5,7 +5,7 @@ import { auth, signIn } from "@/platform/auth/auth";
 import { config } from "@/platform/config";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
-import { SupportLink } from "@/platform/branding/support-link";
+import { MessengerSupportLink } from "@/platform/intercom/messenger-support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { Input, Field } from "@/platform/ui/input";
@@ -154,11 +154,18 @@ export default async function LoginPage({
 
         {/* Persistent help affordance, available before any error occurs.
             Hidden entirely when no support email is configured, so a
-            locked-out user is never shown a contact they cannot reach. */}
+            locked-out user is never shown a contact they cannot reach.
+
+            Opens the Intercom Messenger rather than a mail client whenever the
+            Messenger is actually up: this layout already boots it in visitor
+            mode (see ./layout.tsx), and a locked-out person gets an answer in
+            the chat far sooner than in an inbox. It stays a mailto link
+            underneath for the cases where the widget never loads at all --
+            content blocker, filtered network, integration switched off. */}
         {support.email && (
           <p className="mt-5 text-center text-sm text-muted-foreground">
             Trouble signing in?{" "}
-            <SupportLink email={support.email}>{support.label}</SupportLink>
+            <MessengerSupportLink email={support.email}>{support.label}</MessengerSupportLink>
           </p>
         )}
 

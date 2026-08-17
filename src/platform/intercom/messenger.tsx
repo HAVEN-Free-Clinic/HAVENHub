@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Intercom, { shutdown, update } from "@intercom/messenger-js-sdk";
+import { watchMessengerScript } from "./messenger-readiness";
 
 /**
  * Refresh this far ahead of expiry. Wide enough to absorb a slow request or a
@@ -138,6 +139,10 @@ export function IntercomMessenger({
   useEffect(() => {
     if (mode === "visitor") {
       Intercom({ app_id: appId });
+      // Immediately after the boot, never before it: the SDK only injects the
+      // script this watches during the Intercom() call. Same at the two boot
+      // sites below. See ./messenger-readiness for what reads the answer.
+      watchMessengerScript();
       return () => shutdown();
     }
 
@@ -164,6 +169,7 @@ export function IntercomMessenger({
         return;
       }
       Intercom({ app_id: appId, intercom_user_jwt: token });
+      watchMessengerScript();
       booted = true;
     };
 
@@ -196,6 +202,7 @@ export function IntercomMessenger({
           // that carries no token.
           if ((res.status === 401 || res.status === 403) && !booted) {
             Intercom({ app_id: appId });
+            watchMessengerScript();
             booted = true;
             return;
           }

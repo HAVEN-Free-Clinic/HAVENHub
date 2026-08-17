@@ -254,6 +254,10 @@ model Person {
   shiftRequestsTargeted          ShiftRequest[]             @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided           ShiftRequest[]             @relation("shiftRequestDecidedBy")
+  /// Triage chats this person created.
+  triageChatsCreated             TriageChat[]               @relation("triageChatCreatedBy")
+  /// Triage chat memberships recorded for this person.
+  triageChatMemberships          TriageChatMember[]         @relation("triageChatMemberPerson")
   /// Languages claimed and/or assessed. Replaced the four spanish* columns:
   /// Spanish is now the row with language = "es", with no special casing.
   languages                      PersonLanguage[]           @relation("personLanguages")
@@ -333,6 +337,7 @@ model Term {
   /// Offboard flags raised for this term.
   offboardFlags        OffboardFlag[]
   shiftAssignments     ShiftAssignment[]
+  triageChats          TriageChat[]
   clinicAttendances    ClinicAttendance[]
   shiftRequests        ShiftRequest[]
   scheduleDays         ScheduleDay[]
@@ -390,6 +395,7 @@ model Department {
   scheduleDays               ScheduleDay[]
   schedulePublications       SchedulePublication[]
   courseDepartments          CourseDepartment[]
+  triageChatPresets          TriageChatPresetDepartment[]
   ehsTrainingDepartments     EhsTrainingDepartment[]
   /// Schedule columns whose attending covers this department (see ClinicSlot.departmentId).
   attendingSlots             ClinicSlot[]
@@ -1422,6 +1428,87 @@ model SchedulePublication {
 
   @@unique([termId, departmentId])
   @@index([termId])
+}
+
+/// Reusable configuration for one weekly Teams triage chat (Ancillary, Clinical).
+/// Soft-deleted via isActive so a TriageChat created from a retired preset still
+/// resolves to a name.
+model TriageChatPreset {
+  id              String                        @id @default(cuid())
+  /// Shown on the card, e.g. "Ancillary".
+  name            String
+  /// Rendered into the Teams chat topic, e.g. "{{clinicDateShort}} Ancillary Triage Chat".
+  nameTemplate    String
+  /// Plain-text opening message with {{placeholders}}. Converted to Teams HTML at send.
+  messageTemplate String
+  isActive        Boolean                       @default(true)
+  order           Int                           @default(0)
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  departments     TriageChatPresetDepartment[]
+  chats           TriageChat[]
+
+  @@index([isActive, order])
+}
+
+/// The departments a preset draws triage-tagged directors from.
+model TriageChatPresetDepartment {
+  id           String           @id @default(cuid())
+  presetId     String
+  departmentId String
+  preset       TriageChatPreset @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  department   Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([presetId, departmentId])
+  @@index([departmentId])
+}
+
+/// One Teams group chat actually created. The (presetId, clinicDate) unique
+/// constraint IS the idempotency guard: a double-click, a resubmitted form, or a
+/// retry after a partial failure must never produce two chats for the same week.
+model TriageChat {
+  id              String             @id @default(cuid())
+  presetId        String
+  termId          String
+  /// Anchored at 12:00 UTC like every other clinic date. Compare by UTC day key.
+  clinicDate      DateTime
+  /// The rendered chat name, as sent to Graph.
+  topic           String
+  graphChatId     String
+  webUrl          String
+  /// Null until the opening message actually posts. Keeping the row with a null
+  /// here is what lets a retry post the message instead of creating a second chat.
+  messagePostedAt DateTime?
+  createdById     String?
+  createdAt       DateTime           @default(now())
+  /// Restrict: a preset with chat history cannot be hard-deleted (deactivate it).
+  preset          TriageChatPreset   @relation(fields: [presetId], references: [id], onDelete: Restrict)
+  term            Term               @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// SetNull: the chat record outlives the ED who created it.
+  createdBy       Person?            @relation("triageChatCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  members         TriageChatMember[]
+
+  @@unique([presetId, clinicDate])
+  @@index([termId, clinicDate])
+}
+
+/// Snapshot of who was in the chat that week, and who Graph refused. Deliberately
+/// a snapshot rather than a live join: it must stay true after the schedule changes.
+model TriageChatMember {
+  id             String     @id @default(cuid())
+  triageChatId   String
+  personId       String?
+  /// Denormalised on purpose, so the record survives a person being deleted.
+  personName     String
+  departmentName String
+  addedOk        Boolean
+  /// Graph's error, or the reason no Entra id could be resolved.
+  error          String?
+  triageChat     TriageChat @relation(fields: [triageChatId], references: [id], onDelete: Cascade)
+  person         Person?    @relation("triageChatMemberPerson", fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([triageChatId])
+  @@index([personId])
 }
 
 /// A language a person claims and/or has been assessed on.

@@ -4,6 +4,7 @@ import { prisma } from "@/platform/db";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { getApplicantStatus } from "@/modules/recruitment/services/portal-status";
 import { findReturningMember } from "@/modules/recruitment/services/returning-member";
+import { listUpcomingCycles } from "@/modules/recruitment/services/upcoming-cycles";
 import { applicantSignOutAction } from "./portal-actions";
 import { SignInForm } from "./sign-in-form";
 import { PortalShell } from "./portal-shell";
@@ -19,6 +20,7 @@ import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { DateTime } from "@/platform/dates/display";
 import { cx } from "@/platform/ui/cx";
 import { YaleSignInButton } from "./yale-sign-in-button";
 
@@ -93,6 +95,12 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     orderBy: { createdAt: "desc" },
   });
 
+  // Cycles with a future open date, so someone who finds nothing open learns
+  // WHEN to come back instead of being told to keep checking. Which cycles
+  // qualify -- and why a DRAFT may appear at all -- is the service's rule, not
+  // this page's: see listUpcomingCycles.
+  const upcomingCycles = await listUpcomingCycles(now);
+
   const actionRow = cx(cardClasses({ interactive: true, pad: false }), "group flex items-center justify-between gap-4 px-4 py-3.5");
   const actionCue = "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-fg";
   const arrow = <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />;
@@ -151,7 +159,11 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
         {openCycles.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center">
             <p className="text-sm font-medium text-foreground">No applications are open right now</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">Recruitment opens each term. Check back soon for the next cycle.</p>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+              {upcomingCycles.length > 0
+                ? "Recruitment opens each term. Here is what is coming up next."
+                : "Recruitment opens each term. Check back soon for the next cycle."}
+            </p>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -166,6 +178,29 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
           </ul>
         )}
       </section>
+
+      {upcomingCycles.length > 0 && (
+        <section className="mt-10 space-y-3">
+          <SectionHeader>Opening soon</SectionHeader>
+          <ul className="space-y-2">
+            {upcomingCycles.map((c) => (
+              // Not a link, and not styled as one: the form does not accept
+              // submissions yet, and an affordance that bounces off "Applications
+              // are closed" is worse than no affordance at all. Same rule the
+              // portal already follows for the open list (see cycle-window.ts).
+              <li
+                key={c.publicSlug}
+                className={cx(cardClasses({ pad: false }), "flex items-center justify-between gap-4 px-4 py-3.5")}
+              >
+                <span className="truncate text-sm font-medium text-foreground">{c.title}</span>
+                <span className="shrink-0 text-sm text-muted-foreground">
+                  Opens <DateTime value={c.opensAt} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </PortalShell>
   );
 }

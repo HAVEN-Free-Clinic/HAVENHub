@@ -62,7 +62,10 @@ export function SectionCard({
         <button type="button" className="mt-1 cursor-grab text-subtle-foreground disabled:cursor-not-allowed" disabled={!editable} aria-label="Drag to reorder section" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
-        <div className="flex-1">
+        {/* min-w-0 + wrapping, as in field-card: without it a long unbroken title
+            or description sizes this column to its content and widens the section
+            rather than wrapping inside it. */}
+        <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
           <SectionHeader>{section.title}</SectionHeader>
           <p className="text-xs text-subtle-foreground">{scope}{section.departmentCode ? ` · ${section.departmentCode}` : ""}</p>
           {section.description && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}

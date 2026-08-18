@@ -17,6 +17,7 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
+import { firstNameOf } from "@/platform/person-name";
 import { departmentDirectorPersonIds, manageableDepartmentIds } from "@/platform/departments";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import {
@@ -464,7 +465,7 @@ export async function createRequest(
       }),
     ]);
 
-    const requesterFirstName = requester?.name?.split(" ")[0] ?? requester?.name ?? "";
+    const requesterFirstName = firstNameOf(requester?.name);
     const deptName = department?.name ?? "";
     const requesterDateStr = fmtEmailDate(canonicalRequesterDate);
 
@@ -477,7 +478,7 @@ export async function createRequest(
         select: { name: true, contactEmail: true },
       });
       partnerDateStr = fmtEmailDate(canonicalTargetDate);
-      const partnerFirstName = partner?.name?.split(" ")[0] ?? partner?.name ?? "";
+      const partnerFirstName = firstNameOf(partner?.name);
 
       await Promise.all([
         sendScheduleEmail(
@@ -535,7 +536,7 @@ export async function createRequest(
           approver.id,
           actorPersonId,
           {
-            directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+            directorName: firstNameOf(approver.name),
             requesterName: requester?.name ?? "",
             requestType: isSwap ? "swap" : "drop",
             requesterDate: requesterDateStr,
@@ -615,7 +616,7 @@ export async function cancelRequest(
         req.targetId,
         actorPersonId,
         {
-          partnerName: partner?.name?.split(" ")[0] ?? "",
+          partnerName: firstNameOf(partner?.name),
           requesterName: requester?.name ?? "",
           partnerDate: fmtEmailDate(req.targetDate),
           departmentName: department?.name ?? "",
@@ -925,7 +926,7 @@ export async function approveRequest(
       }),
     ]);
 
-    const requesterFirstName = requester?.name?.split(" ")[0] ?? "";
+    const requesterFirstName = firstNameOf(requester?.name);
     const deptName = department?.name ?? "";
     const requesterDateStr = fmtEmailDate(req.requesterDate);
 
@@ -954,7 +955,7 @@ export async function approveRequest(
         req.targetId,
         actorPersonId,
         {
-          partnerName: partner?.name?.split(" ")[0] ?? "",
+          partnerName: firstNameOf(partner?.name),
           requesterDate: requesterDateStr,
           partnerDate: fmtEmailDate(req.targetDate),
           departmentName: deptName,
@@ -1035,7 +1036,7 @@ export async function denyRequest(
       req.requesterId,
       actorPersonId,
       {
-        requesterName: requester?.name?.split(" ")[0] ?? "",
+        requesterName: firstNameOf(requester?.name),
         requestType: isSwap ? "swap" : "drop",
         requesterDate: fmtEmailDate(req.requesterDate),
         departmentName: department?.name ?? "",
@@ -1053,7 +1054,7 @@ export async function denyRequest(
         req.targetId,
         actorPersonId,
         {
-          partnerName: partner?.name?.split(" ")[0] ?? "",
+          partnerName: firstNameOf(partner?.name),
           requesterName: requester?.name ?? "",
           requesterDate: fmtEmailDate(req.requesterDate),
           partnerDate: fmtEmailDate(req.targetDate),
@@ -1236,7 +1237,7 @@ export async function remindDirectors(
       // Shared render path: branded layout + admin override, not a bare fragment.
       const { subject, html } = await renderEmail(REMINDER_TEMPLATE, {
         ...(await scheduleEmailUrls()),
-        directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+        directorName: firstNameOf(approver.name),
         requesterName: req.requester.name,
         requestType: isSwap ? "swap" : "drop",
         requesterDate: requesterDateStr,

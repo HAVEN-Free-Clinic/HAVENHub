@@ -35,6 +35,7 @@ import { formatCalendarDate } from "@/platform/dates";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { displayTodayKey } from "@/platform/dates/today";
+import { firstNameOf } from "@/platform/person-name";
 import { isoDateKey } from "../engine/map";
 
 // ---------------------------------------------------------------------------
@@ -1119,7 +1120,7 @@ async function notifyRequestSubmitted(input: {
     await Promise.all(
       approvers.map((a) =>
         sendAttendingEmail("attending-request-submitted", a.contactEmail, a.id, input.actorPersonId, {
-          recipientName: a.name?.split(" ")[0] ?? a.name ?? "",
+          recipientName: firstNameOf(a.name),
           requesterName: input.requesterName,
           requestType: input.target ? "swap" : "drop",
           requesterDate: fmtEmailDate(input.requesterDate),

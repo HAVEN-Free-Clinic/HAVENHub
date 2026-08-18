@@ -6,6 +6,7 @@ import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { safeLoginPath } from "@/platform/auth/safe-next";
 import { clientIpForRateLimit } from "@/platform/auth/client-ip";
+import { firstNameOf } from "@/platform/person-name";
 import { log } from "@/platform/logging";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -119,11 +120,6 @@ function ipRateLimited(ip: string | null): boolean {
   return false;
 }
 
-function firstNameFromName(name: string): string {
-  const first = name.trim().split(/\s+/)[0];
-  return first || "there";
-}
-
 export type MemberLinkRequest = "sent" | "use-yale" | "disabled";
 
 /** Guarded issuer: honors the kill-switch, refuses Yale addresses, rate-limits,
@@ -185,7 +181,7 @@ export async function requestMemberLoginLink(email: string, next?: string | null
   const nextParam = safeNext === "/" ? "" : `&next=${encodeURIComponent(safeNext)}`;
   const loginUrl = `${base}/login/verify?token=${encodeURIComponent(raw)}${nextParam}`;
   const mail = await renderEmail("auth.member_login_link", {
-    firstName: firstNameFromName(person.name),
+    firstName: firstNameOf(person.name) || "there",
     loginUrl,
   });
   await queueEmail(prisma, {

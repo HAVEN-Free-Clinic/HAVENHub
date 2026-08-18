@@ -4,6 +4,7 @@ import { isoDateKey } from "@/platform/dates";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getSetting } from "@/platform/settings/service";
+import { firstNameOf } from "@/platform/person-name";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify } from "@/platform/notifications/notify";
 import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
@@ -99,7 +100,7 @@ export async function runRecruitmentReviewDigest(): Promise<{ notified: number; 
     // failed claim means today's digest already went out to this director.
     if (!(await claimReminderDispatch("recruitment-review-digest", personId, periodKey))) continue;
 
-    const firstName = person.name?.trim().split(/\s+/)[0] || "there";
+    const firstName = firstNameOf(person.name) || "there";
     const departmentName = depts.map((d) => d.name).join(", ");
     const noun = total === 1 ? "application" : "applications";
     const { subject, html } = await renderEmail("recruitment.review_digest", {

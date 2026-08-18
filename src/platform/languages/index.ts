@@ -23,6 +23,7 @@ import { recordAudit } from "@/platform/audit";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
+import { firstNameOf } from "@/platform/person-name";
 import { log, errorAttrs } from "@/platform/logging";
 import { LanguageValidationError, isLanguageCode, languageLabel } from "./catalog";
 
@@ -155,7 +156,7 @@ async function notifyLanguageAssessed(
 
   const label = languageLabel(language);
   const rendered = await renderEmail("volunteers.language_assessed", {
-    firstName: person.name?.trim().split(/\s+/)[0] || person.name || "there",
+    firstName: firstNameOf(person.name) || "there",
     languageLabel: label,
     verified,
     note: note ?? "",

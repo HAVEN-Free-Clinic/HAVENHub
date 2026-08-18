@@ -21,6 +21,7 @@ import { SupportLink } from "@/platform/branding/support-link";
 import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal-next";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { DateTime } from "@/platform/dates/display";
+import { firstNameOf } from "@/platform/person-name";
 import { cx } from "@/platform/ui/cx";
 import { YaleSignInButton } from "./yale-sign-in-button";
 
@@ -114,7 +115,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     ? await prisma.person.findUnique({ where: { id: identity.personId }, select: { name: true } })
     : null;
   const storedName = person?.name ?? returning?.name ?? "";
-  const nameFromPerson = storedName.trim().split(/\s+/)[0] ?? "";
+  const nameFromPerson = firstNameOf(storedName);
   const nameFromEntra = identity.firstName?.trim() ?? "";
   const emailLocalFirst = identity.email.split("@")[0].split(".")[0];
   const firstNameRaw = nameFromPerson || nameFromEntra || (emailLocalFirst.length > 1 ? emailLocalFirst : "");

@@ -10,6 +10,7 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify, type NotifyInput } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
 import { esc } from "@/platform/email/render/escape";
+import { firstNameOf } from "@/platform/person-name";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 
@@ -98,7 +99,7 @@ async function buildPanelistAssignmentNotify(
   const candidateName = `${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`.trim();
   const departmentName = dept?.name ?? iv.departmentCode;
   const interviewsUrl = `${baseUrl}/recruitment/interviews`;
-  const panelistFirstName = panelist.name?.trim().split(/\s+/)[0] || "there";
+  const panelistFirstName = firstNameOf(panelist.name) || "there";
 
   const { subject, html } = await renderEmail("recruitment.interview_assignment", {
     panelistFirstName,

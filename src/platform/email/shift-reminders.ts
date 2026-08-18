@@ -7,6 +7,7 @@ import { getSetting } from "@/platform/settings/service";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { firstNameOf } from "@/platform/person-name";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
@@ -56,11 +57,6 @@ export type BuildShiftRemindersInput = {
    */
   attendingNamesByDepartmentId: Record<string, string>;
 };
-
-function firstNameOf(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts[0] || name;
-}
 
 function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
   const seen = new Set<string>();

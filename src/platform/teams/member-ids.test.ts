@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { resolveMemberIds, type ChatMemberCandidate } from "./member-ids";
 
 function member(over: Partial<ChatMemberCandidate> = {}): ChatMemberCandidate {
@@ -14,62 +14,35 @@ function member(over: Partial<ChatMemberCandidate> = {}): ChatMemberCandidate {
 }
 
 describe("resolveMemberIds", () => {
-  it("uses a stored entraObjectId without calling the directory", async () => {
-    const lookup = vi.fn();
-    const [resolved] = await resolveMemberIds([member({ entraObjectId: "oid-1" })], { lookup });
+  it("uses a stored entraObjectId", () => {
+    const [resolved] = resolveMemberIds([member({ entraObjectId: "oid-1" })]);
     expect(resolved).toMatchObject({ userId: "oid-1", source: "stored" });
-    expect(lookup).not.toHaveBeenCalled();
   });
 
-  it("looks the person up by netId@yale.edu when no id is stored", async () => {
-    const lookup = vi.fn(async (bind: string) => (bind === "gl123@yale.edu" ? "oid-2" : null));
-    const [resolved] = await resolveMemberIds([member()], { lookup });
-    expect(resolved).toMatchObject({ userId: "oid-2", source: "directory" });
-    expect(lookup).toHaveBeenCalledWith("gl123@yale.edu");
-  });
-
-  it("falls through to the contact email when the netId misses", async () => {
-    const lookup = vi.fn(async (bind: string) => (bind === "goeun@example.com" ? "oid-3" : null));
-    const [resolved] = await resolveMemberIds([member()], { lookup });
-    expect(resolved).toMatchObject({ userId: "oid-3", source: "directory" });
-    expect(lookup).toHaveBeenNthCalledWith(1, "gl123@yale.edu");
-    expect(lookup).toHaveBeenNthCalledWith(2, "goeun@example.com");
-  });
-
-  it("reports a person the directory does not know", async () => {
-    const lookup = vi.fn(async () => null);
-    const [resolved] = await resolveMemberIds([member()], { lookup });
+  it("reports a person who has never signed in, even with a netId and an email on file", () => {
+    // The regression this guards: a netId and a contact email used to be enough
+    // to seat someone via a directory lookup. Dropping User.ReadBasic.All means
+    // they no longer are, and such a person must surface for a manual add rather
+    // than silently vanishing from the chat.
+    const [resolved] = resolveMemberIds([member()]);
     expect(resolved.userId).toBeNull();
     expect(resolved.source).toBe("unresolved");
-    expect(resolved.reason).toMatch(/directory/i);
+    expect(resolved.reason).toMatch(/signed in/i);
   });
 
-  it("reports a person with nothing to look up", async () => {
-    const lookup = vi.fn();
-    const [resolved] = await resolveMemberIds(
-      [member({ netId: null, contactEmail: null })],
-      { lookup },
-    );
+  it("reports a person with no identifiers at all", () => {
+    const [resolved] = resolveMemberIds([member({ netId: null, contactEmail: null })]);
     expect(resolved.source).toBe("unresolved");
-    expect(lookup).not.toHaveBeenCalled();
+    expect(resolved.userId).toBeNull();
   });
 
-  it("treats a lookup failure as unresolved rather than failing the batch", async () => {
-    const lookup = vi.fn(async () => {
-      throw new Error("Graph user lookup failed: 429");
-    });
-    const resolved = await resolveMemberIds([member(), member({ personId: "p-2" })], { lookup });
-    expect(resolved).toHaveLength(2);
-    expect(resolved.every((r) => r.source === "unresolved")).toBe(true);
-    expect(resolved[0].reason).toContain("429");
-  });
-
-  it("keeps input order", async () => {
-    const lookup = vi.fn(async () => "oid-x");
-    const resolved = await resolveMemberIds(
-      [member({ personId: "p-1", name: "A" }), member({ personId: "p-2", name: "B" })],
-      { lookup },
-    );
-    expect(resolved.map((r) => r.member.name)).toEqual(["A", "B"]);
+  it("keeps input order and resolves each member independently", () => {
+    const resolved = resolveMemberIds([
+      member({ personId: "p-1", name: "A", entraObjectId: "oid-a" }),
+      member({ personId: "p-2", name: "B" }),
+      member({ personId: "p-3", name: "C", entraObjectId: "oid-c" }),
+    ]);
+    expect(resolved.map((r) => r.member.name)).toEqual(["A", "B", "C"]);
+    expect(resolved.map((r) => r.source)).toEqual(["stored", "unresolved", "stored"]);
   });
 });

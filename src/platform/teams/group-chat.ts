@@ -70,44 +70,28 @@ function userBind(userId: string): string {
 }
 
 /**
- * Resolve a sign-in name or email to an Entra object id, or null when the
- * directory has no match.
+ * The Entra object id of the account whose delegated token we hold.
  *
- * Filters on userPrincipalName OR mail deliberately. Those are the same string
- * in many tenants but demonstrably not uniformly at Yale, and asking for both
- * means the Hub never has to know which one a given account uses.
- *
- * A miss is null, not a throw: "this person is not in the directory" is an
- * expected outcome the caller reports to the ED, not an error.
+ * Reads /me rather than filtering the directory for the stored mailbox address.
+ * That distinction matters here: this tenant's UPN and mail do not always agree
+ * (hfc.admin@yale.edu by mail, hfc.admin@yu.yale.edu by UPN), and /me takes no
+ * bind string at all, so there is nothing left to disagree about. It also keeps
+ * the app off User.ReadBasic.All, since /me is covered by User.Read.
  */
-export async function lookupUserId(
-  bind: string,
-  deps: GraphChatDeps = {},
-): Promise<string | null> {
-  const literal = odataLiteral(bind);
-  const filter = `userPrincipalName eq '${literal}' or mail eq '${literal}'`;
-  const url = `${GRAPH}/users?$filter=${encodeURIComponent(filter)}&$select=id&$top=2`;
-  let res: Response;
-  try {
-    res = await call("user lookup", url, { method: "GET" }, deps);
-  } catch (err) {
-    // A 404 means no such user, which is a miss rather than a failure. Anything
-    // else (401, 403, 429, 5xx, a timeout) is a real problem the caller must see.
-    if (err instanceof GraphChatError && err.status === 404) return null;
-    throw err;
-  }
-  const json = (await res.json()) as { value?: { id: string }[] };
-  const matches = json.value ?? [];
-  // More than one match means the bind is ambiguous, so trust none of them
-  // rather than adding a coin-flip person to a twenty-person chat.
-  if (matches.length !== 1) return null;
-  return matches[0].id ?? null;
+export async function getSignedInUserId(deps: GraphChatDeps = {}): Promise<string | null> {
+  const res = await call(
+    "signed-in user lookup",
+    `${GRAPH}/me?$select=id`,
+    { method: "GET" },
+    deps,
+  );
+  const json = (await res.json()) as { id?: string };
+  return json.id ?? null;
 }
 
 /**
  * Create the group chat. Atomic: if any member id is invalid Graph rejects the
- * whole call, which is why the caller passes only ids it knows are good and adds
- * the rest with addChatMember afterwards.
+ * whole call, so the caller passes only ids that came from a real sign-in.
  */
 export async function createGroupChat(
   input: { topic: string; memberIds: string[] },
@@ -137,26 +121,6 @@ export async function createGroupChat(
   return { chatId: json.id, webUrl: json.webUrl ?? "" };
 }
 
-/** Add one member. Isolated per person so a bad id costs one seat, not the chat. */
-export async function addChatMember(
-  chatId: string,
-  userId: string,
-  deps: GraphChatDeps = {},
-): Promise<void> {
-  await call(
-    "add chat member",
-    `${GRAPH}/chats/${encodeURIComponent(chatId)}/members`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        "@odata.type": "#microsoft.graph.aadUserConversationMember",
-        roles: ["owner"],
-        "user@odata.bind": userBind(userId),
-      }),
-    },
-    deps,
-  );
-}
 
 /** Post the opening message. Same call the 1:1 Teams transport already makes. */
 export async function postChatMessage(

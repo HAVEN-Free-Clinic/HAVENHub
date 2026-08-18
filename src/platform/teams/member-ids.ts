@@ -2,13 +2,17 @@
  * Resolve roster members to the Entra object ids Graph needs to seat them in a
  * chat.
  *
- * The resolved ids are deliberately NOT written back to Person.entraObjectId.
- * That column is the SSO identity link match-person.ts uses to bind a login to a
- * person, and it is @unique: a directory lookup that matched the wrong Ellen
- * Smith would turn a display bug into an account takeover. Looking up fresh
- * costs about twenty cheap directory reads once a week.
+ * Person.entraObjectId is the only source. It is populated for free at SSO
+ * login (auth.ts reads the oid claim, match-person.ts links it), so anyone who
+ * has signed into the Hub resolves without a Graph call.
+ *
+ * There is deliberately no directory-lookup fallback for the rest. Resolving a
+ * name against the directory would cost User.ReadBasic.All -- a tenant-wide read
+ * of every Yale account -- to seat the shrinking set of people who are in the
+ * Entra tenant but have never signed in. Non-Yale members are not in the tenant
+ * at all, so no lookup could ever place them either way. Unresolved members are
+ * named for the ED to add by hand.
  */
-import { lookupUserId } from "./group-chat";
 
 /**
  * What this module needs to resolve one person, declared here rather than
@@ -31,84 +35,25 @@ export type ChatMemberCandidate = {
 export type ResolvedMember<T extends ChatMemberCandidate = ChatMemberCandidate> = {
   member: T;
   userId: string | null;
-  source: "stored" | "directory" | "unresolved";
+  source: "stored" | "unresolved";
   /** Why the member could not be resolved. Shown to the ED verbatim. */
   reason?: string;
 };
 
-/** Yale sign-in names. lookupUserId matches UPN or mail, so either form works. */
-function candidates(member: ChatMemberCandidate): string[] {
-  const out: string[] = [];
-  if (member.netId) out.push(`${member.netId}@yale.edu`);
-  if (member.contactEmail) out.push(member.contactEmail);
-  return out;
-}
-
-/**
- * Bounded parallelism. A roster is about twenty people once a week, so this is
- * not about throughput: it keeps a burst of directory reads from tripping
- * Graph's rate limiter, which would turn one slow week into a page full of
- * unresolved members.
- */
-const CONCURRENCY = 5;
-
-export async function resolveMemberIds<T extends ChatMemberCandidate>(
+export function resolveMemberIds<T extends ChatMemberCandidate>(
   members: T[],
-  deps: { lookup?: (bind: string) => Promise<string | null> } = {},
-): Promise<ResolvedMember<T>[]> {
-  const lookup = deps.lookup ?? ((bind: string) => lookupUserId(bind));
-  const results: ResolvedMember<T>[] = new Array(members.length);
-
-  async function resolveOne(index: number): Promise<void> {
-    const member = members[index];
-    if (member.entraObjectId) {
-      results[index] = { member, userId: member.entraObjectId, source: "stored" };
-      return;
-    }
-    const binds = candidates(member);
-    if (binds.length === 0) {
-      results[index] = {
-        member,
-        userId: null,
-        source: "unresolved",
-        reason: "No Yale net ID or contact email on file to look up.",
-      };
-      return;
-    }
-    for (const bind of binds) {
-      try {
-        const userId = await lookup(bind);
-        if (userId) {
-          results[index] = { member, userId, source: "directory" };
-          return;
-        }
-      } catch (err) {
-        // One person's failed lookup must not sink the batch: the ED still gets
-        // a chat with everyone else and a named list of who to add by hand.
-        results[index] = {
+): ResolvedMember<T>[] {
+  return members.map((member) =>
+    member.entraObjectId
+      ? { member, userId: member.entraObjectId, source: "stored" as const }
+      : {
           member,
           userId: null,
-          source: "unresolved",
-          reason: err instanceof Error ? err.message : String(err),
-        };
-        return;
-      }
-    }
-    results[index] = {
-      member,
-      userId: null,
-      source: "unresolved",
-      reason: "Not found in the Microsoft directory.",
-    };
-  }
-
-  let next = 0;
-  const workers = Array.from({ length: Math.min(CONCURRENCY, members.length) }, async () => {
-    while (next < members.length) {
-      const index = next++;
-      await resolveOne(index);
-    }
-  });
-  await Promise.all(workers);
-  return results;
+          source: "unresolved" as const,
+          // Phrased as the action the ED can take. "Not in the directory" would
+          // be wrong for the common case: the person exists at Yale, they just
+          // have not signed into the Hub, which is what links the account.
+          reason: "Has not signed in to the Hub yet, so add them by hand.",
+        },
+  );
 }

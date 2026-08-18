@@ -1,3 +1,4 @@
+import { config } from "@/platform/config";
 import { getAccessToken, mailConnectionStatus } from "@/platform/email/oauth";
 import { log } from "@/platform/logging";
 import { getSetting } from "@/platform/settings/service";
@@ -157,6 +158,16 @@ export class GraphTeamsTransport implements TeamsTransport {
 export async function resolveTeamsTransport(): Promise<TeamsTransport> {
   const transport = await getSetting<"log" | "graph" | "maileroo">("email.transport");
   if (transport === "log") return new LogTeamsTransport();
+  // Mail-only mode means the connected app registration never consented to the
+  // chat scopes, so every DM would 403. Fail per-row rather than log-succeed, for
+  // the same reason as the unconnected case below: a LOGGED row is a terminal
+  // success that skips the email fallback. notify() already stops queueing new
+  // rows in this mode; this catches rows queued before the flag was flipped.
+  if (config.GRAPH_OAUTH_MAIL_ONLY) {
+    return new UnconfiguredTeamsTransport(
+      "GRAPH_OAUTH_MAIL_ONLY is set, so the connected app registration has no Teams chat scopes -- falling back to email",
+    );
+  }
   const status = await mailConnectionStatus();
   if (!status.connected || !status.account) {
     // A live transport is selected but the mailer is not connected. LogTeamsTransport

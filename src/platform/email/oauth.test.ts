@@ -131,6 +131,47 @@ describe("buildAuthorizeUrl", () => {
     const url = buildAuthorizeUrl({ state: "s1" });
     expect(decodeURIComponent(url)).toContain("ChatMessage.Send");
   });
+
+  // The consent screen is why these matter: Yale will not let a non-admin
+  // self-consent to reading every account in the directory, so requesting
+  // User.ReadBasic.All sends the whole app to "Need admin approval".
+  it("never requests User.ReadBasic.All", () => {
+    const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+    expect(url).not.toContain("User.ReadBasic.All");
+  });
+
+  it("never requests Chat.ReadWrite, which only the removed member-add call needed", () => {
+    const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+    expect(url).not.toContain("Chat.ReadWrite");
+  });
+
+  describe("GRAPH_OAUTH_MAIL_ONLY", () => {
+    const prev = config.GRAPH_OAUTH_MAIL_ONLY;
+    afterEach(() => {
+      config.GRAPH_OAUTH_MAIL_ONLY = prev;
+    });
+
+    it("drops the Teams scopes so a mail-only registration can still consent", () => {
+      config.GRAPH_OAUTH_MAIL_ONLY = true;
+      const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+      expect(url).toContain("Mail.Send");
+      expect(url).toContain("Mail.Send.Shared");
+      expect(url).toContain("offline_access");
+      // Consent is all-or-nothing per authorize call, so one unconsented Teams
+      // scope would take Mail.Send down with it.
+      expect(url).not.toContain("Chat.Create");
+      expect(url).not.toContain("ChatMessage.Send");
+      expect(url).not.toContain("Channel.ReadBasic.All");
+    });
+
+    it("asks for the Teams scopes again once the flag is off", () => {
+      config.GRAPH_OAUTH_MAIL_ONLY = false;
+      const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+      expect(url).toContain("Chat.Create");
+      expect(url).toContain("ChatMessage.Send");
+      expect(url).toContain("Channel.ReadBasic.All");
+    });
+  });
 });
 
 describe("teamsScopesGranted", () => {
@@ -150,22 +191,8 @@ describe("teamsScopesGranted", () => {
     expect(teamsScopesGranted("Mail.Send ChatMessage.Send")).toBe(false);
   });
 
-  it("is false when the chat scopes are present but the new ones are not", () => {
-    expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(false);
-  });
-
-  it("is false when User.ReadBasic.All is missing", () => {
-    expect(
-      teamsScopesGranted("Chat.Create ChatMessage.Send Chat.ReadWrite"),
-    ).toBe(false);
-  });
-
   it("is true once every Teams scope is granted", () => {
-    expect(
-      teamsScopesGranted(
-        "Mail.Send Chat.Create ChatMessage.Send Chat.ReadWrite User.ReadBasic.All",
-      ),
-    ).toBe(true);
+    expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(true);
   });
 });
 

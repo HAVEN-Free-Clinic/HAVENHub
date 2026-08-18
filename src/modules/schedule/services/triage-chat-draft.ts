@@ -3,9 +3,8 @@
  * the roster, the rendered chat name and opening message, any warnings, and the
  * chat that already exists for this week if there is one.
  *
- * The member ids (including the directory lookups) are resolved HERE rather than
- * at confirm time so the ED sees who cannot be added before committing, not
- * after.
+ * The member ids are resolved HERE rather than at confirm time so the ED sees
+ * who cannot be added before committing, not after.
  */
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
@@ -204,7 +203,7 @@ export async function loadTriageChatDraft(
     teamsChannelUrl: channelLink?.webUrl ?? "",
   };
 
-  const resolved = await resolveIds(roster.members);
+  const resolved = resolveIds(roster.members);
   const unresolved = resolved.filter((r) => r.source === "unresolved");
   if (unresolved.length > 0) {
     warnings.push(

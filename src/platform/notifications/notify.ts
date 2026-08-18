@@ -1,8 +1,8 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { config } from "@/platform/config";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
 import { createNotification } from "./inbox";
-import { resolveTeamsUser, type ResolveIdentityDeps } from "./identity";
 import { renderTeamsBody } from "./render";
 import { queueTeamsMessage } from "./send";
 
@@ -32,11 +32,7 @@ export type NotifyInput = {
  * queue time so the message still lands. Queues happen on the provided Db handle
  * (so it joins any surrounding transaction), exactly like queueEmail.
  */
-export async function notify(
-  db: Db,
-  input: NotifyInput,
-  deps: ResolveIdentityDeps = {}
-): Promise<void> {
+export async function notify(db: Db, input: NotifyInput): Promise<void> {
   const channel = await resolveChannel(input.type);
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";
@@ -61,9 +57,16 @@ export async function notify(
   }
 
   if (wantsTeams) {
-    // Pass `db` so the identity cache write joins the caller's transaction (if any)
-    // rather than contending with it on a separate connection.
-    const teamsUserId = await resolveTeamsUser(input.person, deps, db);
+    // Person.entraObjectId is the only Teams identity. It is written from the
+    // oid claim at SSO login, so it is present for anyone who has signed in and
+    // null for everyone else -- including non-Yale members, who are not in the
+    // Entra tenant at all and never could be reached on Teams.
+    //
+    // Mail-only mode reuses that same no-identity path deliberately: the app
+    // registration has no chat scopes, so queueing would only buy a doomed row
+    // that burns its whole attempt budget on 403s before falling back. Reaching
+    // for email now lands the notification immediately instead.
+    const teamsUserId = config.GRAPH_OAUTH_MAIL_ONLY ? null : input.person.entraObjectId;
     if (teamsUserId) {
       await queueTeamsMessage(db, {
         personId: input.person.id,

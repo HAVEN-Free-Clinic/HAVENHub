@@ -85,7 +85,7 @@ describe("loadTriageChatDraft", () => {
     const { preset } = await seed();
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft).not.toBeNull();
@@ -100,7 +100,7 @@ describe("loadTriageChatDraft", () => {
     const { preset } = await seed({ membershipStatus: "REMOVED" });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.roster.members).toHaveLength(0);
@@ -110,7 +110,7 @@ describe("loadTriageChatDraft", () => {
     const { preset } = await seed({ triage: false });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.warnings.join(" ")).toContain("Behavioral Health");
@@ -126,7 +126,7 @@ describe("loadTriageChatDraft", () => {
     });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft).not.toBeNull();
@@ -141,7 +141,7 @@ describe("loadTriageChatDraft", () => {
     });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.warnings.join(" ")).not.toContain("marked closed");
@@ -155,7 +155,7 @@ describe("loadTriageChatDraft", () => {
     await prisma.shiftAssignment.deleteMany({ where: { personId: phil.id } });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.roster.sessionCoordinators).toEqual([]);
@@ -170,7 +170,7 @@ describe("loadTriageChatDraft", () => {
     const { preset } = await seed();
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.warnings.join(" ")).not.toContain("Executive Directors joins every triage chat");
@@ -183,7 +183,7 @@ describe("loadTriageChatDraft", () => {
     await setSetting("triageChats.alwaysIncludeDepartmentCodes", "EXEC,NOPE", null);
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.warnings.join(" ")).toContain("NOPE");
@@ -204,7 +204,7 @@ describe("loadTriageChatDraft", () => {
     });
     const draft = await loadTriageChatDraft(preset.id, {
       now: NOW,
-      resolveIds: async (members) =>
+      resolveIds: (members) =>
         members.map((member) => ({ member, userId: "oid", source: "stored" as const })),
     });
     expect(draft!.existingChat?.graphChatId).toBe("chat-1");

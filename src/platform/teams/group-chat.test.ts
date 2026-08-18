@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  lookupUserId,
+  getSignedInUserId,
   createGroupChat,
-  addChatMember,
   postChatMessage,
   GraphChatError,
 } from "./group-chat";
@@ -16,30 +15,28 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-describe("lookupUserId", () => {
-  it("returns the object id of a directory match", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ value: [{ id: "oid-1" }] }));
-    const id = await lookupUserId("gl123@yale.edu", deps(fetchImpl as unknown as typeof fetch));
+describe("getSignedInUserId", () => {
+  it("reads /me rather than querying the directory", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ id: "oid-1" }));
+    const id = await getSignedInUserId(deps(fetchImpl as unknown as typeof fetch));
     expect(id).toBe("oid-1");
+    // The point of the whole call: /me needs only User.Read, so the request must
+    // never reach /users, which would put the app back on User.ReadBasic.All.
     const url = String((fetchImpl.mock.calls[0] as unknown[])[0]);
-    expect(url).toContain("userPrincipalName%20eq%20'gl123%40yale.edu'");
-    expect(url).toContain("mail%20eq%20'gl123%40yale.edu'");
+    expect(url).toBe("https://graph.microsoft.com/v1.0/me?$select=id");
+    expect(url).not.toContain("$filter");
   });
 
-  it("returns null when the directory has no match", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ value: [] }));
-    expect(await lookupUserId("nobody@yale.edu", deps(fetchImpl as unknown as typeof fetch))).toBeNull();
+  it("returns null when Graph answers without an id", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}));
+    expect(await getSignedInUserId(deps(fetchImpl as unknown as typeof fetch))).toBeNull();
   });
 
-  it("returns null rather than throwing on a 404", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ error: {} }, 404));
-    expect(await lookupUserId("nobody@yale.edu", deps(fetchImpl as unknown as typeof fetch))).toBeNull();
-  });
-
-  it("escapes a single quote so a name cannot break the filter", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ value: [] }));
-    await lookupUserId("o'brien@yale.edu", deps(fetchImpl as unknown as typeof fetch));
-    expect(String((fetchImpl.mock.calls[0] as unknown[])[0])).toContain("o''brien");
+  it("throws a GraphChatError when the token is refused", async () => {
+    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
+    await expect(
+      getSignedInUserId(deps(fetchImpl as unknown as typeof fetch)),
+    ).rejects.toMatchObject({ status: 403, body: "forbidden" });
   });
 });
 
@@ -81,24 +78,6 @@ describe("createGroupChat", () => {
       createGroupChat({ topic: "t", memberIds: [] }, deps(fetchImpl as unknown as typeof fetch)),
     ).rejects.toThrow(/at least one member/i);
     expect(fetchImpl).not.toHaveBeenCalled();
-  });
-});
-
-describe("addChatMember", () => {
-  it("posts one member to the chat", async () => {
-    const fetchImpl = vi.fn(async () => new Response("", { status: 201 }));
-    await addChatMember("chat-1", "oid-9", deps(fetchImpl as unknown as typeof fetch));
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(String(url)).toBe("https://graph.microsoft.com/v1.0/chats/chat-1/members");
-    const body = JSON.parse(String(init.body));
-    expect(body["user@odata.bind"]).toBe("https://graph.microsoft.com/v1.0/users('oid-9')");
-  });
-
-  it("throws with the status and body when Graph refuses", async () => {
-    const fetchImpl = vi.fn(async () => new Response("forbidden", { status: 403 }));
-    await expect(
-      addChatMember("chat-1", "oid-9", deps(fetchImpl as unknown as typeof fetch)),
-    ).rejects.toMatchObject({ status: 403, body: "forbidden" });
   });
 });
 

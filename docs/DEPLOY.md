@@ -190,6 +190,67 @@ Mitigations in place / to set up:
 dead-man's-switch) configuration **in the same change**, or all scheduled work silently
 stops.
 
+## 4. Machine-read routes need a firewall bypass
+
+The production deployment answers with Vercel's **Attack Challenge Mode**: a request
+to `hub.havenfreeclinic.org` comes back `429` with `x-vercel-mitigated: challenge`
+and a "Vercel Security Checkpoint" HTML page. A human browser runs the page's
+JavaScript, gets a clearance cookie, and never notices. **Anything that is not a
+browser cannot.**
+
+That is fine for the authenticated app, which only humans open, and fatal for any
+route whose caller is a machine:
+
+| Route | Caller | Can it solve a challenge? | Bypassed today |
+| --- | --- | --- | --- |
+| `/api/calendar/[token]` | Google / Apple / Outlook, polling from their own servers | No | Yes |
+| `/api/public/clinic-days` | `havenfreeclinic.org` visitors' browsers, cross-origin `fetch()` | No | **No -- needs one** |
+| `/api/cron/*` | cron-job.org | No | Not from an arbitrary client (see below) |
+
+The cross-origin case is the least obvious of the three. The *visitor* is in a real
+browser, so it feels like it should pass -- but the `fetch()` is issued by
+JavaScript on a different origin. It cannot render an interstitial, cannot run the
+challenge script, and cannot hold a cookie for this origin. It just receives the
+challenge HTML where it expected JSON, and the caller sees a parse error rather
+than anything that names the real cause.
+
+**So each of these paths needs a bypass rule in the Vercel Firewall**
+(Project → Firewall → Configure → *Bypass* / "Skip Attack Challenge Mode" for the
+path). `/api/calendar/*` already has one, which is why that feed works; it was
+configured in the dashboard and, until this section existed, was written down
+nowhere.
+
+To check whether a path is bypassed, look for the mitigation header rather than
+trusting the status code:
+
+```sh
+curl -s -o /dev/null -w "%{http_code} %header{x-vercel-mitigated}\n" \
+  https://hub.havenfreeclinic.org/api/public/clinic-days
+# 200            <- reaches the app
+# 429 challenge  <- blocked before the app; add the bypass rule
+```
+
+### The cron paths are worth a look
+
+Probed from an ordinary client, `/api/cron/email` answers `429 challenge` the same
+way `/` does, while `/api/calendar/*` sails through. That is only an observation
+from outside, not a diagnosis: the scheduler may still be getting through on some
+basis this probe does not reproduce (address reputation, an allowlist rule, or
+challenge behaviour that differs for its client).
+
+It is worth confirming rather than assuming, because section 3 above says a stopped
+schedule is otherwise **invisible**, and a challenged cron tick fails in exactly
+that invisible way -- the job never runs, and nothing anywhere records that it
+did not. The `cron.lastSuccess.<job>` heartbeat on `/admin` is the cheapest check:
+if those timestamps are current, the scheduler is reaching the app and there is
+nothing to fix here.
+
+A bypassed path is exposed to the open internet with no challenge in front of it,
+so it must carry its own protection. Both current bypasses do: the calendar feed
+requires an unguessable path token and rate-limits per IP, and the clinic-days feed
+is read-only, returns nothing non-public, and is CDN-cached so repeat traffic
+mostly never reaches a function.
+
 ## Staging environment (`staging.havenfreeclinic.org`)
 
 A persistent pre-production mirror runs as a Vercel custom environment named

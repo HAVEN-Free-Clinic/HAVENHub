@@ -196,7 +196,13 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
   // preventDefault only fires once we are certain we are handling the key.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key.toLowerCase() !== "k") return;
+      // Compared rather than lowercased. A synthetic keydown from a browser
+      // extension, password manager, or IME shim can carry no `key` at all, and
+      // calling a string method on it threw a TypeError out of a listener that is
+      // mounted on every page for every signed-in person. "k" and "K" are the only
+      // values the K key produces, so this covers the same ground undefined-safe,
+      // the way every other key check in this file already does.
+      if (e.key !== "k" && e.key !== "K") return;
       if (!e.metaKey && !e.ctrlKey) return;
       // The typing-target guard must NOT apply to the palette's own input,
       // which is focused the whole time the palette is open. Bailing there

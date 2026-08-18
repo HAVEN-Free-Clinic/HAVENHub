@@ -63,7 +63,12 @@ function draftFor(fixtures: Awaited<ReturnType<typeof seedDraftFixtures>>): Tria
     },
     resolved: [
       { member: storedMember, userId: "oid-stored", source: "stored" },
-      { member: lookedMember, userId: "oid-looked", source: "directory" },
+      {
+        member: lookedMember,
+        userId: null,
+        source: "unresolved",
+        reason: "Has not signed in to the Hub yet, so add them by hand.",
+      },
     ],
     warnings: [],
     existingChat: null,
@@ -73,7 +78,6 @@ function draftFor(fixtures: Awaited<ReturnType<typeof seedDraftFixtures>>): Tria
 function graphStub(over: Partial<Parameters<typeof createTriageChat>[1]> = {}) {
   return {
     createGroupChat: vi.fn(async () => ({ chatId: "chat-1", webUrl: "https://teams/1" })),
-    addChatMember: vi.fn(async () => {}),
     postChatMessage: vi.fn(async () => {}),
     serviceAccountId: async () => "oid-service",
     ...over,
@@ -81,7 +85,7 @@ function graphStub(over: Partial<Parameters<typeof createTriageChat>[1]> = {}) {
 }
 
 describe("createTriageChat", () => {
-  it("creates with the stored ids and adds the directory-resolved ones after", async () => {
+  it("seats every stored id in the one create call", async () => {
     const fixtures = await seedDraftFixtures();
     const draft = draftFor(fixtures);
     const graph = graphStub();
@@ -101,16 +105,51 @@ describe("createTriageChat", () => {
       topic: "05.30.26 Ancillary",
       memberIds: ["oid-service", "oid-stored"],
     });
-    expect(graph.addChatMember).toHaveBeenCalledWith("chat-1", "oid-looked");
     expect(graph.postChatMessage).toHaveBeenCalledTimes(1);
     expect(result.messagePosted).toBe(true);
-    expect(result.failures).toEqual([]);
+    // The unresolved member is reported even though the chat succeeded: they are
+    // on shift, so the ED has to be told to add them by hand.
+    expect(result.failures.map((f) => f.name)).toEqual(["Never Signed In"]);
 
     const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
     expect(saved.graphChatId).toBe("chat-1");
     expect(saved.messagePostedAt).not.toBeNull();
-    expect(saved.members).toHaveLength(2);
-    expect(saved.members.every((m) => m.addedOk)).toBe(true);
+    // Only the seated member gets an addedOk row. The unresolved one is recorded
+    // separately with the reason, and is reported for a manual add.
+    expect(saved.members.filter((m) => m.addedOk).map((m) => m.personName)).toEqual(["Goeun Lee"]);
+  });
+
+  it("reports an unresolved member for a manual add instead of seating them", async () => {
+    // Dropping User.ReadBasic.All means someone who has never signed in can no
+    // longer be resolved at all. They must still reach the ED by name: they are
+    // on shift and belong in the chat, so silence here would lose them.
+    const fixtures = await seedDraftFixtures();
+    const draft = draftFor(fixtures);
+    const graph = graphStub();
+
+    const result = await createTriageChat(
+      {
+        presetId: fixtures.preset.id,
+        actorPersonId: fixtures.stored.id,
+        topic: draft.topic,
+        messageBody: draft.messageBody,
+        includePersonIds: [fixtures.stored.id],
+      },
+      { ...graph, loadDraft: async () => draft },
+    );
+
+    expect(graph.createGroupChat).toHaveBeenCalledWith({
+      topic: "05.30.26 Ancillary",
+      memberIds: ["oid-service", "oid-stored"],
+    });
+    expect(result.failures).toContainEqual({
+      name: "Never Signed In",
+      reason: expect.stringContaining("signed in"),
+    });
+
+    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
+    const missed = saved.members.find((m) => m.personName === "Never Signed In");
+    expect(missed?.addedOk).toBe(false);
   });
 
   it("records a chat with no posted message when the message fails", async () => {
@@ -137,34 +176,6 @@ describe("createTriageChat", () => {
     const saved = await prisma.triageChat.findFirstOrThrow();
     expect(saved.graphChatId).toBe("chat-1");
     expect(saved.messagePostedAt).toBeNull();
-  });
-
-  it("records a failed member add without losing the chat", async () => {
-    const fixtures = await seedDraftFixtures();
-    const draft = draftFor(fixtures);
-    const graph = graphStub({
-      addChatMember: vi.fn(async () => {
-        throw new Error("Graph add chat member failed: 403 -- forbidden");
-      }),
-    });
-
-    const result = await createTriageChat(
-      {
-        presetId: fixtures.preset.id,
-        actorPersonId: fixtures.stored.id,
-        topic: draft.topic,
-        messageBody: draft.messageBody,
-        includePersonIds: [fixtures.stored.id, fixtures.looked.id],
-      },
-      { ...graph, loadDraft: async () => draft },
-    );
-
-    expect(result.failures).toEqual([
-      { name: "Never Signed In", reason: expect.stringContaining("403") },
-    ]);
-    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
-    const failed = saved.members.find((m) => m.personName === "Never Signed In");
-    expect(failed?.addedOk).toBe(false);
   });
 
   it("refuses a second chat for the same preset and clinic date", async () => {
@@ -254,46 +265,39 @@ describe("createTriageChat", () => {
     expect(audit.entityType).toBe("TriageChat");
   });
 
-  it("promotes one directory-resolved member into the create when nobody has a stored id", async () => {
+  it("refuses to create a chat when nobody on the roster has signed in", async () => {
     const fixtures = await seedDraftFixtures();
     const draft = draftFor(fixtures);
-    // Nobody has signed into the Hub yet, the normal state early in a term, so
-    // every member has to come from a directory lookup.
-    draft.resolved = [
-      { member: draft.roster.members[0], userId: "oid-a", source: "directory" },
-      { member: draft.roster.members[1], userId: "oid-b", source: "directory" },
-    ];
+    // Nobody has signed into the Hub yet. Before, a directory lookup could still
+    // seat these people; now there is nothing to seat, so the action has to fail
+    // loudly rather than create a chat containing only the service account.
+    draft.resolved = draft.roster.members.map((member) => ({
+      member,
+      userId: null,
+      source: "unresolved" as const,
+      reason: "Has not signed in to the Hub yet, so add them by hand.",
+    }));
     const graph = graphStub();
 
-    await createTriageChat(
-      {
-        presetId: fixtures.preset.id,
-        actorPersonId: fixtures.stored.id,
-        topic: draft.topic,
-        messageBody: draft.messageBody,
-        includePersonIds: draft.roster.members.map((m) => m.personId),
-      },
-      { ...graph, loadDraft: async () => draft },
-    );
+    await expect(
+      createTriageChat(
+        {
+          presetId: fixtures.preset.id,
+          actorPersonId: fixtures.stored.id,
+          topic: draft.topic,
+          messageBody: draft.messageBody,
+          includePersonIds: draft.roster.members.map((m) => m.personId),
+        },
+        { ...graph, loadDraft: async () => draft },
+      ),
+    ).rejects.toThrow(/nobody in this roster/i);
 
-    // Exactly one is promoted into the atomic create: promoting none would fail
-    // it (Graph needs a member), promoting both would give up the per-person
-    // failure isolation the incremental path exists for. The promoted member
-    // must NOT also be added incrementally, which is what the identity-based
-    // exclusion guarantees.
-    expect(graph.createGroupChat).toHaveBeenCalledWith({
-      topic: draft.topic,
-      memberIds: ["oid-service", "oid-a"],
-    });
-    expect(graph.addChatMember).toHaveBeenCalledTimes(1);
-    expect(graph.addChatMember).toHaveBeenCalledWith("chat-1", "oid-b");
-
-    const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
-    expect(saved.members).toHaveLength(2);
-    expect(saved.members.every((m) => m.addedOk)).toBe(true);
+    expect(graph.createGroupChat).not.toHaveBeenCalled();
+    // The claim row must not survive a refused create, or the week is locked out.
+    expect(await prisma.triageChat.count()).toBe(0);
   });
 
-  it("records and reports a member the directory could not resolve, even though the form cannot submit them", async () => {
+  it("records and reports a member who could not be resolved, even though the form cannot submit them", async () => {
     const fixtures = await seedDraftFixtures();
     const draft = draftFor(fixtures);
     // The review form disables this person's checkbox, so they are absent from
@@ -305,7 +309,7 @@ describe("createTriageChat", () => {
         member: draft.roster.members[1],
         userId: null,
         source: "unresolved",
-        reason: "Not found in the Microsoft directory.",
+        reason: "Has not signed in to the Hub yet, so add them by hand.",
       },
     ];
     const graph = graphStub();
@@ -323,7 +327,7 @@ describe("createTriageChat", () => {
     );
 
     expect(result.failures).toEqual([
-      { name: draft.roster.members[1].name, reason: "Not found in the Microsoft directory." },
+      { name: draft.roster.members[1].name, reason: "Has not signed in to the Hub yet, so add them by hand." },
     ]);
 
     const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
@@ -333,40 +337,7 @@ describe("createTriageChat", () => {
     // that does not explain their absence.
     expect(dropped).toHaveLength(1);
     expect(dropped[0].addedOk).toBe(false);
-    expect(dropped[0].error).toBe("Not found in the Microsoft directory.");
-  });
-
-  it("records the chat id the moment Graph returns it, before the member loop", async () => {
-    const fixtures = await seedDraftFixtures();
-    const draft = draftFor(fixtures);
-    // The row must already name the chat while the adds are still running: on a
-    // twenty-person roster this loop is where the function gets killed, and a
-    // row that learns the chat id only at the end leaves a real Teams chat
-    // nobody can reach behind a claim that locks the week out of the UI.
-    const recordedDuringLoop: { graphChatId: string; webUrl: string }[] = [];
-    const graph = graphStub({
-      addChatMember: vi.fn(async () => {
-        recordedDuringLoop.push(
-          await prisma.triageChat.findFirstOrThrow({
-            select: { graphChatId: true, webUrl: true },
-          }),
-        );
-      }),
-    });
-
-    await createTriageChat(
-      {
-        presetId: fixtures.preset.id,
-        actorPersonId: fixtures.stored.id,
-        topic: draft.topic,
-        messageBody: draft.messageBody,
-        includePersonIds: [fixtures.stored.id, fixtures.looked.id],
-      },
-      { ...graph, loadDraft: async () => draft },
-    );
-
-    expect(graph.addChatMember).toHaveBeenCalledTimes(1);
-    expect(recordedDuringLoop).toEqual([{ graphChatId: "chat-1", webUrl: "https://teams/1" }]);
+    expect(dropped[0].error).toBe("Has not signed in to the Hub yet, so add them by hand.");
   });
 
   it("records the chat id before the opening message is posted", async () => {
@@ -402,6 +373,12 @@ describe("createTriageChat", () => {
   it("records a resolvable member who was not kept, without reporting them as a failure", async () => {
     const fixtures = await seedDraftFixtures();
     const draft = draftFor(fixtures);
+    // Both members resolve here, so the one left out was left out by choice.
+    // That is the whole point of the case: it must not be reported as a failure.
+    draft.resolved = [
+      { member: draft.roster.members[0], userId: "oid-stored", source: "stored" },
+      { member: draft.roster.members[1], userId: "oid-other", source: "stored" },
+    ];
     const graph = graphStub();
 
     const result = await createTriageChat(
@@ -420,7 +397,10 @@ describe("createTriageChat", () => {
     // Not a failure: nagging an ED to hand-add somebody they deliberately
     // unticked is wrong, and the alert on the confirmation page is a call to act.
     expect(result.failures).toEqual([]);
-    expect(graph.addChatMember).not.toHaveBeenCalled();
+    expect(graph.createGroupChat).toHaveBeenCalledWith({
+      topic: draft.topic,
+      memberIds: ["oid-service", "oid-stored"],
+    });
 
     const saved = await prisma.triageChat.findFirstOrThrow({ include: { members: true } });
     expect(saved.members).toHaveLength(2);

@@ -26,7 +26,7 @@ import { prisma } from "@/platform/db";
 // ---------------------------------------------------------------------------
 
 const SCOPES =
-  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/ChatMessage.Send https://graph.microsoft.com/Chat.ReadWrite https://graph.microsoft.com/User.ReadBasic.All";
+  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/ChatMessage.Send";
 
 function tokenEndpoint(): string {
   const tenant = config.GRAPH_OAUTH_TENANT_ID ?? "common";
@@ -301,18 +301,11 @@ export async function mailConnectionStatus(): Promise<{
  * True when the stored credential scope string already includes every Teams
  * scope the app needs. Used by the admin UI to prompt for a reconnect after the
  * scopes grew.
- *
- * Chat.ReadWrite rather than the least-privileged ChatMember.ReadWrite that
- * Microsoft documents for adding a chat member: ChatMember.ReadWrite requires
- * tenant admin consent, and Chat.ReadWrite is the documented higher-privileged
- * alternative for the same call that a user may consent to themselves.
  */
 export function teamsScopesGranted(scope: string | null): boolean {
   if (!scope) return false;
   return (
     scope.includes("Chat.Create") &&
-    scope.includes("ChatMessage.Send") &&
-    scope.includes("Chat.ReadWrite") &&
-    scope.includes("User.ReadBasic.All")
+    scope.includes("ChatMessage.Send")
   );
 }

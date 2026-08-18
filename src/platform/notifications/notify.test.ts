@@ -107,11 +107,12 @@ describe("notify", () => {
   it("channel=teams with no identity falls back to email at queue time", async () => {
     vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
     const p = await makePerson({ entraObjectId: null });
-    await notify(
-      prisma,
-      { type: "epic-onboarding", person: { ...p, entraObjectId: null }, email, teams },
-      { getToken: async () => "tok", fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => "x" }) as unknown as typeof fetch }
-    );
+    await notify(prisma, {
+      type: "epic-onboarding",
+      person: { ...p, entraObjectId: null },
+      email,
+      teams,
+    });
     expect(await prisma.teamsMessage.count()).toBe(0);
     const e = await prisma.emailLog.findFirst({ where: { personId: p.id } });
     expect(e?.subject).toBe("Subj");

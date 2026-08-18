@@ -14,9 +14,8 @@ import { log, errorAttrs } from "@/platform/logging";
 import { mailConnectionStatus } from "@/platform/email/oauth";
 import {
   createGroupChat as graphCreateGroupChat,
-  addChatMember as graphAddChatMember,
   postChatMessage as graphPostChatMessage,
-  lookupUserId,
+  getSignedInUserId,
 } from "@/platform/teams/group-chat";
 import { loadTriageChatDraft, textToTeamsHtml, type TriageChatDraft } from "./triage-chat-draft";
 
@@ -52,7 +51,6 @@ export const NOT_SELECTED_REASON =
 export type CreateTriageChatDeps = {
   loadDraft?: (presetId: string) => Promise<TriageChatDraft | null>;
   createGroupChat?: typeof graphCreateGroupChat;
-  addChatMember?: typeof graphAddChatMember;
   postChatMessage?: typeof graphPostChatMessage;
   serviceAccountId?: () => Promise<string>;
 };
@@ -60,9 +58,10 @@ export type CreateTriageChatDeps = {
 /**
  * The Entra object id of the connected service account.
  *
- * Resolved through the directory rather than binding the stored account string
- * directly: that string is the mailbox address, and this tenant's UPN and mail
- * do not always match (hfc.admin@yale.edu by mail, hfc.admin@yu.yale.edu by UPN).
+ * Read from /me, which resolves whoever the delegated token belongs to without
+ * naming them. The stored account string is the mailbox address, and this
+ * tenant's UPN and mail do not always match (hfc.admin@yale.edu by mail,
+ * hfc.admin@yu.yale.edu by UPN), so binding on it was never reliable.
  */
 async function defaultServiceAccountId(): Promise<string> {
   const status = await mailConnectionStatus();
@@ -71,10 +70,10 @@ async function defaultServiceAccountId(): Promise<string> {
       "No Microsoft account is connected. Connect the mailbox in Admin > Email before creating a chat.",
     );
   }
-  const id = await lookupUserId(status.account);
+  const id = await getSignedInUserId();
   if (!id) {
     throw new TriageChatNotConnectedError(
-      `The connected account ${status.account} could not be found in the directory.`,
+      `The connected account ${status.account} could not be identified to Microsoft. Reconnect the mailbox in Admin > Email.`,
     );
   }
   return id;
@@ -109,7 +108,6 @@ export async function createTriageChat(
   const {
     loadDraft = (presetId: string) => loadTriageChatDraft(presetId),
     createGroupChat = graphCreateGroupChat,
-    addChatMember = graphAddChatMember,
     postChatMessage = graphPostChatMessage,
     serviceAccountId = defaultServiceAccountId,
   } = deps;
@@ -143,8 +141,7 @@ export async function createTriageChat(
   const keep = new Set(input.includePersonIds);
   const selected = draft.resolved.filter((r) => keep.has(r.member.personId));
 
-  const stored = selected.filter((r) => r.source === "stored" && r.userId);
-  const directory = selected.filter((r) => r.source === "directory" && r.userId);
+  const stored = selected.filter((r) => r.userId);
   // Built from the FULL roster, deliberately NOT from the keep-set. The review
   // form renders an unresolvable person's checkbox disabled, so they can never
   // appear in includePersonIds, and filtering them through the keep-set would
@@ -158,19 +155,16 @@ export async function createTriageChat(
   // covers them with the reason that actually explains their absence.
   const unkept = draft.resolved.filter((r) => r.userId && !keep.has(r.member.personId));
 
-  if (stored.length === 0 && directory.length === 0) {
+  if (stored.length === 0) {
     throw new Error("Nobody in this roster can be added to a chat.");
   }
 
   const ownerId = await serviceAccountId();
 
-  // Seed the create with ids that came from a real sign-in, which cannot be
-  // wrong. A create is atomic, so one bad id would fail the chat for everyone.
-  // When there are none, promote a single directory-resolved member so the chat
-  // is still valid, and add the rest individually as usual.
-  const promoted = stored.length === 0 ? directory.slice(0, 1) : [];
-  const createMembers = [...stored, ...promoted];
-  const incremental = directory.filter((r) => !promoted.includes(r));
+  // Every id here came from a real sign-in (Person.entraObjectId is written from
+  // the oid claim at login), so the create can seat them all in one atomic call.
+  // There is no second, less-trusted tier to add incrementally any more.
+  const createMembers = stored;
 
   // Claim the week BEFORE calling Graph. The unique constraint is the guard: a
   // double submit loses the insert here rather than creating a second chat.
@@ -240,29 +234,6 @@ export async function createTriageChat(
     addedOk: true,
   }));
 
-  for (const r of incremental) {
-    try {
-      await addChatMember(chat.chatId, r.userId!);
-      memberRows.push({
-        triageChatId: claimed.id,
-        personId: r.member.personId,
-        personName: r.member.name,
-        departmentName: r.member.departmentName,
-        addedOk: true,
-      });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      failures.push({ name: r.member.name, reason });
-      memberRows.push({
-        triageChatId: claimed.id,
-        personId: r.member.personId,
-        personName: r.member.name,
-        departmentName: r.member.departmentName,
-        addedOk: false,
-        error: reason,
-      });
-    }
-  }
 
   for (const r of unresolved) {
     const reason = r.reason ?? "Could not be resolved to a Microsoft account.";

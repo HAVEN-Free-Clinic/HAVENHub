@@ -53,6 +53,20 @@ const schema = z
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
+    // Ask for the mail scopes only, dropping the Teams ones from the consent
+    // request. Consent is all-or-nothing per authorize call: a registration that
+    // has not consented to Chat.Create cannot grant Mail.Send either, it just
+    // answers "Need admin approval" for the whole thing. Set this true to point
+    // the mailer at a bare-bones registration and keep email flowing while a
+    // fuller registration waits on tenant admin consent, then set it false and
+    // reconnect once that consent lands. Teams features gate themselves off on
+    // the stored scope string via teamsScopesGranted(), so they degrade rather
+    // than break: the triage-chat screen refuses with a reconnect prompt, and
+    // Teams notifications fall back to email.
+    GRAPH_OAUTH_MAIL_ONLY: z
+      .string()
+      .default("false")
+      .transform((v) => v === "true"),
     GRAPH_OAUTH_REDIRECT_URI: z
       .string()
       .default("http://localhost:3000/admin/email/oauth/callback"),

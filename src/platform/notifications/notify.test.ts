@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { notify } from "./notify";
@@ -39,6 +40,33 @@ describe("notify", () => {
     await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
     expect(await prisma.emailLog.count()).toBe(0);
     expect(await prisma.teamsMessage.count()).toBe(1);
+  });
+
+  describe("GRAPH_OAUTH_MAIL_ONLY", () => {
+    const prev = config.GRAPH_OAUTH_MAIL_ONLY;
+    afterEach(() => {
+      config.GRAPH_OAUTH_MAIL_ONLY = prev;
+    });
+
+    it("sends a channel=teams notification by email instead of queueing a doomed DM", async () => {
+      // The registration has no chat scopes, so a queued row could only 403 its
+      // way through the whole attempt budget before falling back. Reaching for
+      // email up front lands it now, and leaves nothing for the drain to retry.
+      config.GRAPH_OAUTH_MAIL_ONLY = true;
+      vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+      const p = await makePerson({ entraObjectId: "e1", contactEmail: "sam@x.com" });
+      await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
+      expect(await prisma.teamsMessage.count()).toBe(0);
+      expect(await prisma.emailLog.count()).toBe(1);
+    });
+
+    it("still records the in-app notification", async () => {
+      config.GRAPH_OAUTH_MAIL_ONLY = true;
+      vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+      const p = await makePerson({ entraObjectId: "e1", contactEmail: "sam@x.com" });
+      await notify(prisma, { type: "epic-onboarding", person: p, email, teams });
+      expect(await prisma.notification.count({ where: { personId: p.id } })).toBe(1);
+    });
   });
 
   it("channel=both queues an email and a Teams message", async () => {

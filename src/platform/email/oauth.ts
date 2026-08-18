@@ -1,7 +1,7 @@
 /**
  * Delegated OAuth helper for Microsoft Graph. Provides the token used for
  * Mail.Send (the Mailer) and Channel.ReadBasic.All (the clinic Teams channel
- * link) -- both ride the single SCOPES string and the one cached access token.
+ * link) -- both ride the one scope request and the one cached access token.
  *
  * Flow overview:
  *   1. Admin visits the consent URL built by buildAuthorizeUrl().
@@ -25,8 +25,26 @@ import { prisma } from "@/platform/db";
 // Constants
 // ---------------------------------------------------------------------------
 
-const SCOPES =
-  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared https://graph.microsoft.com/Channel.ReadBasic.All https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/ChatMessage.Send";
+/**
+ * What the mailer cannot work without: sign-in, a refresh token, and the two
+ * send scopes (Shared because we send AS the shared mailbox, not as the signed-in
+ * service account).
+ */
+const MAIL_SCOPES =
+  "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Send.Shared";
+
+/** The clinic Teams channel link, the triage group chats, and Teams DMs. */
+const TEAMS_SCOPES =
+  "https://graph.microsoft.com/Channel.ReadBasic.All https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/ChatMessage.Send";
+
+/**
+ * Read per call rather than frozen into a module constant: GRAPH_OAUTH_MAIL_ONLY
+ * decides it, and the whole point of that flag is to be flipped between two app
+ * registrations without a code change.
+ */
+function scopes(): string {
+  return config.GRAPH_OAUTH_MAIL_ONLY ? MAIL_SCOPES : `${MAIL_SCOPES} ${TEAMS_SCOPES}`;
+}
 
 function tokenEndpoint(): string {
   const tenant = config.GRAPH_OAUTH_TENANT_ID ?? "common";
@@ -83,7 +101,7 @@ export function buildAuthorizeUrl(opts: { state: string }): string {
     response_type: "code",
     redirect_uri: config.GRAPH_OAUTH_REDIRECT_URI,
     response_mode: "query",
-    scope: SCOPES,
+    scope: scopes(),
     state: opts.state,
   });
   return `${authorizeEndpoint()}?${params.toString()}`;
@@ -146,7 +164,7 @@ export async function exchangeCode(
     client_secret: config.GRAPH_OAUTH_CLIENT_SECRET ?? "",
     code,
     redirect_uri: config.GRAPH_OAUTH_REDIRECT_URI,
-    scope: SCOPES,
+    scope: scopes(),
   });
 
   const res = await fetchImpl(tokenEndpoint(), {
@@ -224,7 +242,7 @@ export async function getAccessToken(
     client_id: config.GRAPH_OAUTH_CLIENT_ID ?? "",
     client_secret: config.GRAPH_OAUTH_CLIENT_SECRET ?? "",
     refresh_token: row.refreshToken,
-    scope: SCOPES,
+    scope: scopes(),
   });
 
   const res = await fetchImpl(tokenEndpoint(), {

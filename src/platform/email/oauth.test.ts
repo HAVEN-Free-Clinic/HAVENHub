@@ -144,6 +144,34 @@ describe("buildAuthorizeUrl", () => {
     const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
     expect(url).not.toContain("Chat.ReadWrite");
   });
+
+  describe("GRAPH_OAUTH_MAIL_ONLY", () => {
+    const prev = config.GRAPH_OAUTH_MAIL_ONLY;
+    afterEach(() => {
+      config.GRAPH_OAUTH_MAIL_ONLY = prev;
+    });
+
+    it("drops the Teams scopes so a mail-only registration can still consent", () => {
+      config.GRAPH_OAUTH_MAIL_ONLY = true;
+      const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+      expect(url).toContain("Mail.Send");
+      expect(url).toContain("Mail.Send.Shared");
+      expect(url).toContain("offline_access");
+      // Consent is all-or-nothing per authorize call, so one unconsented Teams
+      // scope would take Mail.Send down with it.
+      expect(url).not.toContain("Chat.Create");
+      expect(url).not.toContain("ChatMessage.Send");
+      expect(url).not.toContain("Channel.ReadBasic.All");
+    });
+
+    it("asks for the Teams scopes again once the flag is off", () => {
+      config.GRAPH_OAUTH_MAIL_ONLY = false;
+      const url = decodeURIComponent(buildAuthorizeUrl({ state: "s1" }));
+      expect(url).toContain("Chat.Create");
+      expect(url).toContain("ChatMessage.Send");
+      expect(url).toContain("Channel.ReadBasic.All");
+    });
+  });
 });
 
 describe("teamsScopesGranted", () => {

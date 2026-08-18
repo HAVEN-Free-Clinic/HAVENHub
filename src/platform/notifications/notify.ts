@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { config } from "@/platform/config";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
 import { createNotification } from "./inbox";
@@ -60,7 +61,12 @@ export async function notify(db: Db, input: NotifyInput): Promise<void> {
     // oid claim at SSO login, so it is present for anyone who has signed in and
     // null for everyone else -- including non-Yale members, who are not in the
     // Entra tenant at all and never could be reached on Teams.
-    const teamsUserId = input.person.entraObjectId;
+    //
+    // Mail-only mode reuses that same no-identity path deliberately: the app
+    // registration has no chat scopes, so queueing would only buy a doomed row
+    // that burns its whole attempt budget on 403s before falling back. Reaching
+    // for email now lands the notification immediately instead.
+    const teamsUserId = config.GRAPH_OAUTH_MAIL_ONLY ? null : input.person.entraObjectId;
     if (teamsUserId) {
       await queueTeamsMessage(db, {
         personId: input.person.id,

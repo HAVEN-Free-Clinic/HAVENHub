@@ -51,8 +51,12 @@ export function FieldPreview({
   const errorId = fieldError ? `fp-${f.key}-error` : undefined;
   const errorAria = fieldError ? { "aria-invalid": true, "aria-describedby": errorId } : {};
   const req = required ? <span className="text-critical" aria-hidden="true"> *</span> : null;
-  const help = f.helpText ? <span className="mt-1 block text-xs text-muted-foreground">{f.helpText}</span> : null;
-  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block text-xs text-critical">{fieldError}</span> : null;
+  // Label, help and error all take break-words + overflow-wrap:anywhere: an author
+  // can paste a wall of text (or an unbroken run with no spaces at all) into either,
+  // and without this it lays out on one line and widens every ancestor rather than
+  // wrapping inside the field.
+  const help = f.helpText ? <span className="mt-1 block break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
+  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical [overflow-wrap:anywhere]">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);
   // otherwise it seeds an editable default. Read-only controlled inputs do not
@@ -67,7 +71,7 @@ export function FieldPreview({
       <div>
         <label className={cx("flex min-h-[44px] items-start gap-2.5 py-1", disabled ? "cursor-default" : "cursor-pointer")}>
           <Checkbox name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-0.5" defaultChecked={isPrefillChecked(prefill)} onChange={(e) => onValueChange?.(f.key, e.target.checked ? "on" : "")} />
-          <span className="text-sm text-foreground">{f.label}{req}</span>
+          <span className="min-w-0 break-words text-sm text-foreground [overflow-wrap:anywhere]">{f.label}{req}</span>
         </label>
         {help}
         {err}
@@ -76,7 +80,7 @@ export function FieldPreview({
   }
 
   const onTextChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onValueChange?.(f.key, e.target.value);
-  const labelEl = <span className="block text-sm font-medium text-foreground">{f.label}{req}</span>;
+  const labelEl = <span className="block break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">{f.label}{req}</span>;
   let control: React.ReactNode;
   switch (f.type) {
     case "LONG_TEXT": {
@@ -135,7 +139,7 @@ export function FieldPreview({
       control = (
         <span className="mt-1 flex flex-col">
           {(f.options ?? []).map((o) => (
-            <label key={o.value} className={cx("flex min-h-[44px] items-center gap-2.5 py-1 text-sm text-foreground", disabled ? "cursor-default" : "cursor-pointer")}>
+            <label key={o.value} className={cx("flex min-h-[44px] items-center gap-2.5 break-words py-1 text-sm text-foreground [overflow-wrap:anywhere]", disabled ? "cursor-default" : "cursor-pointer")}>
               <Checkbox name={f.key} value={o.value} disabled={disabled} defaultChecked={selected.has(o.value)} onChange={onMultiChange} /> {o.label}
             </label>
           ))}
@@ -180,10 +184,10 @@ export function FieldPreview({
   if (f.type === "MULTI_SELECT" || f.type === "SUBCOMMITTEE_RANK") {
     return (
       <fieldset className="block min-w-0 border-0 p-0">
-        <legend className="block p-0 text-sm font-medium text-foreground">{f.label}{req}</legend>
+        <legend className="block break-words p-0 text-sm font-medium text-foreground [overflow-wrap:anywhere]">{f.label}{req}</legend>
         {help}{control}{err}
       </fieldset>
     );
   }
-  return <label className="block">{labelEl}{help}{control}{err}</label>;
+  return <label className="block min-w-0">{labelEl}{help}{control}{err}</label>;
 }

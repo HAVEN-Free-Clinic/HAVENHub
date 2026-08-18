@@ -18,6 +18,16 @@
 
 export type AffiliationOption = { value: string; label: string };
 
+/**
+ * The one option that means "no Yale account at all".
+ *
+ * Exported as a constant because it is not just a list entry: the /apply form
+ * gates the Yale-only identity questions (NetID) on it, so a rename here has to
+ * travel with those conditions rather than silently leaving them pointing at a
+ * value nothing can select.
+ */
+export const NON_YALE_AFFILIATION = "non_yale";
+
 export const YALE_AFFILIATIONS: AffiliationOption[] = [
   { value: "yale_college", label: "Yale College" },
   { value: "divinity", label: "Yale School of Divinity" },
@@ -31,7 +41,7 @@ export const YALE_AFFILIATIONS: AffiliationOption[] = [
   { value: "ysph", label: "Yale School of Public Health (YSPH)" },
   { value: "staff", label: "Yale Staff" },
   { value: "other_yale", label: "Other Yale Affiliation" },
-  { value: "non_yale", label: "I am NOT a Yale Affiliate" },
+  { value: NON_YALE_AFFILIATION, label: "I am NOT a Yale Affiliate" },
 ];
 
 const LABEL_BY_VALUE = new Map(YALE_AFFILIATIONS.map((o) => [o.value, o.label]));
@@ -103,7 +113,7 @@ export function normalizeAffiliation(raw: string | null | undefined): string | n
 const NON_STUDENT_AFFILIATIONS = new Set([
   "staff",
   "other_yale",
-  "non_yale",
+  NON_YALE_AFFILIATION,
   "yale staff",
   "other yale affiliation",
   "other",

@@ -3,6 +3,7 @@ import type { TemplateOption, TemplateSection } from "./types";
 import { YALE_AFFILIATION, GRAD_YEAR, SPANISH_PROFICIENCY, MEDICAL_CERTIFICATIONS, YES_NO } from "./content/options";
 import { VOLUNTEER_AGREEMENT, PROFESSIONALISM_POLICY, TRAINING_ACKNOWLEDGEMENT } from "./content/acknowledgements";
 import { LANGUAGE_QUESTION } from "@/platform/languages";
+import { NON_YALE_AFFILIATION } from "@/platform/affiliation";
 
 const sec = (
   title: string,
@@ -19,17 +20,40 @@ const sec = (
   fields: fields.map((f, i) => ({ ...f, order: i })),
 });
 
+/**
+ * Yale affiliation is asked BEFORE the NetID, not after it as it was originally.
+ *
+ * The NetID is now gated on the answer (`isNot non_yale`), and a controlling
+ * question that sits below the field it controls reads as a non-sequitur: the
+ * applicant fills in a NetID, scrolls down, picks "I am NOT a Yale Affiliate",
+ * and watches the question they just answered vanish. Ordering is presentational
+ * only -- isFieldVisible re-evaluates live on every change regardless of where
+ * the controller sits -- so this is purely about not asking in the wrong order.
+ *
+ * The email stays required and ungated for everyone: it is the applicant's
+ * identity in this cycle (Applicant.emailLower is the dedup key, and it is what
+ * every downstream notification is sent to), so it can never be conditional.
+ * What changes is that it no longer *claims* to be a Yale address -- the label is
+ * neutral and the help text asks Yale affiliates for their Yale one, which is
+ * the sentence that actually matters to the people who have both.
+ */
 export function identitySection(): TemplateSection {
   return sec("Personal details", "NEW", [
     { key: "first_name", label: "First name", type: "SHORT_TEXT", required: true },
     { key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true },
     { key: "pronouns", label: "Pronouns", type: "SHORT_TEXT", required: false },
-    { key: "net_id", label: "Yale NetID", type: "SHORT_TEXT", required: true },
-    { key: "email", label: "Yale email", type: "EMAIL", required: true },
-    { key: "phone", label: "Phone number", type: "PHONE", required: false },
     { key: "yale_affiliation", label: "Yale affiliation", type: "SINGLE_SELECT", required: true, options: YALE_AFFILIATION },
     { key: "yale_affiliation_other", label: "If other or staff, please specify your school/title and department", type: "SHORT_TEXT", required: false,
       visibleWhen: { field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] } },
+    // Hidden (and therefore not required -- buildApplicationSchema and the
+    // wizard both drop condition-hidden fields) for someone with no Yale
+    // account to have a NetID for. `isNot` is unanswered-tolerant, so the
+    // question is still shown before the affiliation is picked.
+    { key: "net_id", label: "Yale NetID", type: "SHORT_TEXT", required: true,
+      visibleWhen: { field: "yale_affiliation", op: "isNot", value: NON_YALE_AFFILIATION } },
+    { key: "email", label: "Email address", type: "EMAIL", required: true,
+      helpText: "If you are a Yale affiliate, please use your Yale email address." },
+    { key: "phone", label: "Phone number", type: "PHONE", required: false },
     { key: "grad_year", label: "Graduation year", type: "SINGLE_SELECT", required: true, options: GRAD_YEAR },
   ], { description: "If you are a returning volunteer, your record is pulled automatically and you can skip this section." });
 }

@@ -77,15 +77,18 @@ function VisibleWhenEditor({
 
   return (
     <Field label="Show only when" hint="Hide this question unless another answer matches. Leave as (always show) for no condition.">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select disabled={disabled} value={controllingKey} onChange={(e) => handleFieldChange(e.target.value)}>
+      {/* min-w-0 on the row and on each Select: a native <select> is intrinsically
+          as wide as its longest <option>, so one long field label would otherwise
+          stretch this row past the card edge. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Select className="min-w-0" disabled={disabled} value={controllingKey} onChange={(e) => handleFieldChange(e.target.value)}>
           <option value="">(always show)</option>
           {controllingKey && !controllingField && <option value={controllingKey} disabled>{controllingKey} (deleted field)</option>}
           {siblingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
         </Select>
         {controllingKey && (
           <>
-            <Select disabled={disabled} value={op} onChange={(e) => handleOpChange(e.target.value as FieldConditionOp)}>
+            <Select className="min-w-0" disabled={disabled} value={op} onChange={(e) => handleOpChange(e.target.value as FieldConditionOp)}>
               <option value="is">is</option>
               <option value="isNot">is not</option>
               <option value="isAnswered">is answered</option>
@@ -93,7 +96,7 @@ function VisibleWhenEditor({
             </Select>
             {op !== "isAnswered" && op !== "isAnyOf" && (
               opts ? (
-                <Select disabled={disabled} value={singleValue} onChange={(e) => handleSingleValueChange(e.target.value)}>
+                <Select className="min-w-0" disabled={disabled} value={singleValue} onChange={(e) => handleSingleValueChange(e.target.value)}>
                   <option value="" disabled>Select…</option>
                   {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
@@ -176,10 +179,13 @@ export function FieldCard({
         <button type="button" className="mt-1 cursor-grab text-subtle-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 disabled:cursor-not-allowed" disabled={!editable} aria-label="Drag to reorder field" {...(handle.attributes as HTMLAttributes<HTMLButtonElement>)} {...((handle.listeners ?? {}) as HTMLAttributes<HTMLButtonElement>)}>
           <GripVertical className="h-4 w-4" aria-hidden />
         </button>
-        <div className="flex-1">
+        {/* min-w-0: a flex item's min-width defaults to auto, so a long label or
+            help string sized this column to its content and pushed the card (and
+            the page) wider instead of wrapping inside it. */}
+        <div className="min-w-0 flex-1">
           <FieldPreview f={field} departments={departments} subcommittees={subcommittees} disabled />
         </div>
-        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <span title={meta.label} className="px-1 text-subtle-foreground"><Icon className="h-4 w-4" aria-hidden /></span>
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((v) => !v)} aria-label="Edit field"><Pencil className="h-4 w-4" aria-hidden /></Button>
           <Button type="button" variant="ghost" size="sm" disabled={!editable || pending}
@@ -192,7 +198,7 @@ export function FieldCard({
       </div>
 
       {(saved || error) && (
-        <p className={`mt-1 flex items-center gap-1 text-xs ${error ? "text-critical" : "text-subtle-foreground"}`}>
+        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical" : "text-subtle-foreground"}`}>
           {error ? <><AlertCircle className="h-3 w-3" aria-hidden /> {error}</> : <><Check className="h-3 w-3" aria-hidden /> Saved</>}
         </p>
       )}

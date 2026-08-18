@@ -87,7 +87,11 @@ export async function createCycle(input: CreateCycleInput, seedDefaultForm = fal
       data: [
         { sectionId: identity.id, cycleId: created.id, key: "first_name", label: "First name", type: "SHORT_TEXT", required: true, order: 0 },
         { sectionId: identity.id, cycleId: created.id, key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true, order: 1 },
-        { sectionId: identity.id, cycleId: created.id, key: "email", label: "Yale email", type: "EMAIL", required: true, order: 2 },
+        // "Email address", not "Yale email": this is the applicant's identity in
+        // the cycle (Applicant.emailLower) and a non-Yale-affiliated applicant has
+        // no Yale address to put in it. Mirrors identitySection().
+        { sectionId: identity.id, cycleId: created.id, key: "email", label: "Email address", type: "EMAIL", required: true, order: 2,
+          helpText: "If you are a Yale affiliate, please use your Yale email address." },
         // Standard across every cycle, and guarded at publish (see
         // publishCycle): the answers feed the interpreting department's
         // verification queue at promotion, which only works if the question is

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { identitySection, eligibilitySection, languagesSection, acknowledgementsSection, availabilitySection } from "./field-groups";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
+import { isFieldVisible } from "../engine/field-visibility";
 
 describe("field-group builders", () => {
   it("identitySection has the three stable identity keys and is NEW-only", () => {
@@ -89,5 +90,39 @@ describe("field-group builders", () => {
     const s = identitySection();
     const other = s.fields.find((f) => f.key === "yale_affiliation_other")!;
     expect(other.visibleWhen).toEqual({ field: "yale_affiliation", op: "isAnyOf", value: ["other_yale", "staff"] });
+  });
+
+  // Somebody with no Yale account has no NetID to give. The condition is what
+  // makes the question disappear AND stop being required (both the wizard and
+  // buildApplicationSchema drop condition-hidden fields), so asserting the
+  // condition is asserting the requirement.
+  it("identitySection hides the Yale NetID from a non-Yale affiliate", () => {
+    const netId = identitySection().fields.find((f) => f.key === "net_id")!;
+    expect(netId.visibleWhen).toEqual({ field: "yale_affiliation", op: "isNot", value: "non_yale" });
+    // Still asked -- and still required -- of everyone who has not said they are
+    // unaffiliated: `isNot` treats an unanswered controller as a match.
+    expect(netId.required).toBe(true);
+    expect(isFieldVisible(netId.visibleWhen, {})).toBe(true);
+    expect(isFieldVisible(netId.visibleWhen, { yale_affiliation: "yale_college" })).toBe(true);
+    expect(isFieldVisible(netId.visibleWhen, { yale_affiliation: "non_yale" })).toBe(false);
+  });
+
+  // The affiliation answer drives the NetID question, so it has to be asked
+  // first; a controller below the field it controls makes the question the
+  // applicant just answered vanish under them.
+  it("identitySection asks the Yale affiliation before the Yale NetID", () => {
+    const keys = identitySection().fields.map((f) => f.key);
+    expect(keys.indexOf("yale_affiliation")).toBeLessThan(keys.indexOf("net_id"));
+  });
+
+  // Unlike the NetID this one can never be conditional: it is the applicant's
+  // identity for the cycle (Applicant.emailLower). It just must not claim to be
+  // a Yale address, since a non-Yale applicant has none.
+  it("identitySection asks every applicant for an email without demanding a Yale one", () => {
+    const email = identitySection().fields.find((f) => f.key === "email")!;
+    expect(email.required).toBe(true);
+    expect(email.visibleWhen).toBeUndefined();
+    expect(email.label).not.toMatch(/yale/i);
+    expect(email.helpText).toMatch(/yale/i);
   });
 });

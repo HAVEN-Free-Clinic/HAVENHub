@@ -36,6 +36,8 @@
     "backfill:dates:apply": "tsx --env-file=.env scripts/backfill-completion-dates.ts --apply",
     "backfill:languages:dry": "tsx --env-file=.env scripts/backfill-language-question.ts",
     "backfill:languages:apply": "tsx --env-file=.env scripts/backfill-language-question.ts --apply",
+    "backfill:nonyale:dry": "tsx --env-file=.env scripts/backfill-non-yale-identity.ts",
+    "backfill:nonyale:apply": "tsx --env-file=.env scripts/backfill-non-yale-identity.ts --apply",
     "//intercom:recover": "Recovers an Intercom Ticket the Hub has no row for (a refused or pre-webhook ticket.created). Needs .env.local too, for INTERCOM_ACCESS_TOKEN. Pass the ticket id after --.",
     "intercom:recover:dry": "tsx --env-file=.env --env-file=.env.local scripts/recover-intercom-ticket.ts",
     "intercom:recover:apply": "tsx --env-file=.env --env-file=.env.local scripts/recover-intercom-ticket.ts --apply",

@@ -51,6 +51,7 @@ import {
 } from "@/modules/schedule/engine/request-reminder-cadence";
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
+import { firstNameOf } from "@/platform/person-name";
 import { claimReminderDispatch, releaseReminderDispatch } from "@/platform/email/reminder-dispatch";
 
 export const runtime = "nodejs";
@@ -178,7 +179,7 @@ export async function GET(req: Request): Promise<Response> {
           // Without these the template's "Review pending requests" CTA rendered
           // as <a href=""> in every daily reminder (audit 14).
           ...(await scheduleEmailUrls()),
-          directorName: approver.name?.split(" ")[0] ?? approver.name ?? "",
+          directorName: firstNameOf(approver.name),
           requesterName: pending.requester.name,
           requestType: isSwap ? "swap" : "drop",
           requesterDate: requesterDateStr,

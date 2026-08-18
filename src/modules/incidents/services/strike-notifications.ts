@@ -34,6 +34,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { departmentDirectorPersonIds } from "@/platform/departments";
 import { formatCalendarDate } from "@/platform/dates";
+import { firstNameOf } from "@/platform/person-name";
 import { visibleStrikeCount, subjectFacingDetail } from "./disciplinary";
 
 export type StrikeNotificationInput = {
@@ -118,7 +119,7 @@ export async function notifyStrikeIssued(input: StrikeNotificationInput): Promis
     // confidential strike must not carry the reporter's narrative (#45).
     const subjectFacingDetails = subjectFacingDetail(action);
     const subjectRendered = await renderEmail("incidents.strike_issued", {
-      subjectName: subject.name?.trim().split(/\s+/)[0] || subject.name || "there",
+      subjectName: firstNameOf(subject.name) || "there",
       category: action.category,
       description: subjectFacingDetails,
       issuedBy,

@@ -4,6 +4,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
+import { firstNameOf } from "@/platform/person-name";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import { claimReminderDispatch, releaseReminderDispatch } from "./reminder-dispatch";
@@ -15,11 +16,6 @@ const TEMPLATE_KEY = "clinic-checkin-invite";
 // (or be starved by) the weekly shift-reminder cron's own claims on the same
 // (personId, periodKey) shape.
 const DISPATCH_KIND = "clinic-checkin-invite";
-
-function firstNameOf(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts[0] || name;
-}
 
 export type CheckInInviteRunResult = { skipped: boolean; queued: number };
 

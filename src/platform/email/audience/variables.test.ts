@@ -10,4 +10,11 @@ describe("person variables", () => {
     expect(personVariables({ name: "Jane Q Doe" })).toEqual({ firstName: "Jane", name: "Jane Q Doe" });
     expect(personVariables({ name: "" })).toEqual({ firstName: "", name: "" });
   });
+
+  it("greets by a parenthetical preferred name but prints the full name verbatim", () => {
+    expect(personVariables({ name: "Jonathan (Jack) Carney" })).toEqual({
+      firstName: "Jack",
+      name: "Jonathan (Jack) Carney",
+    });
+  });
 });

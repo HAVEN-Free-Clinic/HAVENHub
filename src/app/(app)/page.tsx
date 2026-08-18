@@ -36,6 +36,7 @@ import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules"
 import { getSetting } from "@/platform/settings/service";
 import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { firstNameOf } from "@/platform/person-name";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
 // ---------------------------------------------------------------------------
@@ -293,7 +294,9 @@ export default async function HubPage() {
   const nextTags = next ? next.detail : [];
 
   // --- Greeting context ---
-  const firstName = person.name ? person.name.trim().split(/\s+/)[0] : null;
+  // null, not "", so the greeting drops the name entirely rather than rendering
+  // a trailing comma against an empty string.
+  const firstName = firstNameOf(person.name) || null;
   // The greeting eyebrow wants an ORGANISATIONAL home, so it reads the volunteer
   // department directly rather than `next.where` -- which for an attending is a
   // schedule column ("9am-12pm"), a time of day and not a place to belong to.

@@ -3,6 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { signOut } from "@/platform/auth/auth";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { firstNameOf } from "@/platform/person-name";
 import { OnboardingChecklist } from "./onboarding-checklist";
 
 export default async function GetStartedPage() {
@@ -14,7 +15,7 @@ export default async function GetStartedPage() {
   // Never a dead end: anyone who does not belong here goes to the hub.
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
 
-  const firstName = person.name ? person.name.trim().split(/\s+/)[0] : "there";
+  const firstName = firstNameOf(person.name) || "there";
   const pct =
     status.totalCount > 0
       ? Math.round((status.completedCount / status.totalCount) * 100)

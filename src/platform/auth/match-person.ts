@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PERSON_SCALARS } from "@/platform/person-scalars";
+import { firstNameOf, NAME_SUFFIXES } from "@/platform/person-name";
 
 /**
  * Login → Person resolution (spec §5). SECURITY LAYERING: the NextAuth signIn
@@ -201,23 +202,17 @@ export function applicantEmailFromClaims(
 }
 
 /**
- * Name suffixes and post-nominal credentials that can trail a display name after a
- * comma ("Jane Doe, RN"), so we don't mistake them for a "Last, First" first name.
- * Lowercased, periods stripped.
- */
-const NAME_SUFFIXES = new Set([
-  "jr", "sr", "ii", "iii", "iv", "v",
-  "md", "do", "rn", "np", "pa", "phd", "mph", "msn", "dnp", "dds", "dmd",
-  "psyd", "edd", "lcsw", "esq", "mba", "ms", "ma", "bs", "ba",
-]);
-
-/**
  * The applicant's first name for a friendly greeting, taken from the Entra sign-in.
  * Prefers the explicit `given_name` claim (present when the tenant surfaces it);
  * otherwise derives it from the display `name` claim, handling "First Last",
  * "Last, First" (common in Active Directory), and "First Last, <suffix>" (e.g.
  * "Jane Doe, RN"). Returns null when no usable name is present, so the caller can
  * greet without one rather than fall back to an email local part.
+ *
+ * The comma split is claim-specific and stays here; picking the name out of the
+ * resulting segment is the same job every other greeting surface does, so that
+ * step delegates to firstNameOf and inherits its parenthetical handling ("Peng,
+ * Bo (Jack)" greets "Jack").
  */
 export function firstNameFromClaims(claims: {
   given_name?: string | null;
@@ -237,8 +232,7 @@ export function firstNameFromClaims(claims: {
     const afterHead = after?.split(/\s+/)[0]?.toLowerCase().replace(/\./g, "");
     segment = afterHead && NAME_SUFFIXES.has(afterHead) ? before : after;
   }
-  const first = segment?.split(/\s+/)[0]?.trim();
-  return first || null;
+  return firstNameOf(segment) || null;
 }
 
 async function link(person: Person, entraObjectId?: string | null): Promise<Person> {

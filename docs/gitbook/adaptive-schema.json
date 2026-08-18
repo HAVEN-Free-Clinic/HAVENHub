@@ -152,6 +152,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.manage_requests permission in HAVEN Hub."
             },
+            "manage_triage_chats": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the schedule.manage_triage_chats permission in HAVEN Hub."
+            },
             "view": {
               "type": "boolean",
               "description": "Whether the visitor holds the schedule.view permission in HAVEN Hub."

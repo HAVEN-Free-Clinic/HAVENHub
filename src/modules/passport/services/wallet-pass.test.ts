@@ -3,6 +3,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { issueWalletPass, revokeWalletPasses, shortenSince } from "./wallet-pass";
 import { createPass, isWalletEnabled, revokePass, updatePass } from "./wallet-client";
+import { todayMarker } from "./term-day";
 
 // vi.mock, not vi.spyOn: wallet-pass.ts imports these as named bindings, and
 // spying on an ESM namespace object does not rebind what the importer already
@@ -22,8 +23,6 @@ const createPassMock = vi.mocked(createPass);
 const updatePassMock = vi.mocked(updatePass);
 const revokePassMock = vi.mocked(revokePass);
 const isWalletEnabledMock = vi.mocked(isWalletEnabled);
-
-const HOUR_MS = 60 * 60 * 1000;
 
 async function seedActiveMember(termEndDate: Date = new Date("2099-08-31T12:00:00Z")) {
   const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
@@ -96,7 +95,15 @@ describe("issueWalletPass", () => {
     // Deliberately a term ending SOON, not one already ended: an ended term is
     // refused outright now (see the test below), so a past end date would no
     // longer reach the clamp at all.
-    const { person } = await seedActiveMember(new Date(Date.now() + HOUR_MS));
+    //
+    // Seeded as TODAY'S NOON-UTC MARKER, not `Date.now() + an hour`. Term dates
+    // are calendar markers rather than instants (see term-day.ts), and
+    // issueWalletPass compares this one marker-to-marker against todayMarker().
+    // A raw instant an hour from now is BELOW today's marker for any run before
+    // 11:00 UTC, so the guard refused to issue, createPass was never called, and
+    // this test failed on every CI run and every local run before ~07:00 ET
+    // while passing the rest of the day.
+    const { person } = await seedActiveMember(await todayMarker());
     createPassMock.mockResolvedValue(CREATED);
 
     await issueWalletPass(person.id);

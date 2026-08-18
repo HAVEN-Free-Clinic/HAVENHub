@@ -12,6 +12,7 @@ export async function resetDb() {
   await prisma.$executeRawUnsafe(
     `TRUNCATE "EhsTrainingDepartment", "EhsCompletion", "EhsTraining", "CourseProgress", "CourseDepartment", "Course",
               "QuizAttempt", "Training", "Evaluation", "InterviewPanelist", "Interview", "OnboardingContract", "Acceptance", "CommitteeScore", "Application", "Applicant", "Subcommittee", "FormField", "FormSection", "RecruitmentCycleEmail", "RecruitmentCycle",
+              "TriageChatMember", "TriageChat", "TriageChatPresetDepartment", "TriageChatPreset",
               "ShiftRequest", "SchedulePublication", "ScheduleDay", "ClinicDayAttending", "ClinicDay", "ClinicSlot", "AttendingCredentialing", "AttendingCapabilityValue", "AttendingCapability", "Attending", "AttendingSpecialty",
               "ClinicAttendance", "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
               "DepartmentDelegation", "Department", "TermOnboardingStep", "Term", "Person", "AuditLog",

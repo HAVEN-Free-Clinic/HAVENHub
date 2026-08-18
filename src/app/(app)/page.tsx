@@ -22,6 +22,7 @@ import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
 import { EpicAccessCard } from "./epic-access-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
+import { myAttendingSchedule } from "@/modules/schedule/services/attending-portal";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards, type ActionCard } from "./action-cards";
@@ -185,7 +186,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn] = await Promise.all([
+  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     isInterviewPanelist(person.personId),
@@ -198,6 +199,8 @@ export default async function HubPage() {
     getDisplayTimeZone(),
     getActiveTerm(),
     getCheckInState(person.personId),
+    // Null for everyone who is not faculty, which is almost everyone.
+    myAttendingSchedule(person.personId),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
@@ -227,14 +230,80 @@ export default async function HubPage() {
   // tomorrow's shift "Today" and drop a same-day shift every evening.
   const todayKey = formatForDateInput(new Date(), displayZone);
   const upcoming = shifts.filter((s) => isoDateKey(s.clinicDate) >= todayKey);
-  const next = upcoming[0] ?? null;
+
+  // The hero shows the next COMMITMENT, which for faculty is an attending column
+  // rather than a volunteer shift. Normalised to one shape because the two are
+  // different records (ShiftAssignment vs ClinicDayAttending) with no common
+  // supertype, and the hero needs exactly four things from either: the date, what
+  // to call it, the role line, and any extra detail.
+  //
+  // Without this an attending saw "No upcoming shifts -- you have no shifts
+  // scheduled for the rest of <term>" on the Saturday they were covering, which is
+  // not merely empty but false.
+  type NextCommitment = {
+    clinicDate: Date;
+    /** The line under the date: a department name, or the schedule column. */
+    where: string;
+    /** The role line: "Volunteer", "Director", or "Attending". */
+    role: string;
+    /** Tags for a volunteer shift; who they cover with for an attending date. */
+    detail: string[];
+    /** The attending covering a volunteer's own department that day. */
+    attendings: string[];
+  };
+
+  const volunteerNext: NextCommitment | null = upcoming[0]
+    ? {
+        clinicDate: upcoming[0].clinicDate,
+        where: upcoming[0].department.name,
+        role: roleLabel(upcoming[0].role),
+        detail: shiftTags(upcoming[0].tags),
+        attendings: upcoming[0].attendings.map((a) => a.name),
+      }
+    : null;
+
+  // Closed Saturdays are excluded: the clinic is not running, so it is not a
+  // commitment. Every attending-facing reader honours that flag.
+  const attendingUpcoming = (attendingSchedule?.shifts ?? []).filter(
+    (s) => !s.isClosed && isoDateKey(s.clinicDate) >= todayKey,
+  );
+  const attendingNext: NextCommitment | null = attendingUpcoming[0]
+    ? {
+        clinicDate: attendingUpcoming[0].clinicDate,
+        where: `${attendingUpcoming[0].slot.label} · ${attendingUpcoming[0].slot.startTime}-${attendingUpcoming[0].slot.endTime}`,
+        role: "Attending",
+        detail:
+          attendingUpcoming[0].alongside.length > 0
+            ? [`With ${attendingUpcoming[0].alongside.join(", ")}`]
+            : [],
+        attendings: [],
+      }
+    : null;
+
+  // Whichever comes first for someone who is both. Ties go to the volunteer shift,
+  // which carries the check-in the hero's banner pairs with.
+  const next: NextCommitment | null =
+    volunteerNext && attendingNext
+      ? isoDateKey(attendingNext.clinicDate) < isoDateKey(volunteerNext.clinicDate)
+        ? attendingNext
+        : volunteerNext
+      : (volunteerNext ?? attendingNext);
+
   const daysAway = next ? daysBetweenKeys(todayKey, isoDateKey(next.clinicDate)) : 0;
-  const nextTags = next ? shiftTags(next.tags) : [];
+  const nextTags = next ? next.detail : [];
 
   // --- Greeting context ---
   const firstName = person.name ? person.name.trim().split(/\s+/)[0] : null;
-  const dept = next?.department.name ?? shifts[0]?.department.name ?? null;
-  const eyebrow = [term?.name, dept].filter(Boolean).join(" · ") || orgName;
+  // The greeting eyebrow wants an ORGANISATIONAL home, so it reads the volunteer
+  // department directly rather than `next.where` -- which for an attending is a
+  // schedule column ("9am-12pm"), a time of day and not a place to belong to.
+  // Faculty fall back to their specialty, and to the term alone if they have none.
+  const dept =
+    upcoming[0]?.department.name ??
+    shifts[0]?.department.name ??
+    attendingSchedule?.attending.specialty?.name ??
+    null;
+  const eyebrow = [term?.name ?? attendingSchedule?.term?.name, dept].filter(Boolean).join(" · ") || orgName;
 
   // --- Compliance status (real data, same rules as My Info) ---
   // effectiveCompliance over the WHOLE history, not complianceStatus(certificates[0]).
@@ -279,6 +348,20 @@ export default async function HubPage() {
   // mirror the old single-group live-term checklist (getOnboardingStatus already
   // computes profile/HIPAA/learning/EHS off the live term regardless of
   // membership); otherwise fall back to a bare HIPAA line with no pill.
+  // An attending is not onboarding onto the volunteer roster, so the middle
+  // fallback below must not fire for them. getOnboardingStatus computes
+  // profile/HIPAA off the live term REGARDLESS of membership (neither task
+  // consults it), so faculty were shown "Not yet cleared" with an orange HIPAA
+  // row pointing at /my-info -- for a clearance they hold no shift under and a
+  // certificate Faculty Relations tracks on AttendingCredentialing instead. That
+  // also contradicted enforceOnboarding, which no longer gates them at all: the
+  // card nagged about something nothing enforces.
+  //
+  // Narrowed to linked attendings rather than to everyone with no membership.
+  // Alumni and staff-only accounts land in the same fallback, but for them the
+  // checklist is merely stale rather than addressed to the wrong process, and
+  // widening this is a behaviour change on a surface outside this feature.
+  const isFaculty = attendingSchedule !== null;
   const statusGroups = myOnboarding.length > 0
     ? myOnboarding.map((entry) => ({
         termId: entry.term.id,
@@ -289,7 +372,7 @@ export default async function HubPage() {
         // shows "Renew before ..." on the exact term it applies to (#87).
         lines: entry.status.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSubForTerm(entry.term.endDate))),
       }))
-    : onboarding.hasActiveTerm
+    : onboarding.hasActiveTerm && !isFaculty
       ? [{
           termId: "live",
           termName: "",
@@ -297,13 +380,21 @@ export default async function HubPage() {
           hasTasks: onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED").length > 0,
           lines: onboarding.tasks.filter((t) => t.state !== "NOT_REQUIRED").map((t) => clearanceRow(t, hipaaSub)),
         }]
-      : [{
-          termId: "none",
-          termName: "",
-          cleared: status === "COMPLIANT" || status === "EXPIRING_SOON",
-          hasTasks: false,
-          lines: [{ ok: status === "COMPLIANT" || status === "EXPIRING_SOON", title: "HIPAA certificate", sub: hipaaSub, href: "/my-info" }],
-        }];
+      : isFaculty
+        ? // Nothing to report, so report nothing. A bare "HIPAA certificate --
+          // required for clinic clearance" row is the same wrong claim in a
+          // shorter form: an attending's clinic credentials are Faculty
+          // Relations' to track, and the card would sit permanently orange over
+          // a task they cannot action. The section is dropped instead (see the
+          // statusGroups.length guard on the render).
+          []
+        : [{
+            termId: "none",
+            termName: "",
+            cleared: status === "COMPLIANT" || status === "EXPIRING_SOON",
+            hasTasks: false,
+            lines: [{ ok: status === "COMPLIANT" || status === "EXPIRING_SOON", title: "HIPAA certificate", sub: hipaaSub, href: "/my-info" }],
+          }];
 
   // --- Smart action feed: personal + role actions ranked by urgency, module
   // shortcuts backfilling any remaining slots (see action-cards.ts). ---
@@ -335,14 +426,27 @@ export default async function HubPage() {
   const cards = buildActionCards({
     hasScheduleAccess: accessible.has("schedule"),
     hasMyInfoAccess: accessible.has("my-info"),
-    upcomingCount: upcoming.length,
+    // Both counts span BOTH kinds of commitment, so the Schedule card reads
+    // "In 3 days" for an attending covering next Saturday instead of the
+    // "View shifts" it showed while their real schedule sat one click away.
+    upcomingCount: upcoming.length + attendingUpcoming.length,
     nextShiftDaysAway: next ? daysAway : null,
-    pendingSwapCount: liveEntry?.pendingRequests.size ?? 0,
+    // Attending requests count too: the card they land on lists both, and a
+    // pending drop is a pending drop.
+    pendingSwapCount:
+      (liveEntry?.pendingRequests.size ?? 0) + (attendingSchedule?.pendingRequests.size ?? 0),
     pendingApprovals,
     compliance: status,
     trainingIncomplete,
     trainingHref,
     profileIncomplete: profileTask?.state === "INCOMPLETE",
+    // Faculty are not on the volunteer clearance track, so the My info card must
+    // not lead with "Upload HIPAA certificate" -- at priority 90 that was the TOP
+    // card of an attending's feed, pointing at a requirement they hold no shift
+    // under and that Faculty Relations tracks on AttendingCredentialing. Same
+    // wrong claim as the clearance card above, on a different surface. The card
+    // itself still appears; it just falls back to "View & update".
+    suppressComplianceNudge: isFaculty,
     backfill,
   });
 
@@ -395,7 +499,7 @@ export default async function HubPage() {
                     <CalendarDays aria-hidden className="h-3.5 w-3.5" /> Your next shift
                   </span>
                   <p className="mt-2.5 text-2xl font-bold leading-tight tracking-tight">{fmtLongDate(next.clinicDate)}</p>
-                  <p className="mt-1 text-sm text-white/80">{next.department.name}</p>
+                  <p className="mt-1 text-sm text-white/80">{next.where}</p>
                 </div>
                 <div className="shrink-0 rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-center">
                   {daysAway <= 0 ? (
@@ -413,7 +517,7 @@ export default async function HubPage() {
 
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/15 pt-4 text-sm text-white/90">
                 <span className="inline-flex items-center gap-2">
-                  <Stethoscope aria-hidden className="h-4 w-4 text-white/70" /> {roleLabel(next.role)}
+                  <Stethoscope aria-hidden className="h-4 w-4 text-white/70" /> {next.role}
                 </span>
                 {nextTags.length > 0 && (
                   <span className="inline-flex items-center gap-2">
@@ -429,7 +533,7 @@ export default async function HubPage() {
                   <span className="inline-flex items-center gap-2">
                     <UserRound aria-hidden className="h-4 w-4 text-white/70" />
                     {next.attendings.length > 1 ? "Attendings" : "Attending"}:{" "}
-                    {next.attendings.map((a) => a.name).join(", ")}
+                    {next.attendings.join(", ")}
                   </span>
                 )}
               </div>
@@ -554,6 +658,10 @@ export default async function HubPage() {
 
           <EpicAccessCard personId={person.personId} />
 
+          {/* Dropped entirely when there is nothing to say, rather than rendered
+              as an empty card. Currently that is faculty with no volunteer
+              membership; see the statusGroups fallbacks. */}
+          {statusGroups.length > 0 && (
           <Card>
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
@@ -607,6 +715,7 @@ export default async function HubPage() {
               ))}
             </div>
           </Card>
+          )}
         </aside>
       </div>
     </>

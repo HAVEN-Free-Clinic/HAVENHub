@@ -128,4 +128,39 @@ describe("buildActionCards", () => {
     const cards = buildActionCards({ ...base, hasScheduleAccess: true });
     expect(cards.find((c) => c.key === "check-in")).toBeUndefined();
   });
+
+  /**
+   * Faculty with a Hub account are not on the volunteer clearance track, but
+   * `compliance` is computed off the live term regardless of membership and
+   * reads NO_CERTIFICATE for them. Unsuppressed that took priority 90 and led
+   * their feed with a requirement they hold no shift under.
+   */
+  describe("suppressComplianceNudge", () => {
+    it("leads with the HIPAA upload when NOT suppressed", () => {
+      const cards = buildActionCards({ ...base, compliance: "NO_CERTIFICATE" });
+      const myInfo = cards.find((c) => c.key === "my-info")!;
+      expect(myInfo.sub).toBe("Upload HIPAA certificate");
+      expect(cards[0].key).toBe("my-info");
+    });
+
+    it("drops every compliance nudge when suppressed, keeping the card", () => {
+      for (const compliance of ["NO_CERTIFICATE", "EXPIRED", "EXPIRING_SOON", "PENDING_VERIFICATION", "UNKNOWN_DATE"] as const) {
+        const cards = buildActionCards({ ...base, compliance, suppressComplianceNudge: true });
+        const myInfo = cards.find((c) => c.key === "my-info")!;
+        expect(myInfo.sub).toBe("View & update");
+        expect(myInfo.priority).toBe(20);
+      }
+    });
+
+    /** Confirming your own contact details is asked of anyone with an account. */
+    it("still surfaces an incomplete profile when suppressed", () => {
+      const cards = buildActionCards({
+        ...base,
+        compliance: "NO_CERTIFICATE",
+        profileIncomplete: true,
+        suppressComplianceNudge: true,
+      });
+      expect(cards.find((c) => c.key === "my-info")!.sub).toBe("1 to confirm");
+    });
+  });
 });

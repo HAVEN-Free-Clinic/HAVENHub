@@ -26,6 +26,18 @@ import {
   RequestForbiddenError,
   RequestNotFoundError,
 } from "@/modules/schedule/services/requests";
+import {
+  myAttendingSchedule,
+  updateMyAttendingAvailability,
+  createAttendingRequest,
+  cancelAttendingRequest,
+  eligibleAttendingSwapPartners,
+  AttendingPortalValidationError,
+  AttendingPortalForbiddenError,
+  AttendingPortalNotFoundError,
+  type AttendingSwapPartner,
+} from "@/modules/schedule/services/attending-portal";
+import { AttendingPortalSection } from "@/modules/schedule/components/attending-portal-section";
 import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
 import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 import { captureEvent } from "@/platform/posthog/capture";
@@ -57,6 +69,33 @@ export default async function MySchedulePage() {
   // today's single-term layout.
   const { terms } = await mySchedule(session.personId);
   const showTermHeadings = terms.length > 1;
+
+  // The attending half of the page, for the faculty who have a Hub account. Null
+  // for everyone else, which is almost everyone. Rendered ALONGSIDE the volunteer
+  // sections rather than instead of them: a PA who also volunteers, or a faculty
+  // member who directs a department, holds both kinds of assignment and needs
+  // both. Resolved concurrently with the swap partners below.
+  const attendingSchedule = await myAttendingSchedule(session.personId);
+  const attendingSwapPartners = new Map<string, AttendingSwapPartner[]>(
+    attendingSchedule
+      ? await Promise.all(
+          attendingSchedule.shifts
+            // Only cards that will actually offer a swap form need a partner
+            // lookup: a past date, a closed Saturday, or one already under a
+            // pending request renders no form at all.
+            .filter(
+              (s) =>
+                !s.isClosed &&
+                isoDateKey(s.clinicDate) >= todayKey &&
+                !attendingSchedule.pendingRequests.has(`${s.clinicDayId}|${s.slot.id}`),
+            )
+            .map(async (s) => {
+              const key = `${s.clinicDayId}|${s.slot.id}`;
+              return [key, await eligibleAttendingSwapPartners(session.personId, s.clinicDayId, s.slot.id)] as const;
+            }),
+        )
+      : [],
+  );
 
   // The section used to drive the top hero banner: the live term when the
   // member is on it, otherwise whichever term they do have (their next term).
@@ -183,6 +222,88 @@ export default async function MySchedulePage() {
     redirect(sent > 0 ? "/schedule?message=reminded" : "/schedule?message=already_reminded");
   }
 
+  // --- Attending portal actions -------------------------------------------
+  // Separate from the three above rather than branching inside them: the two
+  // schedules key on different things (department + date vs clinic day + slot),
+  // and a shared action would have to decide which the caller meant from the
+  // shape of the form fields.
+
+  /** Map a thrown portal error onto the page's own error banner. */
+  function attendingRedirect(err: unknown): never {
+    if (
+      err instanceof AttendingPortalValidationError ||
+      err instanceof AttendingPortalForbiddenError ||
+      err instanceof AttendingPortalNotFoundError
+    ) {
+      redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
+    }
+    throw err;
+  }
+
+  async function saveAttendingAvailabilityAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const termId = (formData.get("termId") as string | null) ?? "";
+    const dates = (formData.getAll("dates") as string[]).map((key) => new Date(key + "T12:00:00Z"));
+    try {
+      await updateMyAttendingAvailability(actor.personId, { termId, dates });
+    } catch (err) {
+      attendingRedirect(err);
+    }
+    redirect("/schedule?saved=1");
+  }
+
+  async function createAttendingRequestAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const clinicDayId = (formData.get("clinicDayId") as string | null) ?? "";
+    const slotId = (formData.get("slotId") as string | null) ?? "";
+    const note = ((formData.get("note") as string | null) ?? "").trim() || undefined;
+    const kind = (formData.get("kind") as string | null) ?? "";
+    const partnerRaw = (formData.get("partner") as string | null) ?? "";
+
+    if (kind === "swap" && !partnerRaw) {
+      redirect(`/schedule?error=validation&message=${encodeURIComponent("Select a swap partner before submitting.")}`);
+    }
+    // "attendingId|clinicDayId|slotId" -- the option value the select posts. All
+    // three parts are re-validated against ClinicDayAttending in the service, so
+    // a malformed or crafted value fails there rather than being trusted here.
+    let target: { attendingId: string; clinicDayId: string; slotId: string } | undefined;
+    if (partnerRaw) {
+      const [attendingId, targetDayId, targetSlotId] = partnerRaw.split("|");
+      if (!attendingId || !targetDayId || !targetSlotId) {
+        redirect(`/schedule?error=validation&message=${encodeURIComponent("That swap partner is no longer valid.")}`);
+      }
+      target = { attendingId, clinicDayId: targetDayId, slotId: targetSlotId };
+    }
+
+    try {
+      await createAttendingRequest(actor.personId, { clinicDayId, slotId, target, note });
+    } catch (err) {
+      attendingRedirect(err);
+    }
+    await captureEvent({
+      event: "attending_shift_change_requested",
+      distinctId: actor.personId,
+      properties: { request_kind: target ? "swap" : "drop", slot_id: slotId },
+    });
+    revalidatePath("/schedule");
+    redirect("/schedule?requested=1");
+  }
+
+  async function cancelAttendingRequestAction(formData: FormData) {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    const requestId = (formData.get("requestId") as string | null) ?? "";
+    try {
+      await cancelAttendingRequest(actor.personId, requestId);
+    } catch (err) {
+      attendingRedirect(err);
+    }
+    revalidatePath("/schedule");
+    redirect("/schedule");
+  }
+
   // The same card renders on My Info. Both paths are revalidated from either
   // action so generating the link on one page cannot leave a stale empty card
   // on the other. The gate here is "schedule", not "my-info": a member who can
@@ -215,7 +336,12 @@ export default async function MySchedulePage() {
                     ? ` · ${[...new Set(primary.shifts.map((s) => s.department.name))].join(", ")}`
                     : " · No shifts assigned yet"
                 }`
-              : undefined
+              : // An attending-only viewer has no `primary` (no TermMembership), so
+                // fall back to their attending term rather than leaving the header
+                // bare on a page that is showing them a full schedule.
+                attendingSchedule?.term
+                ? `${attendingSchedule.term.name} · Attending`
+                : undefined
           }
           action={
             <Link href="#calendar-subscription" className={buttonClasses("outline", "sm", "min-h-11")}>
@@ -225,8 +351,27 @@ export default async function MySchedulePage() {
         />
       </div>
 
+      {/* Faculty first. An attending who is ONLY an attending sees this and the
+          calendar card; the volunteer block below renders its own empty state
+          for them, which is why it is suppressed in that case (see the guard on
+          termSections). */}
+      {attendingSchedule && (
+        <AttendingPortalSection
+          schedule={attendingSchedule}
+          todayKey={todayKey}
+          swapPartnersByKey={attendingSwapPartners}
+          saveAvailabilityAction={saveAttendingAvailabilityAction}
+          createRequestAction={createAttendingRequestAction}
+          cancelRequestAction={cancelAttendingRequestAction}
+        />
+      )}
+
       {termSections.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No active term.</p>
+        // An attending holds no TermMembership, so getPersonTerms returns nothing
+        // and this branch is their NORMAL state -- not an error. Telling them
+        // "No active term" under a schedule they can plainly see would be wrong,
+        // so the volunteer block is simply absent for them.
+        attendingSchedule ? null : <p className="text-sm text-subtle-foreground">No active term.</p>
       ) : (
         termSections.map(({ t, swapPartnersByKey }) => {
           // Whether to show the shift list at all -- this is purely about

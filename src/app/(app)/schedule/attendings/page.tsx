@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/platform/db";
 import { requireModuleAccess } from "@/platform/auth/session";
 import {
@@ -24,6 +25,8 @@ import {
   type AttendingView,
 } from "@/modules/schedule/components/attending-toolbar";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
+import { enableHubAccessForActiveRoster } from "@/modules/schedule/services/attending-access";
+import { attendingAvailabilityForTerm } from "@/modules/schedule/services/attending-portal";
 import { runAttendingReminders } from "@/platform/email/attending-reminders";
 import { runAction } from "@/platform/actions";
 import { getWorkingTerm } from "@/platform/terms/working-term";
@@ -63,9 +66,22 @@ function withMessage(href: string, message: string): string {
   return `${href}${sep}message=${encodeURIComponent(message)}`;
 }
 
+/**
+ * The same, for an outcome that is NOT a failure.
+ *
+ * `message` renders in an error-toned Alert, which is right for the domain
+ * errors that reach it. A rollout summary ("42 enabled, 3 skipped") is a report,
+ * not a problem, and showing it in red would read as one.
+ */
+function withNotice(href: string, notice: string): string {
+  const sep = href.includes("?") ? "&" : "?";
+  return `${href}${sep}notice=${encodeURIComponent(notice)}`;
+}
+
 type PageProps = {
   searchParams: Promise<{
     message?: string;
+    notice?: string;
     view?: string;
     date?: string;
     target?: string;
@@ -251,6 +267,32 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
   }
 
   /**
+   * Give every active attending with an email on file a Hub login.
+   *
+   * The rollout button, and also the maintenance one: idempotent, so pressing it
+   * after a contact-sheet import only touches the newcomers. The result message
+   * reports the skips rather than swallowing them -- an attending with no email
+   * is a roster gap Faculty Relations can close, and silence would leave them
+   * believing the whole roster was online.
+   */
+  async function enableAllAccessAction() {
+    "use server";
+    const actor = await requireModuleAccess("schedule");
+    // Not runAction: its successRedirect is a fixed string built before the work
+    // runs, and the useful part of this action's outcome is the per-run tally.
+    if (!(await canManageAttendings(actor.personId))) {
+      redirect(withMessage(selfHref, "You do not manage the attending schedule."));
+    }
+    const r = await enableHubAccessForActiveRoster(actor.personId);
+    const parts = [`${r.enabled} enabled`];
+    if (r.linkedExisting > 0) parts.push(`${r.linkedExisting} linked to an existing account`);
+    if (r.alreadyEnabled > 0) parts.push(`${r.alreadyEnabled} already had access`);
+    if (r.skipped.length > 0) parts.push(`${r.skipped.length} skipped (no email, or a blocked account)`);
+    revalidatePath(BASE);
+    redirect(withNotice(selfHref, `Hub access: ${parts.join(", ")}.`));
+  }
+
+  /**
    * Send this week's attending reminder now.
    *
    * The Monday cron sends it automatically; this is for the week the schedule
@@ -290,6 +332,29 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
 
   const selectedRow = schedule.rows.find((r) => r.dateKey === selectedDateKey) ?? null;
 
+  // What the attendings themselves said about the date being edited, annotated
+  // onto the Day view's pickers. Advisory: it never filters the options, because
+  // Faculty Relations books whoever they have agreed with and an attending who
+  // did not tick a date is often asked and says yes.
+  //
+  // Only resolved for the Day view, and only when a date is selected: the grid
+  // renders one column across many dates, where a per-date answer has no place
+  // to go.
+  const dayAvailability =
+    view === "day" && selectedRow
+      ? await (async () => {
+          const byAttending = await attendingAvailabilityForTerm(workingTerm.id);
+          if (byAttending.size === 0) return undefined;
+          const stated = new Set(byAttending.keys());
+          const available = new Set(
+            [...byAttending.entries()]
+              .filter(([, v]) => v.dateKeys.has(selectedRow.dateKey))
+              .map(([id]) => id),
+          );
+          return { stated, available };
+        })()
+      : undefined;
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -298,6 +363,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
       />
 
       {sp.message && <Alert tone="error">{sp.message}</Alert>}
+      {sp.notice && <Alert tone="success">{sp.notice}</Alert>}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -385,6 +451,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                     termId={workingTerm.id}
                     termName={workingTerm.name}
                     editable={schedule.editable}
+                    availability={dayAvailability}
                     saveAction={saveDayAction}
                   />
                 )}
@@ -398,6 +465,13 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SectionHeader level="title">Roster</SectionHeader>
           <div className="flex items-center gap-2">
+            {/* Idempotent, so it is both the one-time rollout and the routine
+                follow-up after a contact-sheet import adds people. */}
+            <form action={enableAllAccessAction}>
+              <Button type="submit" variant="outline" size="sm">
+                Enable Hub access for all
+              </Button>
+            </form>
             <Link
               href="/schedule/attendings/credentialing"
               className={buttonClasses("outline", "sm")}
@@ -422,6 +496,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                   <TH>Specialty</TH>
                   <TH>Contact</TH>
                   {capabilities.map((c) => <TH key={c.id}>{c.label}</TH>)}
+                  <TH>Hub</TH>
                   <TH>Active</TH>
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -453,6 +528,19 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                           : a.capabilityValues[c.id] ?? "unknown"}
                       </TD>
                     ))}
+                    {/* Three states, not two: signed-up, not signed up, and
+                        cannot be (no email on file). The third is the one that
+                        needs a nudge -- it is a roster gap, and merging it into
+                        "no" would hide the reason the bulk enable skipped them. */}
+                    <TD className="text-xs">
+                      {a.personId ? (
+                        <Badge tone="brand">Enabled</Badge>
+                      ) : a.email ? (
+                        <span className="text-subtle-foreground">Not enabled</span>
+                      ) : (
+                        <span className="text-subtle-foreground">No email</span>
+                      )}
+                    </TD>
                     <TD>
                       {a.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="default">Inactive</Badge>}
                     </TD>

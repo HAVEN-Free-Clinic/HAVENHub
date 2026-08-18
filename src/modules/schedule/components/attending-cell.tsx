@@ -22,9 +22,21 @@ type Props = {
   options: Option[];
   /** Suppress the editor entirely on a closed date. */
   isClosed: boolean;
+  /**
+   * What each attending said about THIS date, for annotating the picker.
+   *
+   * Two sets, not one, because "never told us" and "told us no" are different
+   * answers and only the second is a reason not to book someone. `stated` is
+   * everyone who submitted availability for the term at all; `available` is the
+   * subset who ticked this date. An id in neither is simply unannotated.
+   *
+   * Optional: the grid renders one COLUMN across many dates, so a per-date
+   * annotation has no meaning there. Only the Day view passes it.
+   */
+  availability?: { stated: Set<string>; available: Set<string> };
 };
 
-export function AttendingCell({ slot, coverage, dateKey, canEdit, options, isClosed }: Props) {
+export function AttendingCell({ slot, coverage, dateKey, canEdit, options, isClosed, availability }: Props) {
   const assigned = coverage?.attendings ?? [];
 
   if (!canEdit || isClosed) {
@@ -62,11 +74,26 @@ export function AttendingCell({ slot, coverage, dateKey, canEdit, options, isClo
           className="text-sm"
         >
           <option value="">&mdash;</option>
-          {options.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.isActive ? a.scheduleName : `${a.scheduleName} (inactive)`}
-            </option>
-          ))}
+          {options.map((a) => {
+            const label = a.isActive ? a.scheduleName : `${a.scheduleName} (inactive)`;
+            // Advisory, never a filter: Faculty Relations still books whoever
+            // they have agreed with, and an attending who did not tick a date is
+            // often asked and says yes. Hiding or disabling them would turn a
+            // hint into a rule the clinic does not actually run on.
+            const note = !availability
+              ? ""
+              : availability.available.has(a.id)
+                ? " -- available"
+                : availability.stated.has(a.id)
+                  ? " -- unavailable"
+                  : "";
+            return (
+              <option key={a.id} value={a.id}>
+                {label}
+                {note}
+              </option>
+            );
+          })}
         </Select>
       ))}
     </div>

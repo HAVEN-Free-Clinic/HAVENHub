@@ -218,6 +218,12 @@ model Person {
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
+  /// The attending roster row this account belongs to, when this person is
+  /// faculty. Null for the overwhelming majority of people: an attending gets a
+  /// Person only so they can sign in; the clinical facts stay on Attending.
+  attendingProfile               Attending?                 @relation("attendingAccount")
+  /// Attending swap/drop requests this person decided, as Faculty Relations.
+  attendingRequestsDecided       AttendingShiftRequest[]    @relation("attendingRequestDecidedBy")
   /// Clinic attendance rows for this person.
   clinicAttendances              ClinicAttendance[]         @relation("clinicAttendancePerson")
   /// Clinic attendance rows this person recorded on someone else's behalf.
@@ -325,33 +331,35 @@ model HipaaCertificate {
 }
 
 model Term {
-  id                   String                @id @default(cuid())
-  code                 String                @unique // "SU26", "FA26"
-  name                 String // "Summer 2026"
-  startDate            DateTime
-  endDate              DateTime
-  status               TermStatus            @default(PLANNING)
-  clinicDates          DateTime[]
-  memberships          TermMembership[]
-  roleAssignments      RoleAssignment[]
+  id                    String                  @id @default(cuid())
+  code                  String                  @unique // "SU26", "FA26"
+  name                  String // "Summer 2026"
+  startDate             DateTime
+  endDate               DateTime
+  status                TermStatus              @default(PLANNING)
+  clinicDates           DateTime[]
+  memberships           TermMembership[]
+  roleAssignments       RoleAssignment[]
   /// Offboard flags raised for this term.
-  offboardFlags        OffboardFlag[]
-  shiftAssignments     ShiftAssignment[]
-  triageChats          TriageChat[]
-  clinicAttendances    ClinicAttendance[]
-  shiftRequests        ShiftRequest[]
-  scheduleDays         ScheduleDay[]
-  clinicDays           ClinicDay[]
-  boardMeetings        BoardMeeting[]
-  schedulePublications SchedulePublication[]
-  recruitmentCycles    RecruitmentCycle[]
-  trainings            Training[]
-  onboardingSteps      TermOnboardingStep[]
-  courseProgress       CourseProgress[]
-  scoProgress          ScoProgress[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  walletPasses         WalletPass[]
+  offboardFlags         OffboardFlag[]
+  shiftAssignments      ShiftAssignment[]
+  triageChats           TriageChat[]
+  clinicAttendances     ClinicAttendance[]
+  shiftRequests         ShiftRequest[]
+  attendingRequests     AttendingShiftRequest[]
+  attendingAvailability AttendingAvailability[]
+  scheduleDays          ScheduleDay[]
+  clinicDays            ClinicDay[]
+  boardMeetings         BoardMeeting[]
+  schedulePublications  SchedulePublication[]
+  recruitmentCycles     RecruitmentCycle[]
+  trainings             Training[]
+  onboardingSteps       TermOnboardingStep[]
+  courseProgress        CourseProgress[]
+  scoProgress           ScoProgress[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  walletPasses          WalletPass[]
 }
 
 /// Per-term override of the onboarding checklist. A missing row for a given kind
@@ -1697,27 +1705,125 @@ model AttendingCapabilityValue {
 /// Bia"); `fullName` is the roster's formal form ("Bia, Margaret"). They differ
 /// often enough that importing the term sheets depends on the distinction.
 model Attending {
-  id            String                  @id @default(cuid())
+  id               String                     @id @default(cuid())
   /// How the schedule grid names them. Unique so a schedule cell resolves.
-  scheduleName  String                  @unique
-  fullName      String
+  scheduleName     String                     @unique
+  fullName         String
   /// Post-nominals as written on the contact sheet, e.g. "MD, MPH". Free text:
   /// the real values include MD, DO, PA-C, APRN, PsyD, MBBS and combinations.
-  credentials   String?
-  specialtyId   String?
-  email         String?
-  phone         String?
-  notes         String?
-  isActive      Boolean                 @default(true)
-  specialty     AttendingSpecialty?     @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
-  capabilities  AttendingCapabilityValue[]
-  clinicDays    ClinicDayAttending[]
+  credentials      String?
+  specialtyId      String?
+  email            String?
+  phone            String?
+  notes            String?
+  isActive         Boolean                    @default(true)
+  /// The Hub account this attending signs in with, when they have one.
+  ///
+  /// Nullable and NOT the identity of the attending: the roster is the source of
+  /// truth for who covers clinic, and it predates Hub access by years. A Person
+  /// is created only to give them a login (see enableHubAccess), so an attending
+  /// with no email, or one who has never been granted access, simply has none.
+  ///
+  /// SetNull, not Cascade: deleting the Hub account must revoke the login, never
+  /// remove a doctor from the schedule.
+  personId         String?                    @unique
+  person           Person?                    @relation("attendingAccount", fields: [personId], references: [id], onDelete: SetNull)
+  specialty        AttendingSpecialty?        @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  capabilities     AttendingCapabilityValue[]
+  clinicDays       ClinicDayAttending[]
   /// Clinic dates where they hold the on-call week (see ClinicDay.onCallAttending).
-  onCallDays    ClinicDay[]             @relation("clinicDayOnCall")
-  credentialing AttendingCredentialing?
+  onCallDays       ClinicDay[]                @relation("clinicDayOnCall")
+  credentialing    AttendingCredentialing?
+  availability     AttendingAvailability[]
+  requests         AttendingShiftRequest[]    @relation("attendingRequestRequester")
+  requestsAsTarget AttendingShiftRequest[]    @relation("attendingRequestTarget")
 
   @@index([specialtyId])
   @@index([isActive])
+}
+
+/// One attending's self-reported availability for one term: the clinic dates
+/// they say they can cover.
+///
+/// ONE tier, unlike the volunteer side. TermMembership carries three
+/// (baseline / self / director override) because a volunteer's availability
+/// arrives from their application, gets self-updated, and can be pinned by a
+/// director. An attending's arrives exactly one way -- they tell Faculty
+/// Relations -- so a second tier would be a column nothing ever writes.
+///
+/// Advisory, not a constraint: Faculty Relations still books the grid by hand
+/// and may staff someone on a date they did not tick (they are asked, and they
+/// agree). This is what the builder shows while staffing, not a gate on it.
+///
+/// The row's absence and an empty `dates` array mean different things: absent is
+/// "never told us", empty is "told us they can cover nothing this term".
+model AttendingAvailability {
+  id          String     @id @default(cuid())
+  attendingId String
+  termId      String
+  /// Noon-UTC anchored clinic dates, like Term.clinicDates. Compare by UTC day key.
+  dates       DateTime[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  attending   Attending  @relation(fields: [attendingId], references: [id], onDelete: Cascade)
+  term        Term       @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([attendingId, termId])
+  @@index([termId])
+}
+
+/// Swap/drop requests against the ATTENDING schedule. Drop when the target
+/// fields are null; named swap otherwise.
+///
+/// A sibling of ShiftRequest rather than a widening of it, because the two name
+/// different things. A volunteer shift is (person, date, department) and moves
+/// as a whole; an attending assignment is (attending, clinic day, SLOT), and a
+/// swap has to say which COLUMN moves -- an attending covering both the 9am-12pm
+/// and the RHD column on one Saturday is giving up one of them, not the day.
+/// Bolting a nullable slotId onto ShiftRequest would have made every existing
+/// volunteer code path carry a column it can never have.
+///
+/// Approval is Faculty Relations' (schedule.manage_attendings), not a
+/// department director's: attendings belong to no department, so the
+/// department-scoped approver routing on ShiftRequest has nothing to resolve.
+///
+/// DB-LEVEL GUARD LIVES IN RAW SQL (see migrations): a partial unique index
+/// (AttendingShiftRequest_pending_unique) prevents duplicate PENDING rows for
+/// the same (requesterId, requesterDayId, requesterSlotId) triple, mirroring
+/// ShiftRequest_pending_unique. Guarded by
+/// src/modules/schedule/services/schedule-schema-guards.test.ts. Never resolve a
+/// prisma migrate diff by accepting a DROP of objects you do not recognize.
+model AttendingShiftRequest {
+  id              String             @id @default(cuid())
+  termId          String
+  requesterId     String
+  /// The clinic day and column being given up.
+  requesterDayId  String
+  requesterSlotId String
+  /// Populated only for swaps. All three move together; the service layer must
+  /// treat a partially-null trio as a stale/malformed swap, the same way
+  /// ShiftRequest treats (targetId null AND targetDate set).
+  targetId        String?
+  targetDayId     String?
+  targetSlotId    String?
+  status          ShiftRequestStatus @default(PENDING)
+  note            String?
+  decidedById     String?
+  decidedAt       DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  term            Term               @relation(fields: [termId], references: [id], onDelete: Restrict)
+  requester       Attending          @relation("attendingRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  requesterDay    ClinicDay          @relation("attendingRequestRequesterDay", fields: [requesterDayId], references: [id], onDelete: Cascade)
+  requesterSlot   ClinicSlot         @relation("attendingRequestRequesterSlot", fields: [requesterSlotId], references: [id], onDelete: Cascade)
+  target          Attending?         @relation("attendingRequestTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  targetDay       ClinicDay?         @relation("attendingRequestTargetDay", fields: [targetDayId], references: [id], onDelete: SetNull)
+  targetSlot      ClinicSlot?        @relation("attendingRequestTargetSlot", fields: [targetSlotId], references: [id], onDelete: SetNull)
+  decidedBy       Person?            @relation("attendingRequestDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([termId, status])
+  @@index([requesterId])
+  @@index([targetId])
 }
 
 /// A named column of the attending schedule: a window of the clinic day that is
@@ -1732,9 +1838,9 @@ model Attending {
 /// scheduling arithmetic: volunteer shifts remain date-only (ShiftAssignment),
 /// so nothing joins a volunteer to a slot.
 model ClinicSlot {
-  id             String               @id @default(cuid())
+  id             String                  @id @default(cuid())
   /// What the grid column shows, e.g. "9am-12pm".
-  label          String               @unique
+  label          String                  @unique
   startTime      String
   endTime        String
   /// Column order, left to right.
@@ -1742,7 +1848,7 @@ model ClinicSlot {
   /// Whether more than one attending may cover this slot on one date. The
   /// 9am-12pm column really does carry two, which is why the schedule sheet
   /// repeats that header twice.
-  allowsMultiple Boolean              @default(false)
+  allowsMultiple Boolean                 @default(false)
   /// The department whose members this column's attending covers, e.g. the
   /// "RHD Attending" column covers SRHD. Null means the column belongs to no
   /// department (Specialty Clinic, Shadowing) and is shown to nobody's shift.
@@ -1755,8 +1861,10 @@ model ClinicSlot {
   /// PCAR columns without each having to be named here. That keeps this mapping
   /// at the handful of clinical parents rather than one row per department.
   departmentId   String?
-  department     Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  department     Department?             @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   assignments    ClinicDayAttending[]
+  requestsFrom   AttendingShiftRequest[] @relation("attendingRequestRequesterSlot")
+  requestsTo     AttendingShiftRequest[] @relation("attendingRequestTargetSlot")
 
   @@index([order])
   @@index([departmentId])
@@ -1794,14 +1902,14 @@ model ClinicDayAttending {
 /// per slot, which is how Faculty Relations actually keeps it. Per-service-line
 /// clinic rows were a mis-modelling of that single grid.
 model ClinicDay {
-  id                String               @id @default(cuid())
+  id                String                  @id @default(cuid())
   termId            String
   /// Noon-UTC anchored calendar date; compare by UTC day key.
   clinicDate        DateTime
   /// The clinic does not run this Saturday (holidays, breaks). Kept as a flag
   /// rather than removing the date, because the term calendar still has it and
   /// the schedule shows it as closed rather than as an unstaffed gap.
-  isClosed          Boolean              @default(false)
+  isClosed          Boolean                 @default(false)
   /// Why, when closed, e.g. "HAVEN FREE CLINIC CLOSED".
   closedNote        String?
   /// Holds the on-call pager for the week LEADING UP TO THE NEXT clinic day, not
@@ -1816,10 +1924,12 @@ model ClinicDay {
   directorName      String?
   /// Procedures booked for the day, for the readiness cap warning.
   proceduresBooked  Int?
-  term              Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
-  onCallAttending   Attending?           @relation("clinicDayOnCall", fields: [onCallAttendingId], references: [id], onDelete: SetNull)
-  specialty         AttendingSpecialty?  @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  term              Term                    @relation(fields: [termId], references: [id], onDelete: Restrict)
+  onCallAttending   Attending?              @relation("clinicDayOnCall", fields: [onCallAttendingId], references: [id], onDelete: SetNull)
+  specialty         AttendingSpecialty?     @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
   attendings        ClinicDayAttending[]
+  requestsFrom      AttendingShiftRequest[] @relation("attendingRequestRequesterDay")
+  requestsTo        AttendingShiftRequest[] @relation("attendingRequestTargetDay")
 
   @@unique([termId, clinicDate])
   @@index([onCallAttendingId])

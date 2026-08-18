@@ -30,6 +30,10 @@ const MIGRATION_SQL_FILES = [
   // roster and schedule. A whole role rather than a grant on an existing one:
   // attendings belong to no department, so this cannot hang off a directorship.
   "prisma/migrations/20260813160000_faculty_relations_role/migration.sql",
+  // The Attending role, which gives a rostered attending a Hub login. Again a
+  // whole role: it is granted per-person by enableHubAccess, and no Track kind
+  // could carry it since attendings hold no TermMembership.
+  "prisma/migrations/20260818120100_attending_role/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

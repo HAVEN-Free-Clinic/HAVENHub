@@ -10,6 +10,13 @@
  * ("9am-12pm", "RHD Attending", "BHD Clinic"...). A slot may carry more than one
  * attending. Each date also carries the week's on-call attending, the rotating
  * specialty clinic, and the reproductive-health director and procedure count.
+ *
+ * An attending may now also have a HUB ACCOUNT (Attending.personId), which lets
+ * them see this schedule and request changes to it. That does not move anything:
+ * this service remains the only writer of the roster and the grid, and the
+ * account exists purely as an identity to sign in with. See
+ * ./attending-access.ts for granting it and ./attending-portal.ts for what they
+ * can then do.
  */
 
 import type { Attending } from "@prisma/client";

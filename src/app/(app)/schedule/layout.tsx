@@ -4,7 +4,8 @@ import { getModule } from "@/platform/modules/registry";
 import { canManageAnyScheduleDept } from "@/modules/schedule/services/builder";
 import { canManageAttendings, canViewAttendingCoverage } from "@/modules/schedule/services/attendings";
 import { manageableRequestDepartmentIds } from "@/modules/schedule/services/requests";
-import { isClinicDayToday } from "@/modules/schedule/services/attendance";
+import { isClinicDayToday, hasVolunteerShiftToday } from "@/modules/schedule/services/attendance";
+import { attendingForPerson } from "@/modules/schedule/services/attending-portal";
 import { filterNavItems } from "@/platform/modules/access";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { ModuleNav } from "@/platform/ui/module-nav";
@@ -28,10 +29,11 @@ export function generateMetadata() {
 // enforce per-item permissions, so resolve the page's exact gate here and drop
 // the tab when the viewer can approve nothing.
 //
-// Check in is a fourth, differently-shaped case: it's not a per-person capability
-// but a calendar fact, "is today a clinic day" -- resolved by isClinicDayToday,
-// the same service that owns every other check-in decision. Shown to everyone
-// once true, since anyone with module access can check themselves in.
+// Check in is a fourth, differently-shaped case: mostly a calendar fact, "is
+// today a clinic day" -- resolved by isClinicDayToday, the same service that owns
+// every other check-in decision. Shown to everyone once true, since anyone with
+// module access can check themselves in, EXCEPT an attending-only viewer: check-in
+// is keyed on a volunteer ShiftAssignment they will never have. See below.
 //
 // All four carry `dynamicGate: true` in the registry, which keeps them out of
 // the *global* nav's Schedule dropdown (it cannot run these checks). This layout
@@ -56,7 +58,7 @@ const CHECK_IN_HREF = "/schedule/check-in";
 export default async function ScheduleLayout({ children }: { children: ReactNode }) {
   const { personId } = await requireModuleAccess("schedule");
   const mod = getModule("schedule")!;
-  const [canBuild, managesAttendings, viewsCoverage, requestDeptIds, isClinicDay, perms] =
+  const [canBuild, managesAttendings, viewsCoverage, requestDeptIds, isClinicDay, perms, linkedAttending] =
     await Promise.all([
       canManageAnyScheduleDept(personId),
       canManageAttendings(personId),
@@ -64,8 +66,23 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
       manageableRequestDepartmentIds(personId),
       isClinicDayToday(),
       getEffectivePermissions(personId),
+      attendingForPerson(personId),
     ]);
-  const canApprove = requestDeptIds.length > 0;
+  // Mirror the page's own gate exactly (requests/page.tsx): EITHER authority
+  // admits. Faculty Relations manages no department but decides every attending
+  // request, so a department-only check dropped the tab for the one person the
+  // attending-request emails send here.
+  const canApprove = requestDeptIds.length > 0 || managesAttendings;
+
+  // Check in records VOLUNTEER shift attendance, keyed on a ShiftAssignment. An
+  // attending has none, so checkInSelf answers NOT_ASSIGNED for them every time
+  // -- on the very Saturday they are covering, which is the worst moment to be
+  // told you are not scheduled. Drop the tab rather than ship that dead end.
+  //
+  // "Attending-only", not "attending": someone who is both faculty and a
+  // volunteer has real assignments and keeps the tab. Their volunteer shifts are
+  // the thing being checked in for.
+  const attendingOnly = linkedAttending !== null && !(await hasVolunteerShiftToday(personId));
   // Attendings is a management tool: it maintains the roster and books who
   // covers each clinic date, which Faculty Relations does. What a VOLUNTEER
   // needs from it -- who is attending on the shift they are working -- is on
@@ -82,7 +99,7 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
       (item.href !== ATTENDINGS_HREF || managesAttendings) &&
       (item.href !== COVERAGE_HREF || viewsCoverage) &&
       (item.href !== APPROVALS_HREF || canApprove) &&
-      (item.href !== CHECK_IN_HREF || isClinicDay),
+      (item.href !== CHECK_IN_HREF || (isClinicDay && !attendingOnly)),
   );
   return (
     <>

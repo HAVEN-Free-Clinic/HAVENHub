@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "./auth";
+import { prisma } from "@/platform/db";
 import { getActivePerson, resolvePersonForLogin } from "./match-person";
 import { can, getEffectivePermissions } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -57,6 +58,33 @@ async function enforceOnboarding(personId: string): Promise<void> {
   // so it is near-free and lets exempt users skip getOnboardingStatus entirely
   // -- which otherwise fetches training, courses, and certificates regardless.
   if (await can(personId, EXEMPT_PERMISSION)) {
+    markGateCleared(cacheKey);
+    return;
+  }
+
+  // Nobody who is not ON the term's roster is onboarding onto it. The gate exists
+  // to stop an uncleared VOLUNTEER from working clinic; a person with no ACTIVE
+  // TermMembership in the live term has no shift to be cleared for, so there is
+  // nothing to withhold.
+  //
+  // This is what lets an attending sign in at all. computeOnboardingForTerm builds
+  // the `profile` and `hipaa` tasks unconditionally -- neither consults membership
+  // -- so a faculty account with a Hub login but no roster row was handed two
+  // blocking tasks and bounced to /get-started forever, with HIPAA in particular
+  // being a credential Faculty Relations tracks on AttendingCredentialing and not
+  // something the attending can satisfy here. Alumni and staff-only accounts land
+  // in the same shape.
+  //
+  // Checked here rather than inside getOnboardingStatus on purpose: /get-started
+  // and the dashboard still want the full checklist for anyone who asks for it.
+  // This decides only whether the HARD gate fires. And it is a query, not an
+  // allowlisted path -- admitting an (app) path is the trap ONBOARDING_ALLOWLIST
+  // documents.
+  const onRoster = await prisma.termMembership.findFirst({
+    where: { personId, termId: activeTerm.id, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!onRoster) {
     markGateCleared(cacheKey);
     return;
   }

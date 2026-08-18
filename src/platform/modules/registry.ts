@@ -56,7 +56,11 @@ export const MODULES: ModuleManifest[] = [
       {
         label: "Approvals",
         href: "/schedule/requests",
-        permission: "schedule.manage_requests",
+        // EITHER authority: schedule.manage_requests decides a department's
+        // volunteer requests, schedule.manage_attendings decides the clinic-wide
+        // attending ones. filterNavItems shows an item when the viewer holds ANY
+        // listed permission, matching a page that admits on either.
+        permission: ["schedule.manage_requests", "schedule.manage_attendings"],
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },

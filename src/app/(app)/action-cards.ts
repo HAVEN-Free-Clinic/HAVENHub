@@ -29,6 +29,16 @@ export type ActionCardInput = {
   trainingIncomplete: number;
   trainingHref: string;
   profileIncomplete: boolean;
+  /**
+   * Withhold the HIPAA half of the My info card.
+   *
+   * For a viewer who is not on the volunteer clearance track -- currently
+   * faculty with a Hub account -- `compliance` is computed off the live term
+   * regardless of membership and reads NO_CERTIFICATE, which put "Upload HIPAA
+   * certificate" at the top of their feed for a requirement they hold no shift
+   * under. The card still appears; only the nudge is dropped.
+   */
+  suppressComplianceNudge?: boolean;
   backfill: ActionCard[]; // module shortcuts, in preference order, priority 0
   limit?: number; // default 4
 };
@@ -40,17 +50,24 @@ export type ActionCardInput = {
  */
 function myInfoCard(input: ActionCardInput): ActionCard {
   const base = { key: "my-info", href: "/my-info", icon: UserRoundPen, hue: "info", label: "My info" };
-  if (input.compliance === "EXPIRED" || input.compliance === "NO_CERTIFICATE") {
-    return { ...base, priority: 90, sub: "Upload HIPAA certificate" };
-  }
-  if (input.profileIncomplete) {
+  // Every branch below reads `compliance`, so one guard covers them all rather
+  // than four. profileIncomplete is NOT suppressed: confirming your own contact
+  // details is asked of anyone with a Hub account.
+  if (!input.suppressComplianceNudge) {
+    if (input.compliance === "EXPIRED" || input.compliance === "NO_CERTIFICATE") {
+      return { ...base, priority: 90, sub: "Upload HIPAA certificate" };
+    }
+    if (input.profileIncomplete) {
+      return { ...base, priority: 85, sub: "1 to confirm" };
+    }
+    if (input.compliance === "EXPIRING_SOON") {
+      return { ...base, priority: 70, sub: "Renew HIPAA soon" };
+    }
+    if (input.compliance === "PENDING_VERIFICATION" || input.compliance === "UNKNOWN_DATE") {
+      return { ...base, priority: 40, sub: "HIPAA in review" };
+    }
+  } else if (input.profileIncomplete) {
     return { ...base, priority: 85, sub: "1 to confirm" };
-  }
-  if (input.compliance === "EXPIRING_SOON") {
-    return { ...base, priority: 70, sub: "Renew HIPAA soon" };
-  }
-  if (input.compliance === "PENDING_VERIFICATION" || input.compliance === "UNKNOWN_DATE") {
-    return { ...base, priority: 40, sub: "HIPAA in review" };
   }
   return { ...base, priority: 20, sub: "View & update" };
 }

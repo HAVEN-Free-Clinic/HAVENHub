@@ -14,6 +14,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { parseZonedInput } from "@/platform/dates/format";
 import { isoDateKey } from "@/platform/dates";
 import { mySchedule, type MyTermSchedule, type ShiftTags } from "../services/schedule";
+import { myAttendingSchedule, type MyAttendingSchedule } from "../services/attending-portal";
 import { buildCalendar, type CalendarEvent } from "./ics";
 
 export type FeedContext = {
@@ -107,6 +108,63 @@ export function shiftsToEvents(terms: MyTermSchedule[], personId: string, ctx: F
   return events;
 }
 
+/**
+ * The attending half of the same feed. Pure; all inputs explicit.
+ *
+ * Uses the SLOT's own start and end times rather than the clinic-wide window the
+ * volunteer events use. That is the whole reason this is a separate function: an
+ * attending's commitment is a column ("9am-12pm", "11am-2pm"), and stamping every
+ * one of them with the full clinic day would put a three-hour shift on their
+ * calendar as an eight-hour one.
+ *
+ * A CLOSED Saturday emits nothing. The attending-facing readers have always
+ * honoured that flag (see resolveOpenClinicDate), and putting a cancelled clinic
+ * on a doctor's calendar is the one thing a calendar must not do.
+ */
+export function attendingShiftsToEvents(
+  schedule: MyAttendingSchedule,
+  personId: string,
+  ctx: FeedContext,
+): CalendarEvent[] {
+  const events: CalendarEvent[] = [];
+  if (!schedule.term) return events;
+
+  for (const shift of schedule.shifts) {
+    if (shift.isClosed) continue;
+    const start = instantFor(shift.clinicDate, shift.slot.startTime, ctx.timeZone);
+    const end = instantFor(shift.clinicDate, shift.slot.endTime, ctx.timeZone);
+    // Same defence as the volunteer path: a malformed or inverted window drops
+    // the event rather than shipping a DTEND before its DTSTART (RFC 5545
+    // forbids it) or throwing and taking the whole feed down. ClinicSlot times
+    // are free-text "HH:MM" maintained by Faculty Relations, so this is a real
+    // possibility here rather than a theoretical one.
+    if (!start || !end || end <= start) continue;
+
+    const detail = [
+      `Attending · ${shift.slot.label}`,
+      ...(shift.alongside.length > 0 ? [`With ${shift.alongside.join(", ")}`] : []),
+      ...(shift.onCall ? ["On call for the following week"] : []),
+    ].join("\n");
+
+    events.push({
+      // ClinicDayAttending is unique on (day, slot, attending), so the day and
+      // slot ids fully identify it -- no need to reconstruct identity from dates
+      // the way the volunteer UID does. `attending-` namespaces it away from the
+      // shift UIDs, so a person who is both never collides with themselves.
+      uid: `attending-${shift.clinicDayId}-${shift.slot.id}-${personId}@${ctx.host}`,
+      start,
+      end,
+      summary: `${ctx.orgName}: Attending (${shift.slot.label})`,
+      description: `${detail}\n${schedule.term.name}\n\n${ctx.baseUrl}/schedule`,
+      // Never conditional here: there is no remote attending slot, so unlike the
+      // volunteer path there is no case where the address would mislead.
+      location: ctx.clinicAddress || undefined,
+    });
+  }
+
+  return events;
+}
+
 async function loadContext(): Promise<FeedContext> {
   const [orgName, startTime, endTime, timeZone, baseUrl, clinicAddress] = await Promise.all([
     getSetting<string>("branding.orgName"),
@@ -130,8 +188,21 @@ async function loadContext(): Promise<FeedContext> {
 
 /** The member's shifts as an iCalendar document. */
 export async function renderFeedForPerson(personId: string, now: Date = new Date()): Promise<string> {
-  const [ctx, schedule] = await Promise.all([loadContext(), mySchedule(personId)]);
-  return buildCalendar(shiftsToEvents(schedule.terms, personId, ctx), {
+  // Both halves, unioned. A person who is only one of the two contributes only
+  // that half; myAttendingSchedule returns null for the non-faculty majority, and
+  // an attending with no TermMembership gets no volunteer terms back. Somebody
+  // who is genuinely both gets one calendar with both, which is the point of a
+  // single per-person feed.
+  const [ctx, schedule, attending] = await Promise.all([
+    loadContext(),
+    mySchedule(personId),
+    myAttendingSchedule(personId),
+  ]);
+  const events = [
+    ...shiftsToEvents(schedule.terms, personId, ctx),
+    ...(attending ? attendingShiftsToEvents(attending, personId, ctx) : []),
+  ];
+  return buildCalendar(events, {
     calendarName: `${ctx.orgName} Shifts`,
     timeZone: ctx.timeZone,
     now,

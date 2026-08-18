@@ -37,6 +37,13 @@ type Props = {
   termId: string;
   termName: string;
   editable: boolean;
+  /**
+   * Who said they can cover THIS date, from AttendingAvailability. Undefined
+   * when nobody on the roster has submitted anything for the term, in which case
+   * the picker is annotated with nothing at all rather than with "unavailable"
+   * for everyone.
+   */
+  availability?: { stated: Set<string>; available: Set<string> };
   saveAction: (fd: FormData) => Promise<void>;
 };
 
@@ -48,6 +55,7 @@ export function AttendingDayView({
   termId,
   termName,
   editable,
+  availability,
   saveAction,
 }: Props) {
   const specialtyClinicOptions = specialties.filter((s) => s.runsSpecialtyClinic);
@@ -115,6 +123,7 @@ export function AttendingDayView({
                 canEdit={clinicalEditable}
                 isClosed={row.isClosed}
                 options={options}
+                availability={availability}
               />
             </div>
           ))}

@@ -2,11 +2,21 @@
  * Weekly attending reminder. Sent Monday mornings to the attendings covering the
  * upcoming clinic day, with the slot-by-slot schedule and the on-call line.
  *
- * Attendings are FACULTY, not Hub users: they hold no Person row, no
- * TermMembership, and no login. So this cannot use notify() (which needs a
- * Person for the Teams and inbox channels) and queues email directly against
- * their roster address. That also means no in-app inbox copy and no Teams
- * fallback -- email is the only channel they have.
+ * Queues email directly against the ROSTER address rather than going through
+ * notify(), and deliberately keeps doing so now that attendings can have Hub
+ * accounts (Attending.personId). Three reasons it stays this way:
+ *
+ *   - Hub access is opt-in per attending and several have no email at all, so
+ *     notify() would have to fall back to this path for part of the roster
+ *     anyway. One path is better than two that must agree.
+ *   - The roster address is the one Faculty Relations maintains and the one the
+ *     letter has always gone to; Person.contactEmail is a copy of it made when
+ *     access was enabled, and can drift.
+ *   - This is Faculty Relations' weekly letter to the whole covering group, not
+ *     a per-person notification with a channel preference to honour.
+ *
+ * Attendings WITH a Hub account still see the same schedule at /schedule, which
+ * is where the email points them.
  *
  * Enqueue-only, like every other reminder here: the per-minute
  * /api/cron/email drainer delivers. Draining here would double-send.

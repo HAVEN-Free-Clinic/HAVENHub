@@ -52,6 +52,20 @@ export const SYSTEM_ROLES: SystemRole[] = [
     grants: ["schedule.view", "schedule.manage_attendings"],
   },
   {
+    name: "Attending",
+    description: "Hub access for a rostered attending: their own schedule, availability, and swap requests",
+    // schedule.view ONLY, and deliberately nothing else. An attending is faculty:
+    // they see the clinic day they cover and act on their own assignments. They
+    // are not a director and hold no volunteer-facing rights, so the Volunteer
+    // role's learning.access (which pulls them into the course assignment surface)
+    // would be wrong here.
+    //
+    // Assigned per-person (RoleAssignment.personId), never by kind: Track has no
+    // faculty member, and there is no TermMembership to hang a kind-target grant
+    // on. enableHubAccess in the schedule module is the only writer.
+    grants: ["schedule.view"],
+  },
+  {
     name: "Volunteer Operations Manager",
     description: "Offboarding, IT support requests, and incident reports across the clinic",
     grants: ["volunteers.view", "volunteers.manage_offboarding", "support.manage_requests", "incidents.manage", "incidents.view_strikes"],

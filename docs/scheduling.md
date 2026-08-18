@@ -24,6 +24,7 @@ day regardless of the viewer's local timezone.
 - [The schedule builder](#the-schedule-builder)
 - [Capacity planning](#capacity-planning)
 - [RHD clinic readiness and attendings](#rhd-clinic-readiness-and-attendings)
+- [Attending Hub access](#attending-hub-access)
 - [Compliance banner](#compliance-banner)
 - [Permissions and scoping](#permissions-and-scoping)
 - [Data model](#data-model)
@@ -203,6 +204,82 @@ director on point, and procedures booked. The readiness engine
 the people on shift to tell directors whether the clinic can cover its booked
 procedures.
 
+## Attending Hub access
+
+Attendings were originally modelled as non-users: a roster row, an email address,
+and the weekly reminder letter. They can now sign in and manage their own
+schedule, which is a bridge (`Attending.personId`) rather than a re-modelling --
+the roster stays the source of truth for who covers clinic, and the grid still
+keys on `Attending`.
+
+### Enabling access
+
+Faculty Relations (`schedule.manage_attendings`) enables it, per attending on the
+roster row or for the whole active roster at once from `/schedule/attendings`.
+Enabling finds-or-creates a `Person` with the roster's email as `contactEmail`,
+links it, grants the `Attending` system role (`schedule.view` only), and emails
+them. It is idempotent, so re-running it after a contact-sheet import only
+touches the newcomers.
+
+**No new auth code was needed.** A `@yale.edu` address matches at sign-in through
+`match-person`'s `contactEmail` step, which trusts only Yale-asserted claims; any
+other address goes through the existing member magic link, which already refuses
+Yale addresses. The address is stored in `contactEmail`, never `netId` -- that
+column is the Yale NetID, is shaped like one, and feeds the YNHH Epic access PDF.
+
+Enabling **links an existing `Person`** when one already holds that address (an
+attending who once volunteered, a PA who is also staff). Revoking unlinks the
+`Person` and drops the `Attending` role but never deletes the `Person`, which may
+carry unrelated history.
+
+An attending with a Hub account is exempt from the onboarding gate, via a general
+rule in `enforceOnboarding`: a person with no ACTIVE `TermMembership` in the live
+term has no shift to be cleared for. This is a query, not an allowlisted path.
+
+### What an attending can do
+
+On `/schedule`, above the volunteer sections (both render for someone who is
+genuinely both):
+
+- **See their dates**, from `ClinicDayAttending`: date, column, who else is in
+  that column, the on-call week, and closed Saturdays.
+- **Set availability**: the clinic dates they can cover, stored in
+  `AttendingAvailability`. ONE tier, unlike `TermMembership`'s three, because an
+  attending's availability arrives exactly one way. Advisory -- it never changes
+  dates they are already on; it annotates the Day view's pickers while Faculty
+  Relations staffs the next sheet. Locks once the term's clinics start, the same
+  rule as the volunteer side. A missing row means "never told us"; an empty array
+  means "can cover nothing", and the two render differently.
+- **Request a swap or a drop**, recorded in `AttendingShiftRequest`. Nothing on
+  the grid moves until Faculty Relations approves.
+
+Their subscribed calendar feed carries both halves, with attending events using
+the **slot's** own window rather than the clinic-wide one.
+
+### Attending swap and drop requests
+
+Keyed on `(clinic day, slot, attending)` -- a sibling of `ShiftRequest`, not a
+widening of it, because an attending assignment names a COLUMN and a volunteer
+shift names a department. An attending covering both the 9am-12pm and the RHD
+column on one Saturday gives up one of them, not the day.
+
+Swaps are restricted to the **same column**, which is the entire eligibility rule:
+the grid's columns are the clinic's own statement of who may cover what, so a
+same-column trade is qualification-preserving by construction. Also excluded:
+dates the requester already covers in that column, closed Saturdays, past dates,
+deactivated attendings, and any seat already named by a pending request.
+
+Approval is Faculty Relations' (`schedule.manage_attendings`), on
+`/schedule/requests` alongside the department sections -- attendings belong to no
+department, so there is no approver to route to. Approving a swap exchanges the
+two `ClinicDayAttending` rows' clinic days; approving a drop deletes the row and
+leaves the column short, which the panel warns about before the click. Everything
+is re-validated at approval time, because the grid is edited by hand in between.
+A past date cannot be approved (it would erase history) but can still be denied.
+
+A `AttendingShiftRequest_pending_unique` partial index backstops duplicate
+PENDING rows, mirroring `ShiftRequest_pending_unique`.
+
 ## Compliance banner
 
 The builder and views surface HIPAA compliance inline. `summarizeNonCompliant`
@@ -282,6 +359,8 @@ src/modules/schedule/
     requests.ts            create/cancel/list/approve/deny requests
     builder.ts             builderView + scoped assignment mutations
     attendings.ts          RHD attending roster CRUD
+    attending-access.ts    Enable/revoke an attending's Hub login
+    attending-portal.ts    An attending's own schedule, availability, requests
   engine/                  Pure logic (no Prisma), each with tests:
     availability.ts        Three-tier availability resolution
     requests.ts            Request validation + apply planning

@@ -57,6 +57,28 @@ export async function isClinicDayToday(now: Date = new Date()): Promise<boolean>
   return (await todaysClinicDate(now)) !== null;
 }
 
+/**
+ * Whether this person holds a VOLUNTEER shift on today's clinic date.
+ *
+ * The narrow question the "Check in" nav tab needs on top of the calendar one
+ * above: check-in is keyed on ShiftAssignment, so someone with none can never
+ * succeed at it (checkInSelf answers NOT_ASSIGNED). Lives here rather than in
+ * the layout because todaysClinicDate -- the closed-day-aware resolver -- is
+ * this service's, and a second copy of that rule is a second place for it to
+ * drift.
+ *
+ * False on a non-clinic day, which is fine: the tab's calendar gate has already
+ * dropped it by then.
+ */
+export async function hasVolunteerShiftToday(personId: string, now: Date = new Date()): Promise<boolean> {
+  const today = await todaysClinicDate(now);
+  if (!today) return false;
+  const count = await prisma.shiftAssignment.count({
+    where: { termId: today.termId, clinicDate: today.clinicDate, personId },
+  });
+  return count > 0;
+}
+
 /** Everything the check-in page needs to render, in one call. */
 export async function getCheckInState(personId: string, now: Date = new Date()): Promise<CheckInState> {
   const today = await todaysClinicDate(now);

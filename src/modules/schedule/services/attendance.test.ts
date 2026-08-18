@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { setSetting } from "@/platform/settings/service";
 import * as settings from "@/platform/settings/service";
-import { checkInSelf, getCheckInState, writeAttendance, markPresent, undoAttendance, attendanceForDate } from "./attendance";
+import { checkInSelf, getCheckInState, writeAttendance, markPresent, undoAttendance, attendanceForDate, hasVolunteerShiftToday } from "./attendance";
 
 const CLINIC_DATE = new Date("2026-03-07T12:00:00Z");
 // A Saturday morning instant that falls on CLINIC_DATE in Eastern Time.
@@ -465,5 +465,41 @@ describe("closed clinic days", () => {
     const person = await prisma.person.findFirstOrThrow();
     const state = await getCheckInState(person.id, SATURDAY_MORNING);
     expect(state.clinicDate).not.toBeNull();
+  });
+});
+
+/**
+ * The "Check in" nav tab's second gate. Check-in is keyed on ShiftAssignment, so
+ * a person with none can never succeed at it -- which is now a whole class of
+ * user, since an attending with a Hub account holds no volunteer shift at all.
+ * The layout drops the tab for them rather than shipping a dead end onto the very
+ * Saturday they are covering.
+ */
+describe("hasVolunteerShiftToday", () => {
+  beforeEach(resetDb);
+
+  it("is true for a person assigned on today's clinic date", async () => {
+    const { person } = await seed();
+    expect(await hasVolunteerShiftToday(person.id, SATURDAY_MORNING)).toBe(true);
+  });
+
+  it("is false for a person with no assignment that day", async () => {
+    const { person } = await seed({ assigned: false });
+    expect(await hasVolunteerShiftToday(person.id, SATURDAY_MORNING)).toBe(false);
+  });
+
+  it("is false when today is not a clinic date at all", async () => {
+    const { person } = await seed();
+    // A Tuesday in the same term.
+    expect(await hasVolunteerShiftToday(person.id, new Date("2026-03-10T13:30:00Z"))).toBe(false);
+  });
+
+  /** Honours the closure flag through todaysClinicDate, like every other reader. */
+  it("is false on a Saturday the clinic has declared closed", async () => {
+    const { person, term } = await seed();
+    await prisma.clinicDay.create({
+      data: { termId: term.id, clinicDate: CLINIC_DATE, isClosed: true },
+    });
+    expect(await hasVolunteerShiftToday(person.id, SATURDAY_MORNING)).toBe(false);
   });
 });

@@ -25,7 +25,17 @@ import {
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { displayTodayKey } from "@/platform/dates/today";
+import {
+  canManageAttendingRequests,
+  listAttendingRequests,
+  approveAttendingRequest,
+  denyAttendingRequest,
+  AttendingPortalForbiddenError,
+  AttendingPortalNotFoundError,
+  AttendingPortalValidationError,
+} from "@/modules/schedule/services/attending-portal";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
+import { AttendingPendingRequests } from "@/modules/schedule/components/attending-pending-requests";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -33,8 +43,16 @@ import { Badge } from "@/platform/ui/badge";
 
 export default async function ScheduleRequestsPage() {
   const session = await requirePersonSession();
-  const deptIds = await manageableRequestDepartmentIds(session.personId);
-  if (deptIds.length === 0) redirect("/no-access");
+  // Two independent authorities land on this page, and holding EITHER admits you.
+  // Faculty Relations approves attending requests but manages no department, so
+  // gating on manageableRequestDepartmentIds alone bounced the very person the
+  // attending-request emails point here. Each section below still renders only
+  // for the authority that owns it.
+  const [deptIds, managesAttendings] = await Promise.all([
+    manageableRequestDepartmentIds(session.personId),
+    canManageAttendingRequests(session.personId),
+  ]);
+  if (deptIds.length === 0 && !managesAttendings) redirect("/no-access");
   // Resolved once for the page; PendingRequests uses it to mark stale
   // (past-date) rows across every department section below.
   const todayKey = await displayTodayKey();
@@ -71,6 +89,10 @@ export default async function ScheduleRequestsPage() {
   // only live-term requests sees exactly the layout they saw before.
   const showTermHeadings = groups.length > 1;
 
+  // Attending requests are clinic-wide and live-term only: there is no department
+  // to scope them by, and Faculty Relations builds one grid at a time.
+  const attendingRows = managesAttendings ? await listAttendingRequests(session.personId) : [];
+
   async function approveRequestAction(formData: FormData) {
     "use server";
     const actor = await requirePersonSession();
@@ -98,13 +120,67 @@ export default async function ScheduleRequestsPage() {
     });
   }
 
+  async function approveAttendingAction(formData: FormData) {
+    "use server";
+    const actor = await requirePersonSession();
+    const requestId = (formData.get("requestId") as string) ?? "";
+    await runAction({
+      work: () => approveAttendingRequest(actor.personId, requestId),
+      domainErrors: [AttendingPortalValidationError, AttendingPortalForbiddenError, AttendingPortalNotFoundError],
+      errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
+      revalidate: "/schedule/requests",
+      successRedirect: "/schedule/requests",
+    });
+  }
+
+  async function denyAttendingAction(formData: FormData) {
+    "use server";
+    const actor = await requirePersonSession();
+    const requestId = (formData.get("requestId") as string) ?? "";
+    await runAction({
+      work: () => denyAttendingRequest(actor.personId, requestId),
+      domainErrors: [AttendingPortalValidationError, AttendingPortalForbiddenError, AttendingPortalNotFoundError],
+      errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
+      revalidate: "/schedule/requests",
+      successRedirect: "/schedule/requests",
+    });
+  }
+
   return (
     <div className="max-w-3xl space-y-6">
-      <PageHeader title="Shift request approvals" description="Approve or deny drop and swap requests for your departments." />
+      <PageHeader
+        title="Shift request approvals"
+        description={
+          managesAttendings && deptIds.length > 0
+            ? "Approve or deny drop and swap requests for your departments and for the attending schedule."
+            : managesAttendings
+              ? "Approve or deny drop and swap requests from attendings."
+              : "Approve or deny drop and swap requests for your departments."
+        }
+      />
+
+      {/* Attending requests first for a Faculty-Relations-only viewer, since it is
+          the only section they have. It stays above the department groups for a
+          viewer holding both: the attending grid is clinic-wide, so it is the
+          wider of the two. */}
+      {managesAttendings && (
+        <AttendingPendingRequests
+          rows={attendingRows}
+          approveAction={approveAttendingAction}
+          denyAction={denyAttendingAction}
+          todayKey={todayKey}
+        />
+      )}
+
       {groups.length === 0 ? (
-        <Card>
-          <p className="text-sm text-muted-foreground">No shift requests right now.</p>
-        </Card>
+        // Suppressed for a Faculty-Relations-only viewer: their section above has
+        // its own empty state, and a second "no requests" card under it reads as
+        // a bug.
+        deptIds.length === 0 ? null : (
+          <Card>
+            <p className="text-sm text-muted-foreground">No shift requests right now.</p>
+          </Card>
+        )
       ) : (
         groups.map(({ term, isLive, perDept }) => (
           <div key={term.id} className="space-y-6">

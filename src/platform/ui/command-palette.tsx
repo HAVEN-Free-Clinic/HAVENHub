@@ -196,7 +196,9 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
   // preventDefault only fires once we are certain we are handling the key.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key.toLowerCase() !== "k") return;
+      // A synthetic keydown from a browser extension, password manager, or IME
+      // shim can arrive with no `key`, so guard the type before the method call.
+      if (typeof e.key !== "string" || e.key.toLowerCase() !== "k") return;
       if (!e.metaKey && !e.ctrlKey) return;
       // The typing-target guard must NOT apply to the palette's own input,
       // which is focused the whole time the palette is open. Bailing there

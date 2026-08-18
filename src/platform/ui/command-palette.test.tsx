@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CommandPalette, buildSections, pageIndex } from "./command-palette";
 import { matchPages } from "@/platform/search/match";
@@ -6,6 +9,8 @@ import type { NavModule } from "@/platform/modules/nav";
 
 // CommandPalette is a client component; useRouter needs a stub under SSR.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {} }) }));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ITEMS: NavModule[] = [
   { id: "schedule", title: "Schedule", href: "/schedule", nav: [{ label: "Builder", href: "/schedule/builder" }] },
@@ -131,5 +136,41 @@ describe("buildSections", () => {
 
   it("returns no sections for no hits, which is what drives the empty state", () => {
     expect(buildSections([], [])).toEqual([]);
+  });
+});
+
+describe("CommandPalette global shortcut listener", () => {
+  let mounted: { container: HTMLDivElement; root: Root } | null = null;
+
+  afterEach(() => {
+    if (mounted) {
+      const { container, root } = mounted;
+      act(() => root.unmount());
+      container.remove();
+      mounted = null;
+    }
+  });
+
+  function mount() {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<CommandPalette items={ITEMS} />));
+    mounted = { container, root };
+  }
+
+  // A synthetic keydown from an extension, password manager, or IME shim can
+  // arrive with no `key`. A plain Event has none, so it stands in for that.
+  // jsdom reports a throw from a listener as a window "error" event rather than
+  // rethrowing out of dispatch, so watch for that instead.
+  it("bails quietly on a keydown that carries no key", () => {
+    mount();
+    const onError = vi.fn();
+    window.addEventListener("error", onError);
+    act(() => {
+      document.dispatchEvent(new Event("keydown", { bubbles: true }));
+    });
+    window.removeEventListener("error", onError);
+    expect(onError).not.toHaveBeenCalled();
   });
 });

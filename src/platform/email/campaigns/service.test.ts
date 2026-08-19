@@ -181,7 +181,12 @@ describe("campaign service", () => {
     await activePerson("Sam Rivera", "sam@example.com");
     const c = await createDraft(null, "Flaky");
     await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
-    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
+    await scheduleCampaign(
+      null,
+      c.id,
+      { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") },
+      new Date("2026-06-10T11:00:00Z"),
+    );
 
     const spy = vi.spyOn(sendModule, "queueEmails").mockRejectedValueOnce(new Error("enqueue down"));
     try {
@@ -270,6 +275,40 @@ describe("campaign scheduling", () => {
     await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: at }, undefined, { confirmCount: expected });
     const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.status).toBe("SCHEDULED");
+  });
+
+  it("refuses a send time in the past, so a mistyped date cannot blast on the next tick", async () => {
+    // The incident this guards: one campaign was scheduled for 6:30pm and another
+    // for "8am", but with the date left on the current day rather than tomorrow.
+    // The 8am row was therefore already ten hours due, and dispatchDueCampaigns
+    // (nextRunAt <= now) sent BOTH on the 6:30pm tick.
+    await activePerson("Past Recipient", "past@example.com");
+    const c = await createDraft(null, "Backdated");
+    await updateCampaign(null, c.id, { subject: "s", body: "<p>hi</p>", audience: ALL_ACTIVE });
+    const now = new Date("2026-06-10T22:30:00Z");
+
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") }, now),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    // Refused outright: still an editable DRAFT, never a SCHEDULED row sitting due.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe("DRAFT");
+    expect(after.nextRunAt).toBeNull();
+
+    // "Now" itself is not a schedule either -- it would go out on the next tick.
+    await expect(
+      scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: now }, now),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+
+    // A minute into the future is accepted, so the guard is not off by a tick.
+    await scheduleCampaign(
+      null,
+      c.id,
+      { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T22:31:00Z") },
+      now,
+    );
+    const scheduled = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(scheduled.status).toBe("SCHEDULED");
   });
 
   it("refuses to schedule a campaign with a blank subject", async () => {

@@ -376,6 +376,20 @@ export async function scheduleCampaign(
 
   if (input.scheduleType === "SCHEDULED") {
     if (!input.scheduledAt) throw new CampaignValidationError(["A send time is required"]);
+    // A past send time is NOT a scheduled send: dispatchDueCampaigns selects on
+    // `nextRunAt <= now`, so anything backdated is already due and goes out on the
+    // very next 30-minute tick, with no warning and nothing to cancel. That is how
+    // a campaign meant for 8am tomorrow left with one meant for 6:30pm tonight --
+    // the date was a day behind, so it had been "due" for ten hours.
+    //
+    // Refused rather than clamped to now, for the same reason the zero-recipient
+    // case above is refused: an unintended blast cannot be recalled, so the only
+    // safe reading of an impossible time is that the admin mistyped it.
+    if (input.scheduledAt.getTime() <= now.getTime()) {
+      throw new CampaignValidationError([
+        "That send time has already passed. Pick a time in the future, and check the date as well as the time.",
+      ]);
+    }
     await prisma.emailCampaign.update({
       where: { id },
       data: { scheduleType: "SCHEDULED", scheduledAt: input.scheduledAt, cronExpr: null, nextRunAt: input.scheduledAt, status: "SCHEDULED" },

@@ -8,6 +8,10 @@ beforeEach(resetDb);
 
 const ALL_ACTIVE = { recordType: "PERSON" as const, match: "ALL" as const, conditions: [{ field: "status", op: "eq" as const, value: "ACTIVE" }] };
 
+/** A "now" for scheduleCampaign that sits before the fixture send time, since a
+ *  campaign may only be scheduled into the future. */
+const BEFORE_SEND = new Date("2026-06-10T11:00:00Z");
+
 async function readyCampaign(name: string) {
   const c = await createDraft(null, name);
   await updateCampaign(null, c.id, { subject: "Hi {{ firstName }}", body: "<p>Hi {{ firstName }}</p>", audience: ALL_ACTIVE });
@@ -18,7 +22,7 @@ describe("dispatchDueCampaigns", () => {
   it("runs a due one-time campaign once and marks it SENT", async () => {
     await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam@example.com", status: "ACTIVE" } });
     const c = await readyCampaign("OneTime");
-    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") }, BEFORE_SEND);
 
     let summary = await dispatchDueCampaigns(new Date("2026-06-10T11:59:00Z"));
     expect(summary.executed).toBe(0);
@@ -57,7 +61,7 @@ describe("dispatchDueCampaigns", () => {
     await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam@example.com", status: "ACTIVE" } });
     await prisma.person.create({ data: { name: "Pat Lee", contactEmail: "pat@example.com", status: "ACTIVE" } });
     const c = await readyCampaign("Overlap");
-    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") }, BEFORE_SEND);
 
     const now = new Date("2026-06-10T12:00:30Z");
     const summaries = await Promise.all([dispatchDueCampaigns(now), dispatchDueCampaigns(now)]);
@@ -97,7 +101,7 @@ describe("dispatchDueCampaigns", () => {
   it("skips CANCELLED campaigns", async () => {
     await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "cancel@example.com", status: "ACTIVE" } });
     const c = await readyCampaign("Stopped");
-    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") });
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") }, BEFORE_SEND);
     await prisma.emailCampaign.update({ where: { id: c.id }, data: { status: "CANCELLED" } });
     const summary = await dispatchDueCampaigns(new Date("2026-06-10T12:01:00Z"));
     expect(summary.executed).toBe(0);

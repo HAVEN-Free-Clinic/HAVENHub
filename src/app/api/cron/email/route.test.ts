@@ -73,7 +73,14 @@ describe("GET /api/cron/email", () => {
     });
     await scheduleCampaign(null, c.id, {
       scheduleType: "SCHEDULED",
-      scheduledAt: new Date(Date.now() - 60_000),
+      scheduledAt: new Date(Date.now() + 60_000),
+    });
+    // Age the row into "due" directly. scheduleCampaign now refuses a past send
+    // time (a backdated schedule is how two campaigns once went out on one tick),
+    // and the cron reads nextRunAt, so moving that column is what "due" means here.
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { nextRunAt: new Date(Date.now() - 60_000) },
     });
 
     const res = await GET(cronRequest(`Bearer ${CRON_SECRET}`));

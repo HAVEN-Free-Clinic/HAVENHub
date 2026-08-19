@@ -629,4 +629,184 @@ describe("runScheduleImport", () => {
     const bAssign = await prisma.shiftAssignment.findFirst({ where: { departmentId: deptB.id } });
     expect(bAssign?.personId).toBe(bob.id);
   });
+  // -------------------------------------------------------------------------
+  // Reconcile: make the Hub MATCH Airtable, without undoing recent Hub work
+  // -------------------------------------------------------------------------
+
+  describe("reconcile mode", () => {
+    /** One Airtable row for CLINIC_DATE listing exactly `directors` / `volunteers`. */
+    const rowFor = (directors: string[], volunteers: string[]) =>
+      makeReader([
+        {
+          id: "rowR",
+          fields: {
+            "fldBdcAE6F8Bqu4FW": [DEPT_CODE],
+            "fldRqPKWn6NxzoJXZ": CLINIC_DATE_STR,
+            "fldWECXlelGfP9Sb0": directors,
+            "fldMoCbSA44uhyjxx": volunteers,
+            "fldqFDr9lu1Ih4YC0": [],
+            "fldvZalLmfRQijopm": [],
+            "fldmQasTpGxocBz9l": [],
+            "fldepAQbnkNquxSYd": [],
+            "fldxyf4junebaIIYQ": [],
+          },
+        },
+      ]);
+
+    async function assignment(termId: string, deptId: string, personId: string, role: "DIRECTOR" | "VOLUNTEER") {
+      return prisma.shiftAssignment.create({
+        data: { termId, departmentId: deptId, personId, clinicDate: CLINIC_DATE, role },
+      });
+    }
+
+    it("leaves a stale assignment in place WITHOUT reconcile, which is why a plain re-import cannot re-sync", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      const alice = await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      await assignment(term.id, dept.id, bob.id, "VOLUNTEER"); // Airtable no longer lists Bob
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], []), { ...BASE_OPTS, dryRun: false });
+      expect(report.removed).toBe(0);
+      const people = await prisma.shiftAssignment.findMany({ select: { personId: true } });
+      expect(people.map((p) => p.personId).sort()).toEqual([alice.id, bob.id].sort());
+    });
+
+    it("removes an assignment Airtable no longer lists", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      const alice = await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      await assignment(term.id, dept.id, bob.id, "VOLUNTEER");
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], []), {
+        ...BASE_OPTS, dryRun: false, reconcile: true, protectSince: new Date("2099-01-01T00:00:00Z"),
+      });
+      expect(report.removed).toBe(1);
+      expect(report.removedDetail[0]).toMatchObject({ date: CLINIC_DATE_STR, personId: bob.id });
+      const people = await prisma.shiftAssignment.findMany({ select: { personId: true } });
+      expect(people.map((p) => p.personId)).toEqual([alice.id]);
+    });
+
+    it("reports removals in a dry run without writing them", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      await assignment(term.id, dept.id, bob.id, "VOLUNTEER");
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], []), {
+        ...BASE_OPTS, dryRun: true, reconcile: true, protectSince: new Date("2099-01-01T00:00:00Z"),
+      });
+      expect(report.removed).toBe(1);
+      expect(await prisma.shiftAssignment.count()).toBe(1); // Bob still there
+    });
+
+    it("never empties a (department, date) Airtable did not describe", async () => {
+      // The guard against a partial export reading as "everyone was unscheduled".
+      const term = await seedTerm();
+      const dept = await seedDept();
+      const other = await prisma.department.create({ data: { code: "OTHER", name: "Other" } });
+      await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      await assignment(term.id, other.id, bob.id, "VOLUNTEER");
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], []), {
+        ...BASE_OPTS, dryRun: false, reconcile: true, protectSince: new Date("2099-01-01T00:00:00Z"),
+      });
+      expect(report.removed).toBe(0);
+      expect(await prisma.shiftAssignment.count({ where: { departmentId: other.id } })).toBe(1);
+      expect(dept.id).not.toBe(other.id);
+    });
+
+    it("does NOT resurrect a shift dropped in the Hub today, even though the row is gone", async () => {
+      // The hazard that makes protectSince necessary: approving a drop DELETES the
+      // assignment (requests.ts deleteMany), so there is no row left to carry an
+      // updatedAt. Only the decided request records that it happened.
+      const term = await seedTerm();
+      const dept = await seedDept();
+      await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      // Bob was dropped: Airtable still lists him, the Hub no longer has the row.
+      await prisma.shiftRequest.create({
+        data: {
+          termId: term.id, departmentId: dept.id, requesterId: bob.id,
+          requesterDate: CLINIC_DATE, status: "APPROVED", decidedAt: new Date(),
+        },
+      });
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], [REC_BOB]), {
+        ...BASE_OPTS, dryRun: false, reconcile: true,
+        protectSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+
+      const people = await prisma.shiftAssignment.findMany({ select: { personId: true } });
+      expect(people.map((p) => p.personId)).not.toContain(bob.id);
+      expect(report.protectedSkipped.some((p) => p.personId === bob.id && p.reason === "recent-request")).toBe(true);
+    });
+
+    it("does NOT remove someone added in the Hub today whom Airtable never had", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      await seedPerson("Alice", REC_ALICE);
+      const carol = await seedPerson("Carol", REC_CAROL);
+      await assignment(term.id, dept.id, carol.id, "VOLUNTEER"); // just created, so updatedAt is now
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], []), {
+        ...BASE_OPTS, dryRun: false, reconcile: true,
+        protectSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+
+      expect(report.removed).toBe(0);
+      expect(report.protectedSkipped.some((p) => p.personId === carol.id && p.reason === "recent-edit")).toBe(true);
+      expect(await prisma.shiftAssignment.count({ where: { personId: carol.id } })).toBe(1);
+    });
+
+    it("does NOT re-add someone unassigned in the builder today, which leaves only an audit row", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      await prisma.auditLog.create({
+        data: {
+          action: "schedule.unassign",
+          entityType: "ShiftAssignment",
+          entityId: `${term.id}|${dept.id}|${CLINIC_DATE_STR}|${bob.id}`,
+        },
+      });
+
+      const report = await runScheduleImport(rowFor([REC_ALICE], [REC_BOB]), {
+        ...BASE_OPTS, dryRun: false, reconcile: true,
+        protectSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+
+      const people = await prisma.shiftAssignment.findMany({ select: { personId: true } });
+      expect(people.map((p) => p.personId)).not.toContain(bob.id);
+      expect(report.protectedSkipped.some((p) => p.personId === bob.id)).toBe(true);
+    });
+
+    it("still applies Airtable where nothing recent happened", async () => {
+      const term = await seedTerm();
+      const dept = await seedDept();
+      const alice = await seedPerson("Alice", REC_ALICE);
+      const bob = await seedPerson("Bob", REC_BOB);
+      // An old audit row must not protect anything.
+      await prisma.auditLog.create({
+        data: {
+          action: "schedule.unassign",
+          entityType: "ShiftAssignment",
+          entityId: `${term.id}|${dept.id}|${CLINIC_DATE_STR}|${bob.id}`,
+          createdAt: new Date("2020-01-01T00:00:00Z"),
+        },
+      });
+
+      await runScheduleImport(rowFor([REC_ALICE], [REC_BOB]), {
+        ...BASE_OPTS, dryRun: false, reconcile: true,
+        protectSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      });
+
+      const people = await prisma.shiftAssignment.findMany({ select: { personId: true } });
+      expect(people.map((p) => p.personId).sort()).toEqual([alice.id, bob.id].sort());
+    });
+  });
 });

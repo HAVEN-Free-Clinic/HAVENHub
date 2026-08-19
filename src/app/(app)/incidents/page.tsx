@@ -30,7 +30,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { CONCERN_TYPES, listSubjectOptions } from "@/modules/incidents/services/report";
 import { ConcernTypesFieldset } from "./concern-types-fieldset";
-import { IncidentAttachmentsField } from "./incident-attachments-field";
+import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { SubjectPicker } from "./subject-picker";
 import { AnonymityField } from "./anonymity-field";
 import { submitReportAction } from "./actions";
@@ -192,7 +192,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
 
           {/* Section 9: attachments */}
           <Field label="9. Attachments" hint="Optional. Photos, screenshots, or documents that support the report.">
-            <IncidentAttachmentsField maxMb={maxUploadMb} />
+            <UploadSizeField name="attachments" multiple maxMb={maxUploadMb} />
           </Field>
 
           {/* Section 10: name / anonymity / strike request */}

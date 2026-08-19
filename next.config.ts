@@ -106,7 +106,15 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      // The hosting platform refuses a Server Action body over ~4.5 MB at the
+      // edge, before any app code runs (FUNCTION_PAYLOAD_TOO_LARGE), so a larger
+      // number here buys nothing and actively misleads: at "25mb" this file
+      // promised roughly 5x what an upload could ever use, and the only visible
+      // symptom of the real cap was a form that silently did nothing.
+      // Kept at the platform ceiling so config, the uploads.maxMb cap of 4 in
+      // settings/registry.ts, and the browser-side UploadSizeField guard all
+      // describe the same limit.
+      bodySizeLimit: "4.5mb",
     },
   },
   async rewrites() {

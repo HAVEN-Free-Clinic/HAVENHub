@@ -45,6 +45,7 @@ import { Card } from "@/platform/ui/card";
 import { Field } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
+import { UploadSizeField } from "@/platform/ui/upload-size-field";
 
 type PhotoCardProps = {
   person: { id: string; name: string | null; photoVersion: number; photoKey: string | null };
@@ -94,8 +95,7 @@ export function PhotoCard({
             label="Upload a new photo"
             hint={`PNG, JPEG, or WebP, up to ${maxMb} MB. Square images work best.`}
           >
-            {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists, matches hipaa-panel.tsx */}
-            <input type="file" name="photo" accept="image/png,image/jpeg,image/webp" required className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+            <UploadSizeField name="photo" accept="image/png,image/jpeg,image/webp" required maxMb={maxMb} />
           </Field>
           <FormActions>
             <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">

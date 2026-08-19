@@ -33,6 +33,8 @@ import { formatCalendarDate, formatDateOnly } from "@/platform/dates";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
 import { getSupportContact } from "@/platform/branding/support";
+import { getSetting } from "@/platform/settings/service";
+import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { SupportLink } from "@/platform/branding/support-link";
 
 function formatSize(bytes: number): string {
@@ -89,7 +91,11 @@ export async function HipaaPanel({
   status,
   statusCert,
 }: HipaaPanelProps) {
-  const [zone, support] = await Promise.all([getDisplayTimeZone(), getSupportContact()]);
+  const [zone, support, maxMb] = await Promise.all([
+    getDisplayTimeZone(),
+    getSupportContact(),
+    getSetting<number>("uploads.maxMb"),
+  ]);
   const latest = certificates[0] ?? null;
   const history = certificates.slice(1);
   // While a certificate is under review, re-uploading does nothing: it does not
@@ -112,9 +118,8 @@ export async function HipaaPanel({
         </div>
       )}
       <form action={uploadAction}>
-        <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-          {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
-          <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+        <Field label="HIPAA certificate (PDF)" hint={`PDF only, up to ${maxMb} MB.`}>
+          <UploadSizeField name="certificate" accept="application/pdf" maxMb={maxMb} />
         </Field>
         <FormActions>
           <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">

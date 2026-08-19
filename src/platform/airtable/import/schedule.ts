@@ -43,6 +43,37 @@ export type ScheduleImportOptions = {
   scheduleTableId: string;
   termCode: string;
   dryRun: boolean;
+  /**
+   * Make the Hub MATCH Airtable rather than merely absorb it: delete assignments
+   * Airtable no longer lists, not just add the ones it does.
+   *
+   * Off by default, because the plain import is upsert-only on purpose. That is
+   * also why it cannot be used to re-sync: a shift dropped in Airtable keeps its
+   * Hub row forever, and a swap adds the new assignment while leaving the old
+   * one behind, so both people show on both dates. Reconcile exists for the
+   * one-off "Airtable is right, make the Hub agree" cutover.
+   *
+   * Deletion is scoped to the (department, clinic date) pairs Airtable actually
+   * describes. A department or date absent from the export is left completely
+   * alone rather than emptied -- a partial export must never read as "everyone
+   * was unscheduled".
+   */
+  reconcile?: boolean;
+  /**
+   * Protect Hub-side changes at or after this instant from being reverted.
+   *
+   * Two separate sources, because they fail differently:
+   *
+   *   - ShiftAssignment.updatedAt covers a director editing the builder directly.
+   *   - ShiftRequest.decidedAt covers approved swaps and drops. This one is
+   *     load-bearing: approving a drop DELETES the assignment row (requests.ts
+   *     deleteMany), so there is no row left carrying an updatedAt. Without the
+   *     request-derived keys, a reconcile would cheerfully re-create every shift
+   *     someone was released from today.
+   *
+   * Both sides of a swap, on both dates, are protected -- the safe superset.
+   */
+  protectSince?: Date;
 };
 
 export type ScheduleImportReport = {
@@ -56,6 +87,16 @@ export type ScheduleImportReport = {
   skippedDates: string[];
   /** Desired assignment counts per clinic date (ISO day key), for dry-run review. */
   perDateCounts: Record<string, number>;
+  /** Reconcile mode: assignments deleted because Airtable no longer lists them. */
+  removed: number;
+  /**
+   * Every removal, spelled out. A count alone is not reviewable before a
+   * destructive apply against production, and this is the list a director reads
+   * to confirm the diff is the one they expect.
+   */
+  removedDetail: Array<{ date: string; department: string; personId: string; role: string }>;
+  /** Hub-side changes left untouched because they landed at or after protectSince. */
+  protectedSkipped: Array<{ date: string; department: string; personId: string; reason: "recent-edit" | "recent-request" }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -117,6 +158,9 @@ export async function runScheduleImport(
     unknownDepartments: [],
     skippedDates: [],
     perDateCounts: {},
+    removed: 0,
+    removedDetail: [],
+    protectedSkipped: [],
   };
 
   // --- Load term ---
@@ -138,6 +182,75 @@ export async function runScheduleImport(
   const deptByCodeLower = new Map<string, string>(); // lower code -> dept id
   for (const dept of allDepartments) {
     deptByCodeLower.set(dept.code.toLowerCase(), dept.id);
+  }
+
+  // --- Hub-side changes the reconcile must not undo ---
+  //
+  // Keyed "<departmentId>|<dateKey>|<personId>". A protected key is skipped for
+  // BOTH directions: Airtable can neither add it back nor take it away. That is
+  // the point -- the Hub is the newer authority for anything touched since the
+  // cutoff, whichever way it was touched.
+  const protectedKeys = new Map<string, "recent-edit" | "recent-request">();
+  const protectKey = (
+    departmentId: string,
+    date: Date | null,
+    personId: string | null,
+    reason: "recent-edit" | "recent-request",
+  ) => {
+    if (!date || !personId) return;
+    protectedKeys.set(`${departmentId}|${isoDateKey(date)}|${personId}`, reason);
+  };
+
+  if (options.reconcile && options.protectSince) {
+    const since = options.protectSince;
+
+    // 1. Rows created or edited in the builder. Prisma stamps updatedAt on create
+    //    too, so this covers a brand-new assignment as well as a role/tag change.
+    const recentlyTouched = await prisma.shiftAssignment.findMany({
+      where: { termId: term.id, updatedAt: { gte: since } },
+      select: { departmentId: true, clinicDate: true, personId: true },
+    });
+    for (const row of recentlyTouched) {
+      protectKey(row.departmentId, row.clinicDate, row.personId, "recent-edit");
+    }
+
+    // 2. Approved swaps and drops. Load-bearing: approving a drop DELETES the
+    //    assignment, so nothing above can see it. Both people and both dates are
+    //    protected -- a swap moves two people across two dates, and protecting
+    //    the superset is the safe direction when the alternative is resurrecting
+    //    a shift somebody was released from.
+    const recentDecisions = await prisma.shiftRequest.findMany({
+      where: { termId: term.id, status: "APPROVED", decidedAt: { gte: since } },
+      select: {
+        departmentId: true, requesterId: true, requesterDate: true,
+        targetId: true, targetDate: true,
+      },
+    });
+    for (const r of recentDecisions) {
+      for (const date of [r.requesterDate, r.targetDate]) {
+        protectKey(r.departmentId, date, r.requesterId, "recent-request");
+        protectKey(r.departmentId, date, r.targetId, "recent-request");
+      }
+    }
+
+    // 3. Direct builder removals. schedule.unassign deletes the row outright, so
+    //    like an approved drop it leaves nothing behind carrying a timestamp --
+    //    the audit entry is the only evidence it happened. entityId is written as
+    //    "<termId>|<departmentId>|<dateKey>|<personId>" (builder.ts).
+    const recentAudits = await prisma.auditLog.findMany({
+      where: {
+        entityType: "ShiftAssignment",
+        action: { in: ["schedule.unassign", "schedule.assign"] },
+        createdAt: { gte: since },
+      },
+      select: { entityId: true },
+    });
+    for (const { entityId } of recentAudits) {
+      const parts = (entityId ?? "").split("|");
+      if (parts.length !== 4 || parts[0] !== term.id) continue;
+      const [, departmentId, dateKey, personId] = parts;
+      protectedKeys.set(`${departmentId}|${dateKey}|${personId}`, "recent-edit");
+    }
   }
 
   // --- Load schedule rows from Airtable ---
@@ -300,8 +413,16 @@ export async function runScheduleImport(
       existingMap.set(row.personId, row);
     }
 
+    const departmentCode = allDepartments.find((d) => d.id === departmentId)?.code ?? departmentId;
+    const isProtected = (personId: string) => protectedKeys.get(`${departmentId}|${dateStr}|${personId}`);
+
     // Apply: upsert each desired row
     for (const desired of desiredMap.values()) {
+      const guard = isProtected(desired.personId);
+      if (guard) {
+        report.protectedSkipped.push({ date: dateStr, department: departmentCode, personId: desired.personId, reason: guard });
+        continue;
+      }
       const existingRow = existingMap.get(desired.personId);
 
       if (existingRow) {
@@ -356,6 +477,26 @@ export async function runScheduleImport(
           },
         });
         report.created++;
+      }
+    }
+
+    // Reconcile: anyone the Hub has for this (department, date) that Airtable no
+    // longer lists. Scoped to this pair precisely because Airtable described it;
+    // a department or date missing from the export never reaches here, so a
+    // partial export cannot empty the schedule.
+    if (options.reconcile) {
+      for (const [personId, row] of existingMap) {
+        if (desiredMap.has(personId)) continue;
+        const guard = isProtected(personId);
+        if (guard) {
+          report.protectedSkipped.push({ date: dateStr, department: departmentCode, personId, reason: guard });
+          continue;
+        }
+        report.removedDetail.push({ date: dateStr, department: departmentCode, personId, role: row.role });
+        report.removed++;
+        if (!options.dryRun) {
+          await prisma.shiftAssignment.delete({ where: { id: row.id } });
+        }
       }
     }
   }

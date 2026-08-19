@@ -111,6 +111,34 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
 }
 
+/**
+ * Submitted applications in a VOLUNTEER cycle that no department can see yet.
+ *
+ * listApplicantsForReview scopes a department reviewer to applications ROUTED to
+ * one of their departments, and a new applicant submits with routedDepartmentCode
+ * null unless they renewed or picked an auto-route department first. Every fresh
+ * application is therefore invisible to every department reviewer until the
+ * committee routes it -- correct, but indistinguishable from "nobody applied"
+ * when the list renders empty. QA read exactly that and concluded a cycle had no
+ * applicants while one sat unrouted.
+ *
+ * Returns 0 for a reviewer who already sees everything, since for them an empty
+ * list genuinely means no submissions.
+ */
+export async function awaitingRoutingCount(cycleId: string, viewerId: string): Promise<number> {
+  const [scope, managesCycles, canScore, cycle] = await Promise.all([
+    reviewScope(viewerId),
+    can(viewerId, "recruitment.manage_cycles"),
+    can(viewerId, "recruitment.score"),
+    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } }),
+  ]);
+  if (scope.all || managesCycles || canScore) return 0;
+  if (cycle?.track !== "VOLUNTEER") return 0;
+  return prisma.application.count({
+    where: { cycleId, status: "SUBMITTED", routedDepartmentCode: null },
+  });
+}
+
 export type WaitlistEntry = {
   applicationId: string;
   applicantName: string;

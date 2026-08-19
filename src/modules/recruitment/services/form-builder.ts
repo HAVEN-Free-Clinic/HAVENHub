@@ -2,6 +2,38 @@ import type { ApplicantScope, FieldType, FormField, FormSection } from "@prisma/
 import { prisma } from "@/platform/db";
 import { uniqueKey } from "../engine/field-key";
 import { parseFieldCondition } from "../engine/field-visibility";
+import { LANGUAGES_FIELD_KEY } from "@/platform/languages";
+
+/**
+ * Field keys publishCycle refuses to publish without, so they must not be
+ * deletable once a cycle IS published.
+ *
+ * publishCycle checks these once, at the DRAFT -> OPEN transition, and nothing
+ * re-checked afterwards while assertCycleEditable only ever blocked ARCHIVED.
+ * A live cycle could therefore lose the very fields that make a submission
+ * possible: applicants walked a form that never asked their name or email, and
+ * submitPublicApplication threw on the empty identity rather than failing any
+ * single field -- surfacing as "Something went wrong submitting your
+ * application" with no field for the wizard to bounce them to (QA could not
+ * apply, and correctly reported missing nothing).
+ *
+ * DRAFT is deliberately exempt: restructuring before going live is the point of
+ * a draft, and publishCycle is still the gate.
+ */
+const UNDELETABLE_FIELD_KEYS = new Set(["first_name", "last_name", "email", LANGUAGES_FIELD_KEY]);
+
+/** Throws when removing `keys` would strip a published cycle of a required field. */
+async function assertKeysRemovable(cycleId: string, keys: string[]): Promise<void> {
+  const offending = keys.filter((k) => UNDELETABLE_FIELD_KEYS.has(k));
+  if (offending.length === 0) return;
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { status: true } });
+  if (!cycle || cycle.status === "DRAFT") return;
+  throw new FormEditError(
+    `This cycle is published, so it cannot lose ${offending.join(", ")}. ` +
+    "Applicants would reach the end of the form and be unable to submit. " +
+    "Close the cycle first if the form really needs restructuring.",
+  );
+}
 
 export class FormEditError extends Error {
   constructor(message: string) {
@@ -144,6 +176,7 @@ export async function deleteField(fieldId: string): Promise<void> {
   const field = await prisma.formField.findUnique({ where: { id: fieldId }, include: { section: { select: { purpose: true } } } });
   if (!field) throw new FormEditError("Field not found.");
   await assertCycleEditable(field.cycleId, field.section.purpose !== "QUIZ");
+  await assertKeysRemovable(field.cycleId, [field.key]);
   await prisma.formField.delete({ where: { id: fieldId } });
 }
 
@@ -228,8 +261,14 @@ export async function updateSection(
 }
 
 export async function deleteSection(sectionId: string): Promise<void> {
-  const section = await prisma.formSection.findUnique({ where: { id: sectionId } });
+  const section = await prisma.formSection.findUnique({
+    where: { id: sectionId },
+    include: { fields: { select: { key: true } } },
+  });
   if (!section) throw new FormEditError("Section not found.");
   await assertCycleEditable(section.cycleId, true);
+  // Deleting a section cascades to its fields, so it can strip a required key
+  // just as deleteField can.
+  await assertKeysRemovable(section.cycleId, section.fields.map((f) => f.key));
   await prisma.formSection.delete({ where: { id: sectionId } });
 }

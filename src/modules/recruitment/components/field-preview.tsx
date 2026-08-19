@@ -55,7 +55,13 @@ export function FieldPreview({
   // can paste a wall of text (or an unbroken run with no spaces at all) into either,
   // and without this it lays out on one line and widens every ancestor rather than
   // wrapping inside the field.
-  const help = f.helpText ? <span className="mt-1 block break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
+  // whitespace-pre-line: help text is authored as real prose with blank lines
+  // between sections (see templates/content/acknowledgements.ts, whose policy text
+  // carries its own headings). Collapsing those newlines ran the headings into the
+  // sentence after them -- "...equivalent consequences. Professionalism Volunteers
+  // are expected to..." -- which is what QA saw as headings "blending in with the
+  // text". The source was already correct; only the rendering dropped the breaks.
+  const help = f.helpText ? <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
   const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical [overflow-wrap:anywhere]">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);
@@ -111,7 +117,12 @@ export function FieldPreview({
             disabled={disabled}
             {...errorAria}
             accept={accept}
-            className="mt-1.5 cursor-pointer"
+            // The native control renders "Choose File" and "No file chosen" as two
+            // runs of identical plain text, so the part you click does not read as
+            // clickable. Style ::file-selector-button to match the Button primitive
+            // (bg-brand / white / rounded), which also separates the action from the
+            // filename beside it.
+            className="mt-1.5 cursor-pointer file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-1 file:text-sm file:font-medium file:text-white hover:file:bg-brand-hover"
           />
           {draftFile && (
             <span className="mt-1 block text-xs text-muted-foreground">Attached: {draftFile.fileName ?? "uploaded file"}</span>

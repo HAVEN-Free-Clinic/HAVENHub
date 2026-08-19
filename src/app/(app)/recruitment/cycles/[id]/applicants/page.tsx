@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
-import { listApplicantsForReview, reviewScope } from "@/modules/recruitment/services/review";
+import { listApplicantsForReview, reviewScope, awaitingRoutingCount } from "@/modules/recruitment/services/review";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -56,6 +56,8 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
+  // Only meaningful when the scoped list came back empty; see awaitingRoutingCount.
+  const unrouted = apps.length === 0 ? await awaitingRoutingCount(id, person.personId) : 0;
   const [scope, canScorePerm, canOpenOverview] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.score"),
@@ -211,7 +213,11 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           {filtered.length === 0 && (
             <TR>
               <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
-                {apps.length === 0 ? "No applicants in your review scope." : "No applicants match this filter."}
+                {apps.length > 0
+                  ? "No applicants match this filter."
+                  : unrouted > 0
+                    ? `No applicants in your review scope yet. ${unrouted} submitted ${unrouted === 1 ? "application is" : "applications are"} waiting to be routed to a department, and will appear here once ${unrouted === 1 ? "it reaches" : "they reach"} yours.`
+                    : "No applicants in your review scope."}
               </TD>
             </TR>
           )}

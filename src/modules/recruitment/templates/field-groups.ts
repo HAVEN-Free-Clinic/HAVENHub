@@ -111,14 +111,24 @@ export function additionalOpportunitiesSection(): TemplateSection {
     { key: "vadm_dual_option", label: "VADM dual option", type: "CHECKBOX", required: false,
       helpText: "If you are a licensed RN in CT (or otherwise hold a valid U.S. license to administer vaccines, or are willing to become CT-licensed) and are willing to administer vaccines on weekends when not scheduled with your department, check this box." },
     { key: "intp_dual_option", label: "INTP dual option", type: "CHECKBOX", required: false,
-      helpText: "If you are fluent in a language other than English and would be comfortable serving on-call as an interpreter, check this box and tell us what language you speak. We will contact you to assess your proficiency." },
+      // No longer says "tell us what language you speak": the standard language
+      // question is its own step and runs BEFORE this one, so by the time an
+      // applicant reads this they have already told us. Point back at that answer
+      // instead of asking for it a second time.
+      helpText: "If you are fluent in one of the languages you listed earlier and would be comfortable serving on-call as an interpreter, check this box. We will contact you to assess your proficiency." },
   ]);
 }
 
 export function availabilitySection(dates: TemplateOption[]): TemplateSection {
   return sec("Availability", "BOTH", [
     { key: "availability", label: "Please indicate all clinic dates you are available to volunteer", type: "MULTI_SELECT", required: true, options: dates,
-      helpText: "To be eligible you must commit to a minimum of four shifts. If you are applying for a non-patient-facing role, select the weeks you are available to commit to HAVEN." },
+      // Deliberately NOT enforced as a four-selection minimum: the second sentence
+      // exempts non-patient-facing applicants, and the form cannot tell which kind
+      // an applicant is at this step, so a blanket minimum would hard-block the
+      // exempt group. Reworded to say who the four applies to instead of stating it
+      // as a universal rule the form then fails to hold anyone to. Enforcing it
+      // properly needs the requirement split per role -- a product decision.
+      helpText: "Patient-facing volunteers must commit to at least four shifts, so select at least four dates. If you are applying for a non-patient-facing role, select the weeks you are available to commit to HAVEN." },
   ]);
 }
 
@@ -153,7 +163,7 @@ export function volunteerDepartmentSwitchSection(): TemplateSection {
 export function volunteerApplicationMaterialsSection(): TemplateSection {
   return sec("Application materials", "NEW", [
     { key: "cover_letter", label: "Cover letter", type: "FILE", required: true,
-      helpText: "We request that all new incoming volunteers or if you want to switch departments please submit a PDF cover letter." },
+      helpText: "Required if you are new to HAVEN or switching departments. PDF only." },
     { key: "resume", label: "Resume", type: "FILE", required: true, helpText: "Please upload your resume here." },
   ]);
 }

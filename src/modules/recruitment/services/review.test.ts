@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
-  reviewScope, listApplicantsForReview, listReviewableCycles, revokeAcceptance, listAcceptances,
+  reviewScope, listApplicantsForReview, awaitingRoutingCount, listReviewableCycles, revokeAcceptance, listAcceptances,
   canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError,
 } from "./review";
 
@@ -68,6 +68,28 @@ describe("listApplicantsForReview", () => {
     const apps = await listApplicantsForReview(dCycle.id, director.id);
     expect(apps.map((a) => a.id)).toEqual([ranksSrhd.id]);
   });
+  it("counts unrouted submissions a director cannot see, so an empty list is not read as 'nobody applied'", async () => {
+    // Both seeded applications are SUBMITTED and unrouted, so the director's
+    // scoped list is empty while two people have in fact applied. QA hit exactly
+    // this and concluded the cycle had no applicants.
+    const { director, srr, scorer, cycle, appMdic } = await seed();
+    expect(await listApplicantsForReview(cycle.id, director.id)).toHaveLength(0);
+    expect(await awaitingRoutingCount(cycle.id, director.id)).toBe(2);
+
+    // Routing one to the director's department moves it out of the pending count
+    // and into their list.
+    await prisma.application.update({
+      where: { id: appMdic.id },
+      data: { routedDepartmentCode: "SRHD", routedById: srr.id, routedAt: new Date() },
+    });
+    expect(await listApplicantsForReview(cycle.id, director.id)).toHaveLength(1);
+    expect(await awaitingRoutingCount(cycle.id, director.id)).toBe(1);
+
+    // Reviewers who already see everything get 0: for them empty means empty.
+    expect(await awaitingRoutingCount(cycle.id, srr.id)).toBe(0);
+    expect(await awaitingRoutingCount(cycle.id, scorer.id)).toBe(0);
+  });
+
   it("shows SRR every applicant", async () => {
     const { srr, cycle } = await seed();
     const apps = await listApplicantsForReview(cycle.id, srr.id);

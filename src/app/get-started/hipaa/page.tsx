@@ -10,6 +10,7 @@ import {
 import { effectiveCompliance } from "@/platform/compliance/rules";
 import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getSetting } from "@/platform/settings/service";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
 export default async function OnboardingHipaaPage() {
@@ -19,9 +20,10 @@ export default async function OnboardingHipaaPage() {
   const task = status.tasks.find((t) => t.key === "hipaa");
   if (!task || task.state === "COMPLETE" || task.state === "NOT_REQUIRED") redirect("/get-started");
 
-  const [{ activeTerm }, certificates] = await Promise.all([
+  const [{ activeTerm }, certificates, maxMb] = await Promise.all([
     getMyInfo(person.personId),
     listMyCertificates(person.personId),
+    getSetting<number>("uploads.maxMb"),
   ]);
   // Effective status (full history, verified-fallback): a returning member
   // re-onboarding with an early renewal whose prior verified cert is still valid
@@ -61,6 +63,7 @@ export default async function OnboardingHipaaPage() {
       <HipaaPanel
         certificates={certificates}
         uploadAction={uploadAction}
+        maxMb={maxMb}
         status={certStatus}
         statusCert={certStatusCert}
       />

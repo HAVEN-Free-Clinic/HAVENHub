@@ -106,7 +106,14 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      // The platform hard-limits a Server Action request body to ~4.5 MB
+      // (FUNCTION_PAYLOAD_TOO_LARGE) and answers a larger POST at the edge,
+      // before any app code runs. This ceiling must not promise more than the
+      // platform delivers: the old "25mb" claimed ~5x what an upload could ever
+      // reach, so a file the config accepted still died opaquely at the edge.
+      // Kept just above uploads.maxMb (capped at 4) so the app-level cap is what
+      // rejects an oversized upload, with a real message (#75).
+      bodySizeLimit: "5mb",
     },
   },
   async rewrites() {

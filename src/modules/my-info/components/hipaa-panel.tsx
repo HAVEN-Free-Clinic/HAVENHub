@@ -34,6 +34,7 @@ import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
+import { UploadSizeField } from "@/modules/my-info/components/upload-size-field";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -43,6 +44,8 @@ function formatSize(bytes: number): string {
 type HipaaPanelProps = {
   certificates: HipaaCertificate[];
   uploadAction: (formData: FormData) => Promise<void>;
+  /** Upload size cap (uploads.maxMb), enforced browser-side before submit. */
+  maxMb: number;
   /**
    * The EFFECTIVE status, which mid-renewal describes an older verified
    * certificate rather than the newest upload.
@@ -86,6 +89,7 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
 export async function HipaaPanel({
   certificates,
   uploadAction,
+  maxMb,
   status,
   statusCert,
 }: HipaaPanelProps) {
@@ -112,9 +116,8 @@ export async function HipaaPanel({
         </div>
       )}
       <form action={uploadAction}>
-        <Field label="HIPAA certificate (PDF)" hint="PDF only.">
-          {/* eslint-disable-next-line no-restricted-syntax -- native file input with file-button pseudo-element styling (file:* classes); no file primitive exists */}
-          <input type="file" name="certificate" accept="application/pdf" className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
+        <Field label="HIPAA certificate (PDF)" hint={`PDF only, up to ${maxMb} MB.`}>
+          <UploadSizeField name="certificate" accept="application/pdf" maxMb={maxMb} />
         </Field>
         <FormActions>
           <SubmitButton variant="outline" size="sm" pendingLabel="Uploading…">

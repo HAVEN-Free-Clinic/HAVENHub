@@ -336,6 +336,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
+            maxMb={maxMb}
             status={status}
             statusCert={statusCert}
           />

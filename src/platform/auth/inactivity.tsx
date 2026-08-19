@@ -36,7 +36,11 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
       }, TIMEOUT_MS - WARNING_MS);
 
       logoutTimer = setTimeout(() => {
-        signOut({ callbackUrl: "/login" });
+        // After 30 idle minutes the machine is often asleep or offline, so the
+        // signOut fetch can die. The session still expires server-side and the
+        // next navigation goes to /login, so swallow the dead-network rejection
+        // instead of letting it surface as an untraceable Error Tracking issue.
+        signOut({ redirectTo: "/login" }).catch(() => {});
       }, TIMEOUT_MS);
     };
     resetRef.current = reset;

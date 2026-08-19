@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { createCycle, publishCycle, closeCycle, archiveCycle } from "./cycles";
 import {
-  addSection, addField, updateField, deleteField, reorderSections, reorderFields, FormEditError,
+  addSection, addField, updateField, deleteField, deleteSection, reorderSections, reorderFields, FormEditError,
 } from "./form-builder";
 
 async function draftCycle(acceptsRenewals = false) {
@@ -207,6 +207,53 @@ it("blocks adding a required APPLICATION field on an ARCHIVED cycle", async () =
   const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "C", publicSlug: "c-archived-app", departments: [], createdById: srr.id, status: "ARCHIVED" } });
   const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
   await expect(addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: true })).rejects.toBeInstanceOf(FormEditError);
+});
+
+describe("a published cycle keeps the fields publishCycle demanded", () => {
+  /** A published cycle with the seeded identity section, as createCycle leaves it. */
+  async function publishedCycle(slug: string) {
+    const person = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+    const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date() } });
+    const cycle = await createCycle({ track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: slug, departments: ["SRHD"], acceptsRenewals: false, createdById: person.id });
+    await publishCycle(cycle.id, person.id);
+    const identity = await prisma.formSection.findFirstOrThrow({
+      where: { cycleId: cycle.id, fields: { some: { key: "first_name" } } },
+      include: { fields: true },
+    });
+    return { cycle, identity };
+  }
+
+  it("refuses to delete an identity field, which would leave applicants unable to submit", async () => {
+    // QA's cycle reached applicants with no personal-details step at all: they
+    // walked the whole wizard and got a bare "Something went wrong submitting
+    // your application" with no field to bounce to, because the throw came from
+    // the empty identity rather than from any one field's validation.
+    const { identity } = await publishedCycle("v-identity-field");
+    const email = identity.fields.find((f) => f.key === "email")!;
+    await expect(deleteField(email.id)).rejects.toBeInstanceOf(FormEditError);
+    expect(await prisma.formField.count({ where: { id: email.id } })).toBe(1);
+  });
+
+  it("refuses to delete the section holding them, since the delete cascades", async () => {
+    const { identity } = await publishedCycle("v-identity-section");
+    await expect(deleteSection(identity.id)).rejects.toBeInstanceOf(FormEditError);
+    expect(await prisma.formField.count({ where: { sectionId: identity.id, key: "first_name" } })).toBe(1);
+  });
+
+  it("still allows deleting a field the publish gate does not require", async () => {
+    const { cycle } = await publishedCycle("v-identity-other");
+    const sec = await addSection(cycle.id, { title: "More", appliesTo: "BOTH", departmentCode: null });
+    const extra = await addField(sec.id, { label: "Extra", type: "SHORT_TEXT", required: false });
+    await deleteField(extra.id);
+    expect(await prisma.formField.count({ where: { id: extra.id } })).toBe(0);
+  });
+
+  it("leaves a DRAFT free to restructure, since publishCycle is still the gate", async () => {
+    const { cycle } = await draftCycle();
+    const email = await prisma.formField.findFirstOrThrow({ where: { cycleId: cycle.id, key: "email" } });
+    await deleteField(email.id);
+    expect(await prisma.formField.count({ where: { id: email.id } })).toBe(0);
+  });
 });
 
 describe("visibleWhen persistence", () => {

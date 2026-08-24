@@ -1,6 +1,6 @@
 import type { ShiftRole } from "@prisma/client";
 import { esc } from "@/platform/email/render/escape";
-import { shiftReminderContext } from "./templates/shift";
+import { shiftReminderContext, ccReminderContext, triageReminderContext } from "./templates/shift";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
@@ -24,6 +24,12 @@ export const ROLE_LABEL: Record<ShiftRole, string> = {
 export type ReminderAssignment = {
   personId: string;
   role: ShiftRole;
+  /**
+   * Med-team tags on THIS assignment row (see ShiftAssignment). Only the two
+   * that drive a supplemental reminder are carried; walkin/remote/specialty are
+   * deliberately absent until ops asks for an email for one of them.
+   */
+  tags: { cc: boolean; triage: boolean };
   department: { id: string; code: string; name: string };
   person: { id: string; name: string; contactEmail: string | null; entraObjectId: string | null };
 };
@@ -70,6 +76,26 @@ function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
 }
 
 /**
+ * Clinic-wide leadership on shift, derived from the assignment rows: EDs are
+ * whoever is scheduled in EXEC, Clinical Advisors whoever is scheduled in PCAR.
+ * Shared by the main reminder and the role reminders so the two emails can
+ * never name a different set of people for the same clinic day.
+ */
+function onShiftLeadership(assignments: ReminderAssignment[]): {
+  edsOnShift: string[];
+  clinicalAdvisorsOnShift: string[];
+} {
+  return {
+    edsOnShift: uniqueNamesById(
+      assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person),
+    ),
+    clinicalAdvisorsOnShift: uniqueNamesById(
+      assignments.filter((a) => a.department.code === "PCAR").map((a) => a.person),
+    ),
+  };
+}
+
+/**
  * Pure: turn one clinic day's assignments into one prepared reminder per
  * scheduled person. Leadership lists (EDs from EXEC, Clinical Advisors from
  * PCAR, department directors) are derived from the same assignment rows. A
@@ -97,12 +123,7 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   // literal host, so it follows the deployment.
   const helpDeskUrl = `${baseUrl}/support/new`;
 
-  const edsOnShift = uniqueNamesById(
-    assignments.filter((a) => a.department.code === "EXEC").map((a) => a.person),
-  );
-  const clinicalAdvisorsOnShift = uniqueNamesById(
-    assignments.filter((a) => a.department.code === "PCAR").map((a) => a.person),
-  );
+  const { edsOnShift, clinicalAdvisorsOnShift } = onShiftLeadership(assignments);
 
   const directorsByDeptCode = new Map<string, { id: string; name: string }[]>();
   for (const a of assignments) {
@@ -182,7 +203,137 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   return prepared;
 }
 
-export type ShiftReminderRunResult = { remindersSent: number; skipped: number };
+/**
+ * The supplemental role reminders: one extra email to the person holding a
+ * special med-team post that clinic day, sent alongside the reminder everyone
+ * else gets.
+ *
+ * BOTH the department code and the tag must match. `rolesForDept` scopes cc to
+ * JCTP and triage to SCTP, so a tag left set on a row in some other department
+ * is stale data rather than a recipient, and must not trigger an email.
+ *
+ * `templateKey` doubles as the notification-registry key and the dedup claim
+ * kind. Keeping them one string is what guarantees the EmailLog lookup, the
+ * ReminderDispatch claim, and the admin channel setting all describe the same
+ * email; splitting them invites a claim that guards nothing.
+ *
+ * Ops asked for these two only. Adding walkin, remote or specialty later is a
+ * descriptor plus a registry key plus one row here, with no change to the loop.
+ */
+export type RoleReminderSpec = {
+  tag: "cc" | "triage";
+  deptCode: string;
+  templateKey: string;
+  /** Human label for the Teams summary and logs. */
+  roleLabel: string;
+  context: (input: RoleReminderContextInput) => Record<string, unknown>;
+};
+
+type RoleReminderContextInput = {
+  firstName: string;
+  clinicDateLabel: string;
+  baseUrl: string;
+  edsOnShift: string;
+  clinicalAdvisorsOnShift: string;
+  attendingOnShift: string;
+};
+
+export const ROLE_REMINDERS: RoleReminderSpec[] = [
+  {
+    tag: "cc",
+    deptCode: "JCTP",
+    templateKey: "shift-reminder-cc",
+    roleLabel: "cc JCTM",
+    context: (i) =>
+      ccReminderContext({
+        firstName: i.firstName,
+        clinicDateLabel: i.clinicDateLabel,
+        helpDeskUrl: `${i.baseUrl}/support/new`,
+      }),
+  },
+  {
+    tag: "triage",
+    deptCode: "SCTP",
+    templateKey: "shift-reminder-triage",
+    roleLabel: "Triage SCTM",
+    context: (i) =>
+      triageReminderContext({
+        firstName: i.firstName,
+        clinicDateLabel: i.clinicDateLabel,
+        edsOnShift: i.edsOnShift,
+        clinicalAdvisorsOnShift: i.clinicalAdvisorsOnShift,
+        // The attending covering the triage department itself, not a
+        // clinic-wide pick: this is the person the triage SCTM actually works
+        // with, and an unstaffed column collapses to "" so the template hides
+        // the clause rather than printing a dangling "and , the on-call attending".
+        attendingOnShift: i.attendingOnShift,
+        masterScheduleUrl: `${i.baseUrl}/schedule/full`,
+      }),
+  },
+];
+
+export type PreparedRoleReminder = {
+  person: ReminderAssignment["person"];
+  spec: RoleReminderSpec;
+  context: Record<string, unknown>;
+  teamsSummary: string;
+};
+
+/**
+ * Pure: the supplemental role reminders for one clinic day. Takes the same
+ * input as buildShiftReminders, so every filter the caller has already applied
+ * (active term, this week only, open clinic date, still-active membership)
+ * covers these emails too and cannot drift out of step with the main reminder.
+ *
+ * A person holding two posts across two shifts gets one email per post. The
+ * (term, department, date, person) uniqueness on ShiftAssignment means no
+ * person can match one spec twice, so no dedup pass is needed here.
+ */
+export function buildRoleReminders(input: BuildShiftRemindersInput): PreparedRoleReminder[] {
+  const { assignments, targetDate, baseUrl, attendingNamesByDepartmentId } = input;
+
+  const clinicDateLabel = formatCalendarDate(targetDate, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const { edsOnShift, clinicalAdvisorsOnShift } = onShiftLeadership(assignments);
+
+  const prepared: PreparedRoleReminder[] = [];
+  for (const spec of ROLE_REMINDERS) {
+    for (const a of assignments) {
+      if (a.department.code !== spec.deptCode) continue;
+      if (!a.tags[spec.tag]) continue;
+      prepared.push({
+        person: a.person,
+        spec,
+        teamsSummary: `You are the ${spec.roleLabel} for HAVEN clinic on ${clinicDateLabel}.`,
+        context: spec.context({
+          firstName: firstNameOf(a.person.name),
+          clinicDateLabel,
+          baseUrl,
+          edsOnShift: edsOnShift.join(", "),
+          clinicalAdvisorsOnShift: clinicalAdvisorsOnShift.join(", "),
+          attendingOnShift: attendingNamesByDepartmentId[a.department.id] ?? "",
+        }),
+      });
+    }
+  }
+
+  prepared.sort(
+    (a, b) =>
+      a.person.name.localeCompare(b.person.name) || a.spec.templateKey.localeCompare(b.spec.templateKey),
+  );
+  return prepared;
+}
+
+export type ShiftReminderRunResult = {
+  remindersSent: number;
+  skipped: number;
+  roleRemindersSent: number;
+  roleRemindersSkipped: number;
+};
 
 /**
  * Weekly shift reminders. Sent Monday mornings to everyone scheduled for the
@@ -190,7 +341,7 @@ export type ShiftReminderRunResult = { remindersSent: number; skipped: number };
  * Teams / inbox rows and the per-minute /api/cron/email tick delivers them.
  */
 export async function runShiftReminders(now: Date = new Date()): Promise<ShiftReminderRunResult> {
-  const result: ShiftReminderRunResult = { remindersSent: 0, skipped: 0 };
+  const result: ShiftReminderRunResult = { remindersSent: 0, skipped: 0, roleRemindersSent: 0, roleRemindersSkipped: 0 };
 
   const term = await getActiveTerm();
   if (!term) return result;
@@ -228,6 +379,8 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       departmentId: true,
       clinicDate: true,
       role: true,
+      cc: true,
+      triage: true,
       department: { select: { id: true, code: true, name: true } },
       person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
     },
@@ -248,7 +401,13 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   const activeInDept = new Set(activeMemberships.map((m) => `${m.personId}:${m.departmentId}`));
   const assignments: ReminderAssignment[] = dated
     .filter((r) => activeInDept.has(`${r.personId}:${r.departmentId}`))
-    .map((r) => ({ personId: r.personId, role: r.role, department: r.department, person: r.person }));
+    .map((r) => ({
+      personId: r.personId,
+      role: r.role,
+      tags: { cc: r.cc, triage: r.triage },
+      department: r.department,
+      person: r.person,
+    }));
   if (assignments.length === 0) return result;
 
   const channelLink = await getCurrentClinicChannelLink({ now });
@@ -351,6 +510,69 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
     }
   }
 
-  if (result.remindersSent > 0) await flushEvents();
+  // The supplemental role reminders. Deliberately a second pass over the SAME
+  // prepared inputs rather than extra sections of the loop above: each carries
+  // its own claim and its own EmailLog window, so a cc or triage email that
+  // fails to render cannot cost that person the reminder everybody gets, and an
+  // admin switching one off leaves the other untouched.
+  const preparedRoles = buildRoleReminders({
+    assignments,
+    targetDate,
+    teamsChannelUrl,
+    baseUrl,
+    attendingNamesByDepartmentId,
+  });
+
+  for (const item of preparedRoles) {
+    if (!item.person.contactEmail) {
+      result.roleRemindersSkipped++;
+      continue;
+    }
+
+    const already = await prisma.emailLog.findFirst({
+      where: { personId: item.person.id, template: item.spec.templateKey, createdAt: { gte: cutoff } },
+      select: { id: true },
+    });
+    if (already) {
+      result.roleRemindersSkipped++;
+      continue;
+    }
+
+    const claimed = await claimReminderDispatch(item.spec.templateKey, item.person.id, targetKey);
+    if (!claimed) {
+      result.roleRemindersSkipped++;
+      continue;
+    }
+
+    try {
+      const rendered = await renderEmail(item.spec.templateKey, item.context);
+      await notify(prisma, {
+        type: item.spec.templateKey,
+        person: {
+          id: item.person.id,
+          entraObjectId: item.person.entraObjectId,
+          contactEmail: item.person.contactEmail,
+        },
+        email: { subject: rendered.subject, html: rendered.html },
+        teams: { title: `${item.spec.roleLabel} reminder`, summary: item.teamsSummary, link: `${baseUrl}/schedule` },
+      });
+      result.roleRemindersSent++;
+      await captureEvent({
+        event: "role_reminder_sent",
+        distinctId: item.person.id,
+        properties: { target_date: targetKey, role: item.spec.roleLabel, template: item.spec.templateKey },
+        groups: { [GROUP_TERM]: term.id },
+        flush: false,
+      });
+    } catch (err) {
+      await releaseReminderDispatch(item.spec.templateKey, item.person.id, targetKey);
+      log.error(
+        `[shift-reminders] Failed to send ${item.spec.templateKey} to person ${item.person.id}`,
+        errorAttrs(err, { personId: item.person.id, template: item.spec.templateKey }),
+      );
+    }
+  }
+
+  if (result.remindersSent > 0 || result.roleRemindersSent > 0) await flushEvents();
   return result;
 }

@@ -70,6 +70,85 @@ const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
 <p>The master schedule can be found <a href="{{ masterScheduleUrl }}">here</a>.</p>
 <p>Thank you for your commitment to our patients and to HAVEN. We look forward to seeing you on Saturday!</p>`;
 
+/**
+ * Supplemental role reminders, sent alongside the weekly shift reminder to the
+ * one or two people holding a special med-team post that clinic day.
+ *
+ * These are separate emails rather than sections of the main reminder because
+ * ops writes them in their own voice, with their own greeting and sign-off, and
+ * wants to be able to turn either off without touching the reminder everybody
+ * gets. Recipients are derived from the ShiftAssignment tags (JCTP + cc, SCTP +
+ * triage), so publishing the schedule is the only step required to send them.
+ *
+ * The reference documents are LINKED to SharePoint rather than attached, because
+ * notify() has no attachment path. The links are static body text, so an admin
+ * can repoint one in /admin/email/templates without a deploy: worth knowing that
+ * two of the triage docs currently live under Archived Clinic Day Channels, and
+ * the Clinical Reasoning Tool sits on a personal OneDrive, so both are likelier
+ * than the rest to move or go dead.
+ */
+
+export type CcReminderParams = {
+  firstName: string;
+  clinicDateLabel: string;
+  /** Hub IT ticketing, for Epic or Doximity access problems. */
+  helpDeskUrl: string;
+};
+
+export function ccReminderContext(p: CcReminderParams): Record<string, unknown> {
+  return { ...p };
+}
+
+const CC_DEFAULT_BODY = `<p>Hi {{ firstName }},</p>
+<p>Thank you so much for volunteering to be our <strong>cc JCTM</strong> for clinic on {{ clinicDateLabel }}! We appreciate your help in making sure our patients get notified of their recent lab and imaging results in a timely and understandable manner.</p>
+<h2>Before Clinic Day</h2>
+<ul>
+<li>Read over the <a href="https://yaleedu.sharepoint.com/:w:/r/sites/HAVENFreeClinic/Shared%20Documents/CA%20-%20Clinical%20Advisors/1.%20SCTM+JCTM%20Resources%20%26%20Guides/2.%20CC_JCTM_Guide_31JAN2026.docx?d=w7153c726a75f4416a24e7f25a7af5683&amp;csf=1&amp;web=1&amp;e=JCUPm8"><strong>CC JCTM Guide</strong></a>.</li>
+<li>Check that you have both <strong>Epic</strong> and <strong>Doximity</strong> access. If either is not working, submit a Help Desk ticket <a href="{{ helpDeskUrl }}">here</a> as soon as possible.</li>
+<li>You can touch base with us in the CA/Attending workroom on Saturday before you start.</li>
+</ul>
+<h2>Dot Phrases</h2>
+<p>Feel free to steal the dot phrases as below:</p>
+<ol>
+<li>Go to the Epic search bar and type "smartphrase manager" (top of screen).</li>
+<li>Type "Tyger Lin" under User (middle of screen).</li>
+<li>Type the dot phrase under Search (right side of screen).</li>
+</ol>
+<p>Thanks so much, and let us know if you have any questions!</p>
+<p>Best,<br/>HAVEN CAs</p>`;
+
+export type TriageReminderParams = {
+  firstName: string;
+  clinicDateLabel: string;
+  edsOnShift: string;
+  clinicalAdvisorsOnShift: string;
+  /** Attending covering the triage department this clinic date, or "". */
+  attendingOnShift: string;
+  masterScheduleUrl: string;
+};
+
+export function triageReminderContext(p: TriageReminderParams): Record<string, unknown> {
+  return { ...p };
+}
+
+const TRIAGE_DEFAULT_BODY = `<p>Hi {{ firstName }},</p>
+<p>Thank you for being our <strong>Triage SCTM</strong> for the week of {{ clinicDateLabel }}! You should have been added to the Triage Chat on Microsoft Teams. If not, please reach out to {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}.</p>
+<p>Calls will be posted to the triage chat. You are then expected to return calls within a reasonable time frame. You will work closely with the Clinical Advisors{{#if attendingOnShift}} and <strong>{{ attendingOnShift }}</strong>, the on-call attending{{/if}}.</p>
+<h2>Before You Start</h2>
+<p>Please review the following documents:</p>
+<ul>
+<li><a href="https://yaleedu.sharepoint.com/:x:/r/sites/HAVENFreeClinic/Shared%20Documents/General/Triage%20To%20Do%20for%20PS,%20CA,%20%26%20Triage%20SCTM.xlsx?d=we32843a720124cd4ba7b1c9988c9c7bb&amp;csf=1&amp;web=1&amp;e=dgbalL">Triage To Do for PS, CA &amp; Triage SCTM</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:p:/r/sites/HAVENFreeClinic/Shared%20Documents/Archived%20Clinic%20Day%20Channels/01.13.24%20Clinic/Triage%20SCTM%20Resources/HAVEN%20On%20Call%20Triage%20Slides.pptx?d=wc29cd3cd320041a0982bc84455d1f797&amp;csf=1&amp;web=1&amp;e=cUcSxJ">HAVEN On Call Triage Slides</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:w:/r/sites/HAVENFreeClinic/Shared%20Documents/Archived%20Clinic%20Day%20Channels/08-03-24%20Clinic/Triage%20SCTM%20Resources/Triage%20SCTM%20protocol%20for%20ED%20follow%20up.docx?d=wbb225fccdce8470e97d802f7cd98e454&amp;csf=1&amp;web=1&amp;e=OwyiOn">Triage SCTM protocol for ED follow up</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:x:/r/sites/HAVENFreeClinic/Shared%20Documents/LCCN%20-%20Longitudinal%20Care%20Coordination/Protocol%20docs/ED%20and%20hospital%20discharge%20tracker.xlsx?d=wa1e1454892a349ff85ebfaa9c3af75db&amp;csf=1&amp;web=1&amp;e=KRTBFP">ED and hospital discharge tracker</a></li>
+<li><a href="https://yaleedu-my.sharepoint.com/:w:/g/personal/wilton_sun_yale_edu/IQBuQ7p-vawORJzNiyxtamQ8AXTbNbA6Ad_SljgXfDJSryw?e=P8Iqai">HAVEN Free Clinic Triage SCTM Clinical Reasoning Tool</a> (example)</li>
+</ul>
+<h2>Questions?</h2>
+<p>If you have any specific questions, feel free to reach out to {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{#if clinicalAdvisorsOnShift}}, or the Clinical Advisor(s) on shift, <strong>{{ clinicalAdvisorsOnShift }}</strong>{{/if}}{{else}}{{#if clinicalAdvisorsOnShift}}the Clinical Advisor(s) on shift, <strong>{{ clinicalAdvisorsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}{{/if}}.</p>
+<p>The master schedule can be found <a href="{{ masterScheduleUrl }}">here</a>.</p>
+<p>Thank you for all your hard work!</p>
+<p>HAVEN EDs and CAs</p>`;
+
 export const shiftDescriptors: TemplateDescriptor[] = [
   {
     key: "shift-reminder",
@@ -94,5 +173,34 @@ export const shiftDescriptors: TemplateDescriptor[] = [
     ],
     defaultSubject: "Reminder: your HAVEN shift on {{ clinicDateLabel }}",
     defaultBody: DEFAULT_BODY,
+  },
+  {
+    key: "shift-reminder-cc",
+    name: "Shift: cc JCTM reminder",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "firstName", label: "Recipient first name", sampleValue: "Sam" },
+      { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, July 11, 2026" },
+      { name: "helpDeskUrl", label: "IT help desk ticket link (Epic / Doximity issues)", sampleValue: "https://hub.example.org/support/new" },
+    ],
+    defaultSubject: "You are the cc JCTM for HAVEN clinic on {{ clinicDateLabel }}",
+    defaultBody: CC_DEFAULT_BODY,
+  },
+  {
+    key: "shift-reminder-triage",
+    name: "Shift: Triage SCTM reminder",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "firstName", label: "Recipient first name", sampleValue: "Sam" },
+      { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, July 11, 2026" },
+      { name: "edsOnShift", label: "Executive Directors on shift (names)", sampleValue: "Jordan Blake, Riley Chen" },
+      { name: "clinicalAdvisorsOnShift", label: "Clinical Advisors on shift (names)", sampleValue: "Dr. Pat Lee" },
+      { name: "attendingOnShift", label: "On-call attending (name)", sampleValue: "Dr. Morgan Ellis" },
+      { name: "masterScheduleUrl", label: "Master schedule link", sampleValue: "https://hub.example.org/schedule/full" },
+    ],
+    defaultSubject: "You are the Triage SCTM for the week of {{ clinicDateLabel }}",
+    defaultBody: TRIAGE_DEFAULT_BODY,
   },
 ];

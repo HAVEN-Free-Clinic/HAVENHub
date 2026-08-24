@@ -10,7 +10,7 @@ function person(id: string, name: string, email: string | null = `${id}@x.org`):
 function row(p: ReminderAssignment["person"], code: string, deptName: string, role: ReminderAssignment["role"]): ReminderAssignment {
   // Department ids are derived from the code so a test row is self-consistent:
   // the attending map below is keyed by id, and the two must agree.
-  return { personId: p.id, role, department: { id: `dept-${code}`, code, name: deptName }, person: p };
+  return { personId: p.id, role, tags: { cc: false, triage: false }, department: { id: `dept-${code}`, code, name: deptName }, person: p };
 }
 
 describe("buildShiftReminders", () => {

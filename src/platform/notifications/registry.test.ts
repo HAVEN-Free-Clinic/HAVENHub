@@ -33,6 +33,8 @@ describe("notification registry", () => {
         "support.comment_added",
         "support.request_resolved",
         "shift-reminder",
+        "shift-reminder-cc",
+        "shift-reminder-triage",
         "clinic-checkin-invite",
         "volunteers.language_assessed",
         "volunteers.self_withdrawal",

@@ -44,6 +44,7 @@ async function schedule(
   personId: string,
   clinicDate: Date,
   role: "DIRECTOR" | "VOLUNTEER" | "SHADOW",
+  tags: { cc?: boolean; triage?: boolean } = {},
 ) {
   // A scheduled person is an active member of that department; the reminder cron
   // now requires that (so it skips offboarded people with leftover assignments).
@@ -52,7 +53,9 @@ async function schedule(
     create: { personId, termId, departmentId, kind: role === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER", status: "ACTIVE" },
     update: { status: "ACTIVE" },
   });
-  return prisma.shiftAssignment.create({ data: { termId, departmentId, personId, clinicDate, role } });
+  return prisma.shiftAssignment.create({
+    data: { termId, departmentId, personId, clinicDate, role, cc: tags.cc ?? false, triage: tags.triage ?? false },
+  });
 }
 async function shiftEmailCount() {
   return prisma.emailLog.count({ where: { template: "shift-reminder" } });
@@ -352,5 +355,81 @@ describe("runShiftReminders", () => {
     const log = await prisma.emailLog.findFirstOrThrow({ where: { template: "shift-reminder" } });
     expect(log.html).not.toContain("Dr. Retired");
     expect(log.html).not.toContain("Attending on shift");
+  });
+});
+
+describe("runShiftReminders role reminders", () => {
+  it("sends the cc and triage emails on top of the reminder everyone gets", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const jctp = await createDepartment("JCTP", "Junior Primary Care");
+    const exec = await createDepartment("EXEC", "Executive Directors");
+    const pcar = await createDepartment("PCAR", "Primary Care Advisors");
+
+    const triagePerson = await createPerson("Tal Triage", "tal@x.org");
+    const ccPerson = await createPerson("Casey Coordinator", "casey@x.org");
+    const plain = await createPerson("Val Volunteer", "val@x.org");
+    const ed = await createPerson("Ed Exec", "ed@x.org");
+    const ca = await createPerson("Cara Advisor", "cara@x.org");
+
+    await schedule(term.id, sctp.id, triagePerson.id, target, "VOLUNTEER", { triage: true });
+    await schedule(term.id, jctp.id, ccPerson.id, target, "VOLUNTEER", { cc: true });
+    await schedule(term.id, sctp.id, plain.id, target, "VOLUNTEER");
+    await schedule(term.id, exec.id, ed.id, target, "DIRECTOR");
+    await schedule(term.id, pcar.id, ca.id, target, "DIRECTOR");
+
+    const result = await runShiftReminders(NOW);
+
+    // Everyone still gets the standard reminder; the role emails are additional.
+    expect(result.remindersSent).toBe(5);
+    expect(result.roleRemindersSent).toBe(2);
+    expect(await shiftEmailCount()).toBe(5);
+
+    const triageEmail = await prisma.emailLog.findFirst({
+      where: { template: "shift-reminder-triage", personId: triagePerson.id },
+    });
+    expect(triageEmail).not.toBeNull();
+    expect(triageEmail!.html).toContain("Triage Chat");
+    // The leadership names come from the same clinic day as the main reminder.
+    expect(triageEmail!.html).toContain("Ed Exec");
+    expect(triageEmail!.html).toContain("Cara Advisor");
+
+    const ccEmail = await prisma.emailLog.findFirst({
+      where: { template: "shift-reminder-cc", personId: ccPerson.id },
+    });
+    expect(ccEmail).not.toBeNull();
+    expect(ccEmail!.html).toContain("Doximity");
+
+    // Nobody untagged is drawn into either extra email.
+    expect(await prisma.emailLog.count({ where: { personId: plain.id, template: { startsWith: "shift-reminder-" } } })).toBe(0);
+  });
+
+  it("does not re-send a role email on a second run in the same clinic week", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const triagePerson = await createPerson("Tal Triage", "tal@x.org");
+    await schedule(term.id, sctp.id, triagePerson.id, target, "VOLUNTEER", { triage: true });
+
+    expect((await runShiftReminders(NOW)).roleRemindersSent).toBe(1);
+    const second = await runShiftReminders(NOW);
+    expect(second.roleRemindersSent).toBe(0);
+    expect(second.roleRemindersSkipped).toBe(1);
+    expect(await prisma.emailLog.count({ where: { template: "shift-reminder-triage" } })).toBe(1);
+  });
+
+  // The tag and the department must agree. A cc flag left on an SCTP row is
+  // stale scheduling data, not a cc JCTM.
+  it("ignores a tag set on a department that does not use it", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const sctp = await createDepartment("SCTP", "Senior Primary Care");
+    const person = await createPerson("Ada Mismatch", "ada@x.org");
+    await schedule(term.id, sctp.id, person.id, target, "VOLUNTEER", { cc: true });
+
+    const result = await runShiftReminders(NOW);
+    expect(result.remindersSent).toBe(1);
+    expect(result.roleRemindersSent).toBe(0);
   });
 });

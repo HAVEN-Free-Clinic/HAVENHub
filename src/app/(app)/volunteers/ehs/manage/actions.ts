@@ -32,6 +32,7 @@ export async function updateTrainingAction(formData: FormData): Promise<void> {
           description: String(formData.get("description") ?? ""),
           isActive: formData.get("isActive") === "on",
           requiredForAll: formData.get("requiredForAll") === "on",
+          completionUrl: String(formData.get("completionUrl") ?? ""),
         },
         person.personId
       ),

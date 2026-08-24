@@ -8,6 +8,8 @@ export type EhsTrainingInput = {
   description?: string | null;
   isActive?: boolean;
   requiredForAll?: boolean;
+  /** Where the member completes it. Null/empty means Workday Learning. */
+  completionUrl?: string | null;
 };
 
 function normalizeName(name: string): string {
@@ -16,11 +18,29 @@ function normalizeName(name: string): string {
   return trimmed;
 }
 
+/** Empty clears the link (back to the Workday default); anything kept must be a
+ *  real http(s) URL, since it is rendered straight into a member-facing anchor. */
+function normalizeCompletionUrl(url: string | null | undefined): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new EhsValidationError("Completion link must be a full URL starting with https://.");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new EhsValidationError("Completion link must be a full URL starting with https://.");
+  }
+  return trimmed;
+}
+
 export async function createTraining(
   input: EhsTrainingInput,
   actorId: string
 ): Promise<EhsTraining> {
   const name = normalizeName(input.name);
+  const completionUrl = normalizeCompletionUrl(input.completionUrl);
   const max = await prisma.ehsTraining.aggregate({ _max: { position: true } });
   let training: EhsTraining & { requiredForAll: boolean };
   try {
@@ -30,6 +50,7 @@ export async function createTraining(
         description: input.description ?? null,
         isActive: input.isActive ?? true,
         requiredForAll: input.requiredForAll ?? false,
+        completionUrl,
         position: (max._max.position ?? -1) + 1,
       },
     })) as EhsTraining & { requiredForAll: boolean };
@@ -55,6 +76,7 @@ export async function updateTraining(
   actorId: string
 ): Promise<EhsTraining> {
   const name = normalizeName(input.name);
+  const completionUrl = normalizeCompletionUrl(input.completionUrl);
   let training: EhsTraining & { requiredForAll: boolean };
   try {
     training = (await prisma.ehsTraining.update({
@@ -64,6 +86,7 @@ export async function updateTraining(
         description: input.description ?? null,
         isActive: input.isActive ?? true,
         requiredForAll: input.requiredForAll ?? false,
+        completionUrl,
       },
     })) as EhsTraining & { requiredForAll: boolean };
   } catch (err) {
@@ -81,6 +104,7 @@ export async function updateTraining(
       name: training.name,
       isActive: training.isActive,
       requiredForAll: training.requiredForAll,
+      completionUrl,
     },
   });
   return training;

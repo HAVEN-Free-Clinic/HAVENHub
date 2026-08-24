@@ -3,6 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { signOut } from "@/platform/auth/auth";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { firstNameOf } from "@/platform/person-name";
 import { OnboardingChecklist } from "./onboarding-checklist";
 
@@ -14,6 +15,12 @@ export default async function GetStartedPage() {
 
   // Never a dead end: anyone who does not belong here goes to the hub.
   if (status.exempt || !status.hasActiveTerm || status.onboarded) redirect("/");
+
+  // The EHS tile names its outstanding items and links each to the system that
+  // owns it (Workday vs HealthOnTrack), so this needs the items, not just the
+  // task state. Fetched after the redirects above so it costs nothing for anyone
+  // who is bounced off this page.
+  const ehsItems = await getMyEhsStatus(person.personId);
 
   const firstName = firstNameOf(person.name) || "there";
   const pct =
@@ -73,7 +80,7 @@ export default async function GetStartedPage() {
         <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.12em] text-subtle-foreground">
           What&apos;s left
         </p>
-        <OnboardingChecklist tasks={status.tasks} />
+        <OnboardingChecklist tasks={status.tasks} ehsItems={ehsItems} />
         <form
           className="mt-6 text-[13px] text-muted-foreground"
           action={async () => {

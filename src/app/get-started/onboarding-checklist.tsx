@@ -6,7 +6,8 @@ import { buttonClasses } from "@/platform/ui/button";
 import type { OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
-import { WORKDAY_LEARNING_URL } from "@/platform/external-links";
+import type { MyEhsItem } from "@/platform/ehs/services/my-ehs";
+import { ehsCompletionLabel } from "@/platform/ehs/completion-link";
 
 const ICON: Record<OnboardingTaskKey, LucideIcon> = {
   profile: UserRoundPen,
@@ -45,18 +46,25 @@ function StatusPill({ state, actionable }: { state: OnboardingTaskState; actiona
   return <Badge tone="warning">Action needed</Badge>;
 }
 
-function TaskRow({ task }: { task: OnboardingTask }) {
+function TaskRow({ task, ehsItems }: { task: OnboardingTask; ehsItems: MyEhsItem[] }) {
   const Icon = ICON[task.key];
   const done = task.state === "COMPLETE" || task.state === "NOT_REQUIRED";
-  // EHS is recorded by a coordinator (no internal href), but volunteers still
-  // complete it in Workday, so it gets an external CTA and counts as actionable.
-  const workdayHref = task.key === "ehs" ? WORKDAY_LEARNING_URL : null;
-  const actionable = !!task.href || !!workdayHref;
+  // EHS is recorded by a coordinator (no internal href), but the volunteer still
+  // has to go do each item, so the tile lists the outstanding ones with their own
+  // links and counts as actionable. Naming them matters: this used to be a single
+  // "Complete in Workday" button, which both hid WHICH item was outstanding and
+  // pointed at the wrong system for the health requirements, which are done in
+  // HealthOnTrack.
+  const ehsOutstanding = task.key === "ehs" && !done ? ehsItems.filter((i) => !i.complete) : [];
+  // "Added to EHS?" is a coordinator's record, not a member task, so it has no
+  // link and does not make the tile actionable, but it still gets listed: knowing
+  // what is outstanding is the point even when you cannot act on it yourself.
+  const actionable = !!task.href || ehsOutstanding.some((i) => i.completionUrl);
   return (
     <li
-      className={`flex items-center gap-4 rounded-2xl border p-4 shadow-sm ${
-        done ? "border-border bg-muted" : "border-border bg-surface"
-      }`}
+      className={`flex gap-4 rounded-2xl border p-4 shadow-sm ${
+        ehsOutstanding.length > 0 ? "items-start" : "items-center"
+      } ${done ? "border-border bg-muted" : "border-border bg-surface"}`}
     >
       <span
         className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
@@ -70,6 +78,25 @@ function TaskRow({ task }: { task: OnboardingTask }) {
           <StatusPill state={task.state} actionable={actionable} />
         </div>
         <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">{task.description}</p>
+        {ehsOutstanding.length > 0 && (
+          <ul className="mt-2.5 space-y-2">
+            {ehsOutstanding.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="text-[13px] font-semibold text-foreground">{item.name}</span>
+                {item.completionUrl && (
+                  <ExternalLinkButton href={item.completionUrl}>
+                    {ehsCompletionLabel(item.completionUrl)}
+                  </ExternalLinkButton>
+                )}
+                {item.description && (
+                  <p className="w-full text-[12.5px] leading-snug text-foreground-soft">
+                    {item.description}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       {done ? (
         <div className="flex shrink-0 items-center gap-2">
@@ -86,20 +113,22 @@ function TaskRow({ task }: { task: OnboardingTask }) {
         <Link href={task.href} className={buttonClasses(task.state === "INCOMPLETE" ? "primary" : "outline", "sm")}>
           {task.ctaLabel}
         </Link>
-      ) : workdayHref ? (
-        <ExternalLinkButton href={workdayHref} variant={task.state === "INCOMPLETE" ? "primary" : "outline"}>
-          Complete in Workday
-        </ExternalLinkButton>
       ) : null}
     </li>
   );
 }
 
-export function OnboardingChecklist({ tasks }: { tasks: OnboardingTask[] }) {
+export function OnboardingChecklist({
+  tasks,
+  ehsItems = [],
+}: {
+  tasks: OnboardingTask[];
+  ehsItems?: MyEhsItem[];
+}) {
   return (
     <ul className="space-y-3">
       {tasks.map((t) => (
-        <TaskRow key={t.key} task={t} />
+        <TaskRow key={t.key} task={t} ehsItems={ehsItems} />
       ))}
     </ul>
   );

@@ -195,3 +195,44 @@ describe("shift-reminder-triage template", () => {
     expect(html).not.toMatch(/\[[^\]]*\]/);
   });
 });
+
+describe("role reminder document links", () => {
+  /** Every href in a template body, as written in the HTML source. */
+  function hrefsIn(body: string): string[] {
+    return [...body.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+  }
+
+  it("links the CC JCTM Guide", () => {
+    const d = getDescriptor("shift-reminder-cc")!;
+    const html = renderTemplate(d.defaultBody, ccContext());
+    expect(html).toMatch(/<a href="https:\/\/yaleedu\.sharepoint\.com[^"]*CC_JCTM_Guide[^"]*"/);
+  });
+
+  it("links all five triage reference documents", () => {
+    const d = getDescriptor("shift-reminder-triage")!;
+    const sharepoint = hrefsIn(d.defaultBody).filter((h) => h.includes("sharepoint.com"));
+    expect(sharepoint).toHaveLength(5);
+  });
+
+  // A bare "&" inside an href is the classic way a multi-parameter SharePoint
+  // link dies: strict parsers and some mail clients truncate the URL at the
+  // first entity-looking run, and the recipient lands on a permission error.
+  it("escapes every ampersand in a document link", () => {
+    for (const key of ["shift-reminder-cc", "shift-reminder-triage"]) {
+      for (const href of hrefsIn(getDescriptor(key)!.defaultBody)) {
+        expect(href, `${key}: ${href}`).not.toMatch(/&(?!amp;)/);
+      }
+    }
+  });
+
+  // The Clinical Reasoning Tool link arrived from a Teams message carrying an
+  // xsdata routing blob and an ovuser naming a specific person's address.
+  // Neither belongs in mail sent to volunteers.
+  it("carries no tracking or personal-identity parameters", () => {
+    for (const key of ["shift-reminder-cc", "shift-reminder-triage"]) {
+      for (const href of hrefsIn(getDescriptor(key)!.defaultBody)) {
+        expect(href, `${key}: ${href}`).not.toMatch(/xsdata=|ovuser=/);
+      }
+    }
+  });
+});

@@ -80,9 +80,12 @@ const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
  * gets. Recipients are derived from the ShiftAssignment tags (JCTP + cc, SCTP +
  * triage), so publishing the schedule is the only step required to send them.
  *
- * The reference documents are named but not linked: they live in SharePoint and
- * the Triage Chat, and notify() has no attachment path. An admin can turn any
- * name into a real link in /admin/email/templates without a deploy.
+ * The reference documents are LINKED to SharePoint rather than attached, because
+ * notify() has no attachment path. The links are static body text, so an admin
+ * can repoint one in /admin/email/templates without a deploy: worth knowing that
+ * two of the triage docs currently live under Archived Clinic Day Channels, and
+ * the Clinical Reasoning Tool sits on a personal OneDrive, so both are likelier
+ * than the rest to move or go dead.
  */
 
 export type CcReminderParams = {
@@ -100,7 +103,7 @@ const CC_DEFAULT_BODY = `<p>Hi {{ firstName }},</p>
 <p>Thank you so much for volunteering to be our <strong>cc JCTM</strong> for clinic on {{ clinicDateLabel }}! We appreciate your help in making sure our patients get notified of their recent lab and imaging results in a timely and understandable manner.</p>
 <h2>Before Clinic Day</h2>
 <ul>
-<li>Read over the <strong>CC JCTM Guide</strong>, shared with you by the Clinical Advisors.</li>
+<li>Read over the <a href="https://yaleedu.sharepoint.com/:w:/r/sites/HAVENFreeClinic/Shared%20Documents/CA%20-%20Clinical%20Advisors/1.%20SCTM+JCTM%20Resources%20%26%20Guides/2.%20CC_JCTM_Guide_31JAN2026.docx?d=w7153c726a75f4416a24e7f25a7af5683&amp;csf=1&amp;web=1&amp;e=JCUPm8"><strong>CC JCTM Guide</strong></a>.</li>
 <li>Check that you have both <strong>Epic</strong> and <strong>Doximity</strong> access. If either is not working, submit a Help Desk ticket <a href="{{ helpDeskUrl }}">here</a> as soon as possible.</li>
 <li>You can touch base with us in the CA/Attending workroom on Saturday before you start.</li>
 </ul>
@@ -132,13 +135,13 @@ const TRIAGE_DEFAULT_BODY = `<p>Hi {{ firstName }},</p>
 <p>Thank you for being our <strong>Triage SCTM</strong> for the week of {{ clinicDateLabel }}! You should have been added to the Triage Chat on Microsoft Teams. If not, please reach out to {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}.</p>
 <p>Calls will be posted to the triage chat. You are then expected to return calls within a reasonable time frame. You will work closely with the Clinical Advisors{{#if attendingOnShift}} and <strong>{{ attendingOnShift }}</strong>, the on-call attending{{/if}}.</p>
 <h2>Before You Start</h2>
-<p>Please review the following documents, shared with you in the Triage Chat:</p>
+<p>Please review the following documents:</p>
 <ul>
-<li>Triage To Do for PS, CA &amp; Triage SCTM</li>
-<li>HAVEN On Call Triage Slides</li>
-<li>Triage SCTM protocol for ED follow up</li>
-<li>ED and hospital discharge tracker</li>
-<li>HAVEN Free Clinic Triage SCTM Clinical Reasoning Tool (example)</li>
+<li><a href="https://yaleedu.sharepoint.com/:x:/r/sites/HAVENFreeClinic/Shared%20Documents/General/Triage%20To%20Do%20for%20PS,%20CA,%20%26%20Triage%20SCTM.xlsx?d=we32843a720124cd4ba7b1c9988c9c7bb&amp;csf=1&amp;web=1&amp;e=dgbalL">Triage To Do for PS, CA &amp; Triage SCTM</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:p:/r/sites/HAVENFreeClinic/Shared%20Documents/Archived%20Clinic%20Day%20Channels/01.13.24%20Clinic/Triage%20SCTM%20Resources/HAVEN%20On%20Call%20Triage%20Slides.pptx?d=wc29cd3cd320041a0982bc84455d1f797&amp;csf=1&amp;web=1&amp;e=cUcSxJ">HAVEN On Call Triage Slides</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:w:/r/sites/HAVENFreeClinic/Shared%20Documents/Archived%20Clinic%20Day%20Channels/08-03-24%20Clinic/Triage%20SCTM%20Resources/Triage%20SCTM%20protocol%20for%20ED%20follow%20up.docx?d=wbb225fccdce8470e97d802f7cd98e454&amp;csf=1&amp;web=1&amp;e=OwyiOn">Triage SCTM protocol for ED follow up</a></li>
+<li><a href="https://yaleedu.sharepoint.com/:x:/r/sites/HAVENFreeClinic/Shared%20Documents/LCCN%20-%20Longitudinal%20Care%20Coordination/Protocol%20docs/ED%20and%20hospital%20discharge%20tracker.xlsx?d=wa1e1454892a349ff85ebfaa9c3af75db&amp;csf=1&amp;web=1&amp;e=KRTBFP">ED and hospital discharge tracker</a></li>
+<li><a href="https://yaleedu-my.sharepoint.com/:w:/g/personal/wilton_sun_yale_edu/IQBuQ7p-vawORJzNiyxtamQ8AXTbNbA6Ad_SljgXfDJSryw?e=P8Iqai">HAVEN Free Clinic Triage SCTM Clinical Reasoning Tool</a> (example)</li>
 </ul>
 <h2>Questions?</h2>
 <p>If you have any specific questions, feel free to reach out to {{#if edsOnShift}}the Executive Director(s) on shift, <strong>{{ edsOnShift }}</strong>{{#if clinicalAdvisorsOnShift}}, or the Clinical Advisor(s) on shift, <strong>{{ clinicalAdvisorsOnShift }}</strong>{{/if}}{{else}}{{#if clinicalAdvisorsOnShift}}the Clinical Advisor(s) on shift, <strong>{{ clinicalAdvisorsOnShift }}</strong>{{else}}the HAVEN leadership team{{/if}}{{/if}}.</p>

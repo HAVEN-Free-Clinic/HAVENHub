@@ -55,6 +55,7 @@ export type LanguageReviewRow = {
   contactEmail: string | null;
   language: string;
   languageLabel: string;
+  score: number | null;
 };
 
 export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
@@ -65,6 +66,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
       id: true,
       personId: true,
       language: true,
+      score: true,
       person: { select: { name: true, netId: true, contactEmail: true } },
     },
   });
@@ -76,6 +78,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     contactEmail: r.person.contactEmail,
     language: r.language,
     languageLabel: languageLabel(r.language),
+    score: r.score,
   }));
 }
 
@@ -86,7 +89,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
  */
 export async function recordLanguageAssessment(
   actorPersonId: string,
-  input: { personId: string; language: string; verified: boolean; note?: string | null },
+  input: { personId: string; language: string; verified: boolean; note?: string | null; score?: number | null },
 ): Promise<void> {
   if (!isLanguageCode(input.language)) {
     throw new LanguageValidationError(`Unknown language "${input.language}".`);
@@ -106,12 +109,14 @@ export async function recordLanguageAssessment(
       verifiedAt: new Date(),
       verifiedById: actorPersonId,
       note: input.note?.trim() || null,
+      score: input.language === "es" ? (input.score ?? null) : null,
     },
     update: {
       verified: input.verified,
       verifiedAt: new Date(),
       verifiedById: actorPersonId,
       note: input.note?.trim() || null,
+      score: input.language === "es" ? (input.score ?? null) : null,
     },
   });
 

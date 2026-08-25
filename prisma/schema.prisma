@@ -1553,6 +1553,10 @@ model PersonLanguage {
   /// Bare id (no FK), mirroring the spanishVerifiedById it replaces.
   verifiedById String?
   note         String?
+  /// Internal 1-5 proficiency score for Spanish assessments only. Not visible
+  /// to volunteers. 4 or 5 qualifies clinic-wide; 1-3 is conversational only.
+  /// Null for non-Spanish languages or when no score has been recorded.
+  score        Int?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   /// Cascade: the claim belongs to the person.

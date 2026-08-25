@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { DEPARTMENT_RESPONSIBILITY_BLOCKS } from "./departments";
 
 const CODES = [
-  "BVHD", "CRAD", "EDUC", "EXEC", "FCRL", "FIND", "ITCM", "INTP", "LABR",
-  "LCCN", "MDIC", "PATS", "PBRL", "PCAR", "PHAM", "QAQI", "REFF", "SOSE",
+  "BVHD", "CRAD", "EDUC", "EXEC", "FCRL", "FIND", "ITCM", "INTP", "LCCN",
+  "MDIC", "MEDS", "PATS", "PBRL", "PCAR", "PHLO", "QAQI", "REFF", "SOSE",
   "SRR", "SRHD", "VADM",
 ];
 

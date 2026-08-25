@@ -35,7 +35,6 @@ export const DEPARTMENTS: {
   { code: "JCTP", name: "Junior Primary Care Team Member", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "JCTS", name: "Junior Reproductive Care Team Member", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "JONES", name: "Jones Fellow" },
-  { code: "LABR", name: "Laboratory", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   {
     code: "LCCN",
     name: "Longitudinal Care Coordination",
@@ -45,11 +44,12 @@ export const DEPARTMENTS: {
   },
   { code: "MDIC", name: "Medical Debt and Insurance Counseling", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "MDLP", name: "Medical Debt and Legal Partnership", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
+  { code: "MEDS", name: "Medication Access", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "ORHI", name: "Oral Health Initiative", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PBRL", name: "Public Relations", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "PCAR", name: "Primary Care Clinical Advisors", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
-  { code: "PHAM", name: "Pharmacy", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
+  { code: "PHLO", name: "Phlebotomy", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PNLC", name: "Patient Navigation: Longitudinal Care", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PNTC", name: "Patient Navigation: Transfer of Care", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   {

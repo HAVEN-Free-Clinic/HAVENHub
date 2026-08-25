@@ -1,5 +1,6 @@
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
+import { noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import type { WizardField } from "./wizard-steps";
 
 export type ReviewRow = { label: string; value: string; imageSrc?: string };
@@ -21,7 +22,11 @@ export function formatFieldValue(
       : [];
   const one = typeof raw === "string" ? raw : "";
   switch (f.type) {
+    // NOTICE only reaches here for an ACKNOWLEDGING notice -- buildGroups drops
+    // the display-only ones, which have no answer to summarize -- and its tick
+    // stores exactly what a checkbox stores.
     case "CHECKBOX":
+    case "NOTICE":
       return raw === "on" || raw === true ? "Yes" : "No";
     case "SINGLE_SELECT":
     case "DEPARTMENT_CHOICE":
@@ -40,6 +45,12 @@ export function formatFieldValue(
     default:
       return one;
   }
+}
+
+/** The row label for a field in the review summary. Every type uses its own
+ *  label except NOTICE, whose heading is optional (see engine/notice.ts). */
+export function reviewLabel(f: Pick<WizardField, "label" | "type"> & { validation?: unknown }): string {
+  return f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
 }
 
 export function WizardReview({

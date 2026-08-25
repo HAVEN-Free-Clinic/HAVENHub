@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFieldValue } from "./wizard-review";
+import { formatFieldValue, reviewLabel } from "./wizard-review";
 import type { WizardField } from "./wizard-steps";
 
 const field = (o: Partial<WizardField> & { key: string; type: string }): WizardField => ({
@@ -37,5 +37,20 @@ describe("formatFieldValue", () => {
     expect(formatFieldValue(f, { sig: "data:image/png;base64,iVBORw0KGgo=" }, [])).toBe("Signed");
     expect(formatFieldValue(f, { sig: "" }, [])).toBe("");
     expect(formatFieldValue(f, {}, [])).toBe("");
+  });
+  it("renders an acknowledging NOTICE as Yes/No, like the checkbox it is", () => {
+    const f = field({ key: "ai_use", type: "NOTICE", validation: { acknowledge: true } });
+    expect(formatFieldValue(f, { ai_use: "on" }, [])).toBe("Yes");
+    expect(formatFieldValue(f, {}, [])).toBe("No");
+  });
+});
+
+describe("reviewLabel", () => {
+  it("uses the field's own label for a question", () => {
+    expect(reviewLabel(field({ key: "essay", type: "LONG_TEXT", label: "Why HAVEN?" }))).toBe("Why HAVEN?");
+  });
+  it("falls back to the confirmation text for a notice with no heading", () => {
+    const f = field({ key: "ai_use", type: "NOTICE", label: "", validation: { acknowledge: true, acknowledgeLabel: "I understand" } });
+    expect(reviewLabel(f)).toBe("I understand");
   });
 });

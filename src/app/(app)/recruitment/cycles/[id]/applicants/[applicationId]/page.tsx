@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
+import { isDisplayOnlyNotice, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
@@ -185,7 +186,11 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         // deletes the answer key), so a rank field here only ever rendered
         // "(none)". The Subcommittee card below is the authoritative view; drop a
         // section that held nothing else rather than leaving an empty card.
-        const fields = section.fields.filter((f) => f.type !== "SUBCOMMITTEE_RANK");
+        // A display-only notice joins the hoisted ranking in being dropped: it is
+        // policy text the applicant read, not an answer, and it would render as a
+        // wall of prose against "(none)". An ACKNOWLEDGING notice stays -- who
+        // confirmed what is exactly the kind of thing a reviewer needs to see.
+        const fields = section.fields.filter((f) => f.type !== "SUBCOMMITTEE_RANK" && !isDisplayOnlyNotice(f));
         if (fields.length === 0) return null;
         return (
         <Card key={section.id}>
@@ -193,6 +198,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {fields.map((f) => {
               const val = answers[f.key];
+              const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
               const isFileLike = (f.type === "FILE" || f.type === "SIGNATURE") && val && typeof val === "object";
               const fileVal = isFileLike ? (val as { storedName?: string; fileName?: string }) : null;
               const display = fileVal
@@ -203,7 +209,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                 // min-w-0 keeps a long unbroken answer from widening its grid
                 // column; break-words/overflow-wrap inherit to the dt, dd and link.
                 <div key={f.id} className="min-w-0 break-words [overflow-wrap:anywhere]">
-                  <dt className="text-xs text-subtle-foreground">{f.label}</dt>
+                  <dt className="text-xs text-subtle-foreground">{label}</dt>
                   <dd className="mt-0.5 text-sm text-foreground">
                     {f.type === "SIGNATURE" && fileVal?.storedName ? (
                       // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset

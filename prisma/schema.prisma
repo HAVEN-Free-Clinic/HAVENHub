@@ -633,6 +633,11 @@ enum FieldType {
   DEPARTMENT_CHOICE
   SUBCOMMITTEE_RANK
   SIGNATURE
+  /// Display-only content block: a heading (label) and body (helpText) shown as
+  /// a callout, asking nothing. Optionally carries an acknowledgement tick, in
+  /// which case it stores a CHECKBOX-shaped answer under its key. See
+  /// modules/recruitment/engine/notice.ts.
+  NOTICE
 }
 
 enum ApplicantScope {

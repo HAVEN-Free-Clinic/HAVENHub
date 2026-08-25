@@ -96,6 +96,11 @@ export async function loadReviewApplication(
     const fields: ReviewFieldView[] = [];
     for (const f of section.fields) {
       if (f.type === "DEPARTMENT_CHOICE") continue; // shown as header chips
+      // Notices are policy text the applicant read, not something to score. The
+      // speed board is a rapid decision surface, so even the acknowledging kind
+      // is dropped: every application that got here ticked it, so the row is
+      // constant noise between the answers a reviewer is actually comparing.
+      if (f.type === "NOTICE") continue;
       if (!isFieldVisible(f.visibleWhen, condAnswers)) continue;
 
       if (f.type === "FILE") {

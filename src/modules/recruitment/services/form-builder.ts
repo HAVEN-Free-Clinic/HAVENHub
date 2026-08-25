@@ -2,6 +2,7 @@ import type { ApplicantScope, FieldType, FormField, FormSection } from "@prisma/
 import { prisma } from "@/platform/db";
 import { uniqueKey } from "../engine/field-key";
 import { parseFieldCondition } from "../engine/field-visibility";
+import { isDisplayOnlyNotice } from "../engine/notice";
 import { LANGUAGES_FIELD_KEY } from "@/platform/languages";
 
 /**
@@ -97,7 +98,10 @@ export async function addField(
   if (input.key && existing.some((f) => f.key === input.key)) {
     throw new FormEditError(`A field with the key "${input.key}" already exists on this cycle.`);
   }
-  const key = input.key ?? uniqueKey(input.label, existing.map((f) => f.key));
+  // Fall back to the type name when the label is blank. Only NOTICE can legally
+  // have one, and slugifyKey's own fallback would key every such field "field",
+  // "field_2" -- meaningless in the stored answers of an acknowledging notice.
+  const key = input.key ?? uniqueKey(input.label.trim() || input.type.toLowerCase(), existing.map((f) => f.key));
   const count = await prisma.formField.count({ where: { sectionId } });
 
   return prisma.formField.create({
@@ -148,13 +152,22 @@ export async function updateField(
     nextCorrect !== null &&
     !optionValues(patch.options).includes(nextCorrect);
 
+  // A display-only NOTICE can never be required: it renders no control, so a
+  // required flag left over from the type it used to be (switching a required
+  // question to NOTICE, or switching a notice's acknowledgement back off) would
+  // mark a field the applicant has no way to satisfy. Enforced here rather than
+  // only in the builder so a stale client cannot persist the combination.
+  const nextType = patch.type ?? field.type;
+  const nextValidation = patch.validation === undefined ? field.validation : patch.validation;
+  const forceUnrequired = isDisplayOnlyNotice({ type: nextType, validation: nextValidation });
+
   return prisma.formField.update({
     where: { id: fieldId },
     data: {
       label: patch.label ?? undefined,
       helpText: patch.helpText ?? undefined,
       type: patch.type ?? undefined,
-      required: patch.required ?? undefined,
+      required: forceUnrequired ? false : (patch.required ?? undefined),
       options: patch.options === undefined ? undefined : (patch.options as never),
       validation: patch.validation === undefined ? undefined : (patch.validation as never),
       visibleWhen: patch.visibleWhen === undefined ? undefined : (patch.visibleWhen as never),

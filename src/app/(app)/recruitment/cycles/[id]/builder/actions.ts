@@ -81,7 +81,10 @@ export async function duplicateFieldAction(cycleId: string, fieldId: string): Pr
     const field = await prisma.formField.findUnique({ where: { id: fieldId } });
     if (!field) throw new FormEditError("Field not found.");
     await addField(field.sectionId, {
-      label: `${field.label} (copy)`,
+      // A notice's label is its heading -- content the applicant reads, and
+      // often empty -- so the "(copy)" marker that disambiguates two questions
+      // in the builder would instead ship as a visible " (copy)" on the form.
+      label: field.type === "NOTICE" ? field.label : `${field.label} (copy)`,
       type: field.type,
       required: field.required,
       helpText: field.helpText ?? undefined,

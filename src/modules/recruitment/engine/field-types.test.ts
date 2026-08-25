@@ -5,6 +5,7 @@ import { FIELD_TYPE_META, FIELD_GROUP_ORDER, FIELD_GROUP_LABELS, fieldTypesByGro
 const ALL_TYPES: FieldType[] = [
   "SHORT_TEXT", "LONG_TEXT", "SINGLE_SELECT", "MULTI_SELECT", "CHECKBOX",
   "EMAIL", "PHONE", "NUMBER", "DATE", "FILE", "DEPARTMENT_CHOICE", "SUBCOMMITTEE_RANK", "SIGNATURE",
+  "NOTICE",
 ];
 
 it("has metadata for every FieldType", () => {
@@ -60,4 +61,13 @@ describe("SIGNATURE field type registration", () => {
       expect(FIELD_GROUP_LABELS[group]).toBeTruthy();
     }
   });
+});
+
+it("offers the notice first, ahead of every question type", () => {
+  // Notices were previously authored as whole empty sections because the field
+  // picker read as a list of questions. Keeping Content at the top is what makes
+  // the alternative visible without scrolling the popover.
+  const groups = fieldTypesByGroup();
+  expect(groups[0].group).toBe("Content");
+  expect(groups[0].types).toEqual(["NOTICE"]);
 });

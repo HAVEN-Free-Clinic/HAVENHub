@@ -1,10 +1,11 @@
 import type { FieldType } from "@prisma/client";
 import {
   Type, AlignLeft, ChevronDownSquare, ListChecks, CheckSquare,
-  Mail, Phone, Hash, Calendar, Paperclip, Building2, ListOrdered, PenLine, type LucideIcon,
+  Mail, Phone, Hash, Calendar, Paperclip, Building2, ListOrdered, PenLine, Info, type LucideIcon,
 } from "lucide-react";
+import { NOTICE_TYPE_LABEL } from "./notice";
 
-export type FieldGroup = "Text" | "Choice" | "Contact" | "DateNumber" | "File" | "Department" | "Subcommittee" | "Signature";
+export type FieldGroup = "Content" | "Text" | "Choice" | "Contact" | "DateNumber" | "File" | "Department" | "Subcommittee" | "Signature";
 
 export type FieldTypeMeta = {
   label: string;
@@ -15,6 +16,10 @@ export type FieldTypeMeta = {
 };
 
 export const FIELD_TYPE_META: Record<FieldType, FieldTypeMeta> = {
+  // The label doubles as the seeded heading of a freshly added notice
+  // (addFieldAction), which is why it is a noun an author can leave in place
+  // rather than an instruction.
+  NOTICE: { label: NOTICE_TYPE_LABEL, icon: Info, group: "Content", hasOptions: false, isFile: false },
   SHORT_TEXT: { label: "Short text", icon: Type, group: "Text", hasOptions: false, isFile: false },
   LONG_TEXT: { label: "Paragraph", icon: AlignLeft, group: "Text", hasOptions: false, isFile: false },
   SINGLE_SELECT: { label: "Dropdown (one)", icon: ChevronDownSquare, group: "Choice", hasOptions: true, isFile: false },
@@ -30,9 +35,13 @@ export const FIELD_TYPE_META: Record<FieldType, FieldTypeMeta> = {
   SIGNATURE: { label: "Signature (drawn)", icon: PenLine, group: "Signature", hasOptions: false, isFile: false },
 };
 
-export const FIELD_GROUP_ORDER: FieldGroup[] = ["Text", "Choice", "Contact", "DateNumber", "File", "Department", "Subcommittee", "Signature"];
+// Content leads: it is the only group that is not a question, and burying the
+// notice under eight groups of inputs in a max-h-80 popover is what sent staff
+// back to authoring notices as empty sections in the first place.
+export const FIELD_GROUP_ORDER: FieldGroup[] = ["Content", "Text", "Choice", "Contact", "DateNumber", "File", "Department", "Subcommittee", "Signature"];
 
 export const FIELD_GROUP_LABELS: Record<FieldGroup, string> = {
+  Content: "Content",
   Text: "Text",
   Choice: "Choice",
   Contact: "Contact",

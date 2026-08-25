@@ -140,3 +140,59 @@ it("reorders sections and persists order", async () => {
   });
   expect(after.map((s) => s.id)).toEqual(reversed);
 });
+
+it("seeds a notice with a usable key and clears required when its acknowledgement is switched off", async () => {
+  const cycle = await draftCycle();
+  await addSectionAction(cycle.id, { title: "About", appliesTo: "BOTH", departmentCode: null });
+  const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id, title: "About" } });
+
+  await addFieldAction(cycle.id, section.id, { type: "NOTICE" });
+  const notice = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id } });
+  expect(notice.key).toBe("notice");
+  expect(notice.required).toBe(false);
+
+  // Turn the acknowledgement on: now it carries an answer and can be required.
+  const on = await updateFieldAction(cycle.id, notice.id, { validation: { acknowledge: true }, required: true });
+  expect(on.ok).toBe(true);
+  expect((await prisma.formField.findUniqueOrThrow({ where: { id: notice.id } })).required).toBe(true);
+
+  // Turn it back off. The service must clear required even if the caller only
+  // sent the validation change -- a required display-only notice is a field the
+  // applicant has no control to satisfy.
+  const off = await updateFieldAction(cycle.id, notice.id, { validation: {} });
+  expect(off.ok).toBe(true);
+  const after = await prisma.formField.findUniqueOrThrow({ where: { id: notice.id } });
+  expect(after.required).toBe(false);
+});
+
+it("clears required when an existing required question is switched to a notice", async () => {
+  const cycle = await draftCycle();
+  await addSectionAction(cycle.id, { title: "About", appliesTo: "BOTH", departmentCode: null });
+  const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id, title: "About" } });
+  await addFieldAction(cycle.id, section.id, { type: "SHORT_TEXT" });
+  const field = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id } });
+  await updateFieldAction(cycle.id, field.id, { required: true });
+
+  const r = await updateFieldAction(cycle.id, field.id, { type: "NOTICE" });
+  expect(r.ok).toBe(true);
+  const after = await prisma.formField.findUniqueOrThrow({ where: { id: field.id } });
+  expect(after.type).toBe("NOTICE");
+  expect(after.required).toBe(false);
+});
+
+it("duplicates a notice without appending a visible (copy) to its heading", async () => {
+  const cycle = await draftCycle();
+  await addSectionAction(cycle.id, { title: "About", appliesTo: "BOTH", departmentCode: null });
+  const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: cycle.id, title: "About" } });
+  await addFieldAction(cycle.id, section.id, { type: "NOTICE" });
+  const notice = await prisma.formField.findFirstOrThrow({ where: { sectionId: section.id } });
+  await updateFieldAction(cycle.id, notice.id, { label: "", helpText: "AI assistance is not encouraged." });
+
+  const r = await duplicateFieldAction(cycle.id, notice.id);
+  expect(r.ok).toBe(true);
+  const copies = await prisma.formField.findMany({ where: { sectionId: section.id }, orderBy: { order: "asc" } });
+  expect(copies).toHaveLength(2);
+  expect(copies[1].label).toBe("");
+  // A blank heading must not collapse onto slugifyKey's "field" fallback.
+  expect(copies[1].key).toBe("notice_2");
+});

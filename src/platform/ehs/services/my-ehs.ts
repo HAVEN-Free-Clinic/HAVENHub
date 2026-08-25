@@ -5,12 +5,17 @@ import {
   requiredTrainingsForMember,
   type RequirableTraining,
 } from "@/platform/ehs/engine/applicability";
+import { ehsCompletionUrl } from "@/platform/ehs/completion-link";
 
 export type MyEhsItem = {
   id: string;
   name: string;
+  /** Catalog description, shown so a member can tell what the item actually is. */
+  description: string | null;
   complete: boolean;
   completedAt: Date | null;
+  /** Where to go and do it, or null when a coordinator records it for you. */
+  completionUrl: string | null;
 };
 
 export async function getMyEhsStatus(personId: string, termIdOverride?: string): Promise<MyEhsItem[]> {
@@ -39,10 +44,21 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
   })) as Array<{
     id: string;
     name: string;
+    description: string | null;
     isActive: boolean;
     requiredForAll: boolean;
+    completionUrl: string | null;
     departments: { departmentId: string }[];
   }>;
+
+  // The applicability engine only needs the scoping fields, so the presentation
+  // ones (description, link) ride alongside in a lookup rather than widening it.
+  const detailsById = new Map(
+    catalogRows.map((r) => [
+      r.id,
+      { description: r.description, completionUrl: ehsCompletionUrl(r.completionUrl) },
+    ])
+  );
 
   const catalog: RequirableTraining[] = catalogRows.map((r) => ({
     id: r.id,
@@ -64,7 +80,9 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
   return required.map((t) => ({
     id: t.id,
     name: t.name,
+    description: detailsById.get(t.id)?.description ?? null,
     complete: completions.has(t.id),
     completedAt: completions.get(t.id) ?? null,
+    completionUrl: detailsById.get(t.id)?.completionUrl ?? null,
   }));
 }

@@ -2589,6 +2589,10 @@ model EhsTraining {
   requiredForAll Boolean                 @default(false)
   /// Ordering in the catalog and dashboard columns.
   position       Int                     @default(0)
+  /// Where the member actually completes this item. Most EHS trainings live in
+  /// Workday Learning, but the health requirements (TB baseline, HepB immunity)
+  /// are done in HealthOnTrack. Null falls back to Workday.
+  completionUrl  String?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
   departments    EhsTrainingDepartment[]

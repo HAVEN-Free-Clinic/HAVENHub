@@ -43,6 +43,17 @@ export default async function EditEhsTrainingPage({
                   placeholder="Description"
                 />
               </Field>
+              <Field
+                label="Completion link"
+                hint="Where members go to complete this. Workday Learning for courses, HealthOnTrack for health requirements (TB baseline, HepB immunity). Leave blank when there is nothing for them to do and you record it for them."
+              >
+                <Input
+                  name="completionUrl"
+                  type="url"
+                  defaultValue={training.completionUrl ?? ""}
+                  placeholder="https://www.myworkday.com/yale/learning"
+                />
+              </Field>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox name="isActive" defaultChecked={training.isActive} /> Active
               </label>

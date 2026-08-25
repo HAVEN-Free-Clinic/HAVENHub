@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { createTraining, listTrainings, setTrainingDepartments } from "./trainings";
+import { createTraining, listTrainings, setTrainingDepartments, updateTraining } from "./trainings";
 import { EhsValidationError } from "./errors";
 
 beforeEach(resetDb);
@@ -28,6 +28,28 @@ describe("ehs trainings service", () => {
     expect(created.position).toBeGreaterThanOrEqual(0);
     const rows = await listTrainings();
     expect(rows.some((r) => r.id === created.id)).toBe(true);
+  });
+
+  it("stores a completion link and clears it back to the Workday default", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor", status: "ACTIVE" } });
+    const url = "https://healthontrack.yale.edu/s/chs-health-requirement/CHS_Health_Requirement__c/";
+    const created = await createTraining({ name: "TB Baseline", completionUrl: url }, actor.id);
+    expect((created as { completionUrl: string | null }).completionUrl).toBe(url);
+
+    // An empty field means "no link of its own", not a stored empty string, so the
+    // member-facing panel falls back to Workday rather than rendering href="".
+    const cleared = await updateTraining(created.id, { name: "TB Baseline", completionUrl: "" }, actor.id);
+    expect((cleared as { completionUrl: string | null }).completionUrl).toBeNull();
+  });
+
+  it("rejects a completion link that is not an http(s) URL", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor", status: "ACTIVE" } });
+    await expect(
+      createTraining({ name: "Bad link", completionUrl: "healthontrack.yale.edu" }, actor.id)
+    ).rejects.toBeInstanceOf(EhsValidationError);
+    await expect(
+      createTraining({ name: "Worse link", completionUrl: "javascript:alert(1)" }, actor.id)
+    ).rejects.toBeInstanceOf(EhsValidationError);
   });
 
   it("replaces department assignment transactionally", async () => {

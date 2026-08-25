@@ -41,6 +41,7 @@ import {
   taskRequirement,
 } from "@/modules/my-info/components/clearance-card";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
+import { markEhsComplete, unmarkEhsComplete } from "@/platform/ehs/services/completion";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   setCompletionDateAsManager,
@@ -132,6 +133,23 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     }
     revalidatePath(`/volunteers/compliance/${personId}`);
     return {};
+  }
+
+  // EHS completion, recordable right here. A coordinator opens this page to answer
+  // "why am I not cleared?", and until now the answer ended in a second trip to the
+  // /volunteers/ehs grid to find the same person again. Same permission and same
+  // writes as that grid; the person is bound from the route, not from the form.
+  async function toggleEhsAction(formData: FormData): Promise<void> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    const trainingId = String(formData.get("trainingId"));
+    if (formData.get("complete") === "1") {
+      await markEhsComplete(personId, trainingId, actor.personId);
+    } else {
+      await unmarkEhsComplete(personId, trainingId, actor.personId);
+    }
+    revalidatePath(`/volunteers/compliance/${personId}`);
+    revalidatePath("/volunteers/ehs");
   }
 
   const certReq = certRequirement(status);
@@ -263,7 +281,12 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
         <section>
           <SectionHeader className="mb-4">EHS training</SectionHeader>
-          <EhsPanel items={ehsItems} />
+          <EhsPanel
+            items={ehsItems}
+            manage={
+              isManager ? { personName: person.name, toggleAction: toggleEhsAction } : undefined
+            }
+          />
         </section>
 
         <section>

@@ -1,7 +1,9 @@
 import type { Track } from "@prisma/client";
 
-// Airtable used a few codes that differ from the repo Department seed.
-const ALIASES: Record<string, string> = { FCLR: "FCRL", "SR&R": "SRR" };
+// Airtable used a few codes that differ from the repo Department seed, and two
+// departments were renamed on 2026-08-25 (PHAM -> MEDS, LABR -> PHLO), so
+// legacy form data still spells them the old way.
+const ALIASES: Record<string, string> = { FCLR: "FCRL", "SR&R": "SRR", PHAM: "MEDS", LABR: "PHLO" };
 
 export function normalizeDeptCode(code: string): string {
   const c = code.trim().toUpperCase();
@@ -24,9 +26,9 @@ export function defaultSupplementSectionTitle(code: string): string {
 // Canonical (normalized) department codes that carry a supplement section,
 // extracted verbatim from the live Airtable application forms.
 export const SUPPLEMENT_DEPARTMENTS: Record<Track, string[]> = {
-  VOLUNTEER: ["CCRH", "EDUC", "JCTP", "JCTS", "LABR", "MDIC", "ORHI", "PATS", "QAQI", "SCTP", "SCTS"],
+  VOLUNTEER: ["CCRH", "EDUC", "JCTP", "JCTS", "MDIC", "ORHI", "PATS", "PHLO", "QAQI", "SCTP", "SCTS"],
   DIRECTOR: [
-    "EXEC", "JONES", "EDUC", "ICDD", "MDIC", "PCAR", "ITCM", "LABR", "ORHI", "QAQI",
-    "REFF", "SOSE", "SRHD", "VADM", "FIND", "INTP", "PHAM", "SRR",
+    "EXEC", "JONES", "EDUC", "ICDD", "MDIC", "PCAR", "ITCM", "PHLO", "ORHI", "QAQI",
+    "REFF", "SOSE", "SRHD", "VADM", "FIND", "INTP", "MEDS", "SRR",
   ],
 };

@@ -190,23 +190,23 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
       required: true,
     },
   ],
-  LABR: [
+  PHLO: [
     {
-      key: "labr_1",
+      key: "phlo_1",
       label:
-        "Why are you interested in serving as a Laboratory Director, and how does this role align with your skills or goals?",
+        "Why are you interested in serving as a Phlebotomy Director, and how does this role align with your skills or goals?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "labr_2",
+      key: "phlo_2",
       label:
         "Training and skill-building are major parts of this role. What specific ideas do you have to improve the training experience for volunteers, and how would you begin to implement those ideas?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "labr_3",
+      key: "phlo_3",
       label:
         "Do you have previous phlebotomy or lab experience? If so, please describe your experience and level of comfort. If not, please describe how you would approach learning these skills.",
       type: "LONG_TEXT",
@@ -372,30 +372,30 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
       required: true,
     },
   ],
-  PHAM: [
+  MEDS: [
     {
-      key: "pham_1",
+      key: "meds_1",
       label:
         "Please describe any previous experience working with patient assistance programs, local pharmacies, medication access resources, or medication management system (if any).",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "pham_2",
+      key: "meds_2",
       label:
         "How would you rate your Excel proficiency on a scale of 1-10? Please also briefly describe how you have used spreadsheets in the past (tracking, inventory, budgeting, etc.).",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "pham_3",
+      key: "meds_3",
       label:
-        "Pharmacy Directors must reliably respond to tasks within 24 hours while on shift weeks. Are you willing and able to meet that expectation consistently?",
+        "Medication Access Directors must reliably respond to tasks within 24 hours while on shift weeks. Are you willing and able to meet that expectation consistently?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "pham_4",
+      key: "meds_4",
       label:
         "Please describe a time you resolved a logistical or communication challenge. What was the problem, how did you approach it, and what was the outcome?",
       type: "LONG_TEXT",

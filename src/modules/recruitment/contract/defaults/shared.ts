@@ -21,7 +21,7 @@ Directions about Epic updates will follow in the days after you complete this fo
 
 export const EPIC_ACCESS_GUIDANCE = `Even if you currently have Epic access to {{orgName}}, this question asks whether you need Epic at all to complete your duties. Answer Yes if you need Epic to complete your tasks at {{orgName}}.
 
-**Departments requiring Epic access:** Behavioral Health, Clinical Advisor, Education, Lab, LCC (Patient Navigator or TOC), LTBI, Medical Debt and Insurance Counseling, Oral Health Initiative, Patient Services, Pharmacy, Referrals, Reproductive Health, Social Services, Vaccine, and QA/QI (only if indicated by directors).
+**Departments requiring Epic access:** Behavioral Health, Clinical Advisor, Education, LCC (Patient Navigator or TOC), LTBI, Medical Debt and Insurance Counseling, Medication Access, Oral Health Initiative, Patient Services, Phlebotomy, Referrals, Reproductive Health, Social Services, Vaccine, and QA/QI (only if indicated by directors).
 
 **Departments that do not require Epic:** Faculty Relations, Finance and Development, Interpretation and Diversity, IT and Communications, Public Relations, Student Recruitment, Community Relations and Advocacy, MLP, and Food Pharmacy.`;
 

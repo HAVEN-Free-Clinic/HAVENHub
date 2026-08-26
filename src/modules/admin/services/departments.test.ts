@@ -62,6 +62,22 @@ describe("createDepartment", () => {
     expect(bare.requiresEpicDirector).toBe("NONE");
     expect(bare.requiresEpicVolunteer).toBe("NONE");
   });
+
+  it("allows drops by default and can be created swap-only", async () => {
+    const bare = await createDepartment("a", { code: "CRAD", name: "Community Relations" });
+    expect(bare.allowShiftDrop).toBe(true);
+
+    const swapOnly = await createDepartment("a", {
+      code: "JCTP",
+      name: "Junior Primary Care",
+      allowShiftDrop: false,
+    });
+    expect(swapOnly.allowShiftDrop).toBe(false);
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "department.create", entityId: swapOnly.id },
+    });
+    expect(audit?.after).toMatchObject({ allowShiftDrop: false });
+  });
 });
 
 describe("updateDepartment", () => {
@@ -121,6 +137,48 @@ describe("updateDepartment", () => {
     });
     expect(u.requiresEpicDirector).toBe("ALL");
     expect(u.requiresEpicVolunteer).toBe("SOME");
+  });
+
+  it("turns drops off and back on, auditing both sides", async () => {
+    const d = await createDepartment("a", { code: "SCTP", name: "Senior Primary Care" });
+    expect(d.allowShiftDrop).toBe(true);
+
+    const off = await updateDepartment("a", d.id, {
+      name: "Senior Primary Care",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      allowShiftDrop: false,
+    });
+    expect(off.allowShiftDrop).toBe(false);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "department.update", entityId: d.id },
+    });
+    expect(audit?.before).toMatchObject({ allowShiftDrop: true });
+    expect(audit?.after).toMatchObject({ allowShiftDrop: false });
+
+    const on = await updateDepartment("a", d.id, {
+      name: "Senior Primary Care",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      allowShiftDrop: true,
+    });
+    expect(on.allowShiftDrop).toBe(true);
+  });
+
+  it("preserves allowShiftDrop when an update omits it", async () => {
+    // The edit form posts every field, but a caller that does not know about
+    // this setting must not silently re-open drops for a swap-only department.
+    const d = await createDepartment("a", { code: "SCTS", name: "Senior Repro Care", allowShiftDrop: false });
+    const u = await updateDepartment("a", d.id, {
+      name: "Renamed",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+    expect(u.allowShiftDrop).toBe(false);
   });
 
   it("throws DepartmentNotFoundError for a missing id", async () => {

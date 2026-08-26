@@ -437,6 +437,20 @@ model Department {
   ///
   /// Defaults to false so creating a department never silently bypasses scoring.
   autoRouteApplicants        Boolean                 @default(false)
+  /// Whether members may raise a DROP request against this department's shifts.
+  /// False makes the department swap-only: the drop form disappears from
+  /// /schedule and createRequest refuses a drop, so a member who cannot find a
+  /// swap partner asks their directors out of band instead.
+  ///
+  /// For the clinical team-member departments (SCTP, JCTP, SCTS, JCTS, SCTL)
+  /// where an unfilled seat means an unstaffed patient, so coverage must be
+  /// handed to a named person rather than simply given up. A flag rather than a
+  /// hardcoded code list because departments are admin-maintained (same reason
+  /// as autoRouteApplicants above).
+  ///
+  /// Defaults to TRUE -- the permissive, pre-existing behaviour -- so creating a
+  /// department never silently blocks its members from dropping.
+  allowShiftDrop             Boolean                 @default(true)
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 }

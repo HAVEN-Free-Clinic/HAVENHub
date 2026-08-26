@@ -491,19 +491,30 @@ export default async function MySchedulePage() {
                         <span className="underline underline-offset-2">Request a change</span>
                       </summary>
                       <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
-                          <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                            <input type="hidden" name="termId" value={t.term.id} />
-                            <input type="hidden" name="dateKey" value={dateKey} />
-                            <input type="hidden" name="departmentId" value={shift.department.id} />
-                            <input type="hidden" name="kind" value="drop" />
-                            <div className="flex-1 min-w-48">
-                              <Input name="note" placeholder="Optional note" aria-label="Note" />
-                            </div>
-                            <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
-                          </form>
-                        </div>
+                        {/* Swap-only departments (Department.allowShiftDrop = false) show
+                            no drop form: the seat has to go to a named person. The
+                            server action refuses the drop too, so this is presentation,
+                            not the gate. */}
+                        {shift.department.allowShiftDrop ? (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
+                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
+                              <input type="hidden" name="termId" value={t.term.id} />
+                              <input type="hidden" name="dateKey" value={dateKey} />
+                              <input type="hidden" name="departmentId" value={shift.department.id} />
+                              <input type="hidden" name="kind" value="drop" />
+                              <div className="flex-1 min-w-48">
+                                <Input name="note" placeholder="Optional note" aria-label="Note" />
+                              </div>
+                              <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                            </form>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-subtle-foreground">
+                            {shift.department.code} shifts have to be swapped, not dropped. If no swap works,
+                            email your directors to ask for a drop.
+                          </p>
+                        )}
                         {swapPartners.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a swap</p>
@@ -686,7 +697,7 @@ export default async function MySchedulePage() {
                         </div>
                         <p className="mt-4 text-sm text-subtle-foreground">
                           Availability is locked now that clinics have started. To change a shift you are
-                          already on, use the swap or drop request on that shift above.
+                          already on, use the request options on that shift above.
                         </p>
                       </div>
                     ) : (

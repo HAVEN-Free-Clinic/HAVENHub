@@ -16,6 +16,7 @@ function department(id: string, name: string, code: string): Department {
     requiresEpicVolunteer: "NONE",
     epicGuidance: null,
     autoRouteApplicants: false,
+    allowShiftDrop: true,
     hoursPerShift: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),

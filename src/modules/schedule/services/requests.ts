@@ -57,6 +57,16 @@ export class RequestValidationError extends Error {
   }
 }
 
+/**
+ * Refusal shown when a member tries to drop a shift in a swap-only department
+ * (Department.allowShiftDrop = false). Exported so the /schedule UI, which hides
+ * the drop form for those departments, tells members the same thing this refusal
+ * does. "Your directors" resolves through the one-hop delegation to the CAs for
+ * SCTP/JCTP and the RHD team for SCTS/JCTS.
+ */
+export const DROP_NOT_ALLOWED_MESSAGE =
+  "Shifts in this department have to be swapped, not dropped. If you cannot find a swap partner, email your directors to ask for a drop.";
+
 // ---------------------------------------------------------------------------
 // Exported shape
 // ---------------------------------------------------------------------------
@@ -337,6 +347,24 @@ export async function createRequest(
   // on in the first place).
   if (term.status !== "ACTIVE" && !(await isPublished(term.id, input.departmentId))) {
     throw new RequestValidationError("That schedule is not published.");
+  }
+
+  // Swap-only departments (Department.allowShiftDrop = false): the clinical
+  // team-member departments need the seat handed to a named person, so giving
+  // it up in the hub is not an option. Enforced here and not only by hiding the
+  // form, because the form posts to a server action anyone can replay.
+  //
+  // A half-filled swap (targetId with no targetDate, or the reverse) counts as
+  // a drop here rather than falling through to validateRequest -- the mirror of
+  // the isSwap test the rest of this function uses.
+  if (!(input.targetId && input.targetDateKey)) {
+    const dept = await prisma.department.findUnique({
+      where: { id: input.departmentId },
+      select: { allowShiftDrop: true },
+    });
+    if (dept && !dept.allowShiftDrop) {
+      throw new RequestValidationError(DROP_NOT_ALLOWED_MESSAGE);
+    }
   }
 
   const clinicDateMap = new Map<string, Date>();

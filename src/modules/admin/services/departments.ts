@@ -77,6 +77,9 @@ export async function createDepartment(
     /** Absent → false, matching the column default: a new department never
      *  silently bypasses committee scoring. */
     autoRouteApplicants?: boolean;
+    /** Absent → true, matching the column default: a new department never
+     *  silently blocks its members from dropping a shift. */
+    allowShiftDrop?: boolean;
     /** Absent → null ("not recorded"), never a guessed default. */
     hoursPerShift?: number | null;
   }
@@ -109,6 +112,7 @@ export async function createDepartment(
         code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider,
         requiresEpicDirector, requiresEpicVolunteer,
         autoRouteApplicants: input.autoRouteApplicants ?? false,
+        allowShiftDrop: input.allowShiftDrop ?? true,
         hoursPerShift: input.hoursPerShift ?? null,
       },
     });
@@ -134,6 +138,7 @@ export async function createDepartment(
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
+      allowShiftDrop: dept.allowShiftDrop,
     },
   });
   return dept;
@@ -154,6 +159,9 @@ export async function updateDepartment(
     /** Optional for the same reason as the Epic values: an update that does not
      *  touch it must preserve it rather than silently turning it off. */
     autoRouteApplicants?: boolean;
+    /** Optional for the same reason: an update that does not touch it must
+     *  preserve it rather than silently re-opening drops. */
+    allowShiftDrop?: boolean;
     /** Hours one shift is worth, for service records. Explicit null clears it
      *  back to "not recorded"; undefined leaves it untouched. */
     hoursPerShift?: number | null;
@@ -172,6 +180,7 @@ export async function updateDepartment(
   const requiresEpicDirector = input.requiresEpicDirector ?? before.requiresEpicDirector;
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? before.requiresEpicVolunteer;
   const autoRouteApplicants = input.autoRouteApplicants ?? before.autoRouteApplicants;
+  const allowShiftDrop = input.allowShiftDrop ?? before.allowShiftDrop;
   // Explicit null clears; undefined preserves. A negative value is rejected
   // rather than stored: a service record must never claim negative hours.
   if (input.hoursPerShift !== undefined && input.hoursPerShift !== null && input.hoursPerShift < 0) {
@@ -181,7 +190,7 @@ export async function updateDepartment(
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, hoursPerShift },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift },
   });
 
   await recordAudit({
@@ -197,6 +206,7 @@ export async function updateDepartment(
       requiresEpicDirector: before.requiresEpicDirector,
       requiresEpicVolunteer: before.requiresEpicVolunteer,
       autoRouteApplicants: before.autoRouteApplicants,
+      allowShiftDrop: before.allowShiftDrop,
     },
     after: {
       name: dept.name,
@@ -206,6 +216,7 @@ export async function updateDepartment(
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
       autoRouteApplicants: dept.autoRouteApplicants,
+      allowShiftDrop: dept.allowShiftDrop,
     },
   });
   return dept;

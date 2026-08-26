@@ -49,6 +49,7 @@ export default async function EditDepartmentPage({ params }: PageProps) {
         requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
         autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
+        allowShiftDrop: formData.get("allowShiftDrop") === "on",
         // optionalInt is Number-based, not parseInt, so "5.5" survives.
         hoursPerShift: optionalInt(formData.get("hoursPerShift")),
       });

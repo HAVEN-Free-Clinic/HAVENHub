@@ -52,6 +52,30 @@ import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
+/**
+ * Map a thrown portal error onto the page's own error banner.
+ *
+ * Module scope, NOT the component body. The three attending actions below are
+ * inline `"use server"` closures, and Next.js serializes everything such a
+ * closure captures from its enclosing scope so the client can call back into
+ * it. A captured plain function is not serializable, so declaring this helper
+ * inside the component made every render that reaches AttendingPortalSection
+ * throw "Functions cannot be passed directly to Client Components ...
+ * [function attendingRedirect]" -- which took the whole attending portal down.
+ * Hoisted here it is a module binding the closures merely reference, so there
+ * is nothing to serialize.
+ */
+function attendingRedirect(err: unknown): never {
+  if (
+    err instanceof AttendingPortalValidationError ||
+    err instanceof AttendingPortalForbiddenError ||
+    err instanceof AttendingPortalNotFoundError
+  ) {
+    redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
+  }
+  throw err;
+}
+
 export default async function MySchedulePage() {
   const session = await requireModuleAccess("schedule");
   // Evaluated per request (not at module load) so the "pending N days" gate
@@ -227,18 +251,6 @@ export default async function MySchedulePage() {
   // schedules key on different things (department + date vs clinic day + slot),
   // and a shared action would have to decide which the caller meant from the
   // shape of the form fields.
-
-  /** Map a thrown portal error onto the page's own error banner. */
-  function attendingRedirect(err: unknown): never {
-    if (
-      err instanceof AttendingPortalValidationError ||
-      err instanceof AttendingPortalForbiddenError ||
-      err instanceof AttendingPortalNotFoundError
-    ) {
-      redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
-    }
-    throw err;
-  }
 
   async function saveAttendingAvailabilityAction(formData: FormData) {
     "use server";

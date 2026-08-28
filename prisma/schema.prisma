@@ -2237,6 +2237,16 @@ model Application {
   /// other row. Withdrawal is a declaration only: it never deletes acceptances,
   /// interviews, or onboarding contracts, which have their own guarded teardown.
   withdrawnAt                DateTime?
+  /// Stamped when the not-selected email went out for this application. The
+  /// rejection counterpart of Acceptance.emailedAt, and the same kind of claim:
+  /// sendRejections only ever writes it from null, so a repeated Send or two
+  /// concurrent ones cannot tell an applicant twice.
+  ///
+  /// Deliberately NOT cleared by reopenApplication. The stamp records that we
+  /// told this person they were not selected, and reopening their application
+  /// does not un-tell them -- so a reopen-then-reject-again leaves them with the
+  /// one rejection email they already have rather than sending a second.
+  rejectionEmailedAt         DateTime?
   submittedAt                DateTime?
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt

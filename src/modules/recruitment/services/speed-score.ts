@@ -4,6 +4,7 @@ import { getApplication } from "./submissions";
 import { reviewScope, canViewApplication } from "./review";
 import { visibleSections, applicantTypeLabel } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
+import { formatAnswer } from "../engine/answer-display";
 import { isInlinePreviewable } from "./file-preview";
 
 export type ReviewFieldView = {
@@ -22,18 +23,6 @@ export type ReviewApplicationView = {
   departmentChoices: string[]; // codes; shown as header chips only
   sections: ReviewSectionView[];
 };
-
-type OptionList = { value: string; label: string }[];
-function parseOptions(raw: unknown): OptionList {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (o): o is { value: string; label: string } =>
-      !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string" && typeof (o as { label?: unknown }).label === "string",
-  );
-}
-function labelFor(options: OptionList, value: string): string {
-  return options.find((o) => o.value === value)?.label ?? value;
-}
 
 /** Build the condensed, reviewer-facing view of one application: option labels
  *  resolved, `visibleWhen`-hidden fields dropped, each field tagged with a
@@ -136,13 +125,7 @@ export async function loadReviewApplication(
         if (f.id !== rankFieldId) continue; // nothing was hoisted for the extra rank fields
         displayValue = app.subcommitteeRanking.map((id, i) => `${i + 1}. ${subNames.get(id) ?? "(removed)"}`).join("  ·  ");
       } else {
-        const val = answers[f.key];
-        const options = parseOptions(f.options);
-        if (f.type === "SINGLE_SELECT" && typeof val === "string") displayValue = labelFor(options, val);
-        else if (f.type === "MULTI_SELECT" && Array.isArray(val)) displayValue = val.map((v) => labelFor(options, String(v))).join(", ");
-        else if (Array.isArray(val)) displayValue = val.join(", ");
-        else if (val === undefined || val === null || val === "") displayValue = "";
-        else displayValue = String(val);
+        displayValue = formatAnswer(f, answers[f.key]);
       }
       if (displayValue === "") continue; // condensed: skip empties
 

@@ -29,18 +29,39 @@ function combobox(page: import("@playwright/test").Page) {
   return page.getByRole("combobox", { name: "Search pages, people, cycles, past applicants, and requests" });
 }
 
+/**
+ * Block until the palette's client handlers are actually live.
+ *
+ * The trigger is server-rendered, so `toBeVisible()` on it proves only that
+ * HTML arrived -- not that React has hydrated and attached the document-level
+ * keydown listener the shortcut needs. That gap is a real race, and waiting on
+ * the trigger (fix rounds 1 and 2) never closed it: CI failed here again on
+ * 2026-08-28, and it reproduces locally on a cold dev server.
+ *
+ * Opening via the trigger's own onClick is the barrier, because that handler
+ * is `setOpen(true)` -- idempotent, so `toPass` can retry the click until
+ * hydration lands without ever toggling the dialog back closed. The shortcut
+ * itself is `setOpen(v => !v)`, so retrying THAT would oscillate; it must not
+ * be used as the probe. Escape then returns us to a closed palette so the
+ * caller starts from a clean state.
+ */
+async function waitForPaletteReady(page: import("@playwright/test").Page) {
+  await expect(trigger(page)).toBeVisible();
+  await expect(async () => {
+    await trigger(page).click();
+    await expect(dialog(page)).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 15_000 });
+  await page.keyboard.press("Escape");
+  await expect(dialog(page)).toHaveCount(0);
+}
+
 test("Control+K opens the palette from an arbitrary page", async ({ page }) => {
   // Playwright runs Chromium on Linux in CI, where Control+K (not Meta+K) is
   // the shortcut that actually fires; the palette's own handler listens for
   // either modifier.
   await devSignIn(page);
   await page.goto("/schedule");
-  // A client-side keyboard shortcut cannot fire before React hydrates and
-  // attaches the palette's global keydown listener, and devSignIn's
-  // waitForURL resolves as soon as the URL changes, which can be before that
-  // happens. The visible trigger is the mount signal: wait for it before
-  // pressing the shortcut, rather than relying on goto's incidental delay.
-  await expect(trigger(page)).toBeVisible();
+  await waitForPaletteReady(page);
   await page.keyboard.press("Control+k");
   await expect(dialog(page)).toBeVisible();
   await expect(combobox(page)).toBeFocused();
@@ -82,12 +103,7 @@ test("pressing the shortcut again while open closes the palette and restores foc
   // that carve-out, the second Control+K would be swallowed as "the user is
   // typing somewhere" and never reach the toggle.
   await devSignIn(page);
-  // Fix round 1: this test pressed Control+k immediately after devSignIn
-  // resolved, with nothing in between to guarantee hydration had finished
-  // attaching the global keydown listener, so the dialog sometimes never
-  // appeared. Waiting for the visible trigger proves the component mounted
-  // before the shortcut is pressed, rather than relying on timing luck.
-  await expect(trigger(page)).toBeVisible();
+  await waitForPaletteReady(page);
   await page.keyboard.press("Control+k");
   await expect(dialog(page)).toBeVisible();
   await page.keyboard.press("Control+k");

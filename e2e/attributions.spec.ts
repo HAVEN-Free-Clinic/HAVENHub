@@ -12,6 +12,7 @@ test("the attributions page credits every contributor and is reachable signed ou
     ["Jack Carney", "j.carney@yale.edu"],
     ["Caprice Culkin", "caprice.culkin@yale.edu"],
     ["Renée Tracey", "renee.tracey@yale.edu"],
+    ["Antigone Antonakakis", "antigone.antonakakis@yale.edu"],
   ]) {
     await expect(page.getByText(name, { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: email })).toHaveAttribute(
@@ -20,11 +21,7 @@ test("the attributions page credits every contributor and is reachable signed ou
     );
   }
 
-  // Credited without a contact address: the card renders, the mailto link does not.
-  const alum = page.getByText("Antigone Antonakakis", { exact: true });
-  await expect(alum).toBeVisible();
   await expect(page.getByText("Executive Director, 2025-2026", { exact: true })).toBeVisible();
-  await expect(alum.locator("xpath=..").getByRole("link")).toHaveCount(0);
 
   await expect(page.getByText(COPYRIGHT)).toBeVisible();
 });

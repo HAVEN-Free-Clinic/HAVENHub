@@ -64,14 +64,12 @@ export default async function AttributionsPage() {
             <li key={contributor.name} className={cardClasses()}>
               <p className="font-medium">{contributor.name}</p>
               <p className="mt-0.5 text-sm text-foreground-soft">{contributor.role}</p>
-              {contributor.email ? (
-                <a
-                  href={`mailto:${contributor.email}`}
-                  className="mt-2 inline-block rounded-sm text-sm text-brand-fg underline underline-offset-2 hover:text-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                >
-                  {contributor.email}
-                </a>
-              ) : null}
+              <a
+                href={`mailto:${contributor.email}`}
+                className="mt-2 inline-block rounded-sm text-sm text-brand-fg underline underline-offset-2 hover:text-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                {contributor.email}
+              </a>
             </li>
           ))}
         </ul>

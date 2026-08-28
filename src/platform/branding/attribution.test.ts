@@ -39,24 +39,10 @@ describe("CONTRIBUTORS", () => {
     ]);
   });
 
-  it("gives every contributor a role", () => {
+  it("gives every contributor a role and a contact address", () => {
     for (const contributor of CONTRIBUTORS) {
       expect(contributor.role).not.toBe("");
-    }
-  });
-
-  it("lists a well-formed address wherever a contributor has one", () => {
-    for (const contributor of CONTRIBUTORS) {
-      if (contributor.email === undefined) continue;
       expect(contributor.email).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
-    }
-  });
-
-  it("still carries a contact address for every serving ITCM director", () => {
-    const serving = CONTRIBUTORS.filter((c) => c.role === "Director of IT and Communications");
-    expect(serving).toHaveLength(3);
-    for (const director of serving) {
-      expect(director.email).toBeDefined();
     }
   });
 });

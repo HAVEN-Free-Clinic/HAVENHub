@@ -6,6 +6,7 @@ import { validateTemplate } from "@/platform/email/render/validate";
 
 const KEYS = [
   "recruitment.acceptance",
+  "recruitment.rejection",
   "recruitment.interview_invite",
   "recruitment.interview_assignment",
   "recruitment.review_digest",
@@ -17,7 +18,7 @@ const KEYS = [
 ];
 
 describe("recruitment email descriptors", () => {
-  it("exports all nine keys", () => {
+  it("exports all ten keys", () => {
     expect(recruitmentDescriptors.map((d) => d.key).sort()).toEqual([...KEYS].sort());
   });
 

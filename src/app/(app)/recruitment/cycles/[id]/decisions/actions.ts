@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
-import { releaseDecisions } from "@/modules/recruitment/services/decisions";
+import { releaseDecisions, sendRejections } from "@/modules/recruitment/services/decisions";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
@@ -26,4 +26,25 @@ export async function releaseDecisionsAction(cycleId: string) {
     groups: await termGroupForCycle(cycleId),
   });
   redirect(`/recruitment/cycles/${cycleId}/decisions?sent=${sent}&skipped=${skipped}`);
+}
+
+export async function sendRejectionsAction(cycleId: string) {
+  const person = await requirePersonSession();
+  let sent = 0;
+  try {
+    const res = await sendRejections(cycleId, person.personId);
+    sent = res.sent;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AcceptanceError) {
+      redirect(`/recruitment/cycles/${cycleId}/decisions?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  await captureEvent({
+    distinctId: person.personId,
+    event: "recruitment_rejections_sent",
+    properties: { cycle_id: cycleId, sent },
+    groups: await termGroupForCycle(cycleId),
+  });
+  redirect(`/recruitment/cycles/${cycleId}/decisions?rejected=${sent}`);
 }

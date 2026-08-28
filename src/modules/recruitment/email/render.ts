@@ -8,6 +8,7 @@ import { getSetting } from "@/platform/settings/service";
  *  overridden per cycle. recruitment.portal_link is global-only (no cycle). */
 export const CYCLE_EMAIL_KEYS = [
   "recruitment.acceptance",
+  "recruitment.rejection",
   "recruitment.interview_invite",
   "recruitment.onboarding",
   "recruitment.onboarding_confirmation",

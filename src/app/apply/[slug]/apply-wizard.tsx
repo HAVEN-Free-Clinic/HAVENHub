@@ -509,7 +509,10 @@ export function ApplyWizard({
         {current.kind === "intro" && (
           <>
             <Card className="space-y-4">
-              <FormSection title={`Are you a new or returning ${roleNoun}?`}>
+              <FormSection
+                title={`Are you a new or returning ${roleNoun}?`}
+                description={`Returning means you served as a ${roleNoun} in the term right before this one, without a break. Summer is the one exception: taking the summer off does not end your run, so a spring ${roleNoun} applying for the fall still counts as returning. If you have been away for a full fall or spring term, apply as a new applicant.`}
+              >
                 <RadioGroup>
                   {applicantOptions.map((opt) => (
                     <Radio

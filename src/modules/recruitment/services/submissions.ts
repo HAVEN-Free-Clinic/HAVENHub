@@ -15,7 +15,7 @@ import {
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
-import { getRenewalContext } from "./renewal";
+import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "../templates/clinic-dates";
@@ -47,6 +47,11 @@ export type SubmitInput = {
   sessionPersonId?: string | null;
   sessionEmail?: string | null;
   identityEmail?: string | null;
+  /** The Entra claims, when this submit came from a Yale SSO session. Lets the
+   *  returning branch recognize a member the session could not carry (an alum
+   *  offboarded at the term flip). Null on every other path; see
+   *  resolveReturningPersonId, which is SSO-only on purpose. */
+  sso?: SsoClaim | null;
 };
 
 const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
@@ -139,10 +144,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
-    if (!input.sessionPersonId || !input.sessionEmail) {
+    // Asks the same question the page asked, through the same resolver, so this
+    // can never reject a returning branch the wizard offered: an alum offboarded
+    // at the term flip carries no session Person, and is found by SSO claim.
+    const memberPersonId = await resolveReturningPersonId(input.sessionPersonId, input.sso ?? null);
+    if (!memberPersonId || !input.sessionEmail) {
       throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
     }
-    const renewalCtx = await getRenewalContext(input.sessionPersonId, input.sessionEmail, cycle.track);
+    const renewalCtx = await getRenewalContext(memberPersonId, input.sessionEmail, cycle.track);
     if (!renewalCtx.eligible) {
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }

@@ -57,6 +57,11 @@ export async function submitPublicApplication(slug: string, formData: FormData):
       // verified Entra claim otherwise, and is guaranteed present past the gate above.
       sessionEmail: session?.user?.email ?? identity.email,
       identityEmail: identity.email,
+      // The raw Entra claims, kept separate from the two resolved addresses above:
+      // they are what lets submitApplication recognize a returning member whose
+      // Person the session refused to carry, and they must come from SSO rather
+      // than the magic-link cookie. See resolveReturningPersonId.
+      sso: session?.applicantEmail ? { upn: session.applicantUpn, email: session.applicantEmail } : null,
     });
     const distinctId = session?.personId ?? identity?.email ?? slug;
     await captureEvent({

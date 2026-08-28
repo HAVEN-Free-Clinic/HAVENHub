@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { getRenewalContext, resolveRenewalPrefill } from "./renewal";
+import { getRenewalContext, resolveRenewalPrefill, resolveReturningPersonId } from "./renewal";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -79,4 +79,72 @@ it("resolveRenewalPrefill does not lock net_id when the record has no NetID", as
   const { values, lockedKeys } = resolveRenewalPrefill([{ key: "net_id", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }], ctx);
   expect(values.net_id).toBeUndefined();
   expect(lockedKeys).not.toContain("net_id");
+});
+
+// ---------------------------------------------------------------------------
+// resolveReturningPersonId
+//
+// The regression these cover: offboarding at a term flip leaves TermMembership
+// ACTIVE but flips Person.status, and auth.ts refuses to sign in an OFFBOARDED
+// Person. The whole returning branch hung off the session's personId, so the
+// spring cohort applying in the fall (continuous service, summer excepted --
+// which the clinic counts as returning) was silently demoted to new applicants.
+// ---------------------------------------------------------------------------
+
+/** A member offboarded at the term flip: membership intact, hub access gone. */
+async function offboardedAlum(opts: { netId?: string | null; contactEmail?: string | null } = {}) {
+  const person = await prisma.person.create({
+    data: {
+      name: "Alum Spring",
+      netId: opts.netId === undefined ? "as88" : opts.netId,
+      contactEmail: opts.contactEmail === undefined ? "alum.spring@yale.edu" : opts.contactEmail,
+      status: "OFFBOARDED",
+    },
+  });
+  const term = await prisma.term.create({ data: { code: "SP26", name: "SP26", startDate: new Date("2026-01-12"), endDate: new Date("2026-05-29") } });
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  return person;
+}
+
+it("returns the session person unchanged, without consulting the claim", async () => {
+  const person = await volunteerIn("SRHD", "FA25", new Date("2025-08-01"));
+  // A claim naming nobody must not override a session that already names someone.
+  expect(await resolveReturningPersonId(person.id, { upn: "nobody@yale.edu", email: "nobody@yale.edu" })).toBe(person.id);
+  expect(await resolveReturningPersonId(person.id, null)).toBe(person.id);
+});
+
+it("finds an offboarded alum by the alias-style email claim, so their renewal branch survives the term flip", async () => {
+  const person = await offboardedAlum();
+  // The shape 252 of the 253 blocked people are stored in: an alias contactEmail
+  // that the NetID branch cannot reach.
+  expect(await resolveReturningPersonId(null, { upn: null, email: "alum.spring@yale.edu" })).toBe(person.id);
+  // And their membership still answers the eligibility question the session could not.
+  const ctx = await getRenewalContext(person.id, "alum.spring@yale.edu", "VOLUNTEER");
+  expect(ctx.eligible).toBe(true);
+  expect(ctx.currentDepartments).toEqual(["SRHD"]);
+});
+
+it("finds an offboarded alum by the NetID-shaped UPN when the stored email is personal", async () => {
+  // The other half of why both claims are passed: Yale sends the UPN as
+  // "netid@yale.edu" and the email claim as the alias, and a Person may be stored
+  // under either (or under a personal address the email branch must never match).
+  const person = await offboardedAlum({ contactEmail: "alum@gmail.com" });
+  expect(await resolveReturningPersonId(null, { upn: "as88@yale.edu", email: "alum.spring@yale.edu" })).toBe(person.id);
+});
+
+it("resolves nobody without an SSO claim, so the magic-link cookie cannot stand in for Yale sign-in", async () => {
+  // SECURITY. Any @yale.edu address can request a portal magic link, so mailbox
+  // possession must not reach a membership record. The caller passes null for
+  // every non-SSO path and gets the pre-existing "sign in with Yale" gate.
+  await offboardedAlum();
+  expect(await resolveReturningPersonId(null, null)).toBeNull();
+  expect(await resolveReturningPersonId(undefined, { upn: null, email: null })).toBeNull();
+});
+
+it("never matches a stored personal address from a non-Yale claim", async () => {
+  // matchPersonByClaim's trust gate, asserted here because this path is the one
+  // that turns a claim into someone's membership history.
+  await offboardedAlum({ netId: null, contactEmail: "alum@gmail.com" });
+  expect(await resolveReturningPersonId(null, { upn: "alum@gmail.com", email: "alum@gmail.com" })).toBeNull();
 });

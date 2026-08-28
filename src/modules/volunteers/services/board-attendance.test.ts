@@ -131,6 +131,34 @@ describe("meetingRoster", () => {
     const roster = await meetingRoster(id);
     expect(roster.map((r) => r.name)).toEqual(["Real Director"]);
   });
+
+  it("keeps a director who was marked and then removed from the roster", async () => {
+    await manager();
+    const t = await term();
+    const gone = await director("Departed Director", t.id, "EXEC");
+    const { id } = await createMeeting(ACTOR, { termId: t.id, dateKey: "2026-09-10" });
+    await markAttendance(ACTOR, { meetingId: id, personId: gone.id, status: "ABSENT" });
+    await prisma.termMembership.updateMany({ where: { personId: gone.id }, data: { status: "REMOVED" } });
+
+    // Dropping the row here would take the recorded evidence with it, which is
+    // exactly the evidence a strike conversation starts from.
+    const roster = await meetingRoster(id);
+    expect(roster).toMatchObject([{ name: "Departed Director", status: "ABSENT", departmentNames: ["EXEC Dept"] }]);
+  });
+
+  it("lists someone with a mark but no membership in the term", async () => {
+    // The historical import writes marks into a live term without writing
+    // memberships (see platform/board-attendance/import/load.ts). Those rows
+    // would otherwise be invisible on the page that shows the meeting.
+    await manager();
+    const t = await term();
+    const imported = await prisma.person.create({ data: { name: "Imported Director", status: "OFFBOARDED" } });
+    const { id } = await createMeeting(ACTOR, { termId: t.id, dateKey: "2026-09-10" });
+    await markAttendance(ACTOR, { meetingId: id, personId: imported.id, status: "PRESENT" });
+
+    const roster = await meetingRoster(id);
+    expect(roster).toMatchObject([{ name: "Imported Director", status: "PRESENT", departmentNames: [] }]);
+  });
 });
 
 describe("markAttendance", () => {

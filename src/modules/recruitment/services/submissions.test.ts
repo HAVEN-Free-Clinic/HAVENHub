@@ -852,6 +852,40 @@ it("does not erase a link the draft already established", async () => {
   expect(applicant.applicantPersonId).toBe(person.id);
 });
 
+// An alum offboarded at the term flip has no session Person (auth.ts refuses to
+// sign in an OFFBOARDED record) but an untouched ACTIVE TermMembership. The page
+// now offers them the returning branch off the SSO claim; submit must accept the
+// same branch, or they fill the renewal form and are rejected at the last click.
+it("accepts a renewal from an offboarded alum recognized by their SSO claim", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED", contactEmail: "reed-old@yale.edu" } });
+  const app = await submitApplication("apply-v", {
+    applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {},
+    sessionPersonId: null, sessionEmail: "reed-old@yale.edu",
+    sso: { upn: null, email: "reed-old@yale.edu" },
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(app.applicantType).toBe("RENEWAL");
+  expect(app.departmentChoices).toEqual(["SRHD"]);
+  // Still linked to the real record, so promotion and the self-dealing guards work.
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
+
+it("rejects that same renewal when the identity came from the magic-link cookie rather than SSO", async () => {
+  // SECURITY. The cookie proves only mailbox control and any @yale.edu address can
+  // request one, so it must not unlock someone's membership record.
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED" } });
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {},
+      sessionPersonId: null, sessionEmail: "reed-old@yale.edu", identityEmail: "reed-old@yale.edu",
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
 it("rejects a renewal submit with no session", async () => {
   await openVolunteerCycle();
   await expect(

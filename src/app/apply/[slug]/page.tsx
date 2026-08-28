@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/platform/db";
 import { auth } from "@/platform/auth/auth";
-import { getRenewalContext, resolveRenewalPrefill } from "@/modules/recruitment/services/renewal";
+import { getRenewalContext, resolveRenewalPrefill, resolveReturningPersonId } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
 import { canSubmitToCycle } from "@/modules/recruitment/services/cycle-window";
 import { isInvitedTo } from "@/modules/recruitment/services/invites";
@@ -124,20 +124,39 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   };
 
   const session = await auth();
-  let signedIn = false;
+  // Two different questions, which used to share one flag.
+  //
+  // `signedIn` asks whether the portal already holds a verified sign-in, so it
+  // decides only one thing: whether to offer the "sign in with Yale" gate. It used
+  // to mean `session.personId`, which conflated being signed in with being
+  // recognized as an active member -- so everyone else (an alum offboarded at the
+  // term flip, a brand-new Yale applicant) who picked "Renewing" was shown a sign-in
+  // button they had just used, with no way forward, because renewalGate fires on
+  // !signedIn.
+  const signedIn = Boolean(session?.personId || session?.applicantEmail);
+  // `memberPersonId` asks whose membership history decides the returning branch, and
+  // may find a record the session itself refused to carry (auth.ts declines to sign
+  // in an OFFBOARDED Person, but offboarding leaves TermMembership untouched). It
+  // grants nothing and is SSO-only; see resolveReturningPersonId.
+  const memberPersonId = await resolveReturningPersonId(
+    session?.personId,
+    session?.applicantEmail ? { upn: session.applicantUpn, email: session.applicantEmail } : null,
+  );
   let signedInName: string | null = null;
   let eligible = false;
   let currentDepartments: string[] = [];
   let prefill: { values: Record<string, string>; lockedKeys: string[] } | undefined;
   let isReturning = false;
-  if (session?.personId) {
-    signedIn = true;
-    signedInName = session.user?.name ?? null;
+  if (memberPersonId) {
     // Resolve the renewal email from the portal identity (Person.contactEmail for a
     // magic-link member, whose session.user.email is always undefined), so the email
     // field prefills/locks correctly and the eligibility the wizard shows matches what
     // submitApplication will accept (#55).
-    const ctx = await getRenewalContext(session.personId, session.user?.email ?? identity.email, cycle.track);
+    const ctx = await getRenewalContext(memberPersonId, session?.user?.email ?? identity.email, cycle.track);
+    // Falls back to the matched record's name: an alum recognized through the claim
+    // rather than the session may arrive without a display name on the Entra profile,
+    // and "Signed in as" renders nothing at all without one.
+    signedInName = session?.user?.name ?? ctx.name;
     currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
     // Renewal needs a current department offered by this cycle. Transfer only
     // needs an active membership in the track (their department may be elsewhere).

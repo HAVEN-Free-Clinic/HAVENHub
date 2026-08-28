@@ -38,12 +38,19 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
 
   const meeting = await prisma.boardMeeting.findUnique({
     where: { id },
-    select: { id: true, meetingDate: true, title: true, term: { select: { name: true } } },
+    select: { id: true, meetingDate: true, title: true, term: { select: { id: true, name: true, status: true } } },
   });
   if (!meeting) notFound();
 
   const roster = await meetingRoster(id);
   const outstanding = roster.filter((r) => r.status === null).length;
+
+  // Carry the term through, so backing out of a 2024 meeting lands on the 2024
+  // list rather than silently on the current term's.
+  const backHref =
+    meeting.term.status === "ACTIVE"
+      ? "/volunteers/board-meetings"
+      : `/volunteers/board-meetings?term=${meeting.term.id}`;
 
   async function markAction(formData: FormData) {
     "use server";
@@ -71,7 +78,7 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
         description={`${formatCalendarDate(meeting.meetingDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${meeting.term.name}`}
       />
 
-      <Link href="/volunteers/board-meetings" className="text-brand-fg hover:underline text-sm">
+      <Link href={backHref} className="text-brand-fg hover:underline text-sm">
         Back to meetings
       </Link>
 
@@ -79,7 +86,7 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
 
       {roster.length === 0 ? (
         <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No active directors in this term, so there is nobody to record.
+          Nobody was recorded at this meeting, and this term has no active directors to record.
         </Card>
       ) : (
         <>

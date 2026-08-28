@@ -1,3 +1,9 @@
+import { recoverOnce } from "@/platform/posthog/client-self-heal";
+import {
+  STALE_DEPLOY_MESSAGE,
+  STALE_SERVER_ACTION_HEAL,
+} from "@/platform/posthog/stale-server-action";
+
 /** The result shape every server action in this app returns for a HANDLED failure. */
 export type ActionResult = { error?: string };
 
@@ -34,7 +40,16 @@ export async function runAction<T extends ActionResult>(
 ): Promise<T | { error: string }> {
   try {
     return await call();
-  } catch {
+  } catch (err) {
+    // One of the rejections named above -- "a deploy swapping the action id
+    // mid-session" -- is the one case where the fallback message is actively
+    // wrong. It tells the member their input is safe and re-clicking will work,
+    // but the retry re-sends the same dead action id from the same stale bundle
+    // and fails identically. Reload onto the new bundle instead, and say that is
+    // what is happening. See stale-server-action.ts.
+    if (recoverOnce(STALE_SERVER_ACTION_HEAL, err)) {
+      return { error: STALE_DEPLOY_MESSAGE };
+    }
     return { error: fallbackMessage };
   }
 }

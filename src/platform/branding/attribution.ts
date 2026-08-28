@@ -4,11 +4,15 @@
  * Hub serves -- this module describes who built the software.
  */
 
-/** A person credited on the /attributions page. */
+/**
+ * A person credited on the /attributions page. `email` is optional: alumni are
+ * credited for the role they held, and a lapsed Yale address is worse than no
+ * contact link at all.
+ */
 export type Contributor = {
   name: string;
   role: string;
-  email: string;
+  email?: string;
 };
 
 /**
@@ -31,6 +35,10 @@ export const CONTRIBUTORS: readonly Contributor[] = [
     name: "Renée Tracey",
     role: "Director of IT and Communications",
     email: "renee.tracey@yale.edu",
+  },
+  {
+    name: "Antigone Antonakakis",
+    role: "Executive Director, 2025-2026",
   },
 ];
 

@@ -30,18 +30,33 @@ describe("formatCopyright", () => {
 });
 
 describe("CONTRIBUTORS", () => {
-  it("credits the three ITCM directors", () => {
+  it("credits the ITCM directors and the executive director who backed the build", () => {
     expect(CONTRIBUTORS.map((c) => c.name)).toEqual([
       "Jack Carney",
       "Caprice Culkin",
       "Renée Tracey",
+      "Antigone Antonakakis",
     ]);
   });
 
-  it("gives every contributor a role and a contact address", () => {
+  it("gives every contributor a role", () => {
     for (const contributor of CONTRIBUTORS) {
       expect(contributor.role).not.toBe("");
+    }
+  });
+
+  it("lists a well-formed address wherever a contributor has one", () => {
+    for (const contributor of CONTRIBUTORS) {
+      if (contributor.email === undefined) continue;
       expect(contributor.email).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+    }
+  });
+
+  it("still carries a contact address for every serving ITCM director", () => {
+    const serving = CONTRIBUTORS.filter((c) => c.role === "Director of IT and Communications");
+    expect(serving).toHaveLength(3);
+    for (const director of serving) {
+      expect(director.email).toBeDefined();
     }
   });
 });

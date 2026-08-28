@@ -5,6 +5,11 @@ import { requestMemberLoginLinkAction } from "./login-actions";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { recoverOnce } from "@/platform/posthog/client-self-heal";
+import {
+  STALE_DEPLOY_MESSAGE,
+  STALE_SERVER_ACTION_HEAL,
+} from "@/platform/posthog/stale-server-action";
 
 /**
  * Non-Yale member magic-link request, collapsed behind a disclosure so the
@@ -21,7 +26,9 @@ export function MemberSignInForm({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const [state, setState] = useState<"idle" | "sent" | "invalid" | "use-yale" | "error">("idle");
+  const [state, setState] = useState<
+    "idle" | "sent" | "invalid" | "use-yale" | "error" | "stale-deploy"
+  >("idle");
   const [pending, setPending] = useState(false);
   const panelId = useId();
 
@@ -31,8 +38,14 @@ export function MemberSignInForm({
     try {
       const res = await requestMemberLoginLinkAction(new FormData(e.currentTarget));
       setState(res.status);
-    } catch {
-      setState("error");
+    } catch (err) {
+      // A tab open across a deploy posts action ids the running deploy no longer
+      // has, so "please try again" is the one instruction that cannot work: the
+      // retry sends the same dead id. We saw exactly that here -- the member
+      // retried two seconds later and hit the same wall. Reload onto the new
+      // bundle instead. /login is the door to the whole Hub and offers no other
+      // way out. See stale-server-action.ts.
+      setState(recoverOnce(STALE_SERVER_ACTION_HEAL, err) ? "stale-deploy" : "error");
     } finally {
       setPending(false);
     }
@@ -75,6 +88,9 @@ export function MemberSignInForm({
               <Alert tone="warning">That is a Yale email. Use &ldquo;Sign in with Yale&rdquo; above.</Alert>
             )}
             {state === "error" && <Alert tone="error">Something went wrong. Please try again.</Alert>}
+            {/* The reload is already running; this is what the member reads
+                during it, and what stays on screen if the reload is refused. */}
+            {state === "stale-deploy" && <Alert tone="warning">{STALE_DEPLOY_MESSAGE}</Alert>}
             <Field label="Email">
               <Input
                 id="member-email"

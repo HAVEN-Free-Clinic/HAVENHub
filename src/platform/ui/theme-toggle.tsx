@@ -33,7 +33,12 @@ export function ThemeToggle({ initial }: { initial: ThemePreference }) {
     setPref(next);
     applyToDocument(next); // optimistic, instant
     startTransition(() => {
-      void setThemePreference(next);
+      // The toggle has already applied optimistically, so persistence failing is
+      // a preference that reverts on the next load, not something to surface.
+      // Caught rather than left to reject: an uncaught server-action fetch
+      // failure is captured as an $exception whose only frames are inside the
+      // minified action runtime (see notification-bell.tsx).
+      void setThemePreference(next).catch(() => {});
     });
   }
 

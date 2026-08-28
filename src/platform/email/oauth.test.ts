@@ -10,6 +10,7 @@ import {
   MailNotConnectedError,
   __resetTokenCache,
   teamsScopesGranted,
+  channelReadScopeGranted,
 } from "./oauth";
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,22 @@ describe("teamsScopesGranted", () => {
 
   it("is true once every Teams scope is granted", () => {
     expect(teamsScopesGranted("Mail.Send Chat.Create ChatMessage.Send")).toBe(true);
+  });
+});
+
+describe("channelReadScopeGranted", () => {
+  it("returns false for null", () => {
+    expect(channelReadScopeGranted(null)).toBe(false);
+  });
+
+  it("returns false when the channel scope is absent", () => {
+    expect(channelReadScopeGranted("Mail.Send Chat.Create")).toBe(false);
+  });
+
+  it("is true when the channel scope is granted (full Graph URI)", () => {
+    expect(
+      channelReadScopeGranted("https://graph.microsoft.com/Channel.ReadBasic.All")
+    ).toBe(true);
   });
 });
 

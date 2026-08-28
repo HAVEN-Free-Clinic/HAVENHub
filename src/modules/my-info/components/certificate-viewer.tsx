@@ -34,9 +34,31 @@ type CertificateViewerProps = {
 
 /**
  * "View" button that opens a modal previewing the certificate PDF inline. The
- * iframe is only mounted while the modal is open (so roster rows never each load
- * a PDF) and unmounts on close. Download / Open-in-new-tab are provided as
- * fallbacks for browsers that will not render PDFs in an iframe.
+ * preview is only mounted while the modal is open (so roster rows never each
+ * load a PDF) and unmounts on close. Download / Open-in-new-tab are provided as
+ * fallbacks for browsers that will not render PDFs in a frame.
+ *
+ * Those fallbacks are not hypothetical. Members reach this modal, find the
+ * preview area completely blank, and go hunting for another way to read their
+ * own certificate (PostHog inbox 01a02ff5).
+ *
+ * The cause is on the browser's side of the frame, not ours. Rebuilding this
+ * modal around a PDF served with the route's exact response headers cleared
+ * both structural suspects: the `default-src 'none'` CSP the route sends, and
+ * the `backdrop-filter` on the modal's glass panel. Each renders the PDF fine,
+ * and a frame inside the glass panel renders identically to one outside it.
+ * What remains is the viewer plugin -- a PDF handler other than the browser's
+ * built-in one, or a mobile browser that will not frame PDFs at all -- painting
+ * nothing while the load still reports success. No event fires, so the app
+ * cannot detect it.
+ *
+ * The frame stays an <iframe>. Swapping in an <object>, whose fallback children
+ * would at least cover an outright load failure, renders identically in Chrome
+ * (measured) but is the weaker element for PDFs on iOS, which is where a third
+ * of the clicks on this button come from. Instead the blank frame is
+ * signposted: a line below it names the escape hatch unconditionally, so a
+ * member in front of an empty rectangle is told what to do rather than left to
+ * guess.
  *
  * When canEditDate is true, onSetDate is provided, and the cert has no
  * completion date, a date-entry form appears in the footer so a compliance
@@ -231,6 +253,14 @@ export function CertificateViewer({
             title={`Certificate preview: ${fileName}`}
             className="h-[75vh] w-full rounded-lg border border-border"
           />
+          {/* Unconditional, because the failure it covers cannot be detected: a
+              PDF plugin paints nothing inside the frame while the load reports
+              success, leaving a member in front of a blank panel with no reason
+              to think the footer buttons would do any better. */}
+          <p className="mt-2 text-xs text-subtle-foreground">
+            Not seeing the certificate? Open it in a new tab or download it using
+            the buttons below.
+          </p>
         </Modal>
       )}
     </>

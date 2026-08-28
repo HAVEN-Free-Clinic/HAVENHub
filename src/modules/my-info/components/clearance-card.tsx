@@ -6,6 +6,7 @@ import {
   XCircle,
   Circle,
   ArrowRight,
+  ChevronRight,
 } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
@@ -24,6 +25,18 @@ export type Requirement = {
   /** Whether this requirement counts toward clearance. */
   met: boolean;
   tone: Tone;
+  /**
+   * Where this row takes the reader: the section or page that resolves it.
+   * Supplied by the caller, because the answer is page-specific -- on /my-info
+   * the HIPAA and EHS sections are further down the same page, while a step with
+   * no section here belongs on its /get-started page.
+   *
+   * Omit it only when there is genuinely nowhere to send someone. Rows without a
+   * destination are the reason members click them and nothing happens: the
+   * checklist reads as a list of things to go do, so an inert row is a dead end
+   * (PostHog inbox 01a036e2 -- 51 members clicked "EHS training" here).
+   */
+  href?: string;
 };
 
 const rowIconClasses: Record<Tone, string> = {
@@ -41,33 +54,34 @@ function RowIcon({ tone, met }: { tone: Tone; met: boolean }) {
   return <Circle aria-hidden className={cls} />;
 }
 
-export function certRequirement(status: ComplianceStatus): Requirement {
+export function certRequirement(status: ComplianceStatus, href?: string): Requirement {
+  const base = { label: "HIPAA certificate", href } as const;
   switch (status) {
     case "COMPLIANT":
-      return { label: "HIPAA certificate", statusLabel: "Valid", met: true, tone: "success" };
+      return { ...base, statusLabel: "Valid", met: true, tone: "success" };
     case "EXPIRING_SOON":
-      return { label: "HIPAA certificate", statusLabel: "Expiring soon", met: true, tone: "warning" };
+      return { ...base, statusLabel: "Expiring soon", met: true, tone: "warning" };
     case "EXPIRED":
-      return { label: "HIPAA certificate", statusLabel: "Expired", met: false, tone: "critical" };
+      return { ...base, statusLabel: "Expired", met: false, tone: "critical" };
     case "UNKNOWN_DATE":
-      return { label: "HIPAA certificate", statusLabel: "Needs completion date", met: false, tone: "warning" };
+      return { ...base, statusLabel: "Needs completion date", met: false, tone: "warning" };
     case "PENDING_VERIFICATION":
-      return { label: "HIPAA certificate", statusLabel: "Awaiting verification", met: false, tone: "warning" };
+      return { ...base, statusLabel: "Awaiting verification", met: false, tone: "warning" };
     case "NO_CERTIFICATE":
-      return { label: "HIPAA certificate", statusLabel: "Not uploaded", met: false, tone: "default" };
+      return { ...base, statusLabel: "Not uploaded", met: false, tone: "default" };
   }
 }
 
-export function taskRequirement(label: string, state: TaskState): Requirement {
+export function taskRequirement(label: string, state: TaskState, href?: string): Requirement {
   switch (state) {
     case "COMPLETE":
-      return { label, statusLabel: "Complete", met: true, tone: "success" };
+      return { label, href, statusLabel: "Complete", met: true, tone: "success" };
     case "IN_PROGRESS":
-      return { label, statusLabel: "In progress", met: false, tone: "warning" };
+      return { label, href, statusLabel: "In progress", met: false, tone: "warning" };
     case "INCOMPLETE":
-      return { label, statusLabel: "Not started", met: false, tone: "warning" };
+      return { label, href, statusLabel: "Not started", met: false, tone: "warning" };
     case "NOT_REQUIRED":
-      return { label, statusLabel: "Not required", met: true, tone: "default" };
+      return { label, href, statusLabel: "Not required", met: true, tone: "default" };
   }
 }
 
@@ -128,13 +142,30 @@ export function ClearanceCard({
         </div>
       )}
 
-      {/* Requirements checklist */}
+      {/* Requirements checklist. A row with a href is a link across its whole
+          width, badge included: the banner above tells members to go finish
+          these, so they click the row itself -- the label, the status badge,
+          anywhere -- and an inert row swallows that click (see Requirement.href). */}
       <ul className="divide-y divide-border-subtle">
         {requirements.map((req) => (
-          <li key={req.label} className="flex items-center gap-3 px-5 py-3.5">
-            <RowIcon tone={req.tone} met={req.met} />
-            <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{req.label}</span>
-            <Badge tone={req.tone}>{req.statusLabel}</Badge>
+          <li key={req.label}>
+            {req.href ? (
+              <Link
+                href={req.href}
+                className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+              >
+                <RowIcon tone={req.tone} met={req.met} />
+                <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{req.label}</span>
+                <Badge tone={req.tone}>{req.statusLabel}</Badge>
+                <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </Link>
+            ) : (
+              <div className="flex items-center gap-3 px-5 py-3.5">
+                <RowIcon tone={req.tone} met={req.met} />
+                <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{req.label}</span>
+                <Badge tone={req.tone}>{req.statusLabel}</Badge>
+              </div>
+            )}
           </li>
         ))}
       </ul>

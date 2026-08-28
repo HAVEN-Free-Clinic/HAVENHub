@@ -5,7 +5,7 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
-import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
+import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { firstNameOf } from "@/platform/person-name";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
@@ -62,6 +62,18 @@ export type BuildShiftRemindersInput = {
    * there is nothing in the assignment rows to derive it from.
    */
   attendingNamesByDepartmentId: Record<string, string>;
+  /**
+   * Present when the clinic is CLOSED on `targetDate`; absent on a normal
+   * Saturday. `note` is the recorded reason, routinely null.
+   *
+   * A closed Saturday used to stop this email dead. It no longer does:
+   * departments still staff a closed date -- triage coverage is the case ops
+   * named -- and the people they assign are exactly the people who need
+   * reminding. What the closure changes is the WORDING: the reminder says the
+   * clinic is shut, so the audit-14 failure it guarded against (volunteers told
+   * to turn up to a cancelled clinic) cannot come back through the new door.
+   */
+  clinicClosed?: { note: string | null };
 };
 
 function uniqueNamesById(entries: { id: string; name: string }[]): string[] {
@@ -105,7 +117,7 @@ function onShiftLeadership(assignments: ReminderAssignment[]): {
  * choice deterministic regardless of the order the caller passes assignments.
  */
 export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedReminder[] {
-  const { assignments, targetDate, teamsChannelUrl, baseUrl, attendingNamesByDepartmentId } = input;
+  const { assignments, targetDate, teamsChannelUrl, baseUrl, attendingNamesByDepartmentId, clinicClosed } = input;
 
   const clinicDateLabel = formatCalendarDate(targetDate, {
     weekday: "long",
@@ -122,6 +134,20 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   // track them. Built from baseUrl like every other link here, rather than a
   // literal host, so it follows the deployment.
   const helpDeskUrl = `${baseUrl}/support/new`;
+
+  // Raw HTML like additionalShifts, and empty on an ordinary Saturday, so the
+  // template needs no {{#if}} around it.
+  //
+  // Leads with the closure and names the concrete consequence (no check-in),
+  // because "you are scheduled" and "the clinic is shut" read as a
+  // contradiction otherwise, and the member has no other way to tell which one
+  // to believe. Falling back to "no reason was recorded" rather than omitting
+  // the sentence: an unexplained closure is still worth saying out loud.
+  const closedNotice = clinicClosed
+    ? `<p><strong>Note: the clinic is closed on ${esc(clinicDateLabel)}.</strong> ${
+        clinicClosed.note ? esc(clinicClosed.note) : "No reason was recorded."
+      } You are still on the schedule for that day, and there is no clinic-day check-in. If you are not sure whether to come in, ask your department director before Saturday.</p>`
+    : "";
 
   const { edsOnShift, clinicalAdvisorsOnShift } = onShiftLeadership(assignments);
 
@@ -176,13 +202,16 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
 
     prepared.push({
       person,
-      teamsSummary: `You are scheduled for a ${ROLE_LABEL[primary.role]} shift in ${primary.department.name} this ${clinicDateLabel}.`,
+      teamsSummary: `You are scheduled for a ${ROLE_LABEL[primary.role]} shift in ${primary.department.name} this ${clinicDateLabel}.${
+        clinicClosed ? " Note that the clinic is closed that day." : ""
+      }`,
       context: shiftReminderContext({
         firstName: firstNameOf(person.name),
         roleLabel: ROLE_LABEL[primary.role],
         departmentName: primary.department.name,
         clinicDateLabel,
         additionalShifts,
+        closedNotice,
         edsOnShift: edsOnShift.join(", "),
         deptDirectorsOnShift: deptDirectorsOnShift.join(", "),
         clinicalAdvisorsOnShift: clinicalAdvisorsOnShift.join(", "),
@@ -364,11 +393,17 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
 
   const targetKey = isoDateKey(targetDate);
 
-  // ...and not if that Saturday has been closed. Reminding volunteers to turn up
-  // to a clinic Faculty Relations has cancelled is worse than sending nothing,
-  // and the attending twin of this job already bails on the same flag (audit 14,
-  // CLINIC-01 / SCHED-4).
-  if (!(await resolveOpenClinicDate(term, targetKey))) return result;
+  // A CLOSED Saturday no longer stops the run. This used to bail outright (audit
+  // 14, CLINIC-01 / SCHED-4, on the reasoning that reminding volunteers to turn
+  // up to a cancelled clinic is worse than sending nothing) -- but ops schedule
+  // departments onto closed dates on purpose, to cover triage, and those are the
+  // people this email exists for. The audit's concern is met by the wording
+  // instead: `clinicClosed` below puts the closure at the top of the email.
+  //
+  // Recipients are still assignment-driven, so a genuinely dead Saturday with
+  // nobody scheduled sends nothing, exactly as before.
+  const closures = await closedClinicDates(term.id);
+  const clinicClosed = closures.has(targetKey) ? { note: closures.get(targetKey) ?? null } : undefined;
 
   // Load the term's assignments and filter to the target clinic date by UTC day
   // key (never compare clinicDate by raw timestamp).
@@ -442,6 +477,7 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
     teamsChannelUrl,
     baseUrl,
     attendingNamesByDepartmentId,
+    clinicClosed,
   });
 
   // Idempotency: skip anyone already sent a shift-reminder within the last 6
@@ -515,6 +551,11 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
   // its own claim and its own EmailLog window, so a cc or triage email that
   // fails to render cannot cost that person the reminder everybody gets, and an
   // admin switching one off leaves the other untouched.
+  //
+  // These carry no closure notice of their own, on purpose. Every recipient
+  // here also gets the main reminder above, which leads with it -- and the
+  // triage post is exactly the one a department staffs on a closed Saturday, so
+  // its prep email is wanted unchanged.
   const preparedRoles = buildRoleReminders({
     assignments,
     targetDate,

@@ -11,6 +11,7 @@ function fullContext(over: Partial<Parameters<typeof shiftReminderContext>[0]> =
     departmentName: "Senior Primary Care",
     clinicDateLabel: "Saturday, July 11, 2026",
     additionalShifts: "",
+    closedNotice: "",
     edsOnShift: "Jordan Blake",
     deptDirectorsOnShift: "Alex Rivera",
     clinicalAdvisorsOnShift: "Dr. Pat Lee",

@@ -156,6 +156,34 @@ manageable departments and a selected clinic date, and brings together:
   status is not compliant.
 - **Clinic readiness** for RHD-family departments (see below).
 
+### Closed clinic days
+
+A Saturday the clinic is not running is stored as a flag on the `ClinicDay` row
+(`isClosed`, with an optional `closedNote`), set from the attending Day view or
+by the workbook importer. The date stays in `Term.clinicDates`.
+
+A closure does **not** take the date out of the schedule. Departments staff a
+closed Saturday on purpose -- triage coverage is the standing case -- so the
+date remains fully assignable and every schedule surface labels it instead of
+hiding it:
+
+- The builder's date strip and grid mark the date, and the Day view shows a
+  banner naming the closure and its reason.
+- The full schedule shows the same banner above the day's roster.
+- A member's shift card carries a "Clinic closed" badge and the reason.
+- The weekly shift reminder still goes to whoever is scheduled, leading with a
+  notice that the clinic is closed that day (`closedNotice` in the
+  `shift-reminder` template). An admin override of that template stored before
+  the variable existed will not carry the notice; paste
+  `{{{ closedNotice }}}` into the override to restore it.
+
+What a closure *does* stop is anything about the clinic's front door being
+open: the morning-of check-in invite, the Check in tab, self check-in and
+attendance, and every attending-facing reader (coverage, attending reminders,
+the attending portal and calendar feed, and the public clinic-day feed). The
+split lives in `platform/attendings/open-clinic-date.ts`:
+`resolveOpenClinicDate` is the hard gate, `closedClinicDates` is the label.
+
 ## Capacity planning
 
 Per-day capacity is computed by the engine (`computeDayMetrics`) from the people

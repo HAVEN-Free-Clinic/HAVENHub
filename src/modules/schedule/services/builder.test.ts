@@ -1742,6 +1742,68 @@ describe("builderView", () => {
     expect(view.selectedDateKey).toBe(isoDateKey(dates[2]));
   });
 
+  // Closed dates are LABELLED here, never withheld: a department can still be
+  // scheduled onto a Saturday the clinic proper is shut (triage coverage), so
+  // the builder shows the date and says what is true about it.
+  describe("closed clinic dates", () => {
+    it("reports each closed date with its note, and leaves the date assignable", async () => {
+      const dates = sixSaturdays();
+      const term = await createTerm(dates);
+      const dept = await createDepartment("PCAR");
+      const director = await createPerson("Director");
+      await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[1],
+          isClosed: true,
+          closedNote: "HAVEN FREE CLINIC CLOSED",
+        },
+      });
+
+      const view = await builderView(director.id, { termId: term.id });
+
+      expect(view.closedDates).toEqual({ [isoDateKey(dates[1])]: "HAVEN FREE CLINIC CLOSED" });
+      // The whole term is still offered; nothing was filtered out.
+      expect(view.clinicDates.map(isoDateKey)).toEqual(dates.map(isoDateKey));
+    });
+
+    // The flag can be ticked without a reason, and presence in the map -- not a
+    // truthy note -- is what says "closed".
+    it("reports a closed date that carries no note", async () => {
+      const dates = sixSaturdays();
+      const term = await createTerm(dates);
+      const dept = await createDepartment("PCAR");
+      const director = await createPerson("Director");
+      await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+      await prisma.clinicDay.create({
+        data: { termId: term.id, clinicDate: dates[0], isClosed: true },
+      });
+
+      const view = await builderView(director.id, { termId: term.id });
+
+      expect(isoDateKey(dates[0]) in view.closedDates).toBe(true);
+      expect(view.closedDates[isoDateKey(dates[0])]).toBeNull();
+    });
+
+    // Most Saturdays carry a ClinicDay row only once somebody annotates them,
+    // and an annotated-but-open row must not read as closed.
+    it("leaves an open date out, even when it has a ClinicDay row", async () => {
+      const dates = sixSaturdays();
+      const term = await createTerm(dates);
+      const dept = await createDepartment("PCAR");
+      const director = await createPerson("Director");
+      await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+      await prisma.clinicDay.create({
+        data: { termId: term.id, clinicDate: dates[2], directorName: "Someone" },
+      });
+
+      const view = await builderView(director.id, { termId: term.id });
+
+      expect(view.closedDates).toEqual({});
+    });
+  });
+
   it("currentClinicDateKey tracks the current week's clinic Saturday independent of the selected date", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);

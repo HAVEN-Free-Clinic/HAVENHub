@@ -19,13 +19,14 @@ const member: BuilderMember = {
   intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
 };
 
-function renderGrid(clinicDates: Date[]) {
+function renderGrid(clinicDates: Date[], closedDateKeys: string[] = []) {
   return renderToStaticMarkup(
     <BuilderGrid
       members={[member]}
       clinicDates={clinicDates}
       assignmentsByDate={{}}
       highlightDateKey={null}
+      closedDateKeys={closedDateKeys}
       deptId="d1"
       deptCode="MED"
       mode="assign"
@@ -36,6 +37,23 @@ function renderGrid(clinicDates: Date[]) {
 }
 
 describe("BuilderGrid", () => {
+  // A closed Saturday is labelled, not withheld: a department can still be
+  // scheduled onto one to cover triage, so the column stays and says so.
+  it("marks a closed date's column while keeping every column", () => {
+    const dates = [d(2026, 8, 7), d(2026, 9, 12)];
+    const out = renderGrid(dates, ["2026-08-07"]);
+    expect(out).toContain("August 7th");
+    expect(out).toContain("September 12th");
+    expect(out).toContain("Closed");
+    // One closed date, one marker: the open column must not pick it up too.
+    expect(out.split("Closed").length - 1).toBe(1);
+  });
+
+  it("marks nothing when no date is closed", () => {
+    const out = renderGrid([d(2026, 8, 7)]);
+    expect(out).not.toContain("Closed");
+  });
+
   it("renders header date columns chronologically even when clinicDates arrives out of order", () => {
     // Mirrors a real Term.clinicDates array: Postgres gives no ordering
     // guarantee, and the check-in feature's seed appends today's date to the

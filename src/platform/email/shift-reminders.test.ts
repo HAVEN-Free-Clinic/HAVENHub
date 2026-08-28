@@ -432,4 +432,67 @@ describe("runShiftReminders role reminders", () => {
     expect(result.remindersSent).toBe(1);
     expect(result.roleRemindersSent).toBe(0);
   });
+
+  // Closing a Saturday used to silence this cron outright (audit 14, CLINIC-01 /
+  // SCHED-4). Ops schedule departments onto closed dates on purpose to cover
+  // triage, so the reminder now goes out and carries the closure instead.
+  describe("a closed clinic date", () => {
+    it("still reminds whoever is scheduled, and tells them the clinic is closed", async () => {
+      const target = futureClinicDate(5);
+      const term = await createTerm([target]);
+      const sctp = await createDepartment("SCTP", "Senior Primary Care");
+      const vol = await createPerson("Val Volunteer", "val@x.org");
+      await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: target,
+          isClosed: true,
+          closedNote: "Thanksgiving weekend",
+        },
+      });
+
+      const result = await runShiftReminders(NOW);
+
+      expect(result.remindersSent).toBe(1);
+      const email = await prisma.emailLog.findFirstOrThrow({
+        where: { template: "shift-reminder", personId: vol.id },
+      });
+      expect(email.html).toContain("the clinic is closed on");
+      expect(email.html).toContain("Thanksgiving weekend");
+    });
+
+    // The closure is a label on the day, not a recipient list of its own: with
+    // nobody scheduled there is nothing to remind, closed or open.
+    it("sends nothing when nobody is scheduled for it", async () => {
+      const target = futureClinicDate(5);
+      const term = await createTerm([target]);
+      await createDepartment("SCTP", "Senior Primary Care");
+      await prisma.clinicDay.create({
+        data: { termId: term.id, clinicDate: target, isClosed: true },
+      });
+
+      const result = await runShiftReminders(NOW);
+
+      expect(result.remindersSent).toBe(0);
+      expect(await shiftEmailCount()).toBe(0);
+    });
+
+    // The notice is conditional, not boilerplate: an ordinary Saturday must not
+    // carry a sentence about the clinic being shut.
+    it("says nothing about a closure on an open date", async () => {
+      const target = futureClinicDate(5);
+      const term = await createTerm([target]);
+      const sctp = await createDepartment("SCTP", "Senior Primary Care");
+      const vol = await createPerson("Val Volunteer", "val@x.org");
+      await schedule(term.id, sctp.id, vol.id, target, "VOLUNTEER");
+
+      await runShiftReminders(NOW);
+
+      const email = await prisma.emailLog.findFirstOrThrow({
+        where: { template: "shift-reminder", personId: vol.id },
+      });
+      expect(email.html).not.toContain("the clinic is closed");
+    });
+  });
 });

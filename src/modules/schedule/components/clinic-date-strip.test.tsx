@@ -134,4 +134,37 @@ describe("ClinicDateStrip", () => {
     );
     expect(out).toBe("");
   });
+
+  // A closed Saturday is still assignable -- departments staff one to cover
+  // triage -- so the pill is marked, never dropped.
+  describe("closed dates", () => {
+    function withClosed(closedKeys?: string[]) {
+      return renderToStaticMarkup(
+        <ClinicDateStrip
+          dates={DATES}
+          selectedKey={null}
+          closedKeys={closedKeys}
+          hrefFor={(k) => `/x?date=${k}`}
+          ariaLabel="Clinic dates"
+        />,
+      );
+    }
+
+    it("keeps a closed date's link alongside the open ones", () => {
+      const out = withClosed(["2026-09-20"]);
+      expect(out.match(/<a /g)).toHaveLength(3);
+      expect(out).toContain('href="/x?date=2026-09-20"');
+    });
+
+    // The marker is a coloured dot, which says nothing to a screen reader, and
+    // the pill's own text is just a date.
+    it("spells the closure out for assistive technology, once per closed date", () => {
+      expect(withClosed(["2026-09-20"]).match(/\(clinic closed\)/g)).toHaveLength(1);
+    });
+
+    it("marks nothing when no date is closed, and when the prop is omitted", () => {
+      expect(withClosed([])).not.toContain("clinic closed");
+      expect(withClosed()).not.toContain("clinic closed");
+    });
+  });
 });

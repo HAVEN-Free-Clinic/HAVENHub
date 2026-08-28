@@ -17,6 +17,21 @@
  * attendance for a clinic that nobody had declared open (audit 14, CLINIC-01 and
  * SCHED-4). The doctors were protected; the volunteers were not.
  *
+ * WHAT CLOSED DOES *NOT* MEAN: "nobody works". Ops confirmed the opposite --
+ * departments still run triage and other coverage on a Saturday the clinic
+ * proper is shut, so the builder never blocked assigning on a closed date and
+ * must not start. That is the split the two exports here draw:
+ *
+ *   resolveOpenClinicDate  -- "is the CLINIC running?", the hard gate. Check-in,
+ *                             attendance, the morning-of invite and every
+ *                             attending-facing reader stay off, because those
+ *                             are all about the clinic's front door being open.
+ *   closedClinicDates      -- "which Saturdays are shut?", the label. The
+ *                             builder, the member's shift card and the weekly
+ *                             reminder still run on a closed date and say so,
+ *                             so a director schedules with their eyes open and
+ *                             nobody turns up expecting a normal clinic.
+ *
  * Lives in platform rather than the schedule module because both the cron routes
  * and the module need it, and the eslint boundary forbids platform importing
  * module code.
@@ -46,4 +61,26 @@ export async function resolveOpenClinicDate(
   // No ClinicDay row means nobody has said anything about this date, which is
   // the normal state for most Saturdays: open.
   return day?.isClosed ? null : match;
+}
+
+/**
+ * Every closed date in a term, as a UTC day key -> its closure note.
+ *
+ * The bulk twin of {@link resolveOpenClinicDate}, for the surfaces that render a
+ * whole term at once (the builder's date strip and grid, a member's shift list)
+ * and would otherwise issue one query per Saturday. A key is present IFF that
+ * date is closed; the value is the note explaining why, which is routinely null
+ * because `isClosed` can be ticked without one.
+ *
+ * Only closed rows are fetched. Most Saturdays have no `ClinicDay` row at all --
+ * one is written only when somebody says something about the date -- so absence
+ * is the normal "open" answer and reading the open rows back would be work for
+ * nothing.
+ */
+export async function closedClinicDates(termId: string): Promise<Map<string, string | null>> {
+  const rows = await prisma.clinicDay.findMany({
+    where: { termId, isClosed: true },
+    select: { clinicDate: true, closedNote: true },
+  });
+  return new Map(rows.map((r) => [isoDateKey(r.clinicDate), r.closedNote]));
 }

@@ -185,7 +185,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     );
   }
 
-  const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate } = data;
+  const { selectedDepartment, clinicDates, closedDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate } = data;
+  // Presence in closedDates IS the closure; the value is the note, which is
+  // routinely null because "Clinic closed" can be ticked without one.
+  const selectedClosed = selectedDateKey != null && selectedDateKey in closedDates;
   const dept = selectedDepartment!;
 
   const switcherTerms = await prisma.term.findMany({
@@ -550,6 +553,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <ClinicDateStrip
             dates={clinicDates}
             selectedKey={selectedDateKey}
+            closedKeys={Object.keys(closedDates)}
             hrefFor={(key) => href({ date: key })}
             ariaLabel="Clinic dates"
           />
@@ -608,6 +612,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               clinicDates={clinicDates}
               assignmentsByDate={assignmentsByDate}
               highlightDateKey={currentClinicDateKey}
+              closedDateKeys={Object.keys(closedDates)}
               deptId={dept.id}
               deptCode={dept.code}
               mode={gmode}
@@ -618,6 +623,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         ) : (
           <>
             {selectedDisplay && <SectionHeader as="h2" level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
+            {/* A closed date stays fully editable -- departments still staff
+                triage on a Saturday the clinic proper is shut -- so this states
+                the fact and leaves the decision to the director, rather than
+                locking the day or hiding it from the strip. */}
+            {selectedClosed && (
+              <Alert tone="warning" className="mb-4">
+                <strong>The clinic is closed this date.</strong>{" "}
+                {closedDates[selectedDateKey!] ?? "No reason was recorded."} You can still
+                schedule {dept.code} for it; check-in and attendance stay closed, and the
+                weekly reminder tells whoever you assign that the clinic is shut.
+              </Alert>
+            )}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
               <BuilderDayView
                 data={data}

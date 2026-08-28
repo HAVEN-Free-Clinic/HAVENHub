@@ -438,7 +438,22 @@ export default async function MySchedulePage() {
                   {shift.tags.walkin && <Badge tone="default">Walk-in</Badge>}
                   {shift.tags.cc && <Badge tone="default">CC</Badge>}
                   {shift.tags.remote && <Badge tone="default">Remote</Badge>}
+                  {shift.clinicClosed && <Badge tone="warning">Clinic closed</Badge>}
                 </div>
+
+                {/* The shift is real on a closed date -- departments staff
+                    triage on one -- so the card keeps it and says what is
+                    different, rather than hiding either half. Check-in is the
+                    concrete consequence a member would otherwise discover on
+                    the morning, so it is named here. */}
+                {shift.clinicClosed && (
+                  <p className="mb-2 text-sm text-foreground-soft">
+                    <span className="text-muted-foreground">The clinic is closed this date. </span>
+                    {shift.closedNote ? `${shift.closedNote} ` : ""}
+                    You are still scheduled, and there is no clinic-day check-in. Check with
+                    your director if you are not sure whether to come in.
+                  </p>
+                )}
 
                 {/* The attending covering THIS shift's department, not the whole
                     clinic day: the schedule is one grid with a column per team,

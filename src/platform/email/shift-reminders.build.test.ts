@@ -196,4 +196,70 @@ describe("buildShiftReminders", () => {
     expect(out.find((r) => r.person.id === "v")!.context.deptDirectorsOnShift).toBe("Dana Director, Devi Director");
     expect(out.find((r) => r.person.id === "s")!.context.deptDirectorsOnShift).toBe("Dana Director, Devi Director");
   });
+
+  // A closed Saturday used to suppress this email entirely. It now sends and
+  // says so instead: departments staff a closed date to cover triage, and the
+  // people assigned to it are the ones who need reminding.
+  describe("a closed clinic date", () => {
+    const vol = person("v", "Val Volunteer");
+    const rows = [row(vol, "SCTP", "Senior Primary Care", "VOLUNTEER")];
+
+    it("leaves the notice empty on an ordinary Saturday", () => {
+      const out = buildShiftReminders({
+        assignments: rows,
+        targetDate: TARGET,
+        teamsChannelUrl: "",
+        baseUrl: BASE,
+        attendingNamesByDepartmentId: {},
+      });
+      expect(out[0].context.closedNotice).toBe("");
+      expect(out[0].teamsSummary).not.toContain("closed");
+    });
+
+    it("carries the closure and its recorded reason into the email and the Teams summary", () => {
+      const out = buildShiftReminders({
+        assignments: rows,
+        targetDate: TARGET,
+        teamsChannelUrl: "",
+        baseUrl: BASE,
+        attendingNamesByDepartmentId: {},
+        clinicClosed: { note: "HAVEN FREE CLINIC CLOSED" },
+      });
+      const notice = out[0].context.closedNotice as string;
+      expect(notice).toContain("the clinic is closed on Saturday, July 11, 2026");
+      expect(notice).toContain("HAVEN FREE CLINIC CLOSED");
+      // The consequence a member would otherwise discover on the morning.
+      expect(notice).toContain("no clinic-day check-in");
+      expect(out[0].teamsSummary).toContain("the clinic is closed that day");
+    });
+
+    it("still says the clinic is closed when no reason was recorded", () => {
+      const out = buildShiftReminders({
+        assignments: rows,
+        targetDate: TARGET,
+        teamsChannelUrl: "",
+        baseUrl: BASE,
+        attendingNamesByDepartmentId: {},
+        clinicClosed: { note: null },
+      });
+      const notice = out[0].context.closedNotice as string;
+      expect(notice).toContain("the clinic is closed");
+      expect(notice).toContain("No reason was recorded");
+    });
+
+    // The note is free text typed by a manager and lands in an HTML email.
+    it("escapes the closure note", () => {
+      const out = buildShiftReminders({
+        assignments: rows,
+        targetDate: TARGET,
+        teamsChannelUrl: "",
+        baseUrl: BASE,
+        attendingNamesByDepartmentId: {},
+        clinicClosed: { note: "<script>alert(1)</script> & more" },
+      });
+      const notice = out[0].context.closedNotice as string;
+      expect(notice).not.toContain("<script>");
+      expect(notice).toContain("&amp; more");
+    });
+  });
 });

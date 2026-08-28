@@ -258,7 +258,14 @@ export default async function HubPage() {
         clinicDate: upcoming[0].clinicDate,
         where: upcoming[0].department.name,
         role: roleLabel(upcoming[0].role),
-        detail: shiftTags(upcoming[0].tags),
+        // "Clinic closed" leads, ahead of the tags: it changes what the day
+        // is, where the tags only describe the post held on it. A closed date
+        // still counts as the next commitment -- someone is scheduled for it,
+        // and the shift card below explains the rest.
+        detail: [
+          ...(upcoming[0].clinicClosed ? ["Clinic closed"] : []),
+          ...shiftTags(upcoming[0].tags),
+        ],
         attendings: upcoming[0].attendings.map((a) => a.name),
       }
     : null;

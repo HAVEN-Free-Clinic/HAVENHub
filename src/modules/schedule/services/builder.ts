@@ -15,6 +15,7 @@ import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -1065,6 +1066,19 @@ export type BuilderView = {
   departments: { id: string; code: string; name: string }[];
   selectedDepartment: { id: string; code: string; name: string } | null;
   clinicDates: Date[];
+  /**
+   * Clinic dates the clinic has declared CLOSED, as UTC day key -> the closure
+   * note (routinely null: the flag can be ticked without one). A key is present
+   * iff that date is closed.
+   *
+   * Rendered as a label, never a lock. Departments do still staff a closed
+   * Saturday -- triage coverage is the case ops named -- so the builder keeps
+   * every date assignable and simply says which ones the clinic itself is shut
+   * on, rather than hiding them and having a director wonder where their date
+   * went. `resolveOpenClinicDate` remains the hard gate for check-in and
+   * attendance, which are about the front door being open.
+   */
+  closedDates: Record<string, string | null>;
   selectedDate: Date | null;
   selectedDateKey: string | null;
   /** The current week's clinic Saturday (first clinic date >= today), or null
@@ -1131,6 +1145,7 @@ export async function builderView(
       departments: [],
       selectedDepartment: null,
       clinicDates: [],
+      closedDates: {},
       selectedDate: null,
       selectedDateKey: null,
       currentClinicDateKey: null,
@@ -1169,6 +1184,7 @@ export async function builderView(
       departments: deptLites,
       selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
       clinicDates: [],
+      closedDates: {},
       selectedDate: null,
       selectedDateKey: null,
       currentClinicDateKey: null,
@@ -1210,7 +1226,7 @@ export async function builderView(
   const selectedDateKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Load all assignments for the term in the selected department.
-  const [allAssignments, members, scheduleDay, pendingCount] = await Promise.all([
+  const [allAssignments, members, scheduleDay, pendingCount, closures] = await Promise.all([
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
@@ -1230,6 +1246,9 @@ export async function builderView(
     prisma.shiftRequest.count({
       where: { termId: term.id, departmentId: selectedDept.id, status: "PENDING" },
     }),
+    // Whole term in one query rather than per date: the grid renders ~18
+    // Saturdays at once and the date strip renders all of them again.
+    closedClinicDates(term.id),
   ]);
 
   // Verified language capabilities for everyone on this board, in one query.
@@ -1440,6 +1459,9 @@ export async function builderView(
     departments: deptLites,
     selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
     clinicDates,
+    // A plain object, not the Map: this crosses into the page and its
+    // components, and the same reasoning as clearedPersonIds below applies.
+    closedDates: Object.fromEntries(closures),
     selectedDate,
     selectedDateKey,
     currentClinicDateKey,

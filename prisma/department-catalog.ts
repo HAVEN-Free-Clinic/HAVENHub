@@ -51,7 +51,7 @@ export const DEPARTMENTS: {
   { code: "MDIC", name: "Medical Debt and Insurance Counseling", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "MDLP", name: "Medical Debt and Legal Partnership", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "MEDS", name: "Medication Access", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
-  { code: "ORHL", name: "Oral Health Initiative", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
+  { code: "ORHL", name: "Oral Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PBRL", name: "Public Relations", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "PCAR", name: "Primary Care Clinical Advisors", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },

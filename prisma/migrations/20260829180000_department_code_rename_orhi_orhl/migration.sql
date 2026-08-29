@@ -1,11 +1,11 @@
--- Department code change, requested 2026-08-29:
---   ORHI -> ORHL  (Oral Health; the department's NAME is not touched here)
+-- Department rename, requested 2026-08-29:
+--   ORHI -> ORHL, "Oral Health Initiative" -> "Oral Health"
 --
--- Only the code moves. The Department row's name is whatever ops last set
--- through the admin UI ("Oral Health" in production, against the catalog's
--- "Oral Health Initiative"), and this migration deliberately leaves it alone --
--- rewriting it here would silently undo an admin edit that has nothing to do
--- with the code change.
+-- The name was already edited through the admin UI in production before this
+-- migration was written, which is why the name update below is written to be a
+-- no-op against production. It is not a no-op everywhere: staging and any
+-- database seeded from an older catalog still read "Oral Health Initiative",
+-- and this is what brings them in line with prisma/department-catalog.ts.
 --
 -- Department.code is @unique and immutable in the admin UI (see
 -- modules/admin/services/departments.ts), so the change has no in-app path and
@@ -75,7 +75,7 @@ BEGIN
   END IF;
 END $$;
 
-UPDATE "Department" SET code = 'ORHL' WHERE code = 'ORHI';
+UPDATE "Department" SET code = 'ORHL', name = 'Oral Health' WHERE code = 'ORHI';
 
 -- Denormalized department CODE columns (schema.prisma). Scalar columns first.
 -- The title moves with the code; see note 1 above.

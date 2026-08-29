@@ -84,7 +84,7 @@ export function AttendingDayView({
             // is still staffed for triage -- so it is stated here rather than hidden.
             <span className="text-sm text-warning">
               Clinic closed
-              {row.closedNote ? ` — ${row.closedNote}` : ""}
+              {row.closedNote ? `: ${row.closedNote}` : ""}
             </span>
           ) : null}
         </div>

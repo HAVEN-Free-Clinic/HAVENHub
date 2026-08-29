@@ -49,6 +49,10 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
  * not come here: who is attending on the shift THEY work is on their own
  * schedule page, scoped to their department. Everyone running a clinic day
  * reads the whole grid on /schedule/coverage, which has no controls.
+ *
+ * Closure is READ-ONLY here. It is a calendar fact owned by admin.manage_terms
+ * and set in Admin > Terms; this page shows it so the schedule can be staffed
+ * around it.
  */
 const BASE = "/schedule/attendings";
 
@@ -185,9 +189,6 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           onCallAttendingId: ((formData.get("onCallAttendingId") as string) ?? "").trim() || null,
           ...(formData.has("specialtyId")
             ? { specialtyId: ((formData.get("specialtyId") as string) ?? "").trim() || null }
-            : {}),
-          ...(formData.has("isClosed") || formData.has("closedMarker")
-            ? { isClosed: formData.get("isClosed") === "on" }
             : {}),
           // directorName and proceduresBooked are deliberately absent. Both were
           // reproductive health's fields on a clinic-wide row: the director is
@@ -439,6 +440,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                 <ClinicDateStrip
                   dates={schedule.rows.map((r) => r.clinicDate)}
                   selectedKey={selectedDateKey}
+                  closedKeys={schedule.rows.filter((r) => r.isClosed).map((r) => r.dateKey)}
                   hrefFor={(key) => attendingViewHref(BASE, { ...hrefParams, date: key }, "day")}
                   ariaLabel="Clinic dates"
                 />

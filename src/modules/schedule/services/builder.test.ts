@@ -1356,21 +1356,23 @@ describe("upsertClinicDay", () => {
     expect(day.onCallAttendingId).toBe(peng.id);
   });
 
-  it("marks a date closed", async () => {
+  it("does not let a Faculty Relations actor reach closure", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
     const { fcrl } = await clinicSetup();
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]) };
 
+    // Closure is not in the options type. Cast past it to prove the service
+    // ignores it even when a caller forces the field through at runtime.
     await upsertClinicDay(fcrl.id, {
-      termId: term.id,
-      dateKey: isoDateKey(dates[0]),
-      isClosed: true,
-      closedNote: "HAVEN FREE CLINIC CLOSED",
-    });
+      ...key,
+      directorName: "Patel",
+      ...({ isClosed: true, closedNote: "sneaked in" } as object),
+    } as Parameters<typeof upsertClinicDay>[1]);
 
     const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
-    expect(day.isClosed).toBe(true);
-    expect(day.closedNote).toBe("HAVEN FREE CLINIC CLOSED");
+    expect(day.isClosed).toBe(false);
+    expect(day.closedNote).toBeNull();
   });
 
   it("accepts a specialty that runs a clinic and rejects one that does not", async () => {
@@ -1492,7 +1494,7 @@ describe("upsertClinicDay", () => {
         where: { id: term.id },
         data: { clinicDates: [...sixSaturdays(), new Date(`${BREAK_WEEK}T12:00:00Z`)] },
       });
-      await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false });
+      await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, directorName: "Patel" });
 
       // One row, not two: a midnight anchor here would have collided with the
       // noon-anchored date the term calendar produces.
@@ -1501,7 +1503,7 @@ describe("upsertClinicDay", () => {
       });
       expect(days).toHaveLength(1);
       expect(days[0].onCallAttendingId).toBe(peng.id);
-      expect(days[0].isClosed).toBe(false);
+      expect(days[0].directorName).toBe("Patel");
     });
 
     it("refuses a slot assignment on it", async () => {
@@ -1515,16 +1517,6 @@ describe("upsertClinicDay", () => {
           dateKey: BREAK_WEEK,
           attendingsBySlot: { [morning.id]: [a.id] },
         }),
-      ).rejects.toBeInstanceOf(BuilderValidationError);
-    });
-
-    it("refuses a save that would reopen it", async () => {
-      const term = await createTerm(sixSaturdays());
-      const { fcrl } = await clinicSetup();
-
-      // isClosed:false would contradict what the builder renders for this date.
-      await expect(
-        upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false }),
       ).rejects.toBeInstanceOf(BuilderValidationError);
     });
 

@@ -657,6 +657,9 @@ function withinTerm(d: Date, term: { startDate: Date; endDate: Date }): boolean 
  * Every field is optional and only what is passed gets written, so the grid can
  * save one cell without disturbing the rest of the row.
  *
+ * Closure is NOT settable here. isClosed and closedNote are owned by
+ * admin.manage_terms through setClinicDayClosure; see that function for why.
+ *
  * The dateKey must fall inside the term. A date the term does not list as a
  * clinic date is accepted for the ON-CALL attending alone: on call covers the
  * week leading up to the next clinic day, so someone holds the pager across a
@@ -678,8 +681,6 @@ export async function upsertClinicDay(
     attendingsBySlot?: Record<string, string[]>;
     onCallAttendingId?: string | null;
     specialtyId?: string | null;
-    isClosed?: boolean;
-    closedNote?: string | null;
     directorName?: string | null;
     proceduresBooked?: number | null;
   }
@@ -703,16 +704,13 @@ export async function upsertClinicDay(
     if (!withinTerm(clinicDate, term)) {
       throw new BuilderValidationError(`${opts.dateKey} falls outside ${term.name}.`);
     }
-    // On call is the one field a non-clinic date carries. `isClosed` is allowed
-    // through only as `true`, which is what the builder already renders for such
-    // a date -- accepting `false` would let a save contradict it.
+    // On call is the one field a non-clinic date carries.
     const assignsSlots = Object.values(opts.attendingsBySlot ?? {}).some((ids) => ids.length > 0);
     const setsDayFields =
       assignsSlots ||
       (opts.specialtyId ?? null) !== null ||
       (opts.directorName ?? null) !== null ||
-      (opts.proceduresBooked ?? null) !== null ||
-      ("isClosed" in opts && opts.isClosed === false);
+      (opts.proceduresBooked ?? null) !== null;
     if (setsDayFields) {
       throw new BuilderValidationError(
         `${opts.dateKey} is not a clinic date in ${term.name}, so only the on-call attending can be set.`,
@@ -740,8 +738,6 @@ export async function upsertClinicDay(
   const dayFields = {
     ...("onCallAttendingId" in opts && { onCallAttendingId: opts.onCallAttendingId ?? null }),
     ...("specialtyId" in opts && { specialtyId: opts.specialtyId ?? null }),
-    ...("isClosed" in opts && { isClosed: opts.isClosed ?? false }),
-    ...("closedNote" in opts && { closedNote: opts.closedNote ?? null }),
     ...("directorName" in opts && { directorName: opts.directorName ?? null }),
     ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
     // A date the term does not list is closed as a fact, not a setting. Written

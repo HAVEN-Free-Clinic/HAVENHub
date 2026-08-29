@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { normaliseLabel, parseTermSchedule, splitNames } from "./schedule";
+import { beforeEach, describe, expect, it } from "vitest";
+import { prisma } from "@/platform/db";
+import { resetDb } from "@/platform/test/db";
+import { normaliseLabel, parseTermSchedule, splitNames, runTermScheduleImport } from "./schedule";
 
 /** The real sheet's header, including the twice-repeated 9am-12pm column. */
 const HEADER = [
@@ -106,8 +108,8 @@ describe("parseTermSchedule", () => {
       sheet(["July"], ["4", "Jack Peng", "(HAVEN FREE CLINIC CLOSED)"]),
       { startYear: 2026 },
     );
-    expect(parse.rows[0].isClosed).toBe(true);
-    expect(parse.rows[0].closedNote).toBe("HAVEN FREE CLINIC CLOSED");
+    // The marker is skipped, not recorded and not read as an attending.
+    expect(parse.rows[0].bySlotLabel).toEqual({});
     // The on-call attending still stands: someone carries the pager that week
     // even when the clinic itself does not run.
     expect(parse.rows[0].onCallText).toBe("Jack Peng");
@@ -128,5 +130,73 @@ describe("parseTermSchedule", () => {
 
   it("returns nothing when the sheet has no recognisable header", () => {
     expect(parseTermSchedule([["a", "b"], ["1", "2"]], { startYear: 2026 }).rows).toEqual([]);
+  });
+});
+
+describe("runTermScheduleImport closure", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  /** Noon-UTC anchored, matching how the schema stores clinicDate. */
+  function d(year: number, month: number, day: number): Date {
+    return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+  }
+
+  it("leaves an admin's closure standing across a re-import", async () => {
+    const clinicDate = d(2026, 6, 6);
+    const term = await prisma.term.create({
+      data: {
+        code: `SU26-${Date.now()}-${Math.random()}`,
+        name: "Summer 2026",
+        startDate: d(2026, 5, 30),
+        endDate: d(2026, 9, 26),
+        status: "ACTIVE",
+        clinicDates: [clinicDate],
+      },
+    });
+
+    // An admin closed this date in Admin > Terms.
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate,
+        isClosed: true,
+        closedNote: "Thanksgiving",
+      },
+    });
+
+    // The sheet carries NO closed marker. Before this change the importer wrote
+    // isClosed: false unconditionally, silently re-opening the date.
+    const parse = parseTermSchedule(sheet(["June"], ["6"]), { startYear: 2026 });
+    await runTermScheduleImport(parse, { termId: term.id, dryRun: false });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(true);
+    expect(day.closedNote).toBe("Thanksgiving");
+  });
+
+  it("does not close a date just because the sheet says closed", async () => {
+    const clinicDate = d(2026, 6, 6);
+    const term = await prisma.term.create({
+      data: {
+        code: `SU26-${Date.now()}-${Math.random()}`,
+        name: "Summer 2026",
+        startDate: d(2026, 5, 30),
+        endDate: d(2026, 9, 26),
+        status: "ACTIVE",
+        clinicDates: [clinicDate],
+      },
+    });
+
+    const parse = parseTermSchedule(
+      sheet(["June"], ["6", "", "(HAVEN FREE CLINIC CLOSED)"]),
+      { startYear: 2026 },
+    );
+    await runTermScheduleImport(parse, { termId: term.id, dryRun: false });
+
+    // Closure originates from an admin, never from an import.
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(false);
   });
 });

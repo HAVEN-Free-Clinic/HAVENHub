@@ -1375,6 +1375,17 @@ describe("upsertClinicDay", () => {
     expect(day.closedNote).toBeNull();
   });
 
+  it("rejects closure at the type level", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { fcrl } = await clinicSetup();
+
+    // If isClosed is ever added back to upsertClinicDay's options type, this
+    // line stops being a type error and tsc fails on the now-unused directive.
+    // @ts-expect-error isClosed is owned by setClinicDayClosure and is not in this type.
+    await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: isoDateKey(dates[0]), isClosed: true });
+  });
+
   it("accepts a specialty that runs a clinic and rejects one that does not", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
@@ -1594,11 +1605,15 @@ describe("setClinicDayClosure", () => {
     const peggy = await prisma.attending.create({
       data: { scheduleName: "Peggy", fullName: "Peggy" },
     });
+    const oncall = await prisma.attending.create({
+      data: { scheduleName: "Ollie", fullName: "Ollie" },
+    });
     const key = { termId: term.id, dateKey: isoDateKey(dates[0]) };
 
     await upsertClinicDay(fcrl.id, {
       ...key,
       attendingsBySlot: { [morning.id]: [peggy.id] },
+      onCallAttendingId: oncall.id,
       specialtyId: derm.id,
       directorName: "Patel",
     });
@@ -1610,6 +1625,7 @@ describe("setClinicDayClosure", () => {
       include: { attendings: true },
     });
     expect(day.isClosed).toBe(true);
+    expect(day.onCallAttendingId).toBe(oncall.id);
     expect(day.specialtyId).toBe(derm.id);
     expect(day.directorName).toBe("Patel");
     expect(day.attendings).toHaveLength(1);
@@ -1656,6 +1672,45 @@ describe("setClinicDayClosure", () => {
     await expect(
       setClinicDayClosure(admin.id, { termId: term.id, dateKey: "not-a-date", isClosed: true })
     ).rejects.toThrow(BuilderValidationError);
+  });
+
+  it("refuses to reopen a date the term does not list", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    // Sunday, one day after the first clinic Saturday: inside the term window
+    // but not one of its clinic dates.
+    const unlisted = new Date(dates[0].getTime() + 86_400_000);
+
+    await expect(
+      setClinicDayClosure(admin.id, {
+        termId: term.id,
+        dateKey: isoDateKey(unlisted),
+        isClosed: false,
+      })
+    ).rejects.toThrow(BuilderValidationError);
+
+    expect(await prisma.clinicDay.count({ where: { termId: term.id } })).toBe(0);
+  });
+
+  it("still allows closing a date the term does not list", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    const unlisted = new Date(dates[0].getTime() + 86_400_000);
+
+    await setClinicDayClosure(admin.id, {
+      termId: term.id,
+      dateKey: isoDateKey(unlisted),
+      isClosed: true,
+      closedNote: "Extra closure",
+    });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(true);
+    expect(day.closedNote).toBe("Extra closure");
   });
 });
 

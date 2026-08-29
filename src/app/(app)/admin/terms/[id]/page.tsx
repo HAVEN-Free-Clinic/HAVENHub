@@ -54,11 +54,15 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
   // Closure lives on ClinicDay, not on Term.clinicDates, so the editor needs both.
   // Rows are sparse -- a term routinely has more clinic dates than day rows -- so
-  // a missing entry means "open", not "missing data".
-  const clinicDayRows = await prisma.clinicDay.findMany({
-    where: { termId: id },
-    select: { clinicDate: true, isClosed: true, closedNote: true },
-  });
+  // a missing entry means "open", not "missing data". closures only ever reaches
+  // ClinicDatesEditor, which renders only when canManageTerms, so gate the query
+  // like stepConfig below rather than run it for a viewer who cannot see it.
+  const clinicDayRows = canManageTerms
+    ? await prisma.clinicDay.findMany({
+        where: { termId: id },
+        select: { clinicDate: true, isClosed: true, closedNote: true },
+      })
+    : [];
   const closures: Record<string, { isClosed: boolean; closedNote: string | null }> =
     Object.fromEntries(
       clinicDayRows.map((r) => [
@@ -288,6 +292,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
             updateAction={clinicDatesAction}
             closures={closures}
             closureAction={closureAction}
+            editable={term.status !== "ARCHIVED"}
           />
         </section>
       )}

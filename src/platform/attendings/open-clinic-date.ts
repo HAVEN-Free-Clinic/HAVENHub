@@ -5,8 +5,9 @@
  * comment on `ClinicDay.isClosed` says so explicitly, and `createTerm` seeds
  * `clinicDates` with EVERY Saturday between the term's start and end. So a
  * Thanksgiving or spring-break Saturday is in `Term.clinicDates` from day one
- * and is taken out of service by ticking "Clinic closed" in the attending Day
- * view, or by the workbook importer writing `isClosed` from a CLOSED cell.
+ * and is taken out of service when an admin declares it closed in Admin > Terms,
+ * a decision owned by `admin.manage_terms` (the same grant that owns
+ * `Term.clinicDates`) and written through `setClinicDayClosure`.
  *
  * Only the ATTENDING-facing readers ever honoured that flag. `runAttendingReminders`
  * bails on it with the comment "a 'reminder' for a closed Saturday would be

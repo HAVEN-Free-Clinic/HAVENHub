@@ -46,6 +46,14 @@ type ClinicDatesEditorProps = {
   closures: Record<string, { isClosed: boolean; closedNote: string | null }>;
   /** Server action: receives "dateKey", "isClosed" and "closedNote". */
   closureAction: (formData: FormData) => Promise<void>;
+  /**
+   * False when the term is ARCHIVED. setClinicDayClosure calls loadEditableTerm,
+   * which refuses to write on an archived term, so submitting the closure form
+   * in that state would silently bounce back to `?error=...` with nothing on
+   * this page rendering it. Disable the controls instead of letting the
+   * checkbox appear usable and then mysteriously revert.
+   */
+  editable: boolean;
 };
 
 function HiddenDatesField({ dates }: { dates: string[] }) {
@@ -60,11 +68,18 @@ export function ClinicDatesEditor({
   updateAction,
   closures,
   closureAction,
+  editable,
 }: ClinicDatesEditorProps): ReactNode {
   const currentIsos = clinicDates.map(toIsoDate);
 
   return (
     <div className="space-y-4">
+      {!editable && (
+        <p className="text-sm text-subtle-foreground">
+          This term is archived and read-only, so closures cannot be set or cleared here.
+        </p>
+      )}
+
       {/* List of dates with per-date remove buttons */}
       <div className="space-y-1">
         {clinicDates.length === 0 && (
@@ -86,7 +101,7 @@ export function ClinicDatesEditor({
               <form action={closureAction} className="flex items-center gap-2">
                 <input type="hidden" name="dateKey" value={iso} />
                 <label className="flex items-center gap-1.5 text-sm text-foreground-soft">
-                  <Checkbox name="isClosed" defaultChecked={isClosed} />
+                  <Checkbox name="isClosed" defaultChecked={isClosed} disabled={!editable} />
                   Closed
                 </label>
                 <Input
@@ -96,8 +111,9 @@ export function ClinicDatesEditor({
                   placeholder="Reason (optional)"
                   aria-label={`Closure reason for ${formatClinicDate(d)}`}
                   className="w-56"
+                  disabled={!editable}
                 />
-                <Button type="submit" variant="outline" size="sm">
+                <Button type="submit" variant="outline" size="sm" disabled={!editable}>
                   Save
                 </Button>
               </form>

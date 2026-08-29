@@ -832,6 +832,16 @@ export async function setClinicDayClosure(
     throw new BuilderValidationError(`${opts.dateKey} is not a valid date.`);
   }
 
+  // A date the term does not list is closed as a FACT, not a setting -- the rule
+  // upsertClinicDay enforces at its own unlisted-date branch. Reopening one here
+  // would produce the single row shape no reader expects: absent from the term
+  // calendar, yet flagged open.
+  if (!listed && !opts.isClosed) {
+    throw new BuilderValidationError(
+      `${opts.dateKey} is not a clinic date in ${term.name}, so it cannot be reopened.`,
+    );
+  }
+
   const dayFields = {
     isClosed: opts.isClosed,
     // Cleared with the closure it explained, and blank text is no reason at all.

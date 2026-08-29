@@ -798,6 +798,70 @@ export async function upsertClinicDay(
 }
 
 /**
+ * Declare or clear a clinic date's closure.
+ *
+ * Closure is a CALENDAR fact -- a holiday, a break week -- so it is owned by
+ * admin.manage_terms, the same grant that owns Term.clinicDates, and NOT by the
+ * Faculty Relations grant that owns everything else on this row. Faculty
+ * Relations still reads closures to staff around them; they no longer declare
+ * one.
+ *
+ * It lives here rather than in the admin module because every ClinicDay write
+ * belongs under this file's internal-guard convention, and it needs this file's
+ * dateKeyToNoonUtc and audit helpers. Splitting one field's write into a module
+ * whose services trust their callers would leave ClinicDay guarded two ways.
+ */
+export async function setClinicDayClosure(
+  actor: string,
+  opts: {
+    termId: string;
+    dateKey: string;
+    isClosed: boolean;
+    /** Ignored when isClosed is false: a cleared closure drops its reason. */
+    closedNote?: string | null;
+  }
+): Promise<void> {
+  if (!(await can(actor, "admin.manage_terms"))) {
+    throw new BuilderForbiddenError("You do not manage the term calendar.");
+  }
+
+  const term = await loadEditableTerm(opts.termId);
+
+  // A date the term does not list is still accepted, matching upsertClinicDay:
+  // the calendar and the day rows drift, and refusing here would make a closure
+  // impossible to clear after a date was removed from the term.
+  const listed = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  const clinicDate = listed ?? dateKeyToNoonUtc(opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a valid date.`);
+  }
+
+  const dayFields = {
+    isClosed: opts.isClosed,
+    // Cleared with the closure it explained, and blank text is no reason at all.
+    closedNote: opts.isClosed ? opts.closedNote?.trim() || null : null,
+  };
+
+  const where = { termId_clinicDate: { termId: term.id, clinicDate } };
+  const before = await prisma.clinicDay.findUnique({ where, select: auditSelect });
+  const after = await prisma.clinicDay.upsert({
+    where,
+    create: { termId: term.id, clinicDate, ...dayFields },
+    update: dayFields,
+    select: auditSelect,
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "admin.clinic_day_closure",
+    entityType: "ClinicDay",
+    entityId: `${term.id}|${opts.dateKey}`,
+    ...(before && { before: auditShape(before) }),
+    after: auditShape(after),
+  });
+}
+
+/**
  * Add or remove ONE attending in one slot of one clinic date.
  *
  * The grid's cell toggle. Separate from {@link upsertClinicDay}, whose

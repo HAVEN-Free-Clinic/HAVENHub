@@ -298,13 +298,12 @@ export function AttendingPortalSection({
                           const key = isoDateKey(d);
                           const checked = (schedule.availableDates ?? []).some((ad) => isoDateKey(ad) === key);
                           return (
+                            // has-[:checked] styles the pill from the live checkbox, so a toggle gives
+                            // instant feedback. Server-only styling left the pill unchanged on click,
+                            // so people re-clicked and turned the date back off.
                             <label
                               key={key}
-                              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer ${
-                                checked
-                                  ? "border-brand bg-brand/5 text-brand-fg font-semibold"
-                                  : "border-border text-muted-foreground hover:border-brand/40"
-                              }`}
+                              className="flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer border-border text-muted-foreground hover:border-brand/40 has-[:checked]:border-brand has-[:checked]:bg-brand/5 has-[:checked]:text-brand-fg has-[:checked]:font-semibold"
                             >
                               <Checkbox name="dates" value={key} defaultChecked={checked} />
                               {displayDate(key)}

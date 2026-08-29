@@ -100,7 +100,7 @@ describe("updateDepartment", () => {
 
   it("updates per-track Epic requirements and audits them before/after", async () => {
     const d = await createDepartment("a", {
-      code: "ORHI",
+      code: "ORHL",
       name: "Oral Health",
       requiresEpicDirector: "ALL",
       requiresEpicVolunteer: "ALL",
@@ -124,7 +124,7 @@ describe("updateDepartment", () => {
 
   it("preserves the existing Epic requirements when an update omits them", async () => {
     const d = await createDepartment("a", {
-      code: "ORHI",
+      code: "ORHL",
       name: "Oral Health",
       requiresEpicDirector: "ALL",
       requiresEpicVolunteer: "SOME",

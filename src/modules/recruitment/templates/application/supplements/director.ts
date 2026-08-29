@@ -213,24 +213,24 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
       required: true,
     },
   ],
-  ORHI: [
+  ORHL: [
     {
-      key: "orhi_1",
+      key: "orhl_1",
       label:
         "Can you describe a time you led or coordinated a team or project, what challenges did you face, and how did you handle challenges that came up along the way?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "orhi_2",
+      key: "orhl_2",
       label:
         "Have you ever had to make a case or negotiate with senior leadership/outside partners to get approval or resources for a project/goal? How did you approach that, and what was the outcome?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "orhi_3",
-      label: "What is your vision for the ORHI department? What are some projects or areas of growth that interest you?",
+      key: "orhl_3",
+      label: "What is your vision for the ORHL department? What are some projects or areas of growth that interest you?",
       type: "LONG_TEXT",
       required: true,
     },

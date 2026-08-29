@@ -145,9 +145,9 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
     },
   ],
 
-  ORHI: [
+  ORHL: [
     {
-      key: "orhi_1",
+      key: "orhl_1",
       label:
         "Please consider the following: At its core, what creates trust between HAVEN and our patients? What is the significance of oral health? Please indicate what position you would be interested in.",
       type: "LONG_TEXT",

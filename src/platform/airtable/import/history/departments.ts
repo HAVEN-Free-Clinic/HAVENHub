@@ -10,10 +10,12 @@
  *   TBAD 49, PNTC 37, SCTL 26, ICCD 19, LCCN 14, SR&R 8, ITCC 7, FCLR 3
  */
 export const DEPARTMENT_ALIASES: Record<string, string> = {
-  // Renamed on 2026-08-25, not retired: the departments are the same ones, so
-  // old bases spelling them PHAM/LABR must still resolve.
+  // Recoded on 2026-08-25 (PHAM, LABR) and 2026-08-29 (ORHI), not retired: the
+  // departments are the same ones, so old bases spelling them the old way must
+  // still resolve.
   PHAM: "MEDS",
   LABR: "PHLO",
+  ORHI: "ORHL",
   TBAD: "ICDD",
   PNTC: "PNLC",
   SCTL: "SCTP",

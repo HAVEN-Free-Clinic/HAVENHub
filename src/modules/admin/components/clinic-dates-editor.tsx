@@ -1,10 +1,15 @@
 /**
  * ClinicDatesEditor: server component for managing a term's clinic dates.
  *
- * Three operations, each posting to the provided action:
+ * Four operations, each posting to the provided action:
  *  - Remove a single date (posts remaining dates to updateClinicDates)
  *  - Add a date (appends new date to current list)
  *  - Regenerate Saturdays (replaces with saturdaysBetween(startDate, endDate))
+ *  - Set or clear a date's closure, with an optional reason (posts to closureAction)
+ *
+ * Closure is owned by admin.manage_terms, the same grant as the dates
+ * themselves. It is stored on ClinicDay rather than on Term, so the page reads
+ * those rows and passes them in as `closures`.
  *
  * All mutations route through a single server action that calls updateClinicDates.
  * Dates are rendered in UTC per convention.
@@ -13,6 +18,7 @@
 import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { formatCalendarDate } from "@/platform/dates";
 
@@ -36,6 +42,10 @@ type ClinicDatesEditorProps = {
   saturdayIsos: string[];
   /** Server action: receives FormData with "dates" (JSON array) and "termId". */
   updateAction: (formData: FormData) => Promise<void>;
+  /** Closure by ISO date key. A missing entry means the date is open. */
+  closures: Record<string, { isClosed: boolean; closedNote: string | null }>;
+  /** Server action: receives "dateKey", "isClosed" and "closedNote". */
+  closureAction: (formData: FormData) => Promise<void>;
 };
 
 function HiddenDatesField({ dates }: { dates: string[] }) {
@@ -48,6 +58,8 @@ export function ClinicDatesEditor({
   clinicDates,
   saturdayIsos,
   updateAction,
+  closures,
+  closureAction,
 }: ClinicDatesEditorProps): ReactNode {
   const currentIsos = clinicDates.map(toIsoDate);
 
@@ -61,9 +73,35 @@ export function ClinicDatesEditor({
         {clinicDates.map((d, idx) => {
           // Remaining dates after removing this one.
           const remaining = currentIsos.filter((_, i) => i !== idx);
+          const iso = toIsoDate(d);
+          const closure = closures[iso];
+          const isClosed = closure?.isClosed ?? false;
           return (
-            <div key={toIsoDate(d)} className="flex items-center gap-3">
+            <div key={iso} className="flex flex-wrap items-center gap-3 py-1">
               <span className="w-52 text-sm">{formatClinicDate(d)}</span>
+
+              {/* Closure is a calendar fact and is owned here, not by Faculty
+                  Relations. The date stays in the term either way: a closed
+                  Saturday is still staffable (departments run triage on one). */}
+              <form action={closureAction} className="flex items-center gap-2">
+                <input type="hidden" name="dateKey" value={iso} />
+                <label className="flex items-center gap-1.5 text-sm text-foreground-soft">
+                  <Checkbox name="isClosed" defaultChecked={isClosed} />
+                  Closed
+                </label>
+                <Input
+                  type="text"
+                  name="closedNote"
+                  defaultValue={closure?.closedNote ?? ""}
+                  placeholder="Reason (optional)"
+                  aria-label={`Closure reason for ${formatClinicDate(d)}`}
+                  className="w-56"
+                />
+                <Button type="submit" variant="outline" size="sm">
+                  Save
+                </Button>
+              </form>
+
               <form action={updateAction}>
                 <input type="hidden" name="termId" value={termId} />
                 <HiddenDatesField dates={remaining} />

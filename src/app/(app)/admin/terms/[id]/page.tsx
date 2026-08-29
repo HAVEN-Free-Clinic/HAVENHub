@@ -10,7 +10,13 @@ import {
   TermNotActivatableError,
   TermDateError,
 } from "@/modules/admin/services/terms";
+import {
+  setClinicDayClosure,
+  BuilderValidationError,
+  BuilderForbiddenError,
+} from "@/modules/schedule/services/builder";
 import { prisma } from "@/platform/db";
+import { isoDateKey } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -45,6 +51,21 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
     include: { _count: { select: { memberships: { where: { status: "ACTIVE" } } } } },
   });
   if (!term) notFound();
+
+  // Closure lives on ClinicDay, not on Term.clinicDates, so the editor needs both.
+  // Rows are sparse -- a term routinely has more clinic dates than day rows -- so
+  // a missing entry means "open", not "missing data".
+  const clinicDayRows = await prisma.clinicDay.findMany({
+    where: { termId: id },
+    select: { clinicDate: true, isClosed: true, closedNote: true },
+  });
+  const closures: Record<string, { isClosed: boolean; closedNote: string | null }> =
+    Object.fromEntries(
+      clinicDayRows.map((r) => [
+        isoDateKey(r.clinicDate),
+        { isClosed: r.isClosed, closedNote: r.closedNote },
+      ])
+    );
 
   // Find the currently active term (if any, and different from this one) so we
   // can explain the activate swap in the ConfirmButton label.
@@ -148,6 +169,36 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
     redirect(`/admin/terms/${id}`);
   }
 
+  /** Declare or clear one date's closure. Admin owns closure; Faculty Relations reads it. */
+  async function closureAction(formData: FormData) {
+    "use server";
+    const actorSession = await requirePermission("admin.manage_terms");
+    const dateKey = String(formData.get("dateKey") ?? "");
+    // Safe to read a missing field as "open" here, unlike the attendings form
+    // this replaces: that one shared a single form across the whole day, so an
+    // absent isClosed could not be told from a form that never rendered the
+    // control. This form is per-date and always renders it, so unchecked is
+    // unambiguously open.
+    const isClosed = formData.get("isClosed") === "on";
+    const closedNote = String(formData.get("closedNote") ?? "");
+
+    try {
+      await setClinicDayClosure(actorSession.personId, {
+        termId: id,
+        dateKey,
+        isClosed,
+        closedNote,
+      });
+    } catch (err) {
+      const message =
+        err instanceof BuilderValidationError || err instanceof BuilderForbiddenError
+          ? err.message
+          : "Failed to update the closure.";
+      redirect(`/admin/terms/${id}?error=${encodeURIComponent(message)}`);
+    }
+    redirect(`/admin/terms/${id}?saved=1`);
+  }
+
   async function saveStepsAction(formData: FormData) {
     "use server";
     const actorSession = await requirePermission("admin.manage_terms");
@@ -235,6 +286,8 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
             clinicDates={term.clinicDates}
             saturdayIsos={saturdayIsos}
             updateAction={clinicDatesAction}
+            closures={closures}
+            closureAction={closureAction}
           />
         </section>
       )}

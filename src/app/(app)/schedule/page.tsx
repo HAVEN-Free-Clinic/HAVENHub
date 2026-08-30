@@ -49,6 +49,7 @@ import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
+import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
@@ -746,7 +747,11 @@ export default async function MySchedulePage() {
                                   const key = isoDateKey(d);
                                   const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
                                   return (
-                                    <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
+                                    // Styling comes from the live checkbox, not from `checked`:
+                                    // `checked` only seeds the initial state, and a pill that
+                                    // never restyled is what made members click a date twice and
+                                    // turn it back off. See availability-pill.ts.
+                                    <label key={key} className={AVAILABILITY_PILL_CLASS}>
                                       <Checkbox
                                         name="dates"
                                         value={key}

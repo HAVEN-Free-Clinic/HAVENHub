@@ -66,4 +66,23 @@ describe("AttendingDayView closure", () => {
     const out = render(row());
     expect(out).not.toContain("Clinic closed");
   });
+
+  it("states the closure on a date the term does not list, without the settable-closure banner", () => {
+    // attendingSchedule computes isClosed as `!isClinicDate || storedClosed`, so a
+    // date the term never listed is closed as a FACT rather than by a stored flag.
+    // The header says so, but the "closures are set in Admin > Terms" banner must
+    // not: there is nothing to unset, and the info alert below already explains
+    // that the fix is to add the date to the term.
+    // storedClosed stays TRUE so the banner's gate can only fail on its
+    // isClinicDate half. A fixture with both false would satisfy the assertion
+    // below for the wrong reason. This state is reachable: an admin closes a
+    // date, then removes it from the term calendar.
+    const out = render(
+      row({ isClinicDate: false, isClosed: true, storedClosed: true, closedNote: "Break week" }),
+    );
+    expect(out).toContain("Clinic closed");
+    expect(out).toContain("Break week");
+    expect(out).toContain("does not list this date as a clinic date");
+    expect(out).not.toContain("Departments can still be scheduled for it.");
+  });
 });

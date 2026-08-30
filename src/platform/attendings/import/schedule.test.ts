@@ -103,7 +103,7 @@ describe("parseTermSchedule", () => {
     expect(parse.rows[0].bySlotLabel).toEqual({});
   });
 
-  it("marks a closed day from a marker in any column", () => {
+  it("skips a closed marker in any column without recording it as a name", () => {
     const parse = parseTermSchedule(
       sheet(["July"], ["4", "Jack Peng", "(HAVEN FREE CLINIC CLOSED)"]),
       { startYear: 2026 },

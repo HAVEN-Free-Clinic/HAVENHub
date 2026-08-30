@@ -66,7 +66,6 @@ async function main() {
   console.log(`clinic days created: ${report.daysCreated}`);
   console.log(`clinic days updated: ${report.daysUpdated}`);
   console.log(`assignments written: ${report.assignmentsWritten}`);
-  console.log(`days marked closed:  ${report.closedDays}`);
 
   if (report.datesNotInTerm.length > 0) {
     console.log(

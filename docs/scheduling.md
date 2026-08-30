@@ -159,16 +159,22 @@ manageable departments and a selected clinic date, and brings together:
 ### Closed clinic days
 
 A Saturday the clinic is not running is stored as a flag on the `ClinicDay` row
-(`isClosed`, with an optional `closedNote`), set from the attending Day view or
-by the workbook importer. The date stays in `Term.clinicDates`.
+(`isClosed`, with an optional `closedNote`), declared by an admin in
+Admin > Terms alongside the term's clinic dates. Closure is a calendar fact and
+is owned by `admin.manage_terms`, the same grant that owns `Term.clinicDates` --
+not by `schedule.manage_attendings`, which owns the rest of the row. The
+attending Day view shows closures read-only, and the workbook importer does not
+write them. The date stays in `Term.clinicDates`.
 
 A closure does **not** take the date out of the schedule. Departments staff a
 closed Saturday on purpose -- triage coverage is the standing case -- so the
 date remains fully assignable and every schedule surface labels it instead of
 hiding it:
 
+- Admin > Terms is where a closure is declared or cleared, with its reason.
 - The builder's date strip and grid mark the date, and the Day view shows a
   banner naming the closure and its reason.
+- The attending Day view states the closure and its reason, read-only.
 - The full schedule shows the same banner above the day's roster.
 - A member's shift card carries a "Clinic closed" badge and the reason.
 - The weekly shift reminder still goes to whoever is scheduled, leading with a

@@ -15,6 +15,8 @@
  *   setAvailabilityOverride: set dates, clear, non-clinic-key rejected, unmanaged rejected.
  *   acknowledgeAvailability: stamps; unmanaged rejected.
  *   upsertClinicDay: RHD-family manager ok; non-RHD actor rejected; idempotent.
+ *   setClinicDayClosure: admin.manage_terms ok; FR actor and stranger rejected; creates a
+ *     row; preserves staffing; clears the note with the closure; blank note null.
  *   builderView: departments list, date selection, members, assignmentsByDate, capacity,
  *     banner, conflicts, rhd block, pendingRequestCount.
  */
@@ -32,6 +34,7 @@ import {
   setAvailabilityOverride,
   acknowledgeAvailability,
   upsertClinicDay,
+  setClinicDayClosure,
   setSlotAttending,
   builderView,
   BuilderForbiddenError,
@@ -249,6 +252,40 @@ async function createTraining(
       feedback: intake.feedback,
     },
   });
+}
+
+/**
+ * The clinic's reference data plus an actor who may maintain the schedule.
+ *
+ * Maintaining the attending schedule is ONE unscoped permission held by
+ * Faculty Relations, not a departmental directorship: attendings belong to no
+ * department, so there is nothing for a scoped grant to scope to.
+ */
+async function clinicSetup() {
+  const morning = await prisma.clinicSlot.create({
+    data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+  });
+  const midday = await prisma.clinicSlot.create({
+    data: { label: "11am-2pm", startTime: "11:00", endTime: "14:00", order: 1 },
+  });
+  const derm = await prisma.attendingSpecialty.create({
+    data: { code: "DERM", name: "Dermatology", runsSpecialtyClinic: true, order: 3 },
+  });
+  const pc = await prisma.attendingSpecialty.create({
+    data: { code: "PC", name: "Primary Care", order: 0 },
+  });
+
+  const fcrl = await createPerson("FCRL Director");
+  const role = await prisma.role.create({
+    data: {
+      name: `r-${Date.now()}-${Math.random()}`,
+      isSystem: false,
+      grants: { create: [{ permission: "schedule.manage_attendings" }] },
+    },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId: fcrl.id, termId: null } });
+
+  return { morning, midday, derm, pc, fcrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,40 +1233,6 @@ describe("acknowledgeAvailability", () => {
 });
 
 describe("upsertClinicDay", () => {
-  /**
-   * The clinic's reference data plus an actor who may maintain the schedule.
-   *
-   * Maintaining the attending schedule is ONE unscoped permission held by
-   * Faculty Relations, not a departmental directorship: attendings belong to no
-   * department, so there is nothing for a scoped grant to scope to.
-   */
-  async function clinicSetup() {
-    const morning = await prisma.clinicSlot.create({
-      data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
-    });
-    const midday = await prisma.clinicSlot.create({
-      data: { label: "11am-2pm", startTime: "11:00", endTime: "14:00", order: 1 },
-    });
-    const derm = await prisma.attendingSpecialty.create({
-      data: { code: "DERM", name: "Dermatology", runsSpecialtyClinic: true, order: 3 },
-    });
-    const pc = await prisma.attendingSpecialty.create({
-      data: { code: "PC", name: "Primary Care", order: 0 },
-    });
-
-    const fcrl = await createPerson("FCRL Director");
-    const role = await prisma.role.create({
-      data: {
-        name: `r-${Date.now()}-${Math.random()}`,
-        isSystem: false,
-        grants: { create: [{ permission: "schedule.manage_attendings" }] },
-      },
-    });
-    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: fcrl.id, termId: null } });
-
-    return { morning, midday, derm, pc, fcrl };
-  }
-
   async function attending(scheduleName: string) {
     return prisma.attending.create({ data: { scheduleName, fullName: scheduleName } });
   }
@@ -1353,21 +1356,34 @@ describe("upsertClinicDay", () => {
     expect(day.onCallAttendingId).toBe(peng.id);
   });
 
-  it("marks a date closed", async () => {
+  it("does not let a Faculty Relations actor reach closure", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { fcrl } = await clinicSetup();
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]) };
+
+    // Closure is not in the options type. Cast past it to prove the service
+    // ignores it even when a caller forces the field through at runtime.
+    await upsertClinicDay(fcrl.id, {
+      ...key,
+      directorName: "Patel",
+      ...({ isClosed: true, closedNote: "sneaked in" } as object),
+    } as Parameters<typeof upsertClinicDay>[1]);
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(false);
+    expect(day.closedNote).toBeNull();
+  });
+
+  it("rejects closure at the type level", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
     const { fcrl } = await clinicSetup();
 
-    await upsertClinicDay(fcrl.id, {
-      termId: term.id,
-      dateKey: isoDateKey(dates[0]),
-      isClosed: true,
-      closedNote: "HAVEN FREE CLINIC CLOSED",
-    });
-
-    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
-    expect(day.isClosed).toBe(true);
-    expect(day.closedNote).toBe("HAVEN FREE CLINIC CLOSED");
+    // If isClosed is ever added back to upsertClinicDay's options type, this
+    // line stops being a type error and tsc fails on the now-unused directive.
+    // @ts-expect-error isClosed is owned by setClinicDayClosure and is not in this type.
+    await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: isoDateKey(dates[0]), isClosed: true });
   });
 
   it("accepts a specialty that runs a clinic and rejects one that does not", async () => {
@@ -1489,7 +1505,7 @@ describe("upsertClinicDay", () => {
         where: { id: term.id },
         data: { clinicDates: [...sixSaturdays(), new Date(`${BREAK_WEEK}T12:00:00Z`)] },
       });
-      await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false });
+      await upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, directorName: "Patel" });
 
       // One row, not two: a midnight anchor here would have collided with the
       // noon-anchored date the term calendar produces.
@@ -1498,7 +1514,7 @@ describe("upsertClinicDay", () => {
       });
       expect(days).toHaveLength(1);
       expect(days[0].onCallAttendingId).toBe(peng.id);
-      expect(days[0].isClosed).toBe(false);
+      expect(days[0].directorName).toBe("Patel");
     });
 
     it("refuses a slot assignment on it", async () => {
@@ -1515,16 +1531,6 @@ describe("upsertClinicDay", () => {
       ).rejects.toBeInstanceOf(BuilderValidationError);
     });
 
-    it("refuses a save that would reopen it", async () => {
-      const term = await createTerm(sixSaturdays());
-      const { fcrl } = await clinicSetup();
-
-      // isClosed:false would contradict what the builder renders for this date.
-      await expect(
-        upsertClinicDay(fcrl.id, { termId: term.id, dateKey: BREAK_WEEK, isClosed: false }),
-      ).rejects.toBeInstanceOf(BuilderValidationError);
-    });
-
     it("refuses a date outside the term entirely", async () => {
       const term = await createTerm(sixSaturdays());
       const { fcrl } = await clinicSetup();
@@ -1538,6 +1544,173 @@ describe("upsertClinicDay", () => {
         }),
       ).rejects.toBeInstanceOf(BuilderValidationError);
     });
+  });
+});
+
+describe("setClinicDayClosure", () => {
+  it("refuses an actor without admin.manage_terms", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const nobody = await createPerson("Nobody");
+
+    await expect(
+      setClinicDayClosure(nobody.id, {
+        termId: term.id,
+        dateKey: isoDateKey(dates[0]),
+        isClosed: true,
+      })
+    ).rejects.toThrow(BuilderForbiddenError);
+  });
+
+  it("refuses a Faculty Relations actor holding only schedule.manage_attendings", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { fcrl } = await clinicSetup();
+
+    await expect(
+      setClinicDayClosure(fcrl.id, {
+        termId: term.id,
+        dateKey: isoDateKey(dates[0]),
+        isClosed: true,
+      })
+    ).rejects.toThrow(BuilderForbiddenError);
+  });
+
+  it("creates a ClinicDay row for a date that has none", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+
+    expect(await prisma.clinicDay.count({ where: { termId: term.id } })).toBe(0);
+
+    await setClinicDayClosure(admin.id, {
+      termId: term.id,
+      dateKey: isoDateKey(dates[0]),
+      isClosed: true,
+      closedNote: "HAVEN FREE CLINIC CLOSED",
+    });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(true);
+    expect(day.closedNote).toBe("HAVEN FREE CLINIC CLOSED");
+  });
+
+  it("leaves slots, on call and specialty standing", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const { morning, derm, fcrl } = await clinicSetup();
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    const peggy = await prisma.attending.create({
+      data: { scheduleName: "Peggy", fullName: "Peggy" },
+    });
+    const oncall = await prisma.attending.create({
+      data: { scheduleName: "Ollie", fullName: "Ollie" },
+    });
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]) };
+
+    await upsertClinicDay(fcrl.id, {
+      ...key,
+      attendingsBySlot: { [morning.id]: [peggy.id] },
+      onCallAttendingId: oncall.id,
+      specialtyId: derm.id,
+      directorName: "Patel",
+    });
+
+    await setClinicDayClosure(admin.id, { ...key, isClosed: true });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({
+      where: { termId: term.id },
+      include: { attendings: true },
+    });
+    expect(day.isClosed).toBe(true);
+    expect(day.onCallAttendingId).toBe(oncall.id);
+    expect(day.specialtyId).toBe(derm.id);
+    expect(day.directorName).toBe("Patel");
+    expect(day.attendings).toHaveLength(1);
+  });
+
+  it("drops the reason when the closure is cleared", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    const key = { termId: term.id, dateKey: isoDateKey(dates[0]) };
+
+    await setClinicDayClosure(admin.id, { ...key, isClosed: true, closedNote: "Thanksgiving" });
+    await setClinicDayClosure(admin.id, { ...key, isClosed: false });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(false);
+    // A reason that outlived its closure would surface on a day that is running.
+    expect(day.closedNote).toBeNull();
+  });
+
+  it("normalises a blank reason to null", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+
+    await setClinicDayClosure(admin.id, {
+      termId: term.id,
+      dateKey: isoDateKey(dates[0]),
+      isClosed: true,
+      closedNote: "   ",
+    });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.closedNote).toBeNull();
+  });
+
+  it("rejects an unparseable date key", async () => {
+    const term = await createTerm(sixSaturdays());
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+
+    await expect(
+      setClinicDayClosure(admin.id, { termId: term.id, dateKey: "not-a-date", isClosed: true })
+    ).rejects.toThrow(BuilderValidationError);
+  });
+
+  it("refuses to reopen a date the term does not list", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    // Sunday, one day after the first clinic Saturday: inside the term window
+    // but not one of its clinic dates.
+    const unlisted = new Date(dates[0].getTime() + 86_400_000);
+
+    await expect(
+      setClinicDayClosure(admin.id, {
+        termId: term.id,
+        dateKey: isoDateKey(unlisted),
+        isClosed: false,
+      })
+    ).rejects.toThrow(BuilderValidationError);
+
+    expect(await prisma.clinicDay.count({ where: { termId: term.id } })).toBe(0);
+  });
+
+  it("still allows closing a date the term does not list", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const admin = await createPerson("Terms Admin");
+    await grantPermission(admin.id, "admin.manage_terms");
+    const unlisted = new Date(dates[0].getTime() + 86_400_000);
+
+    await setClinicDayClosure(admin.id, {
+      termId: term.id,
+      dateKey: isoDateKey(unlisted),
+      isClosed: true,
+      closedNote: "Extra closure",
+    });
+
+    const day = await prisma.clinicDay.findFirstOrThrow({ where: { termId: term.id } });
+    expect(day.isClosed).toBe(true);
+    expect(day.closedNote).toBe("Extra closure");
   });
 });
 

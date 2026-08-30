@@ -19,7 +19,6 @@ import { AttendingCell } from "./attending-cell";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
-import { Checkbox } from "@/platform/ui/checkbox";
 import { FormActions } from "@/platform/ui/form";
 import { Select } from "@/platform/ui/select";
 import { formatCalendarDate } from "@/platform/dates";
@@ -79,23 +78,15 @@ export function AttendingDayView({
               year: "numeric",
             })}
           </h3>
-          {row.isClinicDate ? (
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              {/* An UNCHECKED checkbox posts nothing at all, so the action cannot
-                  tell "left unchecked" from "this form had no closed control"
-                  (a non-clinic date, or a read-only term) -- and without that
-                  distinction the box could be ticked but never un-ticked. This
-                  marker rides along whenever the real control is present. */}
-              {editable && <input type="hidden" name="closedMarker" value="1" />}
-              <Checkbox name="isClosed" defaultChecked={row.storedClosed} disabled={!editable} />
+          {row.isClosed ? (
+            // Read-only: closure is a calendar fact owned by admin.manage_terms and set
+            // in Admin > Terms. Faculty Relations must still SEE it -- a closed Saturday
+            // is still staffed for triage -- so it is stated here rather than hidden.
+            <span className="text-sm text-warning">
               Clinic closed
-            </label>
-          ) : (
-            // No checkbox: this date's closure is a fact about the term calendar,
-            // not a setting on this page. Offering a control that cannot be
-            // unchecked here would imply otherwise.
-            <span className="text-sm text-muted-foreground">Clinic closed</span>
-          )}
+              {row.closedNote ? `: ${row.closedNote}` : ""}
+            </span>
+          ) : null}
         </div>
 
         {!row.isClinicDate && (
@@ -104,6 +95,14 @@ export function AttendingDayView({
             column can be staffed. The on-call attending is still set here: on call covers the week
             leading up to the next clinic day, which runs through a break week. Add the date in
             Admin &gt; Terms to staff it.
+          </Alert>
+        )}
+
+        {row.isClinicDate && row.storedClosed && (
+          <Alert tone="warning">
+            <strong>The clinic is closed this date.</strong>{" "}
+            {row.closedNote ?? "No reason was recorded."} Departments can still be
+            scheduled for it. Closures are set in Admin &gt; Terms.
           </Alert>
         )}
 

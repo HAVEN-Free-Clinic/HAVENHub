@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { decideChunkLoadRecovery } from "./chunk-load-crash";
+import { CHUNK_LOAD_HEAL } from "./chunk-load-crash";
 import { installReloadOnce } from "./client-self-heal";
 
 /**
@@ -17,12 +17,7 @@ import { installReloadOnce } from "./client-self-heal";
  */
 export function ChunkLoadRecovery() {
   useEffect(() => {
-    installReloadOnce({
-      decide: decideChunkLoadRecovery,
-      storageKey: "haven:chunk-load-recovered",
-      recoveredEvent: "client_chunk_load_recovered",
-      watchRejections: true,
-    });
+    installReloadOnce(CHUNK_LOAD_HEAL);
   }, []);
   return null;
 }

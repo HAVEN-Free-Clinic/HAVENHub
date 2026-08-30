@@ -27,6 +27,7 @@
  */
 
 import type { CrashRecovery } from "./router-hook-crash";
+import type { SelfHeal } from "./client-self-heal";
 
 /** The `name` webpack gives a chunk-load error. Turbopack leaves `name` as `Error`. */
 const CHUNK_LOAD_ERROR_NAME = "ChunkLoadError";
@@ -65,3 +66,20 @@ export function decideChunkLoadRecovery(
   if (!isChunkLoadError(error)) return "unrelated";
   return alreadyRecovered ? "already-recovered" : "reload";
 }
+
+/**
+ * The shared heal, so the global listener and the error-boundary path spend the
+ * same one reload.
+ *
+ * Defined here rather than inline in `chunk-load-recovery.tsx` because two
+ * callers now need it, and a second copy of `storageKey` is a bug waiting to
+ * happen: two keys mean two reloads for one crash, which is the loop the key
+ * exists to prevent. Mirrors `STALE_SERVER_ACTION_HEAL` in
+ * `stale-server-action.ts`.
+ */
+export const CHUNK_LOAD_HEAL: SelfHeal = {
+  decide: decideChunkLoadRecovery,
+  storageKey: "haven:chunk-load-recovered",
+  recoveredEvent: "client_chunk_load_recovered",
+  watchRejections: true,
+};

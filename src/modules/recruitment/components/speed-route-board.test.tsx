@@ -104,3 +104,68 @@ it("still offers every department to an applicant nobody handed back", () => {
   mount(board({ top: [clean], returned: [] }));
   expect(optionsOf("Route Ada Applicant to")).toEqual(["ITCM", "SRHD", "PCAR"]);
 });
+
+/** The board's only checkbox: the tier-level "Show handled" toggle. */
+function handledToggle(): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>('input[type="checkbox"]');
+}
+
+/** A row nobody handed back, so the Returned-card behaviour above stays out of these. */
+function plain(over: Partial<SpeedRouteRow>): SpeedRouteRow {
+  return row({ returnedFromDepartmentCode: null, returnedReason: null, ...over });
+}
+
+it("hides finished rows from a tier until Show handled is ticked", () => {
+  const pending = plain({ applicationId: "p", name: "Pat Pending", stage: "SCORING" });
+  const routed = plain({ applicationId: "r", name: "Rae Routed", routedDepartmentCode: "SRHD", stage: "ROUTED" });
+  mount(board({ top: [pending, routed], returned: [] }));
+
+  expect(document.body.textContent).toContain("Pat Pending");
+  expect(document.body.textContent).not.toContain("Rae Routed");
+  // The tier still names the whole cohort: the thresholds are a percentage OF
+  // that number, so it must not appear to shrink as the lead works the tier.
+  expect(document.body.textContent).toContain("Top (1 of 2)");
+
+  const toggle = handledToggle()!;
+  expect(toggle).not.toBeNull();
+  act(() => { toggle.click(); });
+  expect(document.body.textContent).toContain("Rae Routed");
+  expect(document.body.textContent).toContain("Top (2)");
+});
+
+it("says a fully worked tier is handled rather than empty", () => {
+  // "None." would read as "nobody scored into the top tier", which is the one
+  // thing it does not mean once every row has been routed.
+  const routed = plain({ applicationId: "r", name: "Rae Routed", routedDepartmentCode: "SRHD", stage: "ROUTED" });
+  mount(board({ top: [routed], middle: [], bottom: [], returned: [] }));
+  expect(document.body.textContent).toContain("All 1 handled.");
+});
+
+it("keeps a returned applicant visible in their tier: the lead still owes them a decision", () => {
+  // RETURNED has been routed once, so a naive "already routed" filter would bury
+  // the single most urgent row on the board.
+  mount(board({ top: [row()], middle: [], bottom: [], returned: [row()] }));
+  expect(document.body.textContent).toContain("Top (1)");
+  expect(handledToggle()).toBeNull();
+});
+
+it("drops already-routed applicants from the unscored nag", () => {
+  // Renewals and auto-route first choices are routed at submission and never
+  // scored, so they land in `unscored` with nothing anyone should do about it.
+  const renewal = plain({ applicationId: "u1", name: "Ren Newal", average: null, scoreCount: 0, routedDepartmentCode: "SRHD", stage: "ROUTED" });
+  const fresh = plain({ applicationId: "u2", name: "Newt Fresh", average: null, scoreCount: 0, stage: "AWAITING_SCORING" });
+  mount(board({ top: [], middle: [], bottom: [], returned: [], unscored: [renewal, fresh] }));
+
+  const text = document.body.textContent ?? "";
+  expect(text).toContain("Score these before they can be routed: Newt Fresh.");
+  expect(text).not.toContain("Ren Newal");
+  expect(text).toContain("1 more applicant skipped committee scoring");
+  // Nothing in a TIER is handled, so the toggle has nothing to reveal.
+  expect(handledToggle()).toBeNull();
+});
+
+it("drops the unscored card entirely when every unscored applicant went straight to a department", () => {
+  const renewal = plain({ applicationId: "u1", name: "Ren Newal", average: null, scoreCount: 0, routedDepartmentCode: "SRHD", stage: "ROUTED" });
+  mount(board({ top: [], middle: [], bottom: [], returned: [], unscored: [renewal] }));
+  expect(document.body.textContent).not.toContain("Unscored");
+});

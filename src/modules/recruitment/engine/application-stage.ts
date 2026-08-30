@@ -54,3 +54,20 @@ export const APPLICATION_STAGE_ORDER: readonly ApplicationStage[] = [
   "INTERVIEWING",
   "DECIDED",
 ];
+
+/**
+ * Has this application left the committee's hands?
+ *
+ * True once it sits with a department, is in interviews, or carries a final
+ * decision. Nothing the committee does next changes any of those: a fresh
+ * committee score does not un-route anyone, and the routing controls are already
+ * inert on such a row. The speed surfaces use this to keep finished work out of
+ * the way -- the score queue drops these applications outright, the route board
+ * hides them behind a toggle.
+ *
+ * RETURNED is deliberately NOT handled: a department declined the applicant and
+ * handed them back, so the lead still owes them a routing decision.
+ */
+export function isHandledStage(stage: ApplicationStage): boolean {
+  return stage === "ROUTED" || stage === "INTERVIEWING" || stage === "DECIDED";
+}

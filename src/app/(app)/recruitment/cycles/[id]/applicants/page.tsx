@@ -12,7 +12,7 @@ import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { serviceGapsForCycle } from "@/modules/recruitment/services/service-gap";
 import { formatScoreSummary, scoreAverage } from "@/modules/recruitment/engine/scoring";
-import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
+import { applicationStage, applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
 import { speedScoreAction, loadReviewApplicationAction } from "./actions";
@@ -75,9 +75,26 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     apps.map((a) => a.applicant.applicantPersonId).filter((p): p is string => Boolean(p)),
     cycle.termId,
   );
+  // Derived once, used by the speed-score queue and the Stage column alike, so
+  // the two can never disagree about where an application sits.
+  const stageOf = (a: (typeof apps)[number]) =>
+    applicationStage({
+      scoreCount: a.committeeScores.length,
+      routedDepartmentCode: a.routedDepartmentCode,
+      returnedToRoutingAt: a.returnedToRoutingAt,
+      applicationDecision: a.decision,
+      interviews: a.interviews,
+    });
   const speedItems: SpeedScoreItem[] = canScore
     ? apps
         .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
+        // Already with a department, in interviews, or decided: a committee score
+        // changes nothing for them. Renewals and first-choice auto-route
+        // departments are routed AT SUBMISSION and documented as skipping
+        // committee scoring (submissions.ts), so without this they filled the
+        // queue with work that must never be done -- on a renewal-heavy cycle,
+        // most of it.
+        .filter((a) => !isHandledStage(stageOf(a)))
         .map((a) => ({
           applicationId: a.id,
           name: `${a.applicant.firstName} ${a.applicant.lastName}`,
@@ -195,13 +212,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)))}
                 </TD>
                 <TD>
-                  <Badge>{applicationStageLabel[applicationStage({
-                    scoreCount: a.committeeScores.length,
-                    routedDepartmentCode: a.routedDepartmentCode,
-                    returnedToRoutingAt: a.returnedToRoutingAt,
-                    applicationDecision: a.decision,
-                    interviews: a.interviews,
-                  })]}</Badge>
+                  <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
                 </TD>
                 <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
                 <TD>

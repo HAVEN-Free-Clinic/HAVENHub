@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { APPLICATION_STAGE_ORDER, applicationStage, applicationStageLabel } from "./application-stage";
+import { APPLICATION_STAGE_ORDER, applicationStage, applicationStageLabel, isHandledStage } from "./application-stage";
 
 it("is AWAITING_SCORING with no scores, no routing, no interviews", () => {
   expect(applicationStage({ scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("AWAITING_SCORING");
@@ -79,4 +79,26 @@ it("orders every stage that has a label", () => {
   // Drift guard: adding a stage without placing it in the order array would
   // silently drop it to the front of a stage-sorted roster.
   expect([...APPLICATION_STAGE_ORDER].sort()).toEqual(Object.keys(applicationStageLabel).sort());
+});
+
+it("counts only the stages the committee can no longer affect as handled", () => {
+  expect(APPLICATION_STAGE_ORDER.filter(isHandledStage)).toEqual(["ROUTED", "INTERVIEWING", "DECIDED"]);
+});
+
+it("leaves RETURNED unhandled: the lead still owes it a routing decision", () => {
+  // The one stage that reads like it is finished (it has been routed once) but
+  // is the most urgent work on the board. Hiding it would strand the applicant.
+  expect(isHandledStage("RETURNED")).toBe(false);
+});
+
+it("classifies every stage, so a new one cannot default into being hidden", () => {
+  // Drift guard: isHandledStage is written as an allow-list of finished stages,
+  // so a stage added later is treated as work to do until someone says otherwise.
+  // This asserts the enumeration stays exhaustive rather than that it stays the
+  // same -- update the expectation deliberately when a stage is added.
+  expect(APPLICATION_STAGE_ORDER.filter((s) => !isHandledStage(s))).toEqual([
+    "AWAITING_SCORING",
+    "SCORING",
+    "RETURNED",
+  ]);
 });

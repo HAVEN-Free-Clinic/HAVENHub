@@ -7,9 +7,10 @@ import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
+import { applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import type { SpeedRouteBoard as Board, SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
 import type { BatchResult } from "@/modules/recruitment/services/routing";
@@ -94,21 +95,29 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
   );
 }
 
-function TierCard({ title, rows, kind, action, h }: { title: string; rows: SpeedRouteRow[]; kind: "top" | "middle" | "bottom" | "returned"; action?: ReactNode; h: RowHandlers }) {
+function TierCard({ title, rows, kind, action, h, showHandled }: { title: string; rows: SpeedRouteRow[]; kind: "top" | "middle" | "bottom" | "returned"; action?: ReactNode; h: RowHandlers; showHandled: boolean }) {
+  // Display only. The tiers still come from bucketByPercentile over the WHOLE
+  // cohort, so hiding finished rows can never move a percentile boundary or
+  // change who sits in which tier -- it only shortens the table.
+  const shown = showHandled ? rows : rows.filter((r) => !isHandledStage(r.stage));
+  const hidden = rows.length - shown.length;
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionHeader>{title} ({rows.length})</SectionHeader>
+        {/* "8 of 24", never a bare "8": the tier size is the cohort fact the
+            thresholds above are expressed in, so it must not appear to shrink as
+            the lead works through the tier. */}
+        <SectionHeader>{title} ({hidden > 0 ? `${shown.length} of ${rows.length}` : rows.length})</SectionHeader>
         {action}
       </div>
-      {rows.length === 0 ? (
-        <p className="mt-3 text-sm text-subtle-foreground">None.</p>
+      {shown.length === 0 ? (
+        <p className="mt-3 text-sm text-subtle-foreground">{hidden > 0 ? `All ${rows.length} handled.` : "None."}</p>
       ) : (
         <Table>
           <THead>
             <tr><TH>Name</TH><TH>Committee avg</TH><TH>Ranked</TH><TH>Stage</TH><TH>Action</TH></tr>
           </THead>
-          <tbody>{rows.map((r) => <RouteRow key={r.applicationId} r={r} kind={kind} h={h} />)}</tbody>
+          <tbody>{shown.map((r) => <RouteRow key={r.applicationId} r={r} kind={kind} h={h} />)}</tbody>
         </Table>
       )}
     </Card>
@@ -191,6 +200,12 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "top" | "bottom">(null);
+  // Rows the lead has finished with (routed, interviewing, decided) are hidden
+  // from the tier tables by default: their action cell is already inert, so on a
+  // worked-through board they were dozens of rows of nothing-to-do standing
+  // between the handful that still need a decision. Off by default matches the
+  // "Route the middle" modal, which has always hidden them the same way.
+  const [showHandled, setShowHandled] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [busy, startBusy] = useTransition();
 
@@ -276,10 +291,30 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   const topMissingDept = topPending.length - topRoutable;
   const bottomPending = board.bottom.filter(batchEligible).length;
 
+  const handledInTiers = [...board.top, ...board.middle, ...board.bottom].filter((r) =>
+    isHandledStage(r.stage),
+  ).length;
+  // Renewals, and applicants whose first choice auto-routes, are routed AT
+  // SUBMISSION and never scored (submissions.ts), so they arrive here with a null
+  // average. "Score these before they can be routed" is simply false for them --
+  // they have been with a department the whole time -- and on a renewal-heavy
+  // cycle they were the bulk of the list.
+  const unscoredPending = board.unscored.filter((r) => !isHandledStage(r.stage));
+  const unscoredHandled = board.unscored.length - unscoredPending.length;
+
   return (
     <div className="space-y-5">
       {error && <Alert tone="error">{error}</Alert>}
       {note && <Alert tone="success">{note}</Alert>}
+
+      {handledInTiers > 0 && (
+        <div className="flex justify-end">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Checkbox checked={showHandled} onChange={(e) => setShowHandled(e.target.checked)} />
+            Show handled ({handledInTiers})
+          </label>
+        </div>
+      )}
 
       <ReturnedCard rows={board.returned} h={h} />
 
@@ -288,6 +323,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         rows={board.top}
         kind="top"
         h={h}
+        showHandled={showHandled}
         action={
           topRoutable > 0 ? (
             confirm === "top" ? (
@@ -316,6 +352,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         rows={board.middle}
         kind="middle"
         h={h}
+        showHandled={showHandled}
         action={
           board.middle.length > 0 ? (
             <Button type="button" size="sm" variant="outline" onClick={() => setModalOpen(true)}>Route the middle</Button>
@@ -328,6 +365,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         rows={board.bottom}
         kind="bottom"
         h={h}
+        showHandled={showHandled}
         action={
           bottomPending > 0 ? (
             confirm === "bottom" ? (
@@ -343,10 +381,15 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         }
       />
 
-      {board.unscored.length > 0 && (
+      {unscoredPending.length > 0 && (
         <Card>
-          <SectionHeader>Unscored ({board.unscored.length})</SectionHeader>
-          <p className="mt-2 text-sm text-subtle-foreground">Score these before they can be routed: {board.unscored.map((r) => r.name).join(", ")}.</p>
+          <SectionHeader>Unscored ({unscoredPending.length})</SectionHeader>
+          <p className="mt-2 text-sm text-subtle-foreground">Score these before they can be routed: {unscoredPending.map((r) => r.name).join(", ")}.</p>
+          {unscoredHandled > 0 && (
+            <p className="mt-2 text-sm text-subtle-foreground">
+              {unscoredHandled} more {unscoredHandled === 1 ? "applicant" : "applicants"} skipped committee scoring and went straight to a department. Nothing to do for them here.
+            </p>
+          )}
         </Card>
       )}
 

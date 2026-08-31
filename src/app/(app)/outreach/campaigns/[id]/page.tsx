@@ -20,8 +20,7 @@ import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
-import { collectAudienceReferences } from "@/platform/email/audience/references";
-import { prisma } from "@/platform/db";
+import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -94,80 +93,20 @@ export default async function CampaignEditorPage({ params }: Props) {
   const isScheduled = campaign.status === "SCHEDULED";
   const isActive = campaign.status === "ACTIVE";
 
-  const [layoutSource, brandColor, departments, terms, cycles] = await Promise.all([
+  const [layoutSource, brandColor] = await Promise.all([
     loadLayoutSource(),
     getSetting<string>("branding.brandColor"),
-    prisma.department.findMany({
-      where: { isActive: true },
-      select: { code: true, name: true },
-      orderBy: { code: "asc" },
-    }),
-    // EVERY term, archived included -- unlike the RBAC term picker, which hides
-    // archived terms because an assignment scoped to one is permanently inert.
-    // Here a past term is the whole point: "email everyone who volunteered in
-    // spring" is a question about a roster that is now archived.
-    prisma.term.findMany({
-      select: { id: true, code: true, name: true, status: true },
-      orderBy: { startDate: "desc" },
-    }),
-    prisma.recruitmentCycle.findMany({
-      select: { id: true, title: true, status: true },
-      orderBy: { createdAt: "desc" },
-    }),
   ]);
 
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
 
-  // A saved `department` condition whose code was later deactivated (or the
-  // department deleted) has no option in the active-only list, so it renders as
-  // neither checked nor uncheckable while still serialising into every save and
-  // emailing that department forever. Union the active list with every department
-  // code referenced anywhere in the stored audience so each stored value stays
-  // representable and removable, labelling the retired ones (#82).
-  const referenced = collectAudienceReferences(parsedAudience.conditions);
-  const referencedDeptCodes = referenced.departmentCodes;
-
-  const activeCodes = new Set(departments.map((d) => d.code));
-  const missingCodes = [...referencedDeptCodes].filter((c) => !activeCodes.has(c));
-  const inactiveReferenced = missingCodes.length
-    ? await prisma.department.findMany({
-        where: { code: { in: missingCodes } },
-        select: { code: true, name: true },
-        orderBy: { code: "asc" },
-      })
-    : [];
-  const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
-  const audienceDepartments = [
-    ...departments,
-    ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),
-    // Codes with no surviving Department row at all (department fully deleted):
-    // still render them so the admin can uncheck the dead value.
-    ...missingCodes.filter((c) => !foundCodes.has(c)).map((c) => ({ code: c, name: `${c} (removed)` })),
-  ];
-
-  // Terms and cycles get the same treatment as departments above: a stored
-  // audience naming a deleted term or cycle must stay visible and removable
-  // rather than becoming an invisible filter nobody can edit out.
-  const audienceTerms = [
-    ...terms.map((t) => ({
-      id: t.id,
-      label: t.status === "ACTIVE" ? `${t.code} (current)` : `${t.code} - ${t.name}`,
-    })),
-    ...[...referenced.termIds]
-      .filter((tid) => !terms.some((t) => t.id === tid))
-      .map((tid) => ({ id: tid, label: "Deleted term" })),
-  ];
-  const audienceCycles = [
-    ...cycles.map((c) => ({
-      id: c.id,
-      label: c.status === "OPEN" ? `${c.title} (open)` : c.title,
-    })),
-    ...[...referenced.cycleIds]
-      .filter((cid) => !cycles.some((c) => c.id === cid))
-      .map((cid) => ({ id: cid, label: "Deleted cycle" })),
-  ];
+  const {
+    departments: audienceDepartments,
+    terms: audienceTerms,
+    cycles: audienceCycles,
+  } = await loadAudienceBuilderOptions(parsedAudience);
 
   const zone = await getDisplayTimeZone();
 

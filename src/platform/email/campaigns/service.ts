@@ -51,7 +51,12 @@ export class CampaignAlreadyDispatchedError extends Error {
   }
 }
 
-/** Thrown when a sender may not send under the scope a campaign names. */
+/**
+ * Thrown when a person may not act on a campaign bound to a given scope --
+ * viewing, editing, cancelling, previewing, or sending/scheduling it. Every
+ * one of those actions shares the same predicate (assertMayActOnScope below),
+ * so they all throw this one error rather than each inventing its own.
+ */
 export class CampaignScopeError extends Error {
   constructor(message: string) {
     super(message);
@@ -106,16 +111,40 @@ export async function getCampaign(id: string) {
   };
 }
 
-export async function listCampaigns() {
-  return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+/**
+ * Lists campaigns the caller may act on: everything for an unrestricted
+ * sender, or only the campaigns bound to a scope they hold for anyone else. A
+ * scoped sender's grants can be empty, in which case `scopeId: { in: [] }`
+ * correctly matches nothing -- and, since SQL's IN never matches NULL, a
+ * scoped sender never sees an unscoped (scopeId: null) campaign either,
+ * mirroring assertMayActOnScope's own refusal of a null scope for anyone but
+ * an unrestricted sender.
+ */
+export async function listCampaigns(personId: string) {
+  const unrestricted = await can(personId, "outreach.send_unrestricted");
+  if (unrestricted) {
+    return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+  }
+  const scopeIds = (await scopesForPerson(personId)).map((s) => s.id);
+  return prisma.emailCampaign.findMany({
+    where: { scopeId: { in: scopeIds } },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 /**
- * The permission matrix for a send, re-checked on EVERY send rather than only at
- * schedule time: a campaign can be scheduled under one permission set and
- * dispatched after the sender's grants have changed.
+ * The scope predicate behind every campaign action, not only sending: viewing
+ * a campaign, saving edits, cancelling, previewing its recipients, and
+ * sending/scheduling it all gate on the SAME question -- may this person act
+ * on a campaign bound to this scope? Named for what it checks, not for any one
+ * caller, since "assertMaySendUnderScope" stopped fitting once callers besides
+ * sending started reusing it (a department-scoped sender must not be able to
+ * even open, edit, or cancel another department's campaign, let alone send
+ * it). Re-checked on every call rather than cached, because a campaign can be
+ * opened or scheduled under one permission/grant set and acted on again after
+ * it has changed.
  *
- * A sender needs outreach.send or outreach.send_unrestricted to send at all.
+ * A person needs outreach.send or outreach.send_unrestricted to act at all.
  * That base check is required even in the scoped branch below, because
  * AudienceScopeGrant is keyed by person/role with no reference to RBAC
  * permissions -- a scope grant alone proves nothing about send authority, and
@@ -125,10 +154,10 @@ export async function listCampaigns() {
  * outreach.send_unrestricted is strictly stronger and does not require
  * outreach.send: it also bypasses the scope-grant lookup and the requirement
  * to name a scope at all. A null scopeId is permitted only for an unrestricted
- * sender, because for anyone else "no scope" would mean "no constraint", which
- * is a send-all.
+ * person, because for anyone else "no scope" would mean "no constraint", which
+ * is a send-all (and by the same logic a view-all/edit-all/cancel-all).
  */
-export async function assertMaySendUnderScope(
+export async function assertMayActOnScope(
   personId: string,
   scopeId: string | null,
 ): Promise<AudienceScopeView | null> {

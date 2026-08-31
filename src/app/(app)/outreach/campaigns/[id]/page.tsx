@@ -9,9 +9,10 @@ import {
   sendCampaignNow,
   scheduleCampaign,
   cancelCampaign,
-  assertMaySendUnderScope,
+  assertMayActOnScope,
   CampaignValidationError,
   CampaignConfirmationError,
+  CampaignScopeError,
 } from "@/platform/email/campaigns/service";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -48,7 +49,7 @@ const EMPTY_AUDIENCE: Audience = {
 };
 
 export default async function CampaignEditorPage({ params }: Props) {
-  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const { id } = await params;
 
   const campaign = await getCampaign(id);
@@ -59,6 +60,34 @@ export default async function CampaignEditorPage({ params }: Props) {
   // nested "use server" closures: campaign's declared type is still `... | null`
   // inside them, even though it can only ever be the non-null branch at runtime.
   const scopeId = campaign.scopeId;
+
+  // A scoped sender may not even OPEN a campaign outside every scope they hold:
+  // the URL alone would otherwise leak another department's audience and
+  // content. /no-access rather than the ?error= pattern the actions below use,
+  // since there is no "back to this same page" to usefully redirect to here.
+  try {
+    await assertMayActOnScope(actor.personId, scopeId);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) redirect("/no-access");
+    throw err;
+  }
+
+  // assertMayActOnScope wrapped with the same local error handling
+  // CampaignValidationError/CampaignConfirmationError already get below: a
+  // blocked sender sees an inline explanation via ?error=, not the generic
+  // error boundary. Every mutating action shares this exact predicate, since a
+  // scoped sender may not edit, cancel, preview, or send/schedule a campaign
+  // outside their granted scopes any more than they may view one.
+  async function assertScopeOrRedirect(personId: string): Promise<void> {
+    try {
+      await assertMayActOnScope(personId, scopeId);
+    } catch (err) {
+      if (err instanceof CampaignScopeError) {
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
+  }
 
   const isSent = campaign.status === "SENT";
   const isDraft = campaign.status === "DRAFT";
@@ -149,6 +178,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function saveAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
@@ -180,10 +210,15 @@ export default async function CampaignEditorPage({ params }: Props) {
   // strips the params as soon as it toasts them, leaving nothing to render from.
   async function previewAction(): Promise<PreviewResult> {
     "use server";
-    await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     try {
+      // A preview lists real recipient names, so it needs the same scope check
+      // as an actual send -- returned as a `problems` entry rather than a
+      // redirect, matching how this action already reports every other failure.
+      await assertMayActOnScope(actor.personId, scopeId);
       return { ok: true, preview: await previewAudience(id) };
     } catch (err) {
+      if (err instanceof CampaignScopeError) return { ok: false, problems: [err.message] };
       if (err instanceof CampaignValidationError) return { ok: false, problems: err.problems };
       throw err;
     }
@@ -192,7 +227,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function testAction() {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertMaySendUnderScope(actor.personId, scopeId);
+    await assertScopeOrRedirect(actor.personId);
     if (!actor.email) {
       redirect(
         `/outreach/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
@@ -211,7 +246,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function sendAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertMaySendUnderScope(actor.personId, scopeId);
+    await assertScopeOrRedirect(actor.personId);
     const rawCount = formData.get("confirmCount");
     const confirmCount =
       rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -243,7 +278,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function scheduleLaterAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertMaySendUnderScope(actor.personId, scopeId);
+    await assertScopeOrRedirect(actor.personId);
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
     if (!raw) redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
     const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
@@ -270,7 +305,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function scheduleRecurringAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertMaySendUnderScope(actor.personId, scopeId);
+    await assertScopeOrRedirect(actor.personId);
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -292,6 +327,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function cancelAction() {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId);
     try {
       await cancelCampaign(actor.personId, id);
     } catch (err) {

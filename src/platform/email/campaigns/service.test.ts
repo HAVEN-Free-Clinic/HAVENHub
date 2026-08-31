@@ -3,14 +3,14 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
-  scheduleCampaign, cancelCampaign, executeRun,
+  scheduleCampaign, cancelCampaign, executeRun, listCampaigns,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import * as audienceResolve from "@/platform/email/audience/resolve";
 import * as sendModule from "@/platform/email/send";
 import { createScope, grantScope } from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
-import { assertMaySendUnderScope, resolveCampaignAudience, CampaignScopeError } from "./service";
+import { assertMayActOnScope, resolveCampaignAudience, CampaignScopeError } from "./service";
 
 beforeEach(resetDb);
 
@@ -370,40 +370,40 @@ describe("campaign scope authorization", () => {
   it("lets an unrestricted sender send with no scope", async () => {
     const admin = await prisma.person.create({ data: { name: "Admin" } });
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
-    await expect(assertMaySendUnderScope(admin.id, null)).resolves.toBeNull();
+    await expect(assertMayActOnScope(admin.id, null)).resolves.toBeNull();
   });
 
   it("refuses an unscoped send from a scoped-only sender", async () => {
     const { sender } = await scopedSetup();
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
-    await expect(assertMaySendUnderScope(sender.id, null)).rejects.toBeInstanceOf(CampaignScopeError);
+    await expect(assertMayActOnScope(sender.id, null)).rejects.toBeInstanceOf(CampaignScopeError);
   });
 
   it("refuses a scope the sender was not granted", async () => {
     const { sender, scope } = await scopedSetup();
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
-    await expect(assertMaySendUnderScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
+    await expect(assertMayActOnScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
   });
 
   it("allows a scope the sender was granted", async () => {
     const { sender, scope } = await scopedSetup();
     await grantScope(null, scope.id, { personId: sender.id });
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
-    const resolved = await assertMaySendUnderScope(sender.id, scope.id);
+    const resolved = await assertMayActOnScope(sender.id, scope.id);
     expect(resolved?.id).toBe(scope.id);
   });
 
   it("lets an unrestricted sender use any scope without a grant", async () => {
     const { sender, scope } = await scopedSetup();
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
-    expect((await assertMaySendUnderScope(sender.id, scope.id))?.id).toBe(scope.id);
+    expect((await assertMayActOnScope(sender.id, scope.id))?.id).toBe(scope.id);
   });
 
   it("refuses a sender holding neither permission, even with a scope grant", async () => {
     const { sender, scope } = await scopedSetup();
     await grantScope(null, scope.id, { personId: sender.id });
     vi.spyOn(rbac, "can").mockResolvedValue(false);
-    await expect(assertMaySendUnderScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
+    await expect(assertMayActOnScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
   });
 
   it("resolves a scoped campaign's audience through its scope", async () => {
@@ -426,5 +426,45 @@ describe("campaign scope authorization", () => {
       scopeId: "scope-that-does-not-exist",
     });
     expect(recipients).toEqual([]);
+  });
+});
+
+describe("listCampaigns scope filtering", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows an unrestricted sender every campaign regardless of scope", async () => {
+    const admin = await prisma.person.create({ data: { name: "Admin" } });
+    const scope = await createScope(null, { name: "Dept scope", audience: ALL_ACTIVE });
+    await createDraft(null, "Unscoped", { scopeId: null });
+    await createDraft(null, "Scoped", { scopeId: scope.id });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+    const campaigns = await listCampaigns(admin.id);
+    expect(campaigns.map((c) => c.name).sort()).toEqual(["Scoped", "Unscoped"]);
+  });
+
+  it("shows a scoped sender only campaigns bound to a scope they were granted", async () => {
+    const sender = await prisma.person.create({ data: { name: "Sender" } });
+    const mine = await createScope(null, { name: "Mine", audience: ALL_ACTIVE });
+    const notMine = await createScope(null, { name: "Not mine", audience: ALL_ACTIVE });
+    await grantScope(null, mine.id, { personId: sender.id });
+    await createDraft(null, "My campaign", { scopeId: mine.id });
+    await createDraft(null, "Someone else's campaign", { scopeId: notMine.id });
+    // Unscoped campaigns are the send-all case: assertMayActOnScope refuses a
+    // scoped-only sender a null scope, so the list must exclude them too.
+    await createDraft(null, "Unscoped campaign", { scopeId: null });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    const campaigns = await listCampaigns(sender.id);
+    expect(campaigns.map((c) => c.name)).toEqual(["My campaign"]);
+  });
+
+  it("shows a scoped sender with no scope grants an empty list", async () => {
+    const sender = await prisma.person.create({ data: { name: "Ungranted sender" } });
+    const scope = await createScope(null, { name: "Somebody else's scope", audience: ALL_ACTIVE });
+    await createDraft(null, "Not visible", { scopeId: scope.id });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    const campaigns = await listCampaigns(sender.id);
+    expect(campaigns).toEqual([]);
   });
 });

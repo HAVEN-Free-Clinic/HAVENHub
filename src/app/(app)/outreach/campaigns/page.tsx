@@ -25,8 +25,8 @@ const STATUS_TONES: Record<string, "default" | "brand" | "success"> = {
 };
 
 export default async function EmailCampaignsPage() {
-  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-  const campaigns = await listCampaigns();
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  const campaigns = await listCampaigns(actor.personId);
 
   return (
     <div className="space-y-6">

@@ -21,10 +21,23 @@ const MIGRATION_SQL = readFileSync(
   "utf8",
 );
 
+/**
+ * Strips `--` comment LINES before checking whether anything executable is
+ * left, rather than skipping a whole chunk because its first line happens to
+ * be a comment. The naive "skip the chunk if its trimmed text starts with
+ * `--`" version glues a leading comment paragraph to the statement that
+ * follows it (no semicolon separates them), so the combined text starts with
+ * `--` and the real statement never runs -- silently. Splitting into lines
+ * first keeps real migrations free to comment a statement however they like.
+ */
 async function runMigration(): Promise<void> {
   for (const statement of MIGRATION_SQL.split(";")) {
-    const sql = statement.trim();
-    if (sql === "" || sql.startsWith("--")) continue;
+    const sql = statement
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n")
+      .trim();
+    if (sql === "") continue;
     await prisma.$executeRawUnsafe(sql);
   }
 }

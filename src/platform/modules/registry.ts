@@ -234,7 +234,11 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      { label: "Campaigns", href: "/outreach/campaigns" },
+      // Campaigns/page.tsx enforces requireAnyPermission(["outreach.send",
+      // "outreach.send_unrestricted"]), so gate the tab on the same pair --
+      // otherwise a manage_scopes-only holder (admitted via
+      // additionalAccessPermissions) sees a tab that bounces to /no-access.
+      { label: "Campaigns", href: "/outreach/campaigns", permission: ["outreach.send", "outreach.send_unrestricted"] },
       { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
     ],
   },

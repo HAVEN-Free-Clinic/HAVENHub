@@ -219,3 +219,308 @@ describe("resolveAudience clearance + nested groups", () => {
     expect(res.recipients.map((r) => r.email)).toEqual(["volrn@x.edu"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Past-term targeting (the campaign this feature was built for)
+// ---------------------------------------------------------------------------
+
+describe("resolveAudience across terms", () => {
+  async function term(code: string, status: "ACTIVE" | "ARCHIVED" | "PLANNING", start: string) {
+    return prisma.term.create({
+      data: {
+        code,
+        name: code,
+        startDate: new Date(start),
+        endDate: new Date(new Date(start).getTime() + 90 * DAY),
+        status,
+      },
+    });
+  }
+
+  async function dept(code: string) {
+    return prisma.department.create({ data: { code, name: code } });
+  }
+
+  async function member(
+    personId: string,
+    termId: string,
+    departmentId: string,
+    kind: "VOLUNTEER" | "DIRECTOR" = "VOLUNTEER",
+    status: "ACTIVE" | "REMOVED" = "ACTIVE",
+  ) {
+    return prisma.termMembership.create({
+      data: { personId, termId, departmentId, kind, status },
+    });
+  }
+
+  it("targets volunteers from two PAST terms while a later term is active", async () => {
+    // The exact ask: "email all spring and summer volunteers about re-applying",
+    // sent during the fall term. Neither cohort is reachable through the
+    // active-term default this field used to be locked to.
+    const sp = await term("SP26", "ARCHIVED", "2026-01-10");
+    const su = await term("SU26", "ARCHIVED", "2026-05-20");
+    const fa = await term("FA26", "ACTIVE", "2026-08-25");
+    const d = await dept("CARDIO");
+
+    const spring = await person("Spring Vol", "spring@example.com");
+    const summer = await person("Summer Vol", "summer@example.com");
+    const both = await person("Both Terms", "both@example.com");
+    const fall = await person("Fall Vol", "fall@example.com");
+    const springDirector = await person("Spring Dir", "dir@example.com");
+
+    await member(spring.id, sp.id, d.id);
+    await member(summer.id, su.id, d.id);
+    await member(both.id, sp.id, d.id);
+    await member(both.id, su.id, d.id);
+    await member(fall.id, fa.id, d.id);
+    await member(springDirector.id, sp.id, d.id, "DIRECTOR");
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "role", op: "eq", value: "VOLUNTEER", terms: [sp.id, su.id] }],
+    });
+
+    // Each person appears once even when they served both terms, the fall-only
+    // volunteer is out, and the spring DIRECTOR is out.
+    expect(res.recipients.map((r) => r.email).sort()).toEqual([
+      "both@example.com",
+      "spring@example.com",
+      "summer@example.com",
+    ]);
+  });
+
+  it("still reaches people who were offboarded after an archived term", async () => {
+    // Offboarding only touches non-archived terms (OFFBOARDABLE_TERM), so an
+    // archived roster keeps its ACTIVE memberships and stays targetable even
+    // though Person.status is now OFFBOARDED.
+    const sp = await term("SP26", "ARCHIVED", "2026-01-10");
+    const d = await dept("CARDIO");
+    const alum = await person("Alum", "alum@example.com", "OFFBOARDED");
+    await member(alum.id, sp.id, d.id);
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "onRoster", op: "isTrue", terms: [sp.id] }],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["alum@example.com"]);
+  });
+
+  it("does not let two conditions be satisfied by different membership rows", async () => {
+    // A director in spring who volunteers in fall must NOT match "spring
+    // volunteer" -- the whole reason the term scope rides on the condition.
+    const sp = await term("SP26", "ARCHIVED", "2026-01-10");
+    const fa = await term("FA26", "ACTIVE", "2026-08-25");
+    const d = await dept("CARDIO");
+    const p = await person("Switcher", "switch@example.com");
+    await member(p.id, sp.id, d.id, "DIRECTOR");
+    await member(p.id, fa.id, d.id, "VOLUNTEER");
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "role", op: "eq", value: "VOLUNTEER", terms: [sp.id] }],
+    });
+    expect(res.recipients).toEqual([]);
+  });
+
+  it("excludes a removed membership from a past-term roster", async () => {
+    const sp = await term("SP26", "ARCHIVED", "2026-01-10");
+    const d = await dept("CARDIO");
+    const p = await person("Removed", "removed@example.com");
+    await member(p.id, sp.id, d.id, "VOLUNTEER", "REMOVED");
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "onRoster", op: "isTrue", terms: [sp.id] }],
+    });
+    expect(res.recipients).toEqual([]);
+  });
+
+  it("a NONE group subtracts a cohort from a term audience", async () => {
+    const sp = await term("SP26", "ARCHIVED", "2026-01-10");
+    const d = await dept("CARDIO");
+    const keep = await person("Keep", "keep@example.com");
+    const drop = await person("Drop", "drop@example.com");
+    await member(keep.id, sp.id, d.id);
+    await member(drop.id, sp.id, d.id);
+    await prisma.person.update({ where: { id: drop.id }, data: { licensedRN: true } });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "onRoster", op: "isTrue", terms: [sp.id] },
+        { match: "NONE", children: [{ field: "licensedRN", op: "isTrue" }] },
+      ],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["keep@example.com"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appliedToCycle: the "skip people who already re-applied" exclusion
+// ---------------------------------------------------------------------------
+
+describe("resolveAudience appliedToCycle", () => {
+  async function cycleWithApplicant(opts: {
+    personId?: string;
+    email: string;
+    netId?: string;
+    cycleId?: string;
+  }) {
+    let cycleId = opts.cycleId;
+    if (!cycleId) {
+      const t = await prisma.term.create({
+        data: {
+          code: `T${Math.random().toString(36).slice(2, 8)}`,
+          name: "T",
+          startDate: new Date("2026-08-25"),
+          endDate: new Date("2026-12-20"),
+          status: "PLANNING",
+        },
+      });
+      const creator = await person("Cycle Creator", `creator-${Math.random().toString(36).slice(2, 8)}@example.com`);
+      const c = await prisma.recruitmentCycle.create({
+        data: {
+          track: "VOLUNTEER",
+          term: { connect: { id: t.id } },
+          createdBy: { connect: { id: creator.id } },
+          title: "Fall 2026",
+          publicSlug: `slug-${Math.random().toString(36).slice(2, 8)}`,
+        },
+      });
+      cycleId = c.id;
+    }
+    const applicant = await prisma.applicant.create({
+      data: {
+        cycleId,
+        applicantPersonId: opts.personId ?? null,
+        firstName: "A",
+        lastName: "B",
+        email: opts.email,
+        emailLower: opts.email.toLowerCase(),
+        netId: opts.netId ?? null,
+      },
+    });
+    await prisma.application.create({
+      data: { cycleId, applicantId: applicant.id, answers: {} },
+    });
+    return cycleId;
+  }
+
+  it("matches an applicant linked to a Person", async () => {
+    const p = await person("Renewer", "renew@example.com");
+    const cycleId = await cycleWithApplicant({ personId: p.id, email: "renew@example.com" });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "in", value: [cycleId] }],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["renew@example.com"]);
+  });
+
+  it("matches an UNLINKED applicant back to a Person by email, case-insensitively", async () => {
+    // applicantPersonId is null for anyone who applied anonymously. Matching only
+    // the link would under-match and re-nag people who already applied.
+    await person("Anon", "Anon.Applicant@Example.com");
+    const cycleId = await cycleWithApplicant({ email: "anon.applicant@example.com" });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "in", value: [cycleId] }],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["Anon.Applicant@Example.com"]);
+  });
+
+  it("matches an unlinked applicant by NetID when the email differs", async () => {
+    // Yale sends an alias address, so the applicant's email need not match the
+    // one on file; the NetID still does.
+    const p = await person("Aliased", "alias@example.com");
+    await prisma.person.update({ where: { id: p.id }, data: { netId: "ab123" } });
+    const cycleId = await cycleWithApplicant({ email: "other@yale.edu", netId: "ab123" });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "in", value: [cycleId] }],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["alias@example.com"]);
+  });
+
+  it("subtracts already-applied people from a past-term audience", async () => {
+    // The complete re-apply campaign: spring volunteers who have NOT applied yet.
+    const sp = await prisma.term.create({
+      data: {
+        code: "SP26",
+        name: "SP26",
+        startDate: new Date("2026-01-10"),
+        endDate: new Date("2026-05-01"),
+        status: "ARCHIVED",
+      },
+    });
+    const d = await prisma.department.create({ data: { code: "CARDIO", name: "Cardio" } });
+    const applied = await person("Applied", "applied@example.com");
+    const notYet = await person("Not Yet", "notyet@example.com");
+    for (const p of [applied, notYet]) {
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: sp.id, departmentId: d.id, kind: "VOLUNTEER" },
+      });
+    }
+    const cycleId = await cycleWithApplicant({ personId: applied.id, email: "applied@example.com" });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "role", op: "eq", value: "VOLUNTEER", terms: [sp.id] },
+        { field: "appliedToCycle", op: "notIn", value: [cycleId] },
+      ],
+    });
+    expect(res.recipients.map((r) => r.email)).toEqual(["notyet@example.com"]);
+  });
+
+  it("ignores an applicant with no submitted application", async () => {
+    const p = await person("Draft Only", "draft@example.com");
+    const t = await prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "FA26",
+        startDate: new Date("2026-08-25"),
+        endDate: new Date("2026-12-20"),
+        status: "PLANNING",
+      },
+    });
+    const creator = await person("Cycle Creator", "creator-draft@example.com");
+    const c = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER",
+        term: { connect: { id: t.id } },
+        createdBy: { connect: { id: creator.id } },
+        title: "Fall",
+        publicSlug: "fall-draft",
+      },
+    });
+    await prisma.applicant.create({
+      data: {
+        cycleId: c.id,
+        applicantPersonId: p.id,
+        firstName: "A",
+        lastName: "B",
+        email: "draft@example.com",
+        emailLower: "draft@example.com",
+      },
+    });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "in", value: [c.id] }],
+    });
+    expect(res.recipients).toEqual([]);
+  });
+});

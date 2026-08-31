@@ -6,6 +6,7 @@ import type { Audience, AudienceCondition, AudienceNode } from "./types";
 import { isAudienceGroup } from "./types";
 import { compilePersonWhere } from "./compile";
 import { personVariables } from "./variables";
+import { asArray } from "./operators";
 
 export type Recipient = {
   email: string;
@@ -25,6 +26,53 @@ function collectConditions(nodes: AudienceNode[]): AudienceCondition[] {
     else out.push(node);
   }
   return out;
+}
+
+/**
+ * Person ids with an application in each of `cycleIds`.
+ *
+ * An application does not reliably link to a Person: `Applicant.applicantPersonId`
+ * is set only for signed-in renewals and is null for everyone who applied
+ * anonymously. Matching only the link would quietly UNDER-match, which on an
+ * "exclude people who already applied" condition means re-nagging exactly the
+ * people who did the thing you asked. So unlinked applicants are matched back to
+ * a Person by email (case-insensitively) and by NetID.
+ *
+ * The one-off scan of `Person` is deliberate: Prisma ignores `mode: "insensitive"`
+ * on `in` for Postgres, so a case-insensitive bulk email match cannot be pushed
+ * into the query. The table is clinic-sized and this runs only when an
+ * `appliedToCycle` condition is present.
+ */
+async function loadAppliedByCycle(cycleIds: string[]): Promise<Map<string, Set<string>>> {
+  const byCycle = new Map<string, Set<string>>(cycleIds.map((id) => [id, new Set<string>()]));
+  if (cycleIds.length === 0) return byCycle;
+
+  const applicants = await prisma.applicant.findMany({
+    where: { cycleId: { in: cycleIds }, applications: { some: {} } },
+    select: { cycleId: true, applicantPersonId: true, emailLower: true, netId: true },
+  });
+  if (applicants.length === 0) return byCycle;
+
+  const people = await prisma.person.findMany({
+    select: { id: true, contactEmail: true, netId: true },
+  });
+  const byEmail = new Map<string, string>();
+  const byNetId = new Map<string, string>();
+  for (const p of people) {
+    const email = p.contactEmail?.trim().toLowerCase();
+    if (email) byEmail.set(email, p.id);
+    const netId = p.netId?.trim().toLowerCase();
+    if (netId) byNetId.set(netId, p.id);
+  }
+
+  for (const a of applicants) {
+    const personId =
+      a.applicantPersonId ??
+      byEmail.get(a.emailLower.trim().toLowerCase()) ??
+      (a.netId ? byNetId.get(a.netId.trim().toLowerCase()) : undefined);
+    if (personId) byCycle.get(a.cycleId)?.add(personId);
+  }
+  return byCycle;
 }
 
 export async function resolveAudience(audience: Audience): Promise<ResolvedAudience> {
@@ -65,10 +113,23 @@ export async function resolveAudience(audience: Audience): Promise<ResolvedAudie
     }
   }
 
+  // Recruitment applications reach a Person through a nullable link plus an
+  // email/NetID fallback, so they cannot be a Prisma predicate either. Only the
+  // cycles the audience actually names are loaded.
+  const wantedCycleIds = [
+    ...new Set(
+      conditions.filter((c) => c.field === "appliedToCycle").flatMap((c) => asArray(c.value)),
+    ),
+  ];
+  const appliedByCycle = conditions.some((c) => c.field === "appliedToCycle")
+    ? await loadAppliedByCycle(wantedCycleIds)
+    : undefined;
+
   const where = compilePersonWhere(audience, {
     activeTermId: activeTerm?.id ?? null,
     complianceStatusByPerson,
     clearanceByPerson,
+    appliedByCycle,
   });
   const people = await prisma.person.findMany({
     where,

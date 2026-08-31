@@ -1,10 +1,23 @@
-import type { Prisma, TechRequestStatus, EpicRequestStatus } from "@prisma/client";
+import type { Prisma, Track, TechRequestStatus, EpicRequestStatus } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 import type { AudienceCondition, ConditionOp } from "./types";
+import {
+  BOOLEAN_OPERATORS,
+  ENUM_OPERATORS,
+  MATCH_NOBODY,
+  MULTI_ENUM_OPERATORS,
+  TEXT_OPERATORS,
+  YEAR_OPERATORS,
+  asArray,
+  enumWhere,
+  stringSetFilter,
+  textWhere,
+  yearWhere,
+} from "./operators";
 
-export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean";
+export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean" | "year";
 
 export type AudienceCtx = {
   activeTermId: string | null;
@@ -22,6 +35,17 @@ export type AudienceCtx = {
    * stored column, so resolveAudience precomputes it via loadClearanceMap.
    */
   clearanceByPerson?: Map<string, ClearanceSummary>;
+  /**
+   * Person ids that have an application in each recruitment cycle, keyed by
+   * cycle id. Required only when an `appliedToCycle` condition is present.
+   *
+   * Precomputed rather than compiled to a relation filter because an
+   * application links to a Person only for signed-in renewals
+   * (`Applicant.applicantPersonId`); anonymous applicants are matched back to a
+   * Person by email, which no Prisma predicate over Person can express. See
+   * loadAppliedByCycle in resolve.ts.
+   */
+  appliedByCycle?: Map<string, Set<string>>;
 };
 
 export type PersonFieldDef = {
@@ -31,6 +55,13 @@ export type PersonFieldDef = {
   kind: PersonFieldKind;
   operators: ConditionOp[];
   options?: { value: string; label: string }[];
+  /**
+   * True for roster-shaped fields, whose meaning depends on WHICH term. The
+   * builder shows a term picker for these; `AudienceCondition.terms` carries the
+   * choice, and an empty choice means the active term (the pre-existing meaning
+   * of every stored audience).
+   */
+  termScoped?: boolean;
   compile: (cond: AudienceCondition, ctx: AudienceCtx) => Prisma.PersonWhereInput;
 };
 
@@ -50,8 +81,6 @@ const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
   { value: "NO_CERTIFICATE", label: "No certificate" },
 ];
 
-const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
-
 /** IT support ticket statuses that count as "open" (not resolved/closed/cancelled). */
 const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];
 
@@ -61,61 +90,57 @@ const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AW
  *  to YNHH read as "no open request". */
 const OPEN_EPIC_STATUSES: EpicRequestStatus[] = ["PENDING", "SUBMITTED"];
 
-const TEXT_OPERATORS: ConditionOp[] = [
-  "contains",
-  "eq",
-  "startsWith",
-  "endsWith",
-  "in",
-  "isEmpty",
-  "isNotEmpty",
-];
+// ---------------------------------------------------------------------------
+// Term scoping
+// ---------------------------------------------------------------------------
 
-export function parseTextList(value: AudienceCondition["value"]): string[] {
-  const parts = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value.split(/[\n,]/)
-      : [];
-  return parts.map((s) => s.trim()).filter((s) => s.length > 0);
+/** A `termId` filter over the condition's chosen terms, or null when there is nothing to scope to. */
+type TermScope = { termId: string } | { termId: { in: string[] } };
+
+/**
+ * Resolves a roster condition's term scope.
+ *
+ * An explicit `cond.terms` wins; otherwise the scope is the ACTIVE term, which
+ * is what every roster field meant before term scoping existed. Returns null
+ * when neither is available -- with no active term there is no roster to hold a
+ * role on, and the caller must return MATCH_NOBODY rather than drop the filter.
+ *
+ * A single term emits a bare `termId: "x"` (not a one-element `in`) so the
+ * generated SQL and the pre-existing tests both stay unchanged for the common case.
+ */
+function termScope(cond: AudienceCondition, ctx: AudienceCtx): TermScope | null {
+  const chosen = (cond.terms ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+  if (chosen.length === 1) return { termId: chosen[0] };
+  if (chosen.length > 1) return { termId: { in: chosen } };
+  if (ctx.activeTermId) return { termId: ctx.activeTermId };
+  return null;
 }
 
-function textCompile(column: string, cond: AudienceCondition, nullable: boolean): Prisma.PersonWhereInput {
-  switch (cond.op) {
-    case "isEmpty":
-      // Prisma rejects a null filter on a NOT NULL scalar (e.g. Person.name) with
-      // a PrismaClientValidationError, so only include the null half for nullable
-      // columns. For a required column, "empty" means the empty string.
-      return (
-        nullable ? { OR: [{ [column]: null }, { [column]: "" }] } : { [column]: "" }
-      ) as Prisma.PersonWhereInput;
-    case "isNotEmpty":
-      return (
-        nullable
-          ? { AND: [{ [column]: { not: null } }, { [column]: { not: "" } }] }
-          : { [column]: { not: "" } }
-      ) as Prisma.PersonWhereInput;
-    case "in": {
-      // "is any of": case-insensitive match against a pasted list. Prisma ignores
-      // mode:"insensitive" on `in` for Postgres, so expand to an OR of equals.
-      const list = parseTextList(cond.value);
-      if (list.length === 0) return MATCH_NOBODY;
-      return {
-        OR: list.map((v) => ({ [column]: { equals: v, mode: "insensitive" } })),
-      } as Prisma.PersonWhereInput;
-    }
-    case "contains":
-    case "startsWith":
-    case "endsWith":
-    case "eq": {
-      const raw = typeof cond.value === "string" ? cond.value.trim() : "";
-      if (raw === "") return MATCH_NOBODY;
-      const prismaOp = cond.op === "eq" ? "equals" : cond.op;
-      return { [column]: { [prismaOp]: raw, mode: "insensitive" } } as Prisma.PersonWhereInput;
-    }
-    default:
-      throw new Error(`Unsupported text operator: ${cond.op}`);
-  }
+/**
+ * "On the roster in scope, but NOT matching `inner`."
+ *
+ * Negating a relation is the sharpest edge in this file. The naive form --
+ * `{ memberships: { none: inner } }` -- is true for every Person with no
+ * memberships AT ALL: alumni, applicant-created rows, staff. On a send list
+ * that is the whole database. So a negated roster condition is always two
+ * halves: still on the roster (positive), and not matching the attribute
+ * (negative). The same bug is documented on `completedVolunteerTraining` below.
+ *
+ * `none` is also the reason this takes the whole membership predicate rather
+ * than just the attribute: "not in department X" must mean "in no membership of
+ * X", not "in some membership that isn't X" -- otherwise a person in both X and
+ * Y matches, which is not what "none of" says.
+ */
+function notOnRosterAs(
+  scope: TermScope,
+  inner: Prisma.TermMembershipWhereInput,
+): Prisma.PersonWhereInput {
+  return {
+    AND: [
+      { memberships: { some: { ...scope, status: "ACTIVE" } } },
+      { memberships: { none: { ...scope, status: "ACTIVE", ...inner } } },
+    ],
+  };
 }
 
 function textField(key: string, label: string, column: string, nullable = true): PersonFieldDef {
@@ -125,15 +150,11 @@ function textField(key: string, label: string, column: string, nullable = true):
     group: "Identity",
     kind: "text",
     operators: TEXT_OPERATORS,
-    compile: (cond) => textCompile(column, cond, nullable),
+    compile: (cond) => textWhere(column, cond, nullable),
   };
 }
 
-function asArray(value: AudienceCondition["value"]): string[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string" && value.length > 0) return [value];
-  return [];
-}
+const TRACKS = ["DIRECTOR", "VOLUNTEER"] as const;
 
 export const PERSON_FIELDS: PersonFieldDef[] = [
   textField("name", "Full name", "name", false), // Person.name is NOT NULL
@@ -146,81 +167,139 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Yale affiliation",
     group: "Identity",
     kind: "enum",
-    operators: ["eq"],
+    operators: ENUM_OPERATORS,
     options: YALE_AFFILIATIONS,
-    // The column now holds stable machine keys, so free-text matching would mean
-    // ops typing "ysm_md" blind. An empty value must never compile to
-    // `{ yaleAffiliation: undefined }`, which Prisma drops, matching EVERYONE:
-    // same match-nobody safety the status field uses.
-    compile: (cond) => {
-      const value = typeof cond.value === "string" ? cond.value.trim() : "";
-      if (value === "") return MATCH_NOBODY;
-      return { yaleAffiliation: value };
-    },
+    // The column holds stable machine keys, so free-text matching would mean ops
+    // typing "ysm_md" blind. enumWhere carries both safeties: a blank value
+    // compiles to match-nobody (never `{ yaleAffiliation: undefined }`, which
+    // Prisma DROPS, matching everyone), and a negative operator ORs NULL rows
+    // back in, so "affiliation is not YSM MD" includes people with none recorded.
+    compile: (cond) =>
+      enumWhere("yaleAffiliation", cond, true, YALE_AFFILIATIONS.map((a) => a.value)),
   },
-  textField("gradYear", "Grad year", "gradYear"),
+  {
+    key: "gradYear",
+    label: "Grad year",
+    group: "Identity",
+    kind: "year",
+    // Ordered comparison ("graduated before 2026") on top of the text operators.
+    // Person.gradYear is a String column, so lt/gt are lexicographic and only
+    // accept a clean 4-digit year; see yearWhere.
+    operators: YEAR_OPERATORS,
+    compile: (cond) => yearWhere("gradYear", cond),
+  },
   {
     key: "status",
     label: "Account status",
     group: "Status & roles",
     kind: "enum",
-    operators: ["eq"],
+    operators: ENUM_OPERATORS,
     options: [
       { value: "ACTIVE", label: "Active" },
       { value: "OFFBOARDED", label: "Offboarded" },
     ],
-    // An empty value must never compile to `{ status: undefined }` (which Prisma
-    // treats as "no filter", matching EVERYONE). Mirror the match-nobody safety
-    // the text/enum fields use on a blank value.
-    compile: (cond) => {
-      const value = typeof cond.value === "string" ? cond.value.trim() : "";
-      if (value === "") return MATCH_NOBODY;
-      return { status: value as "ACTIVE" | "OFFBOARDED" };
+    compile: (cond) => enumWhere("status", cond, false, ["ACTIVE", "OFFBOARDED"]),
+  },
+  {
+    key: "onRoster",
+    label: "On the roster",
+    group: "Status & roles",
+    kind: "boolean",
+    operators: BOOLEAN_OPERATORS,
+    termScoped: true,
+    // "Was a member at all", regardless of track -- the field that makes
+    // "everyone who served in Spring or Summer" expressible in one condition.
+    compile: (cond, ctx) => {
+      const scope = termScope(cond, ctx);
+      if (!scope) return MATCH_NOBODY;
+      const some = { ...scope, status: "ACTIVE" as const };
+      // `none` is safe here and ONLY here among the roster fields: "was not on
+      // the roster" genuinely does include people with no memberships at all.
+      return cond.op === "isFalse" ? { memberships: { none: some } } : { memberships: { some } };
     },
   },
   {
     key: "role",
-    label: "Role (this term)",
+    label: "Role",
     group: "Status & roles",
     kind: "enum",
-    operators: ["eq"],
+    operators: ENUM_OPERATORS,
+    termScoped: true,
     options: [
       { value: "DIRECTOR", label: "Director" },
       { value: "VOLUNTEER", label: "Volunteer" },
     ],
-    // An empty value must never compile to `{ kind: "" }` (invalid Track enum,
-    // Prisma throws a 500) nor `{ kind: undefined }` (dropped, matching EVERY
-    // active member). Mirror the match-nobody safety the status field uses: only
-    // the two valid Track values pass through.
+    // The role and its terms compile into ONE `some` clause, so a single
+    // membership row has to satisfy both. Two separate conditions ANDed together
+    // would each get their own `some`, and a director's SP26 stint would satisfy
+    // the term half while this term's volunteer membership satisfied the role half.
     compile: (cond, ctx) => {
-      const value = typeof cond.value === "string" ? cond.value.trim() : "";
-      if (value !== "DIRECTOR" && value !== "VOLUNTEER") return MATCH_NOBODY;
-      // With no active term there is no roster to hold a role on. The old
-      // `termId: ctx.activeTermId ?? ""` did match nobody, but only because no
-      // membership carries an empty term id -- say it outright, the way the
-      // other term-scoped fields do, so the guarantee does not rest on that.
-      if (!ctx.activeTermId) return MATCH_NOBODY;
+      const scope = termScope(cond, ctx);
+      if (!scope) return MATCH_NOBODY;
+      const filter = stringSetFilter(cond, TRACKS);
+      if (!filter) return MATCH_NOBODY;
+      if ("notIn" in filter) {
+        return notOnRosterAs(scope, { kind: { in: filter.notIn as Track[] } });
+      }
+      // A single track emits a bare `kind: "VOLUNTEER"` rather than a one-element
+      // `in`, matching the shape this field has always produced.
+      const kind =
+        filter.in.length === 1 ? (filter.in[0] as Track) : { in: filter.in as Track[] };
+      return {
+        memberships: { some: { ...scope, status: "ACTIVE", kind } },
+      } as Prisma.PersonWhereInput;
+    },
+  },
+  {
+    key: "department",
+    label: "Department",
+    group: "Status & roles",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    termScoped: true,
+    compile: (cond, ctx) => {
+      const scope = termScope(cond, ctx);
+      if (!scope) return MATCH_NOBODY;
+      const filter = stringSetFilter(cond);
+      if (!filter) return MATCH_NOBODY;
+      if ("notIn" in filter) {
+        return notOnRosterAs(scope, { department: { code: { in: filter.notIn } } });
+      }
       return {
         memberships: {
-          some: { termId: ctx.activeTermId, status: "ACTIVE", kind: value },
+          some: { ...scope, status: "ACTIVE", department: { code: { in: filter.in } } },
         },
       };
     },
   },
   {
-    key: "department",
-    label: "Department (this term)",
-    group: "Status & roles",
+    key: "appliedToCycle",
+    label: "Applied to recruitment cycle",
+    group: "Records",
     kind: "multiEnum",
-    operators: ["in"],
+    operators: MULTI_ENUM_OPERATORS,
+    // Resolved from a precomputed per-cycle id set rather than a relation filter,
+    // because an application links to a Person only for signed-in renewals; every
+    // other applicant is matched back by email. See ctx.appliedByCycle.
     compile: (cond, ctx) => {
-      // Same no-active-term guard as `role` above, and for the same reason.
-      if (!ctx.activeTermId) return MATCH_NOBODY;
-      return {
-        memberships: {
-          some: { termId: ctx.activeTermId, status: "ACTIVE", department: { code: { in: asArray(cond.value) } } },
-        },
-      };
+      const cycles = asArray(cond.value);
+      if (cycles.length === 0) return MATCH_NOBODY;
+      if (!ctx.appliedByCycle) {
+        throw new Error(
+          "appliedToCycle audience requires a precomputed applicant map; resolveAudience must supply ctx.appliedByCycle",
+        );
+      }
+      const ids = new Set<string>();
+      for (const cycleId of cycles) {
+        for (const personId of ctx.appliedByCycle.get(cycleId) ?? []) ids.add(personId);
+      }
+      // `notIn` over an id list is the correct negation here: "has not applied"
+      // truly does include everyone with no application, unlike the roster fields
+      // above where the same shape would mean "everyone who was never a member".
+      // An empty id set therefore means every Person, which is right -- nobody
+      // applied to that cycle -- and is why this field is meant to be combined
+      // with a roster condition, not sent on its own.
+      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
     },
   },
   {
@@ -228,7 +307,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "HIPAA compliance status",
     group: "Status & roles",
     kind: "multiEnum",
-    operators: ["in"],
+    operators: MULTI_ENUM_OPERATORS,
     options: COMPLIANCE_OPTIONS,
     // Compliance status is derived live (newest cert + active term end), never a
     // stored column, so it can't be a Prisma predicate. resolveAudience
@@ -244,8 +323,13 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       }
       const ids: string[] = [];
       for (const [personId, status] of ctx.complianceStatusByPerson) {
-        if (wanted.has(status)) ids.push(personId);
+        if (wanted.has(status) !== (cond.op === "notIn")) ids.push(personId);
       }
+      // Both polarities resolve to an explicit `in` list rather than a `notIn`,
+      // so neither can widen past the map. Note the map scores EVERY Person
+      // (loadComplianceStatusMap has no where clause), so "is none of Compliant"
+      // legitimately includes alumni and applicant-created rows -- wide, but what
+      // the words say, and visible in the preview before anything is sent.
       return { id: { in: ids } };
     },
   },
@@ -254,7 +338,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has an Epic ID",
     group: "Attributes",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
   },
   // Language capability moved off Person into PersonLanguage, so these compile
@@ -266,7 +350,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Spanish-speaking (verified)",
     group: "Attributes",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isTrue"
         ? { languages: { some: { language: "es", verified: true, verifiedAt: { not: null } } } }
@@ -277,7 +361,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Spanish-speaking (self-reported)",
     group: "Attributes",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isTrue"
         ? { languages: { some: { language: "es", selfReported: true } } }
@@ -288,7 +372,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Licensed RN",
     group: "Attributes",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) => ({ licensedRN: cond.op === "isTrue" }),
   },
   {
@@ -296,7 +380,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has an open Epic request",
     group: "Records",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isFalse"
         ? { epicRequests: { none: { status: { in: OPEN_EPIC_STATUSES } } } }
@@ -307,7 +391,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has a disciplinary action",
     group: "Records",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isFalse"
         ? { disciplinaryActions: { none: {} } }
@@ -318,7 +402,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has an approved strike",
     group: "Records",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isFalse"
         ? { incidentSubjectLinks: { none: { strikeDecision: "APPROVED" } } }
@@ -329,7 +413,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has an open IT support ticket",
     group: "Records",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isFalse"
         ? { techRequests: { none: { status: { in: OPEN_TECH_STATUSES } } } }
@@ -340,7 +424,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Has a verified HIPAA certificate",
     group: "Records",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
       cond.op === "isFalse"
         ? { hipaaCertificates: { none: { verifiedAt: { not: null } } } }
@@ -351,23 +435,25 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Added to Yale EHS",
     group: "Attributes",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond) => ({ addedToEhs: cond.op === "isTrue" }),
   },
   {
     key: "completedVolunteerTraining",
-    label: "Completed volunteer training (this term)",
+    label: "Completed volunteer training",
     group: "Status & roles",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
+    termScoped: true,
     compile: (cond, ctx) => {
-      // With no active term there is nothing to have completed. The positive
+      // With no term in scope there is nothing to have completed. The positive
       // branch already matches nobody; the negative branch, without this guard,
       // compiled to `none: { termId: "" }` which is TRUE for every Person in the
       // table (including alumni and applicant-created rows that were never on a
       // roster), so "has NOT completed training" would email the whole database.
-      if (!ctx.activeTermId) return MATCH_NOBODY;
-      const some = { termId: ctx.activeTermId, track: "VOLUNTEER" as const, status: "COMPLETE" as const };
+      const scope = termScope(cond, ctx);
+      if (!scope) return MATCH_NOBODY;
+      const some = { ...scope, track: "VOLUNTEER" as const, status: "COMPLETE" as const };
       return cond.op === "isFalse"
         ? { trainings: { none: some } }
         : { trainings: { some } };
@@ -375,18 +461,19 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   },
   {
     key: "flaggedForOffboarding",
-    label: "Flagged for offboarding (this term)",
+    label: "Flagged for offboarding",
     group: "Status & roles",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
+    termScoped: true,
     compile: (cond, ctx) => {
-      // Same no-active-term guard as completedVolunteerTraining: without it the
-      // negative branch (`none: { termId: "" }`) matches every Person in the table.
-      if (!ctx.activeTermId) return MATCH_NOBODY;
-      const some = { termId: ctx.activeTermId };
+      // Same no-term guard as completedVolunteerTraining: without it the negative
+      // branch (`none: { termId: "" }`) matches every Person in the table.
+      const scope = termScope(cond, ctx);
+      if (!scope) return MATCH_NOBODY;
       return cond.op === "isFalse"
-        ? { offboardFlags: { none: some } }
-        : { offboardFlags: { some } };
+        ? { offboardFlags: { none: scope } }
+        : { offboardFlags: { some: scope } };
     },
   },
   {
@@ -394,7 +481,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Cleared to volunteer (full clearance)",
     group: "Status & roles",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     // Derived from full onboarding clearance (profile + HIPAA + training + learning +
     // EHS), precomputed per active-term member by resolveAudience via loadClearanceMap.
     compile: (cond, ctx) => {
@@ -416,7 +503,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     label: "Completed all assigned learning",
     group: "Status & roles",
     kind: "boolean",
-    operators: ["isTrue", "isFalse"],
+    operators: BOOLEAN_OPERATORS,
     compile: (cond, ctx) => {
       if (!ctx.clearanceByPerson) {
         throw new Error(
@@ -437,6 +524,10 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {
   const field = PERSON_FIELDS.find((f) => f.key === cond.field);
   if (!field) throw new Error(`Unknown audience field: ${cond.field}`);
+  // An operator the field does not declare can only arrive from a hand-edited or
+  // stale stored audience. Compiling it would either throw deep in a helper or,
+  // worse, fall through to a default branch; match nobody instead.
+  if (!field.operators.includes(cond.op)) return MATCH_NOBODY;
   return field.compile(cond, ctx);
 }
 
@@ -451,4 +542,8 @@ export const PERSON_FIELD_VIEWS: PersonFieldView[] = PERSON_FIELDS.map((f) => ({
   kind: f.kind,
   operators: f.operators,
   options: f.options,
+  termScoped: f.termScoped,
 }));
+
+/** Field keys whose conditions carry a term scope; used by the builder and the page. */
+export const TERM_SCOPED_FIELD_KEYS = PERSON_FIELDS.filter((f) => f.termScoped).map((f) => f.key);

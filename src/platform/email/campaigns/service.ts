@@ -143,7 +143,23 @@ export async function updateCampaign(
   });
 }
 
-export async function previewAudience(id: string) {
+/**
+ * How many recipients the preview lists by name. The count is always exact; this
+ * caps only the visible roll, keeping the server-action payload bounded on an
+ * audience of several thousand while still being long enough to actually scan.
+ */
+export const PREVIEW_SAMPLE_LIMIT = 200;
+
+export type AudiencePreview = {
+  count: number;
+  excludedNoEmail: number;
+  /** The first PREVIEW_SAMPLE_LIMIT recipients, in the send order (name asc). */
+  sample: { name: string; email: string }[];
+  /** True when `count` exceeds what `sample` shows. */
+  truncated: boolean;
+};
+
+export async function previewAudience(id: string): Promise<AudiencePreview> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (!isAudience(campaign.audienceJson)) {
     throw new CampaignValidationError(["Stored audience is malformed"]);
@@ -162,7 +178,11 @@ export async function previewAudience(id: string) {
   return {
     count: deduped.length,
     excludedNoEmail,
-    sample: deduped.slice(0, 20),
+    sample: deduped.slice(0, PREVIEW_SAMPLE_LIMIT).map((r) => ({
+      name: r.displayName,
+      email: r.email,
+    })),
+    truncated: deduped.length > PREVIEW_SAMPLE_LIMIT,
   };
 }
 

@@ -752,6 +752,13 @@ export type AttendingRequestRow = {
   note: string | null;
   createdAt: Date;
   decidedAt: Date | null;
+  /**
+   * Always set (@updatedAt). Carried because decidedAt is NULL on every
+   * cancelled row -- cancelAttendingRequest withdraws a request rather than
+   * deciding it -- so this is the only faithful "when did this settle?" for the
+   * decided list.
+   */
+  updatedAt: Date;
   requester: { id: string; name: string };
   requesterDate: Date;
   requesterSlotLabel: string;
@@ -779,6 +786,7 @@ export async function listAttendingRequests(
       note: true,
       createdAt: true,
       decidedAt: true,
+      updatedAt: true,
       requesterId: true,
       requester: { select: { scheduleName: true } },
       requesterDay: { select: { clinicDate: true } },
@@ -802,6 +810,7 @@ export async function listAttendingRequests(
       note: r.note,
       createdAt: r.createdAt,
       decidedAt: r.decidedAt,
+      updatedAt: r.updatedAt,
       requester: { id: r.requesterId, name: r.requester.scheduleName },
       requesterDate: r.requesterDay.clinicDate,
       requesterSlotLabel: r.requesterSlot.label,

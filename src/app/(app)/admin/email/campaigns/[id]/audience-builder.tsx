@@ -9,39 +9,56 @@ import type {
   AudienceNode,
   ConditionOp,
 } from "@/platform/email/audience/types";
-import { isAudienceGroup } from "@/platform/email/audience/types";
+import { isAudienceGroup, isNegativeOp, VALUELESS_OPS } from "@/platform/email/audience/types";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 
+export type NamedOption = { id: string; label: string };
+
 type Props = {
   fields: PersonFieldView[];
   departments: { code: string; name: string }[];
+  terms: NamedOption[];
+  cycles: NamedOption[];
   initial: Audience;
 };
 
 type FieldGroup = { name: string; fields: PersonFieldView[] };
 
-const TEXT_OP_LABELS: Record<string, string> = {
+const OP_LABELS: Record<ConditionOp, string> = {
   contains: "contains",
-  eq: "is exactly",
+  notContains: "does not contain",
+  eq: "is",
+  notEq: "is not",
   startsWith: "starts with",
   endsWith: "ends with",
   in: "is any of",
+  notIn: "is none of",
   isEmpty: "is empty",
   isNotEmpty: "is not empty",
+  isTrue: "yes",
+  isFalse: "no",
+  lt: "is before",
+  gt: "is after",
 };
 
-// Operators where no value control is shown.
-const VALUELESS_OPS = new Set<ConditionOp>(["isEmpty", "isNotEmpty", "isTrue", "isFalse"]);
+/** Operators whose value is a checkbox selection rather than typed text. */
+const SET_OPS = new Set<ConditionOp>(["in", "notIn"]);
+
+const VALUELESS = new Set<ConditionOp>(VALUELESS_OPS);
 
 function getFieldOptions(
   field: PersonFieldView,
   departments: { code: string; name: string }[],
+  cycles: NamedOption[],
 ): { value: string; label: string }[] {
   if (field.key === "department") {
     return departments.map((d) => ({ value: d.code, label: d.name }));
+  }
+  if (field.key === "appliedToCycle") {
+    return cycles.map((c) => ({ value: c.id, label: c.label }));
   }
   return field.options ?? [];
 }
@@ -49,28 +66,102 @@ function getFieldOptions(
 function defaultConditionFor(def: PersonFieldView): AudienceCondition {
   if (def.kind === "boolean") return { field: def.key, op: "isTrue" };
   if (def.kind === "multiEnum") return { field: def.key, op: "in", value: [] };
-  if (def.kind === "text") return { field: def.key, op: "contains", value: "" };
+  if (def.kind === "text" || def.kind === "year") {
+    return { field: def.key, op: "contains", value: "" };
+  }
   return { field: def.key, op: "eq", value: def.options?.[0]?.value ?? "" };
 }
 
+/**
+ * Values do not survive an operator change intact: a checkbox selection is a
+ * string[], a pasted list is one newline-joined string, and a single value is a
+ * bare string. Carrying the wrong shape across produces a condition that looks
+ * filled in but compiles to match-nobody, which is confusing rather than unsafe.
+ */
+function valueForOp(cond: AudienceCondition, nextOp: ConditionOp): AudienceCondition["value"] {
+  if (VALUELESS.has(nextOp)) return undefined;
+  const wasSet = SET_OPS.has(cond.op);
+  const isSet = SET_OPS.has(nextOp);
+  if (wasSet === isSet) return cond.value;
+  return isSet ? [] : "";
+}
+
 // ---------------------------------------------------------------------------
-// Match-mode toggle (ALL / ANY), shared by every group
+// Match-mode toggle, shared by every group
 // ---------------------------------------------------------------------------
 
-function MatchToggle({ match, onChange }: { match: "ALL" | "ANY"; onChange: (m: "ALL" | "ANY") => void }) {
+const MATCH_MODES = [
+  { value: "ALL", label: "ALL conditions" },
+  { value: "ANY", label: "ANY condition" },
+  { value: "NONE", label: "NONE of these" },
+] as const;
+
+function MatchToggle({
+  match,
+  onChange,
+  allowNone,
+}: {
+  match: AudienceGroup["match"];
+  onChange: (m: AudienceGroup["match"]) => void;
+  allowNone: boolean;
+}) {
+  // NONE is offered on nested groups only. At the root it would read "everyone
+  // except ...", which is a send-all wearing a disguise.
+  const modes = MATCH_MODES.filter((m) => m.value !== "NONE" || allowNone);
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm text-foreground-soft">Match</span>
       <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
-        {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
-        <button type="button" aria-pressed={match === "ALL"} onClick={() => onChange("ALL")} className={`px-3 py-1.5 ${match === "ALL" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
-          ALL conditions
-        </button>
-        {/* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */}
-        <button type="button" aria-pressed={match === "ANY"} onClick={() => onChange("ANY")} className={`px-3 py-1.5 ${match === "ANY" ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
-          ANY condition
-        </button>
+        {modes.map((m) => {
+          const active = match === m.value;
+          return (
+            /* eslint-disable-next-line no-restricted-syntax -- segmented match-mode toggle, active state applied inline */
+            <button key={m.value} type="button" aria-pressed={active} onClick={() => onChange(m.value)} className={`px-3 py-1.5 ${active ? "bg-brand text-white" : "bg-surface text-foreground-soft hover:bg-muted"}`}>
+              {m.label}
+            </button>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Term scope, for roster-shaped fields
+// ---------------------------------------------------------------------------
+
+function TermScopePicker({
+  cond,
+  terms,
+  onChange,
+}: {
+  cond: AudienceCondition;
+  terms: NamedOption[];
+  onChange: (next: AudienceCondition) => void;
+}) {
+  const selected = cond.terms ?? [];
+
+  function toggle(id: string) {
+    const next = selected.includes(id) ? selected.filter((t) => t !== id) : [...selected, id];
+    // Store no key at all rather than an empty array, so an audience that never
+    // touched the picker serialises exactly as it did before term scoping.
+    onChange({ ...cond, terms: next.length > 0 ? next : undefined });
+  }
+
+  return (
+    <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 pt-2">
+      <span className="text-xs font-medium text-foreground-soft">Terms</span>
+      {terms.map((t) => (
+        <label key={t.id} className="flex items-center gap-1.5 text-xs">
+          <Checkbox checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
+          {t.label}
+        </label>
+      ))}
+      {selected.length === 0 && (
+        <span className="text-xs text-subtle-foreground italic">
+          None selected: uses the current term
+        </span>
+      )}
     </div>
   );
 }
@@ -84,6 +175,8 @@ function ConditionRow({
   fields,
   fieldGroups,
   departments,
+  terms,
+  cycles,
   onChange,
   onRemove,
 }: {
@@ -91,11 +184,13 @@ function ConditionRow({
   fields: PersonFieldView[];
   fieldGroups: FieldGroup[];
   departments: { code: string; name: string }[];
+  terms: NamedOption[];
+  cycles: NamedOption[];
   onChange: (next: AudienceCondition) => void;
   onRemove: () => void;
 }) {
   const def = fields.find((f) => f.key === cond.field) ?? fields[0];
-  const options = def ? getFieldOptions(def, departments) : [];
+  const options = def ? getFieldOptions(def, departments, cycles) : [];
   const selectedValues = Array.isArray(cond.value) ? cond.value : [];
   const textValue = typeof cond.value === "string" ? cond.value : "";
 
@@ -104,19 +199,18 @@ function ConditionRow({
     if (nextDef) onChange(defaultConditionFor(nextDef));
   }
 
-  function changeTextOp(op: ConditionOp) {
-    if (VALUELESS_OPS.has(op)) return onChange({ ...cond, op, value: undefined });
-    // "is any of" stores a multi-line paste; that format is incompatible with the
-    // single-value operators, so clear it when switching away from "in".
-    const carry = cond.op !== "in" && typeof cond.value === "string";
-    onChange({ ...cond, op, value: carry ? cond.value : "" });
+  function changeOp(op: ConditionOp) {
+    onChange({ ...cond, op, value: valueForOp(cond, op) });
   }
 
   function toggleMultiValue(val: string) {
     const arr = Array.isArray(cond.value) ? cond.value : [];
     const next = arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val];
-    onChange({ ...cond, op: "in", value: next });
+    onChange({ ...cond, value: next });
   }
+
+  const isBoolean = def?.kind === "boolean";
+  const usesCheckboxes = def && (def.kind === "multiEnum" || (def.kind === "enum" && SET_OPS.has(cond.op)));
 
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3">
@@ -130,60 +224,84 @@ function ConditionRow({
         ))}
       </Select>
 
-      {def?.kind === "text" && (
-        <>
-          <Select aria-label="Operator" value={cond.op} onChange={(e) => changeTextOp(e.target.value as ConditionOp)} className="w-auto">
-            {def.operators.map((op) => (
-              <option key={op} value={op}>{TEXT_OP_LABELS[op] ?? op}</option>
+      {/* The operator select doubles as the value control for booleans, whose
+          two operators (yes / no) ARE the value. */}
+      {def && (
+        <Select
+          aria-label={isBoolean ? "Yes or no" : "Operator"}
+          value={cond.op}
+          onChange={(e) => changeOp(e.target.value as ConditionOp)}
+          className="w-auto"
+        >
+          {def.operators.map((op) => (
+            <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
+          ))}
+        </Select>
+      )}
+
+      {/* Value control */}
+      {!isBoolean && !VALUELESS.has(cond.op) && (
+        usesCheckboxes ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {options.map((o) => (
+              <label key={o.value} className="flex items-center gap-1.5 text-sm">
+                <Checkbox checked={selectedValues.includes(o.value)} onChange={() => toggleMultiValue(o.value)} />
+                {o.label}
+              </label>
+            ))}
+            {options.length === 0 && (
+              <span className="text-xs text-subtle-foreground italic">No options available</span>
+            )}
+          </div>
+        ) : def?.kind === "enum" ? (
+          <Select
+            aria-label="Value"
+            value={textValue}
+            onChange={(e) => onChange({ ...cond, value: e.target.value })}
+            className="w-auto"
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </Select>
-
-          {cond.op === "in" ? (
-            <Textarea aria-label="Value" value={textValue} onChange={(e) => onChange({ ...cond, value: e.target.value })} rows={2} placeholder="Paste values, one per line or comma-separated" className="min-w-[16rem] flex-1" />
-          ) : !VALUELESS_OPS.has(cond.op) ? (
-            <Input aria-label="Value" type="text" value={textValue} onChange={(e) => onChange({ ...cond, value: e.target.value })} placeholder="Enter a value" className="min-w-[12rem] flex-1" />
-          ) : null}
-        </>
-      )}
-
-      {def?.kind === "enum" && (
-        <Select aria-label="Value" value={typeof cond.value === "string" ? cond.value : ""} onChange={(e) => onChange({ ...cond, op: "eq", value: e.target.value })} className="w-auto">
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </Select>
-      )}
-
-      {def?.kind === "multiEnum" && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {options.map((o) => (
-            <label key={o.value} className="flex items-center gap-1.5 text-sm">
-              <Checkbox checked={selectedValues.includes(o.value)} onChange={() => toggleMultiValue(o.value)} />
-              {o.label}
-            </label>
-          ))}
-          {options.length === 0 && (
-            <span className="text-xs text-subtle-foreground italic">No options available</span>
-          )}
-        </div>
-      )}
-
-      {def?.kind === "boolean" && (
-        <Select aria-label="Yes or no" value={cond.op} onChange={(e) => onChange({ ...cond, op: e.target.value as "isTrue" | "isFalse", value: undefined })} className="w-auto">
-          <option value="isTrue">Yes</option>
-          <option value="isFalse">No</option>
-        </Select>
+        ) : SET_OPS.has(cond.op) ? (
+          <Textarea
+            aria-label="Value"
+            value={textValue}
+            onChange={(e) => onChange({ ...cond, value: e.target.value })}
+            rows={2}
+            placeholder="Paste values, one per line or comma-separated"
+            className="min-w-[16rem] flex-1"
+          />
+        ) : (
+          <Input
+            aria-label="Value"
+            type="text"
+            value={textValue}
+            onChange={(e) => onChange({ ...cond, value: e.target.value })}
+            placeholder={def?.kind === "year" ? "e.g. 2026" : "Enter a value"}
+            className="min-w-[12rem] flex-1"
+          />
+        )
       )}
 
       <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical-foreground">
         Remove
       </Button>
+
+      {def?.termScoped && <TermScopePicker cond={cond} terms={terms} onChange={onChange} />}
+
+      {isNegativeOp(cond.op) && (
+        <p className="w-full text-xs text-muted-foreground">
+          Negative conditions widen the audience. Preview the recipient list before sending.
+        </p>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// A group: its own ALL/ANY toggle over child conditions + nested groups
+// A group: its own match toggle over child conditions + nested groups
 // ---------------------------------------------------------------------------
 
 function GroupEditor({
@@ -191,6 +309,8 @@ function GroupEditor({
   fields,
   fieldGroups,
   departments,
+  terms,
+  cycles,
   onChange,
   onRemove,
   depth,
@@ -199,6 +319,8 @@ function GroupEditor({
   fields: PersonFieldView[];
   fieldGroups: FieldGroup[];
   departments: { code: string; name: string }[];
+  terms: NamedOption[];
+  cycles: NamedOption[];
   onChange: (next: AudienceGroup) => void;
   onRemove?: () => void;
   depth: number;
@@ -223,13 +345,23 @@ function GroupEditor({
   return (
     <div className={nested ? "rounded-xl border border-dashed border-border bg-surface/50 p-3" : ""}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <MatchToggle match={group.match} onChange={(m) => onChange({ ...group, match: m })} />
+        <MatchToggle
+          match={group.match}
+          onChange={(m) => onChange({ ...group, match: m })}
+          allowNone={nested}
+        />
         {nested && onRemove && (
           <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical-foreground">
             Remove group
           </Button>
         )}
       </div>
+
+      {group.match === "NONE" && group.children.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Everyone matching any condition in this group is excluded from the audience.
+        </p>
+      )}
 
       {group.children.length === 0 && (
         <p className="mt-2 text-sm text-subtle-foreground italic">
@@ -246,6 +378,8 @@ function GroupEditor({
               fields={fields}
               fieldGroups={fieldGroups}
               departments={departments}
+              terms={terms}
+              cycles={cycles}
               onChange={(g) => updateChild(i, g)}
               onRemove={() => removeChild(i)}
               depth={depth + 1}
@@ -257,6 +391,8 @@ function GroupEditor({
               fields={fields}
               fieldGroups={fieldGroups}
               departments={departments}
+              terms={terms}
+              cycles={cycles}
               onChange={(c) => updateChild(i, c)}
               onRemove={() => removeChild(i)}
             />
@@ -280,10 +416,13 @@ function GroupEditor({
 // Root builder
 // ---------------------------------------------------------------------------
 
-export function AudienceBuilder({ fields, departments, initial }: Props) {
+export function AudienceBuilder({ fields, departments, terms, cycles, initial }: Props) {
   const [root, setRoot] = useState<AudienceGroup>({ match: initial.match, children: initial.conditions });
 
-  const audience: Audience = { recordType: "PERSON", match: root.match, conditions: root.children };
+  // The root connective is narrowed back to ALL/ANY: MatchToggle never offers
+  // NONE at depth 0, and Audience.match does not admit it.
+  const rootMatch: Audience["match"] = root.match === "NONE" ? "ALL" : root.match;
+  const audience: Audience = { recordType: "PERSON", match: rootMatch, conditions: root.children };
 
   // Group fields for the selector while preserving order.
   const fieldGroups: FieldGroup[] = [];
@@ -298,7 +437,7 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
       <div>
         <p className="text-sm font-medium text-foreground-soft">Audience</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all). Use groups to combine ALL/ANY logic, e.g. GROUP A (this and this) OR GROUP B (this or this).
+          Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all). Use groups to combine ALL/ANY logic, e.g. GROUP A (this and this) OR GROUP B (this or this), and a NONE group to exclude a cohort. Roster conditions apply to the current term unless you pick terms.
         </p>
       </div>
 
@@ -307,6 +446,8 @@ export function AudienceBuilder({ fields, departments, initial }: Props) {
         fields={fields}
         fieldGroups={fieldGroups}
         departments={departments}
+        terms={terms}
+        cycles={cycles}
         onChange={setRoot}
         depth={0}
       />

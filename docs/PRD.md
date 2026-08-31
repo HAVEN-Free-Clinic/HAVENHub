@@ -527,9 +527,16 @@ mailbox.
 - **Editable templates** keyed by purpose, each with a code-default fallback so a
   missing override never blocks a send.
 - **Campaigns** with audience targeting by any person field (a field registry of
-  text operators and curated relations), scheduling (immediate, one-time, or
-  recurring), and per-run recipient deduplication. A match-nobody safety
-  invariant prevents an empty or misconfigured audience from blasting everyone.
+  text, enum, year and boolean operators plus curated relations), scheduling
+  (immediate, one-time, or recurring), and per-run recipient deduplication.
+  Conditions support negation ("is not", "is none of", "does not contain") and
+  NONE groups that subtract a cohort, and roster conditions can be scoped to
+  chosen past terms rather than only the active one, so a cohort such as "everyone
+  who volunteered in spring or summer" is one condition. Recruitment-cycle
+  targeting ("has applied to the fall cycle") lets a re-apply campaign skip the
+  people who already responded. A match-nobody safety invariant prevents an empty
+  or misconfigured audience from blasting everyone, and previewing resolves the
+  audience to a named recipient list before any send.
 - **Transactional email** for recruitment, Epic, and compliance reminders.
 - **Live delivery** through delegated Microsoft Graph OAuth, sending as an
   admin-connected shared mailbox, with a console-logging transport for

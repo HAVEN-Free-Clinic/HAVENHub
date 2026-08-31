@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere, parseTextList } from "./person-fields";
+import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere } from "./person-fields";
 
 const ctx = { activeTermId: "term1" };
 
@@ -19,7 +19,7 @@ describe("person fields", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
-      "status", "role", "department", "complianceStatus", "hasEpicId",
+      "status", "onRoster", "role", "department", "appliedToCycle", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
@@ -218,18 +218,6 @@ describe("booleans and relations", () => {
   });
 });
 
-describe("parseTextList", () => {
-  it("splits on commas and newlines, trims, drops blanks", () => {
-    expect(parseTextList("a, b\nc ,, \n d")).toEqual(["a", "b", "c", "d"]);
-  });
-  it("passes through an array, trimming and dropping blanks", () => {
-    expect(parseTextList(["a", " b ", ""])).toEqual(["a", "b"]);
-  });
-  it("returns [] for undefined", () => {
-    expect(parseTextList(undefined)).toEqual([]);
-  });
-});
-
 describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
   it("mirrors PERSON_FIELDS by key, in order", () => {
     expect(PERSON_FIELD_VIEWS.map((v) => v.key)).toEqual(PERSON_FIELDS.map((f) => f.key));
@@ -320,5 +308,215 @@ describe("relation-backed conditions (compliance program additions)", () => {
     expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, noTerm)).toEqual({
       id: { in: [] },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Term scoping
+// ---------------------------------------------------------------------------
+
+describe("term-scoped roster fields", () => {
+  it("scopes role to the terms named on the condition, not the active term", () => {
+    // The campaign this was built for: "everyone who volunteered in spring or
+    // summer", asked while a LATER term is the active one.
+    expect(
+      personFieldWhere(
+        { field: "role", op: "eq", value: "VOLUNTEER", terms: ["sp26", "su26"] },
+        ctx,
+      ),
+    ).toEqual({
+      memberships: { some: { termId: { in: ["sp26", "su26"] }, status: "ACTIVE", kind: "VOLUNTEER" } },
+    });
+  });
+
+  it("keeps role and terms inside ONE membership clause", () => {
+    // If the term scope were a separate condition, ALL-matching would let a
+    // DIFFERENT membership row satisfy each half -- a director's SP26 stint
+    // paired with this term's volunteer membership would wrongly match.
+    const where = personFieldWhere(
+      { field: "role", op: "eq", value: "VOLUNTEER", terms: ["sp26"] },
+      ctx,
+    ) as { memberships: { some: Record<string, unknown> } };
+    expect(Object.keys(where.memberships.some).sort()).toEqual(["kind", "status", "termId"]);
+  });
+
+  it("falls back to the active term when no terms are named (legacy audiences)", () => {
+    for (const terms of [undefined, [], [""], ["  "]]) {
+      expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER", terms }, ctx)).toEqual({
+        memberships: { some: { termId: "term1", status: "ACTIVE", kind: "VOLUNTEER" } },
+      });
+    }
+  });
+
+  it("scopes department to named terms", () => {
+    expect(
+      personFieldWhere({ field: "department", op: "in", value: ["CARDIO"], terms: ["sp26", "su26"] }, ctx),
+    ).toEqual({
+      memberships: {
+        some: { termId: { in: ["sp26", "su26"] }, status: "ACTIVE", department: { code: { in: ["CARDIO"] } } },
+      },
+    });
+  });
+
+  it("scopes the term-scoped boolean fields to named terms", () => {
+    expect(
+      personFieldWhere({ field: "completedVolunteerTraining", op: "isTrue", terms: ["sp26"] }, ctx),
+    ).toEqual({ trainings: { some: { termId: "sp26", track: "VOLUNTEER", status: "COMPLETE" } } });
+    expect(
+      personFieldWhere({ field: "flaggedForOffboarding", op: "isTrue", terms: ["sp26"] }, ctx),
+    ).toEqual({ offboardFlags: { some: { termId: "sp26" } } });
+  });
+
+  it("still matches nobody with no active term AND no named terms", () => {
+    expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, { activeTermId: null })).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("named terms work even with no active term", () => {
+    expect(
+      personFieldWhere({ field: "onRoster", op: "isTrue", terms: ["sp26"] }, { activeTermId: null }),
+    ).toEqual({ memberships: { some: { termId: "sp26", status: "ACTIVE" } } });
+  });
+});
+
+describe("onRoster", () => {
+  it("matches any membership in scope regardless of track", () => {
+    expect(personFieldWhere({ field: "onRoster", op: "isTrue", terms: ["sp26", "su26"] }, ctx)).toEqual({
+      memberships: { some: { termId: { in: ["sp26", "su26"] }, status: "ACTIVE" } },
+    });
+  });
+
+  it("uses `none` for the negative branch, which correctly includes non-members", () => {
+    // Unlike role/department, "was never on the roster" genuinely does mean
+    // people with no membership rows at all, so `none` is right here.
+    expect(personFieldWhere({ field: "onRoster", op: "isFalse", terms: ["sp26"] }, ctx)).toEqual({
+      memberships: { none: { termId: "sp26", status: "ACTIVE" } },
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Negation
+// ---------------------------------------------------------------------------
+
+describe("negated roster conditions", () => {
+  it("requires roster membership AND excludes the attribute", () => {
+    // The naive `{ memberships: { none: {...} } }` is true for every Person with
+    // no memberships at all -- alumni, applicant-created rows, staff. On a send
+    // list that is the whole database.
+    expect(personFieldWhere({ field: "role", op: "notEq", value: "DIRECTOR", terms: ["sp26"] }, ctx)).toEqual({
+      AND: [
+        { memberships: { some: { termId: "sp26", status: "ACTIVE" } } },
+        { memberships: { none: { termId: "sp26", status: "ACTIVE", kind: { in: ["DIRECTOR"] } } } },
+      ],
+    });
+  });
+
+  it("reads 'department is none of' as 'in no membership of those departments'", () => {
+    // Not "in some membership that isn't one of these" -- a person in both
+    // CARDIO and PEDS must NOT match "department is none of CARDIO".
+    expect(personFieldWhere({ field: "department", op: "notIn", value: ["CARDIO"] }, ctx)).toEqual({
+      AND: [
+        { memberships: { some: { termId: "term1", status: "ACTIVE" } } },
+        {
+          memberships: {
+            none: { termId: "term1", status: "ACTIVE", department: { code: { in: ["CARDIO"] } } },
+          },
+        },
+      ],
+    });
+  });
+
+  it("matches nobody when a negated roster condition has an empty value", () => {
+    expect(personFieldWhere({ field: "role", op: "notIn", value: [] }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "department", op: "notIn", value: [] }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("negated scalar conditions", () => {
+  it("keeps NULL rows on a nullable column", () => {
+    expect(personFieldWhere({ field: "epicId", op: "notContains", value: "X" }, ctx)).toEqual({
+      OR: [{ epicId: null }, { NOT: { epicId: { contains: "X", mode: "insensitive" } } }],
+    });
+    expect(personFieldWhere({ field: "yaleAffiliation", op: "notEq", value: "ysm_md" }, ctx)).toEqual({
+      OR: [{ yaleAffiliation: null }, { yaleAffiliation: { not: "ysm_md" } }],
+    });
+  });
+
+  it("matches nobody on a blank negative value (never everyone)", () => {
+    for (const op of ["notEq", "notContains", "notIn"] as const) {
+      expect(personFieldWhere({ field: "netId", op, value: "" }, ctx)).toEqual({ id: { in: [] } });
+    }
+    expect(personFieldWhere({ field: "status", op: "notIn", value: [] }, ctx)).toEqual({ id: { in: [] } });
+  });
+
+  it("supports multi-select on enum fields", () => {
+    expect(personFieldWhere({ field: "status", op: "in", value: ["ACTIVE", "OFFBOARDED"] }, ctx)).toEqual({
+      status: { in: ["ACTIVE", "OFFBOARDED"] },
+    });
+  });
+});
+
+describe("gradYear ordered comparison", () => {
+  it("compiles before/after", () => {
+    expect(personFieldWhere({ field: "gradYear", op: "lt", value: "2026" }, ctx)).toEqual({
+      gradYear: { lt: "2026" },
+    });
+    expect(personFieldWhere({ field: "gradYear", op: "gt", value: "2024" }, ctx)).toEqual({
+      gradYear: { gt: "2024" },
+    });
+  });
+
+  it("matches nobody for a year that would sort wrong", () => {
+    expect(personFieldWhere({ field: "gradYear", op: "lt", value: "'26" }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("appliedToCycle", () => {
+  const appliedCtx = {
+    activeTermId: "term1",
+    appliedByCycle: new Map([
+      ["fall26", new Set(["p1", "p2"])],
+      ["spring27", new Set(["p2", "p3"])],
+    ]),
+  };
+
+  it("unions the person ids across the selected cycles", () => {
+    expect(
+      personFieldWhere({ field: "appliedToCycle", op: "in", value: ["fall26", "spring27"] }, appliedCtx),
+    ).toEqual({ id: { in: ["p1", "p2", "p3"] } });
+  });
+
+  it("negates to notIn, which correctly includes people who never applied", () => {
+    expect(personFieldWhere({ field: "appliedToCycle", op: "notIn", value: ["fall26"] }, appliedCtx)).toEqual({
+      id: { notIn: ["p1", "p2"] },
+    });
+  });
+
+  it("matches nobody when no cycle is selected", () => {
+    expect(personFieldWhere({ field: "appliedToCycle", op: "in", value: [] }, appliedCtx)).toEqual({
+      id: { in: [] },
+    });
+    expect(personFieldWhere({ field: "appliedToCycle", op: "notIn", value: [] }, appliedCtx)).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("throws when resolveAudience did not precompute the map", () => {
+    expect(() =>
+      personFieldWhere({ field: "appliedToCycle", op: "in", value: ["fall26"] }, ctx),
+    ).toThrow(/precomputed applicant map/);
+  });
+});
+
+describe("personFieldWhere operator gating", () => {
+  it("matches nobody for an operator the field does not declare", () => {
+    // Only reachable from a hand-edited or stale stored audience; compiling it
+    // would either throw deep in a helper or fall through to a default branch.
+    expect(personFieldWhere({ field: "licensedRN", op: "contains", value: "x" }, ctx)).toEqual({
+      id: { in: [] },
+    });
+    expect(personFieldWhere({ field: "name", op: "isTrue" }, ctx)).toEqual({ id: { in: [] } });
   });
 });

@@ -16,8 +16,11 @@ import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { isoDateKey } from "@/platform/dates";
+import { formatDateOnly, isoDateKey } from "@/platform/dates";
 import type { AttendingRequestRow } from "@/modules/schedule/services/attending-portal";
+
+/** "Aug 28" -- see the note on the twin constant in pending-requests.tsx. */
+const SETTLED_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 
 type Props = {
   rows: AttendingRequestRow[];
@@ -26,9 +29,12 @@ type Props = {
   /** The display-zone "today" key. Resolved by the caller: displayTodayKey() is
    *  async and reads settings through Prisma, so it cannot run from here. */
   todayKey: string;
+  /** The settings-resolved display zone, for the decided list's decision
+   *  timestamps. Resolved by the caller for the same reason todayKey is. */
+  timeZone: string;
 };
 
-export function AttendingPendingRequests({ rows, approveAction, denyAction, todayKey }: Props) {
+export function AttendingPendingRequests({ rows, approveAction, denyAction, todayKey, timeZone }: Props) {
   const pendingRows = rows.filter((r) => r.status === "PENDING");
   const decidedRows = rows.filter((r) => r.status !== "PENDING");
 
@@ -116,7 +122,8 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
               >
                 {r.status.toLowerCase()}
               </span>{" "}
-              &mdash; {r.isSwap ? "swap" : "drop"}, {r.requesterSlotLabel} on{" "}
+              on {formatDateOnly(r.decidedAt ?? r.updatedAt, timeZone, SETTLED_DATE_OPTS)}
+              {" "}&mdash; {r.isSwap ? "swap" : "drop"}, {r.requesterSlotLabel} on{" "}
               {displayDate(isoDateKey(r.requesterDate))}
             </p>
           ))}

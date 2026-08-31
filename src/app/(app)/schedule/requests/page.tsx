@@ -25,6 +25,7 @@ import {
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { displayTodayKey } from "@/platform/dates/today";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import {
   canManageAttendingRequests,
   listAttendingRequests,
@@ -53,9 +54,10 @@ export default async function ScheduleRequestsPage() {
     canManageAttendingRequests(session.personId),
   ]);
   if (deptIds.length === 0 && !managesAttendings) redirect("/no-access");
-  // Resolved once for the page; PendingRequests uses it to mark stale
-  // (past-date) rows across every department section below.
-  const todayKey = await displayTodayKey();
+  // Resolved once for the page; PendingRequests uses todayKey to mark stale
+  // (past-date) rows across every department section below, and timeZone to
+  // render the decision timestamps in the decided list.
+  const [todayKey, timeZone] = await Promise.all([displayTodayKey(), getDisplayTimeZone()]);
 
   const depts = await prisma.department.findMany({
     where: { id: { in: deptIds } },
@@ -169,6 +171,7 @@ export default async function ScheduleRequestsPage() {
           approveAction={approveAttendingAction}
           denyAction={denyAttendingAction}
           todayKey={todayKey}
+          timeZone={timeZone}
         />
       )}
 
@@ -193,7 +196,7 @@ export default async function ScheduleRequestsPage() {
             {perDept.map(({ dept, rows }) => (
               <section key={dept.id} className="space-y-3">
                 <SectionHeader>{dept.code} &middot; {dept.name}</SectionHeader>
-                <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} todayKey={todayKey} />
+                <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} todayKey={todayKey} timeZone={timeZone} />
               </section>
             ))}
           </div>

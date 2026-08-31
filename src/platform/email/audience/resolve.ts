@@ -75,9 +75,27 @@ async function loadAppliedByCycle(cycleIds: string[]): Promise<Map<string, Set<s
   return byCycle;
 }
 
-export async function resolveAudience(audience: Audience): Promise<ResolvedAudience> {
+/**
+ * Resolve an audience to its recipients.
+ *
+ * `opts.scope`, when present, is an audience the result may not escape: the two
+ * trees compile independently and are intersected at the ROOT of the Prisma
+ * where. Appending the scope as a sibling condition instead would be a security
+ * bug, because a campaign whose root match is ANY would OR the scope straight
+ * back out and mail everyone.
+ */
+export async function resolveAudience(
+  audience: Audience,
+  opts: { scope?: Audience | null } = {},
+): Promise<ResolvedAudience> {
   const activeTerm = await getActiveTerm();
-  const conditions = collectConditions(audience.conditions);
+  // Precompute detection must span BOTH trees. A condition that appears only in
+  // the scope still needs its precomputed map, or the field compiler resolves
+  // the scope half against an undefined map.
+  const conditions = [
+    ...collectConditions(audience.conditions),
+    ...(opts.scope ? collectConditions(opts.scope.conditions) : []),
+  ];
 
   // Compliance status is derived live (newest cert + term end), so it can't be a
   // Prisma predicate. Precompute the per-person status map only when a condition
@@ -125,12 +143,16 @@ export async function resolveAudience(audience: Audience): Promise<ResolvedAudie
     ? await loadAppliedByCycle(wantedCycleIds)
     : undefined;
 
-  const where = compilePersonWhere(audience, {
+  const ctx = {
     activeTermId: activeTerm?.id ?? null,
     complianceStatusByPerson,
     clearanceByPerson,
     appliedByCycle,
-  });
+  };
+  const campaignWhere = compilePersonWhere(audience, ctx);
+  const where = opts.scope
+    ? { AND: [compilePersonWhere(opts.scope, ctx), campaignWhere] }
+    : campaignWhere;
   const people = await prisma.person.findMany({
     where,
     select: { id: true, name: true, contactEmail: true },

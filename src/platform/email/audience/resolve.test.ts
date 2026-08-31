@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { resolveAudience } from "./resolve";
+import type { Audience } from "./types";
 
 beforeEach(resetDb);
 
@@ -522,5 +523,95 @@ describe("resolveAudience appliedToCycle", () => {
       conditions: [{ field: "appliedToCycle", op: "in", value: [c.id] }],
     });
     expect(res.recipients).toEqual([]);
+  });
+});
+
+describe("scope enforcement", () => {
+  async function twoPeople() {
+    const inScope = await prisma.person.create({
+      data: { name: "In Scope", contactEmail: "in@example.com", status: "ACTIVE" },
+    });
+    const outOfScope = await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "out@example.com", status: "OFFBOARDED" },
+    });
+    return { inScope, outOfScope };
+  }
+
+  const ACTIVE_SCOPE: Audience = {
+    recordType: "PERSON",
+    match: "ALL",
+    conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+  };
+
+  it("narrows a campaign audience to the scope", async () => {
+    await twoPeople();
+    const everyone: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "name", op: "isNotEmpty" }],
+    };
+    const { recipients } = await resolveAudience(everyone, { scope: ACTIVE_SCOPE });
+    expect(recipients.map((r) => r.email)).toEqual(["in@example.com"]);
+  });
+
+  // The bug this guards: appending the scope as a sibling CONDITION of a
+  // root-ANY audience would OR it away, turning a narrowing into a widening.
+  it("cannot be widened by a root-ANY campaign audience", async () => {
+    await twoPeople();
+    const anyOf: Audience = {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: [
+        { field: "name", op: "contains", value: "Out Of Scope" },
+        { field: "name", op: "contains", value: "In Scope" },
+      ],
+    };
+    const { recipients } = await resolveAudience(anyOf, { scope: ACTIVE_SCOPE });
+    expect(recipients.map((r) => r.email)).toEqual(["in@example.com"]);
+  });
+
+  it("matches nobody when the scope is an empty tree", async () => {
+    await twoPeople();
+    const everyone: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "name", op: "isNotEmpty" }],
+    };
+    const emptyScope: Audience = { recordType: "PERSON", match: "ALL", conditions: [] };
+    const { recipients } = await resolveAudience(everyone, { scope: emptyScope });
+    expect(recipients).toEqual([]);
+  });
+
+  it("is unchanged when no scope is supplied", async () => {
+    await twoPeople();
+    const everyone: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "name", op: "isNotEmpty" }],
+    };
+    const { recipients } = await resolveAudience(everyone);
+    expect(recipients).toHaveLength(2);
+  });
+
+  // A precompute keyed off only the campaign's conditions would leave
+  // complianceStatusByPerson undefined while the SCOPE needs it, and the field
+  // compiler would then resolve the scope half to nobody (or throw).
+  it("runs precomputes for conditions that appear only in the scope", async () => {
+    await twoPeople();
+    const scopeNeedingPrecompute: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "complianceStatus", op: "in", value: ["NO_CERTIFICATE"] }],
+    };
+    const everyone: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "name", op: "isNotEmpty" }],
+    };
+    const { recipients } = await resolveAudience(everyone, { scope: scopeNeedingPrecompute });
+    // Nobody has a certificate, so both people carry NO_CERTIFICATE and the
+    // scope admits them. The point of the assertion is that this does not throw
+    // and does not silently return zero.
+    expect(recipients.length).toBeGreaterThan(0);
   });
 });

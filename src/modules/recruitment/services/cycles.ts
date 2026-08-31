@@ -8,6 +8,7 @@ import { getApplicationTemplate, getSupplementSections } from "../templates";
 import { getQuizTemplate } from "../templates/quiz";
 import { materializeTemplate } from "../templates/materialize";
 import { clinicDateOptions, resolveAvailabilityOptions } from "../templates/clinic-dates";
+import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 import { LANGUAGES_FIELD_KEY, LANGUAGE_QUESTION, languageCodeFromAnswer } from "@/platform/languages";
 
@@ -121,8 +122,10 @@ async function loadCycle(id: string) {
   });
   if (!cycle) return null;
   // Availability options are owned by the term's clinic calendar, not by the
-  // stored snapshot. Resolving here covers the form builder and ApplyPreview.
-  return { ...cycle, sections: resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates) };
+  // stored snapshot, and a Saturday the admin closed is not on offer. Resolving
+  // here covers the form builder and ApplyPreview.
+  const clinicDates = await openClinicDates({ id: cycle.termId, clinicDates: cycle.term.clinicDates });
+  return { ...cycle, sections: resolveAvailabilityOptions(cycle.sections, clinicDates) };
 }
 
 /**

@@ -1266,6 +1266,31 @@ it("discards an availability date removed from the calendar after the draft was 
   expect((app.answers as Record<string, unknown>).availability).toEqual(["2026-06-06"]);
 });
 
+it("does not offer, or accept, a clinic date the admin has closed", async () => {
+  // Closure is a ClinicDay flag, not a removal from Term.clinicDates, so the
+  // date is still on the term's calendar. It must not reach the applicant as a
+  // choice, and a pick carried over from a draft saved before the closure is
+  // dropped like any other stale date rather than rejected.
+  const { termId } = await openCycleWithAvailability([
+    new Date("2026-06-06T12:00:00.000Z"),
+    new Date("2026-06-13T12:00:00.000Z"),
+  ]);
+  await prisma.clinicDay.create({
+    data: { termId, clinicDate: new Date("2026-06-13T12:00:00.000Z"), isClosed: true },
+  });
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { ...NEW_ANSWERS, availability: ["2026-06-06", "2026-06-13"] },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>).availability).toEqual(["2026-06-06"]);
+
+  const loaded = await getApplication(app.id);
+  const options = loaded!.cycle.sections.flatMap((s) => s.fields)
+    .find((f) => f.key === "availability")?.options as { value: string }[];
+  expect(options.map((o) => o.value)).toEqual(["2026-06-06"]);
+});
+
 it("reports the ordinary required error when every availability pick is gone", async () => {
   await openCycleWithAvailability([new Date("2026-06-06T12:00:00.000Z")]);
   const err = await submitApplication("apply-v", {

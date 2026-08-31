@@ -85,3 +85,23 @@ export async function closedClinicDates(termId: string): Promise<Map<string, str
   });
   return new Map(rows.map((r) => [isoDateKey(r.clinicDate), r.closedNote]));
 }
+
+/**
+ * A term's clinic dates with the closed ones dropped, in the order given.
+ *
+ * The list form of {@link resolveOpenClinicDate}: for the surfaces that OFFER a
+ * whole term's calendar as choices rather than asking about one date. The
+ * recruitment application's availability question is the case that motivated it
+ * -- its options resolve live from `Term.clinicDates`, so an admin who closed a
+ * Saturday still saw the Hub asking applicants to sign up for it, and the answer
+ * carried through promotion into `TermMembership.baselineAvailability`.
+ *
+ * Note the difference from {@link closedClinicDates}, which is the LABEL: the
+ * builder and the shift card keep rendering a closed date and say it is shut.
+ * This one takes the date away entirely, which is right only where the date is
+ * being offered as a choice.
+ */
+export async function openClinicDates(term: { id: string; clinicDates: Date[] }): Promise<Date[]> {
+  const closed = await closedClinicDates(term.id);
+  return term.clinicDates.filter((d) => !closed.has(isoDateKey(d)));
+}

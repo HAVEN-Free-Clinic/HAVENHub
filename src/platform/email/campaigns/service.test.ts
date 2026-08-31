@@ -399,6 +399,13 @@ describe("campaign scope authorization", () => {
     expect((await assertMaySendUnderScope(sender.id, scope.id))?.id).toBe(scope.id);
   });
 
+  it("refuses a sender holding neither permission, even with a scope grant", async () => {
+    const { sender, scope } = await scopedSetup();
+    await grantScope(null, scope.id, { personId: sender.id });
+    vi.spyOn(rbac, "can").mockResolvedValue(false);
+    await expect(assertMaySendUnderScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
+  });
+
   it("resolves a scoped campaign's audience through its scope", async () => {
     await prisma.person.create({ data: { name: "Yes", contactEmail: "yes@x.com", status: "ACTIVE" } });
     await prisma.person.create({ data: { name: "No", contactEmail: "no@x.com", status: "OFFBOARDED" } });

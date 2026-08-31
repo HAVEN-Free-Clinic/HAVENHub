@@ -115,16 +115,28 @@ export async function listCampaigns() {
  * schedule time: a campaign can be scheduled under one permission set and
  * dispatched after the sender's grants have changed.
  *
+ * A sender needs outreach.send or outreach.send_unrestricted to send at all.
+ * That base check is required even in the scoped branch below, because
+ * AudienceScopeGrant is keyed by person/role with no reference to RBAC
+ * permissions -- a scope grant alone proves nothing about send authority, and
+ * this function must be correct standalone, not merely paired with a
+ * permission check at the call site.
+ *
  * outreach.send_unrestricted is strictly stronger and does not require
- * outreach.send. A null scopeId is permitted only for an unrestricted sender,
- * because for anyone else "no scope" would mean "no constraint", which is a
- * send-all.
+ * outreach.send: it also bypasses the scope-grant lookup and the requirement
+ * to name a scope at all. A null scopeId is permitted only for an unrestricted
+ * sender, because for anyone else "no scope" would mean "no constraint", which
+ * is a send-all.
  */
 export async function assertMaySendUnderScope(
   personId: string,
   scopeId: string | null,
 ): Promise<AudienceScopeView | null> {
   const unrestricted = await can(personId, "outreach.send_unrestricted");
+  const canSend = unrestricted || (await can(personId, "outreach.send"));
+  if (!canSend) {
+    throw new CampaignScopeError("You do not have permission to send campaigns.");
+  }
 
   if (scopeId === null) {
     if (unrestricted) return null;

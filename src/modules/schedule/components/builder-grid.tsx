@@ -414,7 +414,7 @@ export function BuilderGrid({
                     <span
                       className={cx(
                         "block text-[10px] font-semibold uppercase tracking-wide",
-                        isHighlight ? "text-white/90" : "text-warning",
+                        isHighlight ? "text-white/90" : "text-warning-foreground",
                       )}
                     >
                       Closed

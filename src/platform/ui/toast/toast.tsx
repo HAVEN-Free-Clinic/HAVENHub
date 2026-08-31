@@ -40,9 +40,11 @@ import type { FlashToast, ToastTone } from "./flash";
  *   here. The colors below are the theme-invariant "vivid" tokens
  *   (`--color-success` / `--color-warning` / `--color-critical` in
  *   globals.css, plus `--color-info`, defined there but not yet used
- *   anywhere else) that Badge's status dots already rely on for the same
- *   reason: none of the four shift between light and dark mode, so they read
- *   the same against a pill that also never changes color by theme.
+ *   anywhere else). None of the four shift between light and dark mode, so
+ *   they read the same against a pill that also never changes color by theme.
+ *   Note these are NOT the `*-foreground` variants Badge uses: those are
+ *   theme-dependent and tuned for AA as text on the light/dark page surfaces,
+ *   which is the opposite of what this fixed-navy pill needs.
  * - `role="alert"` (assertive) for error, `role="status"` (polite) for
  *   everything else, exactly mirroring `alert.tsx:52`.
  * - The pill is deliberately `rounded-full`, not `alert.tsx`'s `rounded-xl`:

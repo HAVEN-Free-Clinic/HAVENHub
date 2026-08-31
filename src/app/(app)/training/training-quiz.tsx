@@ -230,7 +230,7 @@ export function TrainingQuiz({
                         {o.label}
                       </span>
                       {isCorrect && <span className="ml-auto text-xs font-bold text-success-foreground">Correct</span>}
-                      {isWrong && <span className="ml-auto text-xs font-bold text-critical">Not correct</span>}
+                      {isWrong && <span className="ml-auto text-xs font-bold text-critical-foreground">Not correct</span>}
                     </label>
                   );
                 })}

@@ -219,7 +219,7 @@ export function FieldCard({
       </div>
 
       {(saved || error) && (
-        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical" : "text-subtle-foreground"}`}>
+        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical-foreground" : "text-subtle-foreground"}`}>
           {error ? <><AlertCircle className="h-3 w-3" aria-hidden /> {error}</> : <><Check className="h-3 w-3" aria-hidden /> Saved</>}
         </p>
       )}

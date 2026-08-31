@@ -175,7 +175,7 @@ function ConditionRow({
         </Select>
       )}
 
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical">
+      <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical-foreground">
         Remove
       </Button>
     </div>
@@ -225,7 +225,7 @@ function GroupEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <MatchToggle match={group.match} onChange={(m) => onChange({ ...group, match: m })} />
         {nested && onRemove && (
-          <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical">
+          <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical-foreground">
             Remove group
           </Button>
         )}

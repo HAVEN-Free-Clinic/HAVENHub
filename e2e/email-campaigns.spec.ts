@@ -27,12 +27,12 @@ test("admin email: create a campaign with an audience condition and preview", as
     await loginAs(page, "admin");
 
     // --- Step 1: Open the new-campaign form and submit ---
-    await page.goto("/admin/email/campaigns/new");
+    await page.goto("/outreach/campaigns/new");
     await page.fill('input[name="name"]', campaignName);
     await page.getByRole("button", { name: "Create" }).click();
 
-    // Server action creates the draft and redirects to /admin/email/campaigns/[id].
-    await page.waitForURL(/\/admin\/email\/campaigns\/[a-z0-9]+$/);
+    // Server action creates the draft and redirects to /outreach/campaigns/[id].
+    await page.waitForURL(/\/outreach\/campaigns\/[a-z0-9]+$/);
     campaignId = page.url().split("/").pop() ?? null;
 
     // --- Step 2: Author the subject with a template variable ---

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requirePermission } from "@/platform/auth/session";
+import { requireAnyPermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
 import { isoDateKey } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -25,7 +25,7 @@ const STATUS_TONES: Record<string, "default" | "brand" | "success"> = {
 };
 
 export default async function EmailCampaignsPage() {
-  await requirePermission("admin.send_email_campaign");
+  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const campaigns = await listCampaigns();
 
   return (
@@ -35,7 +35,7 @@ export default async function EmailCampaignsPage() {
         description="Compose and send ad-hoc bulk emails to a filtered audience."
         action={
           <Link
-            href="/admin/email/campaigns/new"
+            href="/outreach/campaigns/new"
             className={buttonClasses("primary", "sm")}
           >
             New campaign
@@ -49,7 +49,7 @@ export default async function EmailCampaignsPage() {
             Campaigns let you send a one-off or recurring email to a filtered group of people.
           </p>
           <Link
-            href="/admin/email/campaigns/new"
+            href="/outreach/campaigns/new"
             className={buttonClasses("primary", "sm")}
           >
             New campaign
@@ -62,7 +62,7 @@ export default async function EmailCampaignsPage() {
               <span>
                 <Link
                   className="text-sm font-medium underline underline-offset-2"
-                  href={`/admin/email/campaigns/${c.id}`}
+                  href={`/outreach/campaigns/${c.id}`}
                 >
                   {c.name}
                 </Link>

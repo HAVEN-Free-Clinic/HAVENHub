@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/platform/auth/session";
+import { requireAnyPermission } from "@/platform/auth/session";
 import {
   getCampaign,
   updateCampaign,
@@ -9,6 +9,7 @@ import {
   sendCampaignNow,
   scheduleCampaign,
   cancelCampaign,
+  assertMaySendUnderScope,
   CampaignValidationError,
   CampaignConfirmationError,
 } from "@/platform/email/campaigns/service";
@@ -30,7 +31,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { TemplateEditor } from "../../templates/[key]/preview";
+import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { SubmitButton } from "./submit-button";
 import { ReviewActions, type PreviewResult } from "./review-actions";
@@ -47,11 +48,17 @@ const EMPTY_AUDIENCE: Audience = {
 };
 
 export default async function CampaignEditorPage({ params }: Props) {
-  await requirePermission("admin.send_email_campaign");
+  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const { id } = await params;
 
   const campaign = await getCampaign(id);
-  if (!campaign) redirect("/admin/email/campaigns");
+  if (!campaign) redirect("/outreach/campaigns");
+
+  // Captured here (rather than reading campaign.scopeId inside the server action
+  // closures below) because TS does not carry the null-check narrowing above into
+  // nested "use server" closures: campaign's declared type is still `... | null`
+  // inside them, even though it can only ever be the non-null branch at runtime.
+  const scopeId = campaign.scopeId;
 
   const isSent = campaign.status === "SENT";
   const isDraft = campaign.status === "DRAFT";
@@ -141,7 +148,7 @@ export default async function CampaignEditorPage({ params }: Props) {
 
   async function saveAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
@@ -158,14 +165,14 @@ export default async function CampaignEditorPage({ params }: Props) {
     } catch (err) {
       if (err instanceof CampaignValidationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
         );
       }
       throw err;
     }
 
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?saved=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?saved=1`);
   }
 
   // Returns the resolved roll rather than redirecting: ReviewActions renders it
@@ -173,7 +180,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   // strips the params as soon as it toasts them, leaving nothing to render from.
   async function previewAction(): Promise<PreviewResult> {
     "use server";
-    await requirePermission("admin.send_email_campaign");
+    await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     try {
       return { ok: true, preview: await previewAudience(id) };
     } catch (err) {
@@ -184,25 +191,27 @@ export default async function CampaignEditorPage({ params }: Props) {
 
   async function testAction() {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertMaySendUnderScope(actor.personId, scopeId);
     if (!actor.email) {
       redirect(
-        `/admin/email/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
+        `/outreach/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
       );
     }
     try {
       await testSend(actor.personId, id, actor.email);
     } catch {
       redirect(
-        `/admin/email/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
+        `/outreach/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
       );
     }
-    redirect(`/admin/email/campaigns/${id}?tested=1#review`);
+    redirect(`/outreach/campaigns/${id}?tested=1#review`);
   }
 
   async function sendAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertMaySendUnderScope(actor.personId, scopeId);
     const rawCount = formData.get("confirmCount");
     const confirmCount =
       rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -214,31 +223,32 @@ export default async function CampaignEditorPage({ params }: Props) {
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(
             `This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and click Send again.`,
           )}`,
         );
       }
       if (err instanceof CampaignValidationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
         );
       }
       throw err;
     }
 
-    revalidatePath("/admin/email/campaigns");
-    redirect(`/admin/email/campaigns/${id}?sent=${recipientCount}`);
+    revalidatePath("/outreach/campaigns");
+    redirect(`/outreach/campaigns/${id}?sent=${recipientCount}`);
   }
 
   async function scheduleLaterAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertMaySendUnderScope(actor.personId, scopeId);
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
-    if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
+    if (!raw) redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
     const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
     if (!scheduledAt) {
-      redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
     }
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -246,20 +256,21 @@ export default async function CampaignEditorPage({ params }: Props) {
       await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt }, undefined, { confirmCount });
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
       }
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?scheduled=1`);
   }
 
   async function scheduleRecurringAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertMaySendUnderScope(actor.personId, scopeId);
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -267,30 +278,30 @@ export default async function CampaignEditorPage({ params }: Props) {
       await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr }, undefined, { confirmCount });
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
       }
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?scheduled=1`);
   }
 
   async function cancelAction() {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     try {
       await cancelCampaign(actor.personId, id);
     } catch (err) {
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?cancelled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?cancelled=1`);
   }
 
   return (

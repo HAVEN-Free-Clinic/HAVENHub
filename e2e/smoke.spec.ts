@@ -33,10 +33,15 @@ const ROUTES: RouteCase[] = [
   { path: "/admin/audit", allowed: "admin", denied: "volunteer" },
   { path: "/admin/settings", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email", allowed: "admin", denied: "volunteer" },
-  { path: "/admin/email/campaigns", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email/templates", allowed: "admin", denied: "volunteer" },
   { path: "/support/epic", allowed: "admin", denied: "volunteer" },
   { path: "/admin/notifications", allowed: "admin", denied: "volunteer" },
+
+  // Outreach: requireModuleAccess("outreach") = outreach.access OR any of
+  // outreach.send/outreach.send_unrestricted/outreach.manage_scopes on the
+  // layout; the page itself additionally requires outreach.send or
+  // outreach.send_unrestricted. Volunteer holds none of these and is denied.
+  { path: "/outreach/campaigns", allowed: "admin", denied: "volunteer" },
 
   // Clinic: requireModuleAccess("clinic") = clinic.access. No baseline system
   // role carries it, so the Volunteer role is denied at the layout. /clinic

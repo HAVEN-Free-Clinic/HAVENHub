@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { requirePermission } from "@/platform/auth/session";
+import { requireAnyPermission } from "@/platform/auth/session";
 import { createDraft } from "@/platform/email/campaigns/service";
 import { CAMPAIGN_STARTERS } from "@/platform/email/campaigns/starters";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -10,17 +10,17 @@ import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FormActions } from "@/platform/ui/form";
 
 export default async function NewCampaignPage() {
-  await requirePermission("admin.send_email_campaign");
+  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
 
   async function createAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const starterId = ((formData.get("starter") as string | null) ?? "").trim();
     const c = await createDraft(actor.personId, name, {
       starterId: starterId || undefined,
     });
-    redirect(`/admin/email/campaigns/${c.id}`);
+    redirect(`/outreach/campaigns/${c.id}`);
   }
 
   return (

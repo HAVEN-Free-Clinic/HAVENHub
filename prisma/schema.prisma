@@ -214,6 +214,8 @@ model Person {
   emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
   recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
+  audienceScopesCreated          AudienceScope[]            @relation("audienceScopeCreatedBy")
+  audienceScopeGrants            AudienceScopeGrant[]       @relation("audienceScopeGrantPerson")
   complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   notifications                  Notification[]             @relation("personNotifications")
@@ -527,12 +529,13 @@ model TermMembership {
 }
 
 model Role {
-  id          String           @id @default(cuid())
-  name        String           @unique
-  description String?
-  isSystem    Boolean          @default(false)
-  grants      RoleGrant[]
-  assignments RoleAssignment[]
+  id                  String               @id @default(cuid())
+  name                String               @unique
+  description         String?
+  isSystem            Boolean              @default(false)
+  grants              RoleGrant[]
+  assignments         RoleAssignment[]
+  audienceScopeGrants AudienceScopeGrant[]
 }
 
 model RoleGrant {
@@ -1105,6 +1108,44 @@ enum EmailCampaignStatus {
   CANCELLED
 }
 
+/// A reusable, named audience tree. Doubles as the delegation boundary: a
+/// campaign sent under a scope can only ever narrow it, never widen it.
+model AudienceScope {
+  id           String               @id @default(cuid())
+  name         String
+  description  String?
+  /// An `Audience` tree, the exact shape EmailCampaign.audienceJson holds.
+  audienceJson Json
+  /// Sending identity for campaigns sent under this scope. Unused until Phase 4.
+  fromEmail    String?
+  fromName     String?
+  createdById  String?
+  createdBy    Person?              @relation("audienceScopeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  grants       AudienceScopeGrant[]
+  campaigns    EmailCampaign[]
+}
+
+/// Exactly one of personId / roleId is set.
+/// DB-LEVEL GUARDS LIVE IN RAW SQL (see migration 20260831120000): a CHECK
+/// constraint (target = exactly one) and a COALESCE unique index (duplicate
+/// grants). Guarded by src/platform/rbac/schema-guards.test.ts. Never resolve a
+/// prisma migrate diff by accepting a DROP of objects you do not recognize.
+model AudienceScopeGrant {
+  id       String        @id @default(cuid())
+  scopeId  String
+  personId String?
+  roleId   String?
+  scope    AudienceScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  person   Person?       @relation("audienceScopeGrantPerson", fields: [personId], references: [id], onDelete: Cascade)
+  role     Role?         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([scopeId])
+  @@index([personId])
+  @@index([roleId])
+}
+
 model EmailCampaign {
   id           String              @id @default(cuid())
   name         String
@@ -1123,6 +1164,8 @@ model EmailCampaign {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   runs         EmailCampaignRun[]
+  scopeId      String?
+  scope        AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
 }
 
 model EmailCampaignRun {

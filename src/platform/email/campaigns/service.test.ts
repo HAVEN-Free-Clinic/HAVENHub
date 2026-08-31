@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -8,6 +8,9 @@ import {
 } from "./service";
 import * as audienceResolve from "@/platform/email/audience/resolve";
 import * as sendModule from "@/platform/email/send";
+import { createScope, grantScope } from "@/platform/email/audience/scopes";
+import * as rbac from "@/platform/rbac/engine";
+import { assertMaySendUnderScope, resolveCampaignAudience, CampaignScopeError } from "./service";
 
 beforeEach(resetDb);
 
@@ -343,5 +346,78 @@ describe("campaign scheduling", () => {
     await scheduleCampaign(null, c.id, { scheduleType: "RECURRING", cronExpr: "0 13 * * *" }, new Date("2026-06-10T12:00:00Z"));
     const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.status).toBe("ACTIVE");
+  });
+});
+
+describe("campaign scope authorization", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function scopedSetup() {
+    const sender = await prisma.person.create({ data: { name: "Sender" } });
+    const scope = await createScope(null, {
+      name: "Active only",
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+      },
+    });
+    return { sender, scope };
+  }
+
+  it("lets an unrestricted sender send with no scope", async () => {
+    const admin = await prisma.person.create({ data: { name: "Admin" } });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+    await expect(assertMaySendUnderScope(admin.id, null)).resolves.toBeNull();
+  });
+
+  it("refuses an unscoped send from a scoped-only sender", async () => {
+    const { sender } = await scopedSetup();
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    await expect(assertMaySendUnderScope(sender.id, null)).rejects.toBeInstanceOf(CampaignScopeError);
+  });
+
+  it("refuses a scope the sender was not granted", async () => {
+    const { sender, scope } = await scopedSetup();
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    await expect(assertMaySendUnderScope(sender.id, scope.id)).rejects.toBeInstanceOf(CampaignScopeError);
+  });
+
+  it("allows a scope the sender was granted", async () => {
+    const { sender, scope } = await scopedSetup();
+    await grantScope(null, scope.id, { personId: sender.id });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    const resolved = await assertMaySendUnderScope(sender.id, scope.id);
+    expect(resolved?.id).toBe(scope.id);
+  });
+
+  it("lets an unrestricted sender use any scope without a grant", async () => {
+    const { sender, scope } = await scopedSetup();
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+    expect((await assertMaySendUnderScope(sender.id, scope.id))?.id).toBe(scope.id);
+  });
+
+  it("resolves a scoped campaign's audience through its scope", async () => {
+    await prisma.person.create({ data: { name: "Yes", contactEmail: "yes@x.com", status: "ACTIVE" } });
+    await prisma.person.create({ data: { name: "No", contactEmail: "no@x.com", status: "OFFBOARDED" } });
+    const { scope } = await scopedSetup();
+    const { recipients } = await resolveCampaignAudience({
+      audienceJson: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
+      scopeId: scope.id,
+    });
+    expect(recipients.map((r) => r.email)).toEqual(["yes@x.com"]);
+  });
+
+  // A campaign scheduled under a scope that is later deleted must not fall back
+  // to unscoped. It has to resolve to nobody.
+  it("resolves to nobody when the referenced scope has vanished", async () => {
+    await prisma.person.create({ data: { name: "Yes", contactEmail: "yes@x.com", status: "ACTIVE" } });
+    const { recipients } = await resolveCampaignAudience({
+      audienceJson: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
+      scopeId: "scope-that-does-not-exist",
+    });
+    expect(recipients).toEqual([]);
   });
 });

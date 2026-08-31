@@ -12,6 +12,9 @@ import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
 import { getStarter } from "./starters";
+import { can } from "@/platform/rbac/engine";
+import { getScope, scopesForPerson } from "@/platform/email/audience/scopes";
+import type { AudienceScopeView } from "@/platform/email/audience/scopes";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -48,10 +51,18 @@ export class CampaignAlreadyDispatchedError extends Error {
   }
 }
 
+/** Thrown when a sender may not send under the scope a campaign names. */
+export class CampaignScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CampaignScopeError";
+  }
+}
+
 export async function createDraft(
   actorId: string | null,
   name: string,
-  opts: { starterId?: string } = {},
+  opts: { starterId?: string; scopeId?: string | null } = {},
 ) {
   // A starter seeds the draft's subject + body (and supplies a default name when the
   // creator left it blank). An unknown / omitted starter falls back to an empty draft.
@@ -61,6 +72,7 @@ export async function createDraft(
       name: name || starter?.name || "Untitled campaign",
       createdById: actorId,
       status: "DRAFT",
+      scopeId: opts.scopeId ?? null,
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] },
       subject: starter?.subject ?? "",
       body: starter?.body ?? "",
@@ -96,6 +108,59 @@ export async function getCampaign(id: string) {
 
 export async function listCampaigns() {
   return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+}
+
+/**
+ * The permission matrix for a send, re-checked on EVERY send rather than only at
+ * schedule time: a campaign can be scheduled under one permission set and
+ * dispatched after the sender's grants have changed.
+ *
+ * outreach.send_unrestricted is strictly stronger and does not require
+ * outreach.send. A null scopeId is permitted only for an unrestricted sender,
+ * because for anyone else "no scope" would mean "no constraint", which is a
+ * send-all.
+ */
+export async function assertMaySendUnderScope(
+  personId: string,
+  scopeId: string | null,
+): Promise<AudienceScopeView | null> {
+  const unrestricted = await can(personId, "outreach.send_unrestricted");
+
+  if (scopeId === null) {
+    if (unrestricted) return null;
+    throw new CampaignScopeError(
+      "Select an audience scope. Only unrestricted senders may send without one.",
+    );
+  }
+
+  const scope = await getScope(scopeId);
+  if (!scope) throw new CampaignScopeError("That audience scope no longer exists.");
+  if (unrestricted) return scope;
+
+  const mine = await scopesForPerson(personId);
+  if (!mine.some((s) => s.id === scopeId)) {
+    throw new CampaignScopeError("You have not been granted that audience scope.");
+  }
+  return scope;
+}
+
+/**
+ * Resolve a campaign's recipients, honoring its scope.
+ *
+ * A campaign naming a scope that has since vanished resolves to NOBODY. Falling
+ * back to an unscoped resolve would turn a deleted boundary into a send-all,
+ * which is exactly the failure this whole mechanism exists to prevent.
+ */
+export async function resolveCampaignAudience(campaign: {
+  audienceJson: unknown;
+  scopeId: string | null;
+}): Promise<{ recipients: Recipient[]; excludedNoEmail: number }> {
+  const audience = campaign.audienceJson as Audience;
+  if (campaign.scopeId === null) return resolveAudience(audience);
+
+  const scope = await getScope(campaign.scopeId);
+  if (!scope) return { recipients: [], excludedNoEmail: 0 };
+  return resolveAudience(audience, { scope: scope.audience });
 }
 
 export async function updateCampaign(
@@ -164,8 +229,7 @@ export async function previewAudience(id: string): Promise<AudiencePreview> {
   if (!isAudience(campaign.audienceJson)) {
     throw new CampaignValidationError(["Stored audience is malformed"]);
   }
-  const audience = campaign.audienceJson;
-  const { recipients, excludedNoEmail } = await resolveAudience(audience);
+  const { recipients, excludedNoEmail } = await resolveCampaignAudience(campaign);
   // Dedup by lowercased email exactly as the send path does, so the previewed
   // count matches what the confirm-count workflow will actually enqueue.
   const seen = new Set<string>();
@@ -238,7 +302,7 @@ export async function executeRun(
     if (!isAudience(campaign.audienceJson)) {
       throw new CampaignValidationError(["Stored audience is malformed"]);
     }
-    const { recipients } = await resolveAudience(campaign.audienceJson);
+    const { recipients } = await resolveCampaignAudience(campaign);
     const seen = new Set<string>();
     deduped = recipients.filter((r) => {
       const key = r.email.toLowerCase();
@@ -325,7 +389,7 @@ export async function sendCampaignNow(
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
 
-  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const { recipients } = await resolveCampaignAudience(campaign);
   const seen = new Set<string>();
   const deduped = recipients.filter((r) => {
     const key = r.email.toLowerCase();
@@ -373,7 +437,7 @@ export async function scheduleCampaign(
   // For a recurring campaign this is the count as of now (the audience resolves
   // live at each run), which is still the right order-of-magnitude check against
   // an accidental send-all.
-  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const { recipients } = await resolveCampaignAudience(campaign);
   const seen = new Set<string>();
   const deduped = recipients.filter((r) => {
     const key = r.email.toLowerCase();

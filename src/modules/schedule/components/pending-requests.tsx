@@ -154,9 +154,9 @@ export function PendingRequests({
               <span
                 className={
                   request.status === "APPROVED"
-                    ? "text-success"
+                    ? "text-success-foreground"
                     : request.status === "DENIED"
-                      ? "text-critical"
+                      ? "text-critical-foreground"
                       : "text-subtle-foreground"
                 }
               >

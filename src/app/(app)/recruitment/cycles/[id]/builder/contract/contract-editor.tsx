@@ -234,7 +234,7 @@ export function ContractEditor({
           {pending ? "Saving…" : "Save contract"}
         </Button>
         {saved && (
-          <span className="flex items-center gap-1 text-sm text-success">
+          <span className="flex items-center gap-1 text-sm text-success-foreground">
             <Check className="h-4 w-4" aria-hidden /> Saved
           </span>
         )}

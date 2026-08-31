@@ -67,7 +67,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
                     is made, rather than making Faculty Relations open the coverage
                     view to find out what approving it costs. */}
                 {!r.target && (
-                  <span className="text-xs text-warning">
+                  <span className="text-xs text-warning-foreground">
                     Approving leaves {r.requesterSlotLabel} unstaffed on this date.
                   </span>
                 )}
@@ -108,9 +108,9 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
               <span
                 className={
                   r.status === "APPROVED"
-                    ? "text-success"
+                    ? "text-success-foreground"
                     : r.status === "DENIED"
-                      ? "text-critical"
+                      ? "text-critical-foreground"
                       : "text-subtle-foreground"
                 }
               >

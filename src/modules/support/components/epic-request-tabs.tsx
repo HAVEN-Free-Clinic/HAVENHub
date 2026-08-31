@@ -221,7 +221,7 @@ function IncidentResolveAction({
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-muted-foreground">
           Resolution
-          <span className="text-critical" aria-hidden="true"> *</span>
+          <span className="text-critical-foreground" aria-hidden="true"> *</span>
         </span>
         <Textarea name="resolution" rows={2} required placeholder="What resolved this incident?" className="text-xs" />
       </label>
@@ -323,7 +323,7 @@ function TrackerTable({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Submitted {formatDateOnly(new Date(ticket.submittedAt), zone)} by {ticket.submittedBy.name}
-                  <span className={`ml-2 font-medium ${days > 5 ? "text-critical" : "text-warning-foreground"}`}>
+                  <span className={`ml-2 font-medium ${days > 5 ? "text-critical-foreground" : "text-warning-foreground"}`}>
                     · {days} business day{days !== 1 ? "s" : ""} open
                   </span>
                 </p>

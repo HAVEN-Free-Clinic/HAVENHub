@@ -85,7 +85,7 @@ export function Field({
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-muted-foreground">
           {label}
-          {required && <span className="text-critical" aria-hidden="true"> *</span>}
+          {required && <span className="text-critical-foreground" aria-hidden="true"> *</span>}
         </span>
         {topHint}
         {control}

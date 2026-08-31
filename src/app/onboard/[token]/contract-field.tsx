@@ -90,7 +90,7 @@ export function ContractField({
               <span>{renderVars(block.signatureLabel, ctx)}</span>
             </label>
             {err(`confirm__${block.id}`) && (
-              <p id={errorId(`confirm__${block.id}`)} className="mt-1 text-xs text-critical">{err(`confirm__${block.id}`)}</p>
+              <p id={errorId(`confirm__${block.id}`)} className="mt-1 text-xs text-critical-foreground">{err(`confirm__${block.id}`)}</p>
             )}
           </>
         ) : (
@@ -174,7 +174,7 @@ export function ContractField({
                 <Field label="Your Epic ID" hint="Enter it in capital letters." required>
                   <Input name="existingEpicId" required {...errorProps("existingEpicId")} />
                 </Field>
-                {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical">{err("existingEpicId")}</p>}
+                {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical-foreground">{err("existingEpicId")}</p>}
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital.</span>
@@ -199,12 +199,12 @@ export function ContractField({
           <p className="text-sm font-medium text-foreground">{label}</p>
           {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
           <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} {...errorProps("hipaaCompletedAt")} /></Field>
-          {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical">{err("hipaaCompletedAt")}</p>}
+          {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical-foreground">{err("hipaaCompletedAt")}</p>}
           <Field label="HIPAA certificate (PDF)" required>
             {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
             <input name="hipaaFile" type="file" accept="application/pdf,image/*" {...errorProps("hipaaFile")} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
           </Field>
-          {err("hipaaFile") && <p id={errorId("hipaaFile")} className="mt-1 text-xs text-critical">{err("hipaaFile")}</p>}
+          {err("hipaaFile") && <p id={errorId("hipaaFile")} className="mt-1 text-xs text-critical-foreground">{err("hipaaFile")}</p>}
         </div>
       );
     }
@@ -252,7 +252,7 @@ export function ContractField({
               ))}
             </Select>
           </Field>
-          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
+          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical-foreground">{err(inputName)}</p>}
         </div>
       );
     }
@@ -263,11 +263,11 @@ export function ContractField({
           <div className="space-y-4">
             <div>
               <Field label="First name" required><Input name="firstName" defaultValue={prefill.firstName} required {...errorProps("firstName")} /></Field>
-              {err("firstName") && <p id={errorId("firstName")} className="mt-1 text-xs text-critical">{err("firstName")}</p>}
+              {err("firstName") && <p id={errorId("firstName")} className="mt-1 text-xs text-critical-foreground">{err("firstName")}</p>}
             </div>
             <div>
               <Field label="Last name" required><Input name="lastName" defaultValue={prefill.lastName} required {...errorProps("lastName")} /></Field>
-              {err("lastName") && <p id={errorId("lastName")} className="mt-1 text-xs text-critical">{err("lastName")}</p>}
+              {err("lastName") && <p id={errorId("lastName")} className="mt-1 text-xs text-critical-foreground">{err("lastName")}</p>}
             </div>
           </div>
         );
@@ -316,7 +316,7 @@ export function ContractField({
               {...errorProps(inputName)}
             />
           </Field>
-          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical">{err(inputName)}</p>}
+          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical-foreground">{err(inputName)}</p>}
         </div>
       );
     }

@@ -82,7 +82,7 @@ export function AttendingDayView({
             // Read-only: closure is a calendar fact owned by admin.manage_terms and set
             // in Admin > Terms. Faculty Relations must still SEE it -- a closed Saturday
             // is still staffed for triage -- so it is stated here rather than hidden.
-            <span className="text-sm text-warning">
+            <span className="text-sm text-warning-foreground">
               Clinic closed
               {row.closedNote ? `: ${row.closedNote}` : ""}
             </span>

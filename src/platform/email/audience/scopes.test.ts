@@ -92,4 +92,12 @@ describe("audience scopes", () => {
     });
     await expect(deleteScope(null, s.id)).rejects.toBeInstanceOf(ScopeValidationError);
   });
+
+  it("falls back to a match-nobody audience when the stored JSON is corrupt", async () => {
+    const row = await prisma.audienceScope.create({
+      data: { name: "Corrupt", audienceJson: { bogus: true } },
+    });
+    const view = await getScope(row.id);
+    expect(view?.audience).toEqual({ recordType: "PERSON", match: "ALL", conditions: [] });
+  });
 });

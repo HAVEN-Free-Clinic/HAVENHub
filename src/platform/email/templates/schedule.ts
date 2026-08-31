@@ -22,6 +22,7 @@ export type ScheduleTemplateKey =
   | "schedule-request-denied-partner"
   | "schedule-request-cancelled-partner"
   | "schedule-request-submitted-director"
+  | "schedule-request-digest-exec"
   | "clinic-checkin-invite";
 
 export const scheduleDescriptors: TemplateDescriptor[] = [
@@ -180,6 +181,40 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
     defaultBody: `<p>Hi {{ directorName }},</p>
 <p><strong>{{ requesterName }}</strong> has submitted a <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong>{{#if partnerName}} with <strong>{{ partnerName }}</strong> ({{ partnerDate }}){{/if}} in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
+{{#if requestsUrl}}<p><a href="{{ requestsUrl }}">Review pending requests</a></p>{{/if}}`,
+  },
+  // The Executive Directors' oversight view of the same daily reminder run. The
+  // per-department reminder above goes to whoever can DECIDE a request; this one
+  // goes to the EDs, who cannot decide it but are the escalation path when a
+  // department lets one sit. `requestList` is rendered raw ({{{ }}}) because its
+  // builder emits the grouped department blocks as HTML; every name and date
+  // inside it is escaped where it is built (engine/request-digest.ts).
+  {
+    key: "schedule-request-digest-exec",
+    name: "Pending shift requests - Executive Director digest",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
+      { name: "directorName", label: "Executive Director first name", sampleValue: "Sam" },
+      { name: "pendingSummary", label: "How many requests, e.g. \"3 shift requests\"", sampleValue: "3 shift requests" },
+      {
+        name: "requestList",
+        label: "The requests, grouped by department (HTML)",
+        sampleValue:
+          "<p><strong>Internal Medicine</strong><br/>Swap: Alex Johnson (July 15, 2026) with Jordan Lee (July 22, 2026), pending 4 days</p>",
+      },
+      {
+        name: "escalationDays",
+        label: "Days untouched before a request is escalated",
+        sampleValue: "4",
+      },
+    ],
+    defaultSubject: "{{ pendingSummary }} still pending review",
+    defaultBody: `<p>Hi {{ directorName }},</p>
+<p>These shift requests are still waiting on a decision, either because the clinic date falls in the coming week or because nobody has acted on them in {{ escalationDays }} days or more. Their departments are being chased separately; this list is here so a request nobody is acting on does not go unnoticed.</p>
+{{{ requestList }}}
 {{#if requestsUrl}}<p><a href="{{ requestsUrl }}">Review pending requests</a></p>{{/if}}`,
   },
   {

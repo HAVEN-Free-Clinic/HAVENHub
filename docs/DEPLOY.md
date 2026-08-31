@@ -159,7 +159,7 @@ fired by an external scheduler (**cron-job.org**, free tier) hitting `/api/cron/
 | `/api/cron/attending-reminders` | weekly (Mon) | Attendings miss their Saturday reminder, which Faculty Relations previously sent by hand. |
 | `/api/cron/recruitment-review-digest` | daily | Reviewers stop getting the digest. |
 | `/api/cron/recruitment-drafts` | daily | Abandoned drafts not swept. |
-| `/api/cron/schedule-reminders` | daily | Pending shift-swap approvals not chased. |
+| `/api/cron/schedule-reminders` | daily | Pending shift-swap approvals not chased, and the Executive Directors get no digest of what has stalled. |
 | `/api/cron/clinic-checkin-invites` | daily | Volunteers get no check-in link; directors check people in by hand. |
 | `/api/cron/wallet-passes` | daily | An offboarded volunteer's wallet badge stays live and scannable indefinitely. |
 | `/api/cron/intercom-reconcile` | daily | Hub/Intercom ticket status drifts permanently with nothing to notice it. |

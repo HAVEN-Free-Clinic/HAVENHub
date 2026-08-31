@@ -61,7 +61,7 @@ export function PendingRequests({
       <div className="flex items-center gap-2">
         <SectionHeader as="h2" level="title" className="text-sm">Pending Requests</SectionHeader>
         {pendingRows.length > 0 && (
-          <Badge tone="warning">
+          <Badge tone="warning" count>
             {pendingRows.length}
           </Badge>
         )}

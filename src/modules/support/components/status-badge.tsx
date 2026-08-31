@@ -1,6 +1,6 @@
 /**
- * SupportStatusBadge: neutral chip + status dot for a TechRequest's lifecycle
- * state. No tinted fills (see Badge) - only the small leading dot carries color.
+ * SupportStatusBadge: hairline chip for a TechRequest's lifecycle state. No
+ * tinted fills and no status dot (see Badge) - the tone colors the label itself.
  *
  * Tone choices mirror existing status-badge conventions elsewhere in the app
  * (see onboarding-checklist's StatusPill and the Epic requests page's

@@ -13,14 +13,25 @@
   --color-critical-faint: #fef2f2; /* red-50; faint danger tint, dark variant below */
   --color-info: #2563eb;
 
-  /* Status-as-text tokens. The vivid success/warning above are tuned for icons and
-     fills (3:1 non-text); as small text on a light surface they fall to ~3.2:1 and
-     fail WCAG AA. These *-foreground variants are darkened to clear 4.5:1 on white
-     (5.0:1) for status labels; dark-mode overrides below lift them back for dark. */
-  --color-success-foreground: #15803d; /* green-700 */
-  --color-warning-foreground: #b45309; /* amber-700 */
+  /* Status-as-text tokens. The vivid success/warning/critical above are tuned for
+     icons and fills (3:1 non-text); as small text they fall to ~3.2:1 and fail WCAG
+     AA. These *-foreground variants are darkened for status labels; dark-mode
+     overrides below lift them back up for dark.
+
+     Tuned against `canvas` (#eef1f5), the DARKEST of the three light backgrounds a
+     badge sits on, not against white. The named Tailwind steps these started from
+     (green-700 / amber-700 / red-600) clear 4.5:1 on white but land at 4.43 / 4.43 /
+     4.26 on canvas -- i.e. every status label rendered outside a card failed AA. That
+     went unnoticed while these colors were only 6px dots (non-text, 3:1); the Badge
+     restyle moved them into the label text itself, so they are text now. Same reason
+     muted-/subtle-foreground carry intermediate hexes below: don't "tidy" these back
+     to named ramp steps. Guarded by theme-contrast.test.ts. */
+  --color-success-foreground: #15743a; /* green-700 darkened; 5.16:1 on canvas, 5.85:1 on surface */
+  --color-warning-foreground: #a04a08; /* amber-700 darkened; 5.33:1 on canvas, 6.04:1 on surface */
+  --color-critical-foreground: #b91c1c;/* red-700; 5.71:1 on canvas, 6.47:1 on surface */
   /* Darker critical for the danger button hover, so it tracks the red family via a
-     token instead of a hard-coded Tailwind shade (mirrors brand-hover). */
+     token instead of a hard-coded Tailwind shade (mirrors brand-hover). Same value as
+     critical-foreground today, but a separate role: one is button hover, one is text. */
   --color-critical-hover: #b91c1c;     /* red-700 */
 
   /* Calm cool-neutral canvas the hub shell sits on (vs. flat white). */
@@ -125,13 +136,29 @@ html.dark {
   --color-border-subtle: #1e293b;     /* slate-800 */
 
   /* Status text lifted for AA on dark surfaces (the vivid success/warning already
-     read on dark; these are the text-only variants used for status labels). */
-  --color-success-foreground: #4ade80; /* green-400; AA text on dark surfaces */
-  --color-warning-foreground: #fbbf24; /* amber-300; AA text on dark surfaces */
+     read on dark; these are the text-only variants used for status labels). Worst
+     case is `muted` (#1e293b), the LIGHTEST dark background -- same trap audit 14
+     found for subtle-foreground -- so all three are measured against that. */
+  --color-success-foreground: #4ade80; /* green-400; 8.40:1 on muted */
+  --color-warning-foreground: #fbbf24; /* amber-400; 8.76:1 on muted */
+  /* Vivid critical (#dc2626) is only 3.72:1 on dark surface, so status labels need
+     this lifted variant; light mode darkens instead. */
+  --color-critical-foreground: #f87171; /* red-400; 5.29:1 on muted */
 
   /* Brand tints become dark-tinted surfaces; brand text is lifted to read on dark.
-     color-mix keeps these tracking the admin-chosen brand hue. */
-  --color-brand-fg: color-mix(in srgb, var(--color-brand) 55%, white);
+     color-mix keeps these tracking the admin-chosen brand hue.
+
+     55% -> 50% (audit: Badge restyle). At 55% the default Yale navy resolves to
+     #7390ae, which is 5.38:1 on surface but only 4.41:1 on `muted` -- the lightest
+     dark background, and the one card and table headers paint. That was tolerable
+     while brand-fg only tinted larger nav text; the Badge restyle moved the brand
+     tone into 11px chip labels, which sit on exactly those muted headers. 50%
+     resolves to #809ab5 and clears AA on all three (5.02 / 6.13 / 6.92).
+
+     Lighter is monotonically safer here -- every dark-mode ground is darker than
+     the ink -- so this also helps the glass-bar nav legibility case. Guarded by
+     theme-contrast.test.ts, which resolves this color-mix for the default brand. */
+  --color-brand-fg: color-mix(in srgb, var(--color-brand) 50%, white);
   --color-brand-faint: color-mix(in srgb, var(--color-brand) 22%, #0b1220);
   --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
   /* Faint danger tint tracks the critical hue on a dark base (mirrors brand-faint). */

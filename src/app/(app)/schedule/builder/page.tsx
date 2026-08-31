@@ -68,6 +68,7 @@ import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { ShiftEmailList } from "@/modules/schedule/components/shift-email-list";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayTodayKey } from "@/platform/dates/today";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -202,12 +203,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const requestRows = canManageRequests
     ? await listDepartmentRequests(session.personId, dept.id, workingTerm.id)
     : [];
-  // PendingRequests needs this to mark stale (past-date) rows; resolved once
-  // here rather than inside that component, since displayTodayKey is async
-  // and settings-backed (Prisma) and the panel just renders props. Cheap
-  // (request-cached) to resolve unconditionally, which keeps the type a
-  // plain string for the prop below rather than string | null.
-  const requestsTodayKey = await displayTodayKey();
+  // PendingRequests needs these to mark stale (past-date) rows and to render
+  // the decided list's decision timestamps; resolved once here rather than
+  // inside that component, since both are async and settings-backed (Prisma)
+  // and the panel just renders props. Cheap (request-cached) to resolve
+  // unconditionally, which keeps the types plain strings for the props below
+  // rather than string | null.
+  const [requestsTodayKey, requestsTimeZone] = await Promise.all([
+    displayTodayKey(),
+    getDisplayTimeZone(),
+  ]);
 
   const showPublishControl = workingTerm.status === "PLANNING";
   const deptPublished = showPublishControl ? await isPublished(workingTerm.id, dept.id) : false;
@@ -701,6 +706,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     approveAction={approveRequestAction}
                     denyAction={denyRequestAction}
                     todayKey={requestsTodayKey}
+                    timeZone={requestsTimeZone}
                   />
                 )}
               </div>

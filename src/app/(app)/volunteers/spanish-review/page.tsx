@@ -169,11 +169,79 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     revalidatePath("/volunteers/spanish-review?tab=history");
   }
 
+    async function linkPersonAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const id = String(formData.get("id") ?? "");
+    const netIdOrEmail = String(formData.get("netIdOrEmail") ?? "").trim().toLowerCase();
+    if (!netIdOrEmail) return;
+    const person = await prisma.person.findFirst({
+      where: {
+        OR: [
+          { netId: { equals: netIdOrEmail, mode: "insensitive" } },
+          { contactEmail: { equals: netIdOrEmail, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!person) return;
+    await prisma.spanishAssessmentRecord.update({
+      where: { id },
+      data: { personId: person.id },
+    });
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
+    async function addPersonToHistoryAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const netIdOrEmail = String(formData.get("netIdOrEmail") ?? "").trim().toLowerCase();
+    const term = String(formData.get("term") ?? "").trim();
+    const rawScore = formData.get("score");
+    const modifier = formData.get("modifier");
+    if (!netIdOrEmail || !term) return;
+    const person = await prisma.person.findFirst({
+      where: {
+        OR: [
+          { netId: { equals: netIdOrEmail, mode: "insensitive" } },
+          { contactEmail: { equals: netIdOrEmail, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, name: true, contactEmail: true },
+    });
+    const score = rawScore ? parseInt(String(rawScore), 10) : null;
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: person?.contactEmail ?? netIdOrEmail,
+        name: person?.name ?? null,
+        personId: person?.id ?? null,
+        score: score && score >= 1 && score <= 5 ? score : null,
+        modifier: modifier ? String(modifier) : null,
+        term,
+        verified: null,
+      },
+    });
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
   function scoreTone(score: number | null): "success" | "warning" | "critical" | "default" {
     if (!score) return "default";
     if (score >= 4) return "success";
     if (score === 3) return "warning";
     return "critical";
+  }
+
+  function scoreLabel(score: number | null, modifier: string | null): string {
+    if (!score) return "Missing";
+    const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+    const labels: Record<number, string> = {
+      1: "Almost none",
+      2: "Some",
+      3: "Conversational",
+      4: "Fluent",
+      5: "Native",
+    };
+    return `${score}${mod} - ${labels[score] ?? ""}`;
   }
 
   function scoreLabel(score: number | null, modifier: string | null): string {
@@ -221,46 +289,51 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
 
       {/* Queue tab */}
       {activeTab === "queue" && (
-        <>
-          {rows.length === 0 ? (
-            <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-              No one is awaiting language review.
-            </Card>
-          ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>Name</TH>
-                  <TH>Language</TH>
-                  <TH>NetID</TH>
-                  <TH>Email</TH>
-                  <TH>Score</TH>
-                  <TH>Assessment</TH>
-                </TR>
-              </THead>
-              <tbody>
-                {rows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="font-medium">{r.name}</TD>
-                    <TD><Badge>{r.languageLabel}</Badge></TD>
-                    <TD className="text-muted-foreground">
-                      {r.netId ?? <span className="text-subtle-foreground">-</span>}
-                    </TD>
-                    <TD className="text-muted-foreground">
-                      {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
-                    </TD>
-                    <TD className="w-20">
-                      {r.language === "es"
-                        ? r.score
-                          ? <span className="font-medium text-foreground tabular-nums">{r.score}/5</span>
-                          : <span className="text-subtle-foreground">-</span>
-                        : <span className="text-subtle-foreground">N/A</span>
-                      }
-                    </TD>
-                    <TD>
-                      <div className="flex flex-col gap-2">
-                                                {r.language === "es" && (
-                          <div className="flex flex-col gap-1">
+        <div className="space-y-8">
+          {/* INTP Assessment Queue */}
+          <section>
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold text-foreground">INTP Assessment Queue</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Volunteers in or applying to the Department of Interpretation and Diversity who claimed a language and are awaiting assessment. Record a proficiency score for Spanish speakers before verifying.
+              </p>
+            </div>
+            {rows.filter(r => r.isIntp).length === 0 ? (
+              <Card pad={false} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                No INTP members are awaiting language assessment.
+              </Card>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Name</TH>
+                    <TH>Language</TH>
+                    <TH>NetID</TH>
+                    <TH>Email</TH>
+                    <TH>Score</TH>
+                    <TH>Assessment</TH>
+                  </TR>
+                </THead>
+                <tbody>
+                  {rows.filter(r => r.isIntp).map((r) => (
+                    <TR key={r.id}>
+                      <TD className="font-medium">{r.name}</TD>
+                      <TD><Badge>{r.languageLabel}</Badge></TD>
+                      <TD className="text-muted-foreground">
+                        {r.netId ?? <span className="text-subtle-foreground">-</span>}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
+                      </TD>
+                      <TD className="w-24">
+                        {r.score != null
+                          ? <Badge tone={scoreTone(r.score)}>{scoreLabel(r.score, null)}</Badge>
+                          : <span className="text-subtle-foreground text-xs">Not yet scored</span>
+                        }
+                      </TD>
+                      <TD>
+                        <div className="flex flex-col gap-2">
+                          {r.language === "es" && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <span className="shrink-0">Score:</span>
                               <Select
@@ -275,19 +348,73 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                                 <option value="4">4 - Fluent</option>
                                 <option value="5">5 - Native</option>
                               </Select>
-                              <Select
-                                name="modifier"
-                                form={`assess-verify-${r.id}`}
-                              >
+                              <Select name="modifier" form={`assess-verify-${r.id}`}>
                                 <option value="">none</option>
                                 <option value="plus">+</option>
                                 <option value="minus">-</option>
                               </Select>
                             </div>
+                          )}
+                          <div className="flex gap-2">
+                            <form id={`assess-verify-${r.id}`} action={assessAction}>
+                              <input type="hidden" name="personId" value={r.personId} />
+                              <input type="hidden" name="language" value={r.language} />
+                              <input type="hidden" name="verified" value="true" />
+                              <SubmitButton variant="primary" size="sm" pendingLabel="Saving...">Verify</SubmitButton>
+                            </form>
+                            <form action={assessAction}>
+                              <input type="hidden" name="personId" value={r.personId} />
+                              <input type="hidden" name="language" value={r.language} />
+                              <input type="hidden" name="verified" value="false" />
+                              <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Not verified</SubmitButton>
+                            </form>
                           </div>
-                        )}
+                        </div>
+                      </TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+
+          {/* General language verification queue */}
+          <section>
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold text-foreground">General Language Verification Queue</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Volunteers outside INTP who claimed a language and are awaiting verification.
+              </p>
+            </div>
+            {rows.filter(r => !r.isIntp).length === 0 ? (
+              <Card pad={false} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                No other volunteers are awaiting language verification.
+              </Card>
+            ) : (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Name</TH>
+                    <TH>Language</TH>
+                    <TH>NetID</TH>
+                    <TH>Email</TH>
+                    <TH>Assessment</TH>
+                  </TR>
+                </THead>
+                <tbody>
+                  {rows.filter(r => !r.isIntp).map((r) => (
+                    <TR key={r.id}>
+                      <TD className="font-medium">{r.name}</TD>
+                      <TD><Badge>{r.languageLabel}</Badge></TD>
+                      <TD className="text-muted-foreground">
+                        {r.netId ?? <span className="text-subtle-foreground">-</span>}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
+                      </TD>
+                      <TD>
                         <div className="flex gap-2">
-                          <form id={`assess-verify-${r.id}`} action={assessAction}>
+                          <form action={assessAction}>
                             <input type="hidden" name="personId" value={r.personId} />
                             <input type="hidden" name="language" value={r.language} />
                             <input type="hidden" name="verified" value="true" />
@@ -300,21 +427,73 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                             <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Not verified</SubmitButton>
                           </form>
                         </div>
-                      </div>
-                    </TD>
-                  </TR>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </>
+                      </TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+        </div>
       )}
 
       {/* History tab */}
       {activeTab === "history" && canSeeHistory && (
         <div className="space-y-6">
+                  <div className="space-y-6">
+          <Card pad={false} className="px-5 py-4 bg-muted">
+            <p className="text-sm text-muted-foreground">
+              Historical Spanish proficiency assessment records conducted by the Department of Interpretation and Diversity (INTP), going back to Spring 2012. Includes current active volunteers and HAVEN alumni. Scores reflect the INTP assessment, not self-reported proficiency.
+            </p>
+          </Card>
+
+          {/* Manually add a person */}
+          <details className="rounded-xl border border-border">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground select-none">
+              Manually add a person to assessment history
+            </summary>
+            <div className="px-4 pb-4 pt-2 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Use this if someone was assessed but does not appear in the history. Enter their NetID or email to link them to their Hub profile.
+              </p>
+              <form action={addPersonToHistoryAction} className="flex gap-2 flex-wrap items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">NetID or email</label>
+                  <Input name="netIdOrEmail" placeholder="abc123 or name@yale.edu" className="w-48" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">Term</label>
+                  <Select name="term">
+                    {allTerms.map(t => (
+                      <option key={t.term} value={t.term}>{t.term}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">Score</label>
+                  <Select name="score">
+                    <option value="">-</option>
+                    <option value="1">1 - Almost none</option>
+                    <option value="2">2 - Some</option>
+                    <option value="3">3 - Conversational</option>
+                    <option value="4">4 - Fluent</option>
+                    <option value="5">5 - Native</option>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted-foreground">Modifier</label>
+                  <Select name="modifier">
+                    <option value="">none</option>
+                    <option value="plus">+</option>
+                    <option value="minus">-</option>
+                  </Select>
+                </div>
+                <SubmitButton variant="outline" pendingLabel="Adding...">Add to history</SubmitButton>
+              </form>
+            </div>
+          </details>
+
           {/* Search + term filter */}
-          <div className="flex gap-3 flex-wrap">
             <form method="GET" action="/volunteers/spanish-review" className="flex gap-3 flex-1 flex-wrap">
               <input type="hidden" name="tab" value="history" />
               <Input
@@ -333,7 +512,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                   </optgroup>
                 ))}
               </Select>
-              <SubmitButton variant="outline" pendingLabel="Searching...">Search</SubmitButton>
+              <SubmitButton variant="primary" pendingLabel="Searching...">Search</SubmitButton>
             </form>
 
             {/* Add new term */}
@@ -376,7 +555,17 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 {historyRows.map((r) => (
                   <TR key={r.id}>
                     <TD className="font-medium">
-                      {r.person?.name ?? r.name ?? <span className="text-muted-foreground">Not in Hub</span>}
+                      {r.person?.name ?? r.name ?? (
+                        <form action={linkPersonAction} className="flex gap-1 items-center">
+                          <input type="hidden" name="id" value={r.id} />
+                          <Input
+                            name="netIdOrEmail"
+                            placeholder="NetID or email..."
+                            className="w-36 text-xs"
+                          />
+                          <SubmitButton variant="outline" size="sm" pendingLabel="Linking...">Link</SubmitButton>
+                        </form>
+                      )}
                     </TD>
                     <TD className="text-muted-foreground text-xs">{r.email || "-"}</TD>
                     <TD className="text-muted-foreground whitespace-nowrap">{r.term}</TD>

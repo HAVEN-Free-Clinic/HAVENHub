@@ -56,6 +56,7 @@ export type LanguageReviewRow = {
   language: string;
   languageLabel: string;
   score: number | null;
+  isIntp: boolean;
 };
 
 export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
@@ -67,7 +68,16 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
       personId: true,
       language: true,
       score: true,
-      person: { select: { name: true, netId: true, contactEmail: true } },
+      person: {
+        select: {
+          name: true,
+          netId: true,
+          contactEmail: true,
+          memberships: {
+            select: { department: { select: { code: true } } },
+          },
+        },
+      },
     },
   });
   return rows.map((r) => ({
@@ -79,6 +89,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     language: r.language,
     languageLabel: languageLabel(r.language),
     score: r.score,
+    isIntp: r.person.memberships.some((m) => m.department.code === "INTP"),
   }));
 }
 

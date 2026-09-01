@@ -27,7 +27,8 @@ describe("person fields", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
-      "status", "onRoster", "role", "department", "appliedToCycle", "complianceStatus", "hasEpicId",
+      "status", "onRoster", "role", "department", "appliedToCycle", "acceptedInCycle",
+      "subcommittee", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",

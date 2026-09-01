@@ -14,6 +14,8 @@ import { isAudienceGroup } from "./types";
 export type AudienceReferences = {
   departmentCodes: Set<string>;
   cycleIds: Set<string>;
+  /** Subcommittee ids named by a `subcommittee` condition's value. */
+  subcommitteeIds: Set<string>;
   /** Term ids from the `terms` scope of any condition, whatever its field. */
   termIds: Set<string>;
 };
@@ -30,6 +32,7 @@ export function collectAudienceReferences(nodes: AudienceNode[]): AudienceRefere
   const refs: AudienceReferences = {
     departmentCodes: new Set(),
     cycleIds: new Set(),
+    subcommitteeIds: new Set(),
     termIds: new Set(),
   };
 
@@ -40,7 +43,14 @@ export function collectAudienceReferences(nodes: AudienceNode[]): AudienceRefere
         continue;
       }
       if (node.field === "department") addValues(refs.departmentCodes, node.value);
-      if (node.field === "appliedToCycle") addValues(refs.cycleIds, node.value);
+      // acceptedInCycle names cycle ids the same way appliedToCycle does, so
+      // both feed the same referenced-cycles set: the cycle picker must keep a
+      // deleted cycle visible and removable no matter which of the two fields
+      // is the one still pointing at it.
+      if (node.field === "appliedToCycle" || node.field === "acceptedInCycle") {
+        addValues(refs.cycleIds, node.value);
+      }
+      if (node.field === "subcommittee") addValues(refs.subcommitteeIds, node.value);
       // Any condition may carry a term scope, so this is read unconditionally
       // rather than gated on the current TERM_SCOPED_FIELD_KEYS -- a stored
       // audience written against an earlier registry must not lose its scope.

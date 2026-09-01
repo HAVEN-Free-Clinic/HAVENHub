@@ -17,12 +17,13 @@ export type AudienceBuilderOptions = {
   departments: { code: string; name: string }[];
   terms: { id: string; label: string }[];
   cycles: { id: string; label: string }[];
+  subcommittees: { id: string; label: string }[];
 };
 
 export async function loadAudienceBuilderOptions(
   audience: Audience,
 ): Promise<AudienceBuilderOptions> {
-  const [departments, terms, cycles] = await Promise.all([
+  const [departments, terms, cycles, subcommittees] = await Promise.all([
     prisma.department.findMany({
       where: { isActive: true },
       select: { code: true, name: true },
@@ -40,6 +41,11 @@ export async function loadAudienceBuilderOptions(
       select: { id: true, title: true, status: true },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.subcommittee.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { order: "asc" },
+    }),
   ]);
 
   const referenced = collectAudienceReferences(audience.conditions);
@@ -54,6 +60,21 @@ export async function loadAudienceBuilderOptions(
       })
     : [];
   const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
+
+  // Subcommittees get the department treatment (an isActive flag, not a status
+  // enum), rather than the cycle treatment: a referenced-but-deactivated
+  // subcommittee still exists as a row and is labelled "(inactive)", distinct
+  // from one with no surviving row at all ("(removed)").
+  const activeSubIds = new Set(subcommittees.map((s) => s.id));
+  const missingSubIds = [...referenced.subcommitteeIds].filter((id) => !activeSubIds.has(id));
+  const inactiveReferencedSubs = missingSubIds.length
+    ? await prisma.subcommittee.findMany({
+        where: { id: { in: missingSubIds } },
+        select: { id: true, name: true },
+        orderBy: { order: "asc" },
+      })
+    : [];
+  const foundSubIds = new Set(inactiveReferencedSubs.map((s) => s.id));
 
   return {
     departments: [
@@ -85,6 +106,15 @@ export async function loadAudienceBuilderOptions(
       ...[...referenced.cycleIds]
         .filter((cid) => !cycles.some((c) => c.id === cid))
         .map((cid) => ({ id: cid, label: "Deleted cycle" })),
+    ],
+    subcommittees: [
+      ...subcommittees.map((s) => ({ id: s.id, label: s.name })),
+      ...inactiveReferencedSubs.map((s) => ({ id: s.id, label: `${s.name} (inactive)` })),
+      // Ids with no surviving Subcommittee row at all (fully deleted): still
+      // render them so the admin can uncheck the dead value.
+      ...missingSubIds
+        .filter((id) => !foundSubIds.has(id))
+        .map((id) => ({ id, label: "Deleted subcommittee" })),
     ],
   };
 }

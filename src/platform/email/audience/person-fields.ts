@@ -77,6 +77,25 @@ export type AudienceCtx = {
    */
   appliedByCycle?: Map<string, Set<string>>;
   /**
+   * Person ids whose application in each recruitment cycle has at least one
+   * `Acceptance` row, keyed by cycle id. Required only when an `acceptedInCycle`
+   * condition is present. Resolved through the same email/NetID fallback as
+   * `appliedByCycle` -- an anonymous applicant who was accepted reaches a Person
+   * the identical way an anonymous applicant who merely applied does. See
+   * loadApplicantFacts in resolve.ts.
+   */
+  acceptedByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids assigned to each subcommittee, keyed by subcommittee id.
+   * Required only when a `subcommittee` condition is present.
+   *
+   * `Subcommittee` has no relation to `Person` at all; its only link is
+   * `Application.assignedSubcommitteeId`, so this is a recruitment question
+   * wearing a membership disguise and is resolved through the same
+   * email/NetID fallback as the cycle buckets above. See loadApplicantFacts.
+   */
+  bySubcommittee?: Map<string, Set<string>>;
+  /**
    * Per-person counts for each count-kind field actually named in the audience,
    * keyed by field key then person id. Populated by resolveAudience only for
    * fields the audience uses, since each loader is a table scan.
@@ -445,6 +464,58 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       // An empty id set therefore means every Person, which is right -- nobody
       // applied to that cycle -- and is why this field is meant to be combined
       // with a roster condition, not sent on its own.
+      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
+    },
+  },
+  {
+    key: "acceptedInCycle",
+    label: "Accepted in recruitment cycle",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Same precomputed-id-set shape as appliedToCycle, over a narrower bucket:
+    // the application has at least one Acceptance row (acceptance is a separate
+    // row, not a status column). See ctx.acceptedByCycle.
+    compile: (cond, ctx) => {
+      const cycles = asArray(cond.value);
+      if (cycles.length === 0) return MATCH_NOBODY;
+      if (!ctx.acceptedByCycle) {
+        throw new Error(
+          "acceptedInCycle audience requires a precomputed applicant map; resolveAudience must supply ctx.acceptedByCycle",
+        );
+      }
+      const ids = new Set<string>();
+      for (const cycleId of cycles) {
+        for (const personId of ctx.acceptedByCycle.get(cycleId) ?? []) ids.add(personId);
+      }
+      // Same reasoning as appliedToCycle: "not accepted" legitimately includes
+      // everyone with no application at all, so `notIn` over the id list (not a
+      // relation `none`) is correct here too.
+      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
+    },
+  },
+  {
+    key: "subcommittee",
+    label: "Assigned subcommittee",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Subcommittee has NO relation to Person at all -- its only link is
+    // Application.assignedSubcommitteeId -- so this is a recruitment question
+    // wearing a membership disguise and resolves through the same precomputed,
+    // email/NetID-backed bucket as the cycle fields above. See ctx.bySubcommittee.
+    compile: (cond, ctx) => {
+      const subcommittees = asArray(cond.value);
+      if (subcommittees.length === 0) return MATCH_NOBODY;
+      if (!ctx.bySubcommittee) {
+        throw new Error(
+          "subcommittee audience requires a precomputed applicant map; resolveAudience must supply ctx.bySubcommittee",
+        );
+      }
+      const ids = new Set<string>();
+      for (const subcommitteeId of subcommittees) {
+        for (const personId of ctx.bySubcommittee.get(subcommitteeId) ?? []) ids.add(personId);
+      }
       return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
     },
   },

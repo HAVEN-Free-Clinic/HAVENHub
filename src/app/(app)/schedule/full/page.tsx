@@ -251,7 +251,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />)}
                               {shiftTags(p.tags)}
-                              <CapabilityBadges person={p} />
+                              <CapabilityBadges person={p} department={department} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}
@@ -273,7 +273,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
                               {profileLink(v.id, <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />)}
                               {shiftTags(v.tags)}
-                              <CapabilityBadges person={v} />
+                              <CapabilityBadges person={v} department={department} />
                               {(conflicts.get(v.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(v.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(v.id) ?? []).join(", ")}
@@ -295,7 +295,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
                               {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />)}
                               {shiftTags(p.tags)}
-                              <CapabilityBadges person={p} />
+                              <CapabilityBadges person={p} department={department} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (
                                 <Badge tone="warning" title={(conflicts.get(p.id) ?? []).join(", ")}>
                                   Also in {(conflicts.get(p.id) ?? []).join(", ")}

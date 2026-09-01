@@ -407,6 +407,34 @@ export async function verifiedLanguagesByPerson(
   return out;
 }
 
+/**
+ * The current INTP Spanish score per person, for a set of people. One query.
+ *
+ * VERIFIED claims only, matching verifiedLanguagesByPerson: a score attached to
+ * a claim nobody has assessed is not a capability. People with no score are
+ * absent from the map rather than present with null, so a caller can tell "not
+ * scored" from "not a Spanish speaker" only by also consulting the language set.
+ *
+ * INTERNAL: never render this to the volunteer it describes.
+ */
+export async function spanishScoresByPerson(
+  personIds: string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<Map<string, number>> {
+  if (personIds.length === 0) return new Map();
+  const rows = await client.personLanguage.findMany({
+    where: {
+      personId: { in: personIds },
+      language: SPANISH,
+      verified: true,
+      verifiedAt: { not: null },
+      score: { not: null },
+    },
+    select: { personId: true, score: true },
+  });
+  return new Map(rows.map((r) => [r.personId, r.score as number]));
+}
+
 /** Every language row for one person, claimed or assessed, for their profile. */
 export async function languagesForPerson(personId: string) {
   return prisma.personLanguage.findMany({

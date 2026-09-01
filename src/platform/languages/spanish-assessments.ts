@@ -15,7 +15,14 @@
  */
 
 import { prisma } from "@/platform/db";
-import { LanguageValidationError } from "./catalog";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import {
+  CLINIC_WIDE_INTERPRETER_MIN_SCORE,
+  LanguageValidationError,
+  SPANISH,
+  interpreterBarFor,
+  meetsInterpreterBar,
+} from "./catalog";
 import {
   ASSESSMENT_SEASONS,
   type AssessmentSeason,
@@ -151,6 +158,12 @@ export type FlagMismatch = {
   score: number | null;
   term: string | null;
   reason: "no-assessment" | "below-interpreter-bar";
+  /**
+   * Codes of the person's current departments that would still staff them at
+   * this score. Empty when none would, which is the case that actually argues
+   * for pulling the flag.
+   */
+  acceptedByDepartments: string[];
 };
 
 /**
@@ -159,18 +172,18 @@ export type FlagMismatch = {
  *
  * Two ways to land here:
  *   - no-assessment          -> flagged in Hub, never on the assessment list
- *   - below-interpreter-bar  -> flagged in Hub, but most recently scored 1-3
+ *   - below-interpreter-bar  -> flagged in Hub, but most recently scored below 4
  *
  * A 1-3 is not "wrong", it is conversational: some departments staff it and some
- * do not. This is a worklist for INTP to re-confirm, not an automatic revocation,
- * which is why nothing here writes.
+ * do not, which is why each row carries the departments that still would. This
+ * is a worklist for INTP to re-confirm, not an automatic revocation, and nothing
+ * here writes.
  */
-export const CLINIC_WIDE_INTERPRETER_MIN_SCORE = 4;
-
 export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
+  const activeTerm = await getActiveTerm();
   const flagged = await prisma.personLanguage.findMany({
     where: {
-      language: "es",
+      language: SPANISH,
       verified: true,
       verifiedAt: { not: null },
       person: { status: "ACTIVE" },
@@ -183,6 +196,26 @@ export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
     orderBy: { person: { name: "asc" } },
   });
   if (flagged.length === 0) return [];
+
+  // Which of each person's current departments would still take them, so the row
+  // says "PATS would still staff this person" rather than only "below the bar".
+  const memberships = activeTerm
+    ? await prisma.termMembership.findMany({
+        where: {
+          personId: { in: flagged.map((f) => f.personId) },
+          termId: activeTerm.id,
+          status: "ACTIVE",
+        },
+        select: {
+          personId: true,
+          department: { select: { code: true, minInterpreterScore: true } },
+        },
+      })
+    : [];
+  const deptsByPerson = new Map<string, Array<{ code: string; minInterpreterScore: number | null }>>();
+  for (const m of memberships) {
+    deptsByPerson.set(m.personId, [...(deptsByPerson.get(m.personId) ?? []), m.department]);
+  }
 
   const records = await prisma.spanishAssessmentRecord.findMany({
     where: { personId: { in: flagged.map((f) => f.personId) } },
@@ -203,6 +236,12 @@ export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
     // The claim's own score counts as an assessment even with no history row,
     // so a score recorded in Hub before the import does not read as missing.
     const score = record?.score ?? f.score ?? null;
+    const acceptedBy = (scoreForBar: number | null) =>
+      (deptsByPerson.get(f.personId) ?? [])
+        .filter((d) => meetsInterpreterBar(scoreForBar, interpreterBarFor(d)))
+        .map((d) => d.code)
+        .sort();
+
     if (record === undefined && f.score === null) {
       out.push({
         personId: f.personId,
@@ -211,6 +250,9 @@ export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
         score: null,
         term: null,
         reason: "no-assessment",
+        // Nobody is "accepted" on a missing assessment: the question this row
+        // asks is whether the flag is real at all, which no bar can answer.
+        acceptedByDepartments: [],
       });
       continue;
     }
@@ -222,6 +264,7 @@ export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
         score,
         term: record?.term ?? null,
         reason: "below-interpreter-bar",
+        acceptedByDepartments: acceptedBy(score),
       });
     }
   }

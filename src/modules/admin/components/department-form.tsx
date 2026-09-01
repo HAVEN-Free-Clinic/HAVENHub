@@ -5,6 +5,9 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+// ./catalog, not the package root: the root imports prisma and notify, and this
+// is a presentational form that must not drag the server graph into a bundle.
+import { CLINIC_WIDE_INTERPRETER_MIN_SCORE } from "@/platform/languages/catalog";
 
 type DepartmentFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -20,6 +23,7 @@ type DepartmentFormProps = {
     | "requiresEpicVolunteer"
     | "autoRouteApplicants"
     | "hoursPerShift"
+    | "minInterpreterScore"
   >;
 };
 
@@ -77,6 +81,23 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
               min="0"
               step="0.25"
               defaultValue={department?.hoursPerShift != null ? String(department.hoursPerShift) : ""}
+            />
+          </Field>
+          <Field
+            label="Minimum interpreter score"
+            hint={`Lowest INTP Spanish proficiency score (1-5) this department will staff as an interpreter. Leave blank for the clinic-wide bar of ${CLINIC_WIDE_INTERPRETER_MIN_SCORE}. Departments that accept conversational speakers set 3. Advisory: the schedule flags a shortfall, it does not refuse the assignment.`}
+          >
+            <Input
+              name="minInterpreterScore"
+              type="number"
+              min="1"
+              max="5"
+              step="1"
+              defaultValue={
+                department?.minInterpreterScore != null
+                  ? String(department.minInterpreterScore)
+                  : ""
+              }
             />
           </Field>
         </div>

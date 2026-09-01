@@ -101,9 +101,38 @@ export function spanishScoreTone(
   score: number | null,
 ): "default" | "success" | "warning" | "critical" {
   if (score === null) return "default";
-  if (score >= 4) return "success";
-  if (score === 3) return "warning";
+  if (score >= CLINIC_WIDE_INTERPRETER_MIN_SCORE) return "success";
+  if (score === CLINIC_WIDE_INTERPRETER_MIN_SCORE - 1) return "warning";
   return "critical";
+}
+
+/**
+ * The score at which someone can interpret anywhere in the clinic.
+ *
+ * A department may set its own, lower, bar (Department.minInterpreterScore);
+ * PATS and BHVD staff conversational speakers. This is the value used when a
+ * department has not set one, and the one the language review cross-check
+ * measures a clinic-wide Spanish flag against.
+ */
+export const CLINIC_WIDE_INTERPRETER_MIN_SCORE = 4;
+
+/** The bar in force for a department: its own, or the clinic-wide one. */
+export function interpreterBarFor(
+  department: { minInterpreterScore: number | null } | null | undefined,
+): number {
+  return department?.minInterpreterScore ?? CLINIC_WIDE_INTERPRETER_MIN_SCORE;
+}
+
+/**
+ * Whether a score clears a bar.
+ *
+ * An unscored speaker is NOT below the bar: INTP has verified people for years
+ * without always writing a number down, and reading "no score" as failure would
+ * paint most of the historical roster as unqualified. Callers that need to tell
+ * the two apart check the score for null themselves.
+ */
+export function meetsInterpreterBar(score: number | null, bar: number): boolean {
+  return score === null || score >= bar;
 }
 
 /**

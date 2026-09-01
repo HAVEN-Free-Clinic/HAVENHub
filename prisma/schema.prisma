@@ -428,6 +428,21 @@ model Department {
   requiresEpicVolunteer      EpicRequirement         @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
   epicGuidance               String?
+  /// The lowest INTP Spanish proficiency score (1-5) this department will staff as
+  /// an interpreter.
+  ///
+  /// Null means "use the clinic-wide bar" (4, see languages/catalog). Departments
+  /// that accept conversational speakers set 3. Ops asked for this per-department
+  /// rather than hardcoded because the list was still moving when it was specced:
+  /// PATS and BHVD accept 3+, and LABR was undecided. A column means they can
+  /// decide without a deploy.
+  ///
+  /// ADVISORY, not a gate. It changes what the schedule shows a director, and
+  /// nothing refuses an assignment on the strength of it: the flags this reads are
+  /// themselves mid-cleanup (see the language review cross-check), and a clinic
+  /// that cannot staff a shift because a score is stale is a worse failure than a
+  /// director seeing an accurate warning and using their judgment.
+  minInterpreterScore        Int?
   /// Skip committee scoring for applicants whose FIRST choice is this department,
   /// routing them straight to its directors at submit.
   ///

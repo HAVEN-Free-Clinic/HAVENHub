@@ -9,6 +9,7 @@ import {
   type LanguageReviewRow,
 } from "@/platform/languages";
 import {
+  CLINIC_WIDE_INTERPRETER_MIN_SCORE,
   LanguageValidationError,
   SPANISH,
   SPANISH_PROFICIENCY_LEVELS,
@@ -19,7 +20,6 @@ import {
 import {
   ASSESSMENT_SEASONS,
   addPersonToSpanishHistory,
-  CLINIC_WIDE_INTERPRETER_MIN_SCORE,
   HISTORY_PAGE_SIZE,
   linkSpanishAssessmentToPerson,
   listAssessmentTerms,
@@ -578,9 +578,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
             <p className="text-sm text-muted-foreground">
               Active volunteers carrying a verified Spanish flag in Hub whose assessment does not
               back it up: either no assessment on record at all, or a most recent score below{" "}
-              {CLINIC_WIDE_INTERPRETER_MIN_SCORE}, the clinic-wide interpreting bar. A score of 1-3
-              is conversational, which some departments still staff, so nothing here is revoked
-              automatically. This is the list to work through, not a verdict.
+              {CLINIC_WIDE_INTERPRETER_MIN_SCORE}, the clinic-wide interpreting bar. A score below
+              that is conversational, which some departments still staff, so each row names the
+              person&apos;s departments that would. Nothing is revoked automatically. Set a
+              department&apos;s own bar on its page under Admin.
             </p>
           </Card>
           {mismatches.length === 0 ? (
@@ -597,6 +598,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                   <TH>Latest score</TH>
                   <TH>Assessed</TH>
                   <TH>Why it is listed</TH>
+                  <TH>Departments that still accept</TH>
                 </TR>
               </THead>
               <tbody>
@@ -625,6 +627,19 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                       {m.reason === "no-assessment"
                         ? "Flagged in Hub, never on the assessment list"
                         : `Scored below ${CLINIC_WIDE_INTERPRETER_MIN_SCORE} (conversational)`}
+                    </TD>
+                    <TD>
+                      {m.acceptedByDepartments.length === 0 ? (
+                        <span className="text-xs text-subtle-foreground">None</span>
+                      ) : (
+                        <span className="flex flex-wrap gap-1">
+                          {m.acceptedByDepartments.map((code) => (
+                            <Badge key={code} tone="success">
+                              {code}
+                            </Badge>
+                          ))}
+                        </span>
+                      )}
                     </TD>
                   </TR>
                 ))}

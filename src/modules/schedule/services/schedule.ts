@@ -21,7 +21,7 @@ import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { formatForDateInput } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { displayTodayKey } from "@/platform/dates/today";
-import { verifiedLanguagesByPerson } from "@/platform/languages";
+import { spanishScoresByPerson, verifiedLanguagesByPerson } from "@/platform/languages";
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
@@ -147,11 +147,24 @@ export type TaggedPerson = PersonLite & {
   tags: ShiftTags;
   /** Verified language codes, for the capability badges. Never self-reported. */
   verifiedLanguages: string[];
+  /**
+   * The internal INTP Spanish proficiency score, when one is on record. Drives
+   * the badge that tells a director whether this interpreter clears THEIR
+   * department bar. Staff-facing only; the schedule is not visible to the
+   * volunteer as a page about themselves.
+   */
+  spanishScore: number | null;
   licensedRN: boolean;
 };
 
 /** Department fields the full-schedule view needs (subset of Department). */
-export type DepartmentLite = { id: string; name: string; code: string };
+export type DepartmentLite = {
+  id: string;
+  name: string;
+  code: string;
+  /** This department's interpreting bar; null means the clinic-wide one. */
+  minInterpreterScore: number | null;
+};
 
 export type FullScheduleDepartment = {
   department: DepartmentLite;
@@ -432,7 +445,7 @@ export async function fullSchedule(
         remote: true,
         specialty: true,
         person: { select: { id: true, name: true, licensedRN: true } },
-        department: { select: { id: true, name: true, code: true } },
+        department: { select: { id: true, name: true, code: true, minInterpreterScore: true } },
       },
     }),
     attendanceForDate(term.id, selectedDate),
@@ -489,8 +502,10 @@ export async function fullSchedule(
   // query. This is what lets a volunteer on shift see who can interpret for a
   // patient without asking around. Verified only: a self-reported claim is not
   // a capability anyone should be relied on for at the point of care.
-  const scheduleLanguages = await verifiedLanguagesByPerson([
-    ...new Set(selectedAssignments.map((a) => a.personId)),
+  const scheduledPersonIds = [...new Set(selectedAssignments.map((a) => a.personId))];
+  const [scheduleLanguages, spanishScores] = await Promise.all([
+    verifiedLanguagesByPerson(scheduledPersonIds),
+    spanishScoresByPerson(scheduledPersonIds),
   ]);
 
   for (const a of selectedAssignments) {
@@ -501,6 +516,7 @@ export async function fullSchedule(
       name: a.person.name,
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
+      spanishScore: spanishScores.get(a.personId) ?? null,
       licensedRN: a.person.licensedRN,
     };
     if (a.role === "DIRECTOR") {

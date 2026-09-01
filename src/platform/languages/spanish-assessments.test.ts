@@ -11,7 +11,6 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { recordLanguageAssessment } from "./index";
 import {
-  CLINIC_WIDE_INTERPRETER_MIN_SCORE,
   addPersonToSpanishHistory,
   latestSpanishAssessment,
   linkSpanishAssessmentToPerson,
@@ -23,7 +22,7 @@ import {
   updateSpanishAssessment,
   upsertSpanishAssessmentForTerm,
 } from "./spanish-assessments";
-import { LanguageValidationError } from "./catalog";
+import { CLINIC_WIDE_INTERPRETER_MIN_SCORE, LanguageValidationError } from "./catalog";
 import { termRankOf } from "./assessment-terms";
 
 const ACTOR = "assess-actor";
@@ -399,6 +398,78 @@ describe("listSpanishFlagMismatches", () => {
     });
 
     expect(await listSpanishFlagMismatches()).toEqual([]);
+  });
+
+  // The row has to answer "should I pull this flag?", and the answer depends on
+  // who the person actually works for: PATS staffing conversational speakers is
+  // the whole reason a 3 is not automatically wrong.
+  describe("departments that would still staff them", () => {
+    async function activeTerm() {
+      return prisma.term.create({
+        data: {
+          code: "FA26",
+          name: "Fall 2026",
+          status: "ACTIVE",
+          startDate: new Date("2026-09-01"),
+          endDate: new Date("2026-12-31"),
+        },
+      });
+    }
+
+    async function memberOf(
+      personId: string,
+      termId: string,
+      code: string,
+      minInterpreterScore: number | null,
+    ) {
+      const dept = await prisma.department.create({
+        data: { code, name: `Dept ${code}`, minInterpreterScore },
+      });
+      await prisma.termMembership.create({
+        data: { personId, termId, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+      });
+    }
+
+    it("names a department whose own bar the score clears", async () => {
+      const t = await activeTerm();
+      const p = await verifiedSpanishSpeaker("Conversational", null);
+      await record({ personId: p.id, term: "Fall 2026", score: 3 });
+      await memberOf(p.id, t.id, "PATS", 3);
+
+      const [row] = await listSpanishFlagMismatches();
+      expect(row.acceptedByDepartments).toEqual(["PATS"]);
+    });
+
+    it("leaves out a department still on the clinic-wide bar", async () => {
+      const t = await activeTerm();
+      const p = await verifiedSpanishSpeaker("Conversational", null);
+      await record({ personId: p.id, term: "Fall 2026", score: 3 });
+      await memberOf(p.id, t.id, "MEDS", null);
+
+      const [row] = await listSpanishFlagMismatches();
+      expect(row.acceptedByDepartments).toEqual([]);
+    });
+
+    it("lists only the accepting half when the person spans both", async () => {
+      const t = await activeTerm();
+      const p = await verifiedSpanishSpeaker("Two Departments", null);
+      await record({ personId: p.id, term: "Fall 2026", score: 3 });
+      await memberOf(p.id, t.id, "PATS", 3);
+      await memberOf(p.id, t.id, "MEDS", null);
+
+      const [row] = await listSpanishFlagMismatches();
+      expect(row.acceptedByDepartments).toEqual(["PATS"]);
+    });
+
+    it("names nobody for a missing assessment, whatever the bars say", async () => {
+      const t = await activeTerm();
+      const p = await verifiedSpanishSpeaker("Unassessed", null);
+      await memberOf(p.id, t.id, "PATS", 1);
+
+      const [row] = await listSpanishFlagMismatches();
+      expect(row.reason).toBe("no-assessment");
+      expect(row.acceptedByDepartments).toEqual([]);
+    });
   });
 });
 

@@ -26,6 +26,7 @@ export default async function NewDepartmentPage() {
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
         autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
         hoursPerShift: optionalInt(formData.get("hoursPerShift")),
+        minInterpreterScore: optionalInt(formData.get("minInterpreterScore")),
       });
       redirect(`/admin/departments/${dept.id}?saved=1`);
     } catch (err) {

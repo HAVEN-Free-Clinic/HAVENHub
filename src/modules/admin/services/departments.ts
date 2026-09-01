@@ -62,6 +62,23 @@ function validateCapacity(label: string, v: number | null): number | null {
   return v;
 }
 
+/**
+ * The department's own interpreting bar, or null for "use the clinic-wide one".
+ *
+ * Bounded to the 1-5 assessment scale rather than left open: a bar of 7 would
+ * quietly mean "this department staffs nobody as an interpreter", and nothing in
+ * the UI would explain why.
+ */
+function validateInterpreterBar(v: number | null): number | null {
+  if (v === null) return null;
+  if (!Number.isInteger(v) || v < 1 || v > 5) {
+    throw new DepartmentValidationError(
+      "Minimum interpreter score must be a whole number from 1 to 5, or blank for the clinic-wide bar."
+    );
+  }
+  return v;
+}
+
 export async function createDepartment(
   actorPersonId: string,
   input: {
@@ -79,6 +96,9 @@ export async function createDepartment(
     autoRouteApplicants?: boolean;
     /** Absent → null ("not recorded"), never a guessed default. */
     hoursPerShift?: number | null;
+    /** Lowest Spanish proficiency score this department staffs as an interpreter.
+     *  Absent → null, meaning the clinic-wide bar. */
+    minInterpreterScore?: number | null;
   }
 ): Promise<Department> {
   const code = input.code.trim().toUpperCase();
@@ -96,6 +116,7 @@ export async function createDepartment(
   );
   const requiresEpicDirector = input.requiresEpicDirector ?? "NONE";
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? "NONE";
+  const minInterpreterScore = validateInterpreterBar(input.minInterpreterScore ?? null);
 
   const existing = await prisma.department.findFirst({
     where: { code: { equals: code, mode: "insensitive" } },
@@ -110,6 +131,7 @@ export async function createDepartment(
         requiresEpicDirector, requiresEpicVolunteer,
         autoRouteApplicants: input.autoRouteApplicants ?? false,
         hoursPerShift: input.hoursPerShift ?? null,
+        minInterpreterScore,
       },
     });
   } catch (err) {
@@ -134,6 +156,7 @@ export async function createDepartment(
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
+      minInterpreterScore: dept.minInterpreterScore,
     },
   });
   return dept;
@@ -157,6 +180,9 @@ export async function updateDepartment(
     /** Hours one shift is worth, for service records. Explicit null clears it
      *  back to "not recorded"; undefined leaves it untouched. */
     hoursPerShift?: number | null;
+    /** Explicit null clears it back to the clinic-wide bar; undefined leaves it
+     *  untouched, so an edit that does not touch it cannot silently reset it. */
+    minInterpreterScore?: number | null;
   }
 ): Promise<Department> {
   const before = await prisma.department.findUnique({ where: { id } });
@@ -178,10 +204,14 @@ export async function updateDepartment(
     throw new DepartmentValidationError("Hours per shift cannot be negative.");
   }
   const hoursPerShift = input.hoursPerShift === undefined ? before.hoursPerShift : input.hoursPerShift;
+  const minInterpreterScore =
+    input.minInterpreterScore === undefined
+      ? before.minInterpreterScore
+      : validateInterpreterBar(input.minInterpreterScore);
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, hoursPerShift },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, hoursPerShift, minInterpreterScore },
   });
 
   await recordAudit({
@@ -197,6 +227,7 @@ export async function updateDepartment(
       requiresEpicDirector: before.requiresEpicDirector,
       requiresEpicVolunteer: before.requiresEpicVolunteer,
       autoRouteApplicants: before.autoRouteApplicants,
+      minInterpreterScore: before.minInterpreterScore,
     },
     after: {
       name: dept.name,
@@ -206,6 +237,7 @@ export async function updateDepartment(
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
       autoRouteApplicants: dept.autoRouteApplicants,
+      minInterpreterScore: dept.minInterpreterScore,
     },
   });
   return dept;

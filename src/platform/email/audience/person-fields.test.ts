@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere } from "./person-fields";
+import { PERSON_FIELDS, PERSON_FIELD_VIEWS, countField, personFieldWhere } from "./person-fields";
 
 // Fixed clock/zone shared by tests that don't care about date behavior; kept
 // separate from date-operators.test.ts's own fixture so a change there can't
@@ -533,5 +533,21 @@ describe("personFieldWhere operator gating", () => {
       id: { in: [] },
     });
     expect(personFieldWhere({ field: "name", op: "isTrue" }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("countField", () => {
+  it("throws rather than failing closed when the count map was never loaded", () => {
+    // A missing map means resolveAudience did not run this field's loader,
+    // which is a wiring bug. Failing closed would be quietly wrong under a NONE
+    // group, where an always-false leaf excludes nobody and the people the
+    // condition was meant to remove stay in the send list.
+    const field = countField("testCount", "Test count", "Schedule", async () => new Map());
+    expect(() =>
+      field.compile(
+        { field: "testCount", op: "gte", value: "1" },
+        { activeTermId: null, now: new Date(), zone: "America/New_York" },
+      ),
+    ).toThrow(/count map/i);
   });
 });

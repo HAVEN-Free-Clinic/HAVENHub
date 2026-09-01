@@ -228,9 +228,24 @@ export function countField(
     operators: NUMBER_OPERATORS,
     compile: (cond, ctx) => {
       const counts = ctx.countsByField?.get(key);
-      // A missing map means resolveAudience did not run this field's loader,
-      // which is a wiring bug rather than an empty result. Fail closed and loudly.
-      if (!counts) return MATCH_NOBODY;
+      // A missing map means resolveAudience did not run this field's loader --
+      // a WIRING bug, not malformed user input, so this does not follow the
+      // MATCH_NOBODY convention the rest of this file uses for a bad condition
+      // value. Failing closed here would be silently wrong under a NONE group:
+      // compileGroup renders NONE as `NOT { OR: fragments } }`, and a leaf that
+      // always evaluates false never contributes to that OR, so the condition
+      // would exclude nobody -- the opposite of what a NONE group over this
+      // field is supposed to do, and a widening bug via NOT (see the invariants
+      // at the top of operators.ts). Throwing instead surfaces the bug loudly:
+      // compilePersonWhere has no surrounding try/catch, so nothing gets sent
+      // rather than sending to people who should have been filtered out. Every
+      // sibling precompute field in this file (appliedToCycle, complianceStatus,
+      // isCleared, learningComplete) already throws for the same reason.
+      if (!counts) {
+        throw new Error(
+          `${key} audience requires a precomputed count map; resolveAudience did not run its loader.`,
+        );
+      }
       return countWhere(counts, cond);
     },
   };

@@ -216,6 +216,7 @@ model Person {
   campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
   complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
+  spanishAssessments             SpanishAssessmentRecord[]
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
   /// The attending roster row this account belongs to, when this person is
@@ -1566,6 +1567,31 @@ model PersonLanguage {
   @@index([language])
 }
 
+/// Historical Spanish proficiency assessment records, covering both
+/// imported legacy data (Spring 2012 onward) and new assessments going forward.
+model SpanishAssessmentRecord {
+  id          String    @id @default(cuid())
+  /// Contact email used to match against Person records.
+  email       String
+  /// Name field for newer records that don't have an email in the spreadsheet.
+  name        String?
+  /// Numeric score 1-5. Null if the person was assessed but no score recorded.
+  score       Int?
+  /// Optional modifier: "plus", "minus", or null.
+  modifier    String?
+  /// Free-text notes from the assessor.
+  notes       String?
+  /// Term label e.g. "Spring 2026", "Summer 2012".
+  term        String
+  /// The Person this record belongs to, if they exist in Hub.
+  personId    String?
+  person      Person?   @relation(fields: [personId], references: [id])
+  /// Whether this person was verified as a Spanish speaker in Hub.
+  verified    Boolean?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
 /// A board meeting, held roughly every two weeks and attended by directors.
 ///
 /// Term-scoped because the director roster is: attendance is recorded against
@@ -1718,6 +1744,7 @@ model Attending {
   credentials      String?
   specialtyId      String?
   email            String?
+  name             String?
   phone            String?
   notes            String?
   isActive         Boolean                    @default(true)

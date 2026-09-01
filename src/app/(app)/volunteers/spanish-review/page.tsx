@@ -1,27 +1,69 @@
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
 import { listLanguageReviewQueue, recordLanguageAssessment } from "@/platform/languages";
+import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Select } from "@/platform/ui/select";
+import { Input } from "@/platform/ui/input";
 
-/**
- * Language review queue for the interpreting department.
- *
- * The route is still /volunteers/spanish-review so existing links and bookmarks
- * keep working, but the queue now covers every language rather than only
- * Spanish. Renaming the route is a separate, purely cosmetic change.
- *
- * The permission is likewise still volunteers.verify_spanish: renaming a
- * permission means re-granting it in production, and the reviewers who hold it
- * are exactly the people who should assess any language.
- */
-export default async function LanguageReviewPage() {
-  await requirePermission("volunteers.verify_spanish");
-  const rows = await listLanguageReviewQueue();
+type PageProps = {
+  searchParams: Promise<{ tab?: string; q?: string; term?: string }>;
+};
+
+export default async function LanguageReviewPage({ searchParams }: PageProps) {
+  const session = await requirePermission("volunteers.verify_spanish");
+  const sp = await searchParams;
+  const activeTab = sp.tab === "history" ? "history" : "queue";
+  const search = sp.q ?? "";
+  const termFilter = sp.term ?? "";
+
+  const canSeeHistory = await can(session.personId, "volunteers.view") ||
+    await can(session.personId, "volunteers.verify_spanish");
+
+  const rows = activeTab === "queue" ? await listLanguageReviewQueue() : [];
+
+  // All distinct terms for the dropdown, most recent first
+  const allTerms = canSeeHistory
+    ? await prisma.spanishAssessmentRecord.findMany({
+        select: { term: true },
+        distinct: ["term"],
+        orderBy: { term: "desc" },
+      })
+    : [];
+
+  // Group terms by year for the hierarchy display
+  const termsByYear = new Map<string, string[]>();
+  for (const { term } of allTerms) {
+    const year = term.split(" ")[1] ?? "Unknown";
+    if (!termsByYear.has(year)) termsByYear.set(year, []);
+    termsByYear.get(year)!.push(term);
+  }
+  const sortedYears = [...termsByYear.keys()].sort((a, b) => b.localeCompare(a));
+
+  const historyRows = activeTab === "history" && canSeeHistory
+    ? await prisma.spanishAssessmentRecord.findMany({
+        where: {
+          ...(termFilter ? { term: termFilter } : {}),
+          ...(search
+            ? {
+                OR: [
+                  { email: { contains: search, mode: "insensitive" } },
+                  { name: { contains: search, mode: "insensitive" } },
+                  { notes: { contains: search, mode: "insensitive" } },
+                  { person: { name: { contains: search, mode: "insensitive" } } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ term: "desc" }, { name: "asc" }, { email: "asc" }],
+        include: { person: { select: { name: true } } },
+      })
+    : [];
 
   async function assessAction(formData: FormData) {
     "use server";
@@ -38,62 +80,243 @@ export default async function LanguageReviewPage() {
     revalidatePath("/volunteers/spanish-review");
   }
 
+  async function updateHistoryAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const id = String(formData.get("id") ?? "");
+    const rawScore = formData.get("score");
+    const modifier = formData.get("modifier");
+    const notes = formData.get("notes");
+    const score = rawScore ? parseInt(String(rawScore), 10) : null;
+    await prisma.spanishAssessmentRecord.update({
+      where: { id },
+      data: {
+        score: score && score >= 1 && score <= 5 ? score : null,
+        modifier: modifier ? String(modifier) : null,
+        notes: notes ? String(notes) : null,
+      },
+    });
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
+  async function addTermAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const term = String(formData.get("newTerm") ?? "").trim();
+    if (!term) return;
+    // Create a placeholder record for the new term so it appears in the dropdown
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "",
+        name: `[${term} term created]`,
+        term,
+        score: null,
+        modifier: null,
+        notes: "Term placeholder -- add real assessments below",
+        verified: null,
+      },
+    });
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Language review"
-        description="Volunteers who reported speaking a language and are awaiting an interpreting-department assessment. Verifying counts them as a provider for that language in scheduling."
+        description="Volunteers who reported speaking a language and are awaiting an interpreting-department assessment."
       />
-      {rows.length === 0 ? (
-        <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No one is awaiting language review.
-        </Card>
-      ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>Name</TH>
-              <TH>Language</TH>
-              <TH>NetID</TH>
-              <TH>Email</TH>
-              <TH>Score</TH>
-              <TH>Assessment</TH>
-            </TR>
-          </THead>
-          <tbody>
-            {rows.map((r) => (
-              // One row per (person, language): someone claiming two languages
-              // is assessed on each separately.
-              <TR key={r.id}>
-                <TD className="font-medium">{r.name}</TD>
-                <TD>
-                  <Badge>{r.languageLabel}</Badge>
-                </TD>
-                <TD className="text-muted-foreground">
-                  {r.netId ?? <span className="text-subtle-foreground">-</span>}
-                </TD>
-                <TD className="text-muted-foreground">
-                  {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
-                </TD>
-                <TD className="text-muted-foreground">
-                  {r.language === "es"
-                    ? r.score
-                      ? <span className="font-medium text-foreground">{r.score}/5</span>
-                      : <span className="text-subtle-foreground">-</span>
-                    : <span className="text-subtle-foreground">N/A</span>
-                  }
-                </TD>
-                <TD>
-                  <div className="flex flex-col gap-2">
-                    {r.language === "es" && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span className="shrink-0">Score (1-5):</span>
-                        <Select
-                          name="score"
-                          form={`assess-verify-${r.id}`}
-                          defaultValue={r.score ?? ""}
-                          className="rounded border border-border bg-background px-2 py-0.5 text-sm text-foreground"
-                        >
+
+      {/* Tab nav */}
+      <div className="flex gap-1 border-b border-border">
+        <a
+          href="/volunteers/spanish-review?tab=queue"
+          className={["px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors", activeTab === "queue" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"].join(" ")}
+        >
+          Review queue
+          {rows.length > 0 && (
+            <span className="ml-2 inline-flex items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground min-w-[1.25rem]">
+              {rows.length}
+            </span>
+          )}
+        </a>
+        {canSeeHistory && (
+          <a
+            href="/volunteers/spanish-review?tab=history"
+            className={["px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors", activeTab === "history" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"].join(" ")}
+          >
+            Assessment history
+          </a>
+        )}
+      </div>
+
+      {/* Queue tab */}
+      {activeTab === "queue" && (
+        <>
+          {rows.length === 0 ? (
+            <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
+              No one is awaiting language review.
+            </Card>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Name</TH>
+                  <TH>Language</TH>
+                  <TH>NetID</TH>
+                  <TH>Email</TH>
+                  <TH>Score</TH>
+                  <TH>Assessment</TH>
+                </TR>
+              </THead>
+              <tbody>
+                {rows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-medium">{r.name}</TD>
+                    <TD><Badge>{r.languageLabel}</Badge></TD>
+                    <TD className="text-muted-foreground">
+                      {r.netId ?? <span className="text-subtle-foreground">-</span>}
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
+                    </TD>
+                    <TD className="w-20">
+                      {r.language === "es"
+                        ? r.score
+                          ? <span className="font-medium text-foreground tabular-nums">{r.score}/5</span>
+                          : <span className="text-subtle-foreground">-</span>
+                        : <span className="text-subtle-foreground">N/A</span>
+                      }
+                    </TD>
+                    <TD>
+                      <div className="flex flex-col gap-2">
+                        {r.language === "es" && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="shrink-0">Score (1-5):</span>
+                            <Select
+                              name="score"
+                              form={`assess-verify-${r.id}`}
+                              defaultValue={String(r.score ?? "")}
+                            >
+                              <option value="">-</option>
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                              <option value="4">4</option>
+                              <option value="5">5</option>
+                            </Select>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <form id={`assess-verify-${r.id}`} action={assessAction}>
+                            <input type="hidden" name="personId" value={r.personId} />
+                            <input type="hidden" name="language" value={r.language} />
+                            <input type="hidden" name="verified" value="true" />
+                            <SubmitButton variant="primary" size="sm" pendingLabel="Saving...">Verify</SubmitButton>
+                          </form>
+                          <form action={assessAction}>
+                            <input type="hidden" name="personId" value={r.personId} />
+                            <input type="hidden" name="language" value={r.language} />
+                            <input type="hidden" name="verified" value="false" />
+                            <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Not verified</SubmitButton>
+                          </form>
+                        </div>
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </>
+      )}
+
+      {/* History tab */}
+      {activeTab === "history" && canSeeHistory && (
+        <div className="space-y-6">
+          {/* Search + term filter */}
+          <div className="flex gap-3 flex-wrap">
+            <form method="GET" action="/volunteers/spanish-review" className="flex gap-3 flex-1 flex-wrap">
+              <input type="hidden" name="tab" value="history" />
+              <Input
+                name="q"
+                placeholder="Search by name or email..."
+                defaultValue={search}
+                className="flex-1 min-w-48"
+              />
+              <Select name="term" defaultValue={termFilter}>
+                <option value="">All terms</option>
+                {sortedYears.map((year) => (
+                  <optgroup key={year} label={year}>
+                    {termsByYear.get(year)!.map((term) => (
+                      <option key={term} value={term}>{term}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+              <SubmitButton variant="outline" pendingLabel="Searching...">Search</SubmitButton>
+            </form>
+
+            {/* Add new term */}
+            <form action={addTermAction} className="flex gap-2 items-center">
+              <Input
+                name="newTerm"
+                placeholder="e.g. Fall 2026"
+                className="w-36"
+              />
+              <SubmitButton variant="outline" pendingLabel="Adding...">Add term</SubmitButton>
+            </form>
+          </div>
+
+          {historyRows.length === 0 ? (
+            <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
+              No assessment records found.
+            </Card>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Name</TH>
+                  <TH>Email</TH>
+                  <TH>Term</TH>
+                  <TH className="w-16">Score</TH>
+                  <TH className="w-20">Modifier</TH>
+                  <TH>Notes</TH>
+                  <TH>Verified</TH>
+                  <TH>Edit</TH>
+                </TR>
+              </THead>
+              <tbody>
+                {historyRows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-medium">
+                      {r.person?.name ?? r.name ?? <span className="text-muted-foreground">Not in Hub</span>}
+                    </TD>
+                    <TD className="text-muted-foreground text-xs">{r.email || "-"}</TD>
+                    <TD className="text-muted-foreground whitespace-nowrap">{r.term}</TD>
+                    <TD className="w-16 tabular-nums">
+                      {r.score != null
+                        ? <span className="font-medium">{r.score}</span>
+                        : <span className="text-muted-foreground italic text-xs">Missing</span>
+                      }
+                    </TD>
+                    <TD className="w-20 text-muted-foreground">
+                      {r.modifier === "plus" ? "+" : r.modifier === "minus" ? "-" : "-"}
+                    </TD>
+                    <TD className="text-muted-foreground text-xs max-w-48 truncate">
+                      {r.notes ?? "-"}
+                    </TD>
+                    <TD>
+                      {r.verified === true
+                        ? <Badge tone="success">Verified</Badge>
+                        : r.verified === false
+                        ? <Badge tone="error">Not verified</Badge>
+                        : <span className="text-muted-foreground text-xs">-</span>
+                      }
+                    </TD>
+                    <TD>
+                      <form action={updateHistoryAction} className="flex gap-1 items-center flex-wrap">
+                        <input type="hidden" name="id" value={r.id} />
+                        <Select name="score" defaultValue={String(r.score ?? "")}>
                           <option value="">-</option>
                           <option value="1">1</option>
                           <option value="2">2</option>
@@ -101,33 +324,26 @@ export default async function LanguageReviewPage() {
                           <option value="4">4</option>
                           <option value="5">5</option>
                         </Select>
-                        {r.score && (
-                          <span className="text-xs text-muted-foreground">
-                            (previously {r.score})
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <form id={`assess-verify-${r.id}`} action={assessAction}>
-                        <input type="hidden" name="personId" value={r.personId} />
-                        <input type="hidden" name="language" value={r.language} />
-                        <input type="hidden" name="verified" value="true" />
-                        <SubmitButton variant="primary" size="sm" pendingLabel="Saving...">Verify</SubmitButton>
+                        <Select name="modifier" defaultValue={r.modifier ?? ""}>
+                          <option value="">none</option>
+                          <option value="plus">+</option>
+                          <option value="minus">-</option>
+                        </Select>
+                        <Input
+                          name="notes"
+                          defaultValue={r.notes ?? ""}
+                          placeholder="Notes..."
+                          className="w-32 text-xs"
+                        />
+                        <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Save</SubmitButton>
                       </form>
-                      <form action={assessAction}>
-                        <input type="hidden" name="personId" value={r.personId} />
-                        <input type="hidden" name="language" value={r.language} />
-                        <input type="hidden" name="verified" value="false" />
-                        <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Not verified</SubmitButton>
-                      </form>
-                    </div>
-                  </div>
-                </TD>
-              </TR>
-            ))}
-          </tbody>
-        </Table>
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </div>
       )}
     </div>
   );

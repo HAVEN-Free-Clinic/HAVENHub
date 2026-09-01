@@ -50,6 +50,7 @@ import {
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { getMemberProfileBasics } from "@/modules/volunteers/services/member-profile";
+import { prisma } from "@/platform/db";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { CalendarDate } from "@/platform/dates/display";
 
@@ -78,6 +79,13 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
   const person = await getMemberProfileBasics(personId);
   if (!person) notFound();
+    // Fetch the most recent Spanish assessment score for this person.
+  const spanishAssessment = await prisma.spanishAssessmentRecord.findFirst({
+    where: { personId },
+    orderBy: { term: "desc" },
+    select: { score: true, modifier: true, term: true, verified: true },
+  });
+  
 
   const activeTerm = await getActiveTerm();
   const [onboarding, certificates, ehsItems, courses, isManager, isAdmin] = await Promise.all([
@@ -230,10 +238,25 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                         {/* VERIFIED languages only. A self-reported claim is an
                             intake signal and must never read here as something a
                             director can staff a shift on. */}
-                        {person.verifiedLanguages.map((code) => (
-                          <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
-                            {languageLabel(code)}
-                          </Badge>
+                                                {person.verifiedLanguages.map((code) => (
+                          <span key={code} className="inline-flex items-center gap-1">
+                            <Badge tone="brand" title={`Verified: ${languageLabel(code)}`}>
+                              {languageLabel(code)}
+                            </Badge>
+                            {code === "es" && spanishAssessment?.score != null && (
+                              <Badge
+                                tone={
+                                  spanishAssessment.score >= 5 ? "success" :
+                                  spanishAssessment.score >= 4 ? "success" :
+                                  spanishAssessment.score >= 3 ? "warning" :
+                                  "error"
+                                }
+                                title={`Spanish score: ${spanishAssessment.score}${spanishAssessment.modifier === "plus" ? "+" : spanishAssessment.modifier === "minus" ? "-" : ""} (${spanishAssessment.term})`}
+                              >
+                                {spanishAssessment.score}{spanishAssessment.modifier === "plus" ? "+" : spanishAssessment.modifier === "minus" ? "-" : ""}
+                              </Badge>
+                            )}
+                          </span>
                         ))}
                       </span>
                     ) : null

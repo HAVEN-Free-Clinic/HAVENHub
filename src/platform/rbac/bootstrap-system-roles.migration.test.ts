@@ -40,6 +40,10 @@ const MIGRATION_SQL_FILES = [
   // which is a no-op here -- this database has no departments -- so it adds a
   // role and two grants and nothing else.
   "prisma/migrations/20260901120000_executive_director_directory_role/migration.sql",
+  // volunteers.view_compliance backfilled onto every role holding
+  // manage_compliance (see system-roles.ts), splitting the clinic-wide
+  // compliance read out of the manage permission.
+  "prisma/migrations/20260901140000_volunteers_view_compliance_grant/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

@@ -1,18 +1,24 @@
 /**
  * Master compliance view: all active members across the clinic in the active term.
  *
- * Access: requirePermission("volunteers.manage_compliance").
+ * Access: requireAnyPermission(["volunteers.view_compliance",
+ * "volunteers.manage_compliance"]) -- this page is a clinic-wide READ, so either
+ * half of the compliance split admits. What separates the two viewers is the
+ * controls, not the table: `isManager` below gates every write affordance (the
+ * verify button and the completion-date entry inside CertificateViewer), so a
+ * view-only holder reads the same roster with nothing to press. The server
+ * actions re-check manage_compliance through the service layer regardless, so
+ * hiding the control is presentation, not the security boundary.
  *
  * NOTE on layout/permission layering:
- *   The volunteers layout uses requireModuleAccess("volunteers") which gates on
- *   volunteers.view. The Compliance Manager role grants BOTH volunteers.view AND
- *   volunteers.manage_compliance, so holders pass both checks. This page adds a
- *   second requirePermission("volunteers.manage_compliance") call for defense in
- *   depth - someone who has volunteers.view but NOT manage_compliance would be
- *   bounced here even though the layout admitted them.
+ *   The volunteers layout uses canAccessModule("volunteers"), whose access set
+ *   includes both compliance permissions, so holders of either pass both checks.
+ *   This page still enforces its own gate for defense in depth - someone with
+ *   volunteers.view and neither compliance permission is admitted by the layout
+ *   and must be bounced here.
  */
 
-import { requirePermission } from "@/platform/auth/session";
+import { requireAnyPermission, requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
@@ -110,9 +116,13 @@ const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
 // ---------------------------------------------------------------------------
 
 export default async function MasterCompliancePage({ searchParams }: PageProps) {
-  // Page-level permission gate. The layout already requires volunteers.view;
-  // this adds manage_compliance on top of that.
-  const viewer = await requirePermission("volunteers.manage_compliance");
+  // Page-level permission gate. The layout admits on module access; this adds
+  // the clinic-wide compliance read on top of it. Either half of the split
+  // admits, because the table itself is a read.
+  const viewer = await requireAnyPermission([
+    "volunteers.view_compliance",
+    "volunteers.manage_compliance",
+  ]);
   const sp = await searchParams;
 
   const q = sp.q?.trim() || undefined;
@@ -150,6 +160,11 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
 
   // Check if viewer has admin access to link person names to admin pages
   const isAdmin = await can(viewer.personId, "admin.access");
+  // Attesting is manage-only. A view_compliance holder was admitted by the gate
+  // above for the READ, so every write affordance below hangs off this instead
+  // of being unconditionally on. The server actions enforce it again anyway;
+  // this is what stops the page offering a button that can only fail.
+  const isManager = await can(viewer.personId, "volunteers.manage_compliance");
 
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
     "use server";
@@ -415,10 +430,10 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
                               fileName={row.cert.fileName}
                               ownerName={row.person.name}
                               completionDate={row.cert.completionDate}
-                              canEditDate
+                              canEditDate={isManager}
                               canEditExistingDate={isAdmin}
                               onSetDate={setDateAction.bind(null, row.cert.id)}
-                              canVerify
+                              canVerify={isManager}
                               verified={Boolean(row.cert.verifiedAt)}
                               onVerify={verifyAction.bind(null, row.cert.id)}
                             />

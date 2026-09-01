@@ -1,9 +1,11 @@
 /**
- * Tests for canViewCertificate access control.
+ * Tests for canViewCertificate access control, and for canViewAllCompliance --
+ * the clinic-wide compliance read that rule 2 now delegates to.
  *
  * Rules:
  *   1. Self: viewer === owner -> true
- *   2. volunteers.manage_compliance permission -> true
+ *   2. the clinic-wide compliance read (volunteers.view_compliance OR
+ *      volunteers.manage_compliance) -> true
  *   3. volunteers.view permission AND viewer is ACTIVE DIRECTOR in active term
  *      in a department where owner has ACTIVE membership -> true
  *   4. Anything else -> false
@@ -12,7 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { canViewCertificate } from "./access";
+import { canViewCertificate, canViewAllCompliance, hasViewAllCompliance } from "./access";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,6 +92,18 @@ describe("canViewCertificate", () => {
   it("returns true when viewer is the owner (self access)", async () => {
     const person = await createPerson("Alice", "al001");
     expect(await canViewCertificate(person.id, person.id)).toBe(true);
+  });
+
+  it("returns true when viewer has volunteers.view_compliance, with no manage half", async () => {
+    // The read/write split: view_compliance reaches the certificate exactly as
+    // manage_compliance does. What it must NOT reach is verifyCertificate and
+    // setCompletionDateAsManager -- see compliance.test.ts, which holds that
+    // half of the boundary.
+    const viewer = await createPerson("Viewer", "vw001");
+    const owner = await createPerson("Volunteer", "vol002");
+    await grantPermission(viewer.id, "volunteers.view_compliance");
+
+    expect(await canViewCertificate(viewer.id, owner.id)).toBe(true);
   });
 
   it("returns true when viewer has volunteers.manage_compliance permission", async () => {
@@ -197,6 +211,34 @@ describe("canViewCertificate", () => {
     await createMembership(owner.id, term.id, pcar.id, "VOLUNTEER", "ACTIVE");
 
     expect(await canViewCertificate(viewer.id, owner.id)).toBe(false);
+  });
+});
+
+describe("canViewAllCompliance", () => {
+  it("admits either half of the split and nothing else", async () => {
+    const viewer = await createPerson("View Only", "vo001");
+    const manager = await createPerson("Manager Only", "mo001");
+    const director = await createPerson("Plain Director", "pd001");
+    await grantPermission(viewer.id, "volunteers.view_compliance");
+    await grantPermission(manager.id, "volunteers.manage_compliance");
+    // volunteers.view is a DEPARTMENT-scoped read. It must not open the
+    // clinic-wide one, or the split would hand every director the master view.
+    await grantPermission(director.id, "volunteers.view");
+
+    expect(await canViewAllCompliance(viewer.id)).toBe(true);
+    // Manage implies view in code, not through the engine -- this is what lets
+    // an existing Compliance Manager keep their read before the backfill runs.
+    expect(await canViewAllCompliance(manager.id)).toBe(true);
+    expect(await canViewAllCompliance(director.id)).toBe(false);
+  });
+
+  it("hasViewAllCompliance agrees with the async form", () => {
+    expect(hasViewAllCompliance(new Set(["volunteers.view_compliance"]))).toBe(true);
+    expect(hasViewAllCompliance(new Set(["volunteers.manage_compliance"]))).toBe(true);
+    // The Platform Admin wildcard, which hasPermission expands.
+    expect(hasViewAllCompliance(new Set(["*"]))).toBe(true);
+    expect(hasViewAllCompliance(new Set(["volunteers.view"]))).toBe(false);
+    expect(hasViewAllCompliance(new Set())).toBe(false);
   });
 });
 

@@ -367,6 +367,10 @@ type FlashRegistryEntry = {
 
 /** recruitment/cycles/[id]/applicants/[applicationId]/page.tsx's own route. */
 const APPLICANT_DETAIL_PATHNAME = "/recruitment/cycles/*/applicants/*";
+/** recruitment/cycles/[id]/applicants/page.tsx's own route -- the cycle roster.
+ *  One segment shorter than APPLICANT_DETAIL_PATHNAME, which is what keeps the
+ *  two apart: `*` matches exactly one segment and segment counts must be equal. */
+const APPLICANT_ROSTER_PATHNAME = "/recruitment/cycles/*/applicants";
 /** recruitment/interviews/[interviewId]/page.tsx's own route. */
 const INTERVIEW_DETAIL_PATHNAME = "/recruitment/interviews/*";
 
@@ -431,6 +435,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [APPLICANT_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Decision reopened.",
+  },
+  {
+    // recruitment/cycles/[id]/applicants/actions.ts (decideRoutedAction, outcome
+    // RETURN). Two landing pages, one wording: a recruitment lead keeps sight of
+    // the application and stays on the detail page, while a department director
+    // does not -- returning clears the routing that granted them access, so the
+    // action sends them to the cycle roster rather than into a 404. Deliberately
+    // NOT the saved=decision text above: a return records no decision, it hands
+    // the applicant back to the lead still PENDING.
+    params: ["saved"],
+    matchValues: { saved: "returned" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME, APPLICANT_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Returned to the recruitment lead for re-routing.",
   },
   {
     // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:263 and

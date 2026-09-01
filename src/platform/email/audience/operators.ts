@@ -272,22 +272,34 @@ function startOfDay(day: string, zone: string): Date | null {
   return parseZonedInput(`${raw}T00:00`, zone);
 }
 
+/**
+ * The calendar day `days` after `day` (a "YYYY-MM-DD" string).
+ *
+ * Deliberately pure calendar arithmetic with no zone involved: adding 24 hours
+ * to an instant is NOT the same as adding a day, because a DST fall-back day is
+ * 25 hours long and a spring-forward day is 23. Doing it on the date itself
+ * sidesteps that entirely, and parseZonedInput then resolves the resulting
+ * midnight correctly whichever side of a transition it lands on.
+ */
+function shiftDay(day: string, days: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const shifted = new Date(Date.UTC(y, m - 1, d + days));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
 /** The instant at which the day AFTER `day` begins in `zone`. */
 function startOfNextDay(day: string, zone: string): Date | null {
-  const start = startOfDay(day, zone);
-  if (!start) return null;
-  // Add 24h then re-normalise through the zone, so a DST transition inside the
-  // added day does not leave the boundary an hour off.
-  const approx = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  const { y, m, d } = localDayParts(approx, zone);
-  return parseZonedInput(`${y}-${m}-${d}T00:00`, zone);
+  const raw = day.trim();
+  if (!DATE_RE.test(raw)) return null;
+  return parseZonedInput(`${shiftDay(raw, 1)}T00:00`, zone);
 }
 
 /** Shifts `now` by whole days and returns the local start of that day. */
 function startOfDayOffsetFromNow(now: Date, days: number, zone: string): Date | null {
-  const shifted = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-  const { y, m, d } = localDayParts(shifted, zone);
-  return parseZonedInput(`${y}-${m}-${d}T00:00`, zone);
+  // Today's calendar date IN ZONE first, then calendar arithmetic on it.
+  const { y, m, d } = localDayParts(now, zone);
+  return parseZonedInput(`${shiftDay(`${y}-${m}-${d}`, days)}T00:00`, zone);
 }
 
 /**

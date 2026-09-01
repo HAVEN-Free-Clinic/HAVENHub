@@ -89,4 +89,30 @@ describe("dateWhere", () => {
     // March 1 is still EST (UTC-5), so local midnight is 05:00Z.
     expect(w).toEqual({ expiresAt: { gte: new Date("2026-03-01T05:00:00.000Z") } });
   });
+
+  it("crosses a DST fall-back boundary correctly", () => {
+    // 2026-11-01 is the US fall-back date, so that LOCAL day is 25 hours long.
+    // Adding 24h to its midnight lands back inside the same day, which silently
+    // made `after` include a day it must exclude. Nov 1 is EDT (UTC-4) at
+    // midnight; Nov 2 is EST (UTC-5), so its midnight is 05:00Z.
+    const ctx = { now: new Date("2026-11-01T18:00:00.000Z"), zone: "America/New_York" };
+    expect(dateWhere("expiresAt", cond("after", "2026-11-01"), ctx)).toEqual({
+      expiresAt: { gte: new Date("2026-11-02T05:00:00.000Z") },
+    });
+    expect(dateWhere("expiresAt", cond("onOrBefore", "2026-11-01"), ctx)).toEqual({
+      expiresAt: { lt: new Date("2026-11-02T05:00:00.000Z") },
+    });
+  });
+
+  it("crosses a DST fall-back boundary correctly in a relative window", () => {
+    // Same fall-back day, but anchored as `now` itself at local midnight, which
+    // is the shape that broke the window operators: adding 24 real hours to a
+    // 25-hour local day landed back on the SAME day, making `withinNextDays`
+    // compile a `lt` equal to its own `gte` (an inverted, always-empty range).
+    const ctx = { now: new Date("2026-11-01T04:00:00.000Z"), zone: "America/New_York" };
+    const w = dateWhere("expiresAt", cond("withinNextDays", "0"), ctx);
+    expect(w).toEqual({
+      expiresAt: { gte: ctx.now, lt: new Date("2026-11-02T05:00:00.000Z") },
+    });
+  });
 });

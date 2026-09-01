@@ -87,6 +87,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
 
   const seatTotal = breakdown.reduce((sum, row) => sum + row.total, 0);
   const hasFilters = Boolean(q || departmentId || kind);
+  const showsOtherSeats = people.rows.some((p) => p.otherSeats.length > 0);
 
   function hrefFor(targetPage: number): string {
     const params = new URLSearchParams();
@@ -254,6 +255,20 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           />
         </div>
 
+        {/* Without this, the "also" lines read as a filter that leaks: the row
+            was selected on one department and is showing another. Say once that
+            they are context, not matches. Rendered only when a row actually has
+            one, so an unfiltered roster carries no caveat about a case it does
+            not have. */}
+        {showsOtherSeats && (
+          <p className="mt-2 text-xs text-subtle-foreground">
+            Some of these people also serve outside these filters. Their other
+            departments are listed under &quot;also&quot;, with the role held
+            there, so a two-department member does not read as a one-department
+            member.
+          </p>
+        )}
+
         <div className="mt-3 overflow-x-auto">
           <Table>
             <THead>
@@ -266,6 +281,14 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
             <tbody>
               {people.rows.map((p) => {
                 const codes = [...new Set(p.seats.map((s) => s.departmentCode))];
+                // The seats the filter did not select, each labeled with the
+                // role held there. The Role column can only speak for the
+                // matched seats, so this line is the only place a Nursing
+                // director's Triage volunteering survives a Nursing filter.
+                const alsoIn = p.otherSeats.map(
+                  (s) =>
+                    `${s.departmentCode} (${s.kind === "DIRECTOR" ? "Director" : "Volunteer"})`,
+                );
                 const isDirector = p.seats.some((s) => s.kind === "DIRECTOR");
                 const isVolunteer = p.seats.some((s) => s.kind === "VOLUNTEER");
                 return (
@@ -289,7 +312,14 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                           "No contact details on file"}
                       </span>
                     </TD>
-                    <TD className="text-sm text-foreground-soft">{codes.join(", ")}</TD>
+                    <TD className="text-sm text-foreground-soft">
+                      {codes.join(", ")}
+                      {alsoIn.length > 0 && (
+                        <span className="block text-xs text-subtle-foreground">
+                          also {alsoIn.join(", ")}
+                        </span>
+                      )}
+                    </TD>
                     <TD>
                       <div className="flex flex-wrap gap-1">
                         {isDirector && <Badge tone="brand">Director</Badge>}

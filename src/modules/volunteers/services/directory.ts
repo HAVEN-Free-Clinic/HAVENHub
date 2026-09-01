@@ -63,14 +63,22 @@ export type DepartmentBreakdownRow = {
   total: number;
 };
 
+export type DirectorySeat = { departmentCode: string; kind: "DIRECTOR" | "VOLUNTEER" };
+
 export type DirectoryPerson = {
   id: string;
   name: string;
   netId: string | null;
   contactEmail: string | null;
   phone: string | null;
-  /** One entry per seat this person holds this term, department code ascending. */
-  seats: { departmentCode: string; kind: "DIRECTOR" | "VOLUNTEER" }[];
+  /** The seats that MATCHED the filters, department code ascending. With no
+   *  department or role filter that is every seat this person holds. */
+  seats: DirectorySeat[];
+  /** The rest of this person's seats this term -- the ones the filters did not
+   *  select. Filtering to Nursing must not make a Nursing director who also
+   *  volunteers in Triage look like a one-department person, so the other seats
+   *  come back too, for the page to show as context rather than as matches. */
+  otherSeats: DirectorySeat[];
 };
 
 export type DirectoryAttending = {
@@ -226,45 +234,59 @@ function peopleWhere(termId: string, filters: DirectoryFilters) {
 }
 
 /**
- * The seat selector, matching `peopleWhere`'s membership filter.
+ * The seat selector: EVERY on-roster seat this person holds this term, whatever
+ * the filters say.
  *
- * It has to be applied to the nested read as well as the outer `where`: the
- * outer clause decides WHICH PEOPLE come back, the nested one decides WHICH
- * SEATS are shown for them. Without it, filtering to one department returned
- * the right people but listed all of their departments, so a Nursing filter
- * quietly displayed each person's Triage seat too.
+ * The outer `where` decides which PEOPLE come back; this nested read decides how
+ * much of each person is visible, and those are different questions. Mirroring
+ * the department filter here once looked tidier -- a Nursing filter listing
+ * someone's Triage seat reads like a leak -- but it hid the fact worth seeing:
+ * under a department filter every row showed exactly one department, so the
+ * people serving in two became indistinguishable from the people serving in one.
+ *
+ * So seats come back whole and `toDirectoryPerson` splits them into the ones
+ * that matched and the ones that did not, leaving the page (and the CSV) to
+ * decide how to draw the difference.
  */
-function seatSelect(termId: string, filters: DirectoryFilters) {
+function seatSelect(termId: string) {
   return {
-    where: {
-      termId,
-      ...ON_ROSTER,
-      ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
-      ...(filters.kind ? { kind: filters.kind } : {}),
-    },
-    select: { kind: true, department: { select: { code: true } } },
+    where: { termId, ...ON_ROSTER },
+    select: { kind: true, departmentId: true, department: { select: { code: true } } },
     orderBy: [{ department: { code: "asc" as const } }],
   };
 }
 
-function toDirectoryPerson(row: {
-  id: string;
-  name: string;
-  netId: string | null;
-  contactEmail: string | null;
-  phone: string | null;
-  memberships: { kind: string; department: { code: string } }[];
-}): DirectoryPerson {
+function toDirectoryPerson(
+  row: {
+    id: string;
+    name: string;
+    netId: string | null;
+    contactEmail: string | null;
+    phone: string | null;
+    memberships: { kind: string; departmentId: string; department: { code: string } }[];
+  },
+  filters: DirectoryFilters,
+): DirectoryPerson {
+  // Exactly the predicate `seatSelect` used to push into SQL, applied in memory
+  // now that both halves are wanted. Keep the two in step: a seat matches iff it
+  // is one of the seats that could have put this person in the result set.
+  const isMatch = (m: { kind: string; departmentId: string }) =>
+    (!filters.departmentId || m.departmentId === filters.departmentId) &&
+    (!filters.kind || m.kind === filters.kind);
+
+  const toSeat = (m: { kind: string; department: { code: string } }): DirectorySeat => ({
+    departmentCode: m.department.code,
+    kind: m.kind as "DIRECTOR" | "VOLUNTEER",
+  });
+
   return {
     id: row.id,
     name: row.name,
     netId: row.netId,
     contactEmail: row.contactEmail,
     phone: row.phone,
-    seats: row.memberships.map((m) => ({
-      departmentCode: m.department.code,
-      kind: m.kind as "DIRECTOR" | "VOLUNTEER",
-    })),
+    seats: row.memberships.filter(isMatch).map(toSeat),
+    otherSeats: row.memberships.filter((m) => !isMatch(m)).map(toSeat),
   };
 }
 
@@ -287,7 +309,7 @@ export async function directoryPeople(
         netId: true,
         contactEmail: true,
         phone: true,
-        memberships: seatSelect(termId, filters),
+        memberships: seatSelect(termId),
       },
       orderBy: { name: "asc" },
       skip: (page - 1) * pageSize,
@@ -295,7 +317,7 @@ export async function directoryPeople(
     }),
   ]);
   return {
-    rows: rows.map(toDirectoryPerson),
+    rows: rows.map((r) => toDirectoryPerson(r, filters)),
     total,
     page,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
@@ -317,11 +339,11 @@ export async function directoryPeopleAll(
       netId: true,
       contactEmail: true,
       phone: true,
-      memberships: seatSelect(termId, filters),
+      memberships: seatSelect(termId),
     },
     orderBy: { name: "asc" },
   });
-  return rows.map(toDirectoryPerson);
+  return rows.map((r) => toDirectoryPerson(r, filters));
 }
 
 /** Active attendings, ordered by name. Faculty hold no membership and belong to

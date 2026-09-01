@@ -21,6 +21,7 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
+import { getScope } from "@/platform/email/audience/scopes";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -107,6 +108,9 @@ export default async function CampaignEditorPage({ params }: Props) {
     terms: audienceTerms,
     cycles: audienceCycles,
   } = await loadAudienceBuilderOptions(parsedAudience);
+
+  const boundScope = campaign.scopeId ? await getScope(campaign.scopeId) : null;
+  const scopeName = boundScope?.name ?? "a deleted scope";
 
   const zone = await getDisplayTimeZone();
 
@@ -329,6 +333,12 @@ export default async function CampaignEditorPage({ params }: Props) {
           {/* Section 2: Audience */}
           <div className="border-t border-border pt-6 space-y-4">
             <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
+            {campaign.scopeId && (
+              <Alert tone="info">
+                This campaign is bounded by the <strong>{scopeName}</strong> scope. Recipients are
+                the people matching BOTH that scope and the conditions below.
+              </Alert>
+            )}
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
               departments={audienceDepartments}

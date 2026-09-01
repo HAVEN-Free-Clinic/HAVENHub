@@ -1,24 +1,33 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/platform/auth/session";
-import { createDraft } from "@/platform/email/campaigns/service";
+import { can } from "@/platform/rbac/engine";
+import { createDraft, assertMayActOnScope } from "@/platform/email/campaigns/service";
+import { scopesForPerson } from "@/platform/email/audience/scopes";
 import { CAMPAIGN_STARTERS } from "@/platform/email/campaigns/starters";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
+import { Select } from "@/platform/ui/select";
 import { FormActions } from "@/platform/ui/form";
 
 export default async function NewCampaignPage() {
-  await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  const unrestricted = await can(actor.personId, "outreach.send_unrestricted");
+  const scopes = await scopesForPerson(actor.personId);
 
   async function createAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const starterId = ((formData.get("starter") as string | null) ?? "").trim();
+    const scopeId = ((formData.get("scopeId") as string | null) ?? "").trim() || null;
+    await assertMayActOnScope(actor.personId, scopeId);
     const c = await createDraft(actor.personId, name, {
       starterId: starterId || undefined,
+      scopeId,
     });
     redirect(`/outreach/campaigns/${c.id}`);
   }
@@ -39,6 +48,21 @@ export default async function NewCampaignPage() {
               placeholder="e.g. Spring 2026 reminder"
             />
           </Field>
+
+          <Field label="Audience scope">
+            <Select name="scopeId" required={!unrestricted} defaultValue="">
+              {unrestricted && <option value="">No scope (everyone)</option>}
+              {scopes.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </Select>
+          </Field>
+          {!unrestricted && scopes.length === 0 && (
+            <Alert tone="warning">
+              You have not been granted an audience scope, so you cannot send yet. Ask an
+              administrator to grant you one.
+            </Alert>
+          )}
 
           <RadioGroup legend="Start from">
             <Radio

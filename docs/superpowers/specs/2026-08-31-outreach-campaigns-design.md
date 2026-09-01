@@ -110,9 +110,25 @@ granted to any role they hold. `EmailCampaign` gains a nullable `scopeId`;
 `outreach.send`. A person holding both may choose a scope or send unscoped, so
 the two are resolved as: a null `scopeId` is permitted only for
 `outreach.send_unrestricted`, and a non-null `scopeId` is permitted only if that
-scope is granted to the sender or the sender is unrestricted. Every send
-re-checks both, because a campaign can be scheduled under one permission set and
-dispatched after it changes.
+scope is granted to the sender or the sender is unrestricted.
+
+**Every INTERACTIVE send re-checks both**, because a campaign can be scheduled
+under one permission set and dispatched after it changes. Cron dispatch is
+deliberately weaker, and Phase 1 ships it that way: `executeRun` resolves
+recipients through the same scope intersection, so a scheduled campaign still
+cannot exceed its scope and a scope narrowed after scheduling narrows the
+campaign, but it does not re-check that the creator still holds their permission
+or their grant. The residual exposure is a recurring campaign that keeps mailing
+*within its scope* after its author's access is revoked, which an admin can
+cancel.
+
+This is a product decision, not a technical limit. An earlier draft justified it
+by pointing at `EmailCampaign.createdById` being SetNull on person delete, as
+though a fail-closed re-check would cancel campaigns whose author was offboarded.
+That reasoning is wrong: a null `createdById` is fully distinguishable from "the
+creator still exists and no longer qualifies", so a re-check that skips the null
+case was always available. The open question is what revocation *should* do to
+already-scheduled campaigns, and that is deferred rather than blocked.
 
 ### Enforcement seam
 

@@ -28,4 +28,7 @@ uploads/
 # Design system reference bundle (local-only; not app source)
 HAVEN Free Clinic Design System/
 .vercel
+# One-off import sources (volunteer PII: names, emails, assessment scores).
+# scripts/import-*.ts read from here; ask the owning department for the current
+# export rather than committing one.
 prisma/seeds/

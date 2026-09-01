@@ -1567,22 +1567,33 @@ model PersonLanguage {
   @@index([language])
 }
 
-/// Historical Spanish proficiency assessment records, covering both
-/// imported legacy data (Spring 2012 onward) and new assessments going forward.
+/// One INTP Spanish proficiency assessment, of one person, in one term. Covers
+/// both imported legacy rows (Spring 2012 onward) and new assessments recorded
+/// on the language review page.
+///
+/// This is the assessment HISTORY. The CURRENT score is denormalized onto
+/// PersonLanguage.score, which is what scheduling and the profile badge read;
+/// recordLanguageAssessment writes both so they cannot drift apart.
 model SpanishAssessmentRecord {
   id          String    @id @default(cuid())
-  /// Contact email used to match against Person records.
+  /// Contact email as it appeared in the assessment list. Empty string for rows
+  /// entered in Hub, where personId is the identity instead.
   email       String
-  /// Name field for newer records that don't have an email in the spreadsheet.
+  /// Name as it appeared in the assessment list, for rows the list identified by
+  /// name rather than email (2019 onward). Display fallback when personId is null.
   name        String?
   /// Numeric score 1-5. Null if the person was assessed but no score recorded.
   score       Int?
-  /// Optional modifier: "plus", "minus", or null.
+  /// Optional modifier carried by imported rows written as "3+" or "3-".
+  /// New assessments record a plain 1-5 and leave this null.
   modifier    String?
   /// Free-text notes from the assessor.
   notes       String?
-  /// Term label e.g. "Spring 2026", "Summer 2012".
+  /// Term label e.g. "Spring 2026", "Summer 2012". Display only.
   term        String
+  /// Sortable form of `term` (year * 10 + season). ALWAYS order on this, never
+  /// on `term`: see platform/languages/assessment-terms.ts for why.
+  termRank    Int       @default(0)
   /// The Person this record belongs to, if they exist in Hub.
   personId    String?
   person      Person?   @relation(fields: [personId], references: [id])
@@ -1590,6 +1601,13 @@ model SpanishAssessmentRecord {
   verified    Boolean?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  /// One assessment per person per term: the review page upserts on this rather
+  /// than find-then-create, which raced two reviewers into duplicate rows.
+  @@unique([personId, term])
+  @@index([personId, termRank])
+  @@index([termRank])
+  @@index([email])
 }
 
 /// A board meeting, held roughly every two weeks and attended by directors.
@@ -1744,7 +1762,6 @@ model Attending {
   credentials      String?
   specialtyId      String?
   email            String?
-  name             String?
   phone            String?
   notes            String?
   isActive         Boolean                    @default(true)

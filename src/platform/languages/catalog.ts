@@ -48,6 +48,65 @@ export const LANGUAGES = [
 export type LanguageCode = (typeof LANGUAGES)[number]["code"];
 
 /**
+ * Spanish is the one language the interpreting department scores, because it is
+ * the one they run a formal 1-5 assessment for. Named rather than spelled "es"
+ * inline so the coupling is greppable if a second language ever gets one.
+ */
+export const SPANISH = "es";
+
+/**
+ * The INTP proficiency scale. INTERNAL: this score is not shown to the volunteer
+ * it describes, per the interpreting directors' decision. It appears on the
+ * language review page and on a member's profile, both of which are gated to
+ * staff, and nowhere on /my-info.
+ *
+ * 4 or 5 is the clinic-wide interpreting bar. 1-3 is conversational, which some
+ * departments staff and some do not; that call is theirs to make from the number,
+ * so nothing here turns the score into a hard gate.
+ */
+export const SPANISH_PROFICIENCY_LEVELS = [
+  { score: 1, label: "Almost none" },
+  { score: 2, label: "Some" },
+  { score: 3, label: "Conversational" },
+  { score: 4, label: "Fluent" },
+  { score: 5, label: "Native" },
+] as const;
+
+const SPANISH_LABEL_BY_SCORE = new Map<number, string>(
+  SPANISH_PROFICIENCY_LEVELS.map((l) => [l.score, l.label]),
+);
+
+/** "Conversational" for 3. Empty string for no score, so it can render inline. */
+export function spanishProficiencyLabel(score: number | null): string {
+  return score === null ? "" : (SPANISH_LABEL_BY_SCORE.get(score) ?? "");
+}
+
+/**
+ * The badge text for a score: "4", or "3+" when an imported row carried a
+ * modifier. "Not scored" reads better than an empty chip when INTP assessed
+ * someone but never wrote a number down, which the older rows often did.
+ */
+export function formatSpanishScore(score: number | null, modifier: string | null): string {
+  if (score === null) return "Not scored";
+  const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+  return `${score}${mod}`;
+}
+
+/**
+ * Badge tone for a score. Split at the clinic-wide interpreting bar: 4-5 reads
+ * as cleared, 3 as the conversational middle a department may still staff, 1-2
+ * as below it.
+ */
+export function spanishScoreTone(
+  score: number | null,
+): "default" | "success" | "warning" | "critical" {
+  if (score === null) return "default";
+  if (score >= 4) return "success";
+  if (score === 3) return "warning";
+  return "critical";
+}
+
+/**
  * The application form's language question. Standard across every cycle and
  * guarded at publish, because the answers feed the verification queue and that
  * only works if the question has the same key, type, and options everywhere.

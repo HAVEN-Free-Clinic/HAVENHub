@@ -1,6 +1,7 @@
-import { Prisma, type Track } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { effectivePermissionHolderIds } from "./permission-holders";
 
 /**
  * Last-admin invariant (platform-level, shared).
@@ -30,84 +31,22 @@ export class LastAdminError extends Error {
   }
 }
 
-/** Permissions that confer access to the admin module. */
-const ADMIN_CONFERRING = ["*", "admin.access"];
-
 /**
- * The set of ACTIVE person ids who effectively hold an admin-conferring grant
- * ("*" or "admin.access"), computed the way the RBAC engine resolves
- * permissions (see getEffectivePermissions):
- *  - only assignments the engine honors count (termId null, i.e. global, or
- *    scoped to the ACTIVE term); assignments scoped to a non-active/archived
- *    term confer nothing;
- *  - department- and kind-scoped grants resolve through ACTIVE memberships in
- *    the ACTIVE term;
- *  - only ACTIVE people can authenticate (getActivePerson returns null for any
- *    non-ACTIVE status), so offboarded holders do not count.
+ * The set of ACTIVE person ids who effectively hold admin.access (or the "*"
+ * wildcard, which effectivePermissionHolderIds folds in).
  *
- * Accepts an explicit client so the resolution can run inside an interactive
- * (Serializable) transaction, and an optional excludeAssignmentId so a caller
- * can ask "who would still be admin if THIS assignment were gone" without
- * deleting it first. activeTerm is passed in (rather than fetched here) to match
- * the surrounding "read the active term once, use it inside the tx" pattern.
+ * The resolution rules live in effectivePermissionHolderIds, which this used to
+ * implement inline for admin.access alone. Any other caller asking "who holds
+ * permission X" gets the same term scoping, department/kind resolution, and
+ * ACTIVE-person filter from that one place rather than reinventing a weaker
+ * version of it.
  */
 async function effectiveActiveAdminPersonIds(
   client: Prisma.TransactionClient,
   activeTerm: { id: string } | null,
   opts: { excludeAssignmentId?: string } = {}
 ): Promise<Set<string>> {
-  const adminGrants = await client.roleGrant.findMany({
-    where: { permission: { in: ADMIN_CONFERRING } },
-    select: { roleId: true },
-  });
-  const roleIds = [...new Set(adminGrants.map((g) => g.roleId))];
-  if (roleIds.length === 0) return new Set();
-
-  const assignments = await client.roleAssignment.findMany({
-    where: {
-      roleId: { in: roleIds },
-      OR: [{ termId: null }, ...(activeTerm ? [{ termId: activeTerm.id }] : [])],
-      // id is a non-null primary key, so `not` is safe here (no NULL-drop hazard).
-      ...(opts.excludeAssignmentId ? { id: { not: opts.excludeAssignmentId } } : {}),
-    },
-    select: { personId: true, departmentId: true, kind: true },
-  });
-
-  const personIds = new Set<string>();
-  const departmentIds = new Set<string>();
-  const kinds = new Set<Track>();
-  for (const a of assignments) {
-    if (a.personId) personIds.add(a.personId);
-    if (a.departmentId) departmentIds.add(a.departmentId);
-    if (a.kind) kinds.add(a.kind);
-  }
-
-  // Department- and kind-scoped admin grants resolve through ACTIVE memberships
-  // in the ACTIVE term (mirrors engine.ts). With no active term there are no
-  // such members.
-  if (activeTerm && (departmentIds.size > 0 || kinds.size > 0)) {
-    const memberships = await client.termMembership.findMany({
-      where: {
-        termId: activeTerm.id,
-        status: "ACTIVE",
-        OR: [
-          ...(departmentIds.size ? [{ departmentId: { in: [...departmentIds] } }] : []),
-          ...(kinds.size ? [{ kind: { in: [...kinds] } }] : []),
-        ],
-      },
-      select: { personId: true },
-    });
-    for (const m of memberships) personIds.add(m.personId);
-  }
-
-  if (personIds.size === 0) return new Set();
-
-  // Only ACTIVE people can authenticate into the admin module.
-  const active = await client.person.findMany({
-    where: { id: { in: [...personIds] }, status: "ACTIVE" },
-    select: { id: true },
-  });
-  return new Set(active.map((p) => p.id));
+  return effectivePermissionHolderIds(client, "admin.access", activeTerm, opts);
 }
 
 /**

@@ -2,6 +2,7 @@ import type { Prisma, Track, TechRequestStatus, EpicRequestStatus } from "@prism
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
+import { LANGUAGES } from "@/platform/languages";
 import type { DisplayTimeZone } from "@/platform/dates/zone";
 import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
 import {
@@ -745,6 +746,72 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   countField("attendanceCountThisTerm", "Clinic days attended this term", "Schedule", attendanceCountThisTerm),
   countField("noShowCountThisTerm", "Assigned shifts not attended", "Schedule", noShowCountThisTerm),
   countField("upcomingShiftCount", "Upcoming assigned shifts", "Schedule", upcomingShiftCount),
+  {
+    key: "speaksLanguage",
+    label: "Speaks a language (verified)",
+    group: "Attributes",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    options: LANGUAGES.map((l) => ({ value: l.code, label: l.label })),
+    // Generalises spanishVerified to the full catalog: same `verified: true` +
+    // `verifiedAt: { not: null }` pair (verified alone is meaningless -- see the
+    // PersonLanguage.verified schema comment -- because verified: false WITH
+    // verifiedAt set means "assessed and did not pass"), now over an `in` set of
+    // language codes instead of a bare "es".
+    compile: (cond) => {
+      const filter = stringSetFilter(
+        cond,
+        LANGUAGES.map((l) => l.code),
+      );
+      if (!filter) return MATCH_NOBODY;
+      const verifiedIn = (languages: string[]) => ({
+        language: { in: languages },
+        verified: true,
+        verifiedAt: { not: null },
+      });
+      // `none`, not `some: { verified: false }`: excluding a language must also
+      // exclude everyone with no language row at all, not only those assessed
+      // and failed in it -- the same invariant spanishVerified's isFalse branch
+      // documents.
+      if ("notIn" in filter) return { languages: { none: verifiedIn(filter.notIn) } };
+      return { languages: { some: verifiedIn(filter.in) } };
+    },
+  },
+  {
+    key: "claimsLanguage",
+    label: "Claims a language (self-reported)",
+    group: "Attributes",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    options: LANGUAGES.map((l) => ({ value: l.code, label: l.label })),
+    // Generalises spanishSelfReported the same way: an intake claim, never a
+    // qualification, so no `verified`/`verifiedAt` check at all.
+    compile: (cond) => {
+      const filter = stringSetFilter(
+        cond,
+        LANGUAGES.map((l) => l.code),
+      );
+      if (!filter) return MATCH_NOBODY;
+      const selfReportedIn = (languages: string[]) => ({
+        language: { in: languages },
+        selfReported: true,
+      });
+      if ("notIn" in filter) return { languages: { none: selfReportedIn(filter.notIn) } };
+      return { languages: { some: selfReportedIn(filter.in) } };
+    },
+  },
+  {
+    key: "hasServiceCredential",
+    label: "Has a service credential",
+    group: "Volunteers",
+    kind: "boolean",
+    operators: BOOLEAN_OPERATORS,
+    // Person.serviceCredential is a nullable one-to-one, not a list, so this is
+    // a plain relation-presence check rather than a some/none over rows.
+    compile: (cond) => ({
+      serviceCredential: cond.op === "isTrue" ? { isNot: null } : { is: null },
+    }),
+  },
 ];
 
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {

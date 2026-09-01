@@ -34,6 +34,7 @@ describe("person fields", () => {
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
       "hipaaCompletedAt", "hipaaVerifiedAt", "ehsCompletedAt", "trainingCompletedAt", "joinedAt",
       "shiftCountThisTerm", "attendanceCountThisTerm", "noShowCountThisTerm", "upcomingShiftCount",
+      "speaksLanguage", "claimsLanguage", "hasServiceCredential",
     ]);
   });
 
@@ -225,6 +226,70 @@ describe("booleans and relations", () => {
     });
     expect(personFieldWhere({ field: "hasDisciplinaryAction", op: "isFalse" }, ctx)).toEqual({
       disciplinaryActions: { none: {} },
+    });
+  });
+});
+
+describe("membership detail fields", () => {
+  // Generalises spanishVerified/spanishSelfReported to the full language
+  // catalog. Same shape, `language` now an `in` set rather than a bare "es".
+  it("speaksLanguage -> some/none verified rows for the selected languages", () => {
+    const verifiedSet = { language: { in: ["es", "fr"] }, verified: true, verifiedAt: { not: null } };
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in", value: ["es", "fr"] }, ctx)).toEqual({
+      languages: { some: verifiedSet },
+    });
+    // `none`, not `some: { verified: false }`: excluding "es" must also exclude
+    // nobody who has no language row at all, not only those assessed and failed
+    // in "es". Matches the invariant spanishVerified's isFalse branch documents.
+    expect(personFieldWhere({ field: "speaksLanguage", op: "notIn", value: ["es", "fr"] }, ctx)).toEqual({
+      languages: { none: verifiedSet },
+    });
+  });
+
+  it("speaksLanguage -> an empty selection matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in", value: [] }, ctx)).toEqual({
+      id: { in: [] },
+    });
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in" }, ctx)).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("speaksLanguage -> drops codes outside the catalog rather than passing them to Prisma", () => {
+    expect(
+      personFieldWhere({ field: "speaksLanguage", op: "in", value: ["es", "not-a-language"] }, ctx),
+    ).toEqual({
+      languages: { some: { language: { in: ["es"] }, verified: true, verifiedAt: { not: null } } },
+    });
+    // Every value invalid -> nothing survives the allowlist -> match nobody.
+    expect(
+      personFieldWhere({ field: "speaksLanguage", op: "in", value: ["not-a-language"] }, ctx),
+    ).toEqual({ id: { in: [] } });
+  });
+
+  it("claimsLanguage -> some/none self-reported rows for the selected languages", () => {
+    expect(personFieldWhere({ field: "claimsLanguage", op: "in", value: ["es"] }, ctx)).toEqual({
+      languages: { some: { language: { in: ["es"] }, selfReported: true } },
+    });
+    expect(personFieldWhere({ field: "claimsLanguage", op: "notIn", value: ["es"] }, ctx)).toEqual({
+      languages: { none: { language: { in: ["es"] }, selfReported: true } },
+    });
+  });
+
+  it("claimsLanguage -> an empty selection matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "claimsLanguage", op: "in", value: [] }, ctx)).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("hasServiceCredential -> relation presence, not a some/none over a list", () => {
+    // Person.serviceCredential is a nullable one-to-one, so this is a plain
+    // is/isNot check, unlike the list-shaped relations above.
+    expect(personFieldWhere({ field: "hasServiceCredential", op: "isTrue" }, ctx)).toEqual({
+      serviceCredential: { isNot: null },
+    });
+    expect(personFieldWhere({ field: "hasServiceCredential", op: "isFalse" }, ctx)).toEqual({
+      serviceCredential: { is: null },
     });
   });
 });

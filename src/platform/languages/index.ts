@@ -196,10 +196,82 @@ export async function claimLanguage(
   await client.personLanguage.upsert({
     where: { personId_language: { personId, language } },
     create: { personId, language, selfReported: true },
-    // Only the claim flag: an existing assessment must survive the person
-    // re-stating the claim at a later intake.
     update: { selfReported: true },
   });
+
+  // Notify INTP directors (volunteers.verify_spanish holders) that a new
+  // language claim needs review. Best-effort -- never block the claim itself.
+  try {
+    await notifyIntpDirectorsOfClaim(personId, language);
+  } catch (err) {
+    log.error(
+      "[languages] failed to notify INTP directors of language claim",
+      errorAttrs(err, { personId, language }),
+    );
+  }
+}
+
+async function notifyIntpDirectorsOfClaim(
+  personId: string,
+  language: string,
+): Promise<void> {
+  const [claimant, baseUrl] = await Promise.all([
+    prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true, contactEmail: true },
+    }),
+    getSetting<string>("app.baseUrl"),
+  ]);
+  if (!claimant) return;
+
+  const label = languageLabel(language);
+
+  // Find all people with volunteers.verify_spanish permission via role grants
+  const grants = await prisma.roleGrant.findMany({
+    where: { permission: "volunteers.verify_spanish" },
+    include: {
+      role: {
+        include: {
+          assignments: {
+            include: {
+              person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const reviewers = new Map<string, { id: string; name: string; contactEmail: string | null; entraObjectId: string | null }>();
+  for (const grant of grants) {
+    for (const assignment of grant.role.assignments) {
+      const p = assignment.person;
+      if (!reviewers.has(p.id)) reviewers.set(p.id, p);
+    }
+  }
+
+  const reviewUrl = `${baseUrl}/volunteers/spanish-review`;
+
+  await Promise.all(
+    [...reviewers.values()].map((reviewer) =>
+      notify(prisma, {
+        type: "volunteers.language_claimed",
+        person: reviewer,
+        email: {
+          subject: `New ${label} claim needs review`,
+          html: `<p>Hi ${firstNameOf(reviewer.name) || "there"},</p>
+<p><strong>${claimant.name}</strong> has self-reported speaking <strong>${label}</strong> and is awaiting your assessment.</p>
+<p><a href="${reviewUrl}">Review pending language claims in HAVEN Hub</a></p>`,
+        },
+        teams: {
+          title: `New ${label} claim`,
+          summary: `${claimant.name} reported speaking ${label} and needs assessment.`,
+          link: reviewUrl,
+        },
+        triggeredById: personId,
+      })
+    )
+  );
 }
 
 // ---------------------------------------------------------------------------

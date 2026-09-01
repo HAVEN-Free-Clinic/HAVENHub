@@ -249,7 +249,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                                   spanishAssessment.score >= 5 ? "success" :
                                   spanishAssessment.score >= 4 ? "success" :
                                   spanishAssessment.score >= 3 ? "warning" :
-                                  "error"
+                                  "critical"
                                 }
                                 title={`Spanish score: ${spanishAssessment.score}${spanishAssessment.modifier === "plus" ? "+" : spanishAssessment.modifier === "minus" ? "-" : ""} (${spanishAssessment.term})`}
                               >

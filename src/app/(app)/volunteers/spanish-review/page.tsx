@@ -70,7 +70,40 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     const actor = await requirePermission("volunteers.verify_spanish");
     const language = String(formData.get("language") ?? "");
     const rawScore = formData.get("score");
+    const rawModifier = formData.get("modifier");
     const score = language === "es" && rawScore ? parseInt(String(rawScore), 10) : null;
+    const modifier = rawModifier ? String(rawModifier) : null;
+
+    // Also upsert a SpanishAssessmentRecord for current term tracking
+    if (language === "es" && score) {
+      const activeTerm = await prisma.term.findFirst({
+        where: { status: "ACTIVE" },
+        select: { name: true },
+      });
+      const termLabel = activeTerm?.name ?? new Date().getFullYear().toString();
+            const personIdVal = String(formData.get("personId") ?? "");
+      const existing = await prisma.spanishAssessmentRecord.findFirst({
+        where: { personId: personIdVal, term: termLabel },
+      });
+      if (existing) {
+      await prisma.spanishAssessmentRecord.update({
+          where: { id: existing.id },
+          data: { score, modifier, verified: formData.get("verified") === "true" },
+        });
+      } else {
+        await prisma.spanishAssessmentRecord.create({
+          data: {
+            email: "",
+            personId: personIdVal,
+            score,
+            modifier,
+            term: termLabel,
+            verified: formData.get("verified") === "true",
+          },
+        });
+      }
+    }
+
     await recordLanguageAssessment(actor.personId, {
       personId: String(formData.get("personId") ?? ""),
       language,
@@ -134,6 +167,26 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     if (!record?.name?.startsWith("[")) return;
     await prisma.spanishAssessmentRecord.delete({ where: { id } });
     revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
+  function scoreTone(score: number | null): "success" | "warning" | "critical" | "default" {
+    if (!score) return "default";
+    if (score >= 4) return "success";
+    if (score === 3) return "warning";
+    return "critical";
+  }
+
+  function scoreLabel(score: number | null, modifier: string | null): string {
+    if (!score) return "Missing";
+    const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+    const labels: Record<number, string> = {
+      1: "Almost none",
+      2: "Some",
+      3: "Conversational",
+      4: "Fluent",
+      5: "Native",
+    };
+    return `${score}${mod} - ${labels[score] ?? ""}`;
   }
 
   return (
@@ -206,21 +259,31 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                     </TD>
                     <TD>
                       <div className="flex flex-col gap-2">
-                        {r.language === "es" && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <span className="shrink-0">Score (1-5):</span>
-                            <Select
-                              name="score"
-                              form={`assess-verify-${r.id}`}
-                              defaultValue={String(r.score ?? "")}
-                            >
-                              <option value="">-</option>
-                              <option value="1">1</option>
-                              <option value="2">2</option>
-                              <option value="3">3</option>
-                              <option value="4">4</option>
-                              <option value="5">5</option>
-                            </Select>
+                                                {r.language === "es" && (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <span className="shrink-0">Score:</span>
+                              <Select
+                                name="score"
+                                form={`assess-verify-${r.id}`}
+                                defaultValue={String(r.score ?? "")}
+                              >
+                                <option value="">-</option>
+                                <option value="1">1 - Almost none</option>
+                                <option value="2">2 - Some</option>
+                                <option value="3">3 - Conversational</option>
+                                <option value="4">4 - Fluent</option>
+                                <option value="5">5 - Native</option>
+                              </Select>
+                              <Select
+                                name="modifier"
+                                form={`assess-verify-${r.id}`}
+                              >
+                                <option value="">none</option>
+                                <option value="plus">+</option>
+                                <option value="minus">-</option>
+                              </Select>
+                            </div>
                           </div>
                         )}
                         <div className="flex gap-2">
@@ -304,7 +367,6 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                   <TH>Email</TH>
                   <TH>Term</TH>
                   <TH className="w-16">Score</TH>
-                  <TH className="w-20">Modifier</TH>
                   <TH>Notes</TH>
                   <TH>Verified</TH>
                   <TH>Edit</TH>
@@ -318,14 +380,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-muted-foreground text-xs">{r.email || "-"}</TD>
                     <TD className="text-muted-foreground whitespace-nowrap">{r.term}</TD>
-                    <TD className="w-16 tabular-nums">
-                      {r.score != null
-                        ? <span className="font-medium">{r.score}</span>
-                        : <span className="text-muted-foreground italic text-xs">Missing</span>
-                      }
-                    </TD>
-                    <TD className="w-20 text-muted-foreground">
-                      {r.modifier === "plus" ? "+" : r.modifier === "minus" ? "-" : "-"}
+                     <TD className="w-24">
+                      <Badge tone={scoreTone(r.score)}>
+                        {scoreLabel(r.score, r.modifier)}
+                      </Badge>
                     </TD>
                     <TD className="text-muted-foreground text-xs max-w-48 truncate">
                       {r.notes ?? "-"}
@@ -334,7 +392,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                       {r.verified === true
                         ? <Badge tone="success">Verified</Badge>
                         : r.verified === false
-                        ? <Badge tone="error">Not verified</Badge>
+                        ? <Badge tone="critical">Not verified</Badge>
                         : <span className="text-muted-foreground text-xs">-</span>
                       }
                     </TD>

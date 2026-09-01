@@ -27,6 +27,7 @@ export default async function NewDepartmentPage() {
         autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
         allowShiftDrop: formData.get("allowShiftDrop") === "on",
         hoursPerShift: optionalInt(formData.get("hoursPerShift")),
+        minInterpreterScore: optionalInt(formData.get("minInterpreterScore")),
       });
       redirect(`/admin/departments/${dept.id}?saved=1`);
     } catch (err) {

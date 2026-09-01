@@ -122,6 +122,106 @@ describe("review queue", () => {
   });
 });
 
+describe("the INTP / general queue split", () => {
+  async function activeTerm() {
+    return prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        status: "ACTIVE",
+        startDate: new Date("2026-09-01"),
+        endDate: new Date("2026-12-31"),
+      },
+    });
+  }
+
+  async function intpDept() {
+    return prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
+  }
+
+  it("marks a current INTP member for the assessment queue", async () => {
+    const term = await activeTerm();
+    const dept = await intpDept();
+    const p = await person("Interpreter");
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await claimLanguage(p.id, "es");
+
+    const [row] = await listLanguageReviewQueue();
+    expect(row.isIntp).toBe(true);
+  });
+
+  // Selecting every membership ever held marked someone INTP for good, so a
+  // volunteer who did one term in interpreting years ago never returned to the
+  // general queue.
+  it("does not mark someone INTP on the strength of a past term", async () => {
+    const past = await prisma.term.create({
+      data: {
+        code: "SP15",
+        name: "Spring 2015",
+        status: "ARCHIVED",
+        startDate: new Date("2015-01-01"),
+        endDate: new Date("2015-05-31"),
+      },
+    });
+    const term = await activeTerm();
+    const dept = await intpDept();
+    const other = await prisma.department.create({ data: { code: "PATS", name: "Patient Advocacy" } });
+    const p = await person("Former Interpreter");
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: past.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: term.id, departmentId: other.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await claimLanguage(p.id, "es");
+
+    const [row] = await listLanguageReviewQueue();
+    expect(row.isIntp).toBe(false);
+  });
+
+  it("does not mark someone INTP on a membership that is no longer ACTIVE", async () => {
+    const term = await activeTerm();
+    const dept = await intpDept();
+    const p = await person("Left Interpreting");
+    await prisma.termMembership.create({
+      data: { personId: p.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "REMOVED" },
+    });
+    await claimLanguage(p.id, "es");
+
+    const [row] = await listLanguageReviewQueue();
+    expect(row.isIntp).toBe(false);
+  });
+
+  it("puts everyone in the general queue when no term is active", async () => {
+    const p = await person("No Active Term");
+    await claimLanguage(p.id, "es");
+
+    const [row] = await listLanguageReviewQueue();
+    expect(row.isIntp).toBe(false);
+  });
+
+  it("surfaces the current score on the queue row", async () => {
+    await actor();
+    const p = await person("Already Scored");
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 3,
+    });
+    // Re-claiming puts them back in view without disturbing the score.
+    await prisma.personLanguage.update({
+      where: { personId_language: { personId: p.id, language: "es" } },
+      data: { verifiedAt: null },
+    });
+
+    const [row] = await listLanguageReviewQueue();
+    expect(row.score).toBe(3);
+  });
+});
+
 describe("recordLanguageAssessment", () => {
   it("stamps the assessor and timestamp, and audits", async () => {
     await actor();
@@ -266,5 +366,124 @@ describe("personIdsVerifiedIn", () => {
     expect(ids.has(es.id)).toBe(true);
     expect(ids.has(ht.id)).toBe(false);
     expect(ids.has(claimed.id)).toBe(false);
+  });
+});
+
+describe("the proficiency score", () => {
+  // Spanish-only and INTERNAL: it drives the INTP interpreting bar and is
+  // deliberately not shown to the volunteer it describes.
+  it("records a 1-5 score alongside the assessment", async () => {
+    await actor();
+    const p = await person("Scored");
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 4,
+    });
+
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(row.score).toBe(4);
+  });
+
+  // The bug: the Not-verified button, and every verify from the general queue,
+  // carry no score field. Writing `score ?? null` unconditionally then erased an
+  // assessment INTP had already recorded.
+  it("leaves an existing score alone when the caller does not mention one", async () => {
+    await actor();
+    const p = await person("Scored Then Reassessed");
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 4,
+    });
+
+    await recordLanguageAssessment(ACTOR, { personId: p.id, language: "es", verified: false });
+
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(row.verified).toBe(false);
+    expect(row.score).toBe(4);
+  });
+
+  it("clears the score when the caller explicitly passes null (the N/A option)", async () => {
+    await actor();
+    const p = await person("Score Cleared");
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 4,
+    });
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: null,
+    });
+
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(row.score).toBeNull();
+  });
+
+  it("rejects a score outside 1-5 rather than storing it", async () => {
+    await actor();
+    const p = await person("Bad Score");
+    await expect(
+      recordLanguageAssessment(ACTOR, { personId: p.id, language: "es", verified: true, score: 9 }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
+  it("refuses a score for a language that does not carry one", async () => {
+    await actor();
+    const p = await person("Wrong Language");
+    await expect(
+      recordLanguageAssessment(ACTOR, { personId: p.id, language: "pt", verified: true, score: 4 }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
+  it("records the score in the audit trail", async () => {
+    await actor();
+    const p = await person("Audited");
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 3,
+    });
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "person.language_assess", entityId: p.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect((entry.after as Record<string, unknown>).score).toBe(3);
+  });
+});
+
+describe("claimLanguage created-ness", () => {
+  // Drives whether the interpreting department is told. A returning member
+  // re-stating a language already on their record is not new work for a
+  // reviewer, and notifying on it re-mailed every reviewer at each renewal.
+  it("reports a first claim as created", async () => {
+    const p = await person("First Claim");
+    expect(await claimLanguage(p.id, "es")).toEqual({ created: true });
+  });
+
+  it("reports a repeat claim as not created", async () => {
+    const p = await person("Repeat Claim");
+    await claimLanguage(p.id, "es");
+    expect(await claimLanguage(p.id, "es")).toEqual({ created: false });
+  });
+
+  it("reports a second, different language as created", async () => {
+    const p = await person("Two Languages");
+    await claimLanguage(p.id, "es");
+    expect(await claimLanguage(p.id, "pt")).toEqual({ created: true });
   });
 });

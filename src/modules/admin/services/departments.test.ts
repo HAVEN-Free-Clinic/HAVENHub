@@ -223,6 +223,74 @@ describe("setDelegations", () => {
   });
 });
 
+describe("minInterpreterScore", () => {
+  // The bar a department will staff a Spanish interpreter at. Null means the
+  // clinic-wide 4; PATS and BHVD set 3 for conversational speakers.
+  it("defaults to null, meaning the clinic-wide bar", async () => {
+    const d = await createDepartment("a", { code: "MEDS", name: "Medical" });
+    expect(d.minInterpreterScore).toBeNull();
+  });
+
+  it("stores a department's own bar on create", async () => {
+    const d = await createDepartment("a", { code: "PATS", name: "Patient Advocacy", minInterpreterScore: 3 });
+    expect(d.minInterpreterScore).toBe(3);
+  });
+
+  it("sets one on update", async () => {
+    const d = await createDepartment("a", { code: "BHVD", name: "Behavioral Health" });
+    const after = await updateDepartment("a", d.id, {
+      name: "Behavioral Health",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      minInterpreterScore: 3,
+    });
+    expect(after.minInterpreterScore).toBe(3);
+  });
+
+  // The same rule the Epic and autoRoute fields follow: an edit that does not
+  // touch the field must not silently reset it.
+  it("preserves an existing bar when the update does not mention it", async () => {
+    const d = await createDepartment("a", { code: "PATS", name: "Patient Advocacy", minInterpreterScore: 3 });
+    const after = await updateDepartment("a", d.id, {
+      name: "Patient Advocacy",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+    expect(after.minInterpreterScore).toBe(3);
+  });
+
+  it("clears back to the clinic-wide bar on an explicit null", async () => {
+    const d = await createDepartment("a", { code: "PATS", name: "Patient Advocacy", minInterpreterScore: 3 });
+    const after = await updateDepartment("a", d.id, {
+      name: "Patient Advocacy",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      minInterpreterScore: null,
+    });
+    expect(after.minInterpreterScore).toBeNull();
+  });
+
+  // A bar of 7 would quietly mean "this department staffs nobody", with nothing
+  // in the UI to explain it.
+  it("rejects a bar outside the 1-5 assessment scale", async () => {
+    await expect(
+      createDepartment("a", { code: "BAD1", name: "Bad", minInterpreterScore: 7 }),
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+    await expect(
+      createDepartment("a", { code: "BAD2", name: "Bad", minInterpreterScore: 0 }),
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+  });
+
+  it("rejects a fractional bar", async () => {
+    await expect(
+      createDepartment("a", { code: "BAD3", name: "Bad", minInterpreterScore: 3.5 }),
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+  });
+});
+
 describe("listDepartments", () => {
   it("returns active first, then by code, with membership counts and managed ids", async () => {
     const a = await createDepartment("a", { code: "AAA", name: "A" });

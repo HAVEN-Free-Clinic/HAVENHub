@@ -29,7 +29,14 @@ import { PersonPhoto } from "@/platform/ui/person-photo";
 import { can } from "@/platform/rbac/engine";
 import { canViewMemberProfile } from "@/platform/member-profile";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { languageLabel } from "@/platform/languages";
+import {
+  SPANISH,
+  formatSpanishScore,
+  languageLabel,
+  spanishProficiencyLabel,
+  spanishScoreTone,
+} from "@/platform/languages";
+import { latestSpanishAssessment } from "@/platform/languages/spanish-assessments";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
@@ -78,6 +85,14 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
   const person = await getMemberProfileBasics(personId);
   if (!person) notFound();
+
+  // The most recent INTP Spanish assessment, for the score badge beside a
+  // verified Spanish flag. Ordered on termRank inside the service, not on the
+  // term label: sorting "Summer 2012" against "Fall 2026" as text put the oldest
+  // assessment first, so the badge a director staffs a shift on could be years
+  // out of date. Internal to staff; this page is director-gated and the score
+  // appears nowhere on /my-info.
+  const spanishAssessment = await latestSpanishAssessment(personId);
 
   const activeTerm = await getActiveTerm();
   const [onboarding, certificates, ehsItems, courses, isManager, isAdmin] = await Promise.all([
@@ -240,9 +255,19 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                             intake signal and must never read here as something a
                             director can staff a shift on. */}
                         {person.verifiedLanguages.map((code) => (
-                          <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
-                            {languageLabel(code)}
-                          </Badge>
+                          <span key={code} className="inline-flex items-center gap-1">
+                            <Badge tone="brand" title={`Verified: ${languageLabel(code)}`}>
+                              {languageLabel(code)}
+                            </Badge>
+                            {code === SPANISH && spanishAssessment?.score != null && (
+                              <Badge
+                                tone={spanishScoreTone(spanishAssessment.score)}
+                                title={`INTP assessment ${formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)} (${spanishProficiencyLabel(spanishAssessment.score)}), ${spanishAssessment.term}`}
+                              >
+                                {formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)}
+                              </Badge>
+                            )}
+                          </span>
                         ))}
                       </span>
                     ) : null

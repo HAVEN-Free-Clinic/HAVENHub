@@ -52,6 +52,7 @@ export default async function EditDepartmentPage({ params }: PageProps) {
         allowShiftDrop: formData.get("allowShiftDrop") === "on",
         // optionalInt is Number-based, not parseInt, so "5.5" survives.
         hoursPerShift: optionalInt(formData.get("hoursPerShift")),
+        minInterpreterScore: optionalInt(formData.get("minInterpreterScore")),
       });
     } catch (err) {
       if (err instanceof DepartmentValidationError || err instanceof DepartmentNotFoundError) {

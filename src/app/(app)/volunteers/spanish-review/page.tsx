@@ -20,7 +20,12 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const activeTab = sp.tab === "history" ? "history" : "queue";
   const search = sp.q ?? "";
-  const termFilter = sp.term ?? "";
+  const activeTerm = await prisma.term.findFirst({
+    where: { status: "ACTIVE" },
+    select: { name: true },
+    orderBy: { startDate: "desc" },
+  });
+  const termFilter = sp.term ?? activeTerm?.name ?? "";
 
   const canSeeHistory = await can(session.personId, "volunteers.view") ||
     await can(session.personId, "volunteers.verify_spanish");
@@ -132,6 +137,26 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     revalidatePath("/volunteers/spanish-review?tab=history");
   }
 
+    async function verifyFromHistoryAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const id = String(formData.get("id") ?? "");
+    const verified = formData.get("verified") === "true";
+    const personId = formData.get("personId") as string | null;
+    await prisma.spanishAssessmentRecord.update({
+      where: { id },
+      data: { verified },
+    });
+    // If there's a linked person, also update their PersonLanguage record
+    if (personId) {
+      await prisma.personLanguage.updateMany({
+        where: { personId, language: "es" },
+        data: { verified, verifiedAt: new Date() },
+      });
+    }
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
   async function addTermAction(formData: FormData) {
     "use server";
     await requirePermission("volunteers.verify_spanish");
@@ -234,6 +259,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   function scoreLabel(score: number | null, modifier: string | null): string {
     if (!score) return "Missing";
     const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+    return `${score}${mod}`;
+  }
+
+  function proficiencyLabel(score: number | null): string {
     const labels: Record<number, string> = {
       1: "Almost none",
       2: "Some",
@@ -241,7 +270,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       4: "Fluent",
       5: "Native",
     };
-    return `${score}${mod} - ${labels[score] ?? ""}`;
+    return score ? (labels[score] ?? "") : "";
   }
 
 
@@ -283,7 +312,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
             <div className="mb-3">
               <h2 className="text-sm font-semibold text-foreground">INTP Assessment Queue</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Volunteers in or applying to the Department of Interpretation and Diversity who claimed a language and are awaiting assessment. Record a proficiency score for Spanish speakers before verifying.
+                Volunteers in or applying to INTP who claimed a language and are awaiting assessment. Record a proficiency score for Spanish speakers before verifying.
               </p>
             </div>
             {rows.filter(r => r.isIntp).length === 0 ? (
@@ -297,7 +326,6 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                     <TH>Name</TH>
                     <TH>Language</TH>
                     <TH>NetID</TH>
-                    <TH>Email</TH>
                     <TH>Score</TH>
                     <TH>Assessment</TH>
                   </TR>
@@ -428,10 +456,9 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       {/* History tab */}
       {activeTab === "history" && canSeeHistory && (
         <div className="space-y-6">
-                  <div className="space-y-6">
           <Card pad={false} className="px-5 py-4 bg-muted">
             <p className="text-sm text-muted-foreground">
-              Historical Spanish proficiency assessment records conducted by the Department of Interpretation and Diversity (INTP), going back to Spring 2012. Includes current active volunteers and HAVEN alumni. Scores reflect the INTP assessment, not self-reported proficiency.
+              Historical Spanish proficiency assessment records conducted by INTP, going back to Spring 2012. Includes current active volunteers and HAVEN alumni. Scores reflect the INTP assessment, not self-reported proficiency.
             </p>
           </Card>
 
@@ -482,6 +509,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
           </details>
 
           {/* Search + term filter */}
+          <div className="flex gap-3 flex-wrap">
             <form method="GET" action="/volunteers/spanish-review" className="flex gap-3 flex-1 flex-wrap">
               <input type="hidden" name="tab" value="history" />
               <Input
@@ -502,8 +530,11 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
               </Select>
               <SubmitButton variant="primary" pendingLabel="Searching...">Search</SubmitButton>
             </form>
+          </div>
 
-            {/* Add new term */}
+
+          <Card pad={false} className="px-4 py-3 border border-border">
+            <p className="text-xs font-medium text-foreground mb-2">Add new assessment term</p>
             <form action={addTermAction} className="flex gap-2 items-center flex-wrap">
               <Select name="termSeason">
                 <option value="">Season</option>
@@ -512,15 +543,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 <option value="Fall">Fall</option>
                 <option value="Winter">Winter</option>
               </Select>
-              <Input
-                name="termYear"
-                placeholder="2027"
-                className="w-24"
-                maxLength={4}
-              />
-              <SubmitButton variant="outline" pendingLabel="Adding...">Add term</SubmitButton>
+              <Input name="termYear" placeholder="2027" className="w-20" maxLength={4} />
+              <SubmitButton variant="outline" size="sm" pendingLabel="Adding...">Add term</SubmitButton>
             </form>
-          </div>
+          </Card>
 
           {historyRows.length === 0 ? (
             <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -543,35 +569,61 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 {historyRows.map((r) => (
                   <TR key={r.id}>
                     <TD className="font-medium">
-                      {r.person?.name ?? r.name ?? (
-                        <form action={linkPersonAction} className="flex gap-1 items-center">
-                          <input type="hidden" name="id" value={r.id} />
-                          <Input
-                            name="netIdOrEmail"
-                            placeholder="NetID or email..."
-                            className="w-36 text-xs"
-                          />
-                          <SubmitButton variant="outline" size="sm" pendingLabel="Linking...">Link</SubmitButton>
-                        </form>
-                      )}
+                      {r.personId
+                        ? <a href={`/volunteers/compliance/${r.personId}`} className="text-brand-fg hover:underline">{r.person?.name ?? r.name}</a>
+                        : r.name
+                          ? <span>{r.name}</span>
+                          : (
+                            <form action={linkPersonAction} className="flex gap-1 items-center">
+                              <input type="hidden" name="id" value={r.id} />
+                              <Input
+                                name="netIdOrEmail"
+                                placeholder="NetID or email..."
+                                className="w-36 text-xs"
+                              />
+                              <SubmitButton variant="outline" size="sm" pendingLabel="Linking...">Link</SubmitButton>
+                            </form>
+                          )
+                      }
                     </TD>
-                    <TD className="text-muted-foreground text-xs">{r.email || "-"}</TD>
                     <TD className="text-muted-foreground whitespace-nowrap">{r.term}</TD>
-                     <TD className="w-24">
+                    <TD className="w-36">
                       <Badge tone={scoreTone(r.score)}>
-                        {scoreLabel(r.score, r.modifier)}
+                        <span className="whitespace-nowrap">{scoreLabel(r.score, r.modifier)}</span>
                       </Badge>
                     </TD>
-                    <TD className="text-muted-foreground text-xs max-w-48 truncate">
-                      {r.notes ?? "-"}
+                      <TD>
+                      <span className="text-xs text-muted-foreground italic truncate max-w-32 block">
+                        {r.notes || proficiencyLabel(r.score)}
+                      </span>
                     </TD>
                     <TD>
-                      {r.verified === true
-                        ? <Badge tone="success">Verified</Badge>
-                        : r.verified === false
-                        ? <Badge tone="critical">Not verified</Badge>
-                        : <span className="text-muted-foreground text-xs">-</span>
-                      }
+                      <div className="flex flex-col gap-1">
+                        {r.verified === true
+                          ? <Badge tone="success">Verified</Badge>
+                          : r.verified === false
+                          ? <Badge tone="critical">Not verified</Badge>
+                          : null
+                        }
+                        {r.verified !== true && (
+                          <form action={verifyFromHistoryAction}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <input type="hidden" name="verified" value="true" />
+                            <input type="hidden" name="personId" value={r.personId ?? ""} />
+                            <SubmitButton variant="primary" size="sm" pendingLabel="Saving...">Verify</SubmitButton>
+                          </form>
+                        )}
+                        {r.verified !== false && (
+                          <form action={verifyFromHistoryAction}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <input type="hidden" name="verified" value="false" />
+                            <input type="hidden" name="personId" value={r.personId ?? ""} />
+                            <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">
+                              <span className="whitespace-nowrap">Not verified</span>
+                            </SubmitButton>
+                          </form>
+                        )}
+                      </div>
                     </TD>
                     <TD>
                       <div className="flex flex-col gap-1">
@@ -579,11 +631,11 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                           <input type="hidden" name="id" value={r.id} />
                           <Select name="score" defaultValue={String(r.score ?? "")}>
                             <option value="">-</option>
-                            <option value="1">1 - Almost none</option>
-                            <option value="2">2 - Some</option>
-                            <option value="3">3 - Conversational</option>
-                            <option value="4">4 - Fluent</option>
-                            <option value="5">5 - Native</option>
+                            <option value="1">Almost none (1)</option>
+                            <option value="2">Some (2)</option>
+                            <option value="3">Conversational (3)</option>
+                            <option value="4">Fluent (4)</option>
+                            <option value="5">Native (5)</option>
                           </Select>
                           <Select name="modifier" defaultValue={r.modifier ?? ""}>
                             <option value="">none</option>
@@ -592,7 +644,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                           </Select>
                           <Input
                             name="notes"
-                            defaultValue={r.notes ?? ""}
+                            defaultValue={r.notes ?? proficiencyLabel(r.score)}
                             placeholder="Notes..."
                             className="w-32 text-xs"
                           />

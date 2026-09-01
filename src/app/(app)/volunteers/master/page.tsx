@@ -12,6 +12,7 @@
  *   bounced here even though the layout admitted them.
  */
 
+import { Suspense } from "react";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -40,6 +41,7 @@ import { certExpiresAt } from "@/platform/compliance/rules";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import Link from "next/link";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
+import { MasterComplianceSkeleton } from "./master-skeleton";
 
 type PageProps = {
   searchParams: Promise<{
@@ -111,10 +113,43 @@ const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
 
 export default async function MasterCompliancePage({ searchParams }: PageProps) {
   // Page-level permission gate. The layout already requires volunteers.view;
-  // this adds manage_compliance on top of that.
+  // this adds manage_compliance on top of that. Runs in the shell (before the
+  // Suspense boundary) so an unauthorized viewer is redirected without first
+  // seeing the header, and so the redirect does not depend on the slow roster
+  // query resolving.
   const viewer = await requirePermission("volunteers.manage_compliance");
   const sp = await searchParams;
 
+  // The header renders immediately, outside the Suspense boundary, so the page's
+  // largest text paints in well under a second instead of waiting on the roster
+  // query. The data-heavy roster (masterCompliance runs a dozen queries and full
+  // clearance across every active member) streams in behind a skeleton, which
+  // also keeps live controls off screen until they are hydrated -- the two
+  // things that drove this route's high LCP and its View/Filter dead clicks.
+  return (
+    <div>
+      <PageHeader
+        title="Master compliance view"
+        description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
+      />
+      {/* Keyed on the filter params so a new search shows the skeleton again
+          rather than the previous roster while the next query resolves. */}
+      <Suspense
+        key={`${sp.q ?? ""}|${sp.departmentId ?? ""}|${sp.status ?? ""}|${sp.page ?? ""}`}
+        fallback={<MasterComplianceSkeleton />}
+      >
+        <MasterComplianceView viewerPersonId={viewer.personId} searchParams={sp} />
+      </Suspense>
+    </div>
+  );
+}
+
+type ViewProps = {
+  viewerPersonId: string;
+  searchParams: Awaited<PageProps["searchParams"]>;
+};
+
+async function MasterComplianceView({ viewerPersonId, searchParams: sp }: ViewProps) {
   const q = sp.q?.trim() || undefined;
   const departmentId = sp.departmentId || undefined;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
@@ -124,18 +159,17 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       ? (rawStatus as ComplianceStatus)
       : undefined;
 
-  // Fetch master compliance data
-  const result = await masterCompliance({
-    q,
-    departmentId,
-    status: statusFilter,
-    page,
-    pageSize: 25,
-  });
+  // The roster, the active term, and the viewer's admin grant share no inputs,
+  // so fetch them together rather than serially behind the slow roster query.
+  const [result, activeTerm, isAdmin] = await Promise.all([
+    masterCompliance({ q, departmentId, status: statusFilter, page, pageSize: 25 }),
+    getActiveTerm(),
+    // isAdmin links person names to admin pages.
+    can(viewerPersonId, "admin.access"),
+  ]);
 
-  // Fetch active departments for the filter select
-  const activeTerm = await getActiveTerm();
-
+  // Fetch active departments for the filter select. Depends on the active term,
+  // so it follows the batch above.
   const departments =
     activeTerm
       ? await prisma.department.findMany({
@@ -147,9 +181,6 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
           orderBy: { code: "asc" },
         })
       : [];
-
-  // Check if viewer has admin access to link person names to admin pages
-  const isAdmin = await can(viewer.personId, "admin.access");
 
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
     "use server";
@@ -195,12 +226,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   }
 
   return (
-    <div>
-      <PageHeader
-        title="Master compliance view"
-        description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
-      />
-
+    <>
       {/* Summary stat cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
@@ -441,6 +467,6 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
           </>
         )}
       </div>
-    </div>
+    </>
   );
 }

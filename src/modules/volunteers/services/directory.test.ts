@@ -171,26 +171,60 @@ describe("departmentBreakdown", () => {
 });
 
 describe("directoryPeople", () => {
-  it("filters by department and shows only that department's seats", async () => {
+  it("filters by department, splitting matched seats from the person's others", async () => {
     const { term, nurs } = await seedRoster();
 
     const { rows, total } = await directoryPeople(term.id, { departmentId: nurs.id }, 1, 50);
 
     expect(total).toBe(2);
     expect(rows.map((r) => r.name)).toEqual(["Bo Both", "Dana Director"]);
-    // The nested seat filter matters as much as the outer one: without it Bo's
-    // TRIA seat would show up under a NURS filter.
-    expect(rows.find((r) => r.name === "Bo Both")!.seats).toEqual([
-      { departmentCode: "NURS", kind: "DIRECTOR" },
-    ]);
+    const bo = rows.find((r) => r.name === "Bo Both")!;
+    expect(bo.seats).toEqual([{ departmentCode: "NURS", kind: "DIRECTOR" }]);
+    // The whole point of the split: under a NURS filter Bo must still be
+    // visibly a two-department member, or the roster makes him look like Dana.
+    expect(bo.otherSeats).toEqual([{ departmentCode: "TRIA", kind: "VOLUNTEER" }]);
+    expect(rows.find((r) => r.name === "Dana Director")!.otherSeats).toEqual([]);
   });
 
-  it("filters by role", async () => {
+  it("leaves otherSeats empty when nothing is filtered out", async () => {
+    const { term } = await seedRoster();
+
+    const { rows } = await directoryPeople(term.id, {}, 1, 50);
+
+    const bo = rows.find((r) => r.name === "Bo Both")!;
+    expect(bo.seats).toEqual([
+      { departmentCode: "NURS", kind: "DIRECTOR" },
+      { departmentCode: "TRIA", kind: "VOLUNTEER" },
+    ]);
+    expect(rows.every((r) => r.otherSeats.length === 0)).toBe(true);
+  });
+
+  it("filters by role, keeping the seats held in the other role as context", async () => {
     const { term } = await seedRoster();
 
     const { rows } = await directoryPeople(term.id, { kind: "DIRECTOR" }, 1, 50);
 
     expect(rows.map((r) => r.name)).toEqual(["Bo Both", "Dana Director"]);
+    const bo = rows.find((r) => r.name === "Bo Both")!;
+    expect(bo.seats).toEqual([{ departmentCode: "NURS", kind: "DIRECTOR" }]);
+    expect(bo.otherSeats).toEqual([{ departmentCode: "TRIA", kind: "VOLUNTEER" }]);
+  });
+
+  it("never surfaces a REMOVED seat as one of the person's other seats", async () => {
+    const { term, nurs, both } = await seedRoster();
+    // A seat Bo has left, and one from a term that is over. Neither is "outside
+    // the filter" -- both are off the roster -- so neither may show up as an
+    // "also" line the way the live TRIA seat does.
+    const educ = await createDepartment("EDUC");
+    await seat(both.id, term.id, educ.id, "VOLUNTEER", "REMOVED");
+    const old = await createTerm("PLANNING", "SP25");
+    await seat(both.id, old.id, educ.id, "VOLUNTEER");
+
+    const { rows } = await directoryPeople(term.id, { departmentId: nurs.id }, 1, 50);
+
+    expect(rows.find((r) => r.name === "Bo Both")!.otherSeats).toEqual([
+      { departmentCode: "TRIA", kind: "VOLUNTEER" },
+    ]);
   });
 
   it("searches name, NetID, and contact email", async () => {

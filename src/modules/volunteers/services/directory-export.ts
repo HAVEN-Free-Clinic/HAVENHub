@@ -53,6 +53,13 @@ const ATTENDING_HEADERS = ["Name", "Credentials", "Specialty", "Email", "Phone"]
  * Role collapses the same way, and DIRECTOR wins a tie. Someone who directs one
  * department and volunteers in another is a director for the purpose of a list
  * you are about to mail -- the same rule the offboarding export uses.
+ *
+ * Reads `seats` (the seats that matched the filters) and not `otherSeats`, so a
+ * directors-only pull never labels a row VOLUNTEER and a Nursing pull describes
+ * the Nursing slice. The screen shows the unmatched seats as an "also" line
+ * because a reader is looking at one person at a time; a mailing list is not,
+ * and its Departments column names the slice being mailed. The row SET is
+ * identical either way, which is the invariant that matters.
  */
 function peopleRows(
   people: Awaited<ReturnType<typeof directoryPeopleAll>>,

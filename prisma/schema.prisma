@@ -218,6 +218,7 @@ model Person {
   audienceScopeGrants            AudienceScopeGrant[]       @relation("audienceScopeGrantPerson")
   complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
+  spanishAssessments             SpanishAssessmentRecord[]
   notifications                  Notification[]             @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
   /// The attending roster row this account belongs to, when this person is
@@ -429,6 +430,21 @@ model Department {
   requiresEpicVolunteer      EpicRequirement         @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
   epicGuidance               String?
+  /// The lowest INTP Spanish proficiency score (1-5) this department will staff as
+  /// an interpreter.
+  ///
+  /// Null means "use the clinic-wide bar" (4, see languages/catalog). Departments
+  /// that accept conversational speakers set 3. Ops asked for this per-department
+  /// rather than hardcoded because the list was still moving when it was specced:
+  /// PATS and BHVD accept 3+, and LABR was undecided. A column means they can
+  /// decide without a deploy.
+  ///
+  /// ADVISORY, not a gate. It changes what the schedule shows a director, and
+  /// nothing refuses an assignment on the strength of it: the flags this reads are
+  /// themselves mid-cleanup (see the language review cross-check), and a clinic
+  /// that cannot staff a shift because a score is stale is a worse failure than a
+  /// director seeing an accurate warning and using their judgment.
+  minInterpreterScore        Int?
   /// Skip committee scoring for applicants whose FIRST choice is this department,
   /// routing them straight to its directors at submit.
   ///
@@ -1635,6 +1651,10 @@ model PersonLanguage {
   /// Bare id (no FK), mirroring the spanishVerifiedById it replaces.
   verifiedById String?
   note         String?
+  /// Internal 1-5 proficiency score for Spanish assessments only. Not visible
+  /// to volunteers. 4 or 5 qualifies clinic-wide; 1-3 is conversational only.
+  /// Null for non-Spanish languages or when no score has been recorded.
+  score        Int?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   /// Cascade: the claim belongs to the person.
@@ -1642,6 +1662,49 @@ model PersonLanguage {
 
   @@unique([personId, language])
   @@index([language])
+}
+
+/// One INTP Spanish proficiency assessment, of one person, in one term. Covers
+/// both imported legacy rows (Spring 2012 onward) and new assessments recorded
+/// on the language review page.
+///
+/// This is the assessment HISTORY. The CURRENT score is denormalized onto
+/// PersonLanguage.score, which is what scheduling and the profile badge read;
+/// recordLanguageAssessment writes both so they cannot drift apart.
+model SpanishAssessmentRecord {
+  id          String    @id @default(cuid())
+  /// Contact email as it appeared in the assessment list. Empty string for rows
+  /// entered in Hub, where personId is the identity instead.
+  email       String
+  /// Name as it appeared in the assessment list, for rows the list identified by
+  /// name rather than email (2019 onward). Display fallback when personId is null.
+  name        String?
+  /// Numeric score 1-5. Null if the person was assessed but no score recorded.
+  score       Int?
+  /// Optional modifier carried by imported rows written as "3+" or "3-".
+  /// New assessments record a plain 1-5 and leave this null.
+  modifier    String?
+  /// Free-text notes from the assessor.
+  notes       String?
+  /// Term label e.g. "Spring 2026", "Summer 2012". Display only.
+  term        String
+  /// Sortable form of `term` (year * 10 + season). ALWAYS order on this, never
+  /// on `term`: see platform/languages/assessment-terms.ts for why.
+  termRank    Int       @default(0)
+  /// The Person this record belongs to, if they exist in Hub.
+  personId    String?
+  person      Person?   @relation(fields: [personId], references: [id])
+  /// Whether this person was verified as a Spanish speaker in Hub.
+  verified    Boolean?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  /// One assessment per person per term: the review page upserts on this rather
+  /// than find-then-create, which raced two reviewers into duplicate rows.
+  @@unique([personId, term])
+  @@index([personId, termRank])
+  @@index([termRank])
+  @@index([email])
 }
 
 /// A board meeting, held roughly every two weeks and attended by directors.
@@ -2263,7 +2326,13 @@ model Application {
   transferFromDepartments    String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
-  subcommitteeRanking        String[]
+  /// @default([]) matches the DB, which has carried DEFAULT ARRAY[]::TEXT[]
+  /// since the column was added; the schema just never declared it. That one
+  /// undeclared default is half the drift `prisma migrate dev` folded into every
+  /// new migration for months. Declared rather than dropped, matching
+  /// transferFromDepartments above and the convention for scalar lists here: a
+  /// writer that omits the field gets [] rather than NULL.
+  subcommitteeRanking        String[]          @default([])
   /// Language CODES the applicant said they speak, hoisted at submit from the
   /// standard languages question (see LANGUAGES_FIELD_KEY). Hoisted rather than
   /// left in `answers` so promotion can turn them into PersonLanguage claims

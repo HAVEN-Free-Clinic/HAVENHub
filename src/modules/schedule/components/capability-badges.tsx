@@ -2,7 +2,12 @@ import { Badge } from "@/platform/ui/badge";
 // ./catalog, not the package root: the root imports prisma and notify, and pulling
 // that server graph into a presentational badge would drag it into any client bundle
 // (and any test) that renders one. The catalog module is the pure half by design.
-import { languageLabel } from "@/platform/languages/catalog";
+import {
+  SPANISH,
+  interpreterBarFor,
+  languageLabel,
+  meetsInterpreterBar,
+} from "@/platform/languages/catalog";
 
 /**
  * Person-level capability badges for a Full Schedule roster row: verified languages
@@ -24,9 +29,23 @@ import { languageLabel } from "@/platform/languages/catalog";
  */
 export function CapabilityBadges({
   person,
+  department,
 }: {
-  person: { verifiedLanguages: string[]; licensedRN: boolean };
+  person: { verifiedLanguages: string[]; licensedRN: boolean; spanishScore?: number | null };
+  /**
+   * The department this row is being staffed under, whose interpreting bar the
+   * Spanish badge is measured against. Omitted on rows that are not
+   * department-scoped, where the clinic-wide bar applies.
+   */
+  department?: { minInterpreterScore: number | null } | null;
 }) {
+  const bar = interpreterBarFor(department);
+  const score = person.spanishScore ?? null;
+  // Only a score that is BELOW this department's bar is worth a mark. A score at
+  // or above it, and an unscored speaker, both read as a plain verified badge:
+  // INTP verified people for years without always writing a number down, and
+  // decorating those rows would flag most of the historical roster.
+  const spanishBelowBar = score !== null && !meetsInterpreterBar(score, bar);
   return (
     <>
       {/* Code, not the full name: these rows already carry up to four shift tags
@@ -42,12 +61,26 @@ export function CapabilityBadges({
           `title` stays for the sighted mouse user it does serve.
           Note sr-only is position:absolute, so it is out of flow and adds neither
           width nor a flex gap to the badge. */}
-      {person.verifiedLanguages.map((code) => (
-        <Badge key={code} tone="brand" title={`Verified: ${languageLabel(code)}`}>
-          <span aria-hidden>{code.toUpperCase()}</span>
-          <span className="sr-only">Verified: {languageLabel(code)}</span>
-        </Badge>
-      ))}
+      {person.verifiedLanguages.map((code) => {
+        // Spanish carries an INTP proficiency score, and departments differ on
+        // what they will staff: 4 clinic-wide, 3 where conversational is enough.
+        // A director looking at this row is deciding who interprets for a
+        // patient right now, so a speaker below THIS department's bar says so
+        // rather than looking identical to one who clears it.
+        const flagged = code === SPANISH && spanishBelowBar;
+        const label = flagged
+          ? `Verified: ${languageLabel(code)}, assessed ${score} (below this department's bar of ${bar})`
+          : `Verified: ${languageLabel(code)}`;
+        return (
+          <Badge key={code} tone={flagged ? "warning" : "brand"} title={label}>
+            <span aria-hidden>
+              {code.toUpperCase()}
+              {flagged ? ` ${score}` : ""}
+            </span>
+            <span className="sr-only">{label}</span>
+          </Badge>
+        );
+      })}
       {/* RN is left as plain text on purpose: unlike a two-letter ISO code it is
           already the word people use, and it was never hiding meaning in a title. */}
       {person.licensedRN && <Badge tone="brand">RN</Badge>}

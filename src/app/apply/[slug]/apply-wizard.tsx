@@ -503,7 +503,7 @@ export function ApplyWizard({
           <Alert tone="error">{result.message}</Alert>
         )}
         {saveState !== "idle" && (
-          <p className={`text-xs ${saveState === "error" ? "text-critical" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
+          <p className={`text-xs ${saveState === "error" ? "text-critical-foreground" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}
 
         {current.kind === "intro" && (

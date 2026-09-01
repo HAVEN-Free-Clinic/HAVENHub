@@ -81,8 +81,8 @@ needs the condition applied separately.
 | Incident Reports | Strikes | `xO8JnAITITezn4jD6Fgs` | `visitor.claims.can.incidents.view_strikes == true` |
 | Volunteer Management | *(landing)* | `oN0nVnooTkTxhu2M4FDf` | `visitor.claims.can.volunteers.view == true` |
 | Volunteer Management | Compliance overview | `IjUP0dHJYOvAe6w1i6Di` | `visitor.claims.can.volunteers.view == true` |
-| Volunteer Management | Master view | `NPUzhjC6USm6UhpqvKx1` | `visitor.claims.can.volunteers.manage_compliance == true` |
-| Volunteer Management | EHS training | `58TjuGedA6VfVpRBW6Zj` | `visitor.claims.can.volunteers.manage_compliance == true` |
+| Volunteer Management | Master view | `NPUzhjC6USm6UhpqvKx1` | `visitor.claims.can.volunteers.view_compliance == true or visitor.claims.can.volunteers.manage_compliance == true` |
+| Volunteer Management | EHS training | `58TjuGedA6VfVpRBW6Zj` | `visitor.claims.can.volunteers.view_compliance == true or visitor.claims.can.volunteers.manage_compliance == true` |
 | Volunteer Management | Spanish verification | `OVS68MjE9bwO9xWToIT2` | `visitor.claims.can.volunteers.verify_spanish == true` |
 | Volunteer Management | Offboarding | `sKZj4M7EkUy9N06gXtXC` | `visitor.claims.can.volunteers.view == true` |
 | Recruitment | *(landing)* | `wE2OL6Zx7fCucbhiXoW4` | `visitor.claims.can.recruitment.access == true` |
@@ -239,10 +239,29 @@ Every distinct `visitor.claims.can.<module>.<action>` path used above is a leaf 
 - `recruitment.access`, `recruitment.manage_cycles`, `recruitment.review_all`, `recruitment.score`
 - `schedule.view`, `schedule.manages_any_dept`, `schedule.manages_any_rhd_dept`
 - `support.manage_requests`, `support.view_all_requests`
-- `volunteers.view`, `volunteers.manage_compliance`, `volunteers.verify_spanish`
+- `volunteers.view`, `volunteers.view_compliance`, `volunteers.manage_compliance`,
+  `volunteers.verify_spanish`
 
 All confirmed present as `boolean` leaves in the schema. `schedule.manages_any_dept` and
 `schedule.manages_any_rhd_dept` are the two data-driven leaves (`ADAPTIVE_DERIVED_CLAIMS`); every
 other path mirrors a registry permission. The `schema-artifact.test.ts` drift guard asserts the
 committed `adaptive-schema.json` still equals `buildAdaptiveSchema()`, so the schedule leaves stay
 in the file as long as they stay in the catalog.
+
+Note the direction of that containment: this list is the paths **used above**, not every leaf in
+the schema. The schema is derived from the whole of `MODULES[].permissions`, so it also carries
+leaves no docs condition references yet — `volunteers.view_directory` (the people directory, added
+2026-09-01) is one, alongside longer-standing ones like `volunteers.manage_offboarding` and
+`admin.manage_roster`. That is expected and is not drift.
+
+`volunteers.view_compliance` (added 2026-09-01) is the opposite case: it IS used, in the two
+Volunteer Management rows above, whose conditions were widened from `manage_compliance` alone when
+the clinic-wide compliance read was split out of it. **Those two conditions must be edited in the
+GitBook site itself as well** — this table records what is configured there, it does not configure
+it, so a view-only holder keeps getting a 404 on those pages until someone makes the matching edit.
+
+What *is* drift, and what nothing in CI
+can catch, is the LIVE site schema falling behind this file: every `can.<module>` object is
+`additionalProperties: false`, so a token carrying a leaf the live schema lacks is rejected outright
+once Adaptive content is enabled. Push this file with `updateSiteAdaptiveSchema` whenever a
+permission is added.

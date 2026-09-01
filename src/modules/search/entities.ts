@@ -26,6 +26,7 @@
 import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
+import { hasViewAllCompliance } from "@/platform/compliance/access";
 import { canAccessModule } from "@/platform/modules/access";
 import { getModule } from "@/platform/modules/registry";
 import {
@@ -80,8 +81,11 @@ export const searchEntities = cache(async function searchEntities(
   //   - /admin/people/[id] sits under admin/layout.tsx (module access =
   //     admin.access), and admin.manage_people does not imply it.
   //   - /volunteers/compliance/[personId] sits under volunteers/layout.tsx,
-  //     whose access set is volunteers.view OR volunteers.verify_spanish;
-  //     volunteers.manage_compliance is NOT in it.
+  //     whose access set is volunteers.view, .verify_spanish, .view_directory
+  //     or .view_compliance; volunteers.manage_compliance is still NOT in it.
+  //     So the two halves of the compliance split differ here: a view-only
+  //     holder clears the layout on their own, a manage-only one does not --
+  //     which is exactly why the module half below is computed, not assumed.
   // Shipped system roles happen to pair each permission with module access, so
   // a mismatch is latent rather than live, but the Roles UI lets an admin
   // compose a role that grants the fine-grained permission alone and every
@@ -91,8 +95,7 @@ export const searchEntities = cache(async function searchEntities(
   const adminPeople =
     hasPermission(perms, "admin.manage_people") && canAccessModule(getModule("admin")!, perms);
   const compliancePeople =
-    hasPermission(perms, "volunteers.manage_compliance") &&
-    canAccessModule(getModule("volunteers")!, perms);
+    hasViewAllCompliance(perms) && canAccessModule(getModule("volunteers")!, perms);
 
   const hits: EntityHit[] = [];
 

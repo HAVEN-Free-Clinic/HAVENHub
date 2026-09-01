@@ -18,6 +18,7 @@ function department(id: string, name: string, code: string): Department {
     autoRouteApplicants: false,
     allowShiftDrop: true,
     hoursPerShift: null,
+    minInterpreterScore: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };

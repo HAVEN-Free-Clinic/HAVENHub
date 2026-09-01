@@ -15,6 +15,41 @@
  */
 
 import type { TemplateDescriptor } from "./types";
+import { esc } from "../render/escape";
+
+export type PendingLanguageClaim = { name: string; language: string };
+
+/**
+ * The claims list as <li> rows for the {{{ claimRowsHtml }}} slot. The render
+ * engine has no {{#each}}, so a list has to arrive pre-rendered; every value is
+ * escaped here because both halves are member-entered.
+ */
+export function claimRowsToHtml(claims: PendingLanguageClaim[]): string {
+  return claims.map((c) => `<li>${esc(c.name)} -- ${esc(c.language)}</li>`).join("");
+}
+
+export type LanguageClaimedParams = {
+  /** Reviewer's first name. */
+  firstName: string;
+  /** The claims waiting, already sorted. */
+  claims: PendingLanguageClaim[];
+  /** Absolute link to the language review queue. */
+  reviewLink: string;
+};
+
+/** Build the flat render-engine context for the volunteers.language_claimed template. */
+export function languageClaimedContext(p: LanguageClaimedParams): Record<string, unknown> {
+  const single = p.claims.length === 1;
+  return {
+    firstName: p.firstName,
+    claimCount: p.claims.length,
+    isSingle: single,
+    singleName: single ? p.claims[0].name : "",
+    singleLanguage: single ? p.claims[0].language : "",
+    claimRowsHtml: claimRowsToHtml(p.claims),
+    reviewLink: p.reviewLink,
+  };
+}
 
 export type SelfWithdrawalParams = {
   /** Full name of the member who withdrew. */
@@ -114,6 +149,46 @@ export const volunteersDescriptors: TemplateDescriptor[] = [
 {{#if hasNote}}<p>Note from the assessor: {{ note }}</p>{{/if}}
 
 <p>You can see your current record <a href="{{ myInfoLink }}">here</a>.</p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    // Sent to the reviewers who hold volunteers.verify_spanish when volunteers
+    // self-report a language and land in the assessment queue.
+    //
+    // One digest per reviewer, not one message per claim: promoting a cycle
+    // cohort creates dozens of claims in a single transaction, and a message
+    // each buried the reviewers. The body branches on isSingle so the common
+    // one-claim case still reads as a sentence rather than a list of one.
+    key: "volunteers.language_claimed",
+    name: "Volunteers: language claim needs review",
+    category: "transactional",
+    group: "volunteers",
+    variables: [
+      { name: "firstName", label: "Reviewer first name", sampleValue: "Alex" },
+      { name: "claimCount", label: "How many claims are waiting", sampleValue: "3" },
+      { name: "isSingle", label: "True when exactly one claim is waiting", sampleValue: "false" },
+      { name: "singleName", label: "Claimant name when there is exactly one", sampleValue: "Sam Rivera" },
+      { name: "singleLanguage", label: "Language when there is exactly one", sampleValue: "Spanish" },
+      {
+        name: "claimRowsHtml",
+        label: "The waiting claims as list rows",
+        sampleValue: "<li>Sam Rivera -- Spanish</li>",
+      },
+      {
+        name: "reviewLink",
+        label: "Link to the language review queue",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers/spanish-review",
+      },
+    ],
+    defaultSubject: "[HAVEN] Language claims awaiting your review",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+{{#if isSingle}}<p><strong>{{ singleName }}</strong> has reported speaking {{ singleLanguage }} and is waiting on an assessment.</p>{{else}}<p>{{ claimCount }} volunteers have reported speaking a language and are waiting on an assessment:</p>
+
+<ul>{{{ claimRowsHtml }}}</ul>{{/if}}
+
+<p><a href="{{ reviewLink }}">Open the language review queue</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

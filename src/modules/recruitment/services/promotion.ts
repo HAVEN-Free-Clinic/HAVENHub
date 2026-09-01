@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
-import { claimLanguage } from "@/platform/languages";
+import { claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import { isoDateKey } from "@/platform/dates";
@@ -54,6 +54,9 @@ export async function promoteContracts(
   // Pre-conversion apply-portal events were keyed by the applicant email; alias
   // each into the resolved person id so those events join the person timeline.
   let aliasedAny = false;
+  // New language claims across every promoted contract, sent as ONE digest per
+  // reviewer once the whole batch has committed.
+  const pendingLanguageClaims: Array<{ personId: string; language: string }> = [];
 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
@@ -210,8 +213,17 @@ export async function promoteContracts(
         //     application question.
         const claimedLanguages = new Set<string>(application?.languagesClaimed ?? []);
         if (contract.spanishSelfReported) claimedLanguages.add("es");
+        // Only claims that did not already exist are worth telling the
+        // interpreting department about; a returning member re-stating a
+        // language already on their record is not new work for a reviewer.
+        // Collected here and sent after the loop: notifying from inside this
+        // transaction stretched it across a permission resolution plus a
+        // notification write per reviewer, and mailed them about promotions
+        // that then rolled back.
+        const newClaims: Array<{ personId: string; language: string }> = [];
         for (const code of claimedLanguages) {
-          await claimLanguage(person.id, code, tx);
+          const { created } = await claimLanguage(person.id, code, tx);
+          if (created) newClaims.push({ personId: person.id, language: code });
         }
 
         // One ACTIVE membership per (person, term, department) is the intended
@@ -289,9 +301,10 @@ export async function promoteContracts(
 
         // The status/promotedAt/promotedById half was written by the claim above.
         await tx.onboardingContract.update({ where: { id: contract.id }, data: { promotedPersonId: person.id } });
-        return { isNew, personId: person.id };
+        return { isNew, personId: person.id, newClaims };
       });
       if (result.isNew) created += 1; else reactivated += 1;
+      pendingLanguageClaims.push(...result.newClaims);
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a
@@ -328,5 +341,8 @@ export async function promoteContracts(
     }
   }
   if (aliasedAny) await flushEvents();
+  // After every transaction has committed. Best-effort inside: a delivery
+  // failure must not read as a failed promotion.
+  await notifyReviewersOfPendingClaims(pendingLanguageClaims, actorId);
   return { created, reactivated, skipped, failed };
 }

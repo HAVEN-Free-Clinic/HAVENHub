@@ -183,7 +183,7 @@ export function SignaturePad({
     <div className="block">
       <span className="block text-sm font-medium text-foreground">
         {label}
-        {required && <span className="text-critical" aria-hidden="true"> *</span>}
+        {required && <span className="text-critical-foreground" aria-hidden="true"> *</span>}
       </span>
       {helpText && <span className="mt-1 block text-xs text-muted-foreground">{helpText}</span>}
 
@@ -224,12 +224,12 @@ export function SignaturePad({
         </Button>
         {/* role="status" (implicit aria-live="polite") announces capture to AT,
             which cannot perceive the ink on the canvas. */}
-        <span role="status" className={cx("text-xs text-success", empty && "sr-only")}>
+        <span role="status" className={cx("text-xs text-success-foreground", empty && "sr-only")}>
           {empty ? "No signature yet" : "Signed"}
         </span>
       </div>
 
-      {error && <span id={errorId} role="alert" className="mt-1 block text-xs text-critical">{error}</span>}
+      {error && <span id={errorId} role="alert" className="mt-1 block text-xs text-critical-foreground">{error}</span>}
     </div>
   );
 }

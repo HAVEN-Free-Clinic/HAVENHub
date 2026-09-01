@@ -708,6 +708,42 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual(["saved"]);
   });
 
+  it("claims saved=returned on the applicants detail page", () => {
+    // Where a recruitment lead lands: they keep sight of the application after
+    // returning it, so decideRoutedAction leaves them on the detail page.
+    const result = classifyFlashParams(
+      paramsOf({ saved: "returned" }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Returned to the recruitment lead for re-routing." },
+    ]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=returned on the applicants roster too", () => {
+    // Where a department director lands: returning clears the routing that gave
+    // them access, so the detail page would 404 and the action sends them here
+    // instead. One segment shorter than the detail pathname above -- the roster
+    // scope must match it and only it.
+    const result = classifyFlashParams(
+      paramsOf({ saved: "returned" }),
+      "/recruitment/cycles/abc123/applicants",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Returned to the recruitment lead for re-routing." },
+    ]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("does not leak the roster scope onto an unrelated two-segment cycle page", () => {
+    // `*` matches exactly one segment, so /recruitment/cycles/abc123/waitlist has
+    // the same segment count as the roster and would match a sloppier pattern.
+    const result = classifyFlashParams(paramsOf({ saved: "returned" }), "/recruitment/cycles/abc123/waitlist");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
   it("claims saved=rescind on the applicants detail page", () => {
     const result = classifyFlashParams(
       paramsOf({ saved: "rescind" }),

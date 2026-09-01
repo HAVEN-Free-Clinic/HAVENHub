@@ -46,7 +46,7 @@ export function WordCountTextarea({
         <span
           className={cx(
             "mt-1 block text-right text-xs tabular-nums",
-            over ? "text-critical" : "text-muted-foreground",
+            over ? "text-critical-foreground" : "text-muted-foreground",
           )}
         >
           {count} / {wordLimit} words

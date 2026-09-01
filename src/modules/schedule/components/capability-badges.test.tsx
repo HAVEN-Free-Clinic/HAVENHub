@@ -14,9 +14,14 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CapabilityBadges } from "./capability-badges";
 
-function render(person: { verifiedLanguages: string[]; licensedRN: boolean }): HTMLElement {
+function render(
+  person: { verifiedLanguages: string[]; licensedRN: boolean; spanishScore?: number | null },
+  department?: { minInterpreterScore: number | null } | null,
+): HTMLElement {
   const host = document.createElement("div");
-  host.innerHTML = renderToStaticMarkup(<CapabilityBadges person={person} />);
+  host.innerHTML = renderToStaticMarkup(
+    <CapabilityBadges person={person} department={department} />,
+  );
   return host;
 }
 
@@ -63,5 +68,74 @@ describe("CapabilityBadges verified-language badge", () => {
   it("still renders the RN badge alongside languages", () => {
     const host = render({ verifiedLanguages: ["es"], licensedRN: true });
     expect(host.textContent).toContain("RN");
+  });
+});
+
+/**
+ * The per-department interpreting bar.
+ *
+ * 4 clinic-wide; departments that staff conversational speakers set 3. The badge
+ * is what tells a director standing in clinic that the person they are about to
+ * ask to interpret is below THEIR department's bar, because nothing refuses the
+ * assignment.
+ */
+describe("CapabilityBadges Spanish proficiency bar", () => {
+  it("reads as a plain verified badge when the score clears the clinic-wide bar", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 4 });
+    expect(accessibleText(host)).toBe("Verified: Spanish");
+  });
+
+  it("says so, in text, when the score is below the bar", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 2 });
+    const text = accessibleText(host);
+    expect(text).toContain("assessed 2");
+    expect(text).toContain("below this department's bar of 4");
+  });
+
+  it("respects a department that accepts conversational speakers", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },
+      { minInterpreterScore: 3 },
+    );
+    expect(accessibleText(host)).toBe("Verified: Spanish");
+  });
+
+  it("still flags a score below even that department's lower bar", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 2 },
+      { minInterpreterScore: 3 },
+    );
+    expect(accessibleText(host)).toContain("below this department's bar of 3");
+  });
+
+  it("falls back to the clinic-wide bar when the department sets none", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },
+      { minInterpreterScore: null },
+    );
+    expect(accessibleText(host)).toContain("below this department's bar of 4");
+  });
+
+  // INTP verified people for years without always recording a number. Treating
+  // "no score" as a shortfall would decorate most of the historical roster with
+  // a warning that means nothing.
+  it("does not flag an unscored speaker", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: null });
+    expect(accessibleText(host)).toBe("Verified: Spanish");
+  });
+
+  it("never flags a language that carries no score", () => {
+    const host = render(
+      { verifiedLanguages: ["ht"], licensedRN: false, spanishScore: 1 },
+      { minInterpreterScore: 5 },
+    );
+    expect(accessibleText(host)).toBe("Verified: Haitian Creole");
+  });
+
+  it("keeps the shortfall out of the visible chip's accessible duplicate", () => {
+    // The code+score chip is aria-hidden; the sentence is the accessible name.
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 2 });
+    expect(host.textContent).toContain("ES 2");
+    expect(accessibleText(host)).not.toContain("ES 2");
   });
 });

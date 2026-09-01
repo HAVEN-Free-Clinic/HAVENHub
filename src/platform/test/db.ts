@@ -15,6 +15,7 @@ export async function resetDb() {
               "TriageChatMember", "TriageChat", "TriageChatPresetDepartment", "TriageChatPreset",
               "ShiftRequest", "SchedulePublication", "ScheduleDay", "ClinicDayAttending", "ClinicDay", "ClinicSlot", "AttendingCredentialing", "AttendingCapabilityValue", "AttendingCapability", "Attending", "AttendingSpecialty",
               "ClinicAttendance", "ShiftAssignment", "HipaaCertificate", "RoleAssignment", "RoleGrant", "Role", "TermMembership",
+              "SpanishAssessmentRecord",
               "DepartmentDelegation", "Department", "TermOnboardingStep", "Term", "Person", "AuditLog",
               "OffboardFlag", "EpicRequest", "YnhhTicket", "TechRequest", "TechRequestComment", "TechRequestAttachment", "DisciplinaryAction", "Notification", "EmailLog", "EmailCampaignRun", "EmailCampaign", "EmailTemplate",
               "ComplianceReminder", "ReminderDispatch", "MailCredential", "Setting", "EmailSenderRule",

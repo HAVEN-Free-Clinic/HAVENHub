@@ -77,6 +77,12 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   // Page heading must be visible
   await expect(page.getByRole("heading", { name: "Master Compliance View" })).toBeVisible();
 
+  // Wait out the Suspense fallback before asserting on the cards. The skeleton
+  // carries the real card LABELS (so the swap does not shift the layout), which
+  // means the assertions below would pass against a placeholder and prove
+  // nothing. The roster count line is rendered only by the resolved body.
+  await expect(page.getByText(/^(No members found\.|\d+ members?)$/)).toBeVisible();
+
   // Summary stat cards are rendered as plain <p> elements (no aria-label).
   // The beforeEach seeds a COMPLIANT ITCM member, so "Compliant" will always be present.
   // "No Certificate" covers seed members with no cert, so it is also always present.

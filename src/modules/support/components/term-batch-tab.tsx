@@ -244,7 +244,7 @@ export function TermBatchTab({
                 copyState === "copied"
                   ? "text-success-foreground"
                   : copyState === "error"
-                    ? "text-critical"
+                    ? "text-critical-foreground"
                     : "text-muted-foreground"
               }`}
             >

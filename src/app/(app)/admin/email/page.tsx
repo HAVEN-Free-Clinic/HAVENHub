@@ -83,12 +83,12 @@ export default async function EmailPage({ searchParams }: PageProps) {
   const sp = await searchParams;
 
   // The header links target pages with their own, independently-grantable
-  // permissions (Campaigns -> admin.send_email_campaign, Manage templates ->
-  // admin.manage_email_templates). A monitoring-only admin holds only
-  // admin.manage_sync, so gate each link on its target's permission rather than
-  // showing a link that dead-ends at /no-access.
+  // permissions (Campaigns -> outreach.send / outreach.send_unrestricted, Manage
+  // templates -> admin.manage_email_templates). A monitoring-only admin holds
+  // only admin.manage_sync, so gate each link on its target's permission rather
+  // than showing a link that dead-ends at /no-access.
   const [canCampaigns, canTemplates] = await Promise.all([
-    can(personId, "admin.send_email_campaign"),
+    (await can(personId, "outreach.send")) || (await can(personId, "outreach.send_unrestricted")),
     can(personId, "admin.manage_email_templates"),
   ]);
 
@@ -268,7 +268,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             <div className="flex gap-4">
               {canCampaigns && (
                 <Link
-                  href="/admin/email/campaigns"
+                  href="/outreach/campaigns"
                   className="text-sm font-medium underline underline-offset-2"
                 >
                   Campaigns

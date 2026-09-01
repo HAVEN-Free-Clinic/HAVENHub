@@ -44,12 +44,19 @@ describe("module registry", () => {
         "incidents",
         "learning",
         "my-info",
+        "outreach",
         "recruitment",
         "schedule",
         "support",
         "volunteers",
       ].sort()
     );
+  });
+
+  it("no longer declares the pre-delegation campaign permission", () => {
+    const all = MODULES.flatMap((m) => m.permissions);
+    expect(all).not.toContain("admin.send_email_campaign");
+    expect(all).toContain("outreach.send_unrestricted");
   });
 
   it("keeps every nav-row module title short", () => {

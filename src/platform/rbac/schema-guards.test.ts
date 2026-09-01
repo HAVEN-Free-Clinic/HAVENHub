@@ -119,4 +119,37 @@ describe("db-level schema guards", () => {
       })
     ).rejects.toThrow();
   });
+
+  it("rejects an audience scope grant with neither target set", async () => {
+    const scope = await prisma.audienceScope.create({
+      data: { name: "S", audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] } },
+    });
+    await expect(
+      prisma.audienceScopeGrant.create({ data: { scopeId: scope.id } }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects an audience scope grant with both targets set", async () => {
+    const scope = await prisma.audienceScope.create({
+      data: { name: "S", audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] } },
+    });
+    const role = await prisma.role.create({ data: { name: "R" } });
+    const person = await prisma.person.create({ data: { name: "P" } });
+    await expect(
+      prisma.audienceScopeGrant.create({
+        data: { scopeId: scope.id, personId: person.id, roleId: role.id },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a duplicate audience scope grant to the same target", async () => {
+    const scope = await prisma.audienceScope.create({
+      data: { name: "S", audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] } },
+    });
+    const person = await prisma.person.create({ data: { name: "P" } });
+    await prisma.audienceScopeGrant.create({ data: { scopeId: scope.id, personId: person.id } });
+    await expect(
+      prisma.audienceScopeGrant.create({ data: { scopeId: scope.id, personId: person.id } }),
+    ).rejects.toThrow();
+  });
 });

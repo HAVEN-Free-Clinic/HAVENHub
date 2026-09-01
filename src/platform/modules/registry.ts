@@ -3,6 +3,7 @@ import {
   ClipboardList,
   GraduationCap,
   LifeBuoy,
+  Megaphone,
   Settings,
   ShieldAlert,
   Stethoscope,
@@ -224,7 +225,6 @@ export const MODULES: ModuleManifest[] = [
       "admin.view_audit",
       "admin.manage_sync",
       "admin.manage_email_templates",
-      "admin.send_email_campaign",
       "admin.manage_settings",
       "admin.manage_departments",
       "admin.manage_subcommittees",
@@ -246,6 +246,34 @@ export const MODULES: ModuleManifest[] = [
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
+    ],
+  },
+  {
+    id: "outreach",
+    title: "Outreach",
+    description: "Send targeted email campaigns to a filtered audience",
+    icon: Megaphone,
+    accessPermission: "outreach.access",
+    // A scoped sender holds outreach.send without outreach.access, and an admin
+    // may hold only manage_scopes. Both must still reach the module.
+    additionalAccessPermissions: ["outreach.send", "outreach.send_unrestricted", "outreach.manage_scopes"],
+    permissions: [
+      "outreach.access",
+      // Compose and send, bounded to the audience scopes granted to the sender.
+      "outreach.send",
+      // Strictly stronger than outreach.send: may send with no scope at all.
+      // This is what admin.send_email_campaign used to mean.
+      "outreach.send_unrestricted",
+      "outreach.manage_scopes",
+    ],
+    status: "active",
+    nav: [
+      // Campaigns/page.tsx enforces requireAnyPermission(["outreach.send",
+      // "outreach.send_unrestricted"]), so gate the tab on the same pair --
+      // otherwise a manage_scopes-only holder (admitted via
+      // additionalAccessPermissions) sees a tab that bounces to /no-access.
+      { label: "Campaigns", href: "/outreach/campaigns", permission: ["outreach.send", "outreach.send_unrestricted"] },
+      { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
     ],
   },
   {

@@ -49,10 +49,6 @@
               "type": "boolean",
               "description": "Whether the visitor holds the admin.manage_terms permission in HAVEN Hub."
             },
-            "send_email_campaign": {
-              "type": "boolean",
-              "description": "Whether the visitor holds the admin.send_email_campaign permission in HAVEN Hub."
-            },
             "view_audit": {
               "type": "boolean",
               "description": "Whether the visitor holds the admin.view_audit permission in HAVEN Hub."
@@ -101,6 +97,29 @@
             "view_progress": {
               "type": "boolean",
               "description": "Whether the visitor holds the learning.view_progress permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
+        "outreach": {
+          "type": "object",
+          "description": "Whether the visitor can access the Outreach area and its actions in HAVEN Hub.",
+          "properties": {
+            "access": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the outreach.access permission in HAVEN Hub."
+            },
+            "manage_scopes": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the outreach.manage_scopes permission in HAVEN Hub."
+            },
+            "send": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the outreach.send permission in HAVEN Hub."
+            },
+            "send_unrestricted": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the outreach.send_unrestricted permission in HAVEN Hub."
             }
           },
           "additionalProperties": false

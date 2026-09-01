@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/platform/auth/session";
+import { requireAnyPermission } from "@/platform/auth/session";
 import {
   getCampaign,
   updateCampaign,
@@ -9,8 +9,10 @@ import {
   sendCampaignNow,
   scheduleCampaign,
   cancelCampaign,
+  assertMayActOnScope,
   CampaignValidationError,
   CampaignConfirmationError,
+  CampaignScopeError,
 } from "@/platform/email/campaigns/service";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -18,8 +20,7 @@ import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
-import { collectAudienceReferences } from "@/platform/email/audience/references";
-import { prisma } from "@/platform/db";
+import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -30,7 +31,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { TemplateEditor } from "../../templates/[key]/preview";
+import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { SubmitButton } from "./submit-button";
 import { ReviewActions, type PreviewResult } from "./review-actions";
@@ -46,92 +47,85 @@ const EMPTY_AUDIENCE: Audience = {
   conditions: [],
 };
 
+// Module scope, NOT a closure inside the page component: a "use server" action
+// closure can only capture serializable values (Next's transform bundles every
+// render-scope identifier an action references as an encrypted bound
+// argument), and a plain function reference is not serializable. This used to
+// be declared inside CampaignEditorPage's body, which made every action below
+// that called it dead at runtime -- the page rendered, but the server threw
+// "Functions cannot be passed directly to Client Components" and emitted each
+// form's action as `javascript:throw new Error(...)`. Hoisted here and given
+// its own explicit, serializable arguments instead of closing over them.
+//
+// The same predicate CampaignValidationError/CampaignConfirmationError already
+// get at each call site below: a blocked sender sees an inline explanation via
+// ?error=, not the generic error boundary. Every mutating action shares this
+// exact predicate, since a scoped sender may not edit, cancel, preview, or
+// send/schedule a campaign outside their granted scopes any more than they may
+// view one.
+async function assertScopeOrRedirect(
+  personId: string,
+  scopeId: string | null,
+  id: string,
+): Promise<void> {
+  try {
+    await assertMayActOnScope(personId, scopeId);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) {
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+}
+
 export default async function CampaignEditorPage({ params }: Props) {
-  await requirePermission("admin.send_email_campaign");
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const { id } = await params;
 
   const campaign = await getCampaign(id);
-  if (!campaign) redirect("/admin/email/campaigns");
+  if (!campaign) redirect("/outreach/campaigns");
+
+  // Captured here (rather than reading campaign.scopeId inside the server action
+  // closures below) because TS does not carry the null-check narrowing above into
+  // nested "use server" closures: campaign's declared type is still `... | null`
+  // inside them, even though it can only ever be the non-null branch at runtime.
+  const scopeId = campaign.scopeId;
+
+  // A scoped sender may not even OPEN a campaign outside every scope they hold:
+  // the URL alone would otherwise leak another department's audience and
+  // content. /no-access rather than the ?error= pattern the actions below use,
+  // since there is no "back to this same page" to usefully redirect to here.
+  // The resolved scope is reused below for display (boundScope) instead of
+  // querying it again.
+  let boundScope: Awaited<ReturnType<typeof assertMayActOnScope>>;
+  try {
+    boundScope = await assertMayActOnScope(actor.personId, scopeId);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) redirect("/no-access");
+    throw err;
+  }
 
   const isSent = campaign.status === "SENT";
   const isDraft = campaign.status === "DRAFT";
   const isScheduled = campaign.status === "SCHEDULED";
   const isActive = campaign.status === "ACTIVE";
 
-  const [layoutSource, brandColor, departments, terms, cycles] = await Promise.all([
+  const [layoutSource, brandColor] = await Promise.all([
     loadLayoutSource(),
     getSetting<string>("branding.brandColor"),
-    prisma.department.findMany({
-      where: { isActive: true },
-      select: { code: true, name: true },
-      orderBy: { code: "asc" },
-    }),
-    // EVERY term, archived included -- unlike the RBAC term picker, which hides
-    // archived terms because an assignment scoped to one is permanently inert.
-    // Here a past term is the whole point: "email everyone who volunteered in
-    // spring" is a question about a roster that is now archived.
-    prisma.term.findMany({
-      select: { id: true, code: true, name: true, status: true },
-      orderBy: { startDate: "desc" },
-    }),
-    prisma.recruitmentCycle.findMany({
-      select: { id: true, title: true, status: true },
-      orderBy: { createdAt: "desc" },
-    }),
   ]);
 
   const parsedAudience: Audience = isAudience(campaign.audienceJson)
     ? campaign.audienceJson
     : EMPTY_AUDIENCE;
 
-  // A saved `department` condition whose code was later deactivated (or the
-  // department deleted) has no option in the active-only list, so it renders as
-  // neither checked nor uncheckable while still serialising into every save and
-  // emailing that department forever. Union the active list with every department
-  // code referenced anywhere in the stored audience so each stored value stays
-  // representable and removable, labelling the retired ones (#82).
-  const referenced = collectAudienceReferences(parsedAudience.conditions);
-  const referencedDeptCodes = referenced.departmentCodes;
+  const {
+    departments: audienceDepartments,
+    terms: audienceTerms,
+    cycles: audienceCycles,
+  } = await loadAudienceBuilderOptions(parsedAudience);
 
-  const activeCodes = new Set(departments.map((d) => d.code));
-  const missingCodes = [...referencedDeptCodes].filter((c) => !activeCodes.has(c));
-  const inactiveReferenced = missingCodes.length
-    ? await prisma.department.findMany({
-        where: { code: { in: missingCodes } },
-        select: { code: true, name: true },
-        orderBy: { code: "asc" },
-      })
-    : [];
-  const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
-  const audienceDepartments = [
-    ...departments,
-    ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),
-    // Codes with no surviving Department row at all (department fully deleted):
-    // still render them so the admin can uncheck the dead value.
-    ...missingCodes.filter((c) => !foundCodes.has(c)).map((c) => ({ code: c, name: `${c} (removed)` })),
-  ];
-
-  // Terms and cycles get the same treatment as departments above: a stored
-  // audience naming a deleted term or cycle must stay visible and removable
-  // rather than becoming an invisible filter nobody can edit out.
-  const audienceTerms = [
-    ...terms.map((t) => ({
-      id: t.id,
-      label: t.status === "ACTIVE" ? `${t.code} (current)` : `${t.code} - ${t.name}`,
-    })),
-    ...[...referenced.termIds]
-      .filter((tid) => !terms.some((t) => t.id === tid))
-      .map((tid) => ({ id: tid, label: "Deleted term" })),
-  ];
-  const audienceCycles = [
-    ...cycles.map((c) => ({
-      id: c.id,
-      label: c.status === "OPEN" ? `${c.title} (open)` : c.title,
-    })),
-    ...[...referenced.cycleIds]
-      .filter((cid) => !cycles.some((c) => c.id === cid))
-      .map((cid) => ({ id: cid, label: "Deleted cycle" })),
-  ];
+  const scopeName = boundScope?.name ?? "a deleted scope";
 
   const zone = await getDisplayTimeZone();
 
@@ -141,7 +135,8 @@ export default async function CampaignEditorPage({ params }: Props) {
 
   async function saveAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
@@ -158,14 +153,14 @@ export default async function CampaignEditorPage({ params }: Props) {
     } catch (err) {
       if (err instanceof CampaignValidationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
         );
       }
       throw err;
     }
 
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?saved=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?saved=1`);
   }
 
   // Returns the resolved roll rather than redirecting: ReviewActions renders it
@@ -173,10 +168,15 @@ export default async function CampaignEditorPage({ params }: Props) {
   // strips the params as soon as it toasts them, leaving nothing to render from.
   async function previewAction(): Promise<PreviewResult> {
     "use server";
-    await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     try {
+      // A preview lists real recipient names, so it needs the same scope check
+      // as an actual send -- returned as a `problems` entry rather than a
+      // redirect, matching how this action already reports every other failure.
+      await assertMayActOnScope(actor.personId, scopeId);
       return { ok: true, preview: await previewAudience(id) };
     } catch (err) {
+      if (err instanceof CampaignScopeError) return { ok: false, problems: [err.message] };
       if (err instanceof CampaignValidationError) return { ok: false, problems: err.problems };
       throw err;
     }
@@ -184,25 +184,27 @@ export default async function CampaignEditorPage({ params }: Props) {
 
   async function testAction() {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     if (!actor.email) {
       redirect(
-        `/admin/email/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
+        `/outreach/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
       );
     }
     try {
       await testSend(actor.personId, id, actor.email);
     } catch {
       redirect(
-        `/admin/email/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
+        `/outreach/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
       );
     }
-    redirect(`/admin/email/campaigns/${id}?tested=1#review`);
+    redirect(`/outreach/campaigns/${id}?tested=1#review`);
   }
 
   async function sendAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const rawCount = formData.get("confirmCount");
     const confirmCount =
       rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -214,31 +216,32 @@ export default async function CampaignEditorPage({ params }: Props) {
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(
             `This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and click Send again.`,
           )}`,
         );
       }
       if (err instanceof CampaignValidationError) {
         redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
+          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
         );
       }
       throw err;
     }
 
-    revalidatePath("/admin/email/campaigns");
-    redirect(`/admin/email/campaigns/${id}?sent=${recipientCount}`);
+    revalidatePath("/outreach/campaigns");
+    redirect(`/outreach/campaigns/${id}?sent=${recipientCount}`);
   }
 
   async function scheduleLaterAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
-    if (!raw) redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
+    if (!raw) redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
     const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
     if (!scheduledAt) {
-      redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
     }
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -246,20 +249,21 @@ export default async function CampaignEditorPage({ params }: Props) {
       await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt }, undefined, { confirmCount });
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
       }
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?scheduled=1`);
   }
 
   async function scheduleRecurringAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -267,30 +271,31 @@ export default async function CampaignEditorPage({ params }: Props) {
       await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr }, undefined, { confirmCount });
     } catch (err) {
       if (err instanceof CampaignConfirmationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
       }
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?scheduled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?scheduled=1`);
   }
 
   async function cancelAction() {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     try {
       await cancelCampaign(actor.personId, id);
     } catch (err) {
       if (err instanceof CampaignValidationError) {
-        redirect(`/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
       }
       throw err;
     }
-    revalidatePath(`/admin/email/campaigns/${id}`);
-    redirect(`/admin/email/campaigns/${id}?cancelled=1`);
+    revalidatePath(`/outreach/campaigns/${id}`);
+    redirect(`/outreach/campaigns/${id}?cancelled=1`);
   }
 
   return (
@@ -343,6 +348,12 @@ export default async function CampaignEditorPage({ params }: Props) {
           {/* Section 2: Audience */}
           <div className="border-t border-border pt-6 space-y-4">
             <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
+            {campaign.scopeId && (
+              <Alert tone="info">
+                This campaign is bounded by the <strong>{scopeName}</strong> scope. Recipients are
+                the people matching BOTH that scope and the conditions below.
+              </Alert>
+            )}
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
               departments={audienceDepartments}

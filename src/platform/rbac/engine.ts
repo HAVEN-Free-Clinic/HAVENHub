@@ -9,7 +9,7 @@ type AssignmentRow = {
   personId: string | null;
   departmentId: string | null;
   kind: Track | null;
-  role: { grants: Array<{ permission: string }> };
+  role: { id: string; grants: Array<{ permission: string }> };
 };
 
 type AssignmentContext = {
@@ -58,7 +58,7 @@ const loadAssignmentContext = cache(
         personId: true,
         departmentId: true,
         kind: true,
-        role: { select: { grants: { select: { permission: true } } } },
+        role: { select: { id: true, grants: { select: { permission: true } } } },
       },
     });
 
@@ -93,6 +93,18 @@ export const getEffectivePermissions = cache(
     const permissions = new Set<string>();
     for (const a of assignments) for (const g of a.role.grants) permissions.add(g.permission);
     return permissions;
+  },
+);
+
+/**
+ * Role ids the person effectively holds, by the same union getEffectivePermissions
+ * uses: directly assigned, via an active-term department, or via a membership kind.
+ * Exposed so audience-scope grants can target a Role without re-deriving that union.
+ */
+export const roleIdsForPerson = cache(
+  async (personId: string): Promise<string[]> => {
+    const { assignments } = await loadAssignmentContext(personId, await activeTermId());
+    return [...new Set(assignments.map((a) => a.role.id))];
   },
 );
 

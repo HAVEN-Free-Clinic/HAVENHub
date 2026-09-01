@@ -12,6 +12,9 @@ import { queueEmail, queueEmails } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
 import { getStarter } from "./starters";
+import { can } from "@/platform/rbac/engine";
+import { getScope, scopesForPerson } from "@/platform/email/audience/scopes";
+import type { AudienceScopeView } from "@/platform/email/audience/scopes";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -48,10 +51,23 @@ export class CampaignAlreadyDispatchedError extends Error {
   }
 }
 
+/**
+ * Thrown when a person may not act on a campaign bound to a given scope --
+ * viewing, editing, cancelling, previewing, or sending/scheduling it. Every
+ * one of those actions shares the same predicate (assertMayActOnScope below),
+ * so they all throw this one error rather than each inventing its own.
+ */
+export class CampaignScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CampaignScopeError";
+  }
+}
+
 export async function createDraft(
   actorId: string | null,
   name: string,
-  opts: { starterId?: string } = {},
+  opts: { starterId?: string; scopeId?: string | null } = {},
 ) {
   // A starter seeds the draft's subject + body (and supplies a default name when the
   // creator left it blank). An unknown / omitted starter falls back to an empty draft.
@@ -61,6 +77,7 @@ export async function createDraft(
       name: name || starter?.name || "Untitled campaign",
       createdById: actorId,
       status: "DRAFT",
+      scopeId: opts.scopeId ?? null,
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] },
       subject: starter?.subject ?? "",
       body: starter?.body ?? "",
@@ -94,8 +111,97 @@ export async function getCampaign(id: string) {
   };
 }
 
-export async function listCampaigns() {
-  return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+/**
+ * Lists campaigns the caller may act on: everything for an unrestricted
+ * sender, or only the campaigns bound to a scope they hold for anyone else. A
+ * scoped sender's grants can be empty, in which case `scopeId: { in: [] }`
+ * correctly matches nothing -- and, since SQL's IN never matches NULL, a
+ * scoped sender never sees an unscoped (scopeId: null) campaign either,
+ * mirroring assertMayActOnScope's own refusal of a null scope for anyone but
+ * an unrestricted sender.
+ */
+export async function listCampaigns(personId: string) {
+  const unrestricted = await can(personId, "outreach.send_unrestricted");
+  if (unrestricted) {
+    return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+  }
+  const scopeIds = (await scopesForPerson(personId)).map((s) => s.id);
+  return prisma.emailCampaign.findMany({
+    where: { scopeId: { in: scopeIds } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/**
+ * The scope predicate behind every campaign action, not only sending: viewing
+ * a campaign, saving edits, cancelling, previewing its recipients, and
+ * sending/scheduling it all gate on the SAME question -- may this person act
+ * on a campaign bound to this scope? Named for what it checks, not for any one
+ * caller, since "assertMaySendUnderScope" stopped fitting once callers besides
+ * sending started reusing it (a department-scoped sender must not be able to
+ * even open, edit, or cancel another department's campaign, let alone send
+ * it). Re-checked on every call rather than cached, because a campaign can be
+ * opened or scheduled under one permission/grant set and acted on again after
+ * it has changed.
+ *
+ * A person needs outreach.send or outreach.send_unrestricted to act at all.
+ * That base check is required even in the scoped branch below, because
+ * AudienceScopeGrant is keyed by person/role with no reference to RBAC
+ * permissions -- a scope grant alone proves nothing about send authority, and
+ * this function must be correct standalone, not merely paired with a
+ * permission check at the call site.
+ *
+ * outreach.send_unrestricted is strictly stronger and does not require
+ * outreach.send: it also bypasses the scope-grant lookup and the requirement
+ * to name a scope at all. A null scopeId is permitted only for an unrestricted
+ * person, because for anyone else "no scope" would mean "no constraint", which
+ * is a send-all (and by the same logic a view-all/edit-all/cancel-all).
+ */
+export async function assertMayActOnScope(
+  personId: string,
+  scopeId: string | null,
+): Promise<AudienceScopeView | null> {
+  const unrestricted = await can(personId, "outreach.send_unrestricted");
+  const canSend = unrestricted || (await can(personId, "outreach.send"));
+  if (!canSend) {
+    throw new CampaignScopeError("You do not have permission to send campaigns.");
+  }
+
+  if (scopeId === null) {
+    if (unrestricted) return null;
+    throw new CampaignScopeError(
+      "Select an audience scope. Only unrestricted senders may send without one.",
+    );
+  }
+
+  const scope = await getScope(scopeId);
+  if (!scope) throw new CampaignScopeError("That audience scope no longer exists.");
+  if (unrestricted) return scope;
+
+  const mine = await scopesForPerson(personId);
+  if (!mine.some((s) => s.id === scopeId)) {
+    throw new CampaignScopeError("You have not been granted that audience scope.");
+  }
+  return scope;
+}
+
+/**
+ * Resolve a campaign's recipients, honoring its scope.
+ *
+ * A campaign naming a scope that has since vanished resolves to NOBODY. Falling
+ * back to an unscoped resolve would turn a deleted boundary into a send-all,
+ * which is exactly the failure this whole mechanism exists to prevent.
+ */
+export async function resolveCampaignAudience(campaign: {
+  audienceJson: unknown;
+  scopeId: string | null;
+}): Promise<{ recipients: Recipient[]; excludedNoEmail: number }> {
+  const audience = campaign.audienceJson as Audience;
+  if (campaign.scopeId === null) return resolveAudience(audience);
+
+  const scope = await getScope(campaign.scopeId);
+  if (!scope) return { recipients: [], excludedNoEmail: 0 };
+  return resolveAudience(audience, { scope: scope.audience });
 }
 
 export async function updateCampaign(
@@ -164,8 +270,7 @@ export async function previewAudience(id: string): Promise<AudiencePreview> {
   if (!isAudience(campaign.audienceJson)) {
     throw new CampaignValidationError(["Stored audience is malformed"]);
   }
-  const audience = campaign.audienceJson;
-  const { recipients, excludedNoEmail } = await resolveAudience(audience);
+  const { recipients, excludedNoEmail } = await resolveCampaignAudience(campaign);
   // Dedup by lowercased email exactly as the send path does, so the previewed
   // count matches what the confirm-count workflow will actually enqueue.
   const seen = new Set<string>();
@@ -238,7 +343,7 @@ export async function executeRun(
     if (!isAudience(campaign.audienceJson)) {
       throw new CampaignValidationError(["Stored audience is malformed"]);
     }
-    const { recipients } = await resolveAudience(campaign.audienceJson);
+    const { recipients } = await resolveCampaignAudience(campaign);
     const seen = new Set<string>();
     deduped = recipients.filter((r) => {
       const key = r.email.toLowerCase();
@@ -325,7 +430,7 @@ export async function sendCampaignNow(
   if (campaign.subject.trim() === "") throw new CampaignValidationError(["Add a subject before sending."]);
   if (!isAudience(campaign.audienceJson)) throw new CampaignValidationError(["Stored audience is malformed"]);
 
-  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const { recipients } = await resolveCampaignAudience(campaign);
   const seen = new Set<string>();
   const deduped = recipients.filter((r) => {
     const key = r.email.toLowerCase();
@@ -373,7 +478,7 @@ export async function scheduleCampaign(
   // For a recurring campaign this is the count as of now (the audience resolves
   // live at each run), which is still the right order-of-magnitude check against
   // an accidental send-all.
-  const { recipients } = await resolveAudience(campaign.audienceJson);
+  const { recipients } = await resolveCampaignAudience(campaign);
   const seen = new Set<string>();
   const deduped = recipients.filter((r) => {
     const key = r.email.toLowerCase();

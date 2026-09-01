@@ -545,8 +545,8 @@ mailbox.
   per-minute job that also dispatches due campaigns. Each queued row is attempted
   at most once per tick (keyset paging) to protect the retry budget.
 
-**Roles:** administrators (`admin.send_email_campaign`,
-`admin.manage_email_templates`).
+**Roles:** administrators and delegated senders (`outreach.send`,
+`outreach.send_unrestricted`, `outreach.manage_scopes`), `admin.manage_email_templates`.
 
 ### 7.12 Notifications
 

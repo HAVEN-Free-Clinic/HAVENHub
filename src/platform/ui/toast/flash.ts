@@ -34,7 +34,7 @@
  *    whose text the page hardcodes (`saved` -> "Saved."), or a group of params a page composes
  *    into one sentence (`sent` + `skipped` -> one release summary). A registry entry only fires
  *    when every param it owns is present, which matters: `sent` alone means something completely
- *    different on admin/email/campaigns/[id]/page.tsx ("Campaign sent to N recipients") than it
+ *    different on outreach/campaigns/[id]/page.tsx ("Campaign sent to N recipients") than it
  *    does paired with `skipped` on recruitment/cycles/[id]/decisions/page.tsx.
  *
  * Anything not matched by the convention and not in the registry is left untouched: not claimed,
@@ -533,9 +533,9 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Assignment saved.",
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:310-312.
+    // outreach/campaigns/[id]/page.tsx:310-312.
     params: ["saved"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "success",
     message: () => "Campaign saved.",
   },
@@ -565,11 +565,11 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:227-228,317-320. A standalone recipient count, never
+    // outreach/campaigns/[id]/page.tsx:227-228,317-320. A standalone recipient count, never
     // paired with `skipped` or `promoted` -- declared last among the `sent`-owning groups (see
     // the doc comment above) and pathname-scoped as a second guard.
     params: ["sent"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "success",
     message: (values) => {
       const sent = values.get("sent") ?? "";
@@ -577,18 +577,18 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:416-418 (testAction).
+    // outreach/campaigns/[id]/page.tsx:416-418 (testAction).
     params: ["tested"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "success",
     message: () => "Test email sent to your address.",
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:404-413 (previewAction). All three params always
+    // outreach/campaigns/[id]/page.tsx:404-413 (previewAction). All three params always
     // arrive together -- the redirect sets count and excluded every time, even at 0 -- so
     // requiring all three is not an artificial restriction, just what the producer always sends.
     params: ["preview", "count", "excluded"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "info",
     message: (values) => {
       const count = values.get("count") ?? "0";
@@ -600,16 +600,16 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:318-320 (scheduleLaterAction/scheduleRecurringAction).
+    // outreach/campaigns/[id]/page.tsx:318-320 (scheduleLaterAction/scheduleRecurringAction).
     params: ["scheduled"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "success",
     message: () => "Campaign scheduled.",
   },
   {
-    // admin/email/campaigns/[id]/page.tsx:321-323 (cancelAction).
+    // outreach/campaigns/[id]/page.tsx:321-323 (cancelAction).
     params: ["cancelled"],
-    pathnames: ["/admin/email/campaigns/*"],
+    pathnames: ["/outreach/campaigns/*"],
     tone: "info",
     message: () => "Schedule cancelled.",
   },

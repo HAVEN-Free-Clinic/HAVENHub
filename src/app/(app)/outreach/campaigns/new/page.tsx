@@ -1,26 +1,49 @@
 import { redirect } from "next/navigation";
-import { requirePermission } from "@/platform/auth/session";
-import { createDraft } from "@/platform/email/campaigns/service";
+import { requireAnyPermission } from "@/platform/auth/session";
+import { can } from "@/platform/rbac/engine";
+import {
+  createDraft,
+  assertMayActOnScope,
+  CampaignScopeError,
+} from "@/platform/email/campaigns/service";
+import { scopesForPerson } from "@/platform/email/audience/scopes";
 import { CAMPAIGN_STARTERS } from "@/platform/email/campaigns/starters";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
+import { Select } from "@/platform/ui/select";
 import { FormActions } from "@/platform/ui/form";
 
 export default async function NewCampaignPage() {
-  await requirePermission("admin.send_email_campaign");
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  const unrestricted = await can(actor.personId, "outreach.send_unrestricted");
+  const scopes = await scopesForPerson(actor.personId);
 
   async function createAction(formData: FormData) {
     "use server";
-    const actor = await requirePermission("admin.send_email_campaign");
+    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const starterId = ((formData.get("starter") as string | null) ?? "").trim();
+    const scopeId = ((formData.get("scopeId") as string | null) ?? "").trim() || null;
+    // Mirrors every mutating action on the [id] editor page: an admin can
+    // revoke a grant while this form is still open in another tab, and this
+    // must surface as an inline explanation rather than a 500.
+    try {
+      await assertMayActOnScope(actor.personId, scopeId);
+    } catch (err) {
+      if (err instanceof CampaignScopeError) {
+        redirect(`/outreach/campaigns/new?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
     const c = await createDraft(actor.personId, name, {
       starterId: starterId || undefined,
+      scopeId,
     });
-    redirect(`/admin/email/campaigns/${c.id}`);
+    redirect(`/outreach/campaigns/${c.id}`);
   }
 
   return (
@@ -39,6 +62,25 @@ export default async function NewCampaignPage() {
               placeholder="e.g. Spring 2026 reminder"
             />
           </Field>
+
+          <Field label="Audience scope">
+            <Select name="scopeId" required={!unrestricted} defaultValue="">
+              {unrestricted ? (
+                <option value="">No scope (everyone)</option>
+              ) : (
+                <option value="" disabled>Choose a scope</option>
+              )}
+              {scopes.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </Select>
+          </Field>
+          {!unrestricted && scopes.length === 0 && (
+            <Alert tone="warning">
+              You have not been granted an audience scope, so you cannot send yet. Ask an
+              administrator to grant you one.
+            </Alert>
+          )}
 
           <RadioGroup legend="Start from">
             <Radio

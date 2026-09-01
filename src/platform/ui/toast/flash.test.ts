@@ -265,7 +265,7 @@ describe("classifyFlashParams", () => {
   });
 
   it("does not claim a bare sent without its skipped partner off the campaigns page", () => {
-    // admin/email/campaigns/[id]/page.tsx sets `sent` alone, meaning something else entirely
+    // outreach/campaigns/[id]/page.tsx sets `sent` alone, meaning something else entirely
     // ("Campaign sent to N recipients"); only the decisions page pairs it with `skipped`. Off the
     // campaigns page, the pathname-scoped lone-`sent` entry does not apply either, so this stays
     // fully unclaimed -- proving the registry does not fall back to guessing.
@@ -428,13 +428,13 @@ describe("classifyFlashParams", () => {
   });
 
   it("claims a lone sent on the campaigns page, singular recipient", () => {
-    const result = classifyFlashParams(paramsOf({ sent: "1" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ sent: "1" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "success", message: "Campaign sent to 1 recipient." }]);
     expect(result.stripParams).toEqual(["sent"]);
   });
 
   it("claims a lone sent on the campaigns page, plural recipients", () => {
-    const result = classifyFlashParams(paramsOf({ sent: "12" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ sent: "12" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "success", message: "Campaign sent to 12 recipients." }]);
     expect(result.stripParams).toEqual(["sent"]);
   });
@@ -445,7 +445,7 @@ describe("classifyFlashParams", () => {
     // even if this (synthetic) URL happened to carry the campaigns pathname.
     const result = classifyFlashParams(
       paramsOf({ sent: "4", skipped: "2" }),
-      "/admin/email/campaigns/xyz789",
+      "/outreach/campaigns/xyz789",
     );
     expect(result.toasts).toEqual([
       {
@@ -810,7 +810,7 @@ describe("classifyFlashParams", () => {
   });
 
   it("claims saved=1 on the campaign editor as Campaign saved.", () => {
-    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "success", message: "Campaign saved." }]);
     expect(result.stripParams).toEqual(["saved"]);
   });
@@ -821,7 +821,7 @@ describe("classifyFlashParams", () => {
   // ---------------------------------------------------------------------------
 
   it("claims tested=1 on the campaign editor", () => {
-    const result = classifyFlashParams(paramsOf({ tested: "1" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ tested: "1" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "success", message: "Test email sent to your address." }]);
     expect(result.stripParams).toEqual(["tested"]);
   });
@@ -829,7 +829,7 @@ describe("classifyFlashParams", () => {
   it("claims preview+count+excluded, plural recipients, no exclusions", () => {
     const result = classifyFlashParams(
       paramsOf({ preview: "1", count: "5", excluded: "0" }),
-      "/admin/email/campaigns/xyz789",
+      "/outreach/campaigns/xyz789",
     );
     expect(result.toasts).toEqual([
       { tone: "info", message: "Audience preview: 5 recipients." },
@@ -840,7 +840,7 @@ describe("classifyFlashParams", () => {
   it("claims preview+count+excluded, singular recipient", () => {
     const result = classifyFlashParams(
       paramsOf({ preview: "1", count: "1", excluded: "0" }),
-      "/admin/email/campaigns/xyz789",
+      "/outreach/campaigns/xyz789",
     );
     expect(result.toasts).toEqual([
       { tone: "info", message: "Audience preview: 1 recipient." },
@@ -851,7 +851,7 @@ describe("classifyFlashParams", () => {
   it("claims preview+count+excluded with exclusions appended", () => {
     const result = classifyFlashParams(
       paramsOf({ preview: "1", count: "5", excluded: "2" }),
-      "/admin/email/campaigns/xyz789",
+      "/outreach/campaigns/xyz789",
     );
     expect(result.toasts).toEqual([
       {
@@ -863,13 +863,13 @@ describe("classifyFlashParams", () => {
   });
 
   it("claims scheduled=1 on the campaign editor", () => {
-    const result = classifyFlashParams(paramsOf({ scheduled: "1" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ scheduled: "1" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "success", message: "Campaign scheduled." }]);
     expect(result.stripParams).toEqual(["scheduled"]);
   });
 
   it("claims cancelled=1 on the campaign editor, info tone", () => {
-    const result = classifyFlashParams(paramsOf({ cancelled: "1" }), "/admin/email/campaigns/xyz789");
+    const result = classifyFlashParams(paramsOf({ cancelled: "1" }), "/outreach/campaigns/xyz789");
     expect(result.toasts).toEqual([{ tone: "info", message: "Schedule cancelled." }]);
     expect(result.stripParams).toEqual(["cancelled"]);
   });

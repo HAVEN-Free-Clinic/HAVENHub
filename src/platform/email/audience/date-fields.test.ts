@@ -85,4 +85,99 @@ describe("compliance and training date fields", () => {
     );
     expect(recipients.map((r) => r.email)).toEqual(["founder@x.com"]);
   });
+
+  // `some` never matches a person with zero rows, which is why the helper
+  // emits none-or-null instead. Without this test that branch is unguarded,
+  // and a regression would drop the people a compliance reminder is FOR.
+  it("isEmpty matches people with no related row at all, not just a null date", async () => {
+    await personWithCert("Undated", "undated@x.com", null);
+    await prisma.person.create({
+      data: { name: "No Cert", contactEmail: "nocert@x.com", status: "ACTIVE" },
+    });
+    await personWithCert("Dated", "dated@x.com", new Date("2026-03-12T12:00:00.000Z"));
+
+    const { recipients } = await resolveAudience(
+      audienceFor("hipaaCompletedAt", "isEmpty", ""),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email).sort()).toEqual(["nocert@x.com", "undated@x.com"]);
+  });
+
+  // Person has TWO relations to EhsCompletion: the person's own (ehsCompletions)
+  // and the reverse "who marked it" side (ehsCompletionsMarked). Swapping to the
+  // reverse relation would compile and typecheck fine while silently changing
+  // the send list from "people who completed the training" to "staff who
+  // recorded it for someone else" -- so this fixture deliberately puts the
+  // completion and the marking on two DIFFERENT people.
+  it("ehsCompletedAt matches the person who completed the training, not who marked it", async () => {
+    const training = await prisma.ehsTraining.create({ data: { name: "Bloodborne Pathogens" } });
+    const completer = await prisma.person.create({
+      data: { name: "Completer", contactEmail: "completer@x.com", status: "ACTIVE" },
+    });
+    const marker = await prisma.person.create({
+      data: { name: "Marker", contactEmail: "marker@x.com", status: "ACTIVE" },
+    });
+    await prisma.ehsCompletion.create({
+      data: {
+        personId: completer.id,
+        trainingId: training.id,
+        completedAt: new Date("2026-03-12T12:00:00.000Z"),
+        markedById: marker.id,
+      },
+    });
+
+    const { recipients } = await resolveAudience(
+      audienceFor("ehsCompletedAt", "withinLastDays", "7"),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["completer@x.com"]);
+  });
+
+  // Same trap as above, on Training's reverse relation: trainings (the
+  // person-owned side) vs trainingAttendanceMarked (who recorded attendance).
+  it("trainingCompletedAt matches the person who completed the training, not who recorded attendance", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SP26",
+        name: "Spring 2026",
+        startDate: new Date("2026-01-01"),
+        endDate: new Date("2026-05-01"),
+        status: "ACTIVE",
+      },
+    });
+    const recorder = await prisma.person.create({
+      data: { name: "Recorder", contactEmail: "recorder@x.com", status: "ACTIVE" },
+    });
+    const cycle = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER",
+        termId: term.id,
+        title: "T",
+        publicSlug: "t-cycle-trap",
+        departments: [],
+        createdById: recorder.id,
+      },
+    });
+    const completer = await prisma.person.create({
+      data: { name: "Completer", contactEmail: "trainee@x.com", status: "ACTIVE" },
+    });
+    await prisma.training.create({
+      data: {
+        personId: completer.id,
+        termId: term.id,
+        cycleId: cycle.id,
+        status: "COMPLETE",
+        completedVia: "QUIZ",
+        completedAt: new Date("2026-03-12T12:00:00.000Z"),
+        attendanceRecordedById: recorder.id,
+        attendanceRecordedAt: new Date("2026-03-12T12:00:00.000Z"),
+      },
+    });
+
+    const { recipients } = await resolveAudience(
+      audienceFor("trainingCompletedAt", "withinLastDays", "7"),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["trainee@x.com"]);
+  });
 });

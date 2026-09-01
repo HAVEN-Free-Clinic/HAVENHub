@@ -193,21 +193,55 @@ export async function assertMayActOnScope(
  * which is exactly the failure this whole mechanism exists to prevent.
  */
 export async function resolveCampaignAudience(campaign: {
+  id: string;
   audienceJson: unknown;
   scopeId: string | null;
+  sendOncePerPerson: boolean;
 }): Promise<{ recipients: Recipient[]; excludedNoEmail: number }> {
   const audience = campaign.audienceJson as Audience;
-  if (campaign.scopeId === null) return resolveAudience(audience);
 
-  const scope = await getScope(campaign.scopeId);
-  if (!scope) return { recipients: [], excludedNoEmail: 0 };
-  return resolveAudience(audience, { scope: scope.audience });
+  let resolved: { recipients: Recipient[]; excludedNoEmail: number };
+  if (campaign.scopeId === null) {
+    resolved = await resolveAudience(audience);
+  } else {
+    const scope = await getScope(campaign.scopeId);
+    if (!scope) return { recipients: [], excludedNoEmail: 0 };
+    resolved = await resolveAudience(audience, { scope: scope.audience });
+  }
+
+  if (!campaign.sendOncePerPerson) return resolved;
+
+  // Everyone who already received any run of this campaign. Matched on
+  // personId, not email, so a person whose address changed between runs is
+  // still recognised as already-mailed.
+  const priorRuns = await prisma.emailCampaignRun.findMany({
+    where: { campaignId: campaign.id },
+    select: { id: true },
+  });
+  if (priorRuns.length === 0) return resolved;
+
+  const mailed = await prisma.emailLog.findMany({
+    where: { campaignRunId: { in: priorRuns.map((r) => r.id) }, personId: { not: null } },
+    select: { personId: true },
+    distinct: ["personId"],
+  });
+  const already = new Set(mailed.map((m) => m.personId!));
+  return {
+    recipients: resolved.recipients.filter((r) => !already.has(r.recordId)),
+    excludedNoEmail: resolved.excludedNoEmail,
+  };
 }
 
 export async function updateCampaign(
   actorId: string | null,
   id: string,
-  input: { name?: string; subject?: string; body?: string; audience: Audience },
+  input: {
+    name?: string;
+    subject?: string;
+    body?: string;
+    audience: Audience;
+    sendOncePerPerson?: boolean;
+  },
 ) {
   const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "DRAFT") throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
@@ -245,6 +279,7 @@ export async function updateCampaign(
       subject,
       body,
       audienceJson: input.audience as object,
+      ...(input.sendOncePerPerson !== undefined ? { sendOncePerPerson: input.sendOncePerPerson } : {}),
     },
   });
 }

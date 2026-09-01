@@ -411,8 +411,10 @@ describe("campaign scope authorization", () => {
     await prisma.person.create({ data: { name: "No", contactEmail: "no@x.com", status: "OFFBOARDED" } });
     const { scope } = await scopedSetup();
     const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
       scopeId: scope.id,
+      sendOncePerPerson: false,
     });
     expect(recipients.map((r) => r.email)).toEqual(["yes@x.com"]);
   });
@@ -422,8 +424,10 @@ describe("campaign scope authorization", () => {
   it("resolves to nobody when the referenced scope has vanished", async () => {
     await prisma.person.create({ data: { name: "Yes", contactEmail: "yes@x.com", status: "ACTIVE" } });
     const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
       audienceJson: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
       scopeId: "scope-that-does-not-exist",
+      sendOncePerPerson: false,
     });
     expect(recipients).toEqual([]);
   });
@@ -466,5 +470,42 @@ describe("listCampaigns scope filtering", () => {
     vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
     const campaigns = await listCampaigns(sender.id);
     expect(campaigns).toEqual([]);
+  });
+});
+
+describe("send-once per campaign", () => {
+  // Sets the campaign ACTIVE directly (bypassing scheduleCampaign, which this
+  // behavior does not depend on) so executeRun can be called twice with a
+  // claimWhere/statusUpdate pair that never changes status -- both claims
+  // match, so both runs actually execute.
+  async function activeCampaign(sendOncePerPerson: boolean) {
+    await activePerson("Sam Rivera", "sam@example.com");
+    const c = await createDraft(null, "Recurring digest");
+    await updateCampaign(null, c.id, {
+      subject: "Hi {{ firstName }}",
+      body: "<p>Hi {{ firstName }}</p>",
+      audience: ALL_ACTIVE,
+    });
+    await prisma.emailCampaign.update({ where: { id: c.id }, data: { status: "ACTIVE", sendOncePerPerson } });
+    return c.id;
+  }
+
+  async function runTwice(campaignId: string) {
+    await executeRun(campaignId, { actorId: null, claimWhere: { status: "ACTIVE" }, statusUpdate: { lastRunAt: new Date() } });
+    await executeRun(campaignId, { actorId: null, claimWhere: { status: "ACTIVE" }, statusUpdate: { lastRunAt: new Date() } });
+  }
+
+  it("mails each person once across runs when sendOncePerPerson is set", async () => {
+    const id = await activeCampaign(true);
+    await runTwice(id);
+    const logs = await prisma.emailLog.findMany({ where: { toEmail: "sam@example.com" } });
+    expect(logs.length).toBe(1);
+  });
+
+  it("mails again on the next run when the flag is off", async () => {
+    const id = await activeCampaign(false);
+    await runTwice(id);
+    const logs = await prisma.emailLog.findMany({ where: { toEmail: "sam@example.com" } });
+    expect(logs.length).toBe(2);
   });
 });

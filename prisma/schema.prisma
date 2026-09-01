@@ -1147,25 +1147,30 @@ model AudienceScopeGrant {
 }
 
 model EmailCampaign {
-  id           String              @id @default(cuid())
-  name         String
-  recordType   String              @default("PERSON")
-  audienceJson Json
-  subject      String              @default("")
-  body         String              @default("")
-  status       EmailCampaignStatus @default(DRAFT)
-  scheduleType String              @default("NOW") // NOW | SCHEDULED | RECURRING
-  scheduledAt  DateTime?
-  cronExpr     String?
-  lastRunAt    DateTime?
-  nextRunAt    DateTime?
-  createdById  String?
-  createdBy    Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  runs         EmailCampaignRun[]
-  scopeId      String?
-  scope        AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+  id                String              @id @default(cuid())
+  name              String
+  recordType        String              @default("PERSON")
+  audienceJson      Json
+  subject           String              @default("")
+  body              String              @default("")
+  status            EmailCampaignStatus @default(DRAFT)
+  scheduleType      String              @default("NOW") // NOW | SCHEDULED | RECURRING
+  scheduledAt       DateTime?
+  cronExpr          String?
+  lastRunAt         DateTime?
+  nextRunAt         DateTime?
+  /// When set, a person who already received any run of this campaign is
+  /// skipped on later runs, so a recurring campaign catches only newly-matching
+  /// people. Left false, every run mails everyone who matches, which is correct
+  /// for a digest.
+  sendOncePerPerson Boolean             @default(false)
+  createdById       String?
+  createdBy         Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  runs              EmailCampaignRun[]
+  scopeId           String?
+  scope             AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
 }
 
 model EmailCampaignRun {
@@ -1214,6 +1219,11 @@ model EmailLog {
 
   @@unique([campaignRunId, toEmail])
   @@index([personId])
+  /// Supports the already-mailed lookup a sendOncePerPerson campaign runs once
+  /// per dispatch: EmailLog rows for this campaign's runs, projected to
+  /// personId. campaignRunId already leads the (campaignRunId, toEmail)
+  /// unique above, but that index cannot serve a personId projection.
+  @@index([campaignRunId, personId])
   @@index([status, createdAt])
   /// The admin email monitor's DEFAULT listing: no filter, ORDER BY createdAt
   /// DESC, id DESC, LIMIT 50 (listEmails in src/modules/admin/services/email.ts).

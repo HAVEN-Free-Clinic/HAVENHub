@@ -1,6 +1,7 @@
 "use client";
 
 import { Input, Field } from "@/platform/ui/input";
+import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "./submit-button";
 import { CronPresets } from "./cron-presets";
@@ -23,16 +24,44 @@ export function TimingActions({
   scheduleLaterAction,
   scheduleRecurringAction,
   zoneLabel,
+  initialSendOncePerPerson,
 }: {
   formId: string;
   scheduleLaterAction: FormAction;
   scheduleRecurringAction: FormAction;
   zoneLabel: string;
+  initialSendOncePerPerson: boolean;
 }) {
   const dirty = useFormDirty(formId);
 
   return (
     <div className="space-y-5">
+      {/* Send-once toggle. Rendered outside the compose form's DOM subtree (this
+          section is a sibling in the page, not a child -- schedule/recurring
+          each need their own <form>, and forms cannot nest), so it is tied back
+          to the compose form via the HTML `form` attribute and saved by the same
+          Save button as the rest of the draft. That attribute makes it submit
+          with campaign-compose, but a "change" on an element outside a form's
+          DOM subtree never bubbles INTO that form, so useFormDirty's listener
+          would miss it -- re-dispatched onto the form here so toggling this
+          still disables Schedule/Send until the draft is saved, same as every
+          other compose field. */}
+      <label className="flex items-start gap-2 text-sm text-foreground-soft">
+        <Checkbox
+          name="sendOncePerPerson"
+          form={formId}
+          defaultChecked={initialSendOncePerPerson}
+          onChange={() => document.getElementById(formId)?.dispatchEvent(new Event("change"))}
+          className="mt-1"
+        />
+        <span>
+          <span className="font-medium text-foreground">Send to each person only once</span>
+          <br />
+          Later runs skip anyone who already received this campaign. Leave off for a recurring
+          digest.
+        </span>
+      </label>
+
       {/* Schedule for later */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>

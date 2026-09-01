@@ -140,6 +140,7 @@ export default async function CampaignEditorPage({ params }: Props) {
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
+    const sendOncePerPerson = formData.get("sendOncePerPerson") === "on";
     let audience: Audience;
     try {
       const raw = JSON.parse((formData.get("audience") as string | null) ?? "{}");
@@ -149,7 +150,13 @@ export default async function CampaignEditorPage({ params }: Props) {
     }
 
     try {
-      await updateCampaign(actor.personId, id, { name: name || undefined, subject, body, audience });
+      await updateCampaign(actor.personId, id, {
+        name: name || undefined,
+        subject,
+        body,
+        audience,
+        sendOncePerPerson,
+      });
     } catch (err) {
       if (err instanceof CampaignValidationError) {
         redirect(
@@ -443,6 +450,7 @@ export default async function CampaignEditorPage({ params }: Props) {
             scheduleLaterAction={scheduleLaterAction}
             scheduleRecurringAction={scheduleRecurringAction}
             zoneLabel={zoneLabel(zone)}
+            initialSendOncePerPerson={campaign.sendOncePerPerson}
           />
         </div>
       )}

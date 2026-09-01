@@ -28,6 +28,7 @@
 import type { Prisma } from "@prisma/client";
 import { parseZonedInput } from "@/platform/dates";
 import type { AudienceCondition, ConditionOp } from "./types";
+import { shiftDay, startOfDayOffsetFromNow } from "./zoned-day";
 
 /** Empty/incomplete conditions compile to this; never an accidental send-all. */
 export const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
@@ -255,18 +256,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** A whole, non-negative day count, the only shape the window operators accept. */
 const WINDOW_RE = /^\d+$/;
 
-/** The calendar Y/M/D that `instant` falls on in `zone`. */
-function localDayParts(instant: Date, zone: string): { y: string; m: string; d: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: zone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(instant);
-  const g = (t: string) => parts.find((p) => p.type === t)!.value;
-  return { y: g("year"), m: g("month"), d: g("day") };
-}
-
 /**
  * The instant at which `day` begins in `zone`.
  *
@@ -282,34 +271,11 @@ function startOfDay(day: string, zone: string): Date | null {
   return parseZonedInput(`${raw}T00:00`, zone);
 }
 
-/**
- * The calendar day `days` after `day` (a "YYYY-MM-DD" string).
- *
- * Deliberately pure calendar arithmetic with no zone involved: adding 24 hours
- * to an instant is NOT the same as adding a day, because a DST fall-back day is
- * 25 hours long and a spring-forward day is 23. Doing it on the date itself
- * sidesteps that entirely, and parseZonedInput then resolves the resulting
- * midnight correctly whichever side of a transition it lands on.
- */
-function shiftDay(day: string, days: number): string {
-  const [y, m, d] = day.split("-").map(Number);
-  const shifted = new Date(Date.UTC(y, m - 1, d + days));
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
-}
-
 /** The instant at which the day AFTER `day` begins in `zone`. */
 function startOfNextDay(day: string, zone: string): Date | null {
   const raw = day.trim();
   if (!DATE_RE.test(raw)) return null;
   return parseZonedInput(`${shiftDay(raw, 1)}T00:00`, zone);
-}
-
-/** Shifts `now` by whole days and returns the local start of that day. */
-function startOfDayOffsetFromNow(now: Date, days: number, zone: string): Date | null {
-  // Today's calendar date IN ZONE first, then calendar arithmetic on it.
-  const { y, m, d } = localDayParts(now, zone);
-  return parseZonedInput(`${shiftDay(`${y}-${m}-${d}`, days)}T00:00`, zone);
 }
 
 /**

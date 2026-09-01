@@ -1,3 +1,5 @@
+import type { DisplayTimeZone } from "@/platform/dates/zone";
+
 export type AudienceRecordType = "PERSON"; // extensible: future "APPLICANT"
 export type ConditionOp =
   | "eq"
@@ -140,5 +142,17 @@ export function isAudience(v: unknown): v is Audience {
  * live) so that person-fields.ts and the per-field loader modules that register
  * into COUNT_LOADERS can both import the type from one place without either
  * importing the other.
+ *
+ * `now`/`zone` are the SAME per-run clock and display zone every other
+ * relative-date path in this codebase resolves through (see AudienceCtx in
+ * person-fields.ts and dateWhere in operators.ts). A loader computing a
+ * relative cutoff (e.g. "upcoming") MUST derive it from these, never from a
+ * fresh `new Date()`: that would ignore the injected clock a recurring
+ * campaign's tests and reruns depend on, and would compare by the SERVER's
+ * UTC calendar day instead of the clinic's configured zone.
  */
-export type CountLoader = (ctx: { activeTermId: string | null }) => Promise<Map<string, number>>;
+export type CountLoader = (ctx: {
+  activeTermId: string | null;
+  now: Date;
+  zone: DisplayTimeZone;
+}) => Promise<Map<string, number>>;

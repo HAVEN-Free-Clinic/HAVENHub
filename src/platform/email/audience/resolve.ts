@@ -159,7 +159,10 @@ export async function resolveAudience(
   ];
   const countsByField = new Map<string, Map<string, number>>();
   for (const key of countFieldKeys) {
-    countsByField.set(key, await COUNT_LOADERS[key]({ activeTermId: activeTerm?.id ?? null }));
+    countsByField.set(
+      key,
+      await COUNT_LOADERS[key]({ activeTermId: activeTerm?.id ?? null, now, zone }),
+    );
   }
 
   const ctx = {

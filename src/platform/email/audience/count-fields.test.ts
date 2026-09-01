@@ -96,11 +96,135 @@ describe("schedule count fields", () => {
     expect(recipients.map((r) => r.email).sort()).toEqual(["one@x.com", "two@x.com"]);
   });
 
+  // ShiftAssignment is unique on (termId, departmentId, clinicDate, personId),
+  // not (termId, clinicDate, personId): one person can legitimately hold two
+  // assignment rows on the same clinicDate, one per department. A no-show is
+  // scored per DAY, matching how attendance itself works (ClinicAttendance IS
+  // unique on termId+clinicDate+personId), so this must count once, not once
+  // per assignment row.
+  it("counts a same-day, two-department assignment as one no-show, not two", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall 2026", status: "ACTIVE",
+        startDate: new Date("2026-08-01"), endDate: new Date("2026-12-01"),
+      },
+    });
+    const deptA = await prisma.department.create({ data: { code: "DA", name: "Dept A" } });
+    const deptB = await prisma.department.create({ data: { code: "DB", name: "Dept B" } });
+    const person = await prisma.person.create({
+      data: { name: "Double", contactEmail: "double@x.com", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: term.id, departmentId: deptA.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    const clinicDate = new Date(Date.UTC(2026, 8, 10, 12, 0, 0));
+    await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: deptA.id, personId: person.id, clinicDate, role: "VOLUNTEER" },
+    });
+    await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: deptB.id, personId: person.id, clinicDate, role: "VOLUNTEER" },
+    });
+    // No ClinicAttendance row at all: a full no-show for that one day.
+
+    const { recipients: eqOne } = await resolveAudience(audienceFor("noShowCountThisTerm", "eq", "1"));
+    expect(eqOne.map((r) => r.email)).toEqual(["double@x.com"]);
+
+    const { recipients: eqTwo } = await resolveAudience(audienceFor("noShowCountThisTerm", "eq", "2"));
+    expect(eqTwo.map((r) => r.email)).toEqual([]);
+  });
+
   it("matches nobody when there is no active term", async () => {
     await prisma.person.create({
       data: { name: "Orphan", contactEmail: "orphan@x.com", status: "ACTIVE" },
     });
     const { recipients } = await resolveAudience(audienceFor("shiftCountThisTerm", "gte", "0"));
+    expect(recipients).toEqual([]);
+  });
+});
+
+describe("upcomingShiftCount (clinic zone, not UTC)", () => {
+  // The display zone defaults to America/New_York (no Setting row after
+  // resetDb). 9:30pm Eastern on 2026-07-15 is 2026-07-16T01:30:00Z: UTC has
+  // already rolled over to the 16th, but it is still "today" (the 15th) in
+  // Eastern. A shift scheduled for noon UTC on the 15th (8am Eastern that same
+  // day) must still count as upcoming. A UTC-calendar-day cutoff, or one that
+  // ignores the injected `now` and reads the real wall clock instead, gets
+  // this wrong for hours every evening -- exactly when someone would check.
+  it("treats a shift as upcoming using the clinic's zone, not the UTC calendar day", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26B", name: "Summer 2026 B", status: "ACTIVE",
+        startDate: new Date("2026-06-01"), endDate: new Date("2026-08-01"),
+      },
+    });
+    const dept = await prisma.department.create({ data: { code: "EVE", name: "Evening Test" } });
+    const person = await prisma.person.create({
+      data: { name: "Evening", contactEmail: "evening@x.com", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.shiftAssignment.create({
+      data: {
+        termId: term.id, departmentId: dept.id, personId: person.id,
+        clinicDate: new Date(Date.UTC(2026, 6, 15, 12, 0, 0)),
+        role: "VOLUNTEER",
+      },
+    });
+
+    const now = new Date("2026-07-16T01:30:00.000Z"); // 9:30pm Eastern, July 15
+    const { recipients } = await resolveAudience(
+      audienceFor("upcomingShiftCount", "gte", "1"),
+      { now },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["evening@x.com"]);
+  });
+});
+
+describe("attendanceCountThisTerm", () => {
+  async function rosterWithAttendance() {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26C", name: "Summer 2026 C", status: "ACTIVE",
+        startDate: new Date("2026-06-01"), endDate: new Date("2026-08-01"),
+      },
+    });
+    const dept = await prisma.department.create({ data: { code: "ATT", name: "Attendance Test" } });
+
+    const make = async (name: string, email: string, days: number) => {
+      const p = await prisma.person.create({
+        data: { name, contactEmail: email, status: "ACTIVE" },
+      });
+      await prisma.termMembership.create({
+        data: { personId: p.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+      });
+      for (let i = 0; i < days; i++) {
+        await prisma.clinicAttendance.create({
+          data: {
+            termId: term.id, personId: p.id,
+            clinicDate: new Date(Date.UTC(2026, 6, 7 + i, 12, 0, 0)),
+            method: "STAFF",
+          },
+        });
+      }
+      return p;
+    };
+
+    await make("TwoDays", "twodays@x.com", 2);
+    await make("NoDays", "nodays@x.com", 0);
+  }
+
+  it("includes people with ZERO attendance under a `less than` comparison", async () => {
+    await rosterWithAttendance();
+    const { recipients } = await resolveAudience(audienceFor("attendanceCountThisTerm", "lt", "1"));
+    expect(recipients.map((r) => r.email)).toEqual(["nodays@x.com"]);
+  });
+
+  it("matches nobody when there is no active term", async () => {
+    await prisma.person.create({
+      data: { name: "Orphan2", contactEmail: "orphan2@x.com", status: "ACTIVE" },
+    });
+    const { recipients } = await resolveAudience(audienceFor("attendanceCountThisTerm", "gte", "0"));
     expect(recipients).toEqual([]);
   });
 });

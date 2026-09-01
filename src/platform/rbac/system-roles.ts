@@ -70,4 +70,16 @@ export const SYSTEM_ROLES: SystemRole[] = [
     description: "Offboarding, IT support requests, and incident reports across the clinic",
     grants: ["volunteers.view", "volunteers.manage_offboarding", "support.manage_requests", "incidents.manage", "incidents.view_strikes"],
   },
+  {
+    name: "Executive Director",
+    description: "Clinic-wide people directory: headcount by department and contact-list export",
+    // Read-only on purpose. Seeing who is on the roster says nothing about
+    // editing them, so this deliberately does NOT carry admin.manage_people --
+    // an ED who also administers people gets that role stacked on top.
+    //
+    // volunteers.view rides along because the directory lives in the Volunteers
+    // module: without it the role could open its own page but no other tab in
+    // the module it sits in, which reads as a broken nav rather than a scope.
+    grants: ["volunteers.view", "volunteers.view_directory"],
+  },
 ];

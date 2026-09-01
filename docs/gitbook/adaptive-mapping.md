@@ -246,3 +246,13 @@ All confirmed present as `boolean` leaves in the schema. `schedule.manages_any_d
 other path mirrors a registry permission. The `schema-artifact.test.ts` drift guard asserts the
 committed `adaptive-schema.json` still equals `buildAdaptiveSchema()`, so the schedule leaves stay
 in the file as long as they stay in the catalog.
+
+Note the direction of that containment: this list is the paths **used above**, not every leaf in
+the schema. The schema is derived from the whole of `MODULES[].permissions`, so it also carries
+leaves no docs condition references yet — `volunteers.view_directory` (the people directory, added
+2026-09-01) is one, alongside longer-standing ones like `volunteers.manage_offboarding` and
+`admin.manage_roster`. That is expected and is not drift. What *is* drift, and what nothing in CI
+can catch, is the LIVE site schema falling behind this file: every `can.<module>` object is
+`additionalProperties: false`, so a token carrying a leaf the live schema lacks is rejected outright
+once Adaptive content is enabled. Push this file with `updateSiteAdaptiveSchema` whenever a
+permission is added.

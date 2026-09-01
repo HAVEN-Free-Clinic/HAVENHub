@@ -34,6 +34,12 @@ const MIGRATION_SQL_FILES = [
   // whole role: it is granted per-person by enableHubAccess, and no Track kind
   // could carry it since attendings hold no TermMembership.
   "prisma/migrations/20260818120100_attending_role/migration.sql",
+  // The Executive Director role, for the clinic-wide people directory. A whole
+  // role again: it is read-only headcount access that no existing role's scope
+  // covers. Its third statement also assigns the role to the EXEC department,
+  // which is a no-op here -- this database has no departments -- so it adds a
+  // role and two grants and nothing else.
+  "prisma/migrations/20260901120000_executive_director_directory_role/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

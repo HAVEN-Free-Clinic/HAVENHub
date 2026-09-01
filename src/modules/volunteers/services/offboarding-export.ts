@@ -21,7 +21,7 @@
 
 import { prisma } from "@/platform/db";
 import { toCsv } from "@/platform/csv";
-import { yaleEmailForNetId } from "@/platform/auth/match-person";
+import { accountEmailForPerson } from "@/platform/auth/match-person";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
 export type ExportRequest =
@@ -38,23 +38,15 @@ type PersonRow = {
   memberships: { kind: string; department: { code: string } }[];
 };
 
-/**
- * The address a Yale-managed service knows this person by. netId@yale.edu is the
- * Teams account; the stored contact address is the fallback. A person with
- * neither still gets a row with a blank email rather than vanishing from the
- * list, so whoever works it can see the gap.
- */
-function accountEmail(person: { netId: string | null; contactEmail: string | null }): string {
-  if (person.netId) return yaleEmailForNetId(person.netId);
-  return person.contactEmail ?? "";
-}
-
 function buildRow(person: PersonRow): string[] {
   const codes = [...new Set(person.memberships.map((m) => m.department.code))].sort();
   const role = person.memberships.some((m) => m.kind === "DIRECTOR") ? "DIRECTOR" : "VOLUNTEER";
   return [
     person.name,
-    accountEmail(person),
+    // netId@yale.edu is the Teams account this export exists to remove; the
+    // stored contact address is the fallback. Shared with the directory export
+    // so the two never disagree about a person's address.
+    accountEmailForPerson(person),
     person.netId ?? "",
     person.contactEmail ?? "",
     codes.join(";"),

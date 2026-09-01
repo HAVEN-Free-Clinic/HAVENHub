@@ -53,6 +53,12 @@ const OP_LABELS: Record<ConditionOp, string> = {
   between: "is between",
   withinNextDays: "is within the next (days)",
   withinLastDays: "is within the last (days)",
+  // Count operators. No field of kind "count" is registered yet (Task 2 of the
+  // audience-depth plan adds only the engine); these labels exist so this
+  // Record stays exhaustive over ConditionOp, and are picked up unchanged once
+  // a count field starts using them.
+  lte: "is at most",
+  gte: "is at least",
 };
 
 /** Operators whose value is a checkbox selection rather than typed text. */

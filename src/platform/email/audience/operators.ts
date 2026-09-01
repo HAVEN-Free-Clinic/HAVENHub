@@ -62,6 +62,16 @@ export const YEAR_OPERATORS: ConditionOp[] = [
 
 export const BOOLEAN_OPERATORS: ConditionOp[] = ["isTrue", "isFalse"];
 
+export const NUMBER_OPERATORS: ConditionOp[] = [
+  "eq",
+  "notEq",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+  "between",
+];
+
 /** Splits a pasted list (newline- or comma-separated) into trimmed, non-empty values. */
 export function parseTextList(value: AudienceCondition["value"]): string[] {
   const parts = Array.isArray(value)
@@ -375,4 +385,59 @@ export function dateWhere(
     default:
       throw new Error(`Unsupported date operator: ${cond.op}`);
   }
+}
+
+/** A whole, non-negative count. Nothing else is a valid comparison target. */
+const COUNT_RE = /^\d+$/;
+
+function parseCount(raw: unknown): number | null {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!COUNT_RE.test(s)) return null;
+  return Number(s);
+}
+
+/**
+ * A count comparison, resolved against a precomputed per-person map.
+ *
+ * Prisma cannot filter on a relation count inside `where`, so counts take the
+ * same precompute-to-id-set route resolve.ts already uses for recruitment
+ * applications: the loader produces one map, this turns the comparison into an
+ * explicit id list.
+ *
+ * The map MUST contain an entry for every candidate person, including those
+ * whose count is zero. A map built only from rows that exist would make
+ * "fewer than 3 shifts" quietly mean "has between 1 and 2 shifts", excluding
+ * exactly the people the question is usually about.
+ */
+export function countWhere(
+  counts: Map<string, number>,
+  cond: AudienceCondition,
+): Prisma.PersonWhereInput {
+  let predicate: ((n: number) => boolean) | null = null;
+
+  if (cond.op === "between") {
+    const pair = asArray(cond.value);
+    if (pair.length !== 2) return MATCH_NOBODY;
+    const lo = parseCount(pair[0]);
+    const hi = parseCount(pair[1]);
+    if (lo === null || hi === null || lo > hi) return MATCH_NOBODY;
+    predicate = (n) => n >= lo && n <= hi;
+  } else {
+    const target = parseCount(cond.value);
+    if (target === null) return MATCH_NOBODY;
+    switch (cond.op) {
+      case "eq": predicate = (n) => n === target; break;
+      case "notEq": predicate = (n) => n !== target; break;
+      case "lt": predicate = (n) => n < target; break;
+      case "lte": predicate = (n) => n <= target; break;
+      case "gt": predicate = (n) => n > target; break;
+      case "gte": predicate = (n) => n >= target; break;
+      default: throw new Error(`Unsupported count operator: ${cond.op}`);
+    }
+  }
+
+  const matched: string[] = [];
+  for (const [personId, n] of counts) if (predicate(n)) matched.push(personId);
+  if (matched.length === 0) return MATCH_NOBODY;
+  return { id: { in: matched } };
 }

@@ -3,16 +3,18 @@ import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 import type { DisplayTimeZone } from "@/platform/dates/zone";
-import type { AudienceCondition, ConditionOp } from "./types";
+import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
 import {
   BOOLEAN_OPERATORS,
   DATE_OPERATORS,
   ENUM_OPERATORS,
   MATCH_NOBODY,
   MULTI_ENUM_OPERATORS,
+  NUMBER_OPERATORS,
   TEXT_OPERATORS,
   YEAR_OPERATORS,
   asArray,
+  countWhere,
   dateWhere,
   enumWhere,
   stringSetFilter,
@@ -20,7 +22,14 @@ import {
   yearWhere,
 } from "./operators";
 
-export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean" | "year" | "date";
+export type PersonFieldKind =
+  | "text"
+  | "enum"
+  | "multiEnum"
+  | "boolean"
+  | "year"
+  | "date"
+  | "count";
 
 export type AudienceCtx = {
   activeTermId: string | null;
@@ -61,6 +70,12 @@ export type AudienceCtx = {
    * loadAppliedByCycle in resolve.ts.
    */
   appliedByCycle?: Map<string, Set<string>>;
+  /**
+   * Per-person counts for each count-kind field actually named in the audience,
+   * keyed by field key then person id. Populated by resolveAudience only for
+   * fields the audience uses, since each loader is a table scan.
+   */
+  countsByField?: Map<string, Map<string, number>>;
 };
 
 export type PersonFieldDef = {
@@ -182,6 +197,42 @@ export function dateField(
     kind: "date",
     operators: DATE_OPERATORS,
     compile: (cond, ctx) => dateWhere(column, cond, ctx),
+  };
+}
+
+/**
+ * Loaders for every registered count-kind field, keyed by field key.
+ * resolveAudience runs only the loaders for fields the audience actually
+ * names (see resolve.ts), since each one is a table scan.
+ */
+export const COUNT_LOADERS: Record<string, CountLoader> = {};
+
+/**
+ * A count-kind field: compares a per-person count (shifts attended, strikes,
+ * etc.) against a numeric condition. Prisma cannot filter on a relation count
+ * inside `where`, so the field's loader precomputes the whole map and
+ * countWhere turns the comparison into an explicit id list.
+ */
+export function countField(
+  key: string,
+  label: string,
+  group: string,
+  loader: CountLoader,
+): PersonFieldDef {
+  COUNT_LOADERS[key] = loader;
+  return {
+    key,
+    label,
+    group,
+    kind: "count",
+    operators: NUMBER_OPERATORS,
+    compile: (cond, ctx) => {
+      const counts = ctx.countsByField?.get(key);
+      // A missing map means resolveAudience did not run this field's loader,
+      // which is a wiring bug rather than an empty result. Fail closed and loudly.
+      if (!counts) return MATCH_NOBODY;
+      return countWhere(counts, cond);
+    },
   };
 }
 

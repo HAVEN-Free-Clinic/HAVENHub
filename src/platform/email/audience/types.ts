@@ -17,9 +17,12 @@ export type ConditionOp =
   | "notEq"
   | "notIn"
   | "notContains"
-  // Ordered comparison, used by year-kind fields (see gradYear).
+  // Ordered comparison, used by year-kind fields (see gradYear) and, together
+  // with `lte`/`gte`, by count-kind fields (see countWhere in operators.ts).
   | "lt"
   | "gt"
+  | "lte"
+  | "gte"
   // Date operators. `before`/`after`/`onOrBefore`/`onOrAfter`/`between` take
   // calendar dates ("YYYY-MM-DD") and resolve against the clinic's display zone.
   // `withinNextDays`/`withinLastDays` take a whole number of days and resolve
@@ -127,3 +130,15 @@ export function isAudience(v: unknown): v is Audience {
   if (!Array.isArray(a.conditions)) return false;
   return a.conditions.every(isValidNode);
 }
+
+/**
+ * Loads a count per person for a count-kind field. Every loader MUST return an
+ * entry for every ACTIVE-status person, defaulting to 0, so that "fewer than N"
+ * includes people with no rows at all. See countWhere in operators.ts.
+ *
+ * Defined here (not in person-fields.ts, where COUNT_LOADERS and countField
+ * live) so that person-fields.ts and the per-field loader modules that register
+ * into COUNT_LOADERS can both import the type from one place without either
+ * importing the other.
+ */
+export type CountLoader = (ctx: { activeTermId: string | null }) => Promise<Map<string, number>>;

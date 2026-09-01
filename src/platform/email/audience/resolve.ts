@@ -8,6 +8,7 @@ import { isAudienceGroup } from "./types";
 import { compilePersonWhere } from "./compile";
 import { personVariables } from "./variables";
 import { asArray } from "./operators";
+import { COUNT_LOADERS } from "./person-fields";
 
 export type Recipient = {
   email: string;
@@ -151,6 +152,16 @@ export async function resolveAudience(
     ? await loadAppliedByCycle(wantedCycleIds)
     : undefined;
 
+  // Count fields each cost a scan, so run only the loaders the audience (or its
+  // scope) actually names. `conditions` already spans both trees.
+  const countFieldKeys = [
+    ...new Set(conditions.map((c) => c.field).filter((f) => f in COUNT_LOADERS)),
+  ];
+  const countsByField = new Map<string, Map<string, number>>();
+  for (const key of countFieldKeys) {
+    countsByField.set(key, await COUNT_LOADERS[key]({ activeTermId: activeTerm?.id ?? null }));
+  }
+
   const ctx = {
     activeTermId: activeTerm?.id ?? null,
     now,
@@ -158,6 +169,7 @@ export async function resolveAudience(
     complianceStatusByPerson,
     clearanceByPerson,
     appliedByCycle,
+    countsByField,
   };
   const campaignWhere = compilePersonWhere(audience, ctx);
   const where = opts.scope

@@ -257,6 +257,7 @@ async function notifyIntpDirectorsOfClaim(
   for (const grant of grants) {
     for (const assignment of grant.role.assignments) {
       const p = assignment.person;
+      if (!p) continue;
       if (!reviewers.has(p.id)) reviewers.set(p.id, p);
     }
   }

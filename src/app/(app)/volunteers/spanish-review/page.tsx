@@ -244,18 +244,6 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     return `${score}${mod} - ${labels[score] ?? ""}`;
   }
 
-  function scoreLabel(score: number | null, modifier: string | null): string {
-    if (!score) return "Missing";
-    const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
-    const labels: Record<number, string> = {
-      1: "Almost none",
-      2: "Some",
-      3: "Conversational",
-      4: "Fluent",
-      5: "Native",
-    };
-    return `${score}${mod} - ${labels[score] ?? ""}`;
-  }
 
   return (
     <div className="space-y-6">

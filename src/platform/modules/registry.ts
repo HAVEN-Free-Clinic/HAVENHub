@@ -115,13 +115,22 @@ export const MODULES: ModuleManifest[] = [
     // A Spanish-review reviewer is granted only volunteers.verify_spanish; it is
     // their sole page, so it also grants module access (the tile, the layout, and
     // the nav). Every other page still enforces its own permission.
-    additionalAccessPermissions: ["volunteers.verify_spanish"],
+    // An Executive Director holds volunteers.view_directory and, unless someone
+    // stacks another role on them, nothing else in this module. Listing it here
+    // too means the role opens the module on its own rather than depending on a
+    // volunteers.view it happens to inherit from elsewhere.
+    additionalAccessPermissions: ["volunteers.verify_spanish", "volunteers.view_directory"],
     permissions: [
       "volunteers.view",
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
       "volunteers.verify_spanish",
       "volunteers.manage_board_attendance",
+      // Clinic-wide and deliberately unscoped, like schedule.manage_attendings:
+      // the directory answers "how many people does the clinic have, and where",
+      // which a department-scoped grant cannot express. Read-only -- it exposes
+      // headcount and contact details, never an edit.
+      "volunteers.view_directory",
     ],
     status: "active",
     nav: [
@@ -130,6 +139,7 @@ export const MODULES: ModuleManifest[] = [
       // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
       { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
       { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
+      { label: "Directory", href: "/volunteers/directory", permission: "volunteers.view_directory" },
       { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
       // Label says Language; the href and permission keep their historical
       // spanish names because renaming a route breaks bookmarks and renaming a

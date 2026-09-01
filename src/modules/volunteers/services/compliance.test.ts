@@ -452,6 +452,40 @@ describe("departmentCompliance", () => {
   });
 });
 
+describe("the read/write split", () => {
+  // The whole point of volunteers.view_compliance. The read half is proven in
+  // platform/compliance/access.test.ts (a view-only holder CAN open anyone's
+  // certificate); these two are the other half of that boundary, and they are
+  // what would fail if someone ever "simplified" these services to the shared
+  // canViewAllCompliance helper.
+  it("refuses verifyCertificate to a view_compliance holder", async () => {
+    const actor = await createPerson("View Only", "vwo001");
+    await grantPermission(actor.id, "volunteers.view_compliance");
+    const owner = await createPerson("Volunteer", "vol900");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(verifyCertificate(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError,
+    );
+    const untouched = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(untouched.verifiedAt).toBeNull();
+    expect(untouched.verifiedById).toBeNull();
+  });
+
+  it("refuses setCompletionDateAsManager to a view_compliance holder", async () => {
+    const actor = await createPerson("View Only", "vwo002");
+    await grantPermission(actor.id, "volunteers.view_compliance");
+    const owner = await createPerson("Volunteer", "vol901");
+    const cert = await createCert(owner.id, null);
+
+    await expect(
+      setCompletionDateAsManager(actor.id, cert.id, "2025-06-01"),
+    ).rejects.toBeInstanceOf(ComplianceForbiddenError);
+    const untouched = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(untouched.completionDate).toBeNull();
+  });
+});
+
 describe("verifyCertificate", () => {
   it("stamps verifiedById and verifiedAt on the certificate", async () => {
     const actor = await createPerson("Director", "dir001");

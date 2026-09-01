@@ -286,7 +286,7 @@ export function BuilderDayView({
         {/* Volunteers */}
         <div className="mb-5">
           <SectionHeader as="h3" className="mb-2">
-            Volunteers <span className="text-success">({assignedVolunteers.length})</span>
+            Volunteers <span className="text-success-foreground">({assignedVolunteers.length})</span>
           </SectionHeader>
           {assignedVolunteers.length === 0 ? (
             <p className="text-sm text-subtle-foreground italic">None assigned</p>
@@ -341,7 +341,7 @@ export function BuilderDayView({
         {/* Shadows */}
         <div>
           <SectionHeader as="h3" className="mb-2">
-            Shadows <span className="text-warning">({assignedShadows.length})</span>
+            Shadows <span className="text-warning-foreground">({assignedShadows.length})</span>
           </SectionHeader>
           {assignedShadows.length === 0 ? (
             <p className="text-sm text-subtle-foreground italic">None assigned</p>
@@ -385,7 +385,7 @@ export function BuilderDayView({
         ) : (
           <div className="flex flex-col gap-5">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-success mb-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-success-foreground mb-2">
                 Available &middot; said yes ({availableMembers.length})
               </p>
               {availableMembers.length === 0 ? (

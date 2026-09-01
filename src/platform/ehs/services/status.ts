@@ -48,7 +48,10 @@ async function loadCatalog(): Promise<RequirableTraining[]> {
 }
 
 /** Master view of ALL active-term ACTIVE roster members across all departments.
- *  No viewer scoping. Permission: volunteers.manage_compliance. */
+ *  No viewer scoping. Permission: the clinic-wide compliance read, i.e.
+ *  volunteers.view_compliance OR volunteers.manage_compliance (see
+ *  platform/compliance/access.ts). Marking completions is a write and stays
+ *  manage-only; the page drops those controls for a view-only holder. */
 export async function getEhsDashboard(): Promise<EhsDashboard> {
   const activeTerm = await getActiveTerm();
   if (!activeTerm) return { trainings: [], rows: [] };

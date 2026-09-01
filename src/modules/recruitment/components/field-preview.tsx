@@ -53,7 +53,7 @@ export function FieldPreview({
   // and hook-free, so this stays usable in a server render. Mirrors contract-field.tsx.
   const errorId = fieldError ? `fp-${f.key}-error` : undefined;
   const errorAria = fieldError ? { "aria-invalid": true, "aria-describedby": errorId } : {};
-  const req = required ? <span className="text-critical" aria-hidden="true"> *</span> : null;
+  const req = required ? <span className="text-critical-foreground" aria-hidden="true"> *</span> : null;
   // Label, help and error all take break-words + overflow-wrap:anywhere: an author
   // can paste a wall of text (or an unbroken run with no spaces at all) into either,
   // and without this it lays out on one line and widens every ancestor rather than
@@ -65,7 +65,7 @@ export function FieldPreview({
   // are expected to..." -- which is what QA saw as headings "blending in with the
   // text". The source was already correct; only the rendering dropped the breaks.
   const help = f.helpText ? <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
-  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical [overflow-wrap:anywhere]">{fieldError}</span> : null;
+  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical-foreground [overflow-wrap:anywhere]">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);
   // otherwise it seeds an editable default. Read-only controlled inputs do not

@@ -391,6 +391,11 @@ async function main() {
   // Skip silently when the role or a department is missing.
   await assignGlobalToDepartments("Compliance Manager", ["EXEC", "SRR", "ITCM"]);
   await assignGlobalToDepartments("Volunteer Operations Manager", ["EXEC", "SRR", "ITCM"]);
+  // EXEC only: the people directory is a leadership headcount view, not a
+  // clinic-operations tool like the two above. Mirrored by the
+  // 20260901120000_executive_director_directory_role migration, which is what
+  // actually reaches production (the seed never runs there).
+  await assignGlobalToDepartments("Executive Director", ["EXEC"]);
 
   console.log("Seed complete.");
 }

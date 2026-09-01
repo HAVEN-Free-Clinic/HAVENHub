@@ -86,7 +86,7 @@ export function TabRow({
             >
               {item.label}
               {item.badge !== undefined && (
-                <span aria-hidden className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">
+                <span aria-hidden className="ml-1.5 inline-block min-w-[1.375rem] rounded-md border border-border px-1.5 text-center text-[11px] font-semibold tabular-nums">
                   {item.badge}
                 </span>
               )}
@@ -119,7 +119,7 @@ export function TabRow({
           >
             {item.label}
             {item.badge !== undefined && (
-              <span aria-hidden className="ml-1.5 rounded-full bg-border px-1.5 py-0.5 text-xs">
+              <span aria-hidden className="ml-1.5 inline-block min-w-[1.375rem] rounded-md border border-border px-1.5 text-center text-[11px] font-semibold tabular-nums">
                 {item.badge}
               </span>
             )}

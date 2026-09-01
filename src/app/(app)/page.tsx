@@ -677,14 +677,10 @@ export default async function HubPage() {
               <h3 className="text-xs font-bold uppercase tracking-wider text-subtle-foreground">Your status</h3>
               {statusGroups.length === 1 && statusGroups[0].hasTasks && (
                 <span
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                  className={`text-xs font-semibold ${
                     statusGroups[0].cleared ? "text-success-foreground" : "text-warning-foreground"
                   }`}
                 >
-                  <span
-                    aria-hidden
-                    className={`h-1.5 w-1.5 rounded-full ${statusGroups[0].cleared ? "bg-success" : "bg-warning"}`}
-                  />
                   {statusGroups[0].cleared ? "Cleared" : "Not yet cleared"}
                 </span>
               )}
@@ -696,11 +692,10 @@ export default async function HubPage() {
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-foreground-soft">{group.termName}</span>
                       <span
-                        className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                        className={`text-xs font-semibold ${
                           group.cleared ? "text-success-foreground" : "text-warning-foreground"
                         }`}
                       >
-                        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${group.cleared ? "bg-success" : "bg-warning"}`} />
                         {group.cleared ? "Cleared" : "Not yet cleared"}
                       </span>
                     </div>

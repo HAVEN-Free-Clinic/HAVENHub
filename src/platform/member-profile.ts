@@ -7,8 +7,9 @@
  * volunteers and exactly what nobody else's business it is, so the reach is
  * scoped rather than granted by a flat permission:
  *
- *   - volunteers.manage_compliance (the compliance manager) and admin.access
- *     reach everyone. They already have the master roster.
+ *   - the clinic-wide compliance read (volunteers.view_compliance or
+ *     volunteers.manage_compliance) and admin.access reach everyone. They
+ *     already have the master roster.
  *   - volunteers.view reaches the ACTIVE members of the departments the viewer
  *     directs, plus the departments those manage by delegation. This is the same
  *     set departmentCompliance already shows them on /volunteers, so the profile
@@ -23,6 +24,7 @@
 import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
+import { canViewAllCompliance } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
@@ -38,7 +40,9 @@ export const memberProfileScope = cache(async function memberProfileScope(
   viewerPersonId: string,
 ): Promise<"all" | string[]> {
   const [master, admin, view] = await Promise.all([
-    can(viewerPersonId, "volunteers.manage_compliance"),
+    // Either half of the compliance split: the profile is a read, and a
+    // view_compliance holder already sees these people on the master view.
+    canViewAllCompliance(viewerPersonId),
     can(viewerPersonId, "admin.access"),
     can(viewerPersonId, "volunteers.view"),
   ]);

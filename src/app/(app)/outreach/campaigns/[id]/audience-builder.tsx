@@ -285,7 +285,7 @@ function ConditionRow({
         )
       )}
 
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical">
+      <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical-foreground">
         Remove
       </Button>
 
@@ -351,7 +351,7 @@ function GroupEditor({
           allowNone={nested}
         />
         {nested && onRemove && (
-          <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical">
+          <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical-foreground">
             Remove group
           </Button>
         )}

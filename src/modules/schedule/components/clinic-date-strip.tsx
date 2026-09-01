@@ -60,26 +60,20 @@ export function ClinicDateStrip({ dates, selectedKey, closedKeys, hrefFor, ariaL
                 href={hrefFor(key)}
                 aria-current={isSelected ? "page" : undefined}
                 className={cx(
-                  "inline-flex items-center justify-center gap-1.5 min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                  "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors",
                   isSelected
                     ? "bg-brand text-white"
                     : "bg-muted text-foreground-soft hover:bg-muted-strong",
                   // A dashed ring rather than a dimmed pill: dimming would read
-                  // as "disabled", and these dates are still fully editable.
+                  // as "disabled", and these dates are still fully editable. The
+                  // ring is the whole signal -- there used to be an amber dot
+                  // inside the pill saying the same thing a second time, which
+                  // read as decoration (same tell as the old Badge status dot).
                   isClosed && "border border-dashed border-warning",
                 )}
               >
-                {isClosed && (
-                  <span
-                    className={cx(
-                      "h-1.5 w-1.5 shrink-0 rounded-full",
-                      isSelected ? "bg-white" : "bg-warning",
-                    )}
-                    aria-hidden
-                  />
-                )}
                 {displayDate(key)}
-                {/* The dot carries no meaning to a screen reader, and the pill's
+                {/* The ring carries no meaning to a screen reader, and the pill's
                     own text is just a date, so the state is spelled out here. */}
                 {isClosed && <span className="sr-only"> (clinic closed)</span>}
               </Link>

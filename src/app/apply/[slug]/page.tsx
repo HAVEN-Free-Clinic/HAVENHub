@@ -7,6 +7,7 @@ import { canSubmitToCycle } from "@/modules/recruitment/services/cycle-window";
 import { isInvitedTo } from "@/modules/recruitment/services/invites";
 import { getDraft } from "@/modules/recruitment/services/drafts";
 import { resolveAvailabilityOptions } from "@/modules/recruitment/templates/clinic-dates";
+import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { departmentChoiceOptions, resolveSectionTitle } from "@/modules/recruitment/templates/department-options";
 import type { ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { getSupportContact } from "@/platform/branding/support";
@@ -35,9 +36,13 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   if (!cycle) redirect("/apply");
 
   // The availability question's options come from the term's clinic calendar,
-  // not from the stored snapshot. Everything below reads `sections`, not
-  // `cycle.sections`, so the form and its validation see the same list.
-  const sections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
+  // not from the stored snapshot, and only from the dates the clinic is actually
+  // open on. Everything below reads `sections`, not `cycle.sections`, so the form
+  // and its validation see the same list.
+  const sections = resolveAvailabilityOptions(
+    cycle.sections,
+    await openClinicDates({ id: cycle.termId, clinicDates: cycle.term.clinicDates }),
+  );
 
   // Identity is resolved BEFORE the open check, because whether this cycle is
   // open depends on WHO is asking: an invited applicant may apply to a cycle

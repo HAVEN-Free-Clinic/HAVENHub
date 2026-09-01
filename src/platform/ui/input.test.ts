@@ -35,7 +35,12 @@ describe("Field", () => {
     const labelSpan = labelEl.props.children[0];
     const [, marker] = labelSpan.props.children;
     expect(marker).toBeTruthy();
-    expect(marker.props.className).toContain("text-critical");
+    // Exact, not toContain("text-critical"): the vivid `text-critical` is a
+    // SUBSTRING of `text-critical-foreground`, so a containment check passes for
+    // either and cannot tell them apart. The marker is text, so it owes AA (4.5:1)
+    // and must use the -foreground variant; the vivid token is for icons and fills
+    // at 3:1. See theme-contrast.test.ts.
+    expect(marker.props.className).toBe("text-critical-foreground");
   });
 
   it("does not render a required marker by default", () => {

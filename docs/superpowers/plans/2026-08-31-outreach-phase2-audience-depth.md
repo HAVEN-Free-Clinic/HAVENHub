@@ -1354,7 +1354,7 @@ Recurring campaigns currently re-mail everyone who still matches, every run. `@@
 
 **Files:**
 - Modify: `prisma/schema.prisma`
-- Create: `prisma/migrations/20260901120000_campaign_send_once/migration.sql`
+- Create: `prisma/migrations/20260902120000_campaign_send_once/migration.sql`
 - Modify: `src/platform/email/campaigns/service.ts` and its test
 - Modify: `src/app/(app)/outreach/campaigns/[id]/page.tsx`
 
@@ -1449,7 +1449,7 @@ git commit -m "feat(outreach): add per-campaign send-once semantics"
 
 **Files:**
 - Modify: `prisma/schema.prisma`
-- Create: `prisma/migrations/20260901130000_campaign_manual_lists/migration.sql`
+- Create: `prisma/migrations/20260902130000_campaign_manual_lists/migration.sql`
 - Modify: `src/platform/email/campaigns/service.ts` and its test
 
 **Resolution order, a security requirement rather than a preference:**

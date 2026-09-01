@@ -32,6 +32,7 @@ describe("person fields", () => {
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
       "hipaaCompletedAt", "hipaaVerifiedAt", "ehsCompletedAt", "trainingCompletedAt", "joinedAt",
+      "shiftCountThisTerm", "attendanceCountThisTerm", "noShowCountThisTerm", "upcomingShiftCount",
     ]);
   });
 

@@ -5,6 +5,12 @@ import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 import type { DisplayTimeZone } from "@/platform/dates/zone";
 import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
 import {
+  attendanceCountThisTerm,
+  noShowCountThisTerm,
+  shiftCountThisTerm,
+  upcomingShiftCount,
+} from "./count-loaders";
+import {
   BOOLEAN_OPERATORS,
   DATE_OPERATORS,
   ENUM_OPERATORS,
@@ -664,6 +670,10 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   relationDateField("ehsCompletedAt", "EHS training completion date", "Compliance", "ehsCompletions", "completedAt"),
   relationDateField("trainingCompletedAt", "Volunteer training completion date", "Training", "trainings", "completedAt"),
   dateField("joinedAt", "Joined the roster", "Identity", "createdAt"),
+  countField("shiftCountThisTerm", "Shifts assigned this term", "Schedule", shiftCountThisTerm),
+  countField("attendanceCountThisTerm", "Clinic days attended this term", "Schedule", attendanceCountThisTerm),
+  countField("noShowCountThisTerm", "Assigned shifts not attended", "Schedule", noShowCountThisTerm),
+  countField("upcomingShiftCount", "Upcoming assigned shifts", "Schedule", upcomingShiftCount),
 ];
 
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {

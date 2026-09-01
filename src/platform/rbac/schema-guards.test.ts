@@ -120,3 +120,53 @@ describe("db-level schema guards", () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * The two facts that made `prisma migrate dev` emit drift into every unrelated
+ * migration for months.
+ *
+ * When schema.prisma and a database built by replaying the migration history
+ * disagree, migrate dev tries to reconcile the difference inside whatever
+ * migration you happened to be generating. At least seven migrations carry a
+ * comment about trimming these exact statements back out by hand, and one that
+ * was not trimmed would have shipped a constraint rename that aborts
+ * `migrate deploy` on a database where it had already been applied.
+ *
+ * Asserted against the live catalog rather than by shelling out to
+ * `prisma migrate diff`, which needs a spare shadow database and the CLI. These
+ * two queries cost nothing and cover both halves of the drift that actually
+ * happened. If a third kind ever appears, the general check is
+ * `prisma migrate diff --from-migrations prisma/migrations
+ * --to-schema-datamodel prisma/schema.prisma --shadow-database-url <spare>`,
+ * which must print "No difference detected."
+ */
+describe("schema and migration history agree", () => {
+  it("names the Training constraints after the table they are on", async () => {
+    // The table was renamed from VolunteerTraining in
+    // 20260624000000_generalize_training_to_track, which renamed its indexes but
+    // not its constraints; Postgres does not do that automatically.
+    const rows = await prisma.$queryRaw<Array<{ conname: string }>>`
+      SELECT conname FROM pg_constraint
+      WHERE conrelid = 'public."Training"'::regclass
+      ORDER BY conname
+    `;
+    const names = rows.map((r) => r.conname);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.filter((n) => n.startsWith("VolunteerTraining_"))).toEqual([]);
+    expect(names).toContain("Training_pkey");
+  });
+
+  it("keeps the Application.subcommitteeRanking default the schema now declares", async () => {
+    // The column has carried DEFAULT ARRAY[]::TEXT[] since it was added, but the
+    // schema did not declare it, so every diff wanted to drop it. The schema
+    // declares @default([]) now; this pins the DB side of that agreement.
+    const rows = await prisma.$queryRaw<Array<{ column_default: string | null }>>`
+      SELECT column_default FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'Application'
+        AND column_name = 'subcommitteeRanking'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].column_default).toContain("ARRAY[]");
+  });
+});

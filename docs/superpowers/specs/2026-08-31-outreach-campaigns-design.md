@@ -311,6 +311,36 @@ for this phase:
 Support ticket counts, info-session attendance, and passport-beyond-credential were
 in the original estimate and are dropped: no confirmed use case.
 
+#### What Part A actually shipped, and what it did not
+
+Recorded here rather than left as silent omission. The whole-branch review found the
+plan's task tables had narrowed the four domains above without saying so.
+
+Shipped: `hipaaCompletedAt`, `hipaaVerifiedAt`, `ehsCompletedAt`,
+`trainingCompletedAt`, `joinedAt`; the four schedule counts; `acceptedInCycle` and
+`subcommittee`; `speaksLanguage`, `claimsLanguage`, `hasServiceCredential`.
+
+Three gaps carried into Part B:
+
+- **HIPAA certificate expiry did not ship**, and it is the field this whole phase
+  argues from: "expiring in the next 30 days" appears three times above as the
+  reason date conditions exist at all. What shipped is the completion and
+  verification dates. Expiry is derived (`compliance/rules.ts`, completion plus one
+  year) and fits the precompute seam `complianceStatus` already uses. Until it
+  lands, expressing that campaign means ANDing `hipaaCompletedAt withinLastDays 365`
+  against a NONE group holding `withinLastDays 335`, which nobody will discover;
+  `complianceStatus = EXPIRING_SOON` only offers a hard-coded 60-day bucket. **Part
+  B must ship it.**
+- **Recruitment outcome shipped only `acceptedInCycle`.** Rejected, interviewed,
+  withdrew, and applicant type did not.
+- **`hasServiceCredential` is presence-only**, so a credential revoked for
+  falsified service still matches.
+
+`membershipKind` and `track` were dropped deliberately, not missed: the pre-existing
+`role` field already compiles `memberships.some({ ...termScope, status: "ACTIVE",
+kind })` over exactly DIRECTOR and VOLUNTEER, which is the same column. A second
+field would only split the picker.
+
 ## Open questions
 
 - Whether yale.edu is verified in Maileroo today (see the sender-identity

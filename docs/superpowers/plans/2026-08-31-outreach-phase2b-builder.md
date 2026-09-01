@@ -29,11 +29,31 @@ TEST_DATABASE_URL=postgresql://haven:haven_dev@localhost:5434/havenhub_test_dept
 
 | # | Task | Depends on |
 |---|---|---|
+| B0 | HIPAA certificate expiry field | Part A complete |
 | B1 | Editor shell: tabs, two-pane layout, extracted actions | Part A complete |
 | B2 | Searchable grouped field picker | B1 |
 | B3 | Date, number, and relative-window controls | B1, Part A Tasks 1-2 |
 | B4 | Per-node live match counts | B1 |
 | B5 | Recipient preview and manual list UI | B1, B4, Part A Task 8 |
+
+---
+
+### Task B0: HIPAA certificate expiry field
+
+Part A's whole-branch review found that the field this entire phase argues from did not ship. "Certificates expiring in the next 30 days" is cited three times in the spec as the reason date conditions exist, and it is still not expressible: Part A shipped `hipaaCompletedAt` and `hipaaVerifiedAt`, not expiry.
+
+Expressing it today means ANDing `hipaaCompletedAt withinLastDays 365` against a NONE group holding `withinLastDays 335`, which no sender will discover. `complianceStatus = EXPIRING_SOON` only offers a hard-coded 60-day bucket, not an arbitrary window.
+
+**This task comes first** because it is the phase's headline use case, and because it is engine work that the builder tasks then get to exercise.
+
+Expiry is DERIVED, not stored: `compliance/rules.ts` computes it as completion plus one year. So this is not a plain relation date. Read how `complianceStatus` is precomputed via `loadComplianceStatusMap` and injected through `AudienceCtx`, and decide between:
+
+- a precomputed per-person expiry map on the same seam, which handles the derivation in one place and matches how `complianceStatus` already works; or
+- a relation date over `completionDate` with the boundary shifted by the certificate lifetime, which needs no precompute but pushes the derivation into the operator layer and will drift if the lifetime ever becomes configurable.
+
+Pick one, say why in the code and in your report, and cover it with a test that pins a fixed clock and asserts a certificate expiring inside the window matches while one expiring outside it does not.
+
+Also reconsider whether `hasServiceCredential` should distinguish a revoked credential from an absent one, and whether the remaining recruitment outcomes (rejected, interviewed, withdrew, applicant type) belong in this phase. Both were recorded as Part A gaps. Neither is required here; say what you recommend.
 
 ---
 
@@ -191,6 +211,8 @@ Two requirements that are easy to miss:
 
 - **Show the zone next to every absolute date control**, e.g. "Dates are read in Eastern (New York)". Part A resolves calendar days in the clinic's configured zone; a sender in another zone picking "March 20" otherwise has no way to know what that means. `zoneLabel` from `@/platform/dates` produces the string.
 - **A relative window must reject negative and fractional input at the control**, not only in the compiler. Part A compiles those to match-nobody, which is safe but silently sends to no one; the control should stop it earlier and say why.
+- **Absolute dates must be validated as real calendar dates, not just digit shapes.** Part A's `DATE_RE` is `/^\d{4}-\d{2}-\d{2}$/`, so `2026-02-30` passes and `Date.UTC` silently rolls it to March 2, shifting a boundary by up to three days and WIDENING `before` / `onOrBefore`. A native `<input type="date">` will not emit one, but a stored or hand-edited audience can. Close it with a round-trip check (reformat the parsed date and compare) so an impossible date matches nobody rather than a different day.
+- **Make the two kinds agree on a reversed range.** `countWhere` returns match-nobody for `lo > hi`; `dateWhere` returns `{ gte, lt }`, which is empty by range rather than by sentinel. Equivalent under ALL and ANY, different under NONE. Pick one representation while you are in the file.
 
 - [ ] **Step 1: Write the failing tests**
 

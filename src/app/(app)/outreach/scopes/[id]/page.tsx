@@ -87,15 +87,29 @@ export default async function ScopeDetailPage({
     const actor = await requirePermission("outreach.manage_scopes");
     const personId = ((formData.get("personId") as string | null) ?? "").trim();
     const roleId = ((formData.get("roleId") as string | null) ?? "").trim();
-    if (personId) await grantScope(actor.personId, id, { personId });
-    else if (roleId) await grantScope(actor.personId, id, { roleId });
+    try {
+      if (personId) await grantScope(actor.personId, id, { personId });
+      else if (roleId) await grantScope(actor.personId, id, { roleId });
+    } catch (e) {
+      if (e instanceof ScopeValidationError) {
+        redirect(`/outreach/scopes/${id}?error=${encodeURIComponent(e.message)}`);
+      }
+      throw e;
+    }
     redirect(`/outreach/scopes/${id}`);
   }
 
   async function revokeAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("outreach.manage_scopes");
-    await revokeScope(actor.personId, (formData.get("grantId") as string) ?? "");
+    try {
+      await revokeScope(actor.personId, (formData.get("grantId") as string) ?? "");
+    } catch (e) {
+      if (e instanceof ScopeValidationError) {
+        redirect(`/outreach/scopes/${id}?error=${encodeURIComponent(e.message)}`);
+      }
+      throw e;
+    }
     redirect(`/outreach/scopes/${id}`);
   }
 

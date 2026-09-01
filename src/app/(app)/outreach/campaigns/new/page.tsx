@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
-import { createDraft, assertMayActOnScope } from "@/platform/email/campaigns/service";
+import {
+  createDraft,
+  assertMayActOnScope,
+  CampaignScopeError,
+} from "@/platform/email/campaigns/service";
 import { scopesForPerson } from "@/platform/email/audience/scopes";
 import { CAMPAIGN_STARTERS } from "@/platform/email/campaigns/starters";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -24,7 +28,17 @@ export default async function NewCampaignPage() {
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const starterId = ((formData.get("starter") as string | null) ?? "").trim();
     const scopeId = ((formData.get("scopeId") as string | null) ?? "").trim() || null;
-    await assertMayActOnScope(actor.personId, scopeId);
+    // Mirrors every mutating action on the [id] editor page: an admin can
+    // revoke a grant while this form is still open in another tab, and this
+    // must surface as an inline explanation rather than a 500.
+    try {
+      await assertMayActOnScope(actor.personId, scopeId);
+    } catch (err) {
+      if (err instanceof CampaignScopeError) {
+        redirect(`/outreach/campaigns/new?error=${encodeURIComponent(err.message)}`);
+      }
+      throw err;
+    }
     const c = await createDraft(actor.personId, name, {
       starterId: starterId || undefined,
       scopeId,

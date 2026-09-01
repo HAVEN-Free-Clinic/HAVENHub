@@ -7,7 +7,8 @@
  * invariants. Enforcement (intersecting a scope with a campaign's own audience)
  * lives in resolve.ts, not here: this module only owns storage and grants.
  */
-import { prisma } from "@/platform/db";
+import { Prisma } from "@prisma/client";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { isAudience } from "./types";
@@ -107,8 +108,14 @@ export async function updateScope(
     where: { id },
     data: {
       name: input.name.trim(),
-      description: input.description?.trim() || null,
       audienceJson: input.audience,
+      // Only touch description when the caller actually supplied the field.
+      // The scope detail page's save form never submits one today, so an
+      // unconditional write here would silently erase any description ever
+      // set on every save.
+      ...(input.description !== undefined
+        ? { description: input.description.trim() || null }
+        : {}),
     },
   });
   await recordAudit({
@@ -145,7 +152,21 @@ export async function grantScope(
   scopeId: string,
   target: { personId: string } | { roleId: string },
 ): Promise<void> {
-  await prisma.audienceScopeGrant.create({ data: { scopeId, ...target } });
+  // The shipped UI builds its person/role options from the full ACTIVE roster
+  // with no exclusion of who already holds a grant, and a stale detail page
+  // (or a genuine double click) can also race two identical submits, so this
+  // unique-constraint violation (AudienceScopeGrant_unique_grant) is one click
+  // away in normal use, not an edge case. Translate it into the same typed
+  // error every other validation failure in this module already throws,
+  // rather than letting a raw Prisma P2002 reach the generic error boundary.
+  try {
+    await prisma.audienceScopeGrant.create({ data: { scopeId, ...target } });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new ScopeValidationError("This person or role has already been granted this scope.");
+    }
+    throw err;
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "audience_scope.grant",
@@ -156,7 +177,18 @@ export async function grantScope(
 }
 
 export async function revokeScope(actorId: string | null, grantId: string): Promise<void> {
-  const grant = await prisma.audienceScopeGrant.delete({ where: { id: grantId } });
+  // Same shape as grantScope's P2002 handling, for the double-submit /
+  // stale-page P2025 case (the grant was already revoked in another tab, or a
+  // resubmitted form).
+  let grant;
+  try {
+    grant = await prisma.audienceScopeGrant.delete({ where: { id: grantId } });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      throw new ScopeValidationError("That grant no longer exists.");
+    }
+    throw err;
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "audience_scope.revoke",

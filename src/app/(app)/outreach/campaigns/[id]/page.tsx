@@ -21,7 +21,6 @@ import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
-import { getScope } from "@/platform/email/audience/scopes";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -48,6 +47,37 @@ const EMPTY_AUDIENCE: Audience = {
   conditions: [],
 };
 
+// Module scope, NOT a closure inside the page component: a "use server" action
+// closure can only capture serializable values (Next's transform bundles every
+// render-scope identifier an action references as an encrypted bound
+// argument), and a plain function reference is not serializable. This used to
+// be declared inside CampaignEditorPage's body, which made every action below
+// that called it dead at runtime -- the page rendered, but the server threw
+// "Functions cannot be passed directly to Client Components" and emitted each
+// form's action as `javascript:throw new Error(...)`. Hoisted here and given
+// its own explicit, serializable arguments instead of closing over them.
+//
+// The same predicate CampaignValidationError/CampaignConfirmationError already
+// get at each call site below: a blocked sender sees an inline explanation via
+// ?error=, not the generic error boundary. Every mutating action shares this
+// exact predicate, since a scoped sender may not edit, cancel, preview, or
+// send/schedule a campaign outside their granted scopes any more than they may
+// view one.
+async function assertScopeOrRedirect(
+  personId: string,
+  scopeId: string | null,
+  id: string,
+): Promise<void> {
+  try {
+    await assertMayActOnScope(personId, scopeId);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) {
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+}
+
 export default async function CampaignEditorPage({ params }: Props) {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const { id } = await params;
@@ -65,28 +95,14 @@ export default async function CampaignEditorPage({ params }: Props) {
   // the URL alone would otherwise leak another department's audience and
   // content. /no-access rather than the ?error= pattern the actions below use,
   // since there is no "back to this same page" to usefully redirect to here.
+  // The resolved scope is reused below for display (boundScope) instead of
+  // querying it again.
+  let boundScope: Awaited<ReturnType<typeof assertMayActOnScope>>;
   try {
-    await assertMayActOnScope(actor.personId, scopeId);
+    boundScope = await assertMayActOnScope(actor.personId, scopeId);
   } catch (err) {
     if (err instanceof CampaignScopeError) redirect("/no-access");
     throw err;
-  }
-
-  // assertMayActOnScope wrapped with the same local error handling
-  // CampaignValidationError/CampaignConfirmationError already get below: a
-  // blocked sender sees an inline explanation via ?error=, not the generic
-  // error boundary. Every mutating action shares this exact predicate, since a
-  // scoped sender may not edit, cancel, preview, or send/schedule a campaign
-  // outside their granted scopes any more than they may view one.
-  async function assertScopeOrRedirect(personId: string): Promise<void> {
-    try {
-      await assertMayActOnScope(personId, scopeId);
-    } catch (err) {
-      if (err instanceof CampaignScopeError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
   }
 
   const isSent = campaign.status === "SENT";
@@ -109,7 +125,6 @@ export default async function CampaignEditorPage({ params }: Props) {
     cycles: audienceCycles,
   } = await loadAudienceBuilderOptions(parsedAudience);
 
-  const boundScope = campaign.scopeId ? await getScope(campaign.scopeId) : null;
   const scopeName = boundScope?.name ?? "a deleted scope";
 
   const zone = await getDisplayTimeZone();
@@ -121,7 +136,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function saveAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const name = ((formData.get("name") as string | null) ?? "").trim();
     const subject = (formData.get("subject") as string | null) ?? "";
     const body = (formData.get("body") as string | null) ?? "";
@@ -170,7 +185,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function testAction() {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     if (!actor.email) {
       redirect(
         `/outreach/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
@@ -189,7 +204,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function sendAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const rawCount = formData.get("confirmCount");
     const confirmCount =
       rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -221,7 +236,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function scheduleLaterAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const raw = (formData.get("scheduledAt") as string | null) ?? "";
     if (!raw) redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
     const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
@@ -248,7 +263,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function scheduleRecurringAction(formData: FormData) {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
     const rawCount = formData.get("confirmCount");
     const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
@@ -270,7 +285,7 @@ export default async function CampaignEditorPage({ params }: Props) {
   async function cancelAction() {
     "use server";
     const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId);
+    await assertScopeOrRedirect(actor.personId, scopeId, id);
     try {
       await cancelCampaign(actor.personId, id);
     } catch (err) {

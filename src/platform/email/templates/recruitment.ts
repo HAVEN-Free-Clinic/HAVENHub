@@ -54,6 +54,25 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       "<p>Congratulations {{ firstName }},</p><p>You've been accepted into <strong>{{ departmentName }}</strong> for {{ cycleTitle }}. We'll follow up shortly with onboarding next steps.</p>",
   },
   {
+    key: "recruitment.rejection",
+    name: "Recruitment: not selected",
+    category: "transactional",
+    group: "recruitment",
+    // No departmentName here, unlike the acceptance. A rejected applicant may
+    // never have been routed anywhere (returned to routing, or passed on before
+    // a department was assigned), and naming the one department that happened to
+    // hold the application would read as "that department turned you down" when
+    // the outcome is clinic-wide. cycleTitle is the only scope that is true for
+    // every applicant this email can reach.
+    variables: [
+      { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
+    ],
+    defaultSubject: "Your HAVEN {{ cycleTitle }} application",
+    defaultBody:
+      "<p>Dear {{ firstName }},</p><p>Thank you for applying to HAVEN Free Clinic for {{ cycleTitle }}. After reviewing your application, we are not able to offer you a position this cycle.</p><p>We received far more strong applications than we have spots, and this outcome does not reflect on your ability or your commitment to serving our patients. We hope you will consider applying again in a future cycle.</p><p>Thank you for your interest in HAVEN.</p>",
+  },
+  {
     key: "recruitment.interview_invite",
     name: "Recruitment: interview invitation",
     category: "transactional",

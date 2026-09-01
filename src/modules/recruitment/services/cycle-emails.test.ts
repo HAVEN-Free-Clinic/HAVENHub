@@ -26,13 +26,13 @@ async function makeCycle(createdById: string) {
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
 
-it("lists the five cycle-scoped emails with no overrides initially", async () => {
+it("lists the six cycle-scoped emails with no overrides initially", async () => {
   const mgr = await manager();
   const cycle = await makeCycle(mgr.id);
   const list = await listCycleEmails(cycle.id);
   expect(list.map((e) => e.key).sort()).toEqual([
     "recruitment.acceptance", "recruitment.application_received", "recruitment.interview_invite",
-    "recruitment.onboarding", "recruitment.onboarding_confirmation",
+    "recruitment.onboarding", "recruitment.onboarding_confirmation", "recruitment.rejection",
   ]);
   expect(list.every((e) => e.hasOverride === false)).toBe(true);
 });

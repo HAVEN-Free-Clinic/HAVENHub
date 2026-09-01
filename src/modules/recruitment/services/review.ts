@@ -56,6 +56,25 @@ export function canViewApplication(
   return app.departmentChoices.some((d) => mine.has(d));
 }
 
+/** `canViewApplication` for a caller that has not already resolved the viewer's
+ *  scope and permission flags. Written for a server action that has just changed
+ *  the very field access depends on and needs to know where to land the actor:
+ *  `returnToRouting` clears `routedDepartmentCode`, which is exactly what grants
+ *  a scope-director sight of a VOLUNTEER application, so the actor can succeed at
+ *  an action and lose the page they ran it from. Resolves the identical triple
+ *  the detail page resolves, so the two can never disagree about who may look. */
+export async function canViewerOpenApplication(
+  app: ViewableApplication,
+  viewerId: string,
+): Promise<boolean> {
+  const [scope, managesCycles, canScore] = await Promise.all([
+    reviewScope(viewerId),
+    can(viewerId, "recruitment.manage_cycles"),
+    can(viewerId, "recruitment.score"),
+  ]);
+  return canViewApplication(app, { scope, managesCycles, canScore });
+}
+
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
   /**

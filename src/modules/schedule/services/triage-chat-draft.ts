@@ -15,7 +15,7 @@ import {
   getCurrentClinicChannelLink,
 } from "@/platform/teams/channel-link";
 import { resolveMemberIds, type ResolvedMember } from "@/platform/teams/member-ids";
-import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
+import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { renderTemplate } from "@/platform/email/render/render";
 import { esc } from "@/platform/email/render/escape";
@@ -90,14 +90,16 @@ export async function loadTriageChatDraft(
   const warnings: string[] = [];
 
   // A closed Saturday stays in Term.clinicDates as a flagged ClinicDay rather
-  // than being removed, so the selector above happily picks one. A WARNING and
-  // not a block, by spec: the ED is the person who would know the clinic is
-  // running after all, and this feature is not the place to overrule them.
-  // resolveOpenClinicDate returns null for "not a clinic day at all" too, which
-  // cannot happen here because clinicDate came out of term.clinicDates.
-  if (!(await resolveOpenClinicDate(term, clinicDateKey))) {
+  // than being removed, so the selector above happily picks one. Still not a
+  // block, and no longer phrased as a doubt: departments staff a closed date on
+  // purpose to cover triage, which is precisely when this chat is wanted. The
+  // note is here so the ED knows which kind of Saturday they are opening a chat
+  // for, and so a closure nobody meant to leave standing is visible.
+  const closures = await closedClinicDates(term.id);
+  if (closures.has(clinicDateKey)) {
+    const note = closures.get(clinicDateKey);
     warnings.push(
-      "This clinic date is marked closed in the attending schedule. Create the chat only if the clinic is actually running.",
+      `This clinic date is marked closed in the attending schedule${note ? ` (${note})` : ""}. The chat below covers whoever is scheduled anyway.`,
     );
   }
 

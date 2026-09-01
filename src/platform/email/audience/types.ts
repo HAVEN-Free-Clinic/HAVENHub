@@ -8,18 +8,62 @@ export type ConditionOp =
   | "isEmpty"
   | "isNotEmpty"
   | "isTrue"
-  | "isFalse";
+  | "isFalse"
+  // Negative operators. Every one of these carries a sharper version of the
+  // blank-value hazard the positive operators have: a positive filter with a
+  // missing value narrows to nothing (annoying), while a NEGATIVE filter with a
+  // missing value widens to EVERYONE (a send-all). `operators.ts` is the single
+  // place that guarantees a blank value compiles to match-nobody instead.
+  | "notEq"
+  | "notIn"
+  | "notContains"
+  // Ordered comparison, used by year-kind fields (see gradYear).
+  | "lt"
+  | "gt";
+
+/** Operators that take no value; the builder shows no value control for these. */
+export const VALUELESS_OPS: ConditionOp[] = ["isEmpty", "isNotEmpty", "isTrue", "isFalse"];
+
+/**
+ * Operators whose match set is the COMPLEMENT of their value. Callers that need
+ * to reason about send-blast risk (and the builder, when it warns) ask here
+ * rather than re-listing the negative operators and drifting out of sync.
+ */
+export const NEGATIVE_OPS: ConditionOp[] = ["notEq", "notIn", "notContains", "isFalse"];
+
+export function isNegativeOp(op: ConditionOp): boolean {
+  return NEGATIVE_OPS.includes(op);
+}
 
 /** A single leaf condition on a field. */
 export type AudienceCondition = {
   field: string;
   op: ConditionOp;
   value?: string | string[];
+  /**
+   * Optional term scope for roster-shaped fields (`role`, `department`). Term
+   * ids; an empty or absent list means "the active term", which is exactly what
+   * every stored audience meant before this field existed -- so legacy
+   * `audienceJson` keeps its original meaning with no migration.
+   *
+   * The scope belongs on the CONDITION rather than on a separate "term" field so
+   * that a role and its terms compile into ONE `memberships: { some: {...} }`
+   * clause. Two separate conditions ANDed together would each get their own
+   * `some`, which different membership rows could satisfy -- "Volunteer" from
+   * this term and "SP26" from a director stint would wrongly match.
+   */
+  terms?: string[];
 };
 
-/** A nested group: its own ALL/ANY connective over child nodes (Airtable-style). */
+/**
+ * A nested group: its own connective over child nodes (Airtable-style).
+ *
+ * NONE negates the whole subtree ("matches none of these"). It is offered only
+ * on NESTED groups, never at the root: a root NONE is "everyone except ...",
+ * which is a send-all wearing a disguise.
+ */
 export type AudienceGroup = {
-  match: "ALL" | "ANY";
+  match: "ALL" | "ANY" | "NONE";
   children: AudienceNode[];
 };
 
@@ -28,6 +72,7 @@ export type AudienceNode = AudienceCondition | AudienceGroup;
 
 export type Audience = {
   recordType: AudienceRecordType;
+  /** Root connective. NONE is deliberately not allowed here; see AudienceGroup. */
   match: "ALL" | "ANY";
   /**
    * Root-level children: conditions and/or nested groups. A legacy flat audience
@@ -53,7 +98,10 @@ function isValidNode(v: unknown): boolean {
   if (!v || typeof v !== "object") return false;
   const n = v as Record<string, unknown>;
   if (typeof n.field === "string") return true; // leaf condition
-  if ((n.match === "ALL" || n.match === "ANY") && Array.isArray(n.children)) {
+  if (
+    (n.match === "ALL" || n.match === "ANY" || n.match === "NONE") &&
+    Array.isArray(n.children)
+  ) {
     return (n.children as unknown[]).every(isValidNode); // nested group, recurse
   }
   return false;

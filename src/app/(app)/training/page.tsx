@@ -69,7 +69,7 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
           <Lock aria-hidden className="h-6 w-6" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-critical">Quiz locked</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-critical-foreground">Quiz locked</p>
           <p className="mt-0.5 text-lg font-bold tracking-tight text-foreground">
             You&apos;ve used all {my.maxAttempts} quiz attempts
           </p>

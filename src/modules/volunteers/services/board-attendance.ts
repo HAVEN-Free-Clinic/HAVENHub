@@ -109,6 +109,13 @@ export type BoardRosterRow = {
  * Everyone holding an ACTIVE DIRECTOR membership in the meeting's term appears,
  * whether or not they have a row, so the recording UI lists who still needs
  * marking rather than only who has been marked.
+ *
+ * Anyone with a recorded mark is then added on top, even if they hold no such
+ * membership. Two real cases need that. A director whose membership was later
+ * marked REMOVED would otherwise vanish from the meeting they were marked at,
+ * taking the evidence with them. And the historical import (see
+ * platform/board-attendance/import) writes marks into the live term without
+ * writing memberships, deliberately, so its rows would be invisible here.
  */
 export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]> {
   const meeting = await prisma.boardMeeting.findUnique({
@@ -151,6 +158,34 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       status: rec?.status ?? null,
       note: rec?.note ?? null,
     });
+  }
+
+  const unlisted = recorded.filter((r) => !rows.has(r.personId)).map((r) => r.personId);
+  if (unlisted.length > 0) {
+    const people = await prisma.person.findMany({
+      where: { id: { in: unlisted } },
+      select: {
+        id: true,
+        name: true,
+        // Any membership in this term, not just an ACTIVE DIRECTOR one: the
+        // point is to label the row, and a REMOVED membership still says which
+        // department the person was marked under.
+        memberships: {
+          where: { termId: meeting.termId },
+          select: { department: { select: { name: true } } },
+        },
+      },
+    });
+    for (const person of people) {
+      const rec = byPerson.get(person.id);
+      rows.set(person.id, {
+        personId: person.id,
+        name: person.name,
+        departmentNames: [...new Set(person.memberships.map((m) => m.department.name))],
+        status: rec?.status ?? null,
+        note: rec?.note ?? null,
+      });
+    }
   }
 
   return [...rows.values()]

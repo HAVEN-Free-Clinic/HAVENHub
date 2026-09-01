@@ -6,7 +6,7 @@ import { deriveSteps, stepIndexForKeys, type WizardSection, type WizardStep } fr
 import { missingRequiredKeys } from "./wizard-validation";
 import { mergeDepartmentAnswer, parseFieldCondition, visibleFields, isFieldVisible } from "@/modules/recruitment/engine/field-visibility";
 import { WizardProgress } from "./wizard-progress";
-import { WizardReview, formatFieldValue, type ReviewGroup } from "./wizard-review";
+import { WizardReview, formatFieldValue, reviewLabel, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
@@ -16,6 +16,7 @@ import { Card } from "@/platform/ui/card";
 import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
+import { isDisplayOnlyNotice } from "@/modules/recruitment/engine/notice";
 import { prefillString } from "@/modules/recruitment/components/field-prefill";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { cx } from "@/platform/ui/cx";
@@ -367,16 +368,24 @@ export function ApplyWizard({
           ],
         });
       } else if (st.kind === "section") {
-        groups.push({
-          stepIndex: i,
-          title: st.title,
-          // Condition-hidden fields were never asked, so they are omitted here
-          // too (rather than showing a misleading "Not provided" row).
-          rows: visibleFields(st.section.fields, effectiveAnswers).map((f) => {
+        // Condition-hidden fields were never asked, so they are omitted here
+        // (rather than showing a misleading "Not provided" row). A display-only
+        // notice is omitted for the same reason: it was never a question, and a
+        // paragraph of policy text against "Not provided" reads as something the
+        // applicant failed to fill in.
+        const rows = visibleFields(st.section.fields, effectiveAnswers)
+          .filter((f) => !isDisplayOnlyNotice(f))
+          .map((f) => {
             const src = f.type === "SIGNATURE" && typeof values[f.key] === "string" && String(values[f.key]).startsWith("data:") ? String(values[f.key]) : undefined;
-            return { label: f.label, value: src ? "" : formatFieldValue(f, values, def.subcommittees), imageSrc: src };
-          }),
-        });
+            return { label: reviewLabel(f), value: src ? "" : formatFieldValue(f, values, def.subcommittees), imageSrc: src };
+          });
+        // A step that asked nothing gets no review card. A section of pure
+        // notices is now a normal thing to build, and every field of a section
+        // can also be condition-hidden -- either way an empty card titled after
+        // the step, with an Edit link back to a page with nothing to edit, is
+        // worse than no card. Mirrors the reviewer's own answer grid, which
+        // drops a section once its displayable fields are filtered out.
+        if (rows.length > 0) groups.push({ stepIndex: i, title: st.title, rows });
       }
     });
     return groups;
@@ -494,13 +503,16 @@ export function ApplyWizard({
           <Alert tone="error">{result.message}</Alert>
         )}
         {saveState !== "idle" && (
-          <p className={`text-xs ${saveState === "error" ? "text-critical" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
+          <p className={`text-xs ${saveState === "error" ? "text-critical-foreground" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}
 
         {current.kind === "intro" && (
           <>
             <Card className="space-y-4">
-              <FormSection title={`Are you a new or returning ${roleNoun}?`}>
+              <FormSection
+                title={`Are you a new or returning ${roleNoun}?`}
+                description={`Returning means you served as a ${roleNoun} in the term right before this one, without a break. Summer is the one exception: taking the summer off does not end your run, so a spring ${roleNoun} applying for the fall still counts as returning. If you have been away for a full fall or spring term, apply as a new applicant.`}
+              >
                 <RadioGroup>
                   {applicantOptions.map((opt) => (
                     <Radio

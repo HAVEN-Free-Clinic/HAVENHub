@@ -453,6 +453,20 @@ model Department {
   ///
   /// Defaults to false so creating a department never silently bypasses scoring.
   autoRouteApplicants        Boolean                 @default(false)
+  /// Whether members may raise a DROP request against this department's shifts.
+  /// False makes the department swap-only: the drop form disappears from
+  /// /schedule and createRequest refuses a drop, so a member who cannot find a
+  /// swap partner asks their directors out of band instead.
+  ///
+  /// For the clinical team-member departments (SCTP, JCTP, SCTS, JCTS, SCTL)
+  /// where an unfilled seat means an unstaffed patient, so coverage must be
+  /// handed to a named person rather than simply given up. A flag rather than a
+  /// hardcoded code list because departments are admin-maintained (same reason
+  /// as autoRouteApplicants above).
+  ///
+  /// Defaults to TRUE -- the permissive, pre-existing behaviour -- so creating a
+  /// department never silently blocks its members from dropping.
+  allowShiftDrop             Boolean                 @default(true)
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 }
@@ -649,6 +663,11 @@ enum FieldType {
   DEPARTMENT_CHOICE
   SUBCOMMITTEE_RANK
   SIGNATURE
+  /// Display-only content block: a heading (label) and body (helpText) shown as
+  /// a callout, asking nothing. Optionally carries an acknowledgement tick, in
+  /// which case it stores a CHECKBOX-shaped answer under its key. See
+  /// modules/recruitment/engine/notice.ts.
+  NOTICE
 }
 
 enum ApplicantScope {
@@ -2287,6 +2306,16 @@ model Application {
   /// other row. Withdrawal is a declaration only: it never deletes acceptances,
   /// interviews, or onboarding contracts, which have their own guarded teardown.
   withdrawnAt                DateTime?
+  /// Stamped when the not-selected email went out for this application. The
+  /// rejection counterpart of Acceptance.emailedAt, and the same kind of claim:
+  /// sendRejections only ever writes it from null, so a repeated Send or two
+  /// concurrent ones cannot tell an applicant twice.
+  ///
+  /// Deliberately NOT cleared by reopenApplication. The stamp records that we
+  /// told this person they were not selected, and reopening their application
+  /// does not un-tell them -- so a reopen-then-reject-again leaves them with the
+  /// one rejection email they already have rather than sending a second.
+  rejectionEmailedAt         DateTime?
   submittedAt                DateTime?
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt

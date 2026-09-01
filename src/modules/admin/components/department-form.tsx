@@ -22,6 +22,7 @@ type DepartmentFormProps = {
     | "requiresEpicDirector"
     | "requiresEpicVolunteer"
     | "autoRouteApplicants"
+    | "allowShiftDrop"
     | "hoursPerShift"
     | "minInterpreterScore"
   >;
@@ -143,6 +144,18 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
             New and transfer applicants whose FIRST choice is this department are routed straight here at submit,
             with no committee score. Returning members already skip scoring for their own department regardless of
             this setting.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="allowShiftDrop" defaultChecked={department?.allowShiftDrop ?? true} />
+            Let members drop a shift without a swap partner
+          </label>
+          <p className="text-xs text-muted-foreground">
+            On by default. Turn it off for teams where an empty seat means an unstaffed patient: members then
+            see only the swap form on their schedule, and a drop has to be arranged with the department&rsquo;s
+            directors out of band. Swaps are unaffected either way.
           </p>
         </div>
 

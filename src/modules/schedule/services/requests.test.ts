@@ -22,6 +22,7 @@ import {
   remindDirectors,
   requestApproverRecipients,
   countPendingApprovals,
+  DROP_NOT_ALLOWED_MESSAGE,
   RequestForbiddenError,
   RequestNotFoundError,
   RequestValidationError,
@@ -81,11 +82,11 @@ async function createTerm(
   });
 }
 
-async function createDepartment(code: string) {
+async function createDepartment(code: string, opts: { allowShiftDrop?: boolean } = {}) {
   return prisma.department.upsert({
     where: { code },
     update: {},
-    create: { code, name: `${code} Dept` },
+    create: { code, name: `${code} Dept`, ...opts },
   });
 }
 
@@ -221,6 +222,75 @@ describe("createRequest", () => {
     const after = audit?.after as Record<string, unknown>;
     expect(after.type).toBe("swap");
     expect(after.targetId).toBe(target.id);
+  });
+
+  it("swap-only department: refuses a drop and names the swap-or-email path", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("SWAP", { allowShiftDrop: false });
+    const actor = await createPerson("Alice");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+
+    await expect(
+      createRequest(actor.id, {
+        termId: term.id,
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+      })
+    ).rejects.toThrow(DROP_NOT_ALLOWED_MESSAGE);
+
+    expect(await prisma.shiftRequest.count()).toBe(0);
+  });
+
+  it("swap-only department: still accepts a named swap", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("SWAP", { allowShiftDrop: false });
+    const actor = await createPerson("Alice");
+    const target = await createPerson("Bob");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
+
+    const req = await createRequest(actor.id, {
+      termId: term.id,
+      requesterDateKey: isoDateKey(dates[0]),
+      departmentId: dept.id,
+      targetId: target.id,
+      targetDateKey: isoDateKey(dates[1]),
+    });
+
+    expect(req.status).toBe("PENDING");
+    expect(req.targetId).toBe(target.id);
+  });
+
+  it("swap-only department: a targetId with no targetDate is refused as a drop", async () => {
+    // The half-filled swap would otherwise persist as targetId-without-targetDate,
+    // which the service layer treats as a stale/malformed swap -- i.e. a drop
+    // through the back door in a department that does not allow one.
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("SWAP", { allowShiftDrop: false });
+    const actor = await createPerson("Alice");
+    const target = await createPerson("Bob");
+
+    await createMembership(actor.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, actor.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, target.id, dates[1], "VOLUNTEER");
+
+    await expect(
+      createRequest(actor.id, {
+        termId: term.id,
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+        targetId: target.id,
+      })
+    ).rejects.toThrow(DROP_NOT_ALLOWED_MESSAGE);
+
+    expect(await prisma.shiftRequest.count()).toBe(0);
   });
 
   it("rejects when actor has no assignment on that date", async () => {

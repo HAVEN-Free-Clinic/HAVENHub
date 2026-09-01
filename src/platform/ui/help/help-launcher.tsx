@@ -113,7 +113,12 @@ export function HelpLauncher({
   // Warm both serial hops (token request, lazy chunk download) on intent rather than on click,
   // so the click only pays for the frame itself.
   const prefetch = useCallback(() => {
-    void import("@gitbook/embed/react");
+    // Caught, and not only to keep a warm-up failure out of Error Tracking: an
+    // uncaught rejection here would reach the global handler that
+    // chunk-load-recovery.tsx listens on and reload the page under the member
+    // over a chunk nobody has asked to see yet. A failed prefetch costs nothing
+    // -- next/dynamic re-requests the chunk when the panel actually opens.
+    void import("@gitbook/embed/react").catch(() => {});
     ensureToken();
   }, [ensureToken]);
 

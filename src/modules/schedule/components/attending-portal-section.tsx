@@ -25,6 +25,7 @@ import { StatCard } from "@/platform/ui/stat-card";
 import { CalendarDate } from "@/platform/dates/display";
 import { Clock } from "lucide-react";
 import { isoDateKey } from "../engine/map";
+import { AVAILABILITY_PILL_CLASS } from "./availability-pill";
 import { displayDate } from "../engine/display";
 import { groupByMonth } from "./clinic-date-order";
 import type { MyAttendingSchedule, AttendingSwapPartner } from "../services/attending-portal";
@@ -298,14 +299,9 @@ export function AttendingPortalSection({
                           const key = isoDateKey(d);
                           const checked = (schedule.availableDates ?? []).some((ad) => isoDateKey(ad) === key);
                           return (
-                            <label
-                              key={key}
-                              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer ${
-                                checked
-                                  ? "border-brand bg-brand/5 text-brand-fg font-semibold"
-                                  : "border-border text-muted-foreground hover:border-brand/40"
-                              }`}
-                            >
+                            // Styling comes from the live checkbox, not from `checked`:
+                            // `checked` only seeds the initial state. See availability-pill.ts.
+                            <label key={key} className={AVAILABILITY_PILL_CLASS}>
                               <Checkbox name="dates" value={key} defaultChecked={checked} />
                               {displayDate(key)}
                             </label>

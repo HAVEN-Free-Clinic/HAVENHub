@@ -5,6 +5,7 @@ declare module "next-auth" {
     personId: string | null;
     applicantEmail: string | null;
     applicantFirstName: string | null;
+    applicantUpn: string | null;
     user: DefaultSession["user"];
   }
 }
@@ -14,5 +15,6 @@ declare module "next-auth/jwt" {
     personId?: string | null;
     applicantEmail?: string | null;
     applicantFirstName?: string | null;
+    applicantUpn?: string | null;
   }
 }

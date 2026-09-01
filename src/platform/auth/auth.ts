@@ -151,6 +151,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // First name from the Entra sign-in, so the portal can greet a brand-new
           // applicant (no Person yet) by name instead of their email local part.
           token.applicantFirstName = firstNameFromClaims(claims);
+          // The UPN, kept SEPARATE from applicantEmail even though that often falls
+          // back to it. They are different claims and they match a Person through
+          // different branches of matchPersonByClaim: the UPN is the NetID-shaped
+          // one ("jc999@yale.edu", step 2), while the email claim is usually the
+          // alias ("jack.carney@yale.edu", step 3 against contactEmail). Collapsing
+          // them loses whichever branch the surviving value cannot reach, and the
+          // apply portal needs both to recognize a returning member whose stored
+          // contactEmail happens to be in the other form (see renewal.ts's
+          // resolveReturningPersonId).
+          token.applicantUpn = claims.preferred_username?.toLowerCase() ?? null;
           if (!person) {
             await recordAudit({
               action: "auth.applicant_login",
@@ -215,6 +225,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.personId = (token.personId as string | null) ?? null;
       session.applicantEmail = (token.applicantEmail as string | null) ?? null;
       session.applicantFirstName = (token.applicantFirstName as string | null) ?? null;
+      session.applicantUpn = (token.applicantUpn as string | null) ?? null;
       return session;
     },
   },

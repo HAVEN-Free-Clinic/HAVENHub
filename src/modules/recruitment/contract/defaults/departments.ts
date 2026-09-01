@@ -93,7 +93,7 @@ const DEPARTMENTS: DeptSpec[] = [
     "Serving as one of the sub-committee leaders for the Community Relations and Engagement Committee, either one of the Directors.",
     "Control quality of translations of after visit summaries.",
   ] },
-  { code: "LABR", name: "Laboratory", hours: "8-10", duties: [
+  { code: "PHLO", name: "Phlebotomy", hours: "8-10", duties: [
     "Coordinating the smooth running of lab from week to week, such as keeping supplies stocked, ensuring quality control and compliance, avoiding lab errors, and handling patient lab bills.",
     "Training and supervising lab volunteers in venipuncture and lab skills, including coordinating venipuncture training with an official phlebotomy trainer and ensuring location, schedule, and date of training each semester.",
     "Working with the IT Director for access to Epic for {{orgName}} volunteers as needed.",
@@ -168,8 +168,8 @@ const DEPARTMENTS: DeptSpec[] = [
     "Consulting with and reviewing charts with the Referrals team to assist in specialty-care related decision making.",
     "Participate in weekly signout with co-CAs to ensure appropriate handoffs.",
   ] },
-  { code: "PHAM", name: "Pharmacy", hours: "5-15", duties: [
-    "Directors are each expected to be in Clinic every other weekend, or the equivalent. For Pharmacy, Clinic typically runs from 8:00am to 4:00pm, which is 8 or more hours. Non-clinical responsibilities typically take 5 or more hours per week, on average.",
+  { code: "MEDS", name: "Medication Access", hours: "5-15", duties: [
+    "Directors are each expected to be in Clinic every other weekend, or the equivalent. For Medication Access, Clinic typically runs from 8:00am to 4:00pm, which is 8 or more hours. Non-clinical responsibilities typically take 5 or more hours per week, on average.",
     "Budgeting, sourcing, logging, and maintaining the pharmacy inventory of supplies and medications.",
     "Coordinating pharmacy donation deliveries with Direct Relief, Americares, and the DPH.",
     "Overseeing the pharmacy volunteers, including liaising, scheduling, and training.",

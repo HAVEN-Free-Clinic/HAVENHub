@@ -256,9 +256,27 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   // Onboarding status drives the clearance card (includes EHS as a non-blocking item).
   const onboarding = await getOnboardingStatus(person.personId);
 
+  // Every checklist row gets somewhere to go. The banner beside it says "finish
+  // the unchecked items below", so members click the rows -- and until each one
+  // carried a destination those clicks landed on nothing (PostHog inbox
+  // 01a036e2). HIPAA and EHS are sections further down THIS page, so they point
+  // at their anchors rather than at /get-started, which an already-onboarded
+  // member (the usual reader here) would only be redirected away from. Every
+  // other step keeps its own /get-started page, and only while it can still be
+  // reached -- same guard as finishHref below.
+  const requirementHref = (key: string, stepHref?: string): string | undefined => {
+    if (key === "hipaa") return "#hipaa-certificate";
+    if (key === "ehs") return "#ehs-training";
+    return onboarding.onboarded ? undefined : stepHref;
+  };
+
   const requirements = onboarding.tasks
     .filter((t) => t.state !== "NOT_REQUIRED")
-    .map((t) => (t.key === "hipaa" ? certRequirement(status) : taskRequirement(t.label, t.state)));
+    .map((t) =>
+      t.key === "hipaa"
+        ? certRequirement(status, requirementHref(t.key, t.href))
+        : taskRequirement(t.label, t.state, requirementHref(t.key, t.href))
+    );
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
 
@@ -330,8 +348,9 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
 
-        {/* HIPAA certificate */}
-        <section>
+        {/* HIPAA certificate. Anchored: the clearance checklist above links here
+            (see requirementHref). scroll-mt clears the sticky app-shell bar. */}
+        <section id="hipaa-certificate" className="scroll-mt-24">
           <SectionHeader className="mb-4">HIPAA Certificate</SectionHeader>
           <HipaaPanel
             certificates={certificates}
@@ -341,8 +360,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           />
         </section>
 
-        {/* EHS Training */}
-        <section>
+        {/* EHS Training. Anchored for the clearance checklist, same as HIPAA above. */}
+        <section id="ehs-training" className="scroll-mt-24">
           <SectionHeader className="mb-4">EHS Training</SectionHeader>
           <EhsPanel items={ehsItems} />
         </section>

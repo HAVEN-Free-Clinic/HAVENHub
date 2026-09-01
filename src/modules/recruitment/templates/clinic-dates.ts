@@ -9,6 +9,11 @@ import type { TemplateOption } from "./types";
  * the scheduler compares baselineAvailability on. The weekday is part of the
  * label because clinic dates are curated, not generated, so they are no longer
  * guaranteed to fall on a Saturday.
+ *
+ * Pass OPEN dates only. Closure is a flag on `ClinicDay`, not a deletion from
+ * `Term.clinicDates`, so a closed Saturday is still in the array a loader reads;
+ * every loader runs it through `openClinicDates` first. This function stays pure
+ * and takes the filtered list rather than doing the join itself.
  */
 export function clinicDateOptions(clinicDates: Date[]): TemplateOption[] {
   return [...clinicDates]

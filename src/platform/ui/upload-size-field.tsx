@@ -81,7 +81,7 @@ export function UploadSizeField({
         className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong"
       />
       {error && (
-        <p className="mt-1 text-xs text-critical" role="alert">
+        <p className="mt-1 text-xs text-critical-foreground" role="alert">
           {error}
         </p>
       )}

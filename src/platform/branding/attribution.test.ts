@@ -30,11 +30,12 @@ describe("formatCopyright", () => {
 });
 
 describe("CONTRIBUTORS", () => {
-  it("credits the three ITCM directors", () => {
+  it("credits the ITCM directors and the executive director who backed the build", () => {
     expect(CONTRIBUTORS.map((c) => c.name)).toEqual([
       "Jack Carney",
       "Caprice Culkin",
       "Renée Tracey",
+      "Antigone Antonakakis",
     ]);
   });
 

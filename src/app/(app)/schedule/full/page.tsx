@@ -4,6 +4,7 @@ import { requireModuleAccess, requirePermission } from "@/platform/auth/session"
 import { can } from "@/platform/rbac/engine";
 import { viewableMemberIds } from "@/platform/member-profile";
 import { revalidatePath } from "next/cache";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
@@ -34,7 +35,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   // in. Only holders of schedule.manage_attendance see attendance state at all.
   const canMarkAttendance = await can(session.personId, "schedule.manage_attendance");
 
-  const { term, clinicDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
+  const { term, clinicDates, closedDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Verified badges, resolved ONCE for every person on the page rather than per
@@ -205,12 +206,24 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
             <ClinicDateStrip
               dates={clinicDates}
               selectedKey={selectedKey}
+              closedKeys={[...closedDates.keys()]}
               hrefFor={(key) => `/schedule/full?date=${key}`}
               ariaLabel="Schedule dates"
             />
           </div>
 
           {selectedDisplay && <SectionHeader level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
+
+          {/* A closed date still shows its roster: departments staff one to
+              cover triage. The banner is what stops that roster reading as an
+              ordinary clinic day. */}
+          {selectedKey != null && closedDates.has(selectedKey) && (
+            <Alert tone="warning" className="mb-4">
+              <strong>The clinic is closed this date.</strong>{" "}
+              {closedDates.get(selectedKey) ?? "No reason was recorded."} Anyone listed below
+              is scheduled anyway; there is no clinic-day check-in.
+            </Alert>
+          )}
 
           {/* Department cards */}
           {departments.length === 0 ? (

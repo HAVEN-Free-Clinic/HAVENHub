@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: "Attributions",
     description: `The people who build and maintain ${appName}.`,
   });
-  // Never indexed: this page carries three real people's contact addresses.
+  // Never indexed: this page carries real people's contact addresses.
   // buildPageMetadata returns a plain object literal with no robots key of its
   // own, so spreading it and adding robots here is not overwritten upstream.
   return { ...base, robots: { index: false, follow: false } };
@@ -53,7 +53,7 @@ export default async function AttributionsPage() {
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Attributions</h1>
         <p className="mt-3 text-sm leading-relaxed text-foreground-soft">
           {appName} is built and maintained in-house by the {orgName} IT and
-          Communications team.
+          Communications team, with direction and support from clinic leadership.
         </p>
 
         <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -61,7 +61,7 @@ export default async function AttributionsPage() {
         </h2>
         <ul className="mt-3 space-y-3">
           {CONTRIBUTORS.map((contributor) => (
-            <li key={contributor.email} className={cardClasses()}>
+            <li key={contributor.name} className={cardClasses()}>
               <p className="font-medium">{contributor.name}</p>
               <p className="mt-0.5 text-sm text-foreground-soft">{contributor.role}</p>
               <a

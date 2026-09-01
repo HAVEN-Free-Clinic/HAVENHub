@@ -16,8 +16,9 @@ import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
-import { isAudience, isAudienceGroup } from "@/platform/email/audience/types";
-import type { Audience, AudienceNode } from "@/platform/email/audience/types";
+import { isAudience } from "@/platform/email/audience/types";
+import type { Audience } from "@/platform/email/audience/types";
+import { collectAudienceReferences } from "@/platform/email/audience/references";
 import { prisma } from "@/platform/db";
 import { DateTime } from "@/platform/dates/display";
 import { parseZonedInput } from "@/platform/dates";
@@ -32,7 +33,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "../../templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
 import { SubmitButton } from "./submit-button";
-import { ReviewActions } from "./review-actions";
+import { ReviewActions, type PreviewResult } from "./review-actions";
 import { TimingActions } from "./timing-actions";
 
 type Props = {
@@ -57,13 +58,25 @@ export default async function CampaignEditorPage({ params }: Props) {
   const isScheduled = campaign.status === "SCHEDULED";
   const isActive = campaign.status === "ACTIVE";
 
-  const [layoutSource, brandColor, departments] = await Promise.all([
+  const [layoutSource, brandColor, departments, terms, cycles] = await Promise.all([
     loadLayoutSource(),
     getSetting<string>("branding.brandColor"),
     prisma.department.findMany({
       where: { isActive: true },
       select: { code: true, name: true },
       orderBy: { code: "asc" },
+    }),
+    // EVERY term, archived included -- unlike the RBAC term picker, which hides
+    // archived terms because an assignment scoped to one is permanently inert.
+    // Here a past term is the whole point: "email everyone who volunteered in
+    // spring" is a question about a roster that is now archived.
+    prisma.term.findMany({
+      select: { id: true, code: true, name: true, status: true },
+      orderBy: { startDate: "desc" },
+    }),
+    prisma.recruitmentCycle.findMany({
+      select: { id: true, title: true, status: true },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -77,18 +90,8 @@ export default async function CampaignEditorPage({ params }: Props) {
   // emailing that department forever. Union the active list with every department
   // code referenced anywhere in the stored audience so each stored value stays
   // representable and removable, labelling the retired ones (#82).
-  const referencedDeptCodes = new Set<string>();
-  (function collect(nodes: AudienceNode[]) {
-    for (const node of nodes) {
-      if (isAudienceGroup(node)) {
-        collect(node.children);
-      } else if (node.field === "department") {
-        const v = node.value;
-        if (Array.isArray(v)) v.forEach((c) => c && referencedDeptCodes.add(c));
-        else if (typeof v === "string" && v) referencedDeptCodes.add(v);
-      }
-    }
-  })(parsedAudience.conditions);
+  const referenced = collectAudienceReferences(parsedAudience.conditions);
+  const referencedDeptCodes = referenced.departmentCodes;
 
   const activeCodes = new Set(departments.map((d) => d.code));
   const missingCodes = [...referencedDeptCodes].filter((c) => !activeCodes.has(c));
@@ -106,6 +109,28 @@ export default async function CampaignEditorPage({ params }: Props) {
     // Codes with no surviving Department row at all (department fully deleted):
     // still render them so the admin can uncheck the dead value.
     ...missingCodes.filter((c) => !foundCodes.has(c)).map((c) => ({ code: c, name: `${c} (removed)` })),
+  ];
+
+  // Terms and cycles get the same treatment as departments above: a stored
+  // audience naming a deleted term or cycle must stay visible and removable
+  // rather than becoming an invisible filter nobody can edit out.
+  const audienceTerms = [
+    ...terms.map((t) => ({
+      id: t.id,
+      label: t.status === "ACTIVE" ? `${t.code} (current)` : `${t.code} - ${t.name}`,
+    })),
+    ...[...referenced.termIds]
+      .filter((tid) => !terms.some((t) => t.id === tid))
+      .map((tid) => ({ id: tid, label: "Deleted term" })),
+  ];
+  const audienceCycles = [
+    ...cycles.map((c) => ({
+      id: c.id,
+      label: c.status === "OPEN" ? `${c.title} (open)` : c.title,
+    })),
+    ...[...referenced.cycleIds]
+      .filter((cid) => !cycles.some((c) => c.id === cid))
+      .map((cid) => ({ id: cid, label: "Deleted cycle" })),
   ];
 
   const zone = await getDisplayTimeZone();
@@ -143,28 +168,18 @@ export default async function CampaignEditorPage({ params }: Props) {
     redirect(`/admin/email/campaigns/${id}?saved=1`);
   }
 
-  async function previewAction() {
+  // Returns the resolved roll rather than redirecting: ReviewActions renders it
+  // in place. A redirect could only carry a count, and the global FlashReader
+  // strips the params as soon as it toasts them, leaving nothing to render from.
+  async function previewAction(): Promise<PreviewResult> {
     "use server";
     await requirePermission("admin.send_email_campaign");
-
-    let count = 0;
-    let excluded = 0;
     try {
-      const result = await previewAudience(id);
-      count = result.count;
-      excluded = result.excludedNoEmail;
+      return { ok: true, preview: await previewAudience(id) };
     } catch (err) {
-      if (err instanceof CampaignValidationError) {
-        redirect(
-          `/admin/email/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
-        );
-      }
+      if (err instanceof CampaignValidationError) return { ok: false, problems: err.problems };
       throw err;
     }
-
-    redirect(
-      `/admin/email/campaigns/${id}?preview=1&count=${count}&excluded=${excluded}#review`,
-    );
   }
 
   async function testAction() {
@@ -331,6 +346,8 @@ export default async function CampaignEditorPage({ params }: Props) {
             <AudienceBuilder
               fields={PERSON_FIELD_VIEWS}
               departments={audienceDepartments}
+              terms={audienceTerms}
+              cycles={audienceCycles}
               initial={parsedAudience}
             />
           </div>

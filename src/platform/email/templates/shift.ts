@@ -5,8 +5,8 @@ import type { TemplateDescriptor } from "./types";
  * the upcoming Saturday clinic day (see src/platform/email/shift-reminders.ts).
  * Registered here so admins can edit the global default in /admin/email/templates.
  *
- * additionalShifts is rendered raw ({{{ }}}) because its builder emits either an
- * HTML paragraph or an empty string. The on-shift name lists (edsOnShift,
+ * additionalShifts and closedNotice are rendered raw ({{{ }}}) because their
+ * builders emit either an HTML paragraph or an empty string. The on-shift name lists (edsOnShift,
  * deptDirectorsOnShift, clinicalAdvisorsOnShift) and teamsChannelUrl are guarded
  * with {{#if}} so an empty value hides its section. Static links (Epic help desk,
  * Resource Guide) and the shift time and location live inline in the body so an
@@ -20,6 +20,18 @@ export type ShiftReminderParams = {
   clinicDateLabel: string;
   /** Pre-rendered HTML for extra same-day shifts, or "" (raw). */
   additionalShifts: string;
+  /**
+   * Pre-rendered HTML saying the clinic is CLOSED that Saturday, or "" on a
+   * normal one (raw).
+   *
+   * Departments staff a closed date on purpose (triage coverage), so the
+   * reminder goes out and carries this instead of being suppressed. Worth
+   * knowing when editing the default body below: an admin override stored
+   * before this variable existed has no {{{ closedNotice }}} in it, so it will
+   * send the closed-day reminder with no notice at all. Paste the placeholder
+   * into the override too if one exists.
+   */
+  closedNotice: string;
   edsOnShift: string;
   deptDirectorsOnShift: string;
   clinicalAdvisorsOnShift: string;
@@ -40,6 +52,7 @@ export function shiftReminderContext(p: ShiftReminderParams): Record<string, unk
 const DEFAULT_BODY = `<p>Hello {{ firstName }},</p>
 <p>This is a friendly reminder that you are scheduled for a <strong>{{ roleLabel }}</strong> Shift in the <strong>{{ departmentName }}</strong> department at HAVEN Free Clinic this {{ clinicDateLabel }}.</p>
 {{{ additionalShifts }}}
+{{{ closedNotice }}}
 <h2>Shift Details</h2>
 <p><strong>Date:</strong> {{ clinicDateLabel }}<br/>
 <strong>Time:</strong> 8:00 AM to 2:00 PM<br/>
@@ -161,6 +174,11 @@ export const shiftDescriptors: TemplateDescriptor[] = [
       { name: "departmentName", label: "Department name", sampleValue: "Senior Primary Care Clinical Team Member" },
       { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, July 11, 2026" },
       { name: "additionalShifts", label: "Additional same-day shifts (HTML, usually empty)", sampleValue: "" },
+      {
+        name: "closedNotice",
+        label: "Clinic-closed notice (HTML, empty unless the date is closed)",
+        sampleValue: "",
+      },
       { name: "edsOnShift", label: "Executive Directors on shift (names)", sampleValue: "Jordan Blake, Riley Chen" },
       { name: "deptDirectorsOnShift", label: "Department directors on shift (names)", sampleValue: "Alex Rivera" },
       { name: "clinicalAdvisorsOnShift", label: "Clinical Advisors on shift (names)", sampleValue: "Dr. Pat Lee" },

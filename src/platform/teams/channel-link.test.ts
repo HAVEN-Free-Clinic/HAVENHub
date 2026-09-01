@@ -113,6 +113,9 @@ function memLastGood() {
     clearFailure: async () => {
       failure = null;
     },
+    // A mailbox consented with the channel scope: the resolver proceeds to Graph.
+    loadScope: async () =>
+      "https://graph.microsoft.com/Channel.ReadBasic.All",
   };
 }
 
@@ -243,6 +246,47 @@ describe("getCurrentClinicChannelLink", () => {
       ...lastGood,
 });
     expect(result).toBeNull();
+  });
+
+  // The current production failure: the connected mailbox was consented without
+  // Channel.ReadBasic.All, so every list call 403s. The resolver must skip the
+  // doomed token + Graph round trip and degrade to null, without the counted
+  // `error` line, rather than paying for a call it knows will be forbidden.
+  it("skips Graph and hides the card when the channel scope is not granted", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn();
+    const getToken = vi.fn(async () => "tok");
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken,
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      ...lastGood,
+      loadScope: async () => "https://graph.microsoft.com/Mail.Send",
+    });
+    expect(result).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(getToken).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it("still calls Graph when the granted scope is unknown (null)", async () => {
+    const fetchImpl = okChannelsFetch();
+    const result = await getCurrentClinicChannelLink({
+      fetchImpl,
+      getToken: async () => "tok",
+      now,
+      groupId,
+      loadClinicDates: async () => clinicDates,
+      ...lastGood,
+      loadScope: async () => null,
+    });
+    expect(result?.webUrl).toBe("https://x/0613");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("returns null (never throws) when the token getter throws", async () => {

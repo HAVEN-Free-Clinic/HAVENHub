@@ -852,6 +852,40 @@ it("does not erase a link the draft already established", async () => {
   expect(applicant.applicantPersonId).toBe(person.id);
 });
 
+// An alum offboarded at the term flip has no session Person (auth.ts refuses to
+// sign in an OFFBOARDED record) but an untouched ACTIVE TermMembership. The page
+// now offers them the returning branch off the SSO claim; submit must accept the
+// same branch, or they fill the renewal form and are rejected at the last click.
+it("accepts a renewal from an offboarded alum recognized by their SSO claim", async () => {
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED", contactEmail: "reed-old@yale.edu" } });
+  const app = await submitApplication("apply-v", {
+    applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {},
+    sessionPersonId: null, sessionEmail: "reed-old@yale.edu",
+    sso: { upn: null, email: "reed-old@yale.edu" },
+  });
+  const applicant = await prisma.applicant.findFirstOrThrow({ where: { id: app.applicantId } });
+  expect(app.applicantType).toBe("RENEWAL");
+  expect(app.departmentChoices).toEqual(["SRHD"]);
+  // Still linked to the real record, so promotion and the self-dealing guards work.
+  expect(applicant.applicantPersonId).toBe(person.id);
+});
+
+it("rejects that same renewal when the identity came from the magic-link cookie rather than SSO", async () => {
+  // SECURITY. The cookie proves only mailbox control and any @yale.edu address can
+  // request one, so it must not unlock someone's membership record.
+  await openVolunteerCycle();
+  const person = await makeVolunteer("SRHD");
+  await prisma.person.update({ where: { id: person.id }, data: { status: "OFFBOARDED" } });
+  await expect(
+    submitApplication("apply-v", {
+      applicantType: "RENEWAL", renewalDepartment: "SRHD", answers: RENEWAL_ANSWERS, files: {},
+      sessionPersonId: null, sessionEmail: "reed-old@yale.edu", identityEmail: "reed-old@yale.edu",
+    })
+  ).rejects.toBeInstanceOf(SubmissionValidationError);
+});
+
 it("rejects a renewal submit with no session", async () => {
   await openVolunteerCycle();
   await expect(
@@ -1230,6 +1264,31 @@ it("discards an availability date removed from the calendar after the draft was 
     files: {},
   });
   expect((app.answers as Record<string, unknown>).availability).toEqual(["2026-06-06"]);
+});
+
+it("does not offer, or accept, a clinic date the admin has closed", async () => {
+  // Closure is a ClinicDay flag, not a removal from Term.clinicDates, so the
+  // date is still on the term's calendar. It must not reach the applicant as a
+  // choice, and a pick carried over from a draft saved before the closure is
+  // dropped like any other stale date rather than rejected.
+  const { termId } = await openCycleWithAvailability([
+    new Date("2026-06-06T12:00:00.000Z"),
+    new Date("2026-06-13T12:00:00.000Z"),
+  ]);
+  await prisma.clinicDay.create({
+    data: { termId, clinicDate: new Date("2026-06-13T12:00:00.000Z"), isClosed: true },
+  });
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { ...NEW_ANSWERS, availability: ["2026-06-06", "2026-06-13"] },
+    files: {},
+  });
+  expect((app.answers as Record<string, unknown>).availability).toEqual(["2026-06-06"]);
+
+  const loaded = await getApplication(app.id);
+  const options = loaded!.cycle.sections.flatMap((s) => s.fields)
+    .find((f) => f.key === "availability")?.options as { value: string }[];
+  expect(options.map((o) => o.value)).toEqual(["2026-06-06"]);
 });
 
 it("reports the ordinary required error when every availability pick is gone", async () => {

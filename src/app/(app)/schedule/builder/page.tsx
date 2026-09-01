@@ -68,6 +68,7 @@ import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { ShiftEmailList } from "@/modules/schedule/components/shift-email-list";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayTodayKey } from "@/platform/dates/today";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -185,7 +186,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     );
   }
 
-  const { selectedDepartment, clinicDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate } = data;
+  const { selectedDepartment, clinicDates, closedDates, selectedDateKey, currentClinicDateKey, members, assignmentsByDate } = data;
+  // Presence in closedDates IS the closure; the value is the note, which is
+  // routinely null because "Clinic closed" can be ticked without one.
+  const selectedClosed = selectedDateKey != null && selectedDateKey in closedDates;
   const dept = selectedDepartment!;
 
   const switcherTerms = await prisma.term.findMany({
@@ -199,12 +203,16 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   const requestRows = canManageRequests
     ? await listDepartmentRequests(session.personId, dept.id, workingTerm.id)
     : [];
-  // PendingRequests needs this to mark stale (past-date) rows; resolved once
-  // here rather than inside that component, since displayTodayKey is async
-  // and settings-backed (Prisma) and the panel just renders props. Cheap
-  // (request-cached) to resolve unconditionally, which keeps the type a
-  // plain string for the prop below rather than string | null.
-  const requestsTodayKey = await displayTodayKey();
+  // PendingRequests needs these to mark stale (past-date) rows and to render
+  // the decided list's decision timestamps; resolved once here rather than
+  // inside that component, since both are async and settings-backed (Prisma)
+  // and the panel just renders props. Cheap (request-cached) to resolve
+  // unconditionally, which keeps the types plain strings for the props below
+  // rather than string | null.
+  const [requestsTodayKey, requestsTimeZone] = await Promise.all([
+    displayTodayKey(),
+    getDisplayTimeZone(),
+  ]);
 
   const showPublishControl = workingTerm.status === "PLANNING";
   const deptPublished = showPublishControl ? await isPublished(workingTerm.id, dept.id) : false;
@@ -550,6 +558,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
           <ClinicDateStrip
             dates={clinicDates}
             selectedKey={selectedDateKey}
+            closedKeys={Object.keys(closedDates)}
             hrefFor={(key) => href({ date: key })}
             ariaLabel="Clinic dates"
           />
@@ -608,6 +617,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
               clinicDates={clinicDates}
               assignmentsByDate={assignmentsByDate}
               highlightDateKey={currentClinicDateKey}
+              closedDateKeys={Object.keys(closedDates)}
               deptId={dept.id}
               deptCode={dept.code}
               mode={gmode}
@@ -618,6 +628,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         ) : (
           <>
             {selectedDisplay && <SectionHeader as="h2" level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
+            {/* A closed date stays fully editable -- departments still staff
+                triage on a Saturday the clinic proper is shut -- so this states
+                the fact and leaves the decision to the director, rather than
+                locking the day or hiding it from the strip. */}
+            {selectedClosed && (
+              <Alert tone="warning" className="mb-4">
+                <strong>The clinic is closed this date.</strong>{" "}
+                {closedDates[selectedDateKey!] ?? "No reason was recorded."} You can still
+                schedule {dept.code} for it; check-in and attendance stay closed, and the
+                weekly reminder tells whoever you assign that the clinic is shut.
+              </Alert>
+            )}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
               <BuilderDayView
                 data={data}
@@ -684,6 +706,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     approveAction={approveRequestAction}
                     denyAction={denyRequestAction}
                     todayKey={requestsTodayKey}
+                    timeZone={requestsTimeZone}
                   />
                 )}
               </div>

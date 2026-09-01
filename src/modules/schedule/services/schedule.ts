@@ -25,6 +25,7 @@ import { spanishScoresByPerson, verifiedLanguagesByPerson } from "@/platform/lan
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
+import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { attendanceForDate, type AttendanceRow } from "./attendance";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
@@ -101,6 +102,19 @@ export type MyShift = {
   department: Department;
   role: ShiftRole;
   tags: ShiftTags;
+  /**
+   * The clinic itself is not running this date (a holiday, a break week).
+   *
+   * The shift is real regardless: departments do staff a closed Saturday --
+   * triage coverage is the case ops named -- and a director assigning one is
+   * making a deliberate choice, not a mistake to be silently hidden. So the
+   * card shows the shift AND says the clinic is shut, rather than doing one or
+   * the other. `attendings` is empty on such a date, which is consistent: a
+   * closed day staffs no doctors.
+   */
+  clinicClosed: boolean;
+  /** Why the clinic is closed, when a reason was recorded. Null otherwise. */
+  closedNote: string | null;
   /**
    * The attending covering THIS shift's department on this date, in
    * schedule-column order.
@@ -253,18 +267,28 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     }),
   ]);
 
-  const attendingsByShift = await attendingsForShifts(
-    term.id,
-    rawShifts.map((s) => ({ clinicDate: s.clinicDate, departmentId: s.departmentId })),
-  );
+  const [attendingsByShift, closures] = await Promise.all([
+    attendingsForShifts(
+      term.id,
+      rawShifts.map((s) => ({ clinicDate: s.clinicDate, departmentId: s.departmentId })),
+    ),
+    // One query for the term rather than one per shift: a member can hold a
+    // dozen shifts and they routinely span the same handful of Saturdays.
+    closedClinicDates(term.id),
+  ]);
 
-  const shifts: MyShift[] = rawShifts.map((s) => ({
-    clinicDate: s.clinicDate,
-    department: s.department,
-    role: s.role,
-    tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote, specialty: s.specialty },
-    attendings: attendingsByShift.get(`${isoDateKey(s.clinicDate)}|${s.departmentId}`) ?? [],
-  }));
+  const shifts: MyShift[] = rawShifts.map((s) => {
+    const dateKey = isoDateKey(s.clinicDate);
+    return {
+      clinicDate: s.clinicDate,
+      department: s.department,
+      role: s.role,
+      tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote, specialty: s.specialty },
+      clinicClosed: closures.has(dateKey),
+      closedNote: closures.get(dateKey) ?? null,
+      attendings: attendingsByShift.get(`${dateKey}|${s.departmentId}`) ?? [],
+    };
+  });
 
   // Build pendingRequests map keyed by "${dateKey}|${departmentId}".
   const pendingRequests = new Map<string, PendingRequest>();
@@ -383,19 +407,29 @@ export async function fullSchedule(
 ): Promise<{
   term: Term | null;
   clinicDates: Date[];
+  /**
+   * Dates the clinic has declared closed, as UTC day key -> the closure note.
+   * A key is present iff that date is closed; the note is routinely null.
+   *
+   * Marked, not filtered: a closed Saturday can still carry a department's
+   * triage coverage, and the roster for it is exactly what this page is for.
+   */
+  closedDates: Map<string, string | null>;
   selectedDate: Date | null;
   departments: FullScheduleDepartment[];
   attendance: Map<string, AttendanceRow>;
 }> {
   const term = await getActiveTerm();
   if (!term) {
-    return { term: null, clinicDates: [], selectedDate: null, departments: [], attendance: new Map() };
+    return { term: null, clinicDates: [], closedDates: new Map(), selectedDate: null, departments: [], attendance: new Map() };
   }
 
   const { clinicDates } = term;
   if (clinicDates.length === 0) {
-    return { term, clinicDates: [], selectedDate: null, departments: [], attendance: new Map() };
+    return { term, clinicDates: [], closedDates: new Map(), selectedDate: null, departments: [], attendance: new Map() };
   }
+
+  const closedDates = await closedClinicDates(term.id);
 
   // Resolve selected date.
   let selectedDate: Date | null = null;
@@ -575,7 +609,7 @@ export async function fullSchedule(
     };
   });
 
-  return { term, clinicDates, selectedDate, departments, attendance };
+  return { term, clinicDates, closedDates, selectedDate, departments, attendance };
 }
 
 /**

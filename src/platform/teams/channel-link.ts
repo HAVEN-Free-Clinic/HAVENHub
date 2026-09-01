@@ -21,7 +21,11 @@
 
 import { prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
-import { getAccessToken } from "@/platform/email/oauth";
+import {
+  getAccessToken,
+  channelReadScopeGranted,
+  loadGrantedScope,
+} from "@/platform/email/oauth";
 import { getSetting } from "@/platform/settings/service";
 
 /** A Microsoft Graph channel object (subset we use). */
@@ -109,6 +113,13 @@ export interface ChannelLinkDeps {
   now?: Date;
   groupId?: string | undefined;
   loadClinicDates?: () => Promise<Date[] | null>;
+  /**
+   * The connected mailbox's granted Graph scope, or null when it is unknown.
+   * Lets the resolver fast-fail a missing Channel.ReadBasic.All scope before it
+   * pays for a token and a Graph call that would only 403. Injectable so the
+   * resolver tests never touch the database.
+   */
+  loadScope?: () => Promise<string | null>;
   /** Backoff delay. Injectable so tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>;
   /**
@@ -478,6 +489,7 @@ export async function getCurrentClinicChannelLink(
     now = new Date(),
     groupId,
     loadClinicDates = loadActiveTermClinicDates,
+    loadScope = loadGrantedScope,
     sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
     loadLastGood = loadStoredLastGood,
     saveLastGood = saveStoredLastGood,
@@ -508,6 +520,39 @@ export async function getCurrentClinicChannelLink(
   // masked by a warm entry for the same clinic week.
   if (cache && cache.dateStr === dateStr && cache.groupId === resolvedGroupId && now.getTime() < cache.expiresAt) {
     return cache.value;
+  }
+
+  // Fast-fail a known configuration gap. The channel list needs the
+  // Channel.ReadBasic.All Graph scope; when the connected mailbox was consented
+  // without it -- an older grant, or a mail-only app registration -- every list
+  // call returns 403 "missing scope", which no retry, timeout, or fallback can
+  // fix. This is the only Teams path that lacked the guard the DM sender and
+  // group-chat transport already have, so it kept paying a doomed token + Graph
+  // round trip and logging the counted `error` line on every cold render.
+  //
+  // A null scope means "unknown", not "missing" (an old grant predating scope
+  // recording), so it falls through to the live call rather than hiding a card
+  // that may work. The card is already hidden on failure, so degrading to null
+  // here changes nothing users see; it just drops the error to an actionable warn
+  // -- the fix is an admin reconnect in Admin > Email -- and skips the wasted call.
+  let grantedScope: string | null = null;
+  try {
+    grantedScope = await loadScope();
+  } catch {
+    // A lookup blip is "unknown", so grantedScope stays null and we fall through.
+  }
+  if (grantedScope !== null && !channelReadScopeGranted(grantedScope)) {
+    log.warn(
+      "[teams/channel-link] channel scope not granted; skipping Graph and hiding the card",
+      { clinicDate: dateStr }
+    );
+    cache = {
+      dateStr,
+      groupId: resolvedGroupId,
+      value: null,
+      expiresAt: now.getTime() + MISS_TTL_MS,
+    };
+    return null;
   }
 
   // Graph has been failing consecutively: skip the call entirely for a cooldown

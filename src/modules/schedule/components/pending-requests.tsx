@@ -13,9 +13,16 @@ import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { displayDate } from "@/modules/schedule/engine/display";
-import { isoDateKey } from "@/platform/dates";
+import { formatDateOnly, isoDateKey } from "@/platform/dates";
 import type { RequestRow } from "@/modules/schedule/services/requests";
 import { SectionHeader } from "@/platform/ui/section-header";
+
+/**
+ * "Aug 28". No year: the decided list is capped at the ten most recent
+ * decisions of one term, so the year is noise next to the clinic date beside it
+ * (displayDate omits it too).
+ */
+const SETTLED_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,6 +39,14 @@ type PendingRequestsProps = {
    * the caller resolves it once and passes it down.
    */
   todayKey: string;
+  /**
+   * The settings-resolved display zone, for the decision timestamps in the
+   * decided list. Passed in for the same reason todayKey is: resolving it reads
+   * settings through Prisma and cannot happen in a sync component. A clinic date
+   * is a UTC-anchored calendar marker and must NOT use this; a decidedAt is a
+   * real instant and must.
+   */
+  timeZone: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +58,7 @@ export function PendingRequests({
   approveAction,
   denyAction,
   todayKey,
+  timeZone,
 }: PendingRequestsProps) {
   const pendingRows = rows.filter((r) => r.request.status === "PENDING");
   const decidedRows = rows.filter((r) => r.request.status !== "PENDING");
@@ -61,7 +77,7 @@ export function PendingRequests({
       <div className="flex items-center gap-2">
         <SectionHeader as="h2" level="title" className="text-sm">Pending Requests</SectionHeader>
         {pendingRows.length > 0 && (
-          <Badge tone="warning">
+          <Badge tone="warning" count>
             {pendingRows.length}
           </Badge>
         )}
@@ -144,27 +160,56 @@ export function PendingRequests({
         );
       })}
 
-      {/* Decided rows (collapsed muted list) */}
+      {/* Decided rows (collapsed muted list).
+
+          Each row names WHAT was decided as well as who and how it went. The
+          list used to read "Bonnie Li: approved by Karthik Chetlapalli" and
+          nothing else, so two requests from the same person were
+          indistinguishable, and there was no way to tell a decision made this
+          morning from one made a month ago. */}
       {decidedRows.length > 0 && (
-        <div className="border-t border-border-subtle pt-2 flex flex-col gap-1">
+        <div className="border-t border-border-subtle pt-2 flex flex-col gap-1.5">
           <SectionHeader as="h3">Recent decisions</SectionHeader>
-          {decidedRows.map(({ request, requesterName, decidedByName }) => (
-            <p key={request.id} className="text-xs text-subtle-foreground">
-              {requesterName}: {" "}
-              <span
-                className={
-                  request.status === "APPROVED"
-                    ? "text-success"
-                    : request.status === "DENIED"
-                      ? "text-critical"
-                      : "text-subtle-foreground"
-                }
-              >
-                {request.status.toLowerCase()}
-              </span>
-              {decidedByName ? ` by ${decidedByName}` : ""}
-            </p>
-          ))}
+          {decidedRows.map(({ request, requesterName, targetName, decidedByName }) => {
+            const requesterDateLabel = displayDate(isoDateKey(request.requesterDate));
+            const targetDateLabel = request.targetDate
+              ? displayDate(isoDateKey(request.targetDate))
+              : null;
+            const summary =
+              request.targetId == null
+                ? `Drop: ${requesterDateLabel}`
+                : `Swap: ${requesterDateLabel} with ${targetName ?? "unknown"}${
+                    targetDateLabel ? ` (${targetDateLabel})` : ""
+                  }`;
+            // cancelRequest sets CANCELLED without stamping decidedAt -- a
+            // withdrawal is not a director's decision -- so decidedAt is null on
+            // every cancelled row. updatedAt is the moment the request reached
+            // its final state either way, and is already what this list is
+            // ordered by (see listDepartmentRequests).
+            const settledAt = request.decidedAt ?? request.updatedAt;
+
+            return (
+              <div key={request.id} className="text-xs text-subtle-foreground">
+                <p>
+                  {requesterName}:{" "}
+                  <span
+                    className={
+                      request.status === "APPROVED"
+                        ? "text-success-foreground"
+                        : request.status === "DENIED"
+                          ? "text-critical-foreground"
+                          : "text-subtle-foreground"
+                    }
+                  >
+                    {request.status.toLowerCase()}
+                  </span>
+                  {decidedByName ? ` by ${decidedByName}` : ""}
+                  {" "}on {formatDateOnly(settledAt, timeZone, SETTLED_DATE_OPTS)}
+                </p>
+                <p>{summary}</p>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

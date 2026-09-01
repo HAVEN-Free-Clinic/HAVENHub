@@ -56,6 +56,24 @@ export function yaleEmailForNetId(netId: string): string {
 }
 
 /**
+ * The one address to reach a Person at: their Yale account when they have a
+ * NetID, the stored contact address otherwise, and "" when we hold neither.
+ *
+ * Lives beside yaleEmailForNetId for the reason its comment gives -- this file
+ * owns the NetID-to-address relationship, and a second copy of the fallback
+ * order is how two exports of the same roster end up disagreeing about who is
+ * reachable. Returns "" rather than null so a caller building a CSV row keeps
+ * the person in the file with a visibly blank cell instead of dropping them.
+ */
+export function accountEmailForPerson(person: {
+  netId: string | null;
+  contactEmail: string | null;
+}): string {
+  if (person.netId) return yaleEmailForNetId(person.netId);
+  return person.contactEmail ?? "";
+}
+
+/**
  * The identity half of login resolution (spec §5), with NO status gate and NO
  * write of any kind: given a claim, which Person does it name?
  *

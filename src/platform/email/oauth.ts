@@ -327,3 +327,21 @@ export function teamsScopesGranted(scope: string | null): boolean {
     scope.includes("ChatMessage.Send")
   );
 }
+
+/**
+ * True when the stored credential scope string includes the Channel.ReadBasic.All
+ * scope the clinic channel-link resolver needs. The granted scope is fixed at
+ * consent, so a mailbox connected before the scope was added, or under a mail-only
+ * app registration, never carries it, and every Graph channels call 403s until an
+ * admin reconnects.
+ */
+export function channelReadScopeGranted(scope: string | null): boolean {
+  return scope != null && scope.includes("Channel.ReadBasic.All");
+}
+
+/** The scope string the connected mailbox was granted, or null when the mailbox
+ *  is not connected (or the grant predates scope recording). */
+export async function loadGrantedScope(): Promise<string | null> {
+  const row = await prisma.mailCredential.findUnique({ where: { id: "mailer" } });
+  return row?.scope ?? null;
+}

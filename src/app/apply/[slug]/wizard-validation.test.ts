@@ -33,4 +33,16 @@ describe("missingRequiredKeys", () => {
   it("returns [] when there are no required fields", () => {
     expect(missingRequiredKeys([{ key: "x", required: false, type: "TEXT" }], {})).toEqual([]);
   });
+
+  it("never reports a display-only NOTICE, even one marked required", () => {
+    // It renders no control, so highlighting it would park the applicant on a
+    // paragraph of policy text with nothing to fill in.
+    expect(missingRequiredKeys([{ key: "ai_use", required: true, type: "NOTICE", validation: null }], {})).toEqual([]);
+  });
+
+  it("does report an unticked acknowledging NOTICE", () => {
+    const ack = [{ key: "ai_use", required: true, type: "NOTICE", validation: { acknowledge: true } }];
+    expect(missingRequiredKeys(ack, {})).toEqual(["ai_use"]);
+    expect(missingRequiredKeys(ack, { ai_use: "on" })).toEqual([]);
+  });
 });

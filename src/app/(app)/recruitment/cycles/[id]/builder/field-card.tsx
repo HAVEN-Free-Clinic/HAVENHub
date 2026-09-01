@@ -8,9 +8,10 @@ import { parseFieldCondition, type FieldCondition, type FieldConditionOp } from 
 import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./actions";
 import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
+import { DEFAULT_ACKNOWLEDGE_LABEL, isDisplayOnlyNotice, noticeAcknowledgeLabel, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import { AVAILABILITY_FIELD_KEY } from "@/modules/recruitment/templates/clinic-dates";
 import type { SortableHandleProps } from "./sortable-list";
-import { Field, Input } from "@/platform/ui/input";
+import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Button } from "@/platform/ui/button";
@@ -18,6 +19,14 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
 
 export type BuilderField = PreviewFieldDef & { id: string; correctValue: string | null; visibleWhen: unknown };
+
+/** The field's validation blob with the notice-acknowledgement keys stripped, so
+ *  turning the tick off leaves no stale `acknowledgeLabel` to resurface if it is
+ *  turned back on later. */
+function omitAcknowledgement(validation: Record<string, unknown> | null): Record<string, unknown> {
+  const { acknowledge: _a, acknowledgeLabel: _l, ...rest } = validation ?? {};
+  return rest;
+}
 
 const FILE_TYPE_CHOICES: { label: string; value: string }[] = [
   { label: "PDF", value: "application/pdf" },
@@ -34,7 +43,10 @@ function conditionValueOptions(
   departments: string[],
 ): { value: string; label: string }[] | null {
   if (!controllingField) return null;
-  if (controllingField.type === "CHECKBOX") return [{ value: "on", label: "Checked" }];
+  // An acknowledging notice stores a checkbox answer, so it offers the same
+  // single "Checked" choice. A display-only one never reaches here -- it is not
+  // offered as a controller at all (see `otherFields` in FieldCard).
+  if (controllingField.type === "CHECKBOX" || controllingField.type === "NOTICE") return [{ value: "on", label: "Checked" }];
   if (controllingField.type === "DEPARTMENT_CHOICE") return departments.map((d) => ({ value: d, label: d }));
   return controllingField.options && controllingField.options.length > 0 ? controllingField.options : null;
 }
@@ -84,7 +96,7 @@ function VisibleWhenEditor({
         <Select className="min-w-0" disabled={disabled} value={controllingKey} onChange={(e) => handleFieldChange(e.target.value)}>
           <option value="">(always show)</option>
           {controllingKey && !controllingField && <option value={controllingKey} disabled>{controllingKey} (deleted field)</option>}
-          {siblingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+          {siblingFields.map((f) => <option key={f.key} value={f.key}>{f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label}</option>)}
         </Select>
         {controllingKey && (
           <>
@@ -160,8 +172,17 @@ export function FieldCard({
   const [error, setError] = useState<string | null>(null);
   const meta = FIELD_TYPE_META[field.type as FieldType];
   const Icon = meta.icon;
+  // A notice is content, not a question, so most of the editor below is
+  // meaningless for it: it has no answer to require, no choices, no validation.
+  // What it does have is an OPTIONAL heading and a multi-line body, which is why
+  // the two text inputs swap shape rather than a second editor being grown.
+  const isNotice = field.type === "NOTICE";
+  const ackLabel = isNotice ? noticeAcknowledgeLabel(field.validation) : null;
   const accepted = Array.isArray(field.validation?.acceptedTypes) ? (field.validation!.acceptedTypes as string[]) : [];
-  const otherFields = siblingFields.filter((f) => f.key !== field.key);
+  // Candidate controllers for a "show only when" condition. A display-only
+  // notice is excluded: it holds no answer, so a condition keyed to it could
+  // never become true and the field it gates would simply never appear.
+  const otherFields = siblingFields.filter((f) => f.key !== field.key && !isDisplayOnlyNotice(f));
 
   function save(patch: Parameters<typeof updateFieldAction>[2]) {
     setError(null);
@@ -198,18 +219,25 @@ export function FieldCard({
       </div>
 
       {(saved || error) && (
-        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical" : "text-subtle-foreground"}`}>
+        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical-foreground" : "text-subtle-foreground"}`}>
           {error ? <><AlertCircle className="h-3 w-3" aria-hidden /> {error}</> : <><Check className="h-3 w-3" aria-hidden /> Saved</>}
         </p>
       )}
 
       {open && (
         <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">
-          <Field label="Label">
-            <Input defaultValue={field.label} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== field.label) save({ label: v }); }} />
+          {/* A blank label is rejected for a question (an unlabelled input is
+              unanswerable) but is the NORMAL case for a notice, whose heading is
+              optional -- the notices this was built for are a bare paragraph. */}
+          <Field label={isNotice ? "Heading" : "Label"} hint={isNotice ? "Optional. Leave blank for a notice with no heading." : undefined}>
+            <Input defaultValue={field.label} onBlur={(e) => { const v = e.target.value.trim(); if ((v || isNotice) && v !== field.label) save({ label: v }); }} />
           </Field>
-          <Field label="Help text" hint="Shown under the field.">
-            <Input defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
+          <Field label={isNotice ? "Notice text" : "Help text"} hint={isNotice ? "The body of the callout. Blank lines between paragraphs are kept, and links are made clickable." : "Shown under the field."}>
+            {isNotice ? (
+              <Textarea rows={4} defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
+            ) : (
+              <Input defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
+            )}
           </Field>
           <div className="flex flex-wrap items-end gap-4">
             <Field label="Type">
@@ -221,11 +249,49 @@ export function FieldCard({
                 ))}
               </Select>
             </Field>
-            <label className="flex items-center gap-2 py-2 text-sm text-foreground-soft">
-              <Checkbox defaultChecked={field.required} disabled={!editable && !field.required}
-                onChange={(e) => save({ required: e.target.checked })} /> Required
-            </label>
+            {(!isNotice || ackLabel !== null) && (
+              <label className="flex items-center gap-2 py-2 text-sm text-foreground-soft">
+                <Checkbox defaultChecked={field.required} disabled={!editable && !field.required}
+                  onChange={(e) => save({ required: e.target.checked })} /> {isNotice ? "Must be ticked to continue" : "Required"}
+              </label>
+            )}
           </div>
+
+          {isNotice && (
+            <div className="space-y-3">
+              {/* Turning the tick on defaults it to required, because a
+                  confirmation nobody has to give records nothing; turning it off
+                  MUST clear required in the same save, or the notice is left
+                  required with no control to satisfy it and the wizard blocks
+                  the applicant on a field they cannot see. */}
+              <label className="flex items-center gap-2 py-1 text-sm text-foreground-soft">
+                <Checkbox
+                  checked={ackLabel !== null}
+                  disabled={!editable}
+                  onChange={(e) =>
+                    save(
+                      e.target.checked
+                        ? { validation: { ...(field.validation ?? {}), acknowledge: true }, required: true }
+                        : { validation: omitAcknowledgement(field.validation), required: false },
+                    )
+                  }
+                />{" "}
+                Ask applicants to confirm they have read this
+              </label>
+              {ackLabel !== null && (
+                <Field label="Confirmation text">
+                  <Input
+                    defaultValue={ackLabel}
+                    disabled={!editable}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim() || DEFAULT_ACKNOWLEDGE_LABEL;
+                      if (v !== ackLabel) save({ validation: { ...(field.validation ?? {}), acknowledge: true, acknowledgeLabel: v } });
+                    }}
+                  />
+                </Field>
+              )}
+            </div>
+          )}
 
           {meta.hasOptions && (
             <Field label="Choices">

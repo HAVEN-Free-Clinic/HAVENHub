@@ -40,7 +40,12 @@ export const SYSTEM_ROLES: SystemRole[] = [
   {
     name: "Compliance Manager",
     description: "Master compliance view across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_compliance"],
+    // view_compliance is listed alongside manage_compliance rather than left
+    // implicit. canViewAllCompliance already treats manage as implying view, so
+    // this changes nothing functionally -- it exists so the Roles screen states
+    // what the role can actually do, and so a later tightening of any read site
+    // to view_compliance alone cannot silently lock the manager out.
+    grants: ["volunteers.view", "volunteers.view_compliance", "volunteers.manage_compliance"],
   },
   {
     name: "Faculty Relations Manager",
@@ -69,5 +74,17 @@ export const SYSTEM_ROLES: SystemRole[] = [
     name: "Volunteer Operations Manager",
     description: "Offboarding, IT support requests, and incident reports across the clinic",
     grants: ["volunteers.view", "volunteers.manage_offboarding", "support.manage_requests", "incidents.manage", "incidents.view_strikes"],
+  },
+  {
+    name: "Executive Director",
+    description: "Clinic-wide people directory: headcount by department and contact-list export",
+    // Read-only on purpose. Seeing who is on the roster says nothing about
+    // editing them, so this deliberately does NOT carry admin.manage_people --
+    // an ED who also administers people gets that role stacked on top.
+    //
+    // volunteers.view rides along because the directory lives in the Volunteers
+    // module: without it the role could open its own page but no other tab in
+    // the module it sits in, which reads as a broken nav rather than a scope.
+    grants: ["volunteers.view", "volunteers.view_directory"],
   },
 ];

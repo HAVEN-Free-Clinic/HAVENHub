@@ -5,6 +5,7 @@ import {
   type VisibilityContext,
 } from "./visibility";
 import { isFieldVisible } from "./field-visibility";
+import { isDisplayOnlyNotice } from "./notice";
 
 export type FieldType =
   | "SHORT_TEXT"
@@ -19,7 +20,8 @@ export type FieldType =
   | "FILE"
   | "DEPARTMENT_CHOICE"
   | "SUBCOMMITTEE_RANK"
-  | "SIGNATURE";
+  | "SIGNATURE"
+  | "NOTICE";
 
 export type FieldValidation = {
   min?: number;
@@ -34,6 +36,10 @@ export type FieldValidation = {
    * deliberately absent from fieldSchema() so going over cannot block a submit.
    */
   wordLimit?: number;
+  /** NOTICE only: render an acknowledgement tick under the notice body. */
+  acknowledge?: boolean;
+  /** NOTICE only: the confirmation text beside that tick. */
+  acknowledgeLabel?: string;
 };
 
 export type FieldDef = {
@@ -110,7 +116,12 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
       const s = z.string().refine((val) => !Number.isNaN(Date.parse(val)), "invalid date");
       return field.required ? s : z.union([s, z.literal("")]).optional();
     }
+    // NOTICE shares this branch because only an ACKNOWLEDGING notice ever
+    // reaches here -- buildApplicationSchema drops the display-only ones before
+    // this point -- and its tick is a checkbox in every respect. A parallel
+    // branch would only be somewhere for the two to drift apart.
     case "CHECKBOX":
+    case "NOTICE":
       return field.required ? z.coerce.boolean().refine((b) => b === true, "required") : z.coerce.boolean().optional();
     case "SINGLE_SELECT":
     case "DEPARTMENT_CHOICE": {
@@ -160,6 +171,7 @@ export function buildApplicationSchema(
     for (const field of section.fields) {
       if (field.type === "FILE") continue;
       if (field.type === "SUBCOMMITTEE_RANK") continue; // ordered ranking is validated + hoisted in submissions
+      if (isDisplayOnlyNotice(field)) continue; // content block, renders no input and carries no answer
       if (!isFieldVisible(field.visibleWhen, answers)) continue; // condition-hidden: excluded from validation
       shape[field.key] = fieldSchema(field);
     }

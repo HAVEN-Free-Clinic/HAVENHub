@@ -437,6 +437,62 @@ describe("mySchedule", () => {
     });
   });
 
+  // The shift itself survives a closure. Departments staff a closed Saturday to
+  // cover triage, so the card has to show the shift AND say the clinic is shut
+  // rather than quietly dropping one of the two.
+  describe("a closed clinic date", () => {
+    it("keeps the shift and carries the closure and its note", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTP");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+      await prisma.clinicDay.create({
+        data: {
+          termId: term.id,
+          clinicDate: dates[0],
+          isClosed: true,
+          closedNote: "Thanksgiving weekend",
+        },
+      });
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts).toHaveLength(1);
+      expect(live.shifts[0].clinicClosed).toBe(true);
+      expect(live.shifts[0].closedNote).toBe("Thanksgiving weekend");
+    });
+
+    // The clinic-wide roster keeps its rows on a closed date too; the page
+    // reads this map to say so above them.
+    it("reports the term's closed dates on the full schedule", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      await prisma.clinicDay.create({
+        data: { termId: term.id, clinicDate: dates[1], isClosed: true, closedNote: "Break week" },
+      });
+
+      const view = await fullSchedule(isoDateKey(dates[1]));
+
+      expect(view.closedDates.get(isoDateKey(dates[1]))).toBe("Break week");
+      expect(view.closedDates.has(isoDateKey(dates[0]))).toBe(false);
+      expect(view.clinicDates).toHaveLength(2);
+    });
+
+    it("reports an ordinary date as open", async () => {
+      const dates = saturdays("2026-05-30", 2);
+      const term = await createTerm("ACTIVE", "SU26", dates);
+      const dept = await createDepartment("SCTP");
+      const person = await createPerson("Val");
+      await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
+      await createShift(term.id, dept.id, person.id, dates[0], "VOLUNTEER");
+
+      const live = (await mySchedule(person.id)).terms.find((t) => t.isLive)!;
+      expect(live.shifts[0].clinicClosed).toBe(false);
+      expect(live.shifts[0].closedNote).toBeNull();
+    });
+  });
+
 
   it("resolves SELF tier after a self-update", async () => {
     const dates = saturdays("2026-05-30", 4);

@@ -15,6 +15,7 @@ import { recordAudit } from "@/platform/audit";
 import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { manageableDepartmentIds } from "@/platform/departments";
+import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -656,6 +657,9 @@ function withinTerm(d: Date, term: { startDate: Date; endDate: Date }): boolean 
  * Every field is optional and only what is passed gets written, so the grid can
  * save one cell without disturbing the rest of the row.
  *
+ * Closure is NOT settable here. isClosed and closedNote are owned by
+ * admin.manage_terms through setClinicDayClosure; see that function for why.
+ *
  * The dateKey must fall inside the term. A date the term does not list as a
  * clinic date is accepted for the ON-CALL attending alone: on call covers the
  * week leading up to the next clinic day, so someone holds the pager across a
@@ -677,8 +681,6 @@ export async function upsertClinicDay(
     attendingsBySlot?: Record<string, string[]>;
     onCallAttendingId?: string | null;
     specialtyId?: string | null;
-    isClosed?: boolean;
-    closedNote?: string | null;
     directorName?: string | null;
     proceduresBooked?: number | null;
   }
@@ -702,16 +704,13 @@ export async function upsertClinicDay(
     if (!withinTerm(clinicDate, term)) {
       throw new BuilderValidationError(`${opts.dateKey} falls outside ${term.name}.`);
     }
-    // On call is the one field a non-clinic date carries. `isClosed` is allowed
-    // through only as `true`, which is what the builder already renders for such
-    // a date -- accepting `false` would let a save contradict it.
+    // On call is the one field a non-clinic date carries.
     const assignsSlots = Object.values(opts.attendingsBySlot ?? {}).some((ids) => ids.length > 0);
     const setsDayFields =
       assignsSlots ||
       (opts.specialtyId ?? null) !== null ||
       (opts.directorName ?? null) !== null ||
-      (opts.proceduresBooked ?? null) !== null ||
-      ("isClosed" in opts && opts.isClosed === false);
+      (opts.proceduresBooked ?? null) !== null;
     if (setsDayFields) {
       throw new BuilderValidationError(
         `${opts.dateKey} is not a clinic date in ${term.name}, so only the on-call attending can be set.`,
@@ -739,8 +738,6 @@ export async function upsertClinicDay(
   const dayFields = {
     ...("onCallAttendingId" in opts && { onCallAttendingId: opts.onCallAttendingId ?? null }),
     ...("specialtyId" in opts && { specialtyId: opts.specialtyId ?? null }),
-    ...("isClosed" in opts && { isClosed: opts.isClosed ?? false }),
-    ...("closedNote" in opts && { closedNote: opts.closedNote ?? null }),
     ...("directorName" in opts && { directorName: opts.directorName ?? null }),
     ...("proceduresBooked" in opts && { proceduresBooked: opts.proceduresBooked ?? null }),
     // A date the term does not list is closed as a fact, not a setting. Written
@@ -789,6 +786,80 @@ export async function upsertClinicDay(
   await recordAudit({
     actorPersonId: actor,
     action: "schedule.clinic_day",
+    entityType: "ClinicDay",
+    entityId: `${term.id}|${opts.dateKey}`,
+    ...(before && { before: auditShape(before) }),
+    after: auditShape(after),
+  });
+}
+
+/**
+ * Declare or clear a clinic date's closure.
+ *
+ * Closure is a CALENDAR fact -- a holiday, a break week -- so it is owned by
+ * admin.manage_terms, the same grant that owns Term.clinicDates, and NOT by the
+ * Faculty Relations grant that owns everything else on this row. Faculty
+ * Relations still reads closures to staff around them; they no longer declare
+ * one.
+ *
+ * It lives here rather than in the admin module because every ClinicDay write
+ * belongs under this file's internal-guard convention, and it needs this file's
+ * dateKeyToNoonUtc and audit helpers. Splitting one field's write into a module
+ * whose services trust their callers would leave ClinicDay guarded two ways.
+ */
+export async function setClinicDayClosure(
+  actor: string,
+  opts: {
+    termId: string;
+    dateKey: string;
+    isClosed: boolean;
+    /** Ignored when isClosed is false: a cleared closure drops its reason. */
+    closedNote?: string | null;
+  }
+): Promise<void> {
+  if (!(await can(actor, "admin.manage_terms"))) {
+    throw new BuilderForbiddenError("You do not manage the term calendar.");
+  }
+
+  const term = await loadEditableTerm(opts.termId);
+
+  // A date the term does not list is still accepted, matching upsertClinicDay:
+  // the calendar and the day rows drift, and refusing here would make a closure
+  // impossible to clear after a date was removed from the term.
+  const listed = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  const clinicDate = listed ?? dateKeyToNoonUtc(opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a valid date.`);
+  }
+
+  // A date the term does not list is closed as a FACT, not a setting -- the rule
+  // upsertClinicDay enforces at its own unlisted-date branch. Reopening one here
+  // would produce the single row shape no reader expects: absent from the term
+  // calendar, yet flagged open.
+  if (!listed && !opts.isClosed) {
+    throw new BuilderValidationError(
+      `${opts.dateKey} is not a clinic date in ${term.name}, so it cannot be reopened.`,
+    );
+  }
+
+  const dayFields = {
+    isClosed: opts.isClosed,
+    // Cleared with the closure it explained, and blank text is no reason at all.
+    closedNote: opts.isClosed ? opts.closedNote?.trim() || null : null,
+  };
+
+  const where = { termId_clinicDate: { termId: term.id, clinicDate } };
+  const before = await prisma.clinicDay.findUnique({ where, select: auditSelect });
+  const after = await prisma.clinicDay.upsert({
+    where,
+    create: { termId: term.id, clinicDate, ...dayFields },
+    update: dayFields,
+    select: auditSelect,
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "admin.clinic_day_closure",
     entityType: "ClinicDay",
     entityId: `${term.id}|${opts.dateKey}`,
     ...(before && { before: auditShape(before) }),
@@ -1065,6 +1136,19 @@ export type BuilderView = {
   departments: { id: string; code: string; name: string }[];
   selectedDepartment: { id: string; code: string; name: string } | null;
   clinicDates: Date[];
+  /**
+   * Clinic dates the clinic has declared CLOSED, as UTC day key -> the closure
+   * note (routinely null: the flag can be ticked without one). A key is present
+   * iff that date is closed.
+   *
+   * Rendered as a label, never a lock. Departments do still staff a closed
+   * Saturday -- triage coverage is the case ops named -- so the builder keeps
+   * every date assignable and simply says which ones the clinic itself is shut
+   * on, rather than hiding them and having a director wonder where their date
+   * went. `resolveOpenClinicDate` remains the hard gate for check-in and
+   * attendance, which are about the front door being open.
+   */
+  closedDates: Record<string, string | null>;
   selectedDate: Date | null;
   selectedDateKey: string | null;
   /** The current week's clinic Saturday (first clinic date >= today), or null
@@ -1131,6 +1215,7 @@ export async function builderView(
       departments: [],
       selectedDepartment: null,
       clinicDates: [],
+      closedDates: {},
       selectedDate: null,
       selectedDateKey: null,
       currentClinicDateKey: null,
@@ -1169,6 +1254,7 @@ export async function builderView(
       departments: deptLites,
       selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
       clinicDates: [],
+      closedDates: {},
       selectedDate: null,
       selectedDateKey: null,
       currentClinicDateKey: null,
@@ -1210,7 +1296,7 @@ export async function builderView(
   const selectedDateKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Load all assignments for the term in the selected department.
-  const [allAssignments, members, scheduleDay, pendingCount] = await Promise.all([
+  const [allAssignments, members, scheduleDay, pendingCount, closures] = await Promise.all([
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
@@ -1230,6 +1316,9 @@ export async function builderView(
     prisma.shiftRequest.count({
       where: { termId: term.id, departmentId: selectedDept.id, status: "PENDING" },
     }),
+    // Whole term in one query rather than per date: the grid renders ~18
+    // Saturdays at once and the date strip renders all of them again.
+    closedClinicDates(term.id),
   ]);
 
   // Verified language capabilities for everyone on this board, in one query.
@@ -1440,6 +1529,9 @@ export async function builderView(
     departments: deptLites,
     selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
     clinicDates,
+    // A plain object, not the Map: this crosses into the page and its
+    // components, and the same reasoning as clearedPersonIds below applies.
+    closedDates: Object.fromEntries(closures),
     selectedDate,
     selectedDateKey,
     currentClinicDateKey,

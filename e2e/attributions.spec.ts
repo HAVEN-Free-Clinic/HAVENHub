@@ -12,6 +12,7 @@ test("the attributions page credits every contributor and is reachable signed ou
     ["Jack Carney", "j.carney@yale.edu"],
     ["Caprice Culkin", "caprice.culkin@yale.edu"],
     ["Renée Tracey", "renee.tracey@yale.edu"],
+    ["Antigone Antonakakis", "antigone.antonakakis@yale.edu"],
   ]) {
     await expect(page.getByText(name, { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: email })).toHaveAttribute(
@@ -19,6 +20,8 @@ test("the attributions page credits every contributor and is reachable signed ou
       `mailto:${email}`
     );
   }
+
+  await expect(page.getByText("Executive Director, 2025-2026", { exact: true })).toBeVisible();
 
   await expect(page.getByText(COPYRIGHT)).toBeVisible();
 });

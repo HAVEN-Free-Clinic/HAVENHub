@@ -479,7 +479,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                   copyState === "copied"
                     ? "text-success-foreground"
                     : copyState === "error"
-                      ? "text-critical"
+                      ? "text-critical-foreground"
                       : "text-muted-foreground"
                 }`}
               >

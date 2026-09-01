@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
-import { RecruitmentAuthError, AcceptanceError, revokeAcceptance } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
@@ -81,9 +81,26 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   if (!["ACCEPT", "REJECT", "WAITLIST", "RETURN"].includes(outcome)) {
     redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
   }
+  // Set only on a RETURN whose actor can no longer open the application they just
+  // returned -- see below. Resolved inside the try but acted on after it, so
+  // redirect()'s NEXT_REDIRECT throw is never swallowed by the catch.
+  let returnedOutOfView = false;
   try {
     if (outcome === "RETURN") {
-      await returnToRouting(applicationId, person.personId, notes);
+      const updated = await returnToRouting(applicationId, person.personId, notes);
+      // Returning clears routedDepartmentCode, and on a volunteer cycle that field
+      // IS a scope-director's access to the application (canViewApplication, and
+      // listApplicantsForReview which mirrors it). So the director succeeds and, in
+      // the same instant, loses the page: bouncing them back to the detail page hit
+      // its notFound(), and their confirmation was a 404. The recruitment lead sees
+      // every application and stays put -- re-routing is their next move and the
+      // Routing card is right there.
+      returnedOutOfView = !(await canViewerOpenApplication(
+        // returnToRouting refuses any cycle that is not VOLUNTEER, so a returned
+        // application's track is known without re-reading the cycle.
+        { ...updated, cycle: { track: "VOLUNTEER" } },
+        person.personId,
+      ));
     } else {
       await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
     }
@@ -99,7 +116,13 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
     }
     throw err;
   }
-  redirect(bounce(cycleId, applicationId, { saved: "decision" }));
+  // A return is deliberately not "Decision recorded.": it records no decision, it
+  // hands the applicant back still PENDING. Both landing pages resolve
+  // saved=returned to wording that says so (platform/ui/toast/flash.ts).
+  if (returnedOutOfView) {
+    redirect(`/recruitment/cycles/${cycleId}/applicants?saved=returned`);
+  }
+  redirect(bounce(cycleId, applicationId, { saved: outcome === "RETURN" ? "returned" : "decision" }));
 }
 
 export async function scheduleInterviewAction(cycleId: string, applicationId: string, formData: FormData) {

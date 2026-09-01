@@ -1,6 +1,9 @@
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { Alert } from "@/platform/ui/alert";
+import { linkifyUrls } from "@/platform/ui/form";
+import { noticeAcknowledgeLabel } from "../engine/notice";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
 import { WordCountTextarea } from "./word-count-textarea";
 import { cx } from "@/platform/ui/cx";
@@ -50,7 +53,7 @@ export function FieldPreview({
   // and hook-free, so this stays usable in a server render. Mirrors contract-field.tsx.
   const errorId = fieldError ? `fp-${f.key}-error` : undefined;
   const errorAria = fieldError ? { "aria-invalid": true, "aria-describedby": errorId } : {};
-  const req = required ? <span className="text-critical" aria-hidden="true"> *</span> : null;
+  const req = required ? <span className="text-critical-foreground" aria-hidden="true"> *</span> : null;
   // Label, help and error all take break-words + overflow-wrap:anywhere: an author
   // can paste a wall of text (or an unbroken run with no spaces at all) into either,
   // and without this it lays out on one line and widens every ancestor rather than
@@ -62,7 +65,7 @@ export function FieldPreview({
   // are expected to..." -- which is what QA saw as headings "blending in with the
   // text". The source was already correct; only the rendering dropped the breaks.
   const help = f.helpText ? <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
-  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical [overflow-wrap:anywhere]">{fieldError}</span> : null;
+  const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical-foreground [overflow-wrap:anywhere]">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);
   // otherwise it seeds an editable default. Read-only controlled inputs do not
@@ -71,6 +74,45 @@ export function FieldPreview({
   const textValue = prefillString(prefill);
   const textProps = !hasText ? {} : locked ? { value: textValue, readOnly: true } : { defaultValue: textValue };
   const lockedCls = hasText && locked ? "bg-muted text-muted-foreground" : null;
+
+  // A NOTICE is content, not a question: it renders the authored heading/body as
+  // a callout and (unless it asks to be acknowledged) contributes no control at
+  // all. It comes before every other branch because none of the label/control
+  // scaffolding below applies to it -- there is nothing to label.
+  //
+  // role="note" rather than Alert's default role="status": a notice is static
+  // page content that is present on first paint, and a live region would have a
+  // screen reader announce every policy paragraph again on any unrelated
+  // re-render of the step.
+  if (f.type === "NOTICE") {
+    const ackLabel = noticeAcknowledgeLabel(f.validation);
+    const heading = f.label.trim();
+    const body = f.helpText?.trim() ?? "";
+    return (
+      <Alert tone="info" role="note">
+        {heading && (
+          <span className="block break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{heading}</span>
+        )}
+        {/* whitespace-pre-line for the same reason help text takes it: notices are
+            authored as real prose with blank lines between paragraphs, and
+            collapsing those runs the paragraphs together. linkifyUrls because a
+            notice that points at a policy page is the common case and the stored
+            string can never contain real markup. */}
+        {body && (
+          <span className={cx("block break-words whitespace-pre-line text-sm text-foreground-soft [overflow-wrap:anywhere]", heading && "mt-1")}>
+            {linkifyUrls(body)}
+          </span>
+        )}
+        {ackLabel && (
+          <label className={cx("mt-2 flex min-h-[44px] items-start gap-2.5 py-1", disabled ? "cursor-default" : "cursor-pointer")}>
+            <Checkbox name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-0.5" defaultChecked={isPrefillChecked(prefill)} onChange={(e) => onValueChange?.(f.key, e.target.checked ? "on" : "")} />
+            <span className="min-w-0 break-words text-sm text-foreground [overflow-wrap:anywhere]">{ackLabel}{req}</span>
+          </label>
+        )}
+        {err}
+      </Alert>
+    );
+  }
 
   if (f.type === "CHECKBOX") {
     return (

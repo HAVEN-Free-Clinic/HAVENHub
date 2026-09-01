@@ -49,8 +49,33 @@ import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
+import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
+
+/**
+ * Map a thrown portal error onto the page's own error banner.
+ *
+ * Module scope, NOT the component body. The three attending actions below are
+ * inline `"use server"` closures, and Next.js serializes everything such a
+ * closure captures from its enclosing scope so the client can call back into
+ * it. A captured plain function is not serializable, so declaring this helper
+ * inside the component made every render that reaches AttendingPortalSection
+ * throw "Functions cannot be passed directly to Client Components ...
+ * [function attendingRedirect]" -- which took the whole attending portal down.
+ * Hoisted here it is a module binding the closures merely reference, so there
+ * is nothing to serialize.
+ */
+function attendingRedirect(err: unknown): never {
+  if (
+    err instanceof AttendingPortalValidationError ||
+    err instanceof AttendingPortalForbiddenError ||
+    err instanceof AttendingPortalNotFoundError
+  ) {
+    redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
+  }
+  throw err;
+}
 
 export default async function MySchedulePage() {
   const session = await requireModuleAccess("schedule");
@@ -227,18 +252,6 @@ export default async function MySchedulePage() {
   // schedules key on different things (department + date vs clinic day + slot),
   // and a shared action would have to decide which the caller meant from the
   // shape of the form fields.
-
-  /** Map a thrown portal error onto the page's own error banner. */
-  function attendingRedirect(err: unknown): never {
-    if (
-      err instanceof AttendingPortalValidationError ||
-      err instanceof AttendingPortalForbiddenError ||
-      err instanceof AttendingPortalNotFoundError
-    ) {
-      redirect(`/schedule?error=validation&message=${encodeURIComponent((err as Error).message)}`);
-    }
-    throw err;
-  }
 
   async function saveAttendingAvailabilityAction(formData: FormData) {
     "use server";
@@ -426,7 +439,22 @@ export default async function MySchedulePage() {
                   {shift.tags.walkin && <Badge tone="default">Walk-in</Badge>}
                   {shift.tags.cc && <Badge tone="default">CC</Badge>}
                   {shift.tags.remote && <Badge tone="default">Remote</Badge>}
+                  {shift.clinicClosed && <Badge tone="warning">Clinic closed</Badge>}
                 </div>
+
+                {/* The shift is real on a closed date -- departments staff
+                    triage on one -- so the card keeps it and says what is
+                    different, rather than hiding either half. Check-in is the
+                    concrete consequence a member would otherwise discover on
+                    the morning, so it is named here. */}
+                {shift.clinicClosed && (
+                  <p className="mb-2 text-sm text-foreground-soft">
+                    <span className="text-muted-foreground">The clinic is closed this date. </span>
+                    {shift.closedNote ? `${shift.closedNote} ` : ""}
+                    You are still scheduled, and there is no clinic-day check-in. Check with
+                    your director if you are not sure whether to come in.
+                  </p>
+                )}
 
                 {/* The attending covering THIS shift's department, not the whole
                     clinic day: the schedule is one grid with a column per team,
@@ -491,19 +519,30 @@ export default async function MySchedulePage() {
                         <span className="underline underline-offset-2">Request a change</span>
                       </summary>
                       <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
-                          <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                            <input type="hidden" name="termId" value={t.term.id} />
-                            <input type="hidden" name="dateKey" value={dateKey} />
-                            <input type="hidden" name="departmentId" value={shift.department.id} />
-                            <input type="hidden" name="kind" value="drop" />
-                            <div className="flex-1 min-w-48">
-                              <Input name="note" placeholder="Optional note" aria-label="Note" />
-                            </div>
-                            <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
-                          </form>
-                        </div>
+                        {/* Swap-only departments (Department.allowShiftDrop = false) show
+                            no drop form: the seat has to go to a named person. The
+                            server action refuses the drop too, so this is presentation,
+                            not the gate. */}
+                        {shift.department.allowShiftDrop ? (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
+                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
+                              <input type="hidden" name="termId" value={t.term.id} />
+                              <input type="hidden" name="dateKey" value={dateKey} />
+                              <input type="hidden" name="departmentId" value={shift.department.id} />
+                              <input type="hidden" name="kind" value="drop" />
+                              <div className="flex-1 min-w-48">
+                                <Input name="note" placeholder="Optional note" aria-label="Note" />
+                              </div>
+                              <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                            </form>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-subtle-foreground">
+                            {shift.department.code} shifts have to be swapped, not dropped. If no swap works,
+                            email your directors to ask for a drop.
+                          </p>
+                        )}
                         {swapPartners.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a swap</p>
@@ -686,7 +725,7 @@ export default async function MySchedulePage() {
                         </div>
                         <p className="mt-4 text-sm text-subtle-foreground">
                           Availability is locked now that clinics have started. To change a shift you are
-                          already on, use the swap or drop request on that shift above.
+                          already on, use the request options on that shift above.
                         </p>
                       </div>
                     ) : (
@@ -708,7 +747,11 @@ export default async function MySchedulePage() {
                                   const key = isoDateKey(d);
                                   const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
                                   return (
-                                    <label key={key} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap min-h-11 cursor-pointer ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-brand/40"}`}>
+                                    // Styling comes from the live checkbox, not from `checked`:
+                                    // `checked` only seeds the initial state, and a pill that
+                                    // never restyled is what made members click a date twice and
+                                    // turn it back off. See availability-pill.ts.
+                                    <label key={key} className={AVAILABILITY_PILL_CLASS}>
                                       <Checkbox
                                         name="dates"
                                         value={key}

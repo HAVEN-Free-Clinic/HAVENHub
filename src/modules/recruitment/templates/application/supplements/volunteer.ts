@@ -91,7 +91,7 @@ function primaryCareQuestions(prefix: string): Omit<TemplateField, "order">[] {
 
 // Verbatim from the live volunteer application form (form pagpJAAocmlcgKM6G).
 // Departments with no supplement this cycle (BVHD, FOOD, INTP, FIND, PNLC,
-// PNTC, PHAM, REFF, SCTL, SOSE, ICDD, VADM, VADC) are intentionally omitted;
+// PNTC, MEDS, REFF, SCTL, SOSE, ICDD, VADM, VADC) are intentionally omitted;
 // see SUPPLEMENT_DEPARTMENTS.VOLUNTEER in dept-codes.ts for the recruiting set.
 export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]> = {
   // RHD (sexual/reproductive-health) supplement, shared across CCRH/JCTS/SCTS.
@@ -120,15 +120,15 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
   JCTP: primaryCareQuestions("jctp"),
   SCTP: primaryCareQuestions("sctp"),
 
-  LABR: [
+  PHLO: [
     {
-      key: "labr_1",
-      label: "If not included in your cover letter, why do you want to volunteer with the Lab Department?",
+      key: "phlo_1",
+      label: "If not included in your cover letter, why do you want to volunteer with the Phlebotomy Department?",
       type: "LONG_TEXT",
       required: true,
     },
     {
-      key: "labr_2",
+      key: "phlo_2",
       label: "Please describe any previous phlebotomy experience.",
       type: "LONG_TEXT",
       required: true,
@@ -145,9 +145,9 @@ export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]>
     },
   ],
 
-  ORHI: [
+  ORHL: [
     {
-      key: "orhi_1",
+      key: "orhl_1",
       label:
         "Please consider the following: At its core, what creates trust between HAVEN and our patients? What is the significance of oral health? Please indicate what position you would be interested in.",
       type: "LONG_TEXT",

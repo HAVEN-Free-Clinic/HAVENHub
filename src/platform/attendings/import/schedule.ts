@@ -36,8 +36,6 @@ const NOT_APPLICABLE = /^n\/?a$/i;
 export type ParsedScheduleRow = {
   /** ISO date key, e.g. "2026-06-06". */
   dateKey: string;
-  isClosed: boolean;
-  closedNote: string | null;
   /** Raw text of the on-call cell, unmatched. */
   onCallText: string | null;
   /** Raw text of the specialty clinic cell, unmatched. */
@@ -113,8 +111,6 @@ export function parseTermSchedule(
     const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const parsed: ParsedScheduleRow = {
       dateKey,
-      isClosed: false,
-      closedNote: null,
       onCallText: null,
       specialtyText: null,
       bySlotLabel: {},
@@ -125,12 +121,12 @@ export function parseTermSchedule(
       const raw = row[c] === null || row[c] === undefined ? "" : String(row[c]).trim();
       if (!raw) continue;
 
-      // A closed marker can sit in any column; it describes the whole day.
-      if (CLOSED.test(raw)) {
-        parsed.isClosed = true;
-        parsed.closedNote = raw.replace(/[()]/g, "").trim();
-        continue;
-      }
+      // A closed marker describes the whole day and is not an attending name,
+      // so it is still SKIPPED -- otherwise "(HAVEN FREE CLINIC CLOSED)" would
+      // be read as a person in whatever column it sits in. It is no longer
+      // recorded: closure is owned by admin.manage_terms and set in
+      // Admin > Terms, never as a side effect of an import.
+      if (CLOSED.test(raw)) continue;
       if (!label) continue;
 
       if (ON_CALL_HEADER.test(label)) {
@@ -174,7 +170,6 @@ export type ScheduleImportReport = {
   daysCreated: number;
   daysUpdated: number;
   assignmentsWritten: number;
-  closedDays: number;
   /**
    * Name text that matched no attending on the roster, with likely candidates.
    *
@@ -207,7 +202,6 @@ export async function runTermScheduleImport(
     daysCreated: 0,
     daysUpdated: 0,
     assignmentsWritten: 0,
-    closedDays: 0,
     unmatchedNames: [],
     unmatchedColumns: [],
     unmatchedSpecialties: [],
@@ -338,8 +332,6 @@ export async function runTermScheduleImport(
       assignments.push({ slotId: slot.id, attendingIds: slot.allowsMultiple ? ids : ids.slice(0, 1) });
     }
 
-    if (row.isClosed) report.closedDays++;
-
     const existing = await prisma.clinicDay.findUnique({
       where: { termId_clinicDate: { termId: opts.termId, clinicDate } },
       select: { id: true },
@@ -355,14 +347,10 @@ export async function runTermScheduleImport(
         create: {
           termId: opts.termId,
           clinicDate,
-          isClosed: row.isClosed,
-          closedNote: row.closedNote,
           onCallAttendingId: onCallId,
           specialtyId,
         },
         update: {
-          isClosed: row.isClosed,
-          closedNote: row.closedNote,
           onCallAttendingId: onCallId,
           specialtyId,
         },

@@ -15,6 +15,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { requirePersonSession } from "@/platform/auth/session";
 import { routeApplication, decideRoutedApplication } from "@/modules/recruitment/services/routing";
+import { canViewerOpenApplication } from "@/modules/recruitment/services/review";
 import { routeAction, decideRoutedAction, committeeScoreAction, rescindAcceptanceAction } from "./actions";
 
 beforeEach(async () => { await resetDb(); });
@@ -108,6 +109,41 @@ it("unblocks the decision change: REJECT is refused before the rescind and recor
   expect(ok.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?saved=decision`);
   const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
   expect(app.decision).toBe("REJECT");
+});
+
+it("lands a director who returns an applicant on the roster, not the detail page they just lost", async () => {
+  const { lead, director, cycle, application } = await seed();
+  await routeApplication(application.id, "EDUC", lead.id);
+  vi.mocked(requirePersonSession).mockResolvedValue({ personId: director.id } as never);
+
+  const err = await decideRoutedAction(cycle.id, application.id, form({ outcome: "RETURN", notes: "Not a fit" })).catch((e) => e);
+
+  // The roster, with a confirmation -- NOT the applicant detail page.
+  expect(err.digest).toBe(`NEXT_REDIRECT;/recruitment/cycles/${cycle.id}/applicants?saved=returned`);
+  expect(err.digest).not.toContain(application.id);
+
+  const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
+  expect(app.routedDepartmentCode).toBeNull();
+  expect(app.returnedFromDepartmentCode).toBe("EDUC");
+  expect(app.decision).toBe("PENDING");
+  // Why the old landing was a 404 and not merely an odd choice: clearing the
+  // routing is exactly what removes this director's access, and the detail page
+  // calls notFound() on that. If this ever comes back true, the redirect above
+  // can go back to the detail page.
+  expect(await canViewerOpenApplication({ ...app, cycle: { track: "VOLUNTEER" } }, director.id)).toBe(false);
+});
+
+it("keeps a recruitment lead on the applicant page after a return, so they can re-route", async () => {
+  const { lead, cycle, application } = await seed();
+  await routeApplication(application.id, "EDUC", lead.id);
+
+  // Session is still the lead (review_all): they see every application, so the
+  // detail page survives the return and its Routing card is the next step.
+  const err = await decideRoutedAction(cycle.id, application.id, form({ outcome: "RETURN" })).catch((e) => e);
+  expect(err.digest).toBe(`NEXT_REDIRECT;/recruitment/cycles/${cycle.id}/applicants/${application.id}?saved=returned`);
+  // A return records no decision, so it must not claim one: saved=returned, not
+  // saved=decision ("Decision recorded.").
+  expect(err.digest).not.toContain("saved=decision");
 });
 
 it("sends a committee-score failure to scoreError so it renders in the score card", async () => {

@@ -80,15 +80,28 @@ export function NotificationBell() {
   function openItem(item: Item) {
     setOpen(false);
     if (!item.readAt) {
-      // Mark read + refresh in the background so navigation is instant.
-      void markReadAction(item.id).then(() => void refresh());
+      // Mark read + refresh in the background so navigation is instant. The
+      // catch is load-bearing: a server action is a fetch, and a dropped
+      // connection rejects it. Unhandled, that rejection reaches
+      // `capture_exceptions` and files an Error Tracking issue whose only frame
+      // is inside the minified action runtime -- untraceable, and about nothing:
+      // the badge just keeps its old count until the next poll.
+      void markReadAction(item.id)
+        .then(() => void refresh())
+        .catch(() => {});
     }
     if (item.link) router.push(item.link);
   }
 
   async function markAll() {
-    await markAllReadAction();
-    await refresh();
+    // Same reasoning as openItem: a network blip here must not surface as an
+    // unhandled rejection. The unread count self-corrects on the next poll.
+    try {
+      await markAllReadAction();
+      await refresh();
+    } catch {
+      // Leave the last known state.
+    }
   }
 
   return (

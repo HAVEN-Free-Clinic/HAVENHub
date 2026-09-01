@@ -114,9 +114,18 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
   // Drive the checklist from the same source as /my-info: onboarding tasks, with the
   // HIPAA row rendered from the live compliance status.
+  // The HIPAA row points at the certificate section further down this page, the
+  // one place a coordinator can act on it from here. The remaining rows have no
+  // destination for a viewer looking at someone ELSE'S record -- /get-started is
+  // the member's own -- so they stay inert rather than link somewhere useless.
+  // See Requirement.href.
   const requirements = onboarding.tasks
     .filter((t) => t.state !== "NOT_REQUIRED")
-    .map((t) => (t.key === "hipaa" ? certRequirement(status) : taskRequirement(t.label, t.state)));
+    .map((t) =>
+      t.key === "hipaa"
+        ? certRequirement(status, "#hipaa-certificate")
+        : taskRequirement(t.label, t.state)
+    );
 
   // Both actions require manage_compliance regardless of who opened the page: a
   // server action is a public endpoint in its own right, and this page now
@@ -278,7 +287,9 @@ export default async function PersonCompliancePage({ params }: PageProps) {
           />
         </section>
 
-        <section>
+        {/* Anchored: the clearance checklist above links here. scroll-mt clears
+            the sticky app-shell bar. */}
+        <section id="hipaa-certificate" className="scroll-mt-24">
           <SectionHeader className="mb-4">HIPAA certificate</SectionHeader>
           {newestCert ? (
             <div className="flex flex-wrap items-center gap-4">

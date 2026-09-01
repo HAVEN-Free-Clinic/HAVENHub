@@ -32,6 +32,11 @@ export const CONTRIBUTORS: readonly Contributor[] = [
     role: "Director of IT and Communications",
     email: "renee.tracey@yale.edu",
   },
+  {
+    name: "Antigone Antonakakis",
+    role: "Executive Director, 2025-2026",
+    email: "antigone.antonakakis@yale.edu",
+  },
 ];
 
 /**

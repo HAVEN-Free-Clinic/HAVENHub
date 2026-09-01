@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
+import { isDisplayOnlyNotice, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
+import { formatAnswer, storedFileRef } from "@/modules/recruitment/engine/answer-display";
+import { isFieldVisible, answersForConditions, mergeDepartmentAnswer } from "@/modules/recruitment/engine/field-visibility";
 import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
@@ -99,6 +102,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     applicantType: app.applicantType,
     selectedDepartmentCodes: app.departmentChoices,
   });
+  // Which conditional questions this applicant was actually shown. Built exactly
+  // as submitApplication and the speed-score view build it (see speed-score.ts
+  // for why the two normalizers are needed), so all three agree on what was
+  // asked. Used below only to drop a question that was never asked AND holds no
+  // answer -- a row of "(none)" for a question about a licence the applicant
+  // told us they do not hold. A field with an answer is always rendered,
+  // whatever its condition says today.
+  const deptChoiceKey = app.cycle.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key;
+  const condAnswers = mergeDepartmentAnswer(answersForConditions(answers), deptChoiceKey, app.departmentChoices);
   // The routed-decision director is told to "decide from the committee score", so
   // they must be able to see it even without recruitment.score (they get the
   // read-only average below; only scorers get the entry form).
@@ -185,7 +197,20 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         // deletes the answer key), so a rank field here only ever rendered
         // "(none)". The Subcommittee card below is the authoritative view; drop a
         // section that held nothing else rather than leaving an empty card.
-        const fields = section.fields.filter((f) => f.type !== "SUBCOMMITTEE_RANK");
+        // A display-only notice joins the hoisted ranking in being dropped: it is
+        // policy text the applicant read, not an answer, and it would render as a
+        // wall of prose against "(none)". An ACKNOWLEDGING notice stays -- who
+        // confirmed what is exactly the kind of thing a reviewer needs to see.
+        const fields = section.fields.filter(
+          (f) =>
+            f.type !== "SUBCOMMITTEE_RANK" &&
+            !isDisplayOnlyNotice(f) &&
+            // Never asked and never answered: the applicant did not skip this,
+            // they were not shown it. Keeping the row said "(none)" where the
+            // truthful answer is "not applicable", and a form with a few
+            // branches filled the grid with them.
+            (isFieldVisible(f.visibleWhen, condAnswers) || formatAnswer(f, answers[f.key]) !== ""),
+        );
         if (fields.length === 0) return null;
         return (
         <Card key={section.id}>
@@ -193,18 +218,23 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             {fields.map((f) => {
               const val = answers[f.key];
-              const isFileLike = (f.type === "FILE" || f.type === "SIGNATURE") && val && typeof val === "object";
-              const fileVal = isFileLike ? (val as { storedName?: string; fileName?: string }) : null;
-              const display = fileVal
-                ? fileVal.fileName ?? "(file)"
-                : Array.isArray(val) ? val.join(", ") : val === undefined || val === "" ? "(none)" : String(val);
+              const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
+              const fileVal = f.type === "FILE" || f.type === "SIGNATURE" ? storedFileRef(val) : null;
+              // Option labels, Yes/No, language names and readable dates all
+              // resolve in formatAnswer -- the same resolution the applicant saw
+              // on the wizard's review step. It returns "" for an unanswered
+              // question, which is the only case that shows a placeholder.
+              const display = formatAnswer(f, val) || "(none)";
               const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
               return (
                 // min-w-0 keeps a long unbroken answer from widening its grid
                 // column; break-words/overflow-wrap inherit to the dt, dd and link.
-                <div key={f.id} className="min-w-0 break-words [overflow-wrap:anywhere]">
-                  <dt className="text-xs text-subtle-foreground">{f.label}</dt>
-                  <dd className="mt-0.5 text-sm text-foreground">
+                // An essay gets the full width and keeps its paragraph breaks --
+                // squeezed into one half-width column with the newlines collapsed,
+                // a 300-word answer was the least readable thing on the page.
+                <div key={f.id} className={`min-w-0 break-words [overflow-wrap:anywhere]${f.type === "LONG_TEXT" ? " sm:col-span-2" : ""}`}>
+                  <dt className="text-xs text-subtle-foreground">{label}</dt>
+                  <dd className="mt-0.5 whitespace-pre-line text-sm text-foreground">
                     {f.type === "SIGNATURE" && fileVal?.storedName ? (
                       // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
                       <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />

@@ -272,3 +272,70 @@ describe("visibleWhen (condition-hidden fields)", () => {
     expect(requiredFileKeys(withConditionalFile, { applicantType: "NEW", selectedDepartmentCodes: [], answers: { g: "yes" } })).toEqual(["proof"]);
   });
 });
+
+describe("NOTICE fields", () => {
+  const noticeCtx = { applicantType: "NEW" as const, selectedDepartmentCodes: [] };
+
+  it("gives a display-only notice no key at all, so nothing can be asked of it", () => {
+    const withNotice: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [
+          { key: "ai_use", type: "NOTICE", required: false, options: null, validation: null },
+          { key: "essay", type: "LONG_TEXT", required: true, options: null, validation: null },
+        ],
+      },
+    ];
+    const schema = buildApplicationSchema(withNotice, noticeCtx);
+    expect(schema.safeParse({ essay: "an answer" }).success).toBe(true);
+    // The absence of the key is the point: parsing must not depend on the
+    // applicant having submitted anything under it.
+    expect(Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape)).toEqual(["essay"]);
+  });
+
+  it("never blocks a submit even if a display-only notice is somehow marked required", () => {
+    // updateField refuses to persist this combination, but a row predating that
+    // guard (or written straight to the DB) must not strand an applicant on a
+    // paragraph of policy text they have no control to satisfy.
+    const requiredNotice: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [{ key: "ai_use", type: "NOTICE", required: true, options: null, validation: null }],
+      },
+    ];
+    expect(buildApplicationSchema(requiredNotice, noticeCtx).safeParse({}).success).toBe(true);
+  });
+
+  it("validates an acknowledging notice exactly like a checkbox", () => {
+    const acknowledging: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [
+          { key: "ai_use", type: "NOTICE", required: true, options: null, validation: { acknowledge: true } },
+          { key: "optional_notice", type: "NOTICE", required: false, options: null, validation: { acknowledge: true } },
+        ],
+      },
+    ];
+    const schema = buildApplicationSchema(acknowledging, noticeCtx);
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ ai_use: false }).success).toBe(false);
+    expect(schema.safeParse({ ai_use: true }).success).toBe(true);
+  });
+
+  it("drops a condition-hidden acknowledging notice from validation", () => {
+    const conditional: SectionDef[] = [
+      {
+        id: "s", appliesTo: "BOTH", departmentCode: null,
+        fields: [
+          { key: "rn", type: "SHORT_TEXT", required: false, options: null, validation: null },
+          {
+            key: "rn_shift", type: "NOTICE", required: true, options: null, validation: { acknowledge: true },
+            visibleWhen: { field: "rn", op: "is", value: "yes" },
+          },
+        ],
+      },
+    ];
+    expect(buildApplicationSchema(conditional, { ...noticeCtx, answers: { rn: "no" } }).safeParse({ rn: "no" }).success).toBe(true);
+    expect(buildApplicationSchema(conditional, { ...noticeCtx, answers: { rn: "yes" } }).safeParse({ rn: "yes" }).success).toBe(false);
+  });
+});

@@ -109,7 +109,7 @@ export default async function LoginPage({
         {errorMessage && (
           <p
             role="alert"
-            className="mt-5 rounded-xl border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical"
+            className="mt-5 rounded-xl border border-critical/20 bg-critical/5 px-3 py-2 text-sm text-critical-foreground"
           >
             {errorMessage}
           </p>
@@ -135,7 +135,7 @@ export default async function LoginPage({
             <SignInButton />
           </form>
         ) : (
-          <p className="mt-6 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
+          <p className="mt-6 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning-foreground">
             Entra ID is not configured (AZURE_AD_* unset).
           </p>
         )}

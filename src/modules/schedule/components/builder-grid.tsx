@@ -52,6 +52,12 @@ type Props = {
   assignmentsByDate: AssignmentsByDate;
   /** Clinic date to highlight as the "current week" wayfinding cue. */
   highlightDateKey: string | null;
+  /**
+   * Date keys the clinic has declared closed. Column headers say so; the cells
+   * underneath stay editable, because a department can still staff triage on a
+   * Saturday the clinic proper is shut.
+   */
+  closedDateKeys?: readonly string[];
   deptId: string;
   deptCode: string;
   mode: "assign" | "shadow";
@@ -308,6 +314,7 @@ export function BuilderGrid({
   clinicDates,
   assignmentsByDate,
   highlightDateKey,
+  closedDateKeys,
   deptId,
   deptCode,
   mode,
@@ -367,6 +374,7 @@ export function BuilderGrid({
   // the column order below; never the prop itself, or every other consumer
   // of this same array in the request would see it reordered too.
   const sortedClinicDates = sortClinicDates(clinicDates);
+  const closedDates = new Set(closedDateKeys ?? []);
 
   return (
     <div
@@ -388,17 +396,30 @@ export function BuilderGrid({
             {sortedClinicDates.map((d) => {
               const dk = isoDateKey(d);
               const isHighlight = dk === highlightDateKey;
+              const isClosed = closedDates.has(dk);
               return (
                 <th
                   key={dk}
                   scope="col"
-                  className={`border border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px] ${
-                    isHighlight
-                      ? "bg-brand text-white"
-                      : "text-muted-foreground"
-                  }`}
+                  className={cx(
+                    "border border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px]",
+                    isHighlight ? "bg-brand text-white" : "text-muted-foreground",
+                  )}
                 >
                   {displayDate(dk)}
+                  {isClosed && (
+                    // Stacked under the date rather than beside it: the columns
+                    // are ~52px wide and a second word on the same line would
+                    // widen every one of ~18 of them.
+                    <span
+                      className={cx(
+                        "block text-[10px] font-semibold uppercase tracking-wide",
+                        isHighlight ? "text-white/90" : "text-warning-foreground",
+                      )}
+                    >
+                      Closed
+                    </span>
+                  )}
                 </th>
               );
             })}

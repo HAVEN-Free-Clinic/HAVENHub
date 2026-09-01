@@ -15,10 +15,11 @@ import {
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
-import { getRenewalContext } from "./renewal";
+import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "../templates/clinic-dates";
+import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
@@ -47,6 +48,11 @@ export type SubmitInput = {
   sessionPersonId?: string | null;
   sessionEmail?: string | null;
   identityEmail?: string | null;
+  /** The Entra claims, when this submit came from a Yale SSO session. Lets the
+   *  returning branch recognize a member the session could not carry (an alum
+   *  offboarded at the term flip). Null on every other path; see
+   *  resolveReturningPersonId, which is SSO-only on purpose. */
+  sso?: SsoClaim | null;
 };
 
 const DEPT_CHOICE_KEY_TYPE: FieldType = "DEPARTMENT_CHOICE";
@@ -139,10 +145,14 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
-    if (!input.sessionPersonId || !input.sessionEmail) {
+    // Asks the same question the page asked, through the same resolver, so this
+    // can never reject a returning branch the wizard offered: an alum offboarded
+    // at the term flip carries no session Person, and is found by SSO claim.
+    const memberPersonId = await resolveReturningPersonId(input.sessionPersonId, input.sso ?? null);
+    if (!memberPersonId || !input.sessionEmail) {
       throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
     }
-    const renewalCtx = await getRenewalContext(input.sessionPersonId, input.sessionEmail, cycle.track);
+    const renewalCtx = await getRenewalContext(memberPersonId, input.sessionEmail, cycle.track);
     if (!renewalCtx.eligible) {
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
@@ -190,7 +200,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     applicantPersonId = input.sessionPersonId;
   }
 
-  const resolvedSections = resolveAvailabilityOptions(cycle.sections, cycle.term.clinicDates);
+  const resolvedSections = resolveAvailabilityOptions(
+    cycle.sections,
+    await openClinicDates({ id: cycle.termId, clinicDates: cycle.term.clinicDates }),
+  );
   const sectionDefs = toSectionDefs(resolvedSections, cycle.departments, input.applicantType);
 
   let selectedDepartmentCodes: string[];
@@ -594,9 +607,14 @@ export async function getApplication(id: string) {
   if (!application) return null;
   // The reviewer view resolves option labels off these sections (speed-score.ts
   // labelFor), and falls back to the raw value for an option that is gone, so a
-  // date removed after submission degrades to "2026-06-13" rather than breaking.
+  // date removed -- or closed -- after submission degrades to "2026-06-13"
+  // rather than breaking.
+  const clinicDates = await openClinicDates({
+    id: application.cycle.termId,
+    clinicDates: application.cycle.term.clinicDates,
+  });
   return {
     ...application,
-    cycle: { ...application.cycle, sections: resolveAvailabilityOptions(application.cycle.sections, application.cycle.term.clinicDates) },
+    cycle: { ...application.cycle, sections: resolveAvailabilityOptions(application.cycle.sections, clinicDates) },
   };
 }

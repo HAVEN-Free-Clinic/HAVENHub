@@ -119,9 +119,21 @@ export const MODULES: ModuleManifest[] = [
     // stacks another role on them, nothing else in this module. Listing it here
     // too means the role opens the module on its own rather than depending on a
     // volunteers.view it happens to inherit from elsewhere.
-    additionalAccessPermissions: ["volunteers.verify_spanish", "volunteers.view_directory"],
+    additionalAccessPermissions: [
+      "volunteers.verify_spanish",
+      "volunteers.view_directory",
+      // Same reasoning as view_directory: a role granting only the read half of
+      // compliance must be able to open the module its pages live in.
+      "volunteers.view_compliance",
+    ],
     permissions: [
       "volunteers.view",
+      // The clinic-wide compliance READ, split out of manage_compliance so a
+      // role can see every member's status without also being able to attest
+      // one. manage_compliance still implies it (platform/compliance/access.ts,
+      // canViewAllCompliance) and remains the permission for verifying
+      // certificates, entering completion dates, and managing EHS trainings.
+      "volunteers.view_compliance",
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
       "volunteers.verify_spanish",
@@ -138,9 +150,21 @@ export const MODULES: ModuleManifest[] = [
       // so gate their nav items on the same permission -- otherwise a Spanish-review-only
       // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
       { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
-      { label: "Master view", href: "/volunteers/master", permission: "volunteers.manage_compliance" },
+      // EITHER permission opens these two: both pages are clinic-wide compliance
+      // READS that call requireAnyPermission with this exact pair. A view-only
+      // holder gets the tables without the verify / date-entry / EHS-management
+      // controls, which each page drops for them.
+      {
+        label: "Master view",
+        href: "/volunteers/master",
+        permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
+      },
       { label: "Directory", href: "/volunteers/directory", permission: "volunteers.view_directory" },
-      { label: "EHS training", href: "/volunteers/ehs", permission: "volunteers.manage_compliance" },
+      {
+        label: "EHS training",
+        href: "/volunteers/ehs",
+        permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
+      },
       // Label says Language; the href and permission keep their historical
       // spanish names because renaming a route breaks bookmarks and renaming a
       // permission means re-granting it in production. Neither is user-visible.

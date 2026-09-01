@@ -40,7 +40,12 @@ export const SYSTEM_ROLES: SystemRole[] = [
   {
     name: "Compliance Manager",
     description: "Master compliance view across the clinic",
-    grants: ["volunteers.view", "volunteers.manage_compliance"],
+    // view_compliance is listed alongside manage_compliance rather than left
+    // implicit. canViewAllCompliance already treats manage as implying view, so
+    // this changes nothing functionally -- it exists so the Roles screen states
+    // what the role can actually do, and so a later tightening of any read site
+    // to view_compliance alone cannot silently lock the manager out.
+    grants: ["volunteers.view", "volunteers.view_compliance", "volunteers.manage_compliance"],
   },
   {
     name: "Faculty Relations Manager",

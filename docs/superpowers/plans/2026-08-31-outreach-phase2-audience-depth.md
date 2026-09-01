@@ -1320,19 +1320,21 @@ git commit -m "feat(outreach): add recruitment outcome and subcommittee audience
 - Modify: `src/platform/email/audience/person-fields.ts`
 - Create: `src/platform/email/audience/membership-fields.test.ts`
 
-Four plain relation predicates over Person. No precompute.
+Three plain relation predicates over Person. No precompute.
 
 | Field key | Label | Group | Kind | Predicate |
 |---|---|---|---|---|
-| `membershipKind` | Membership kind | Roster | enum (`DIRECTOR`, `VOLUNTEER`) | `{ memberships: { some: { ...termScope, status: "ACTIVE", kind } } }` |
-| `speaksLanguage` | Speaks a language (verified) | Identity | multiEnum over `LANGUAGE_CODES` | `{ languages: { some: { language, verified: true, verifiedAt: { not: null } } } }` |
-| `claimsLanguage` | Claims a language (self-reported) | Identity | multiEnum over `LANGUAGE_CODES` | `{ languages: { some: { language, selfReported: true } } }` |
+| `speaksLanguage` | Speaks a language (verified) | Attributes | multiEnum over `LANGUAGES` | `{ languages: { some: { language, verified: true, verifiedAt: { not: null } } } }` |
+| `claimsLanguage` | Claims a language (self-reported) | Attributes | multiEnum over `LANGUAGES` | `{ languages: { some: { language, selfReported: true } } }` |
 | `hasServiceCredential` | Has a service credential | Volunteers | boolean | `{ serviceCredential: { isNot: null } }` |
 
-Two things to get right, both already established in this file:
+**`membershipKind` was dropped from this task.** The plan originally listed it, but `person-fields.ts` already has a `role` field that is term-scoped, offers DIRECTOR and VOLUNTEER, and compiles to `memberships.some({ ...termScope, kind })`. That IS `TermMembership.kind`. A second field over the same column under a different label would only split the picker.
 
-- **`membershipKind` is term-scoped.** Set `termScoped: true` and use the existing `termScope(cond, ctx)` helper so the kind and the term collapse into ONE `memberships.some` clause. Two separate `some` clauses could be satisfied by two different membership rows, matching a director's past stint against this term's volunteer row.
-- **`speaksLanguage` means verified, not claimed.** `PersonLanguage.verified` is meaningless until `verifiedAt` is set; the schema comment says to read the two together, never `verified` alone. The existing Spanish fields already model this. Follow them.
+`LANGUAGES` (not `LANGUAGE_CODES`) is the real export, from `src/platform/languages/catalog.ts` via `@/platform/languages`. It is a readonly array of `{ code, label }`, so the field's `options` map straight onto it: `LANGUAGES.map((l) => ({ value: l.code, label: l.label }))`.
+
+The thing to get right, already established in this file:
+
+- **`speaksLanguage` means verified, not claimed.** `PersonLanguage.verified` is meaningless until `verifiedAt` is set; the schema comment says to read the two together, never `verified` alone, because `verified: false` with `verifiedAt` set means "assessed and did not pass". The existing `spanishVerified` and `spanishSelfReported` fields already model this correctly. Generalise them; do not invent a new shape.
 
 - [ ] **Step 1: Write failing tests** covering: a verified speaker matches `speaksLanguage`; a person assessed and FAILED (`verified: false`, `verifiedAt` set) does not match; a self-reported-only person does not match `speaksLanguage` but does match `claimsLanguage`; `membershipKind` scoped to a past term matches that term's row and not the active one.
 

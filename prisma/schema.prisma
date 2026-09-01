@@ -2244,7 +2244,13 @@ model Application {
   transferFromDepartments    String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
-  subcommitteeRanking        String[]
+  /// @default([]) matches the DB, which has carried DEFAULT ARRAY[]::TEXT[]
+  /// since the column was added; the schema just never declared it. That one
+  /// undeclared default is half the drift `prisma migrate dev` folded into every
+  /// new migration for months. Declared rather than dropped, matching
+  /// transferFromDepartments above and the convention for scalar lists here: a
+  /// writer that omits the field gets [] rather than NULL.
+  subcommitteeRanking        String[]          @default([])
   /// Language CODES the applicant said they speak, hoisted at submit from the
   /// standard languages question (see LANGUAGES_FIELD_KEY). Hoisted rather than
   /// left in `answers` so promotion can turn them into PersonLanguage claims

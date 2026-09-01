@@ -508,4 +508,170 @@ describe("send-once per campaign", () => {
     const logs = await prisma.emailLog.findMany({ where: { toEmail: "sam@example.com" } });
     expect(logs.length).toBe(2);
   });
+
+  // Folded in from Task 7's review: sendOncePerPerson had no test composed with
+  // a scope, even though that composition sits directly over the security-
+  // critical property. Two runs of a scoped, sendOncePerPerson campaign must
+  // still respect the scope on BOTH runs, and mail the in-scope person once.
+  it("bounds a sendOncePerPerson scoped campaign by scope on every run, and mails nobody twice", async () => {
+    const scope = await createScope(null, {
+      name: "Active only (send-once)",
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+      },
+    });
+    await activePerson("In Scope", "inscope@example.com");
+    await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "outscope@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "Scoped digest", { scopeId: scope.id });
+    await updateCampaign(null, c.id, {
+      subject: "Hi {{ firstName }}",
+      body: "<p>Hi {{ firstName }}</p>",
+      // Matches everyone regardless of status; only the scope should narrow it.
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
+    });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { status: "ACTIVE", sendOncePerPerson: true },
+    });
+
+    await runTwice(c.id);
+
+    const inScopeLogs = await prisma.emailLog.findMany({ where: { toEmail: "inscope@example.com" } });
+    expect(inScopeLogs.length).toBe(1);
+    const outOfScopeLogs = await prisma.emailLog.findMany({ where: { toEmail: "outscope@example.com" } });
+    expect(outOfScopeLogs.length).toBe(0);
+  });
+});
+
+describe("manual include, exclude, and pasted recipient lists", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function scopedActiveOnly() {
+    return createScope(null, {
+      name: "Active only (manual lists)",
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+      },
+    });
+  }
+
+  // An audience with no conditions compiles to MATCH_NOBODY (see compileGroup
+  // in audience/compile.ts), so this fixture isolates exactly what the manual
+  // lists themselves reach -- nothing comes from the conditions.
+  const MATCH_NOBODY_AUDIENCE = {
+    recordType: "PERSON" as const,
+    match: "ALL" as const,
+    conditions: [],
+  };
+
+  // Load-bearing: the included person is deliberately paired with a SECOND
+  // person outside the scope. A fixture where the included person happens to
+  // be inside the scope anyway would pass under both a correct implementation
+  // and a bypass that unions the include list on top of the scope instead of
+  // inside it -- this pairing is what makes the two outcomes differ.
+  it("an include list is intersected with scope: admits the in-scope person, blocks the out-of-scope one", async () => {
+    const scope = await scopedActiveOnly();
+    const inScope = await activePerson("In Scope", "in-scope@example.com");
+    const outOfScope = await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "out-of-scope@example.com", status: "OFFBOARDED" },
+    });
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      includePersonIds: [inScope.id, outOfScope.id],
+    });
+
+    expect(recipients.map((r) => r.recordId)).toEqual([inScope.id]);
+  });
+
+  it("a pasted address list is intersected with scope: admits the in-scope address, blocks the out-of-scope one", async () => {
+    const scope = await scopedActiveOnly();
+    const inScope = await activePerson("In Scope", "in-scope@example.com");
+    await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "out-of-scope@example.com", status: "OFFBOARDED" },
+    });
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      pastedEmails: ["in-scope@example.com", "out-of-scope@example.com"],
+    });
+
+    expect(recipients.map((r) => r.recordId)).toEqual([inScope.id]);
+  });
+
+  it("exclude removes someone the conditions matched", async () => {
+    const scope = await scopedActiveOnly();
+    const person = await activePerson("Matched", "matched@example.com");
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: ALL_ACTIVE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      excludePersonIds: [person.id],
+    });
+
+    expect(recipients).toEqual([]);
+  });
+
+  it("exclude overrides an explicit include of the same person", async () => {
+    const scope = await scopedActiveOnly();
+    const person = await activePerson("Both listed", "both@example.com");
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      includePersonIds: [person.id],
+      excludePersonIds: [person.id],
+    });
+
+    expect(recipients).toEqual([]);
+  });
+
+  it("a pasted address matching no person is ignored without crashing or a phantom recipient", async () => {
+    const scope = await scopedActiveOnly();
+    const person = await activePerson("Real Match", "real@example.com");
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: ALL_ACTIVE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      pastedEmails: ["nobody-by-this-address@example.com"],
+    });
+
+    expect(recipients.map((r) => r.recordId)).toEqual([person.id]);
+  });
+
+  it("resolves a pasted address case-insensitively against the stored contactEmail", async () => {
+    const scope = await scopedActiveOnly();
+    const person = await activePerson("Casing", "casing@example.com");
+
+    const { recipients } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      pastedEmails: ["CASING@EXAMPLE.COM"],
+    });
+
+    expect(recipients.map((r) => r.recordId)).toEqual([person.id]);
+  });
 });

@@ -3,7 +3,7 @@ import { recordAudit } from "@/platform/audit";
 import { validateTemplate } from "@/platform/email/render/validate";
 import { isAudience } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
-import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
+import { PERSON_VARIABLES, personVariables } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
@@ -186,27 +186,119 @@ export async function assertMayActOnScope(
 }
 
 /**
- * Resolve a campaign's recipients, honoring its scope.
+ * Resolve a campaign's recipients, honoring its scope, then layering on manual
+ * include/exclude/pasted lists, then (if set) send-once dedup.
  *
  * A campaign naming a scope that has since vanished resolves to NOBODY. Falling
  * back to an unscoped resolve would turn a deleted boundary into a send-all,
  * which is exactly the failure this whole mechanism exists to prevent.
+ *
+ * Resolution order, a security requirement rather than a preference:
+ *
+ *   (matched union include union pasted) intersect scope minus exclude
+ *
+ * Manual additions are resolved AFTER the condition match but must pass
+ * through the SAME scope check the conditions went through before they are
+ * allowed to count -- see the comment at that intersection below. Exclusion is
+ * applied last, so it wins over both the conditions and an explicit include.
  */
 export async function resolveCampaignAudience(campaign: {
   id: string;
   audienceJson: unknown;
   scopeId: string | null;
   sendOncePerPerson: boolean;
+  includePersonIds?: string[];
+  excludePersonIds?: string[];
+  pastedEmails?: string[];
 }): Promise<{ recipients: Recipient[]; excludedNoEmail: number }> {
   const audience = campaign.audienceJson as Audience;
 
+  let scope: AudienceScopeView | null = null;
   let resolved: { recipients: Recipient[]; excludedNoEmail: number };
   if (campaign.scopeId === null) {
     resolved = await resolveAudience(audience);
   } else {
-    const scope = await getScope(campaign.scopeId);
+    scope = await getScope(campaign.scopeId);
     if (!scope) return { recipients: [], excludedNoEmail: 0 };
     resolved = await resolveAudience(audience, { scope: scope.audience });
+  }
+
+  const includePersonIds = campaign.includePersonIds ?? [];
+  const excludePersonIds = campaign.excludePersonIds ?? [];
+  const pastedEmails = campaign.pastedEmails ?? [];
+
+  if (includePersonIds.length > 0 || pastedEmails.length > 0) {
+    // Resolve pasted addresses to Person ids case-insensitively, the same way
+    // loadApplicantFacts (audience/resolve.ts) matches unlinked applicants back
+    // to a Person: Prisma ignores `mode: "insensitive"` on `in` for Postgres,
+    // so the comparison happens in memory rather than being pushed into the
+    // query, which would silently match nothing.
+    let pastedPersonIds: string[] = [];
+    if (pastedEmails.length > 0) {
+      const wanted = new Set(
+        pastedEmails.map((e) => e.trim().toLowerCase()).filter((e) => e !== ""),
+      );
+      if (wanted.size > 0) {
+        const candidates = await prisma.person.findMany({ select: { id: true, contactEmail: true } });
+        pastedPersonIds = candidates
+          .filter((p) => {
+            const email = p.contactEmail?.trim().toLowerCase();
+            return email ? wanted.has(email) : false;
+          })
+          .map((p) => p.id);
+      }
+    }
+
+    const matchedIds = new Set(resolved.recipients.map((r) => r.recordId));
+    const candidateIds = [...new Set([...includePersonIds, ...pastedPersonIds])].filter(
+      (id) => !matchedIds.has(id),
+    );
+
+    if (candidateIds.length > 0) {
+      // Manual additions go through the SAME scope filter the conditions went
+      // through. Skipping that would let a pasted address reach anyone in the
+      // database, which is the thing scopes exist to prevent.
+      let admittedIds = candidateIds;
+      if (scope) {
+        const inScope = await resolveAudience(scope.audience);
+        const inScopeIds = new Set(inScope.recipients.map((r) => r.recordId));
+        admittedIds = candidateIds.filter((id) => inScopeIds.has(id));
+      }
+
+      if (admittedIds.length > 0) {
+        const added = await prisma.person.findMany({
+          where: { id: { in: admittedIds } },
+          select: { id: true, name: true, contactEmail: true },
+        });
+        const addedRecipients: Recipient[] = [];
+        let addedExcludedNoEmail = 0;
+        for (const p of added) {
+          const email = p.contactEmail?.trim() ?? "";
+          if (email === "") { addedExcludedNoEmail++; continue; }
+          addedRecipients.push({
+            email,
+            displayName: p.name,
+            recordType: "PERSON",
+            recordId: p.id,
+            variables: personVariables({ name: p.name }),
+          });
+        }
+        resolved = {
+          recipients: [...resolved.recipients, ...addedRecipients],
+          excludedNoEmail: resolved.excludedNoEmail + addedExcludedNoEmail,
+        };
+      }
+    }
+  }
+
+  if (excludePersonIds.length > 0) {
+    // Applied last, over the union of matched + include + pasted, so an
+    // exclude always wins even over an explicit include of the same person.
+    const excludeSet = new Set(excludePersonIds);
+    resolved = {
+      recipients: resolved.recipients.filter((r) => !excludeSet.has(r.recordId)),
+      excludedNoEmail: resolved.excludedNoEmail,
+    };
   }
 
   if (!campaign.sendOncePerPerson) return resolved;

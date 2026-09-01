@@ -1164,6 +1164,16 @@ model EmailCampaign {
   /// people. Left false, every run mails everyone who matches, which is correct
   /// for a digest.
   sendOncePerPerson Boolean             @default(false)
+  /// People always considered for this campaign regardless of the conditions.
+  /// Still intersected with the campaign's scope: an include is an addition
+  /// WITHIN the boundary, never a way around it.
+  includePersonIds  String[]            @default([])
+  /// People never mailed by this campaign. Applied last, so exclusion beats
+  /// both the conditions and an explicit include.
+  excludePersonIds  String[]            @default([])
+  /// Raw addresses pasted by the sender, resolved to people at send time and
+  /// then subject to exactly the same scope intersection as includePersonIds.
+  pastedEmails      String[]            @default([])
   createdById       String?
   createdBy         Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt         DateTime            @default(now())

@@ -22,6 +22,7 @@ type Props = {
   departments: { code: string; name: string }[];
   terms: NamedOption[];
   cycles: NamedOption[];
+  subcommittees: NamedOption[];
   initial: Audience;
 };
 
@@ -42,10 +43,8 @@ const OP_LABELS: Record<ConditionOp, string> = {
   isFalse: "no",
   lt: "is before",
   gt: "is after",
-  // Date operators. No field of kind "date" is registered yet (Task 1 of the
-  // audience-depth plan adds only the engine); these labels exist so this
-  // Record stays exhaustive over ConditionOp, and are picked up unchanged once
-  // a date field starts using them.
+  // Date operators, used by every dateField/relationDateField in
+  // person-fields.ts (joinedAt, hipaaCompletedAt, ehsCompletedAt, etc.).
   before: "is before",
   after: "is after",
   onOrBefore: "is on or before",
@@ -53,10 +52,8 @@ const OP_LABELS: Record<ConditionOp, string> = {
   between: "is between",
   withinNextDays: "is within the next (days)",
   withinLastDays: "is within the last (days)",
-  // Count operators. No field of kind "count" is registered yet (Task 2 of the
-  // audience-depth plan adds only the engine); these labels exist so this
-  // Record stays exhaustive over ConditionOp, and are picked up unchanged once
-  // a count field starts using them.
+  // Count operators, used by every countField in person-fields.ts
+  // (shiftCountThisTerm, attendanceCountThisTerm, etc.).
   lte: "is at most",
   gte: "is at least",
 };
@@ -66,26 +63,54 @@ const SET_OPS = new Set<ConditionOp>(["in", "notIn"]);
 
 const VALUELESS = new Set<ConditionOp>(VALUELESS_OPS);
 
-function getFieldOptions(
+export function getFieldOptions(
   field: PersonFieldView,
   departments: { code: string; name: string }[],
   cycles: NamedOption[],
+  subcommittees: NamedOption[],
 ): { value: string; label: string }[] {
   if (field.key === "department") {
     return departments.map((d) => ({ value: d.code, label: d.name }));
   }
-  if (field.key === "appliedToCycle") {
+  // acceptedInCycle names the same recruitment cycles appliedToCycle does (see
+  // AudienceCtx.acceptedByCycle in person-fields.ts), so it maps to the exact
+  // same `cycles` source.
+  if (field.key === "appliedToCycle" || field.key === "acceptedInCycle") {
     return cycles.map((c) => ({ value: c.id, label: c.label }));
+  }
+  if (field.key === "subcommittee") {
+    return subcommittees.map((s) => ({ value: s.id, label: s.label }));
   }
   return field.options ?? [];
 }
 
-function defaultConditionFor(def: PersonFieldView): AudienceCondition {
+export function defaultConditionFor(def: PersonFieldView): AudienceCondition {
   if (def.kind === "boolean") return { field: def.key, op: "isTrue" };
   if (def.kind === "multiEnum") return { field: def.key, op: "in", value: [] };
-  if (def.kind === "text" || def.kind === "year") {
-    return { field: def.key, op: "contains", value: "" };
-  }
+  if (def.kind === "text") return { field: def.key, op: "contains", value: "" };
+  // YEAR_OPERATORS does not include "contains" (gradYear is an ordered
+  // comparison over a 4-digit string, not free text -- see yearWhere in
+  // operators.ts). This used to be lumped in with "text" above, which handed
+  // personFieldWhere's operator gate an operator gradYear never declares --
+  // the exact same MATCH_NOBODY-under-NONE hazard the date/count branches
+  // below exist to avoid. "eq" is YEAR_OPERATORS' first real member.
+  if (def.kind === "year") return { field: def.key, op: "eq", value: "" };
+  // A date field's own operators never include "eq" (see DATE_OPERATORS in
+  // operators.ts), so falling through to the enum-shaped default below would
+  // hand personFieldWhere's operator gate an operator the field does not
+  // declare -- MATCH_NOBODY, which is safe under ALL/ANY but, inside a NONE
+  // group, silently widens to every Person in the table (see compileGroup).
+  // onOrAfter is a real, always-declared operator for every date field.
+  if (def.kind === "date") return { field: def.key, op: "onOrAfter", value: "" };
+  // Count fields' operators (NUMBER_OPERATORS) do include "eq", so falling
+  // through below is not the same operator-gate hazard as date -- but a count
+  // field has no `options`, so the fallback's `def.options?.[0]?.value ?? ""`
+  // always lands on a blank "eq" comparison, which reads as "shifts attended
+  // equals (nothing)". "gte" with a blank value is the same blank-condition
+  // state (still MATCH_NOBODY until filled in) but is the more sensible
+  // starting point for a numeric field, and keeps every field kind resolved by
+  // its own explicit branch rather than the enum-shaped catch-all below.
+  if (def.kind === "count") return { field: def.key, op: "gte", value: "" };
   return { field: def.key, op: "eq", value: def.options?.[0]?.value ?? "" };
 }
 
@@ -194,6 +219,7 @@ function ConditionRow({
   departments,
   terms,
   cycles,
+  subcommittees,
   onChange,
   onRemove,
 }: {
@@ -203,11 +229,12 @@ function ConditionRow({
   departments: { code: string; name: string }[];
   terms: NamedOption[];
   cycles: NamedOption[];
+  subcommittees: NamedOption[];
   onChange: (next: AudienceCondition) => void;
   onRemove: () => void;
 }) {
   const def = fields.find((f) => f.key === cond.field) ?? fields[0];
-  const options = def ? getFieldOptions(def, departments, cycles) : [];
+  const options = def ? getFieldOptions(def, departments, cycles, subcommittees) : [];
   const selectedValues = Array.isArray(cond.value) ? cond.value : [];
   const textValue = typeof cond.value === "string" ? cond.value : "";
 
@@ -328,6 +355,7 @@ function GroupEditor({
   departments,
   terms,
   cycles,
+  subcommittees,
   onChange,
   onRemove,
   depth,
@@ -338,6 +366,7 @@ function GroupEditor({
   departments: { code: string; name: string }[];
   terms: NamedOption[];
   cycles: NamedOption[];
+  subcommittees: NamedOption[];
   onChange: (next: AudienceGroup) => void;
   onRemove?: () => void;
   depth: number;
@@ -397,6 +426,7 @@ function GroupEditor({
               departments={departments}
               terms={terms}
               cycles={cycles}
+              subcommittees={subcommittees}
               onChange={(g) => updateChild(i, g)}
               onRemove={() => removeChild(i)}
               depth={depth + 1}
@@ -410,6 +440,7 @@ function GroupEditor({
               departments={departments}
               terms={terms}
               cycles={cycles}
+              subcommittees={subcommittees}
               onChange={(c) => updateChild(i, c)}
               onRemove={() => removeChild(i)}
             />
@@ -433,7 +464,7 @@ function GroupEditor({
 // Root builder
 // ---------------------------------------------------------------------------
 
-export function AudienceBuilder({ fields, departments, terms, cycles, initial }: Props) {
+export function AudienceBuilder({ fields, departments, terms, cycles, subcommittees, initial }: Props) {
   const [root, setRoot] = useState<AudienceGroup>({ match: initial.match, children: initial.conditions });
 
   // The root connective is narrowed back to ALL/ANY: MatchToggle never offers
@@ -465,6 +496,7 @@ export function AudienceBuilder({ fields, departments, terms, cycles, initial }:
         departments={departments}
         terms={terms}
         cycles={cycles}
+        subcommittees={subcommittees}
         onChange={setRoot}
         depth={0}
       />

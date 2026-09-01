@@ -48,6 +48,7 @@ export default async function ScopeDetailPage({
     departments: audienceDepartments,
     terms: audienceTerms,
     cycles: audienceCycles,
+    subcommittees: audienceSubcommittees,
   } = await loadAudienceBuilderOptions(scope.audience);
 
   async function saveAction(formData: FormData) {
@@ -129,6 +130,7 @@ export default async function ScopeDetailPage({
           departments={audienceDepartments}
           terms={audienceTerms}
           cycles={audienceCycles}
+          subcommittees={audienceSubcommittees}
           initial={scope.audience}
         />
         <Button type="submit">Save scope</Button>

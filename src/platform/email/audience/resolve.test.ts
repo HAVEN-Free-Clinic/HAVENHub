@@ -359,6 +359,34 @@ describe("resolveAudience across terms", () => {
     });
     expect(res.recipients.map((r) => r.email)).toEqual(["keep@example.com"]);
   });
+
+  // The database-level version of the compile.test.ts proof: a date condition
+  // in a NONE group used to be reachable, via the audience builder's default,
+  // with an operator ("eq") its own field never declares. personFieldWhere's
+  // gate turns that into MATCH_NOBODY, and compileGroup renders NONE as
+  // `NOT { OR: fragments }`, so a NONE group holding only that condition
+  // matched every Person in the table -- including people who joined well
+  // after the cutoff the admin typed in, which is the opposite of "exclude
+  // people who joined on or after June 1". With `defaultConditionFor` now
+  // handing a date field a real operator (onOrAfter), the exact same shape of
+  // condition -- a NONE group holding one date condition -- correctly excludes
+  // only the people it names.
+  it("a NONE group with a well-formed date condition excludes only the intended people, not everyone", async () => {
+    const early = await person("Early", "early@example.com");
+    await prisma.person.update({ where: { id: early.id }, data: { createdAt: new Date("2026-01-01T12:00:00.000Z") } });
+    const late = await person("Late", "late@example.com");
+    await prisma.person.update({ where: { id: late.id }, data: { createdAt: new Date("2026-07-01T12:00:00.000Z") } });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { match: "NONE", children: [{ field: "joinedAt", op: "onOrAfter", value: "2026-06-01" }] },
+      ],
+    });
+    // Not everyone: "Late" (joined June or after) is excluded, "Early" is kept.
+    expect(res.recipients.map((r) => r.email)).toEqual(["early@example.com"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

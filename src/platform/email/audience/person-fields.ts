@@ -215,13 +215,24 @@ export function dateField(
   label: string,
   group: string,
   column: string,
+  nullable = true,
 ): PersonFieldDef {
   return {
     key,
     label,
     group,
     kind: "date",
-    operators: DATE_OPERATORS,
+    // isEmpty/isNotEmpty compile (in dateWhere) to `{ [column]: null }` /
+    // `{ [column]: { not: null } }` unconditionally -- Prisma throws a
+    // PrismaClientValidationError for either shape against a NOT NULL column.
+    // Omitting them from a non-nullable field's own operator list means the
+    // gate in personFieldWhere (`field.operators.includes(cond.op)`) turns any
+    // stored-but-invalid condition into MATCH_NOBODY before it ever reaches
+    // dateWhere, the same way textField's `nullable` flag already protects its
+    // isEmpty/isNotEmpty branch.
+    operators: nullable
+      ? DATE_OPERATORS
+      : DATE_OPERATORS.filter((op) => op !== "isEmpty" && op !== "isNotEmpty"),
     compile: (cond, ctx) => dateWhere(column, cond, ctx),
   };
 }
@@ -741,7 +752,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   relationDateField("hipaaVerifiedAt", "HIPAA certificate verified date", "Compliance", "hipaaCertificates", "verifiedAt"),
   relationDateField("ehsCompletedAt", "EHS training completion date", "Compliance", "ehsCompletions", "completedAt"),
   relationDateField("trainingCompletedAt", "Volunteer training completion date", "Training", "trainings", "completedAt"),
-  dateField("joinedAt", "Joined the roster", "Identity", "createdAt"),
+  dateField("joinedAt", "Joined the roster", "Identity", "createdAt", false), // Person.createdAt is NOT NULL
   countField("shiftCountThisTerm", "Shifts assigned this term", "Schedule", shiftCountThisTerm),
   countField("attendanceCountThisTerm", "Clinic days attended this term", "Schedule", attendanceCountThisTerm),
   countField("noShowCountThisTerm", "Assigned shifts not attended", "Schedule", noShowCountThisTerm),
@@ -820,6 +831,39 @@ export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Pri
   // An operator the field does not declare can only arrive from a hand-edited or
   // stale stored audience. Compiling it would either throw deep in a helper or,
   // worse, fall through to a default branch; match nobody instead.
+  //
+  // This was deliberately NOT changed to throw (the way countField's missing
+  // precompute map does) even though the reasoning is the same in spirit -- an
+  // operator/field mismatch is a wiring or corruption bug, not user input -- and
+  // even though MATCH_NOBODY here is unsafe under a NONE group: compileGroup
+  // renders NONE as `NOT { OR: fragments } }`, and a fragment that always
+  // evaluates false contributes nothing to that OR, so the surrounding NONE
+  // widens to match EVERY Person instead of excluding the intended cohort. Two
+  // reasons kept this as MATCH_NOBODY:
+  //
+  // 1. dateField's `nullable` parameter (see above) relies on exactly this gate
+  //    to turn a non-nullable date field's isEmpty/isNotEmpty into a safe no-op
+  //    rather than a PrismaClientValidationError -- that is the documented,
+  //    intended behavior for that case, so this gate cannot unconditionally
+  //    throw without breaking it.
+  // 2. The concrete widening bug this gate could otherwise cause (a freshly
+  //    added date/count condition landing on an operator its own kind doesn't
+  //    declare, e.g. the enum-shaped fallback `eq` on a date field) is closed
+  //    upstream instead: defaultConditionFor in audience-builder.tsx now has a
+  //    branch for every PersonFieldKind, and a test asserts every field's
+  //    default operator is a member of that field's own `operators` array. That
+  //    closes the only path normal use of the builder has to reach this gate at
+  //    all, for both existing and future field kinds.
+  //
+  // What remains open, by choice, is a stored audience whose JSON was edited or
+  // corrupted by hand (or a migration) to name an operator its field no longer
+  // declares -- that condition still widens if it lands inside a NONE group.
+  // This is not a new hole: an ordinary, syntactically VALID condition with an
+  // unsatisfiable value (an empty `contains` string, an empty `in` list) has
+  // always compiled to this same MATCH_NOBODY and has always had the same
+  // effect under NONE. Closing that general class -- rejecting an incomplete
+  // condition inside a NONE group outright, everywhere, at compile time -- is a
+  // larger, cross-cutting change deferred rather than folded into this fix.
   if (!field.operators.includes(cond.op)) return MATCH_NOBODY;
   return field.compile(cond, ctx);
 }

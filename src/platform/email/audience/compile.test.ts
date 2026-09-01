@@ -82,6 +82,45 @@ describe("compilePersonWhere", () => {
     expect(where).toEqual({ AND: [{ id: { in: [] } }] });
   });
 
+  // The reachable version of the "always-false leaf widens NONE" hazard above:
+  // a date condition landing on an operator its own field never declares (the
+  // enum-shaped fallback `defaultConditionFor` used to hand every date field
+  // before it grew its own branch -- see audience-builder.tsx) hits
+  // personFieldWhere's operator gate, which returns MATCH_NOBODY. Fixed by
+  // giving `defaultConditionFor` a `date` branch that always picks a real,
+  // field-declared operator (`onOrAfter`); this test locks in that a
+  // WELL-FORMED date condition compiles to a real predicate, not MATCH_NOBODY,
+  // so it narrows a NONE group instead of vacuously matching everyone.
+  it("a well-formed date condition narrows a NONE group instead of vacuously matching everyone", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "joinedAt", op: "onOrAfter", value: "2026-06-01" },
+        ] },
+      ] }, ctx);
+    expect(where).toEqual({ AND: [
+      { NOT: { OR: [{ createdAt: { gte: new Date("2026-06-01T04:00:00.000Z") } }] } },
+    ] });
+  });
+
+  // Documents the residual, deliberately-not-fully-closed hazard: an operator
+  // a field does NOT declare (reachable only via a hand-edited or stale stored
+  // audience now that defaultConditionFor always picks a valid one -- see the
+  // test above and audience-builder.test.tsx) still compiles to MATCH_NOBODY
+  // via the gate in personFieldWhere, which still widens a NONE group to
+  // everyone. See the comment on that gate in person-fields.ts for why this was
+  // kept as MATCH_NOBODY rather than made to throw.
+  it("an operator a field does not declare still widens a NONE group (documented, pre-existing hazard)", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          // "eq" is not a member of DATE_OPERATORS; joinedAt never declares it.
+          { field: "joinedAt", op: "eq" as never, value: "2026-06-01" },
+        ] },
+      ] }, ctx);
+    expect(where).toEqual({ AND: [{ NOT: { OR: [{ id: { in: [] } }] } }] });
+  });
+
   it("a NONE group nests inside another group", () => {
     const where = compilePersonWhere(
       { recordType: "PERSON", match: "ANY", conditions: [

@@ -13,7 +13,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import type { Audience } from "@/platform/email/audience/types";
-import { AudienceBuilder } from "./audience-builder";
+import { AudienceBuilder, defaultConditionFor, getFieldOptions } from "./audience-builder";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -24,6 +24,7 @@ const TERMS = [
 ];
 const CYCLES = [{ id: "c-fall", label: "Fall 2026 (open)" }];
 const DEPARTMENTS = [{ code: "CARDIO", name: "Cardiology" }];
+const SUBCOMMITTEES = [{ id: "sub-outreach", label: "Outreach" }];
 
 let container: HTMLDivElement;
 let root: Root;
@@ -39,6 +40,7 @@ function render(initial: Audience) {
         departments={DEPARTMENTS}
         terms={TERMS}
         cycles={CYCLES}
+        subcommittees={SUBCOMMITTEES}
         initial={initial}
       />,
     );
@@ -190,5 +192,78 @@ describe("AudienceBuilder operator changes", () => {
       opSelect.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(serialised().conditions[0]).toEqual({ field: "netId", op: "isEmpty" });
+  });
+});
+
+// A default condition whose operator isn't declared by its own field reaches
+// personFieldWhere's operator gate (person-fields.ts), which compiles it to
+// MATCH_NOBODY -- safe under ALL/ANY, but a send-all under a NONE group. This
+// is exactly the class of bug that made a freshly added date condition widen
+// an audience to the whole Person table (see person-fields.test.ts and
+// compile.test.ts for the compiled-where-clause side of the same guarantee).
+describe("defaultConditionFor", () => {
+  it("returns an operator every field's own registry actually declares, for every registered field", () => {
+    for (const field of PERSON_FIELD_VIEWS) {
+      const cond = defaultConditionFor(field);
+      expect(field.operators, `field "${field.key}" (${field.kind})`).toContain(cond.op);
+    }
+  });
+});
+
+// #82-class bug for the two newest recruitment fields: a multiEnum field with
+// no static `options` and no case in getFieldOptions renders "No options
+// available" forever, so a value can never be picked (audience-builder.tsx).
+describe("getFieldOptions", () => {
+  const departments = [{ code: "CARDIO", name: "Cardiology" }];
+  const cycles = [{ id: "c-fall", label: "Fall 2026 (open)" }];
+  const subcommittees = [{ id: "sub-outreach", label: "Outreach" }];
+
+  it("gives every dynamically-sourced multiEnum field a non-empty option source when data exists", () => {
+    const dynamic = PERSON_FIELD_VIEWS.filter(
+      (f) => f.kind === "multiEnum" && (f.options?.length ?? 0) === 0,
+    );
+    // Guard the guard: if this ever drops to zero, the test below passes
+    // vacuously and stops meaning anything.
+    expect(dynamic.length).toBeGreaterThan(0);
+    for (const field of dynamic) {
+      const options = getFieldOptions(field, departments, cycles, subcommittees);
+      expect(options.length, `field "${field.key}" has no option source`).toBeGreaterThan(0);
+    }
+  });
+
+  it("maps acceptedInCycle to the same cycle source as appliedToCycle", () => {
+    const field = PERSON_FIELD_VIEWS.find((f) => f.key === "acceptedInCycle")!;
+    expect(getFieldOptions(field, departments, cycles, subcommittees)).toEqual([
+      { value: "c-fall", label: "Fall 2026 (open)" },
+    ]);
+  });
+
+  it("maps subcommittee to the subcommittees source", () => {
+    const field = PERSON_FIELD_VIEWS.find((f) => f.key === "subcommittee")!;
+    expect(getFieldOptions(field, departments, cycles, subcommittees)).toEqual([
+      { value: "sub-outreach", label: "Outreach" },
+    ]);
+  });
+});
+
+describe("AudienceBuilder recruitment option rendering", () => {
+  it("renders subcommittee checkboxes instead of 'No options available'", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "subcommittee", op: "in", value: [] }],
+    });
+    expect(container.textContent).toContain("Outreach");
+    expect(container.textContent).not.toContain("No options available");
+  });
+
+  it("renders acceptedInCycle checkboxes instead of 'No options available'", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "acceptedInCycle", op: "in", value: [] }],
+    });
+    expect(container.textContent).toContain("Fall 2026 (open)");
+    expect(container.textContent).not.toContain("No options available");
   });
 });

@@ -310,6 +310,41 @@ describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
   });
 });
 
+// Person.createdAt is `DateTime @default(now())`, i.e. NOT NULL. dateWhere's
+// isEmpty/isNotEmpty branches compile unconditionally to `{ createdAt: null }`
+// / `{ createdAt: { not: null } }`, and Prisma throws a
+// PrismaClientValidationError for either shape against a NOT NULL column. The
+// fix is at the field-registry level (dateField's `nullable` parameter), not
+// in dateWhere: joinedAt must never OFFER isEmpty/isNotEmpty, and a condition
+// that names one anyway (a hand-edited or stale stored audience) must be
+// caught by personFieldWhere's operator gate before it ever reaches dateWhere.
+describe("joinedAt audience field (non-nullable date)", () => {
+  it("does not declare isEmpty or isNotEmpty", () => {
+    const view = PERSON_FIELD_VIEWS.find((f) => f.key === "joinedAt")!;
+    expect(view.kind).toBe("date");
+    expect(view.operators).not.toContain("isEmpty");
+    expect(view.operators).not.toContain("isNotEmpty");
+    // Every other date operator must still be there -- this is a narrowed
+    // operator list, not a broken one.
+    expect(view.operators).toEqual(
+      expect.arrayContaining(["before", "after", "onOrBefore", "onOrAfter", "between", "withinNextDays", "withinLastDays"]),
+    );
+  });
+
+  it("a stored isEmpty/isNotEmpty condition matches nobody instead of throwing", () => {
+    expect(() => personFieldWhere({ field: "joinedAt", op: "isEmpty" }, ctx)).not.toThrow();
+    expect(() => personFieldWhere({ field: "joinedAt", op: "isNotEmpty" }, ctx)).not.toThrow();
+    expect(personFieldWhere({ field: "joinedAt", op: "isEmpty" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "joinedAt", op: "isNotEmpty" }, ctx)).toEqual({ id: { in: [] } });
+  });
+
+  it("still compiles its declared operators normally", () => {
+    expect(personFieldWhere({ field: "joinedAt", op: "before", value: "2026-01-01" }, ctx)).toEqual({
+      createdAt: { lt: new Date("2026-01-01T05:00:00.000Z") },
+    });
+  });
+});
+
 describe("relation-backed conditions (compliance program additions)", () => {
   it("hasApprovedStrike -> some/none APPROVED strike", () => {
     expect(personFieldWhere({ field: "hasApprovedStrike", op: "isTrue" }, ctx)).toEqual({

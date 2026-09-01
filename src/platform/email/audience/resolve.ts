@@ -33,11 +33,15 @@ function collectConditions(nodes: AudienceNode[]): AudienceCondition[] {
 /**
  * Applicant facts resolved to person ids, bucketed several ways.
  *
- * `appliedByCycle` and `acceptedByCycle` are keyed by cycle id (every requested
- * id present, even with an empty set); `bySubcommittee` is keyed by
- * subcommittee id and built lazily, only for the ids actually requested, since
- * (unlike cycles) there is no small pre-known universe to seed empty entries
- * for.
+ * `appliedByCycle` and `acceptedByCycle` are keyed by cycle id, `bySubcommittee`
+ * by subcommittee id -- all three pre-seeded identically from their requested-id
+ * arrays (see loadApplicantFacts below), each id mapped to an empty Set before
+ * any applicant row is scanned. That pre-seeding is what makes the
+ * `bySubcommittee.has(...)` guard downstream correct: it is a "was this id one
+ * of the ones the audience actually asked about" filter, and it only works
+ * because every requested id is already a key -- not built lazily as applicants
+ * matching it are found -- so a subcommittee the audience never named can never
+ * pass the check no matter what an applicant's row references.
  */
 type ApplicantFacts = {
   /** Person ids with any submitted application, keyed by cycle id. */

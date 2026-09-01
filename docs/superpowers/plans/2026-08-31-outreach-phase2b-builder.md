@@ -162,6 +162,12 @@ git commit -m "feat(outreach): add a searchable grouped field picker to the audi
 
 Part A's date and count conditions currently have no way to be created from the UI. This task gives each operator the control it needs.
 
+**Three defects Part A knowingly left for this task. They are requirements here, not optional cleanup.** Part A's reviews found each one and deferred it rather than patching the old builder twice:
+
+1. **`defaultConditionFor` has no `date` or `count` branch.** It falls through to `{ op: "eq" }`, and `eq` is in neither `DATE_OPERATORS` nor `NUMBER_OPERATORS`. So selecting any of Part A's new fields today produces a condition that compiles to `MATCH_NOBODY`. It fails safe rather than over-matching, but the field is unusable. Give both kinds a sensible default operator (`onOrAfter` for date, `gte` for count are reasonable) and add a test that every field kind in `PersonFieldKind` gets a default operator its own field actually accepts. That test is what stops the next kind from reintroducing this.
+2. **`OP_LABELS` is keyed by operator alone, not by field kind.** `lt`/`gt` read "is before"/"is after", which is right for a date and wrong for a count: a shift-count condition currently renders as "Shift count is before 3". Make the label resolution aware of the field's kind.
+3. **A stale comment in `audience-builder.tsx`** says no field of kind `date` is registered yet. Five now are. Fix it while you are in the file.
+
 **Files:**
 - Create: `src/app/(app)/outreach/campaigns/[id]/value-controls.tsx`
 - Create: `src/app/(app)/outreach/campaigns/[id]/value-controls.test.tsx`

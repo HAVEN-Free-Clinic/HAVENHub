@@ -102,9 +102,13 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   async function addTermAction(formData: FormData) {
     "use server";
     await requirePermission("volunteers.verify_spanish");
-    const term = String(formData.get("newTerm") ?? "").trim();
-    if (!term) return;
-    // Create a placeholder record for the new term so it appears in the dropdown
+    const season = String(formData.get("termSeason") ?? "").trim();
+    const year = String(formData.get("termYear") ?? "").trim();
+    if (!season || !year || year.length !== 4 || isNaN(Number(year))) return;
+    const term = `${season} ${year}`;
+    // Check if term already exists
+    const existing = await prisma.spanishAssessmentRecord.findFirst({ where: { term } });
+    if (existing) return;
     await prisma.spanishAssessmentRecord.create({
       data: {
         email: "",
@@ -112,10 +116,23 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         term,
         score: null,
         modifier: null,
-        notes: "Term placeholder -- add real assessments below",
+        notes: "Term placeholder",
         verified: null,
       },
     });
+    revalidatePath("/volunteers/spanish-review?tab=history");
+  }
+
+    async function deleteTermAction(formData: FormData) {
+    "use server";
+    await requirePermission("volunteers.verify_spanish");
+    const id = String(formData.get("id") ?? "");
+    const record = await prisma.spanishAssessmentRecord.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+    if (!record?.name?.startsWith("[")) return;
+    await prisma.spanishAssessmentRecord.delete({ where: { id } });
     revalidatePath("/volunteers/spanish-review?tab=history");
   }
 
@@ -257,11 +274,19 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
             </form>
 
             {/* Add new term */}
-            <form action={addTermAction} className="flex gap-2 items-center">
+            <form action={addTermAction} className="flex gap-2 items-center flex-wrap">
+              <Select name="termSeason">
+                <option value="">Season</option>
+                <option value="Spring">Spring</option>
+                <option value="Summer">Summer</option>
+                <option value="Fall">Fall</option>
+                <option value="Winter">Winter</option>
+              </Select>
               <Input
-                name="newTerm"
-                placeholder="e.g. Fall 2026"
-                className="w-36"
+                name="termYear"
+                placeholder="2027"
+                className="w-24"
+                maxLength={4}
               />
               <SubmitButton variant="outline" pendingLabel="Adding...">Add term</SubmitButton>
             </form>
@@ -314,29 +339,37 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                       }
                     </TD>
                     <TD>
-                      <form action={updateHistoryAction} className="flex gap-1 items-center flex-wrap">
-                        <input type="hidden" name="id" value={r.id} />
-                        <Select name="score" defaultValue={String(r.score ?? "")}>
-                          <option value="">-</option>
-                          <option value="1">1</option>
-                          <option value="2">2</option>
-                          <option value="3">3</option>
-                          <option value="4">4</option>
-                          <option value="5">5</option>
-                        </Select>
-                        <Select name="modifier" defaultValue={r.modifier ?? ""}>
-                          <option value="">none</option>
-                          <option value="plus">+</option>
-                          <option value="minus">-</option>
-                        </Select>
-                        <Input
-                          name="notes"
-                          defaultValue={r.notes ?? ""}
-                          placeholder="Notes..."
-                          className="w-32 text-xs"
-                        />
-                        <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Save</SubmitButton>
-                      </form>
+                      <div className="flex flex-col gap-1">
+                        <form action={updateHistoryAction} className="flex gap-1 items-center flex-wrap">
+                          <input type="hidden" name="id" value={r.id} />
+                          <Select name="score" defaultValue={String(r.score ?? "")}>
+                            <option value="">-</option>
+                            <option value="1">1 - Almost none</option>
+                            <option value="2">2 - Some</option>
+                            <option value="3">3 - Conversational</option>
+                            <option value="4">4 - Fluent</option>
+                            <option value="5">5 - Native</option>
+                          </Select>
+                          <Select name="modifier" defaultValue={r.modifier ?? ""}>
+                            <option value="">none</option>
+                            <option value="plus">+</option>
+                            <option value="minus">-</option>
+                          </Select>
+                          <Input
+                            name="notes"
+                            defaultValue={r.notes ?? ""}
+                            placeholder="Notes..."
+                            className="w-32 text-xs"
+                          />
+                          <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">Save</SubmitButton>
+                        </form>
+                        {r.name?.startsWith("[") && (
+                          <form action={deleteTermAction}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <SubmitButton variant="outline" size="sm" pendingLabel="Deleting...">Delete term</SubmitButton>
+                          </form>
+                        )}
+                      </div>
                     </TD>
                   </TR>
                 ))}

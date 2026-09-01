@@ -321,7 +321,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
         <SectionHeader>Attendings</SectionHeader>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-subtle-foreground">
-            Faculty who cover clinic. They hold no membership and belong to no
+            Attending Faculty: they hold no membership and belong to no
             department, so they are counted and exported separately from the
             roster above.
           </p>

@@ -515,7 +515,7 @@ git commit -m "feat(outreach): add date conditions with a per-run clock and zone
   - `NUMBER_OPERATORS: ConditionOp[]` = `["eq", "notEq", "lt", "lte", "gt", "gte", "between"]`
   - `countWhere(counts: Map<string, number>, cond: AudienceCondition): Prisma.PersonWhereInput`
   - `AudienceCtx` gains `countsByField?: Map<string, Map<string, number>>` (field key to person id to count).
-  - `type CountLoader = (personIds: null, ctx: { activeTermId: string | null }) => Promise<Map<string, number>>` registered per field.
+  - `type CountLoader = (ctx: { activeTermId: string | null }) => Promise<Map<string, number>>` registered per field. Lives in `types.ts`, not `person-fields.ts`, so `count-loaders.ts` and `person-fields.ts` do not import from each other.
 
 - [ ] **Step 1: Write the failing tests**
 

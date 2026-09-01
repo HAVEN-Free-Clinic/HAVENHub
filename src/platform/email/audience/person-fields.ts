@@ -201,6 +201,49 @@ export function dateField(
 }
 
 /**
+ * A date living on a RELATED row rather than on Person.
+ *
+ * Compiles to `{ <relation>: { some: { <column>: <datePredicate> } } }`, so a
+ * person matches when ANY of their related rows satisfies the date. That is the
+ * right reading for certificates and completions, where the question is "did
+ * this ever happen in that window", not "did all of them".
+ *
+ * `isEmpty` is the one operator that cannot use `some`: "has no completion date"
+ * must also match a person with no related rows AT ALL, which `some` never does.
+ */
+function relationDateField(
+  key: string,
+  label: string,
+  group: string,
+  relation: string,
+  column: string,
+): PersonFieldDef {
+  return {
+    key,
+    label,
+    group,
+    kind: "date",
+    operators: DATE_OPERATORS,
+    compile: (cond, ctx) => {
+      const inner = dateWhere(column, cond, ctx) as Record<string, unknown>;
+      // dateWhere returns MATCH_NOBODY as { id: { in: [] } }, which is a Person
+      // predicate, not a relation one. Pass it straight through.
+      if ("id" in inner) return inner as Prisma.PersonWhereInput;
+
+      if (cond.op === "isEmpty") {
+        return {
+          OR: [
+            { [relation]: { none: {} } },
+            { [relation]: { some: { [column]: null } } },
+          ],
+        } as Prisma.PersonWhereInput;
+      }
+      return { [relation]: { some: inner } } as Prisma.PersonWhereInput;
+    },
+  };
+}
+
+/**
  * Loaders for every registered count-kind field, keyed by field key.
  * resolveAudience runs only the loaders for fields the audience actually
  * names (see resolve.ts), since each one is a table scan.
@@ -616,6 +659,11 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       return { id: { in: ids } };
     },
   },
+  relationDateField("hipaaCompletedAt", "HIPAA certificate completion date", "Compliance", "hipaaCertificates", "completionDate"),
+  relationDateField("hipaaVerifiedAt", "HIPAA certificate verified date", "Compliance", "hipaaCertificates", "verifiedAt"),
+  relationDateField("ehsCompletedAt", "EHS training completion date", "Compliance", "ehsCompletions", "completedAt"),
+  relationDateField("trainingCompletedAt", "Volunteer training completion date", "Training", "trainings", "completedAt"),
+  dateField("joinedAt", "Joined the roster", "Identity", "createdAt"),
 ];
 
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {

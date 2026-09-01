@@ -617,11 +617,7 @@ describe("scope enforcement", () => {
 });
 
 describe("relative date conditions re-evaluate per run", () => {
-  // Depends on the `hipaaCompletedAt` field, which Task 3 adds. Written now so
-  // the per-run-clock requirement stays visible in the task that implements the
-  // clock, rather than being forgotten three tasks later. Task 3's first step
-  // un-skips this.
-  it.skip("matches a different set as `now` advances", async () => {
+  it("matches a different set as `now` advances", async () => {
     // A certificate completed on a fixed date. Whether it falls inside
     // "the last 7 days" depends entirely on when the run happens.
     const p = await prisma.person.create({

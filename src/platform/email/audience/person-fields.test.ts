@@ -31,6 +31,7 @@ describe("person fields", () => {
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
+      "hipaaCompletedAt", "hipaaVerifiedAt", "ehsCompletedAt", "trainingCompletedAt", "joinedAt",
     ]);
   });
 

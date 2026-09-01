@@ -51,7 +51,11 @@ export default async function NewCampaignPage() {
 
           <Field label="Audience scope">
             <Select name="scopeId" required={!unrestricted} defaultValue="">
-              {unrestricted && <option value="">No scope (everyone)</option>}
+              {unrestricted ? (
+                <option value="">No scope (everyone)</option>
+              ) : (
+                <option value="" disabled>Choose a scope</option>
+              )}
               {scopes.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}

@@ -2,25 +2,40 @@ import type { Prisma, Track, TechRequestStatus, EpicRequestStatus } from "@prism
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
+import type { DisplayTimeZone } from "@/platform/dates/zone";
 import type { AudienceCondition, ConditionOp } from "./types";
 import {
   BOOLEAN_OPERATORS,
+  DATE_OPERATORS,
   ENUM_OPERATORS,
   MATCH_NOBODY,
   MULTI_ENUM_OPERATORS,
   TEXT_OPERATORS,
   YEAR_OPERATORS,
   asArray,
+  dateWhere,
   enumWhere,
   stringSetFilter,
   textWhere,
   yearWhere,
 } from "./operators";
 
-export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean" | "year";
+export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean" | "year" | "date";
 
 export type AudienceCtx = {
   activeTermId: string | null;
+  /**
+   * The instant this resolve is happening. Required, and threaded rather than
+   * read from the clock inside a compile function, for two reasons: a recurring
+   * campaign's relative windows must re-evaluate on every run against the run's
+   * own clock, and a fixed clock is what makes the operators testable.
+   */
+  now: Date;
+  /**
+   * The clinic's configured display zone. Date conditions compare by CALENDAR
+   * DAY in this zone, so "expires on the 20th" means the local 20th.
+   */
+  zone: DisplayTimeZone;
   /**
    * Live compliance status for every Person, keyed by id. Required only when
    * resolving a `complianceStatus` condition: that status is derived (newest
@@ -151,6 +166,22 @@ function textField(key: string, label: string, column: string, nullable = true):
     kind: "text",
     operators: TEXT_OPERATORS,
     compile: (cond) => textWhere(column, cond, nullable),
+  };
+}
+
+export function dateField(
+  key: string,
+  label: string,
+  group: string,
+  column: string,
+): PersonFieldDef {
+  return {
+    key,
+    label,
+    group,
+    kind: "date",
+    operators: DATE_OPERATORS,
+    compile: (cond, ctx) => dateWhere(column, cond, ctx),
   };
 }
 

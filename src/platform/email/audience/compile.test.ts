@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compilePersonWhere } from "./compile";
 
-const ctx = { activeTermId: "t1" };
+const ctx = { activeTermId: "t1", now: new Date("2026-01-01T12:00:00.000Z"), zone: "America/New_York" as const };
 
 describe("compilePersonWhere", () => {
   it("ALL -> AND of fragments", () => {

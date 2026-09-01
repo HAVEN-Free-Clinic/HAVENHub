@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere } from "./person-fields";
 
-const ctx = { activeTermId: "term1" };
+// Fixed clock/zone shared by tests that don't care about date behavior; kept
+// separate from date-operators.test.ts's own fixture so a change there can't
+// silently affect these.
+const NOW = new Date("2026-01-01T12:00:00.000Z");
+const ZONE = "America/New_York" as const;
+
+const ctx = { activeTermId: "term1", now: NOW, zone: ZONE };
 
 const complianceCtx = {
   activeTermId: "term1",
+  now: NOW,
+  zone: ZONE,
   complianceStatusByPerson: new Map<string, ComplianceStatus>([
     ["p1", "COMPLIANT"],
     ["p2", "EXPIRED"],
@@ -290,7 +298,7 @@ describe("relation-backed conditions (compliance program additions)", () => {
   // `none: { termId: "" }`, which is TRUE for every Person row -> a campaign would
   // email the entire database. Both operators must match nobody.
   it("term-scoped fields match nobody when there is no active term", () => {
-    const noTerm = { activeTermId: null };
+    const noTerm = { activeTermId: null, now: NOW, zone: ZONE };
     for (const field of ["completedVolunteerTraining", "flaggedForOffboarding"] as const) {
       expect(personFieldWhere({ field, op: "isTrue" }, noTerm)).toEqual({ id: { in: [] } });
       expect(personFieldWhere({ field, op: "isFalse" }, noTerm)).toEqual({ id: { in: [] } });
@@ -302,7 +310,7 @@ describe("relation-backed conditions (compliance program additions)", () => {
   // Both used to lean on `termId: ""` matching no membership by accident; these
   // pin the match-nobody guarantee to an explicit guard instead.
   it("role and department match nobody when there is no active term", () => {
-    const noTerm = { activeTermId: null };
+    const noTerm = { activeTermId: null, now: NOW, zone: ZONE };
     expect(personFieldWhere({ field: "role", op: "eq", value: "DIRECTOR" }, noTerm)).toEqual({ id: { in: [] } });
     expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, noTerm)).toEqual({ id: { in: [] } });
     expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, noTerm)).toEqual({
@@ -368,14 +376,19 @@ describe("term-scoped roster fields", () => {
   });
 
   it("still matches nobody with no active term AND no named terms", () => {
-    expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, { activeTermId: null })).toEqual({
+    expect(
+      personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, { activeTermId: null, now: NOW, zone: ZONE }),
+    ).toEqual({
       id: { in: [] },
     });
   });
 
   it("named terms work even with no active term", () => {
     expect(
-      personFieldWhere({ field: "onRoster", op: "isTrue", terms: ["sp26"] }, { activeTermId: null }),
+      personFieldWhere(
+        { field: "onRoster", op: "isTrue", terms: ["sp26"] },
+        { activeTermId: null, now: NOW, zone: ZONE },
+      ),
     ).toEqual({ memberships: { some: { termId: "sp26", status: "ACTIVE" } } });
   });
 });
@@ -476,6 +489,8 @@ describe("gradYear ordered comparison", () => {
 describe("appliedToCycle", () => {
   const appliedCtx = {
     activeTermId: "term1",
+    now: NOW,
+    zone: ZONE,
     appliedByCycle: new Map([
       ["fall26", new Set(["p1", "p2"])],
       ["spring27", new Set(["p2", "p3"])],

@@ -19,7 +19,19 @@ export type ConditionOp =
   | "notContains"
   // Ordered comparison, used by year-kind fields (see gradYear).
   | "lt"
-  | "gt";
+  | "gt"
+  // Date operators. `before`/`after`/`onOrBefore`/`onOrAfter`/`between` take
+  // calendar dates ("YYYY-MM-DD") and resolve against the clinic's display zone.
+  // `withinNextDays`/`withinLastDays` take a whole number of days and resolve
+  // against `now` AT RESOLVE TIME, which is what lets a recurring campaign mean
+  // something different on each run.
+  | "before"
+  | "after"
+  | "onOrBefore"
+  | "onOrAfter"
+  | "between"
+  | "withinNextDays"
+  | "withinLastDays";
 
 /** Operators that take no value; the builder shows no value control for these. */
 export const VALUELESS_OPS: ConditionOp[] = ["isEmpty", "isNotEmpty", "isTrue", "isFalse"];

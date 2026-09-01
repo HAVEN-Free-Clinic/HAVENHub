@@ -42,6 +42,17 @@ const OP_LABELS: Record<ConditionOp, string> = {
   isFalse: "no",
   lt: "is before",
   gt: "is after",
+  // Date operators. No field of kind "date" is registered yet (Task 1 of the
+  // audience-depth plan adds only the engine); these labels exist so this
+  // Record stays exhaustive over ConditionOp, and are picked up unchanged once
+  // a date field starts using them.
+  before: "is before",
+  after: "is after",
+  onOrBefore: "is on or before",
+  onOrAfter: "is on or after",
+  between: "is between",
+  withinNextDays: "is within the next (days)",
+  withinLastDays: "is within the last (days)",
 };
 
 /** Operators whose value is a checkbox selection rather than typed text. */

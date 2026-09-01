@@ -26,6 +26,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
+import { parseZonedInput } from "@/platform/dates";
 import type { AudienceCondition, ConditionOp } from "./types";
 
 /** Empty/incomplete conditions compile to this; never an accidental send-all. */
@@ -224,4 +225,142 @@ export function yearWhere(column: string, cond: AudienceCondition): Prisma.Perso
     return { [column]: { [cond.op]: raw } } as Prisma.PersonWhereInput;
   }
   return textWhere(column, cond, true);
+}
+
+export const DATE_OPERATORS: ConditionOp[] = [
+  "before",
+  "after",
+  "onOrBefore",
+  "onOrAfter",
+  "between",
+  "withinNextDays",
+  "withinLastDays",
+  "isEmpty",
+  "isNotEmpty",
+];
+
+/** A calendar date with no time part, the only shape the absolute operators accept. */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A whole, non-negative day count, the only shape the window operators accept. */
+const WINDOW_RE = /^\d+$/;
+
+/** The calendar Y/M/D that `instant` falls on in `zone`. */
+function localDayParts(instant: Date, zone: string): { y: string; m: string; d: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const g = (t: string) => parts.find((p) => p.type === t)!.value;
+  return { y: g("year"), m: g("month"), d: g("day") };
+}
+
+/**
+ * The instant at which `day` begins in `zone`.
+ *
+ * Delegates to parseZonedInput rather than reimplementing the offset maths: it
+ * already resolves the offset twice to settle DST transitions, so a date on the
+ * far side of a spring-forward lands on the real local midnight rather than an
+ * hour off. Returns null for anything that is not a bare calendar date, which
+ * every caller turns into MATCH_NOBODY.
+ */
+function startOfDay(day: string, zone: string): Date | null {
+  const raw = day.trim();
+  if (!DATE_RE.test(raw)) return null;
+  return parseZonedInput(`${raw}T00:00`, zone);
+}
+
+/** The instant at which the day AFTER `day` begins in `zone`. */
+function startOfNextDay(day: string, zone: string): Date | null {
+  const start = startOfDay(day, zone);
+  if (!start) return null;
+  // Add 24h then re-normalise through the zone, so a DST transition inside the
+  // added day does not leave the boundary an hour off.
+  const approx = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const { y, m, d } = localDayParts(approx, zone);
+  return parseZonedInput(`${y}-${m}-${d}T00:00`, zone);
+}
+
+/** Shifts `now` by whole days and returns the local start of that day. */
+function startOfDayOffsetFromNow(now: Date, days: number, zone: string): Date | null {
+  const shifted = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const { y, m, d } = localDayParts(shifted, zone);
+  return parseZonedInput(`${y}-${m}-${d}T00:00`, zone);
+}
+
+/**
+ * A DateTime column compared by CALENDAR DAY in the clinic's display zone.
+ *
+ * Every absolute operator resolves its boundary to a real local midnight, so
+ * "expires on or before the 20th" includes the whole of the 20th wherever the
+ * clinic is, rather than cutting off at 20:00 local because UTC midnight came
+ * first.
+ *
+ * The window operators (`withinNextDays`, `withinLastDays`) resolve against
+ * `ctx.now`, which resolveAudience supplies fresh on every run. They are the
+ * reason this function takes a context at all: freezing them at save time would
+ * make a recurring "expiring in the next 30 days" campaign mean the same fixed
+ * range forever.
+ */
+export function dateWhere(
+  column: string,
+  cond: AudienceCondition,
+  ctx: { now: Date; zone: string },
+): Prisma.PersonWhereInput {
+  const single = typeof cond.value === "string" ? cond.value : "";
+
+  switch (cond.op) {
+    case "isEmpty":
+      return { [column]: null } as Prisma.PersonWhereInput;
+    case "isNotEmpty":
+      return { [column]: { not: null } } as Prisma.PersonWhereInput;
+
+    case "before": {
+      const b = startOfDay(single, ctx.zone);
+      if (!b) return MATCH_NOBODY;
+      return { [column]: { lt: b } } as Prisma.PersonWhereInput;
+    }
+    case "onOrAfter": {
+      const b = startOfDay(single, ctx.zone);
+      if (!b) return MATCH_NOBODY;
+      return { [column]: { gte: b } } as Prisma.PersonWhereInput;
+    }
+    case "after": {
+      const b = startOfNextDay(single, ctx.zone);
+      if (!b) return MATCH_NOBODY;
+      return { [column]: { gte: b } } as Prisma.PersonWhereInput;
+    }
+    case "onOrBefore": {
+      const b = startOfNextDay(single, ctx.zone);
+      if (!b) return MATCH_NOBODY;
+      return { [column]: { lt: b } } as Prisma.PersonWhereInput;
+    }
+
+    case "between": {
+      const pair = asArray(cond.value);
+      if (pair.length !== 2) return MATCH_NOBODY;
+      const gte = startOfDay(pair[0], ctx.zone);
+      const lt = startOfNextDay(pair[1], ctx.zone);
+      if (!gte || !lt) return MATCH_NOBODY;
+      return { [column]: { gte, lt } } as Prisma.PersonWhereInput;
+    }
+
+    case "withinNextDays": {
+      if (!WINDOW_RE.test(single.trim())) return MATCH_NOBODY;
+      const lt = startOfDayOffsetFromNow(ctx.now, Number(single) + 1, ctx.zone);
+      if (!lt) return MATCH_NOBODY;
+      return { [column]: { gte: ctx.now, lt } } as Prisma.PersonWhereInput;
+    }
+    case "withinLastDays": {
+      if (!WINDOW_RE.test(single.trim())) return MATCH_NOBODY;
+      const gte = startOfDayOffsetFromNow(ctx.now, -Number(single), ctx.zone);
+      if (!gte) return MATCH_NOBODY;
+      return { [column]: { gte, lte: ctx.now } } as Prisma.PersonWhereInput;
+    }
+
+    default:
+      throw new Error(`Unsupported date operator: ${cond.op}`);
+  }
 }

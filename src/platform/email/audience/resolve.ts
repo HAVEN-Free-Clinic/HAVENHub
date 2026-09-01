@@ -2,6 +2,7 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { loadComplianceStatusMap } from "@/platform/compliance/status";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { Audience, AudienceCondition, AudienceNode } from "./types";
 import { isAudienceGroup } from "./types";
 import { compilePersonWhere } from "./compile";
@@ -83,12 +84,19 @@ async function loadAppliedByCycle(cycleIds: string[]): Promise<Map<string, Set<s
  * where. Appending the scope as a sibling condition instead would be a security
  * bug, because a campaign whose root match is ANY would OR the scope straight
  * back out and mail everyone.
+ *
+ * `opts.now`, when present, pins the clock date conditions resolve against;
+ * tests use it to pin a fixed instant. In production it is left unset, so every
+ * run (recurring campaigns included) resolves relative date windows against the
+ * real clock at send time, not a value frozen when the audience was saved.
  */
 export async function resolveAudience(
   audience: Audience,
-  opts: { scope?: Audience | null } = {},
+  opts: { scope?: Audience | null; now?: Date } = {},
 ): Promise<ResolvedAudience> {
   const activeTerm = await getActiveTerm();
+  const now = opts.now ?? new Date();
+  const zone = await getDisplayTimeZone();
   // Precompute detection must span BOTH trees. A condition that appears only in
   // the scope still needs its precomputed map, or the field compiler resolves
   // the scope half against an undefined map.
@@ -145,6 +153,8 @@ export async function resolveAudience(
 
   const ctx = {
     activeTermId: activeTerm?.id ?? null,
+    now,
+    zone,
     complianceStatusByPerson,
     clearanceByPerson,
     appliedByCycle,

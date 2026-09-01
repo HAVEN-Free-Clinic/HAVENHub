@@ -615,3 +615,39 @@ describe("scope enforcement", () => {
     expect(recipients.length).toBeGreaterThan(0);
   });
 });
+
+describe("relative date conditions re-evaluate per run", () => {
+  // Depends on the `hipaaCompletedAt` field, which Task 3 adds. Written now so
+  // the per-run-clock requirement stays visible in the task that implements the
+  // clock, rather than being forgotten three tasks later. Task 3's first step
+  // un-skips this.
+  it.skip("matches a different set as `now` advances", async () => {
+    // A certificate completed on a fixed date. Whether it falls inside
+    // "the last 7 days" depends entirely on when the run happens.
+    const p = await prisma.person.create({
+      data: { name: "Cert Holder", contactEmail: "cert@example.com", status: "ACTIVE" },
+    });
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: p.id,
+        fileName: "c.pdf",
+        storedName: "c.pdf",
+        size: 1,
+        mimeType: "application/pdf",
+        completionDate: new Date("2026-03-10T12:00:00.000Z"),
+      },
+    });
+
+    const audience: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "hipaaCompletedAt", op: "withinLastDays", value: "7" }],
+    };
+
+    const near = await resolveAudience(audience, { now: new Date("2026-03-12T18:00:00.000Z") });
+    expect(near.recipients.map((r) => r.email)).toEqual(["cert@example.com"]);
+
+    const far = await resolveAudience(audience, { now: new Date("2026-04-30T18:00:00.000Z") });
+    expect(far.recipients).toEqual([]);
+  });
+});

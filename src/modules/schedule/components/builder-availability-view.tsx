@@ -9,6 +9,10 @@ import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView } from "@/modules/schedule/services/builder";
 import { IntakeNotes } from "./intake-notes";
 import { sortClinicDates } from "./clinic-date-order";
+import {
+  BUILDER_AVAILABILITY_PILL_CLASS,
+  builderReadOnlyPillClass,
+} from "./availability-pill";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -92,13 +96,16 @@ export function BuilderAvailabilityView({
                   <div className="flex flex-wrap gap-2 mb-3">
                     {sortedClinicDates.map((d) => {
                       const key = isoDateKey(d);
-                      const checked = availKeys.has(key);
+                      // Only the checkbox's INITIAL state may come from the
+                      // server value. The pill's colour must not: it is styled
+                      // from the live checkbox by BUILDER_AVAILABILITY_PILL_CLASS,
+                      // so a director sees each date respond to the click.
                       return (
-                        <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
+                        <label key={key} className={BUILDER_AVAILABILITY_PILL_CLASS}>
                           <Checkbox
                             name="dates"
                             value={key}
-                            defaultChecked={checked}
+                            defaultChecked={availKeys.has(key)}
                           />
                           {displayDate(key)}
                         </label>
@@ -124,12 +131,8 @@ export function BuilderAvailabilityView({
               <div className="flex flex-wrap gap-2">
                 {sortedClinicDates.map((d) => {
                   const key = isoDateKey(d);
-                  const checked = availKeys.has(key);
                   return (
-                    <span
-                      key={key}
-                      className={`rounded-full border px-2.5 py-1 text-xs whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground"}`}
-                    >
+                    <span key={key} className={builderReadOnlyPillClass(availKeys.has(key))}>
                       {displayDate(key)}
                     </span>
                   );

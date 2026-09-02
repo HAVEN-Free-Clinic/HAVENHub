@@ -5,7 +5,8 @@ import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { Audience, AudienceCondition, AudienceNode } from "./types";
 import { isAudienceGroup } from "./types";
-import { compilePersonWhere } from "./compile";
+import { compileNodeWhere, compilePersonWhere } from "./compile";
+import type { AudienceCtx } from "./person-fields";
 import { personVariables } from "./variables";
 import { asArray } from "./operators";
 import { COUNT_LOADERS } from "./person-fields";
@@ -147,32 +148,29 @@ async function loadApplicantFacts(
 }
 
 /**
- * Resolve an audience to its recipients.
+ * Build the compile context ONCE for an audience and (optionally) the scope it
+ * is bounded by.
  *
- * `opts.scope`, when present, is an audience the result may not escape: the two
- * trees compile independently and are intersected at the ROOT of the Prisma
- * where. Appending the scope as a sibling condition instead would be a security
- * bug, because a campaign whose root match is ANY would OR the scope straight
- * back out and mail everyone.
- *
- * `opts.now`, when present, pins the clock date conditions resolve against;
- * tests use it to pin a fixed instant. In production it is left unset, so every
- * run (recurring campaigns included) resolves relative date windows against the
- * real clock at send time, not a value frozen when the audience was saved.
+ * Shared by resolveAudience and countAudienceNodes rather than duplicated:
+ * every precompute below is gated on a field actually being NAMED by one of the
+ * two trees, and that gating has to see both trees. A second copy of this
+ * detection that drifted would not fail loudly -- it would hand the field
+ * compiler an undefined map for a condition it did not notice, which resolves
+ * to match-nobody under ALL/ANY and, inside a NONE group, to everybody.
  */
-export async function resolveAudience(
+async function buildAudienceCtx(
   audience: Audience,
-  opts: { scope?: Audience | null; now?: Date } = {},
-): Promise<ResolvedAudience> {
+  scope: Audience | null | undefined,
+  now: Date,
+): Promise<AudienceCtx> {
   const activeTerm = await getActiveTerm();
-  const now = opts.now ?? new Date();
   const zone = await getDisplayTimeZone();
   // Precompute detection must span BOTH trees. A condition that appears only in
   // the scope still needs its precomputed map, or the field compiler resolves
   // the scope half against an undefined map.
   const conditions = [
     ...collectConditions(audience.conditions),
-    ...(opts.scope ? collectConditions(opts.scope.conditions) : []),
+    ...(scope ? collectConditions(scope.conditions) : []),
   ];
 
   // Compliance status is derived live (newest cert + term end), so it can't be a
@@ -262,7 +260,7 @@ export async function resolveAudience(
     );
   }
 
-  const ctx = {
+  return {
     activeTermId: activeTerm?.id ?? null,
     now,
     zone,
@@ -274,6 +272,27 @@ export async function resolveAudience(
     bySubcommittee: applicantFacts?.bySubcommittee,
     countsByField,
   };
+}
+
+/**
+ * Resolve an audience to its recipients.
+ *
+ * `opts.scope`, when present, is an audience the result may not escape: the two
+ * trees compile independently and are intersected at the ROOT of the Prisma
+ * where. Appending the scope as a sibling condition instead would be a security
+ * bug, because a campaign whose root match is ANY would OR the scope straight
+ * back out and mail everyone.
+ *
+ * `opts.now`, when present, pins the clock date conditions resolve against;
+ * tests use it to pin a fixed instant. In production it is left unset, so every
+ * run (recurring campaigns included) resolves relative date windows against the
+ * real clock at send time, not a value frozen when the audience was saved.
+ */
+export async function resolveAudience(
+  audience: Audience,
+  opts: { scope?: Audience | null; now?: Date } = {},
+): Promise<ResolvedAudience> {
+  const ctx = await buildAudienceCtx(audience, opts.scope, opts.now ?? new Date());
   const campaignWhere = compilePersonWhere(audience, ctx);
   const where = opts.scope
     ? { AND: [compilePersonWhere(opts.scope, ctx), campaignWhere] }
@@ -298,4 +317,101 @@ export async function resolveAudience(
     });
   }
   return { recipients, excludedNoEmail };
+}
+
+/**
+ * The most nodes (root included) a single count request will fan out over.
+ *
+ * Each node costs its own `prisma.person.count`, and the builder re-counts on
+ * every edit, so an unbounded tree turns one debounced keystroke into dozens of
+ * queries against the shared connection pool. A tree past the budget yields NO
+ * counts at all rather than a partial map: a builder showing counts on the
+ * first forty clauses and blanks on the rest reads as "those clauses match
+ * nobody", which is precisely the misreading the counts exist to prevent.
+ *
+ * Forty is well above any hand-built audience (the deepest one in the starters
+ * has six nodes) and low enough that the worst case stays a fraction of a
+ * second.
+ */
+export const MAX_COUNTED_NODES = 40;
+
+/** The key for the whole tree, distinct from any index-derived child path. */
+export const ROOT_NODE_PATH = "root";
+
+/**
+ * Every node of the tree paired with its stable path key.
+ *
+ * The path is positional: root-level children are "0", "1", ...; a child of the
+ * node at "1" is "1.0". The builder derives the same key from the same indices
+ * as it renders (see nodeCountPath in audience-builder.tsx), which is what lets
+ * one server round trip address every row on the client.
+ */
+function enumerateNodes(audience: Audience): { path: string; node: AudienceNode }[] {
+  const out: { path: string; node: AudienceNode }[] = [
+    // The root is a group in every respect except that Audience spells its two
+    // halves as `match` + `conditions`, so it is counted through the same
+    // node compiler as everything else rather than a special case.
+    { path: ROOT_NODE_PATH, node: { match: audience.match, children: audience.conditions } },
+  ];
+  const walk = (nodes: AudienceNode[], prefix: string) => {
+    nodes.forEach((node, i) => {
+      const path = prefix === ROOT_NODE_PATH ? String(i) : `${prefix}.${i}`;
+      out.push({ path, node });
+      if (isAudienceGroup(node)) walk(node.children, path);
+    });
+  };
+  walk(audience.conditions, ROOT_NODE_PATH);
+  return out;
+}
+
+/**
+ * How many people each node of the tree matches, keyed by node path.
+ *
+ * `opts.scope` bounds EVERY node, not merely the root, and it is intersected at
+ * the root of each node's `where` exactly as resolveAudience intersects it for
+ * a send. That is the whole security property of this function: the counts are
+ * live and per-node, so a scoped sender who could see an unscoped number for
+ * even one clause could binary-search the rest of the directory by editing that
+ * clause and watching the number move. Callers must therefore pass the scope
+ * that governs the campaign, never one derived from anything the client sent
+ * (see countAudienceNodes in campaigns/service.ts).
+ *
+ * A node's count is the count of its own compiled fragment, with no per-node
+ * adjustment. A NONE group is `NOT { OR: children }`, so its count is everyone
+ * in scope matching none of its children -- typically a number LARGER than the
+ * audience it sits inside. That is deliberate: three send-all bugs on this
+ * branch came from a NONE group silently inverting to match everybody, and a
+ * count that shows the widening is the first thing that makes it visible. The
+ * builder labels it so the number cannot be read as an addition.
+ *
+ * Counted with `prisma.person.count` rather than by resolving recipients: only
+ * the number is wanted, and materialising rows per node would multiply the cost
+ * of a keystroke by the size of the roster. The counts are therefore of PEOPLE
+ * matching, before the send path drops anyone lacking an email address and
+ * dedups by address; `previewAudience` remains the authority on how many
+ * messages actually go out.
+ *
+ * Sequential on purpose. The fan-out is already bounded by MAX_COUNTED_NODES,
+ * and firing forty concurrent queries would saturate a connection pool shared
+ * with every other request the instance is serving, to save time on a request
+ * that is debounced and decorative.
+ */
+export async function countAudienceNodes(
+  audience: Audience,
+  opts: { scope?: Audience | null; now?: Date } = {},
+): Promise<Record<string, number>> {
+  const nodes = enumerateNodes(audience);
+  if (nodes.length > MAX_COUNTED_NODES) return {};
+
+  const ctx = await buildAudienceCtx(audience, opts.scope, opts.now ?? new Date());
+  const scopeWhere = opts.scope ? compilePersonWhere(opts.scope, ctx) : null;
+
+  const counts: Record<string, number> = {};
+  for (const { path, node } of nodes) {
+    const nodeWhere = compileNodeWhere(node, ctx);
+    counts[path] = await prisma.person.count({
+      where: scopeWhere ? { AND: [scopeWhere, nodeWhere] } : nodeWhere,
+    });
+  }
+  return counts;
 }

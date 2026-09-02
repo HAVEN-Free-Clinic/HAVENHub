@@ -3,12 +3,15 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
-  scheduleCampaign, cancelCampaign, executeRun, listCampaigns,
+  scheduleCampaign, cancelCampaign, executeRun, listCampaigns, countAudienceNodes,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
+import { MAX_COUNTED_NODES } from "@/platform/email/audience/resolve";
+import type { Audience } from "@/platform/email/audience/types";
 import * as audienceResolve from "@/platform/email/audience/resolve";
 import * as sendModule from "@/platform/email/send";
 import { createScope, grantScope } from "@/platform/email/audience/scopes";
+import * as scopes from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
 import { assertMayActOnScope, resolveCampaignAudience, CampaignScopeError } from "./service";
 
@@ -673,5 +676,263 @@ describe("manual include, exclude, and pasted recipient lists", () => {
     });
 
     expect(recipients.map((r) => r.recordId)).toEqual([person.id]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-node match counts
+//
+// Every OTHER action in this service resolves an audience already stored in the
+// database. countAudienceNodes is the one that takes a CLIENT-SUPPLIED tree,
+// because its whole job is to count what the sender is editing before it is
+// saved. That makes it the only new attack surface here, and the scope test is
+// deliberately the first one in this block: a count computed without the
+// campaign's scope leaks the size and shape of rosters the sender may not mail,
+// and because the counts are live and per-node a sender could binary-search the
+// directory by editing conditions and watching the numbers move.
+// ---------------------------------------------------------------------------
+describe("countAudienceNodes", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function activeOnlyScope(name: string) {
+    return createScope(null, {
+      name,
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+      },
+    });
+  }
+
+  const NAMED = { field: "name", op: "isNotEmpty" as const };
+
+  it("counts each node against the campaign's scope, not the whole roster", async () => {
+    const scope = await activeOnlyScope("Active only (counts)");
+    await activePerson("In Scope", "in-scope@example.com");
+    // OFFBOARDED, so outside the scope, but they satisfy the campaign's own
+    // condition (they have a name). A count that skipped the scope would report
+    // 2 and tell a scoped sender exactly how many people they cannot mail.
+    await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "out-of-scope@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "Scoped counts", { scopeId: scope.id });
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [NAMED],
+    });
+
+    expect(counts["0"]).toBe(1);
+    expect(counts.root).toBe(1);
+  });
+
+  // The attack the client-supplied audience opens: the sender posts a tree
+  // crafted to match the whole directory rather than the one they are editing.
+  // Every node's count must still come back bounded by the campaign row's own
+  // scope, the NONE group included -- that is the one node type compiling to
+  // `NOT { OR: children }`, and it has already produced three send-all bugs on
+  // this branch by silently inverting to match everybody.
+  it("bounds a client-supplied match-everyone audience by the campaign's scope", async () => {
+    const scope = await activeOnlyScope("Active only (attack)");
+    await activePerson("Active One", "a1@example.com");
+    await activePerson("Active Two", "a2@example.com");
+    for (const n of ["GoneOne", "GoneTwo", "GoneThree"]) {
+      await prisma.person.create({
+        data: { name: n, contactEmail: `${n}@example.com`, status: "OFFBOARDED" },
+      });
+    }
+
+    const c = await createDraft(null, "Attack counts", { scopeId: scope.id });
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: [
+        // "has a name" OR "has no name" is every Person row in the table.
+        NAMED,
+        { field: "name", op: "isEmpty" },
+        // NOT (status = ACTIVE): every OFFBOARDED person, i.e. precisely the
+        // rows the scope exists to hide.
+        { match: "NONE", children: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+      ],
+    });
+
+    expect(counts.root).toBe(2);
+    expect(counts["0"]).toBe(2);
+    expect(counts["1"]).toBe(0);
+    expect(counts["2"]).toBe(0);
+    expect(counts["2.0"]).toBe(2);
+  });
+
+  // EmailCampaign.scopeId is `onDelete: Restrict`, so a stored campaign cannot
+  // currently reference a scope row that is gone; the lookup is stubbed to
+  // produce the state directly. The branch is still worth pinning, because the
+  // day that constraint changes the wrong fallback here would silently turn a
+  // deleted boundary into a full-directory readout, which is exactly what
+  // resolveCampaignAudience refuses for a real send.
+  it("counts nobody when the campaign's scope can no longer be resolved", async () => {
+    const scope = await activeOnlyScope("Active only (vanishing)");
+    await activePerson("Still Here", "still@example.com");
+    const c = await createDraft(null, "Orphaned scope", { scopeId: scope.id });
+
+    vi.spyOn(scopes, "getScope").mockResolvedValue(null);
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [NAMED],
+    });
+    expect(counts.root).toBe(0);
+    expect(counts["0"]).toBe(0);
+  });
+
+  it("returns a count for every node including nested groups and the root", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+    await activePerson("Kim Ng", "kim@example.com");
+    await prisma.person.create({
+      data: { name: "Sam Retired", contactEmail: "samr@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "Nested counts", { scopeId: null });
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "status", op: "eq", value: "ACTIVE" },
+        {
+          match: "ANY",
+          children: [
+            { field: "name", op: "contains", value: "Sam" },
+            { field: "name", op: "contains", value: "Pat" },
+          ],
+        },
+      ],
+    });
+
+    // Every key holds a DIFFERENT number on purpose: a map keyed by the wrong
+    // path, or one that reused a parent's count for its children, would still
+    // have to land on the right value five times to pass.
+    expect(counts).toEqual({ root: 2, "0": 3, "1": 3, "1.0": 2, "1.1": 1 });
+  });
+
+  it("returns zero for an empty group rather than the whole roster", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+    await activePerson("Kim Ng", "kim@example.com");
+
+    const c = await createDraft(null, "Empty group", { scopeId: null });
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "status", op: "eq", value: "ACTIVE" },
+        // An empty NONE is the sharp version: compiled naively it is
+        // `NOT { OR: [] }`, which is vacuously true for every Person row.
+        { match: "NONE", children: [] },
+      ],
+    });
+
+    expect(counts["1"]).toBe(0);
+    expect(counts["0"]).toBe(3);
+    expect(counts.root).toBe(0);
+  });
+
+  // The decision this pins: a NONE group reports what its OWN compiled fragment
+  // matches (everyone matching none of its children), not the set it removes.
+  // The number is therefore larger than the audience it sits in, which is the
+  // point -- it makes the widening visible instead of hiding it behind a
+  // reassuringly small number.
+  it("counts a NONE group as its own compiled fragment, everyone matching no child", async () => {
+    // Load-bearing fixture: exactly ONE person matches the NONE group's child
+    // and TWO match none of them. The two readings of "the group's count" -- its
+    // own fragment (2) versus the set it removes (1) -- therefore land on
+    // different numbers. An earlier fixture had two Sams and passed under both,
+    // which is no test of the decision at all.
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+    await prisma.person.create({
+      data: { name: "Kim Retired", contactEmail: "kimr@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "None group", { scopeId: null });
+    const counts = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "status", op: "eq", value: "ACTIVE" },
+        { match: "NONE", children: [{ field: "name", op: "contains", value: "Sam" }] },
+      ],
+    });
+
+    // Pat Lee and Kim Retired match no child of the NONE group.
+    expect(counts["1"]).toBe(2);
+    // ... while the audience the group sits in is just Pat Lee.
+    expect(counts.root).toBe(1);
+  });
+
+  // The root count is not a derived aggregate over its children: it is the very
+  // resolution a send performs, which is why it can be checked against the
+  // preview the Review tab shows.
+  it("reports a root count equal to what the campaign actually resolves to", async () => {
+    const scope = await activeOnlyScope("Active only (root)");
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+    await prisma.person.create({
+      data: { name: "Gone", contactEmail: "gone@example.com", status: "OFFBOARDED" },
+    });
+
+    const audience = {
+      recordType: "PERSON" as const,
+      match: "ALL" as const,
+      conditions: [NAMED],
+    };
+    const c = await createDraft(null, "Root equals preview", { scopeId: scope.id });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience });
+
+    const counts = await countAudienceNodes(c.id, audience);
+    expect(counts.root).toBe((await previewAudience(c.id)).count);
+  });
+
+  it("refuses a tree past the node budget and returns an empty map", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    const c = await createDraft(null, "Huge tree", { scopeId: null });
+    const cond = { field: "name", op: "isNotEmpty" as const };
+
+    // The budget counts the root alongside every child, so a tree of exactly
+    // MAX_COUNTED_NODES - 1 conditions is the largest one still counted.
+    const atBudget = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: Array.from({ length: MAX_COUNTED_NODES - 1 }, () => cond),
+    });
+    expect(Object.keys(atBudget).length).toBe(MAX_COUNTED_NODES);
+
+    const overBudget = await countAudienceNodes(c.id, {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: Array.from({ length: MAX_COUNTED_NODES }, () => cond),
+    });
+    expect(overBudget).toEqual({});
+  });
+
+  it("rejects a malformed client-supplied audience instead of compiling it", async () => {
+    const c = await createDraft(null, "Malformed", { scopeId: null });
+    await expect(
+      countAudienceNodes(c.id, {
+        recordType: "APPLICANT",
+        match: "ALL",
+        conditions: [],
+      } as unknown as Audience),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    await expect(
+      countAudienceNodes(c.id, {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ nope: 1 }],
+      } as unknown as Audience),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
   });
 });

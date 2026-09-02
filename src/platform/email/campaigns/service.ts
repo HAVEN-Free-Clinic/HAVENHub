@@ -4,7 +4,7 @@ import { validateTemplate } from "@/platform/email/render/validate";
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES, personVariables } from "@/platform/email/audience/variables";
-import { resolveAudience } from "@/platform/email/audience/resolve";
+import { resolveAudience, countAudienceNodes as countNodes } from "@/platform/email/audience/resolve";
 import type { Recipient } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -391,6 +391,46 @@ export type AudiencePreview = {
   /** True when `count` exceeds what `sample` shows. */
   truncated: boolean;
 };
+
+/**
+ * How many people each clause of an UNSAVED audience tree matches, keyed by
+ * node path ("root", "0", "1.2"), for the builder's live per-node counts.
+ *
+ * This is the only entry point in this service that takes an audience from the
+ * caller instead of reading one out of the database, because its whole purpose
+ * is to count the tree a sender is still editing. Two things follow, and both
+ * are security properties rather than conveniences:
+ *
+ * 1. The scope is read from the campaign ROW below, never from the caller.
+ *    Nothing in `audience` can influence which scope is applied, and there is
+ *    deliberately no scope parameter for a caller to supply one -- the same
+ *    split previewAction uses, where the bound scopeId gates PERMISSION and the
+ *    campaign's own stored scopeId governs RESOLUTION.
+ * 2. `audience` is unvalidated input and is put through the same `isAudience`
+ *    gate updateCampaign applies before anything compiles it. The declared
+ *    parameter type is erased at runtime and proves nothing about a value that
+ *    arrived over a server-action boundary.
+ *
+ * A campaign whose scope has since been deleted counts NOBODY, by handing the
+ * counter an EMPTY_AUDIENCE scope (which compiles to match-nobody). Falling
+ * back to an unscoped count would turn a deleted boundary into a full-directory
+ * readout, the same failure resolveCampaignAudience refuses for a real send.
+ */
+export async function countAudienceNodes(
+  campaignId: string,
+  audience: Audience,
+): Promise<Record<string, number>> {
+  if (!isAudience(audience)) {
+    throw new CampaignValidationError(["Invalid audience"]);
+  }
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { scopeId: true },
+  });
+  if (campaign.scopeId === null) return countNodes(audience);
+  const scope = await getScope(campaign.scopeId);
+  return countNodes(audience, { scope: scope?.audience ?? EMPTY_AUDIENCE });
+}
 
 export async function previewAudience(id: string): Promise<AudiencePreview> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });

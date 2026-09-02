@@ -16,8 +16,71 @@ import { Input, Textarea } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FieldPicker } from "./field-picker";
 import { ValueControl } from "./value-controls";
+import { useNodeCounts, type NodeCounts } from "./use-node-counts";
 
 export type NamedOption = { id: string; label: string };
+
+/**
+ * The whole tree's count key, distinct from any index-derived child path.
+ *
+ * Redeclared here rather than imported from audience/resolve.ts, which is a
+ * server module reaching straight into prisma: importing it would drag the
+ * whole query layer into the client bundle. Both sides' tests pin the literal
+ * keys ("root", "0", "1.0"), so a drift between the two shows up as a failing
+ * assertion rather than as counts silently landing on the wrong rows.
+ */
+const ROOT_NODE_PATH = "root";
+
+/**
+ * The key a node's count is returned under, mirroring enumerateNodes in
+ * audience/resolve.ts. Root-level children are "0", "1"; a child of the node at
+ * "1" is "1.0". Both sides derive the key from the same positional indices,
+ * which is what lets one server round trip address every row on the client.
+ */
+function childNodePath(parentPath: string, index: number): string {
+  return parentPath === ROOT_NODE_PATH ? String(index) : `${parentPath}.${index}`;
+}
+
+/**
+ * A node's own match count, shown beside the clause that produced it.
+ *
+ * The wording is deliberate. A count says what the clause MATCHES on its own,
+ * never what it contributes: inside an ALL group a condition narrows, and a
+ * NONE group is a filter whose own fragment ("everyone matching none of these")
+ * routinely matches more people than the audience it sits inside. Reporting
+ * that number is the point -- three send-all bugs on this branch came from a
+ * NONE group silently inverting to match everybody, and this is the first thing
+ * that makes the widening visible -- but a bare "812" beside a NONE group would
+ * read as "adding 812 people", so that one case spells out what it counted.
+ *
+ * While a fresh count is in flight the previous number stays put, dimmed, so
+ * the tree does not flicker on every keystroke and no row ever briefly reads as
+ * matching nobody.
+ */
+function NodeCount({
+  path,
+  counts,
+  stale,
+  match,
+}: {
+  path: string;
+  counts: NodeCounts;
+  stale: boolean;
+  match?: AudienceGroup["match"];
+}) {
+  const count = counts[path];
+  if (count === undefined) return null;
+  return (
+    <span
+      data-node-count={path}
+      data-stale={String(stale)}
+      className={`text-xs tabular-nums ${stale ? "text-subtle-foreground/60" : "text-subtle-foreground"}`}
+    >
+      Matches {count} {count === 1 ? "person" : "people"}
+      {match === "NONE" ? " (everyone matching none of these)" : ""}
+    </span>
+  );
+}
 
 type Props = {
   fields: PersonFieldView[];
@@ -34,6 +97,15 @@ type Props = {
    * campaign editor and the scope editor, get it from one place.
    */
   zoneLabel: string;
+  /**
+   * Counts the tree currently being edited, one entry per node path.
+   *
+   * Optional because the scope editor renders this same builder with no
+   * campaign behind it, and there is nothing to count an unsaved SCOPE against:
+   * a scope IS the boundary, so it has none of its own. Left out, no counts
+   * render at all and no request is ever made.
+   */
+  countAction?: (audience: Audience) => Promise<NodeCounts>;
 };
 
 /**
@@ -312,6 +384,9 @@ function ConditionRow({
   cycles,
   subcommittees,
   zoneLabel,
+  path,
+  counts,
+  countsStale,
   onChange,
   onRemove,
 }: {
@@ -322,6 +397,9 @@ function ConditionRow({
   cycles: NamedOption[];
   subcommittees: NamedOption[];
   zoneLabel: string;
+  path: string;
+  counts: NodeCounts;
+  countsStale: boolean;
   onChange: (next: AudienceCondition) => void;
   onRemove: () => void;
 }) {
@@ -433,9 +511,12 @@ function ConditionRow({
         )
       )}
 
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="ml-auto text-xs text-subtle-foreground hover:text-critical-foreground">
-        Remove
-      </Button>
+      <div className="ml-auto flex items-center gap-3">
+        <NodeCount path={path} counts={counts} stale={countsStale} />
+        <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical-foreground">
+          Remove
+        </Button>
+      </div>
 
       {def?.termScoped && <TermScopePicker cond={cond} terms={terms} onChange={onChange} />}
 
@@ -460,6 +541,9 @@ function GroupEditor({
   cycles,
   subcommittees,
   zoneLabel,
+  path,
+  counts,
+  countsStale,
   onChange,
   onRemove,
   depth,
@@ -471,6 +555,9 @@ function GroupEditor({
   cycles: NamedOption[];
   subcommittees: NamedOption[];
   zoneLabel: string;
+  path: string;
+  counts: NodeCounts;
+  countsStale: boolean;
   onChange: (next: AudienceGroup) => void;
   onRemove?: () => void;
   depth: number;
@@ -495,11 +582,14 @@ function GroupEditor({
   return (
     <div className={nested ? "rounded-xl border border-dashed border-border bg-surface/50 p-3" : ""}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <MatchToggle
-          match={group.match}
-          onChange={(m) => onChange({ ...group, match: m })}
-          allowNone={nested}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <MatchToggle
+            match={group.match}
+            onChange={(m) => onChange({ ...group, match: m })}
+            allowNone={nested}
+          />
+          <NodeCount path={path} counts={counts} stale={countsStale} match={group.match} />
+        </div>
         {nested && onRemove && (
           <Button type="button" variant="ghost" size="sm" onClick={onRemove} className="text-xs text-subtle-foreground hover:text-critical-foreground">
             Remove group
@@ -531,6 +621,9 @@ function GroupEditor({
               cycles={cycles}
               subcommittees={subcommittees}
               zoneLabel={zoneLabel}
+              path={childNodePath(path, i)}
+              counts={counts}
+              countsStale={countsStale}
               onChange={(g) => updateChild(i, g)}
               onRemove={() => removeChild(i)}
               depth={depth + 1}
@@ -545,6 +638,9 @@ function GroupEditor({
               cycles={cycles}
               subcommittees={subcommittees}
               zoneLabel={zoneLabel}
+              path={childNodePath(path, i)}
+              counts={counts}
+              countsStale={countsStale}
               onChange={(c) => updateChild(i, c)}
               onRemove={() => removeChild(i)}
             />
@@ -576,6 +672,7 @@ export function AudienceBuilder({
   subcommittees,
   initial,
   zoneLabel,
+  countAction,
 }: Props) {
   const [root, setRoot] = useState<AudienceGroup>({ match: initial.match, children: initial.conditions });
 
@@ -584,6 +681,8 @@ export function AudienceBuilder({
   const rootMatch: Audience["match"] = root.match === "NONE" ? "ALL" : root.match;
   const audience: Audience = { recordType: "PERSON", match: rootMatch, conditions: root.children };
 
+  const { counts, stale } = useNodeCounts(audience, countAction);
+
   return (
     <div className="space-y-4">
       <div>
@@ -591,6 +690,13 @@ export function AudienceBuilder({
         <p className="mt-0.5 text-xs text-muted-foreground">
           Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all). Use groups to combine ALL/ANY logic, e.g. GROUP A (this and this) OR GROUP B (this or this), and a NONE group to exclude a cohort. Roster conditions apply to the current term unless you pick terms.
         </p>
+        {countAction && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Each clause shows how many people it matches ON ITS OWN, within this campaign&apos;s
+            scope, not how many it adds. The audience is the whole tree combined, counted beside
+            the top Match control.
+          </p>
+        )}
       </div>
 
       <GroupEditor
@@ -601,6 +707,9 @@ export function AudienceBuilder({
         cycles={cycles}
         subcommittees={subcommittees}
         zoneLabel={zoneLabel}
+        path={ROOT_NODE_PATH}
+        counts={counts}
+        countsStale={stale}
         onChange={setRoot}
         depth={0}
       />

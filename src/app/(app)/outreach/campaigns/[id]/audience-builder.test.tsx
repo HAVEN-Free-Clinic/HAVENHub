@@ -8,12 +8,13 @@
  * Follows toast.test.tsx / combobox.test.tsx: bare createRoot + act(), no
  * testing-library.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import type { Audience, ConditionOp } from "@/platform/email/audience/types";
 import { AudienceBuilder, defaultConditionFor, getFieldOptions, opLabel } from "./audience-builder";
+import { NODE_COUNT_DEBOUNCE_MS } from "./use-node-counts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,7 +31,10 @@ const ZONE_LABEL = "Eastern (New York)";
 let container: HTMLDivElement;
 let root: Root;
 
-function render(initial: Audience) {
+function render(
+  initial: Audience,
+  countAction?: (audience: Audience) => Promise<Record<string, number>>,
+) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -44,6 +48,7 @@ function render(initial: Audience) {
         subcommittees={SUBCOMMITTEES}
         initial={initial}
         zoneLabel={ZONE_LABEL}
+        countAction={countAction}
       />,
     );
   });
@@ -789,6 +794,163 @@ describe("AudienceBuilder unknown stored field", () => {
     expect(serialised().conditions).toEqual([]);
     expect(serialised().conditions).not.toContainEqual(
       expect.objectContaining({ field: "name" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-node match counts
+//
+// The counts arrive as ONE map keyed by node path, so the thing that can go
+// wrong on the client is the mapping: a row showing the count of a different
+// clause is worse than showing none, because the sender would trust it. Each
+// count is therefore tagged with the path it was drawn under, and these check
+// the tag against the number.
+// ---------------------------------------------------------------------------
+describe("AudienceBuilder node counts", () => {
+  const NESTED: Audience = {
+    recordType: "PERSON",
+    match: "ALL",
+    conditions: [
+      { field: "name", op: "contains", value: "a" },
+      {
+        match: "ANY",
+        children: [
+          { field: "name", op: "contains", value: "b" },
+          { field: "name", op: "contains", value: "c" },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Every rendered count, keyed by the node path it was rendered under. */
+  function countsShown(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const el of container.querySelectorAll<HTMLElement>("[data-node-count]")) {
+      out[el.getAttribute("data-node-count")!] = el.textContent ?? "";
+    }
+    return out;
+  }
+
+  async function flush() {
+    await act(async () => {
+      vi.advanceTimersByTime(NODE_COUNT_DEBOUNCE_MS);
+    });
+  }
+
+  it("puts each count on the node its path names", async () => {
+    render(NESTED, async () => ({ root: 2, "0": 3, "1": 30, "1.0": 20, "1.1": 10 }));
+    await flush();
+
+    // Distinct numbers per node: a map read under the wrong key would have to
+    // land right five times over.
+    expect(countsShown()).toEqual({
+      root: "Matches 2 people",
+      "0": "Matches 3 people",
+      "1": "Matches 30 people",
+      "1.0": "Matches 20 people",
+      "1.1": "Matches 10 people",
+    });
+  });
+
+  it("sends the edited tree, not the tree it was first given", async () => {
+    const seen: Audience[] = [];
+    render(NESTED, async (audience) => {
+      seen.push(audience);
+      return {};
+    });
+    await flush();
+
+    const value = container.querySelector<HTMLInputElement>('input[aria-label="Value"]')!;
+    typeInto(value, "zzz");
+    await flush();
+
+    expect(seen[seen.length - 1].conditions[0]).toEqual({
+      field: "name",
+      op: "contains",
+      value: "zzz",
+    });
+  });
+
+  // A NONE group's count is what its OWN fragment matches (everyone matching
+  // none of its children), which is routinely LARGER than the audience it sits
+  // in. Left as a bare number it reads as "this group is adding 30 people",
+  // when the group is a filter. The label is what closes that gap, so it is
+  // asserted rather than left to review.
+  it("labels a NONE group's count so it cannot be read as an addition", async () => {
+    render(
+      {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [
+          { field: "name", op: "contains", value: "a" },
+          { match: "NONE", children: [{ field: "name", op: "contains", value: "b" }] },
+        ],
+      },
+      async () => ({ root: 2, "0": 3, "1": 30, "1.0": 10 }),
+    );
+    await flush();
+
+    expect(countsShown()["1"]).toBe("Matches 30 people (everyone matching none of these)");
+    // The plain groups keep the plain wording.
+    expect(countsShown().root).toBe("Matches 2 people");
+  });
+
+  it("says person, not people, for a single match", async () => {
+    render(NESTED, async () => ({ root: 1, "0": 1, "1": 0, "1.0": 0, "1.1": 0 }));
+    await flush();
+    expect(countsShown().root).toBe("Matches 1 person");
+    expect(countsShown()["1"]).toBe("Matches 0 people");
+  });
+
+  it("renders no counts at all without a count action, as the scope editor does", async () => {
+    render(NESTED);
+    await flush();
+    expect(countsShown()).toEqual({});
+  });
+
+  it("keeps the previous numbers on screen, dimmed, while a fresh count is in flight", async () => {
+    let resolve!: (counts: Record<string, number>) => void;
+    let first = true;
+    render(NESTED, () => {
+      if (first) {
+        first = false;
+        return Promise.resolve({ root: 2, "0": 3, "1": 30, "1.0": 20, "1.1": 10 });
+      }
+      return new Promise<Record<string, number>>((r) => {
+        resolve = r;
+      });
+    });
+    await flush();
+    expect(countsShown().root).toBe("Matches 2 people");
+    expect(container.querySelector('[data-node-count="root"]')!.getAttribute("data-stale")).toBe(
+      "false",
+    );
+
+    const value = container.querySelector<HTMLInputElement>('input[aria-label="Value"]')!;
+    typeInto(value, "zzz");
+
+    // Still showing the old numbers rather than blanking every row.
+    expect(countsShown().root).toBe("Matches 2 people");
+    expect(container.querySelector('[data-node-count="root"]')!.getAttribute("data-stale")).toBe(
+      "true",
+    );
+
+    await flush();
+    await act(async () => {
+      resolve({ root: 9, "0": 9, "1": 9, "1.0": 9, "1.1": 9 });
+    });
+    expect(countsShown().root).toBe("Matches 9 people");
+    expect(container.querySelector('[data-node-count="root"]')!.getAttribute("data-stale")).toBe(
+      "false",
     );
   });
 });

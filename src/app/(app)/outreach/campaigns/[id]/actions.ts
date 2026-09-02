@@ -28,6 +28,7 @@ import { requireAnyPermission } from "@/platform/auth/session";
 import {
   updateCampaign,
   previewAudience,
+  countAudienceNodes,
   testSend,
   sendCampaignNow,
   scheduleCampaign,
@@ -146,6 +147,41 @@ export async function previewAction(
   } catch (err) {
     if (err instanceof CampaignScopeError) return { ok: false, problems: [err.message] };
     if (err instanceof CampaignValidationError) return { ok: false, problems: err.problems };
+    throw err;
+  }
+}
+
+/**
+ * Live per-node match counts for the tree the sender is editing, for the
+ * audience builder.
+ *
+ * The one action on this page that takes an audience from the client, because
+ * it counts a tree that has not been saved yet. It keeps exactly the split
+ * previewAction uses above: the BOUND `scopeId` is used only to re-check
+ * permission via assertMayActOnScope, while the scope the counts are actually
+ * resolved against is read from the campaign row inside countAudienceNodes.
+ * Nothing in `audience` reaches that decision, and there is deliberately no
+ * scope parameter here for a caller to supply one.
+ *
+ * Failures come back as an empty map rather than a thrown error or a redirect.
+ * These counts are ambient decoration on a page a sender already had to pass
+ * the same scope check to open (see page.tsx), so the only way to arrive here
+ * unauthorized is a grant that changed mid-session; showing no numbers is the
+ * fail-closed outcome, and every action that actually sends anything still
+ * refuses loudly.
+ */
+export async function countNodesAction(
+  id: string,
+  scopeId: string | null,
+  audience: Audience,
+): Promise<Record<string, number>> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  try {
+    await assertMayActOnScope(actor.personId, scopeId);
+    return await countAudienceNodes(id, audience);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) return {};
+    if (err instanceof CampaignValidationError) return {};
     throw err;
   }
 }

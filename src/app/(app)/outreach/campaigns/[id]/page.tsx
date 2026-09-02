@@ -30,6 +30,7 @@ import { EditorTabs, type EditorTab } from "./tabs";
 import {
   saveAction,
   previewAction,
+  countNodesAction,
   testAction,
   sendAction,
   scheduleLaterAction,
@@ -109,6 +110,10 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
   const boundSaveAction = saveAction.bind(null, id, scopeId);
   const boundPreviewAction = previewAction.bind(null, id, scopeId);
+  // Bound at module scope like every other action here, and for the same
+  // reason: the audience it counts arrives as its own trailing argument from
+  // the client, never captured from this render scope.
+  const boundCountNodesAction = countNodesAction.bind(null, id, scopeId);
   const boundTestAction = testAction.bind(null, id, scopeId);
   const boundSendAction = sendAction.bind(null, id, scopeId);
   const boundScheduleLaterAction = scheduleLaterAction.bind(null, id, scopeId);
@@ -193,6 +198,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               subcommittees={audienceSubcommittees}
               initial={parsedAudience}
               zoneLabel={audienceZoneLabel}
+              countAction={boundCountNodesAction}
             />
           </div>
 

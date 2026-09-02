@@ -417,13 +417,18 @@ describe("scoped reads", () => {
 });
 
 describe("directoryEmails", () => {
-  it("resolves a Yale address from the NetID and falls back to the contact address", async () => {
+  it("uses the person's own contact address, not their NetID account", async () => {
     const { term } = await seedRoster();
 
     const emails = await directoryEmails(term.id, {}, null);
 
-    // Dana and Bo have NetIDs; Vic has only a contact address. Name order.
-    expect(emails).toEqual(["bb333@yale.edu", "dd111@yale.edu", "vic@example.com"]);
+    // Dana has BOTH a NetID and a contact address, and the contact address is
+    // the one that wins: it is where every message this app sends already goes,
+    // and where the builder's clinic-day list has always pointed. A directory
+    // list that said dd111@yale.edu instead would quietly disagree with both.
+    // Bo has only a NetID, so his Yale account is the fallback rather than a
+    // silent omission from "everyone in my department".
+    expect(emails).toEqual(["bb333@yale.edu", "dana@example.com", "vic@example.com"]);
   });
 
   it("lists a dual-department member once", async () => {
@@ -435,7 +440,7 @@ describe("directoryEmails", () => {
     expect(emails.filter((e) => e === "bb333@yale.edu")).toHaveLength(1);
   });
 
-  it("drops a person with neither a NetID nor a contact address", async () => {
+  it("drops a person with neither a contact address nor a NetID", async () => {
     const { term, nurs } = await seedRoster();
     const ghost = await prisma.person.create({ data: { name: "No Contact" } });
     await seat(ghost.id, term.id, nurs.id, "VOLUNTEER");
@@ -452,7 +457,7 @@ describe("directoryEmails", () => {
 
     expect(await directoryEmails(term.id, { departmentId: nurs.id }, null)).toEqual([
       "bb333@yale.edu",
-      "dd111@yale.edu",
+      "dana@example.com",
     ]);
     expect(await directoryEmails(term.id, { kind: "VOLUNTEER" }, null)).toEqual([
       "bb333@yale.edu",
@@ -481,7 +486,7 @@ describe("directoryEmails", () => {
 
     const emails = await directoryEmails(roster.term.id, {}, scope);
 
-    expect(emails).toEqual(["bb333@yale.edu", "dd111@yale.edu"]);
+    expect(emails).toEqual(["bb333@yale.edu", "dana@example.com"]);
   });
 
   it("returns nothing rather than throwing when no term is active", async () => {

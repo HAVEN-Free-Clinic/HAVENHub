@@ -9,6 +9,8 @@ import {
   applicantEmailFromClaims,
   firstNameFromClaims,
   yaleEmailForNetId,
+  accountEmailForPerson,
+  mailingEmailForPerson,
 } from "./match-person";
 
 describe("netIdFromUpn", () => {
@@ -223,5 +225,47 @@ describe("yaleEmailForNetId", () => {
 
   it("lowercases and trims so it round-trips against a stored emailLower", () => {
     expect(yaleEmailForNetId("  ABC123 ")).toBe("abc123@yale.edu");
+  });
+});
+
+/**
+ * Two resolvers, opposite orders, on purpose. The pair is easy to "tidy" into
+ * one, and doing so silently changes either who the app thinks you are or where
+ * a director's copied list sends mail -- so the difference is asserted head to
+ * head rather than one function at a time.
+ */
+describe("accountEmailForPerson vs mailingEmailForPerson", () => {
+  const both = { netId: "abc123", contactEmail: "preferred@example.com" };
+
+  it("disagree for a person holding both, and that is the point", () => {
+    // Which account is this? The Yale one.
+    expect(accountEmailForPerson(both)).toBe("abc123@yale.edu");
+    // Where do we mail them? Where they asked to be mailed, and where every
+    // message this app already sends goes.
+    expect(mailingEmailForPerson(both)).toBe("preferred@example.com");
+  });
+
+  it("both fall back to whichever identifier the person does have", () => {
+    const netIdOnly = { netId: "abc123", contactEmail: null };
+    const contactOnly = { netId: null, contactEmail: "only@example.com" };
+
+    expect(accountEmailForPerson(netIdOnly)).toBe("abc123@yale.edu");
+    expect(mailingEmailForPerson(netIdOnly)).toBe("abc123@yale.edu");
+    expect(accountEmailForPerson(contactOnly)).toBe("only@example.com");
+    expect(mailingEmailForPerson(contactOnly)).toBe("only@example.com");
+  });
+
+  it("return the empty string, not null, when we hold neither", () => {
+    // A CSV row keeps the person with a blank cell; a mailing list must filter
+    // these out, because a blank entry breaks the paste.
+    expect(accountEmailForPerson({ netId: null, contactEmail: null })).toBe("");
+    expect(mailingEmailForPerson({ netId: null, contactEmail: null })).toBe("");
+  });
+
+  it("treats a whitespace-only contact address as absent for mailing", () => {
+    // /my-info takes this field from the member, so it can hold a stray space.
+    expect(mailingEmailForPerson({ netId: "abc123", contactEmail: "   " })).toBe(
+      "abc123@yale.edu",
+    );
   });
 });

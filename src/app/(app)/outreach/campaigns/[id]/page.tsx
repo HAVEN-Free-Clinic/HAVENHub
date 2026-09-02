@@ -9,7 +9,7 @@ import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
-import { isAudience } from "@/platform/email/audience/types";
+import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
 import { DateTime } from "@/platform/dates/display";
@@ -40,15 +40,6 @@ import {
 type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string }>;
-};
-
-// Not imported from actions.ts: a "use server" file may only export async
-// functions, so this literal has to live wherever it's used instead of being
-// shared as a plain constant export.
-const EMPTY_AUDIENCE: Audience = {
-  recordType: "PERSON",
-  match: "ALL",
-  conditions: [],
 };
 
 export default async function CampaignEditorPage({ params, searchParams }: Props) {

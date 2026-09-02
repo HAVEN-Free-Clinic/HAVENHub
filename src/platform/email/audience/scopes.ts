@@ -11,7 +11,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
-import { isAudience } from "./types";
+import { isAudience, EMPTY_AUDIENCE } from "./types";
 import type { Audience } from "./types";
 
 export type AudienceScopeView = {
@@ -48,7 +48,7 @@ type ScopeRow = {
 function toView(row: ScopeRow): AudienceScopeView {
   const audience: Audience = isAudience(row.audienceJson)
     ? row.audienceJson
-    : { recordType: "PERSON", match: "ALL", conditions: [] };
+    : EMPTY_AUDIENCE;
   return {
     id: row.id,
     name: row.name,

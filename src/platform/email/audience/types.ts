@@ -99,6 +99,19 @@ export type Audience = {
   conditions: AudienceNode[];
 };
 
+/**
+ * The audience a campaign or scope starts with, and the safe fallback for an
+ * unparseable stored audienceJson: an empty tree, which compiles to
+ * match-nobody rather than to everyone. Shared as one constant rather than
+ * hand-duplicated at each call site so the "fail closed" default can't drift
+ * out of sync between them.
+ */
+export const EMPTY_AUDIENCE: Audience = {
+  recordType: "PERSON",
+  match: "ALL",
+  conditions: [],
+};
+
 export function isAudienceGroup(node: AudienceNode): node is AudienceGroup {
   return (
     typeof (node as AudienceGroup).match === "string" &&

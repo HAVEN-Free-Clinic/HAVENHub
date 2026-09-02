@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { validateTemplate } from "@/platform/email/render/validate";
-import { isAudience } from "@/platform/email/audience/types";
+import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES, personVariables } from "@/platform/email/audience/variables";
 import { resolveAudience } from "@/platform/email/audience/resolve";
@@ -78,7 +78,7 @@ export async function createDraft(
       createdById: actorId,
       status: "DRAFT",
       scopeId: opts.scopeId ?? null,
-      audienceJson: { recordType: "PERSON", match: "ALL", conditions: [] },
+      audienceJson: EMPTY_AUDIENCE,
       subject: starter?.subject ?? "",
       body: starter?.body ?? "",
     },

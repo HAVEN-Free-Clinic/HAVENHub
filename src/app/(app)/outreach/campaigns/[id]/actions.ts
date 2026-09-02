@@ -37,22 +37,12 @@ import {
   CampaignConfirmationError,
   CampaignScopeError,
 } from "@/platform/email/campaigns/service";
-import { isAudience } from "@/platform/email/audience/types";
+import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { PreviewResult } from "./review-actions";
 import type { EditorTab } from "./tabs";
-
-// NOT exported: a "use server" file may only export async functions (Next.js
-// rejects any other export, including a plain constant, at build/runtime --
-// see the P0 this caught in page.tsx's history for why that check runs at
-// all). page.tsx keeps its own copy of this literal for the same reason.
-const EMPTY_AUDIENCE: Audience = {
-  recordType: "PERSON",
-  match: "ALL",
-  conditions: [],
-};
 
 /**
  * Which editor tab a save should redirect back to. Read from a hidden "tab"

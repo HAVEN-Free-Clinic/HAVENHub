@@ -1,94 +1,99 @@
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { requireAnyPermission } from "@/platform/auth/session";
 import {
   getCampaign,
-  updateCampaign,
-  previewAudience,
-  testSend,
-  sendCampaignNow,
-  scheduleCampaign,
-  cancelCampaign,
   assertMayActOnScope,
-  CampaignValidationError,
-  CampaignConfirmationError,
+  previewAudience,
   CampaignScopeError,
+  CampaignValidationError,
+  type AudiencePreview,
 } from "@/platform/email/campaigns/service";
+import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
-import { isAudience } from "@/platform/email/audience/types";
+import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
 import { DateTime } from "@/platform/dates/display";
-import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
-import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
-import { SubmitButton } from "./submit-button";
-import { ReviewActions, type PreviewResult } from "./review-actions";
+import { ComposeForm } from "./compose-form";
+import { CampaignNameField } from "./campaign-name-field";
+import { ReviewActions } from "./review-actions";
+import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
+import { EditorTabs, type EditorTab } from "./tabs";
+import {
+  saveAction,
+  previewAction,
+  countNodesAction,
+  searchPeopleAction,
+  includePersonAction,
+  excludePersonAction,
+  clearExcludedAction,
+  pastedEmailsAction,
+  testAction,
+  sendAction,
+  scheduleLaterAction,
+  scheduleRecurringAction,
+  cancelAction,
+} from "./actions";
 
 type Props = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 };
 
-const EMPTY_AUDIENCE: Audience = {
-  recordType: "PERSON",
-  match: "ALL",
-  conditions: [],
-};
-
-// Module scope, NOT a closure inside the page component: a "use server" action
-// closure can only capture serializable values (Next's transform bundles every
-// render-scope identifier an action references as an encrypted bound
-// argument), and a plain function reference is not serializable. This used to
-// be declared inside CampaignEditorPage's body, which made every action below
-// that called it dead at runtime -- the page rendered, but the server threw
-// "Functions cannot be passed directly to Client Components" and emitted each
-// form's action as `javascript:throw new Error(...)`. Hoisted here and given
-// its own explicit, serializable arguments instead of closing over them.
-//
-// The same predicate CampaignValidationError/CampaignConfirmationError already
-// get at each call site below: a blocked sender sees an inline explanation via
-// ?error=, not the generic error boundary. Every mutating action shares this
-// exact predicate, since a scoped sender may not edit, cancel, preview, or
-// send/schedule a campaign outside their granted scopes any more than they may
-// view one.
-async function assertScopeOrRedirect(
-  personId: string,
-  scopeId: string | null,
-  id: string,
-): Promise<void> {
+/**
+ * The recipient roll for the Audience tab, or null if it cannot be resolved.
+ *
+ * Module scope, like every other helper this page's server actions sit beside:
+ * see the doc comment at the top of actions.ts for what a render-scope function
+ * costs at runtime.
+ *
+ * Degrades to null rather than propagating, for the same reason
+ * countNodesAction returns an empty map. Both failures here describe an audience
+ * the builder is specifically built to let a sender REPAIR: a stored tree that
+ * no longer parses, and one naming a field that has since been retired (which
+ * field-picker.tsx renders as "Unknown field" with a control to remove it).
+ * Throwing would take down the whole editor for exactly the campaign someone
+ * opened it to fix. Caught by type, so any other failure still surfaces.
+ */
+async function loadRecipientPreview(id: string): Promise<AudiencePreview | null> {
   try {
-    await assertMayActOnScope(personId, scopeId);
+    return await previewAudience(id);
   } catch (err) {
-    if (err instanceof CampaignScopeError) {
-      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.message)}`);
-    }
+    if (err instanceof CampaignValidationError) return null;
+    if (err instanceof UnknownAudienceFieldError) return null;
     throw err;
   }
 }
 
-export default async function CampaignEditorPage({ params }: Props) {
+export default async function CampaignEditorPage({ params, searchParams }: Props) {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   const { id } = await params;
+  const { tab: rawTab } = await searchParams;
+  const activeTab: EditorTab =
+    rawTab === "audience" ? "audience" : rawTab === "review" ? "review" : "compose";
 
   const campaign = await getCampaign(id);
   if (!campaign) redirect("/outreach/campaigns");
 
-  // Captured here (rather than reading campaign.scopeId inside the server action
-  // closures below) because TS does not carry the null-check narrowing above into
-  // nested "use server" closures: campaign's declared type is still `... | null`
-  // inside them, even though it can only ever be the non-null branch at runtime.
+  // Captured here (rather than reading campaign.scopeId at each .bind() call
+  // below) purely for brevity across the seven actions bound further down --
+  // unlike the pre-split version of this page, none of those actions are
+  // nested closures anymore (they live in actions.ts, taking scopeId as an
+  // explicit parameter), so there is no closure-narrowing pitfall left to
+  // work around here. Verified with `tsc --noEmit`.
   const scopeId = campaign.scopeId;
 
   // A scoped sender may not even OPEN a campaign outside every scope they hold:
@@ -123,180 +128,50 @@ export default async function CampaignEditorPage({ params }: Props) {
     departments: audienceDepartments,
     terms: audienceTerms,
     cycles: audienceCycles,
+    subcommittees: audienceSubcommittees,
+    zoneLabel: audienceZoneLabel,
   } = await loadAudienceBuilderOptions(parsedAudience);
 
   const scopeName = boundScope?.name ?? "a deleted scope";
 
   const zone = await getDisplayTimeZone();
 
+  // Resolved on the server, and only for the tab that shows it. Unlike the
+  // per-node counts (which the builder fetches as the sender types), this is the
+  // saved roll: rendering it up front is what makes the Audience tab show who is
+  // about to be emailed without a button press. Gated on the ACTIVE tab because
+  // every section of this page stays mounted regardless of which one is showing
+  // (see tabs.tsx), so an ungated call would resolve the entire audience on
+  // every Compose and Review load for a pane nobody can see.
+  const recipientPreview =
+    isDraft && activeTab === "audience" ? await loadRecipientPreview(id) : null;
+
   // ---------------------------------------------------------------------------
-  // Server actions
+  // Server actions, bound to this campaign's id and scope. `.bind()` is the
+  // sanctioned way to pass extra arguments to a Server Action referenced from
+  // a form -- see the doc comment at the top of actions.ts for why these live
+  // at module scope instead of as closures declared in this component's body.
   // ---------------------------------------------------------------------------
 
-  async function saveAction(formData: FormData) {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    const name = ((formData.get("name") as string | null) ?? "").trim();
-    const subject = (formData.get("subject") as string | null) ?? "";
-    const body = (formData.get("body") as string | null) ?? "";
-    let audience: Audience;
-    try {
-      const raw = JSON.parse((formData.get("audience") as string | null) ?? "{}");
-      audience = isAudience(raw) ? raw : EMPTY_AUDIENCE;
-    } catch {
-      audience = EMPTY_AUDIENCE;
-    }
-
-    try {
-      await updateCampaign(actor.personId, id, { name: name || undefined, subject, body, audience });
-    } catch (err) {
-      if (err instanceof CampaignValidationError) {
-        redirect(
-          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
-        );
-      }
-      throw err;
-    }
-
-    revalidatePath(`/outreach/campaigns/${id}`);
-    redirect(`/outreach/campaigns/${id}?saved=1`);
-  }
-
-  // Returns the resolved roll rather than redirecting: ReviewActions renders it
-  // in place. A redirect could only carry a count, and the global FlashReader
-  // strips the params as soon as it toasts them, leaving nothing to render from.
-  async function previewAction(): Promise<PreviewResult> {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    try {
-      // A preview lists real recipient names, so it needs the same scope check
-      // as an actual send -- returned as a `problems` entry rather than a
-      // redirect, matching how this action already reports every other failure.
-      await assertMayActOnScope(actor.personId, scopeId);
-      return { ok: true, preview: await previewAudience(id) };
-    } catch (err) {
-      if (err instanceof CampaignScopeError) return { ok: false, problems: [err.message] };
-      if (err instanceof CampaignValidationError) return { ok: false, problems: err.problems };
-      throw err;
-    }
-  }
-
-  async function testAction() {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    if (!actor.email) {
-      redirect(
-        `/outreach/campaigns/${id}?error=${encodeURIComponent("Your account has no email address on file.")}`,
-      );
-    }
-    try {
-      await testSend(actor.personId, id, actor.email);
-    } catch {
-      redirect(
-        `/outreach/campaigns/${id}?error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
-      );
-    }
-    redirect(`/outreach/campaigns/${id}?tested=1#review`);
-  }
-
-  async function sendAction(formData: FormData) {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    const rawCount = formData.get("confirmCount");
-    const confirmCount =
-      rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
-
-    let recipientCount = 0;
-    try {
-      const result = await sendCampaignNow(actor.personId, id, { confirmCount });
-      recipientCount = result.recipientCount;
-    } catch (err) {
-      if (err instanceof CampaignConfirmationError) {
-        redirect(
-          `/outreach/campaigns/${id}?error=${encodeURIComponent(
-            `This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and click Send again.`,
-          )}`,
-        );
-      }
-      if (err instanceof CampaignValidationError) {
-        redirect(
-          `/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`,
-        );
-      }
-      throw err;
-    }
-
-    revalidatePath("/outreach/campaigns");
-    redirect(`/outreach/campaigns/${id}?sent=${recipientCount}`);
-  }
-
-  async function scheduleLaterAction(formData: FormData) {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    const raw = (formData.get("scheduledAt") as string | null) ?? "";
-    if (!raw) redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a date and time")}`);
-    const scheduledAt = parseZonedInput(raw, await getDisplayTimeZone());
-    if (!scheduledAt) {
-      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent("Pick a valid date and time")}`);
-    }
-    const rawCount = formData.get("confirmCount");
-    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
-    try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "SCHEDULED", scheduledAt }, undefined, { confirmCount });
-    } catch (err) {
-      if (err instanceof CampaignConfirmationError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and schedule again.`)}`);
-      }
-      if (err instanceof CampaignValidationError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
-      }
-      throw err;
-    }
-    revalidatePath(`/outreach/campaigns/${id}`);
-    redirect(`/outreach/campaigns/${id}?scheduled=1`);
-  }
-
-  async function scheduleRecurringAction(formData: FormData) {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    const cronExpr = ((formData.get("cronExpr") as string | null) ?? "").trim();
-    const rawCount = formData.get("confirmCount");
-    const confirmCount = rawCount !== null && rawCount !== "" ? Number(rawCount) : undefined;
-    try {
-      await scheduleCampaign(actor.personId, id, { scheduleType: "RECURRING", cronExpr }, undefined, { confirmCount });
-    } catch (err) {
-      if (err instanceof CampaignConfirmationError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(`This campaign targets ${err.expected} recipients. Type ${err.expected} in the confirmation field and start recurring again.`)}`);
-      }
-      if (err instanceof CampaignValidationError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
-      }
-      throw err;
-    }
-    revalidatePath(`/outreach/campaigns/${id}`);
-    redirect(`/outreach/campaigns/${id}?scheduled=1`);
-  }
-
-  async function cancelAction() {
-    "use server";
-    const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-    await assertScopeOrRedirect(actor.personId, scopeId, id);
-    try {
-      await cancelCampaign(actor.personId, id);
-    } catch (err) {
-      if (err instanceof CampaignValidationError) {
-        redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
-      }
-      throw err;
-    }
-    revalidatePath(`/outreach/campaigns/${id}`);
-    redirect(`/outreach/campaigns/${id}?cancelled=1`);
-  }
+  const boundSaveAction = saveAction.bind(null, id, scopeId);
+  const boundPreviewAction = previewAction.bind(null, id, scopeId);
+  // Bound at module scope like every other action here, and for the same
+  // reason: the audience it counts arrives as its own trailing argument from
+  // the client, never captured from this render scope.
+  const boundCountNodesAction = countNodesAction.bind(null, id, scopeId);
+  // The manual-list controls. Bound exactly like the rest, and gated on the
+  // same scope inside actions.ts: a scoped sender may no more edit another
+  // department's recipient list than they may preview or send that campaign.
+  const boundSearchPeopleAction = searchPeopleAction.bind(null, id, scopeId);
+  const boundIncludePersonAction = includePersonAction.bind(null, id, scopeId);
+  const boundExcludePersonAction = excludePersonAction.bind(null, id, scopeId);
+  const boundClearExcludedAction = clearExcludedAction.bind(null, id, scopeId);
+  const boundPastedEmailsAction = pastedEmailsAction.bind(null, id, scopeId);
+  const boundTestAction = testAction.bind(null, id, scopeId);
+  const boundSendAction = sendAction.bind(null, id, scopeId);
+  const boundScheduleLaterAction = scheduleLaterAction.bind(null, id, scopeId);
+  const boundScheduleRecurringAction = scheduleRecurringAction.bind(null, id, scopeId);
+  const boundCancelAction = cancelAction.bind(null, id, scopeId);
 
   return (
     <div className="space-y-6">
@@ -315,23 +190,30 @@ export default async function CampaignEditorPage({ params }: Props) {
         }
       />
 
+      {/* Compose / Audience / Review tabs. Every section below stays mounted
+          regardless of which tab is active (toggled with the `hidden`
+          attribute, not conditional rendering) so that no input -- especially
+          the audience JSON hidden input and the sendOncePerPerson checkbox,
+          which is form-associated from OUTSIDE this form's DOM subtree --
+          silently stops submitting with the rest of the compose form just
+          because its tab is not the one currently showing. See tabs.tsx. */}
+      {isDraft && <EditorTabs active={activeTab} basePath={`/outreach/campaigns/${id}`} />}
+
       {/* Main save form: editable only while a draft */}
       {isDraft && (
-        <form id="campaign-compose" action={saveAction} className="space-y-8">
+        <ComposeForm id="campaign-compose" action={boundSaveAction}>
+          {/* Tracks which tab was showing when Save was clicked, so a
+              successful (or rejected) save redirects back to the same tab
+              instead of always landing on Compose. */}
+          <input type="hidden" name="tab" value={activeTab} />
+
           {/* Section 1: Compose */}
-          <div className="space-y-6">
+          <div hidden={activeTab !== "compose"} className="space-y-6">
             <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
 
             {/* Campaign name */}
             <div className="max-w-sm">
-              <Field label="Campaign name">
-                <Input
-                  name="name"
-                  type="text"
-                  defaultValue={campaign.name}
-                  required
-                />
-              </Field>
+              <CampaignNameField initialName={campaign.name} />
             </div>
 
             {/* Template editor (subject + body) */}
@@ -346,7 +228,7 @@ export default async function CampaignEditorPage({ params }: Props) {
           </div>
 
           {/* Section 2: Audience */}
-          <div className="border-t border-border pt-6 space-y-4">
+          <div hidden={activeTab !== "audience"} className="border-t border-border pt-6 space-y-4">
             <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
             {campaign.scopeId && (
               <Alert tone="info">
@@ -359,15 +241,64 @@ export default async function CampaignEditorPage({ params }: Props) {
               departments={audienceDepartments}
               terms={audienceTerms}
               cycles={audienceCycles}
+              subcommittees={audienceSubcommittees}
               initial={parsedAudience}
+              zoneLabel={audienceZoneLabel}
+              // Gated on the ACTIVE tab, not merely on being a draft. Every
+              // section stays mounted regardless of which tab is showing (see
+              // tabs.tsx and the comment above), so the builder mounts on
+              // Compose and Review too, and an ungated prop would fan out up to
+              // MAX_COUNTED_NODES sequential person counts, plus a table scan
+              // per named count-kind field, on every editor load -- for numbers
+              // on a hidden pane that nobody can see. The builder itself must
+              // stay mounted for its hidden `audience` input; only the counting
+              // is conditional.
+              countAction={activeTab === "audience" ? boundCountNodesAction : undefined}
             />
           </div>
 
-          {/* Sticky save footer */}
-          <div className="sticky bottom-0 -mx-1 border-t border-border bg-surface py-3">
-            <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
-          </div>
-        </form>
+        </ComposeForm>
+      )}
+
+      {/* The recipient roll and the manual include / exclude / paste controls.
+          A SIBLING of the compose form, not a child of it: every control here is
+          its own form posting its own server action, and a nested <form> is
+          invalid HTML that the parser unnests, which would silently reparent
+          these buttons into the compose form and make each one save the
+          campaign instead. Tab-gated the same way the sections inside the form
+          are. */}
+      {isDraft && (
+        // Rendered on EVERY tab, not just the Audience one, and gated only with
+        // `hidden` like the sections inside the compose form above. The panel
+        // returns null without a roll, so this costs nothing to show, and it is
+        // not a style choice: its dirty guard is a listener that starts at
+        // mount, so a panel mounted by the tab switch could not see an edit made
+        // on Compose beforehand and arrived with every control enabled. The
+        // first click then discarded the unsaved compose state, audience tree
+        // included. See the doc comment in recipient-preview.tsx.
+        //
+        // Only the ROLL is tab-gated, on the server, because resolving one costs
+        // a full audience resolve (see loadRecipientPreview's call site).
+        <div hidden={activeTab !== "audience"} className="border-t border-border pt-6">
+          <RecipientPreview
+            // savedAt, NOT key. Keying this on updatedAt remounts the panel on
+            // every manual-list action, which resets the guard and takes the
+            // half-typed contents of the paste box with it. The dirty guard
+            // resets from the prop instead (useFormDirty). ReviewActions and
+            // TimingActions still use the key, which is correct for them:
+            // neither holds unsaved text.
+            savedAt={campaign.updatedAt.toISOString()}
+            formId="campaign-compose"
+            preview={recipientPreview}
+            excludedCount={campaign.excludePersonIds.length}
+            pastedText={campaign.pastedEmails.join("\n")}
+            searchAction={boundSearchPeopleAction}
+            includeAction={boundIncludePersonAction}
+            excludeAction={boundExcludePersonAction}
+            clearExcludedAction={boundClearExcludedAction}
+            pastedEmailsAction={boundPastedEmailsAction}
+          />
+        </div>
       )}
 
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
@@ -382,7 +313,7 @@ export default async function CampaignEditorPage({ params }: Props) {
 
       {/* Section 3: Review & send (drafts only) */}
       {isDraft && (
-        <div id="review" className="space-y-4 border-t border-border pt-6">
+        <div hidden={activeTab !== "review"} id="review" className="space-y-4 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
 
           {/* Preview / Test / Send. These operate on the last-saved campaign, so
@@ -396,9 +327,9 @@ export default async function CampaignEditorPage({ params }: Props) {
             // they saved (#14).
             key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
-            previewAction={previewAction}
-            testAction={testAction}
-            sendAction={sendAction}
+            previewAction={boundPreviewAction}
+            testAction={boundTestAction}
+            sendAction={boundSendAction}
           />
 
         </div>
@@ -421,7 +352,7 @@ export default async function CampaignEditorPage({ params }: Props) {
               )}
             </p>
           )}
-          <form action={cancelAction}>
+          <form action={boundCancelAction}>
             <Button type="submit" variant="outline">
               Cancel schedule
             </Button>
@@ -434,15 +365,16 @@ export default async function CampaignEditorPage({ params }: Props) {
           ReviewActions uses -- otherwise unsaved edits would be silently scheduled
           (and then locked, since a scheduled campaign can no longer be edited). */}
       {isDraft && (
-        <div className="space-y-5 border-t border-border pt-6">
+        <div hidden={activeTab !== "review"} className="space-y-5 border-t border-border pt-6">
           <h2 className="text-base font-semibold text-foreground">Timing</h2>
           <TimingActions
             // Remount on save so the useFormDirty guard resets -- see ReviewActions (#14).
             key={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
-            scheduleLaterAction={scheduleLaterAction}
-            scheduleRecurringAction={scheduleRecurringAction}
+            scheduleLaterAction={boundScheduleLaterAction}
+            scheduleRecurringAction={boundScheduleRecurringAction}
             zoneLabel={zoneLabel(zone)}
+            initialSendOncePerPerson={campaign.sendOncePerPerson}
           />
         </div>
       )}

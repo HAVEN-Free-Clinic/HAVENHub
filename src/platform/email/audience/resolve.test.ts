@@ -359,6 +359,34 @@ describe("resolveAudience across terms", () => {
     });
     expect(res.recipients.map((r) => r.email)).toEqual(["keep@example.com"]);
   });
+
+  // The database-level version of the compile.test.ts proof: a date condition
+  // in a NONE group used to be reachable, via the audience builder's default,
+  // with an operator ("eq") its own field never declares. personFieldWhere's
+  // gate turns that into MATCH_NOBODY, and compileGroup renders NONE as
+  // `NOT { OR: fragments }`, so a NONE group holding only that condition
+  // matched every Person in the table -- including people who joined well
+  // after the cutoff the admin typed in, which is the opposite of "exclude
+  // people who joined on or after June 1". With `defaultConditionFor` now
+  // handing a date field a real operator (onOrAfter), the exact same shape of
+  // condition -- a NONE group holding one date condition -- correctly excludes
+  // only the people it names.
+  it("a NONE group with a well-formed date condition excludes only the intended people, not everyone", async () => {
+    const early = await person("Early", "early@example.com");
+    await prisma.person.update({ where: { id: early.id }, data: { createdAt: new Date("2026-01-01T12:00:00.000Z") } });
+    const late = await person("Late", "late@example.com");
+    await prisma.person.update({ where: { id: late.id }, data: { createdAt: new Date("2026-07-01T12:00:00.000Z") } });
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { match: "NONE", children: [{ field: "joinedAt", op: "onOrAfter", value: "2026-06-01" }] },
+      ],
+    });
+    // Not everyone: "Late" (joined June or after) is excluded, "Early" is kept.
+    expect(res.recipients.map((r) => r.email)).toEqual(["early@example.com"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -613,5 +641,62 @@ describe("scope enforcement", () => {
     // scope admits them. The point of the assertion is that this does not throw
     // and does not silently return zero.
     expect(recipients.length).toBeGreaterThan(0);
+  });
+});
+
+describe("relative date conditions re-evaluate per run", () => {
+  it("matches a different set as `now` advances", async () => {
+    // A certificate completed on a fixed date. Whether it falls inside
+    // "the last 7 days" depends entirely on when the run happens.
+    const p = await prisma.person.create({
+      data: { name: "Cert Holder", contactEmail: "cert@example.com", status: "ACTIVE" },
+    });
+    await prisma.hipaaCertificate.create({
+      data: {
+        personId: p.id,
+        fileName: "c.pdf",
+        storedName: "c.pdf",
+        size: 1,
+        mimeType: "application/pdf",
+        completionDate: new Date("2026-03-10T12:00:00.000Z"),
+      },
+    });
+
+    const audience: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "hipaaCompletedAt", op: "withinLastDays", value: "7" }],
+    };
+
+    const near = await resolveAudience(audience, { now: new Date("2026-03-12T18:00:00.000Z") });
+    expect(near.recipients.map((r) => r.email)).toEqual(["cert@example.com"]);
+
+    const far = await resolveAudience(audience, { now: new Date("2026-04-30T18:00:00.000Z") });
+    expect(far.recipients).toEqual([]);
+  });
+
+  // complianceStatus is derived the same way hipaaCompletedAt's window is --
+  // live, from the run's clock -- so it must resolve against opts.now too, not
+  // the wall clock, for a recurring campaign to be deterministic across runs.
+  it("resolves complianceStatus against the pinned `now`, not the wall clock", async () => {
+    // No active term, so COMPLIANT iff expiresAt (completionDate + 365d) is at
+    // least 60 days out from `now`. completionDate 2026-01-01 -> expiresAt
+    // 2027-01-01.
+    const p = await person("Cert Holder", "cert@example.com");
+    await cert(p.id, new Date("2026-01-01T00:00:00.000Z"));
+
+    const audience: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }],
+    };
+
+    // Well before expiresAt - 60d: COMPLIANT.
+    const early = await resolveAudience(audience, { now: new Date("2026-06-01T00:00:00.000Z") });
+    expect(early.recipients.map((r) => r.email)).toEqual(["cert@example.com"]);
+
+    // Past expiresAt entirely: EXPIRED, so the COMPLIANT filter matches nobody.
+    const late = await resolveAudience(audience, { now: new Date("2027-02-01T00:00:00.000Z") });
+    expect(late.recipients).toEqual([]);
   });
 });

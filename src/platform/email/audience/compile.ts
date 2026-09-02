@@ -16,16 +16,29 @@ function compileGroup(
   // `NOT { OR: [] }` -- vacuously true, i.e. every Person in the table.
   if (children.length === 0) return MATCH_NOBODY;
 
-  const fragments = children.map((node) =>
-    isAudienceGroup(node)
-      ? compileGroup(node.match, node.children, ctx)
-      : personFieldWhere(node, ctx),
-  );
+  const fragments = children.map((node) => compileNodeWhere(node, ctx));
 
   if (match === "ALL") return { AND: fragments };
   if (match === "ANY") return { OR: fragments };
   // NONE: matches a Person satisfying none of the children.
   return { NOT: { OR: fragments } };
+}
+
+/**
+ * Compile ONE node of the tree on its own.
+ *
+ * This is the exact two-way branch compileGroup applies to each of its
+ * children, factored out rather than copied: the per-node match counts
+ * (countAudienceNodes in resolve.ts) have to count the very fragment a send
+ * would compile for that node, so a node's `where` must never come from a
+ * second, parallel compiler that could drift from this one. Sharing the
+ * function is what makes "the count of a node" and "the meaning of a node" the
+ * same statement.
+ */
+export function compileNodeWhere(node: AudienceNode, ctx: AudienceCtx): Prisma.PersonWhereInput {
+  return isAudienceGroup(node)
+    ? compileGroup(node.match, node.children, ctx)
+    : personFieldWhere(node, ctx);
 }
 
 export function compilePersonWhere(audience: Audience, ctx: AudienceCtx): Prisma.PersonWhereInput {

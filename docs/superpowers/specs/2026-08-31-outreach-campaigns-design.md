@@ -1,7 +1,7 @@
 # Outreach: delegated, scope-bounded email campaigns
 
 Date: 2026-08-31
-Status: approved design, not yet planned
+Status: Phase 1 shipped (PR #702). Phase 2 planned. Phase 3 not yet planned.
 
 ## Problem
 
@@ -81,7 +81,7 @@ model AudienceScope {
   name         String
   description  String?
   audienceJson Json
-  /// Sending identity for campaigns sent under this scope (Phase 4).
+  /// Sending identity for campaigns sent under this scope (Phase 3).
   fromEmail    String?
   fromName     String?
   createdById  String?
@@ -214,7 +214,7 @@ values that caused each match.
   474-line scrolling server component, with its eight inline server actions
   extracted to a co-located `actions.ts`.
 
-### Sender identity (Phase 4)
+### Sender identity (Phase 3)
 
 `MailerooTransport` currently pins the From address and demotes any per-message
 override to Reply-To, because Maileroo can only sign for domains verified in the
@@ -233,7 +233,7 @@ does include `_spf.maileroo.com`). No Maileroo DKIM selector was found at the
 documented `maileroo._domainkey` name on either domain, so DKIM alignment could
 not be ruled out from DNS alone. Confirm the domain list in the Maileroo
 dashboard, or re-run the API probe described in the `maileroo-yale-domain-disabled`
-note, before Phase 4 begins. If yale.edu is not verified, delegated senders use
+note, before Phase 3 begins. If yale.edu is not verified, delegated senders use
 issued `@havenfreeclinic.org` identities, which work today.
 
 ## Error handling
@@ -271,20 +271,79 @@ tests run in the worktree.
 
 Each phase ships on its own.
 
-1. **Module and delegation.** New `outreach` module, route move, permission split,
-   `AudienceScope` + grants, the enforcement seam, scope admin UI, and the backfill
-   migration.
-2. **Audience depth.** Date kind, number kind, `now` threading, ~25 new fields,
-   manual list, send-once.
-3. **Builder UI.** Two-pane builder, searchable picker, per-node counts, recipient
-   preview, tabbed editor, action extraction.
-4. **Sender identity.** Verified-domain allowlist, per-scope from-address, Maileroo
+1. **Module and delegation.** SHIPPED (PR #702). New `outreach` module, route move,
+   permission split, `AudienceScope` + grants, the enforcement seam, scope admin UI,
+   and the backfill migration.
+2. **Audience depth and the builder.** Date kind, number kind, `now` threading, the
+   field expansion, manual list, send-once, AND the two-pane builder rewrite.
+3. **Sender identity.** Verified-domain allowlist, per-scope from-address, Maileroo
    as default transport with Graph as an admin option.
 
-Phase 4 is independent of 1-3 and can move earlier if sender identity turns out
+Phase 3 is independent of 1 and 2 and can move earlier if sender identity turns out
 to be the urgent half.
+
+**Amended 2026-08-31:** what were originally two phases (audience depth, then the
+builder UI) are now one. The reason is that date and number conditions are not
+usable without input controls the current builder does not have (a date input, a
+number input, a relative-days input), so shipping the engine alone would add
+conditions nobody could create. Building throwaway controls in the old builder and
+then rebuilding them weeks later is the worse trade. The cost is a materially
+larger phase, roughly double Phase 1.
+
+### Field expansion, scoped
+
+"Roughly 25 fields" was an estimate written before anyone confirmed which ones get
+used. The domains are now pinned to four, and fields outside them are out of scope
+for this phase:
+
+- **Compliance and training dates.** HIPAA certificate expiry, EHS completion,
+  in-person training date, quiz completion. This is where the date operators earn
+  their keep: "expiring in the next 30 days" is the canonical reminder campaign and
+  is inexpressible today.
+- **Schedule and attendance.** Upcoming shifts, shift count this term, clinic
+  attendance count, no-shows. Exercises the count precompute seam.
+- **Recruitment outcome.** Accepted / rejected / interviewed / withdrew in a named
+  cycle, and applicant type. Extends the existing `appliedToCycle` field past
+  "applied" into what happened next.
+- **Membership detail.** Subcommittee membership, membership kind, track, any
+  language via `PersonLanguage` (not only Spanish), and service credential status.
+
+Support ticket counts, info-session attendance, and passport-beyond-credential were
+in the original estimate and are dropped: no confirmed use case.
+
+#### What Part A actually shipped, and what it did not
+
+Recorded here rather than left as silent omission. The whole-branch review found the
+plan's task tables had narrowed the four domains above without saying so.
+
+Shipped: `hipaaCompletedAt`, `hipaaVerifiedAt`, `ehsCompletedAt`,
+`trainingCompletedAt`, `joinedAt`; the four schedule counts; `acceptedInCycle` and
+`subcommittee`; `speaksLanguage`, `claimsLanguage`, `hasServiceCredential`.
+
+Three gaps carried into Part B:
+
+- **HIPAA certificate expiry did not ship**, and it is the field this whole phase
+  argues from: "expiring in the next 30 days" appears three times above as the
+  reason date conditions exist at all. What shipped is the completion and
+  verification dates. Expiry is derived (`compliance/rules.ts`, completion plus one
+  year) and fits the precompute seam `complianceStatus` already uses. Until it
+  lands, expressing that campaign means ANDing `hipaaCompletedAt withinLastDays 365`
+  against a NONE group holding `withinLastDays 335`, which nobody will discover;
+  `complianceStatus = EXPIRING_SOON` only offers a hard-coded 60-day bucket. **Part
+  B must ship it.**
+- **Recruitment outcome shipped only `acceptedInCycle`.** Rejected, interviewed,
+  withdrew, and applicant type did not.
+- **`hasServiceCredential` is presence-only**, so a credential revoked for
+  falsified service still matches.
+
+`membershipKind` and `track` were dropped deliberately, not missed: the pre-existing
+`role` field already compiles `memberships.some({ ...termScope, status: "ACTIVE",
+kind })` over exactly DIRECTOR and VOLUNTEER, which is the same column. A second
+field would only split the picker.
 
 ## Open questions
 
-- Whether yale.edu is verified in Maileroo today (see Phase 4 prerequisite above).
-  Does not block phases 1-3.
+- Whether yale.edu is verified in Maileroo today (see the sender-identity
+  prerequisite above). Does not block phases 1 and 2. Re-checked 2026-08-31:
+  yale.edu SPF still carries no _spf.maileroo.com include and DMARC is still
+  p=quarantine, so the domain remains unverified.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { listScopes, createScope } from "@/platform/email/audience/scopes";
+import { EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import { PageHeader } from "@/platform/ui/page-header";
 import { cardClasses } from "@/platform/ui/card";
 import { Button } from "@/platform/ui/button";
@@ -22,7 +23,7 @@ export default async function ScopesPage() {
     // match-everyone is deliberate: an unfinished send boundary must be closed.
     const scope = await createScope(actor.personId, {
       name,
-      audience: { recordType: "PERSON", match: "ALL", conditions: [] },
+      audience: EMPTY_AUDIENCE,
     });
     redirect(`/outreach/scopes/${scope.id}`);
   }

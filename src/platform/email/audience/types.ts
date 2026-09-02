@@ -1,3 +1,5 @@
+import type { DisplayTimeZone } from "@/platform/dates/zone";
+
 export type AudienceRecordType = "PERSON"; // extensible: future "APPLICANT"
 export type ConditionOp =
   | "eq"
@@ -17,9 +19,24 @@ export type ConditionOp =
   | "notEq"
   | "notIn"
   | "notContains"
-  // Ordered comparison, used by year-kind fields (see gradYear).
+  // Ordered comparison, used by year-kind fields (see gradYear) and, together
+  // with `lte`/`gte`, by count-kind fields (see countWhere in operators.ts).
   | "lt"
-  | "gt";
+  | "gt"
+  | "lte"
+  | "gte"
+  // Date operators. `before`/`after`/`onOrBefore`/`onOrAfter`/`between` take
+  // calendar dates ("YYYY-MM-DD") and resolve against the clinic's display zone.
+  // `withinNextDays`/`withinLastDays` take a whole number of days and resolve
+  // against `now` AT RESOLVE TIME, which is what lets a recurring campaign mean
+  // something different on each run.
+  | "before"
+  | "after"
+  | "onOrBefore"
+  | "onOrAfter"
+  | "between"
+  | "withinNextDays"
+  | "withinLastDays";
 
 /** Operators that take no value; the builder shows no value control for these. */
 export const VALUELESS_OPS: ConditionOp[] = ["isEmpty", "isNotEmpty", "isTrue", "isFalse"];
@@ -82,6 +99,19 @@ export type Audience = {
   conditions: AudienceNode[];
 };
 
+/**
+ * The audience a campaign or scope starts with, and the safe fallback for an
+ * unparseable stored audienceJson: an empty tree, which compiles to
+ * match-nobody rather than to everyone. Shared as one constant rather than
+ * hand-duplicated at each call site so the "fail closed" default can't drift
+ * out of sync between them.
+ */
+export const EMPTY_AUDIENCE: Audience = {
+  recordType: "PERSON",
+  match: "ALL",
+  conditions: [],
+};
+
 export function isAudienceGroup(node: AudienceNode): node is AudienceGroup {
   return (
     typeof (node as AudienceGroup).match === "string" &&
@@ -107,6 +137,44 @@ function isValidNode(v: unknown): boolean {
   return false;
 }
 
+/**
+ * The deepest nesting a client-supplied audience tree may have.
+ *
+ * Ten is far past anything the builder can produce by hand and far short of
+ * what a call stack minds. The deepest tree in the starters is two.
+ */
+export const MAX_AUDIENCE_DEPTH = 10;
+
+/**
+ * Whether a tree nests deeper than MAX_AUDIENCE_DEPTH, checked ITERATIVELY.
+ *
+ * Guards the recursive walks that come after it. isAudience and enumerateNodes
+ * both recurse, and both run BEFORE any node budget applies, so a tree nested
+ * tens of thousands deep is a stack overflow rather than a rejection or a slow
+ * query. The only way in is an authenticated sender posting a hand-built tree
+ * to their own campaign's count action, so the damage is a 500 they caused
+ * themselves, but the check is a few lines and the crash is unbounded.
+ *
+ * An explicit stack rather than recursion, or the guard would be the thing it
+ * guards against. Reads `children`, which is what a group nests under; the
+ * root's own `conditions` array is level one.
+ */
+export function exceedsAudienceDepth(v: unknown, max = MAX_AUDIENCE_DEPTH): boolean {
+  const root = (v as { conditions?: unknown[] } | null)?.conditions;
+  const stack: { node: unknown; depth: number }[] = Array.isArray(root)
+    ? root.map((node) => ({ node, depth: 1 }))
+    : [];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop()!;
+    if (depth > max) return true;
+    const children = (node as { children?: unknown[] } | null)?.children;
+    if (Array.isArray(children)) {
+      for (const child of children) stack.push({ node: child, depth: depth + 1 });
+    }
+  }
+  return false;
+}
+
 export function isAudience(v: unknown): v is Audience {
   if (!v || typeof v !== "object") return false;
   const a = v as Record<string, unknown>;
@@ -115,3 +183,27 @@ export function isAudience(v: unknown): v is Audience {
   if (!Array.isArray(a.conditions)) return false;
   return a.conditions.every(isValidNode);
 }
+
+/**
+ * Loads a count per person for a count-kind field. Every loader MUST return an
+ * entry for every ACTIVE-status person, defaulting to 0, so that "fewer than N"
+ * includes people with no rows at all. See countWhere in operators.ts.
+ *
+ * Defined here (not in person-fields.ts, where COUNT_LOADERS and countField
+ * live) so that person-fields.ts and the per-field loader modules that register
+ * into COUNT_LOADERS can both import the type from one place without either
+ * importing the other.
+ *
+ * `now`/`zone` are the SAME per-run clock and display zone every other
+ * relative-date path in this codebase resolves through (see AudienceCtx in
+ * person-fields.ts and dateWhere in operators.ts). A loader computing a
+ * relative cutoff (e.g. "upcoming") MUST derive it from these, never from a
+ * fresh `new Date()`: that would ignore the injected clock a recurring
+ * campaign's tests and reruns depend on, and would compare by the SERVER's
+ * UTC calendar day instead of the clinic's configured zone.
+ */
+export type CountLoader = (ctx: {
+  activeTermId: string | null;
+  now: Date;
+  zone: DisplayTimeZone;
+}) => Promise<Map<string, number>>;

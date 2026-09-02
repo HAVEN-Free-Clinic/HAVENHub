@@ -2,25 +2,57 @@ import type { Prisma, Track, TechRequestStatus, EpicRequestStatus } from "@prism
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
-import type { AudienceCondition, ConditionOp } from "./types";
+import { LANGUAGES } from "@/platform/languages";
+import type { DisplayTimeZone } from "@/platform/dates/zone";
+import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
+import {
+  attendanceCountThisTerm,
+  noShowCountThisTerm,
+  shiftCountThisTerm,
+  upcomingShiftCount,
+} from "./count-loaders";
 import {
   BOOLEAN_OPERATORS,
+  DATE_OPERATORS,
   ENUM_OPERATORS,
   MATCH_NOBODY,
   MULTI_ENUM_OPERATORS,
+  NUMBER_OPERATORS,
   TEXT_OPERATORS,
   YEAR_OPERATORS,
   asArray,
+  countWhere,
+  dateWhere,
   enumWhere,
+  mappedDateWhere,
   stringSetFilter,
   textWhere,
   yearWhere,
 } from "./operators";
 
-export type PersonFieldKind = "text" | "enum" | "multiEnum" | "boolean" | "year";
+export type PersonFieldKind =
+  | "text"
+  | "enum"
+  | "multiEnum"
+  | "boolean"
+  | "year"
+  | "date"
+  | "count";
 
 export type AudienceCtx = {
   activeTermId: string | null;
+  /**
+   * The instant this resolve is happening. Required, and threaded rather than
+   * read from the clock inside a compile function, for two reasons: a recurring
+   * campaign's relative windows must re-evaluate on every run against the run's
+   * own clock, and a fixed clock is what makes the operators testable.
+   */
+  now: Date;
+  /**
+   * The clinic's configured display zone. Date conditions compare by CALENDAR
+   * DAY in this zone, so "expires on the 20th" means the local 20th.
+   */
+  zone: DisplayTimeZone;
   /**
    * Live compliance status for every Person, keyed by id. Required only when
    * resolving a `complianceStatus` condition: that status is derived (newest
@@ -28,6 +60,15 @@ export type AudienceCtx = {
    * and injects it here. See loadComplianceStatusMap.
    */
   complianceStatusByPerson?: Map<string, ComplianceStatus>;
+  /**
+   * Live HIPAA certificate expiry date for every Person, keyed by id (`null`
+   * when there is no computable expiry). Required only when a `hipaaExpiresAt`
+   * condition is present. Expiry is DERIVED (completion date plus the
+   * certificate's validity period) and depends on the SAME effective-certificate
+   * selection `complianceStatus` uses, never a stored column, so it rides the
+   * identical precompute-and-inject seam. See loadHipaaExpiryMap.
+   */
+  hipaaExpiresAtByPerson?: Map<string, Date | null>;
   /**
    * Full clearance per active-term member, keyed by id. Required only when a
    * clearance-derived condition (isCleared, learningComplete) is present:
@@ -46,6 +87,31 @@ export type AudienceCtx = {
    * loadAppliedByCycle in resolve.ts.
    */
   appliedByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids whose application in each recruitment cycle has at least one
+   * `Acceptance` row, keyed by cycle id. Required only when an `acceptedInCycle`
+   * condition is present. Resolved through the same email/NetID fallback as
+   * `appliedByCycle` -- an anonymous applicant who was accepted reaches a Person
+   * the identical way an anonymous applicant who merely applied does. See
+   * loadApplicantFacts in resolve.ts.
+   */
+  acceptedByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids assigned to each subcommittee, keyed by subcommittee id.
+   * Required only when a `subcommittee` condition is present.
+   *
+   * `Subcommittee` has no relation to `Person` at all; its only link is
+   * `Application.assignedSubcommitteeId`, so this is a recruitment question
+   * wearing a membership disguise and is resolved through the same
+   * email/NetID fallback as the cycle buckets above. See loadApplicantFacts.
+   */
+  bySubcommittee?: Map<string, Set<string>>;
+  /**
+   * Per-person counts for each count-kind field actually named in the audience,
+   * keyed by field key then person id. Populated by resolveAudience only for
+   * fields the audience uses, since each loader is a table scan.
+   */
+  countsByField?: Map<string, Map<string, number>>;
 };
 
 export type PersonFieldDef = {
@@ -151,6 +217,127 @@ function textField(key: string, label: string, column: string, nullable = true):
     kind: "text",
     operators: TEXT_OPERATORS,
     compile: (cond) => textWhere(column, cond, nullable),
+  };
+}
+
+export function dateField(
+  key: string,
+  label: string,
+  group: string,
+  column: string,
+  nullable = true,
+): PersonFieldDef {
+  return {
+    key,
+    label,
+    group,
+    kind: "date",
+    // isEmpty/isNotEmpty compile (in dateWhere) to `{ [column]: null }` /
+    // `{ [column]: { not: null } }` unconditionally -- Prisma throws a
+    // PrismaClientValidationError for either shape against a NOT NULL column.
+    // Omitting them from a non-nullable field's own operator list means the
+    // gate in personFieldWhere (`field.operators.includes(cond.op)`) turns any
+    // stored-but-invalid condition into MATCH_NOBODY before it ever reaches
+    // dateWhere, the same way textField's `nullable` flag already protects its
+    // isEmpty/isNotEmpty branch.
+    operators: nullable
+      ? DATE_OPERATORS
+      : DATE_OPERATORS.filter((op) => op !== "isEmpty" && op !== "isNotEmpty"),
+    compile: (cond, ctx) => dateWhere(column, cond, ctx),
+  };
+}
+
+/**
+ * A date living on a RELATED row rather than on Person.
+ *
+ * Compiles to `{ <relation>: { some: { <column>: <datePredicate> } } }`, so a
+ * person matches when ANY of their related rows satisfies the date. That is the
+ * right reading for certificates and completions, where the question is "did
+ * this ever happen in that window", not "did all of them".
+ *
+ * `isEmpty` is the one operator that cannot use `some`: "has no completion date"
+ * must also match a person with no related rows AT ALL, which `some` never does.
+ */
+function relationDateField(
+  key: string,
+  label: string,
+  group: string,
+  relation: string,
+  column: string,
+): PersonFieldDef {
+  return {
+    key,
+    label,
+    group,
+    kind: "date",
+    operators: DATE_OPERATORS,
+    compile: (cond, ctx) => {
+      const inner = dateWhere(column, cond, ctx) as Record<string, unknown>;
+      // dateWhere returns MATCH_NOBODY as { id: { in: [] } }, which is a Person
+      // predicate, not a relation one. Pass it straight through.
+      if ("id" in inner) return inner as Prisma.PersonWhereInput;
+
+      if (cond.op === "isEmpty") {
+        return {
+          OR: [
+            { [relation]: { none: {} } },
+            { [relation]: { some: { [column]: null } } },
+          ],
+        } as Prisma.PersonWhereInput;
+      }
+      return { [relation]: { some: inner } } as Prisma.PersonWhereInput;
+    },
+  };
+}
+
+/**
+ * Loaders for every registered count-kind field, keyed by field key.
+ * resolveAudience runs only the loaders for fields the audience actually
+ * names (see resolve.ts), since each one is a table scan.
+ */
+export const COUNT_LOADERS: Record<string, CountLoader> = {};
+
+/**
+ * A count-kind field: compares a per-person count (shifts attended, strikes,
+ * etc.) against a numeric condition. Prisma cannot filter on a relation count
+ * inside `where`, so the field's loader precomputes the whole map and
+ * countWhere turns the comparison into an explicit id list.
+ */
+export function countField(
+  key: string,
+  label: string,
+  group: string,
+  loader: CountLoader,
+): PersonFieldDef {
+  COUNT_LOADERS[key] = loader;
+  return {
+    key,
+    label,
+    group,
+    kind: "count",
+    operators: NUMBER_OPERATORS,
+    compile: (cond, ctx) => {
+      const counts = ctx.countsByField?.get(key);
+      // A missing map means resolveAudience did not run this field's loader --
+      // a WIRING bug, not malformed user input, so this does not follow the
+      // MATCH_NOBODY convention the rest of this file uses for a bad condition
+      // value. Failing closed here would be silently wrong under a NONE group:
+      // compileGroup renders NONE as `NOT { OR: fragments } }`, and a leaf that
+      // always evaluates false never contributes to that OR, so the condition
+      // would exclude nobody -- the opposite of what a NONE group over this
+      // field is supposed to do, and a widening bug via NOT (see the invariants
+      // at the top of operators.ts). Throwing instead surfaces the bug loudly:
+      // compilePersonWhere has no surrounding try/catch, so nothing gets sent
+      // rather than sending to people who should have been filtered out. Every
+      // sibling precompute field in this file (appliedToCycle, complianceStatus,
+      // isCleared, learningComplete) already throws for the same reason.
+      if (!counts) {
+        throw new Error(
+          `${key} audience requires a precomputed count map; resolveAudience did not run its loader.`,
+        );
+      }
+      return countWhere(counts, cond);
+    },
   };
 }
 
@@ -275,7 +462,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "appliedToCycle",
     label: "Applied to recruitment cycle",
-    group: "Records",
+    group: "Recruitment",
     kind: "multiEnum",
     operators: MULTI_ENUM_OPERATORS,
     // Resolved from a precomputed per-cycle id set rather than a relation filter,
@@ -303,9 +490,61 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     },
   },
   {
+    key: "acceptedInCycle",
+    label: "Accepted in recruitment cycle",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Same precomputed-id-set shape as appliedToCycle, over a narrower bucket:
+    // the application has at least one Acceptance row (acceptance is a separate
+    // row, not a status column). See ctx.acceptedByCycle.
+    compile: (cond, ctx) => {
+      const cycles = asArray(cond.value);
+      if (cycles.length === 0) return MATCH_NOBODY;
+      if (!ctx.acceptedByCycle) {
+        throw new Error(
+          "acceptedInCycle audience requires a precomputed applicant map; resolveAudience must supply ctx.acceptedByCycle",
+        );
+      }
+      const ids = new Set<string>();
+      for (const cycleId of cycles) {
+        for (const personId of ctx.acceptedByCycle.get(cycleId) ?? []) ids.add(personId);
+      }
+      // Same reasoning as appliedToCycle: "not accepted" legitimately includes
+      // everyone with no application at all, so `notIn` over the id list (not a
+      // relation `none`) is correct here too.
+      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
+    },
+  },
+  {
+    key: "subcommittee",
+    label: "Assigned subcommittee",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Subcommittee has NO relation to Person at all -- its only link is
+    // Application.assignedSubcommitteeId -- so this is a recruitment question
+    // wearing a membership disguise and resolves through the same precomputed,
+    // email/NetID-backed bucket as the cycle fields above. See ctx.bySubcommittee.
+    compile: (cond, ctx) => {
+      const subcommittees = asArray(cond.value);
+      if (subcommittees.length === 0) return MATCH_NOBODY;
+      if (!ctx.bySubcommittee) {
+        throw new Error(
+          "subcommittee audience requires a precomputed applicant map; resolveAudience must supply ctx.bySubcommittee",
+        );
+      }
+      const ids = new Set<string>();
+      for (const subcommitteeId of subcommittees) {
+        for (const personId of ctx.bySubcommittee.get(subcommitteeId) ?? []) ids.add(personId);
+      }
+      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
+    },
+  },
+  {
     key: "complianceStatus",
     label: "HIPAA compliance status",
-    group: "Status & roles",
+    group: "Compliance",
     kind: "multiEnum",
     operators: MULTI_ENUM_OPERATORS,
     options: COMPLIANCE_OPTIONS,
@@ -336,7 +575,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "hasEpicId",
     label: "Has an Epic ID",
-    group: "Attributes",
+    group: "Identity",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
@@ -422,7 +661,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "hasVerifiedCertificate",
     label: "Has a verified HIPAA certificate",
-    group: "Records",
+    group: "Compliance",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
@@ -433,7 +672,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "addedToEhs",
     label: "Added to Yale EHS",
-    group: "Attributes",
+    group: "Compliance",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) => ({ addedToEhs: cond.op === "isTrue" }),
@@ -441,7 +680,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "completedVolunteerTraining",
     label: "Completed volunteer training",
-    group: "Status & roles",
+    group: "Training",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     termScoped: true,
@@ -501,7 +740,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "learningComplete",
     label: "Completed all assigned learning",
-    group: "Status & roles",
+    group: "Training",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond, ctx) => {
@@ -519,14 +758,196 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
       return { id: { in: ids } };
     },
   },
+  relationDateField("hipaaCompletedAt", "HIPAA certificate completion date", "Compliance", "hipaaCertificates", "completionDate"),
+  relationDateField("hipaaVerifiedAt", "HIPAA certificate verified date", "Compliance", "hipaaCertificates", "verifiedAt"),
+  relationDateField("ehsCompletedAt", "EHS training completion date", "Compliance", "ehsCompletions", "completedAt"),
+  relationDateField("trainingCompletedAt", "Volunteer training completion date", "Training", "trainings", "completedAt"),
+  dateField("joinedAt", "Joined the roster", "Identity", "createdAt", false), // Person.createdAt is NOT NULL
+  countField("shiftCountThisTerm", "Shifts assigned this term", "Schedule", shiftCountThisTerm),
+  countField("attendanceCountThisTerm", "Clinic days attended this term", "Schedule", attendanceCountThisTerm),
+  countField("noShowCountThisTerm", "Assigned shifts not attended", "Schedule", noShowCountThisTerm),
+  countField("upcomingShiftCount", "Upcoming assigned shifts", "Schedule", upcomingShiftCount),
+  {
+    key: "speaksLanguage",
+    label: "Speaks a language (verified)",
+    group: "Attributes",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    options: LANGUAGES.map((l) => ({ value: l.code, label: l.label })),
+    // Generalises spanishVerified to the full catalog: same `verified: true` +
+    // `verifiedAt: { not: null }` pair (verified alone is meaningless -- see the
+    // PersonLanguage.verified schema comment -- because verified: false WITH
+    // verifiedAt set means "assessed and did not pass"), now over an `in` set of
+    // language codes instead of a bare "es".
+    compile: (cond) => {
+      const filter = stringSetFilter(
+        cond,
+        LANGUAGES.map((l) => l.code),
+      );
+      if (!filter) return MATCH_NOBODY;
+      const verifiedIn = (languages: string[]) => ({
+        language: { in: languages },
+        verified: true,
+        verifiedAt: { not: null },
+      });
+      // `none`, not `some: { verified: false }`: excluding a language must also
+      // exclude everyone with no language row at all, not only those assessed
+      // and failed in it -- the same invariant spanishVerified's isFalse branch
+      // documents.
+      if ("notIn" in filter) return { languages: { none: verifiedIn(filter.notIn) } };
+      return { languages: { some: verifiedIn(filter.in) } };
+    },
+  },
+  {
+    key: "claimsLanguage",
+    label: "Claims a language (self-reported)",
+    group: "Attributes",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    options: LANGUAGES.map((l) => ({ value: l.code, label: l.label })),
+    // Generalises spanishSelfReported the same way: an intake claim, never a
+    // qualification, so no `verified`/`verifiedAt` check at all.
+    compile: (cond) => {
+      const filter = stringSetFilter(
+        cond,
+        LANGUAGES.map((l) => l.code),
+      );
+      if (!filter) return MATCH_NOBODY;
+      const selfReportedIn = (languages: string[]) => ({
+        language: { in: languages },
+        selfReported: true,
+      });
+      if ("notIn" in filter) return { languages: { none: selfReportedIn(filter.notIn) } };
+      return { languages: { some: selfReportedIn(filter.in) } };
+    },
+  },
+  {
+    key: "hasServiceCredential",
+    label: "Has a service credential",
+    group: "Records",
+    kind: "boolean",
+    operators: BOOLEAN_OPERATORS,
+    // Person.serviceCredential is a nullable one-to-one, not a list, so this is
+    // a relation-presence check rather than a some/none over rows -- but
+    // presence alone is not enough. ServiceCredential.revokedAt is the SOLE
+    // invalidating signal everywhere else a credential is read (see
+    // src/modules/passport/services/credential.ts: getCredentialByToken,
+    // revokeServiceCredential, restoreServiceCredential all key off it alone).
+    // publicToken/unpublishedAt are ORTHOGONAL -- they gate whether the public
+    // credential page is visible, not whether the underlying service record is
+    // valid -- so they play no part here. A credential revoked for falsified
+    // service must not count as "has a service credential".
+    //
+    // Prisma's `is`/`isNot` on a nullable to-one relation give exactly the
+    // needed positive/negative pair from one shared inner filter:
+    //   is:    { revokedAt: null } -- a credential row exists AND is unrevoked.
+    //   isNot: { revokedAt: null } -- NOT(exists AND unrevoked), i.e. either no
+    //          credential row at all, OR a credential row that IS revoked.
+    // The isNot branch is what makes the negative case correct: a naive
+    // `{ is: null }` (bare relation-absence) would miss the revoked-but-present
+    // row, silently keeping a falsified credential in the "does not have a
+    // valid credential" cohort's complement. Verified against a live Postgres
+    // database with three people (active credential / revoked credential / no
+    // credential row) -- see membership-fields.test.ts's three-way test.
+    compile: (cond) => ({
+      serviceCredential:
+        cond.op === "isTrue" ? { is: { revokedAt: null } } : { isNot: { revokedAt: null } },
+    }),
+  },
+  {
+    key: "hipaaExpiresAt",
+    label: "HIPAA certificate expires",
+    group: "Compliance",
+    kind: "date",
+    // Full DATE_OPERATORS, including isEmpty/isNotEmpty: "no computable expiry"
+    // (no certificate at all, or the effective certificate has no parsed
+    // completionDate) is a real, meaningful state for this field, the same way
+    // a null relation date is for hipaaCompletedAt.
+    operators: DATE_OPERATORS,
+    // Expiry is DERIVED (completionDate + CERT_VALIDITY_DAYS -- see
+    // compliance/rules.ts's certExpiresAt), not a stored column, so it cannot be
+    // a relationDateField over hipaaCertificates the way hipaaCompletedAt is.
+    // It also cannot be expressed as completionDate shifted by the validity
+    // window in the OPERATOR layer: the certificate that determines expiry is
+    // not always the newest one (see effectiveCompliance's verified-fallback --
+    // an unverified early renewal defers to an older still-valid VERIFIED
+    // cert), and relationDateField's `some` has no way to pick that SAME row.
+    // So this rides the same precompute-and-inject seam complianceStatus does:
+    // resolveAudience precomputes ctx.hipaaExpiresAtByPerson via
+    // loadHipaaExpiryMap (which reuses effectiveCompliance directly), and this
+    // field resolves the condition against that map with mappedDateWhere --
+    // the same date-boundary logic dateWhere uses for a real column, just
+    // evaluated against an in-memory Date instead of a SQL predicate. See
+    // loadHipaaExpiryMap's doc comment for the full reasoning.
+    compile: (cond, ctx) => {
+      if (!ctx.hipaaExpiresAtByPerson) {
+        throw new Error(
+          "hipaaExpiresAt audience requires a precomputed expiry map; resolveAudience must supply ctx.hipaaExpiresAtByPerson",
+        );
+      }
+      return mappedDateWhere(ctx.hipaaExpiresAtByPerson, cond, ctx);
+    },
+  },
 ];
+
+/**
+ * A stored audience naming a field that no longer exists.
+ *
+ * Typed rather than a bare Error so a caller can degrade on THIS and nothing
+ * else. It is a reachable legacy state, not a programmer bug: `isAudience`
+ * admits any leaf carrying a string `field`, so a renamed or retired field
+ * survives in `audienceJson` indefinitely, and field-picker.tsx exists
+ * specifically to render it as "Unknown field" and let a sender remove it. The
+ * builder's live counts compile that same tree on every editor load, so they
+ * need to recognise this one case without also swallowing a genuine wiring bug
+ * from elsewhere in the compiler.
+ */
+export class UnknownAudienceFieldError extends Error {
+  constructor(field: string) {
+    super(`Unknown audience field: ${field}`);
+    this.name = "UnknownAudienceFieldError";
+  }
+}
 
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {
   const field = PERSON_FIELDS.find((f) => f.key === cond.field);
-  if (!field) throw new Error(`Unknown audience field: ${cond.field}`);
+  if (!field) throw new UnknownAudienceFieldError(cond.field);
   // An operator the field does not declare can only arrive from a hand-edited or
   // stale stored audience. Compiling it would either throw deep in a helper or,
   // worse, fall through to a default branch; match nobody instead.
+  //
+  // This was deliberately NOT changed to throw (the way countField's missing
+  // precompute map does) even though the reasoning is the same in spirit -- an
+  // operator/field mismatch is a wiring or corruption bug, not user input -- and
+  // even though MATCH_NOBODY here is unsafe under a NONE group: compileGroup
+  // renders NONE as `NOT { OR: fragments } }`, and a fragment that always
+  // evaluates false contributes nothing to that OR, so the surrounding NONE
+  // widens to match EVERY Person instead of excluding the intended cohort. Two
+  // reasons kept this as MATCH_NOBODY:
+  //
+  // 1. dateField's `nullable` parameter (see above) relies on exactly this gate
+  //    to turn a non-nullable date field's isEmpty/isNotEmpty into a safe no-op
+  //    rather than a PrismaClientValidationError -- that is the documented,
+  //    intended behavior for that case, so this gate cannot unconditionally
+  //    throw without breaking it.
+  // 2. The concrete widening bug this gate could otherwise cause (a freshly
+  //    added date/count condition landing on an operator its own kind doesn't
+  //    declare, e.g. the enum-shaped fallback `eq` on a date field) is closed
+  //    upstream instead: defaultConditionFor in audience-builder.tsx now has a
+  //    branch for every PersonFieldKind, and a test asserts every field's
+  //    default operator is a member of that field's own `operators` array. That
+  //    closes the only path normal use of the builder has to reach this gate at
+  //    all, for both existing and future field kinds.
+  //
+  // What remains open, by choice, is a stored audience whose JSON was edited or
+  // corrupted by hand (or a migration) to name an operator its field no longer
+  // declares -- that condition still widens if it lands inside a NONE group.
+  // This is not a new hole: an ordinary, syntactically VALID condition with an
+  // unsatisfiable value (an empty `contains` string, an empty `in` list) has
+  // always compiled to this same MATCH_NOBODY and has always had the same
+  // effect under NONE. Closing that general class -- rejecting an incomplete
+  // condition inside a NONE group outright, everywhere, at compile time -- is a
+  // larger, cross-cutting change deferred rather than folded into this fix.
   if (!field.operators.includes(cond.op)) return MATCH_NOBODY;
   return field.compile(cond, ctx);
 }

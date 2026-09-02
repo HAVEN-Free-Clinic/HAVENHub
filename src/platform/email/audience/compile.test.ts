@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compilePersonWhere } from "./compile";
 
-const ctx = { activeTermId: "t1" };
+const ctx = { activeTermId: "t1", now: new Date("2026-01-01T12:00:00.000Z"), zone: "America/New_York" as const };
 
 describe("compilePersonWhere", () => {
   it("ALL -> AND of fragments", () => {
@@ -80,6 +80,71 @@ describe("compilePersonWhere", () => {
         { match: "NONE", children: [] },
       ] }, ctx);
     expect(where).toEqual({ AND: [{ id: { in: [] } }] });
+  });
+
+  // The reachable version of the "always-false leaf widens NONE" hazard above:
+  // a date condition landing on an operator its own field never declares (the
+  // enum-shaped fallback `defaultConditionFor` used to hand every date field
+  // before it grew its own branch -- see audience-builder.tsx) hits
+  // personFieldWhere's operator gate, which returns MATCH_NOBODY. Fixed by
+  // giving `defaultConditionFor` a `date` branch that always picks a real,
+  // field-declared operator (`onOrAfter`); this test locks in that a
+  // WELL-FORMED date condition compiles to a real predicate, not MATCH_NOBODY,
+  // so it narrows a NONE group instead of vacuously matching everyone.
+  it("a well-formed date condition narrows a NONE group instead of vacuously matching everyone", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "joinedAt", op: "onOrAfter", value: "2026-06-01" },
+        ] },
+      ] }, ctx);
+    expect(where).toEqual({ AND: [
+      { NOT: { OR: [{ createdAt: { gte: new Date("2026-06-01T04:00:00.000Z") } }] } },
+    ] });
+  });
+
+  // Documents the residual, deliberately-not-fully-closed hazard: an operator
+  // a field does NOT declare (reachable only via a hand-edited or stale stored
+  // audience now that defaultConditionFor always picks a valid one -- see the
+  // test above and audience-builder.test.tsx) still compiles to MATCH_NOBODY
+  // via the gate in personFieldWhere, which still widens a NONE group to
+  // everyone. See the comment on that gate in person-fields.ts for why this was
+  // kept as MATCH_NOBODY rather than made to throw.
+  it("an operator a field does not declare still widens a NONE group (documented, pre-existing hazard)", () => {
+    const where = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          // "eq" is not a member of DATE_OPERATORS; joinedAt never declares it.
+          { field: "joinedAt", op: "eq" as never, value: "2026-06-01" },
+        ] },
+      ] }, ctx);
+    expect(where).toEqual({ AND: [{ NOT: { OR: [{ id: { in: [] } }] } }] });
+  });
+
+  // Defect 1.3: the date and count kinds must AGREE on how an empty range is
+  // represented, because under a NONE group the representation is what decides
+  // whether rows with a NULL column survive. countWhere has always returned the
+  // MATCH_NOBODY sentinel for `lo > hi`; the date branch used to return a
+  // gte/lt pair that was empty by range instead. See date-fields.test.ts for
+  // the executed-SQL proof that the two are not interchangeable under NOT once
+  // the column is nullable.
+  it("a reversed range compiles to the same match-nobody sentinel for a date and for a count", () => {
+    const dateSide = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "joinedAt", op: "between", value: ["2026-03-20", "2026-03-18"] },
+        ] },
+      ] }, ctx);
+    const countSide = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "shiftCountThisTerm", op: "between", value: ["5", "2"] },
+        ] },
+      ] },
+      { ...ctx, countsByField: new Map([["shiftCountThisTerm", new Map([["p1", 3]])]]) },
+    );
+    expect(dateSide).toEqual({ AND: [{ NOT: { OR: [{ id: { in: [] } }] } }] });
+    expect(countSide).toEqual(dateSide);
   });
 
   it("a NONE group nests inside another group", () => {

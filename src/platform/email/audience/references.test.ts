@@ -15,6 +15,21 @@ describe("collectAudienceReferences", () => {
     expect([...refs.termIds].sort()).toEqual(["sp26", "su26"]);
   });
 
+  it("collects cycle ids named by acceptedInCycle into the same set as appliedToCycle", () => {
+    const refs = collectAudienceReferences([
+      { field: "appliedToCycle", op: "in", value: ["fall26"] },
+      { field: "acceptedInCycle", op: "in", value: ["spring27"] },
+    ]);
+    expect([...refs.cycleIds].sort()).toEqual(["fall26", "spring27"]);
+  });
+
+  it("collects subcommittee ids named by a subcommittee condition", () => {
+    const refs = collectAudienceReferences([
+      { field: "subcommittee", op: "in", value: ["sub1", "sub2"] },
+    ]);
+    expect([...refs.subcommitteeIds].sort()).toEqual(["sub1", "sub2"]);
+  });
+
   it("recurses into nested groups", () => {
     const nodes: AudienceNode[] = [
       {

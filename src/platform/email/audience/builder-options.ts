@@ -10,6 +10,8 @@
  * references, labelled so it can be recognised and removed (#82).
  */
 import { prisma } from "@/platform/db";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
 import { collectAudienceReferences } from "./references";
 import type { Audience } from "./types";
 
@@ -17,12 +19,26 @@ export type AudienceBuilderOptions = {
   departments: { code: string; name: string }[];
   terms: { id: string; label: string }[];
   cycles: { id: string; label: string }[];
+  subcommittees: { id: string; label: string }[];
+  /**
+   * The clinic's display zone in words, e.g. "Eastern (New York)".
+   *
+   * Not an option LIST, but it belongs here for the same reason the lists do:
+   * it is per-request context the builder cannot compute for itself, and
+   * resolving it here means both call sites (the campaign editor and the scope
+   * editor) get it without either having to remember to. A date condition
+   * resolves its calendar day in THIS zone, not the sender's, and the builder
+   * shows the zone beside every absolute date control so the difference is not
+   * invisible. getDisplayTimeZone is React-cached per request, so this adds no
+   * query when the page has already resolved the zone for something else.
+   */
+  zoneLabel: string;
 };
 
 export async function loadAudienceBuilderOptions(
   audience: Audience,
 ): Promise<AudienceBuilderOptions> {
-  const [departments, terms, cycles] = await Promise.all([
+  const [departments, terms, cycles, subcommittees, zone] = await Promise.all([
     prisma.department.findMany({
       where: { isActive: true },
       select: { code: true, name: true },
@@ -40,6 +56,12 @@ export async function loadAudienceBuilderOptions(
       select: { id: true, title: true, status: true },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.subcommittee.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { order: "asc" },
+    }),
+    getDisplayTimeZone(),
   ]);
 
   const referenced = collectAudienceReferences(audience.conditions);
@@ -55,7 +77,23 @@ export async function loadAudienceBuilderOptions(
     : [];
   const foundCodes = new Set(inactiveReferenced.map((d) => d.code));
 
+  // Subcommittees get the department treatment (an isActive flag, not a status
+  // enum), rather than the cycle treatment: a referenced-but-deactivated
+  // subcommittee still exists as a row and is labelled "(inactive)", distinct
+  // from one with no surviving row at all ("(removed)").
+  const activeSubIds = new Set(subcommittees.map((s) => s.id));
+  const missingSubIds = [...referenced.subcommitteeIds].filter((id) => !activeSubIds.has(id));
+  const inactiveReferencedSubs = missingSubIds.length
+    ? await prisma.subcommittee.findMany({
+        where: { id: { in: missingSubIds } },
+        select: { id: true, name: true },
+        orderBy: { order: "asc" },
+      })
+    : [];
+  const foundSubIds = new Set(inactiveReferencedSubs.map((s) => s.id));
+
   return {
+    zoneLabel: zoneLabel(zone),
     departments: [
       ...departments,
       ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),
@@ -85,6 +123,15 @@ export async function loadAudienceBuilderOptions(
       ...[...referenced.cycleIds]
         .filter((cid) => !cycles.some((c) => c.id === cid))
         .map((cid) => ({ id: cid, label: "Deleted cycle" })),
+    ],
+    subcommittees: [
+      ...subcommittees.map((s) => ({ id: s.id, label: s.name })),
+      ...inactiveReferencedSubs.map((s) => ({ id: s.id, label: `${s.name} (inactive)` })),
+      // Ids with no surviving Subcommittee row at all (fully deleted): still
+      // render them so the admin can uncheck the dead value.
+      ...missingSubIds
+        .filter((id) => !foundSubIds.has(id))
+        .map((id) => ({ id, label: "Deleted subcommittee" })),
     ],
   };
 }

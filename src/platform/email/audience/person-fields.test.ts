@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-import { PERSON_FIELDS, PERSON_FIELD_VIEWS, personFieldWhere } from "./person-fields";
+import { PERSON_FIELDS, PERSON_FIELD_VIEWS, countField, personFieldWhere } from "./person-fields";
 
-const ctx = { activeTermId: "term1" };
+// Fixed clock/zone shared by tests that don't care about date behavior; kept
+// separate from date-operators.test.ts's own fixture so a change there can't
+// silently affect these.
+const NOW = new Date("2026-01-01T12:00:00.000Z");
+const ZONE = "America/New_York" as const;
+
+const ctx = { activeTermId: "term1", now: NOW, zone: ZONE };
 
 const complianceCtx = {
   activeTermId: "term1",
+  now: NOW,
+  zone: ZONE,
   complianceStatusByPerson: new Map<string, ComplianceStatus>([
     ["p1", "COMPLIANT"],
     ["p2", "EXPIRED"],
@@ -14,15 +22,30 @@ const complianceCtx = {
   ]),
 };
 
+const hipaaExpiryCtx = {
+  activeTermId: "term1",
+  now: NOW,
+  zone: ZONE,
+  hipaaExpiresAtByPerson: new Map<string, Date | null>([
+    ["p1", new Date("2026-01-10T12:00:00.000Z")], // 9 days out -> inside a 30-day window
+    ["p2", new Date("2026-06-01T12:00:00.000Z")], // ~151 days out -> outside
+    ["p3", null], // no computable expiry
+  ]),
+};
+
 describe("person fields", () => {
   it("exposes all expected person field keys in order", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
-      "status", "onRoster", "role", "department", "appliedToCycle", "complianceStatus", "hasEpicId",
+      "status", "onRoster", "role", "department", "appliedToCycle", "acceptedInCycle",
+      "subcommittee", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
+      "hipaaCompletedAt", "hipaaVerifiedAt", "ehsCompletedAt", "trainingCompletedAt", "joinedAt",
+      "shiftCountThisTerm", "attendanceCountThisTerm", "noShowCountThisTerm", "upcomingShiftCount",
+      "speaksLanguage", "claimsLanguage", "hasServiceCredential", "hipaaExpiresAt",
     ]);
   });
 
@@ -77,6 +100,33 @@ describe("person fields", () => {
     expect(() =>
       personFieldWhere({ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }, ctx),
     ).toThrow(/status map/i);
+  });
+
+  it("hipaaExpiresAt -> withinNextDays matches ids whose precomputed expiry falls inside the window", () => {
+    expect(
+      personFieldWhere({ field: "hipaaExpiresAt", op: "withinNextDays", value: "30" }, hipaaExpiryCtx),
+    ).toEqual({ id: { in: ["p1"] } });
+  });
+
+  it("hipaaExpiresAt -> a person with no computable expiry never matches a comparison operator", () => {
+    const where = personFieldWhere(
+      { field: "hipaaExpiresAt", op: "onOrAfter", value: "2020-01-01" },
+      hipaaExpiryCtx,
+    );
+    const ids = (where as { id: { in: string[] } }).id.in;
+    expect(ids).not.toContain("p3");
+  });
+
+  it("hipaaExpiresAt -> isEmpty matches only people with no computable expiry", () => {
+    expect(personFieldWhere({ field: "hipaaExpiresAt", op: "isEmpty" }, hipaaExpiryCtx)).toEqual({
+      id: { in: ["p3"] },
+    });
+  });
+
+  it("hipaaExpiresAt -> throws when the expiry map was not precomputed", () => {
+    expect(() =>
+      personFieldWhere({ field: "hipaaExpiresAt", op: "withinNextDays", value: "30" }, ctx),
+    ).toThrow(/expiry map/i);
   });
 
   it("hasEpicId true/false", () => {
@@ -218,6 +268,74 @@ describe("booleans and relations", () => {
   });
 });
 
+describe("membership detail fields", () => {
+  // Generalises spanishVerified/spanishSelfReported to the full language
+  // catalog. Same shape, `language` now an `in` set rather than a bare "es".
+  it("speaksLanguage -> some/none verified rows for the selected languages", () => {
+    const verifiedSet = { language: { in: ["es", "fr"] }, verified: true, verifiedAt: { not: null } };
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in", value: ["es", "fr"] }, ctx)).toEqual({
+      languages: { some: verifiedSet },
+    });
+    // `none`, not `some: { verified: false }`: excluding "es" must also exclude
+    // nobody who has no language row at all, not only those assessed and failed
+    // in "es". Matches the invariant spanishVerified's isFalse branch documents.
+    expect(personFieldWhere({ field: "speaksLanguage", op: "notIn", value: ["es", "fr"] }, ctx)).toEqual({
+      languages: { none: verifiedSet },
+    });
+  });
+
+  it("speaksLanguage -> an empty selection matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in", value: [] }, ctx)).toEqual({
+      id: { in: [] },
+    });
+    expect(personFieldWhere({ field: "speaksLanguage", op: "in" }, ctx)).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("speaksLanguage -> drops codes outside the catalog rather than passing them to Prisma", () => {
+    expect(
+      personFieldWhere({ field: "speaksLanguage", op: "in", value: ["es", "not-a-language"] }, ctx),
+    ).toEqual({
+      languages: { some: { language: { in: ["es"] }, verified: true, verifiedAt: { not: null } } },
+    });
+    // Every value invalid -> nothing survives the allowlist -> match nobody.
+    expect(
+      personFieldWhere({ field: "speaksLanguage", op: "in", value: ["not-a-language"] }, ctx),
+    ).toEqual({ id: { in: [] } });
+  });
+
+  it("claimsLanguage -> some/none self-reported rows for the selected languages", () => {
+    expect(personFieldWhere({ field: "claimsLanguage", op: "in", value: ["es"] }, ctx)).toEqual({
+      languages: { some: { language: { in: ["es"] }, selfReported: true } },
+    });
+    expect(personFieldWhere({ field: "claimsLanguage", op: "notIn", value: ["es"] }, ctx)).toEqual({
+      languages: { none: { language: { in: ["es"] }, selfReported: true } },
+    });
+  });
+
+  it("claimsLanguage -> an empty selection matches nobody (never everyone)", () => {
+    expect(personFieldWhere({ field: "claimsLanguage", op: "in", value: [] }, ctx)).toEqual({
+      id: { in: [] },
+    });
+  });
+
+  it("hasServiceCredential -> unrevoked relation presence, not bare presence", () => {
+    // Person.serviceCredential is a nullable one-to-one, so this is an is/isNot
+    // check, unlike the list-shaped relations above -- but a revoked credential
+    // must not count as "has a service credential" (revokedAt is the sole
+    // invalidating signal; see the field's own doc comment). isFalse must match
+    // BOTH no credential row and a revoked one, which is exactly what isNot
+    // gives over the same inner filter as the isTrue branch.
+    expect(personFieldWhere({ field: "hasServiceCredential", op: "isTrue" }, ctx)).toEqual({
+      serviceCredential: { is: { revokedAt: null } },
+    });
+    expect(personFieldWhere({ field: "hasServiceCredential", op: "isFalse" }, ctx)).toEqual({
+      serviceCredential: { isNot: { revokedAt: null } },
+    });
+  });
+});
+
 describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
   it("mirrors PERSON_FIELDS by key, in order", () => {
     expect(PERSON_FIELD_VIEWS.map((v) => v.key)).toEqual(PERSON_FIELDS.map((f) => f.key));
@@ -231,6 +349,41 @@ describe("PERSON_FIELD_VIEWS (RSC-serializable)", () => {
       }
     }
     expect(() => JSON.stringify(PERSON_FIELD_VIEWS)).not.toThrow();
+  });
+});
+
+// Person.createdAt is `DateTime @default(now())`, i.e. NOT NULL. dateWhere's
+// isEmpty/isNotEmpty branches compile unconditionally to `{ createdAt: null }`
+// / `{ createdAt: { not: null } }`, and Prisma throws a
+// PrismaClientValidationError for either shape against a NOT NULL column. The
+// fix is at the field-registry level (dateField's `nullable` parameter), not
+// in dateWhere: joinedAt must never OFFER isEmpty/isNotEmpty, and a condition
+// that names one anyway (a hand-edited or stale stored audience) must be
+// caught by personFieldWhere's operator gate before it ever reaches dateWhere.
+describe("joinedAt audience field (non-nullable date)", () => {
+  it("does not declare isEmpty or isNotEmpty", () => {
+    const view = PERSON_FIELD_VIEWS.find((f) => f.key === "joinedAt")!;
+    expect(view.kind).toBe("date");
+    expect(view.operators).not.toContain("isEmpty");
+    expect(view.operators).not.toContain("isNotEmpty");
+    // Every other date operator must still be there -- this is a narrowed
+    // operator list, not a broken one.
+    expect(view.operators).toEqual(
+      expect.arrayContaining(["before", "after", "onOrBefore", "onOrAfter", "between", "withinNextDays", "withinLastDays"]),
+    );
+  });
+
+  it("a stored isEmpty/isNotEmpty condition matches nobody instead of throwing", () => {
+    expect(() => personFieldWhere({ field: "joinedAt", op: "isEmpty" }, ctx)).not.toThrow();
+    expect(() => personFieldWhere({ field: "joinedAt", op: "isNotEmpty" }, ctx)).not.toThrow();
+    expect(personFieldWhere({ field: "joinedAt", op: "isEmpty" }, ctx)).toEqual({ id: { in: [] } });
+    expect(personFieldWhere({ field: "joinedAt", op: "isNotEmpty" }, ctx)).toEqual({ id: { in: [] } });
+  });
+
+  it("still compiles its declared operators normally", () => {
+    expect(personFieldWhere({ field: "joinedAt", op: "before", value: "2026-01-01" }, ctx)).toEqual({
+      createdAt: { lt: new Date("2026-01-01T05:00:00.000Z") },
+    });
   });
 });
 
@@ -290,7 +443,7 @@ describe("relation-backed conditions (compliance program additions)", () => {
   // `none: { termId: "" }`, which is TRUE for every Person row -> a campaign would
   // email the entire database. Both operators must match nobody.
   it("term-scoped fields match nobody when there is no active term", () => {
-    const noTerm = { activeTermId: null };
+    const noTerm = { activeTermId: null, now: NOW, zone: ZONE };
     for (const field of ["completedVolunteerTraining", "flaggedForOffboarding"] as const) {
       expect(personFieldWhere({ field, op: "isTrue" }, noTerm)).toEqual({ id: { in: [] } });
       expect(personFieldWhere({ field, op: "isFalse" }, noTerm)).toEqual({ id: { in: [] } });
@@ -302,7 +455,7 @@ describe("relation-backed conditions (compliance program additions)", () => {
   // Both used to lean on `termId: ""` matching no membership by accident; these
   // pin the match-nobody guarantee to an explicit guard instead.
   it("role and department match nobody when there is no active term", () => {
-    const noTerm = { activeTermId: null };
+    const noTerm = { activeTermId: null, now: NOW, zone: ZONE };
     expect(personFieldWhere({ field: "role", op: "eq", value: "DIRECTOR" }, noTerm)).toEqual({ id: { in: [] } });
     expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, noTerm)).toEqual({ id: { in: [] } });
     expect(personFieldWhere({ field: "department", op: "in", value: ["CARDIO", "PEDS"] }, noTerm)).toEqual({
@@ -368,14 +521,19 @@ describe("term-scoped roster fields", () => {
   });
 
   it("still matches nobody with no active term AND no named terms", () => {
-    expect(personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, { activeTermId: null })).toEqual({
+    expect(
+      personFieldWhere({ field: "role", op: "eq", value: "VOLUNTEER" }, { activeTermId: null, now: NOW, zone: ZONE }),
+    ).toEqual({
       id: { in: [] },
     });
   });
 
   it("named terms work even with no active term", () => {
     expect(
-      personFieldWhere({ field: "onRoster", op: "isTrue", terms: ["sp26"] }, { activeTermId: null }),
+      personFieldWhere(
+        { field: "onRoster", op: "isTrue", terms: ["sp26"] },
+        { activeTermId: null, now: NOW, zone: ZONE },
+      ),
     ).toEqual({ memberships: { some: { termId: "sp26", status: "ACTIVE" } } });
   });
 });
@@ -476,6 +634,8 @@ describe("gradYear ordered comparison", () => {
 describe("appliedToCycle", () => {
   const appliedCtx = {
     activeTermId: "term1",
+    now: NOW,
+    zone: ZONE,
     appliedByCycle: new Map([
       ["fall26", new Set(["p1", "p2"])],
       ["spring27", new Set(["p2", "p3"])],
@@ -518,5 +678,21 @@ describe("personFieldWhere operator gating", () => {
       id: { in: [] },
     });
     expect(personFieldWhere({ field: "name", op: "isTrue" }, ctx)).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("countField", () => {
+  it("throws rather than failing closed when the count map was never loaded", () => {
+    // A missing map means resolveAudience did not run this field's loader,
+    // which is a wiring bug. Failing closed would be quietly wrong under a NONE
+    // group, where an always-false leaf excludes nobody and the people the
+    // condition was meant to remove stay in the send list.
+    const field = countField("testCount", "Test count", "Schedule", async () => new Map());
+    expect(() =>
+      field.compile(
+        { field: "testCount", op: "gte", value: "1" },
+        { activeTermId: null, now: new Date(), zone: "America/New_York" },
+      ),
+    ).toThrow(/count map/i);
   });
 });

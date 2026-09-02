@@ -97,6 +97,47 @@ export type AudienceCtx = {
    */
   acceptedByCycle?: Map<string, Set<string>>;
   /**
+   * Person ids REJECTED in each recruitment cycle, keyed by cycle id. Required
+   * only when a `rejectedInCycle` condition is present.
+   *
+   * A rejection has two sources by design and this bucket unions both:
+   * `Application.decision = REJECT` is the routed department's decision on a
+   * VOLUNTEER application (no interview), and `Interview.decision = REJECT` is
+   * the director-track decision. The schema comment on Application.decision
+   * says exactly this. Reading one source would silently drop a whole track.
+   * See loadApplicantFacts in resolve.ts.
+   */
+  rejectedByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids who were SENT an interview invite in each recruitment cycle,
+   * keyed by cycle id. Required only when an `interviewInvitedInCycle`
+   * condition is present.
+   *
+   * Keyed on `Interview.invitedAt` being non-null, never on the row existing:
+   * `createInterview` writes a row with no `scheduledAt` and no `invitedAt`,
+   * and `sendInterviewInvite` stamps `invitedAt` only when the invite actually
+   * goes out. See loadApplicantFacts in resolve.ts.
+   */
+  interviewInvitedByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids who WITHDREW from each recruitment cycle, keyed by cycle id.
+   * Required only when a `withdrewFromCycle` condition is present. Keyed on
+   * `Application.status = WITHDRAWN`. See loadApplicantFacts in resolve.ts.
+   */
+  withdrewByCycle?: Map<string, Set<string>>;
+  /**
+   * Person ids who applied as each `ApplicantType`, keyed by the enum member
+   * (NEW / RENEWAL / TRANSFER). Required only when an `applicantType` condition
+   * is present.
+   *
+   * The one bucket here that is NOT cycle-keyed: the type is a property of the
+   * application, not of a cycle, so a condition on it names no cycle and spans
+   * all of them. It still rides this precompute rather than a relation filter,
+   * because reaching a Person from an application needs the same nullable link
+   * plus email/NetID fallback every bucket above needs. See loadApplicantFacts.
+   */
+  byApplicantType?: Map<string, Set<string>>;
+  /**
    * Person ids assigned to each subcommittee, keyed by subcommittee id.
    * Required only when a `subcommittee` condition is present.
    *
@@ -343,6 +384,106 @@ export function countField(
 
 const TRACKS = ["DIRECTOR", "VOLUNTEER"] as const;
 
+/**
+ * The one compiled shape every applicant-backed field shares: union the
+ * precomputed person-id buckets the condition names, then compare Person.id
+ * against that explicit list.
+ *
+ * Shared rather than copied per field because every invariant below has to hold
+ * identically for all seven of them, and a copy that lost one would not fail
+ * loudly:
+ *
+ *   - An empty selection is MATCH_NOBODY, never `{ notIn: [] }`, which is
+ *     `NOT false` -- every Person in the table (invariant 1 in operators.ts).
+ *   - A missing bucket map THROWS rather than failing closed. A missing map
+ *     means buildAudienceCtx did not run the precompute for a condition it did
+ *     not notice, which is a wiring bug, not user input. MATCH_NOBODY there is
+ *     silently wrong under a NONE group: compileGroup renders NONE as
+ *     `NOT { OR: fragments }`, and an always-false leaf contributes nothing to
+ *     that OR, so the group would stop excluding the cohort it names. Nothing
+ *     catches this, so a send fails outright instead of mailing the wrong list.
+ *   - A key the map does not hold contributes no ids. That is the pre-seeding
+ *     guard doing its job: every bucket is seeded from the ids the audience
+ *     actually asked about before any applicant row is scanned, so
+ *     `buckets.get(key)` is a "was this one of the ids requested" filter and a
+ *     cycle or subcommittee the audience never named can never pass it.
+ *   - Negation is `id: { notIn: ids }` rather than a relation `none`. That is
+ *     correct HERE and not for the roster fields: "has not applied", "was not
+ *     rejected", "did not withdraw" all genuinely include everyone with no
+ *     application at all, which is why these fields are meant to be combined
+ *     with a roster condition rather than sent on their own.
+ *
+ * `notEq` is treated as a negation alongside `notIn` so an enum-kind field
+ * (applicantType, whose ENUM_OPERATORS include it) negates correctly. The
+ * multiEnum fields declare only in/notIn, so this is inert for them.
+ *
+ * `allowed`, when given, drops keys outside it BEFORE the emptiness check, so a
+ * value that is not a member of the field's enum matches nobody in both
+ * polarities -- exactly what enumWhere does for every other enum-kind field
+ * here. Without it a stored `applicantType notEq GRADUATE` would find no bucket,
+ * negate an empty id list, and mail the entire database.
+ *
+ * The cycle and subcommittee fields are NOT given one, and that asymmetry is a
+ * COST/BENEFIT CALL, not an impossibility. An earlier version of this comment
+ * claimed there was no allowlist available for row ids. That is true only of a
+ * live cycle with an empty cohort; it is false of a DELETED one, whose id is
+ * exactly what `loadAudienceBuilderOptions` already detects well enough to
+ * render a "Deleted cycle" checkbox (builder-options.ts). So the widening is
+ * reachable and has been verified end to end: with the named cycle deleted, a
+ * single `rejectedInCycle notIn ["gone"]` clause resolves to EVERY Person with
+ * an address.
+ *
+ * It is left as-is here for three reasons, none of them "it cannot be done":
+ *
+ *   1. This shape is byte-identical to what `appliedToCycle` and
+ *      `acceptedInCycle` already shipped. Narrowing it is a change to the
+ *      meaning of two live fields, and `appliedToCycle` is usable inside an
+ *      AudienceScope, which is a send BOUNDARY -- so the change shrinks reach
+ *      under `in` and widens it under `notIn` and inside NONE. That needs a
+ *      scope-by-scope audit, not a rider on a new field.
+ *   2. The reading is defensible on its own terms: "was not rejected in cycle
+ *      X" genuinely is everyone when nobody was rejected in X.
+ *   3. It is visible three ways before anything is sent. The dead id renders as
+ *      a CHECKED "Deleted cycle" box rather than vanishing (#82); the per-node
+ *      count next to the clause shows the widened number; and any send over
+ *      CAMPAIGN_CONFIRM_THRESHOLD (25) makes the sender retype the exact
+ *      recipient count before it will go (campaigns/service.ts).
+ *
+ * Whoever revisits this should weigh those against the failure mode, rather
+ * than re-deriving them.
+ */
+function bucketedIdWhere(
+  buckets: Map<string, Set<string>> | undefined,
+  cond: AudienceCondition,
+  ctxField: string,
+  allowed?: readonly string[],
+): Prisma.PersonWhereInput {
+  let keys = asArray(cond.value);
+  if (allowed) keys = keys.filter((k) => allowed.includes(k));
+  if (keys.length === 0) return MATCH_NOBODY;
+  if (!buckets) {
+    throw new Error(
+      `${cond.field} audience requires a precomputed applicant map; resolveAudience must supply ctx.${ctxField}`,
+    );
+  }
+  const ids = new Set<string>();
+  for (const key of keys) {
+    for (const personId of buckets.get(key) ?? []) ids.add(personId);
+  }
+  const negated = cond.op === "notIn" || cond.op === "notEq";
+  return negated ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
+}
+
+/** The three ways someone can apply; `Application.applicantType`. */
+const APPLICANT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "NEW", label: "New" },
+  { value: "RENEWAL", label: "Renewal" },
+  { value: "TRANSFER", label: "Transfer" },
+];
+
+/** Enum members the applicantType precompute buckets, in registry order. */
+export const APPLICANT_TYPE_VALUES: string[] = APPLICANT_TYPE_OPTIONS.map((o) => o.value);
+
 export const PERSON_FIELDS: PersonFieldDef[] = [
   textField("name", "Full name", "name", false), // Person.name is NOT NULL
   textField("netId", "NetID", "netId"),
@@ -467,27 +608,9 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     operators: MULTI_ENUM_OPERATORS,
     // Resolved from a precomputed per-cycle id set rather than a relation filter,
     // because an application links to a Person only for signed-in renewals; every
-    // other applicant is matched back by email. See ctx.appliedByCycle.
-    compile: (cond, ctx) => {
-      const cycles = asArray(cond.value);
-      if (cycles.length === 0) return MATCH_NOBODY;
-      if (!ctx.appliedByCycle) {
-        throw new Error(
-          "appliedToCycle audience requires a precomputed applicant map; resolveAudience must supply ctx.appliedByCycle",
-        );
-      }
-      const ids = new Set<string>();
-      for (const cycleId of cycles) {
-        for (const personId of ctx.appliedByCycle.get(cycleId) ?? []) ids.add(personId);
-      }
-      // `notIn` over an id list is the correct negation here: "has not applied"
-      // truly does include everyone with no application, unlike the roster fields
-      // above where the same shape would mean "everyone who was never a member".
-      // An empty id set therefore means every Person, which is right -- nobody
-      // applied to that cycle -- and is why this field is meant to be combined
-      // with a roster condition, not sent on its own.
-      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
-    },
+    // other applicant is matched back by email. See ctx.appliedByCycle, and
+    // bucketedIdWhere for why the negation is an id list rather than a `none`.
+    compile: (cond, ctx) => bucketedIdWhere(ctx.appliedByCycle, cond, "appliedByCycle"),
   },
   {
     key: "acceptedInCycle",
@@ -498,23 +621,91 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     // Same precomputed-id-set shape as appliedToCycle, over a narrower bucket:
     // the application has at least one Acceptance row (acceptance is a separate
     // row, not a status column). See ctx.acceptedByCycle.
-    compile: (cond, ctx) => {
-      const cycles = asArray(cond.value);
-      if (cycles.length === 0) return MATCH_NOBODY;
-      if (!ctx.acceptedByCycle) {
-        throw new Error(
-          "acceptedInCycle audience requires a precomputed applicant map; resolveAudience must supply ctx.acceptedByCycle",
-        );
-      }
-      const ids = new Set<string>();
-      for (const cycleId of cycles) {
-        for (const personId of ctx.acceptedByCycle.get(cycleId) ?? []) ids.add(personId);
-      }
-      // Same reasoning as appliedToCycle: "not accepted" legitimately includes
-      // everyone with no application at all, so `notIn` over the id list (not a
-      // relation `none`) is correct here too.
-      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
-    },
+    compile: (cond, ctx) => bucketedIdWhere(ctx.acceptedByCycle, cond, "acceptedByCycle"),
+  },
+  {
+    key: "rejectedInCycle",
+    label: "Rejected in cycle",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // The counterpart of acceptedInCycle, and it has to read TWO columns.
+    // `Application.decision = REJECT` is the routed department's decision on a
+    // VOLUNTEER application (no interview); `Interview.decision = REJECT` is the
+    // director-track decision. The schema comment on Application.decision says
+    // so in as many words. Matching one would silently drop a whole track.
+    //
+    // Keyed on the DECISION, not on `Application.rejectionEmailedAt`, so that
+    // this field and acceptedInCycle agree about what "outcome" means:
+    // acceptedInCycle already keys on the factual Acceptance row rather than on
+    // its emailedAt. The cost is that a sender who specifically wants "people we
+    // have already TOLD they were not selected" cannot express it -- the emailed
+    // stamp is deliberately not exposed as a field. Combine with a date
+    // condition once one exists, or add the stamp as its own field; do not
+    // quietly redefine this one, because the two readings differ for every
+    // applicant decided but not yet released.
+    compile: (cond, ctx) => bucketedIdWhere(ctx.rejectedByCycle, cond, "rejectedByCycle"),
+  },
+  {
+    key: "interviewInvitedInCycle",
+    label: "Invited to interview in cycle",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Deliberately NOT called "interviewed", and deliberately not keyed on the
+    // Interview row existing. createInterview (recruitment/services/interviews.ts)
+    // writes a row with no scheduledAt and no invitedAt; the time is patched
+    // separately and sendInterviewInvite stamps invitedAt only after the invite
+    // has actually been queued, guarded on scheduledAt existing. So a bare row
+    // is internal review state the applicant has never seen, and matching it
+    // would mail people about an interview nobody told them about. invitedAt is
+    // the only stamp the applicant's own inbox can corroborate, so the field is
+    // named for what the data actually says rather than for a fuzzier word.
+    compile: (cond, ctx) =>
+      bucketedIdWhere(ctx.interviewInvitedByCycle, cond, "interviewInvitedByCycle"),
+  },
+  {
+    key: "withdrewFromCycle",
+    label: "Withdrew from cycle",
+    group: "Recruitment",
+    kind: "multiEnum",
+    operators: MULTI_ENUM_OPERATORS,
+    // Keyed on `Application.status = WITHDRAWN` rather than on `withdrawnAt`
+    // being set. Both writes in withdraw.ts set the two together in ONE guarded
+    // update (withdrawSelf claims on status: "SUBMITTED";
+    // reopenWithdrawnApplication claims on status: "WITHDRAWN" and clears both),
+    // so they cannot disagree -- and status is the canonical state, a plain enum
+    // column rather than a stamp that reads as "when", so a future write that
+    // forgot the timestamp would still be caught here.
+    compile: (cond, ctx) => bucketedIdWhere(ctx.withdrewByCycle, cond, "withdrewByCycle"),
+  },
+  {
+    key: "applicantType",
+    label: "Applicant type",
+    group: "Recruitment",
+    kind: "enum",
+    operators: ENUM_OPERATORS,
+    options: APPLICANT_TYPE_OPTIONS,
+    // The odd one out among the recruitment fields: an enum with fixed options
+    // rather than a cycle-keyed set, because `Application.applicantType` is a
+    // property of the application and not of a cycle. A condition on it
+    // therefore names no cycle and spans every one of them.
+    //
+    // It still rides the applicant precompute rather than compiling to a naive
+    // relation filter over Person. Person has no relation to Application at all
+    // except `Applicant.applicantPerson`, which is null for everyone who applied
+    // anonymously, so a relation filter would match only signed-in renewals --
+    // and RENEWAL is precisely the value a sender is most likely to ask for.
+    //
+    // APPLICANT_TYPE_VALUES is passed as the allowlist for the same reason every
+    // other enum field passes one to enumWhere: an unknown value (a hand-edited
+    // or migrated audience naming a type that is not in the enum) must match
+    // nobody in BOTH polarities. Left unchecked, `notEq GRADUATE` would negate
+    // an empty id list into `{ notIn: [] }` and mail the whole database. The
+    // buckets are pre-seeded from the same list, so a valid type with no
+    // applicants still resolves to an empty set rather than a missing key.
+    compile: (cond, ctx) =>
+      bucketedIdWhere(ctx.byApplicantType, cond, "byApplicantType", APPLICANT_TYPE_VALUES),
   },
   {
     key: "subcommittee",
@@ -526,20 +717,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     // Application.assignedSubcommitteeId -- so this is a recruitment question
     // wearing a membership disguise and resolves through the same precomputed,
     // email/NetID-backed bucket as the cycle fields above. See ctx.bySubcommittee.
-    compile: (cond, ctx) => {
-      const subcommittees = asArray(cond.value);
-      if (subcommittees.length === 0) return MATCH_NOBODY;
-      if (!ctx.bySubcommittee) {
-        throw new Error(
-          "subcommittee audience requires a precomputed applicant map; resolveAudience must supply ctx.bySubcommittee",
-        );
-      }
-      const ids = new Set<string>();
-      for (const subcommitteeId of subcommittees) {
-        for (const personId of ctx.bySubcommittee.get(subcommitteeId) ?? []) ids.add(personId);
-      }
-      return cond.op === "notIn" ? { id: { notIn: [...ids] } } : { id: { in: [...ids] } };
-    },
+    compile: (cond, ctx) => bucketedIdWhere(ctx.bySubcommittee, cond, "bySubcommittee"),
   },
   {
     key: "complianceStatus",

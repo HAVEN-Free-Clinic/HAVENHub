@@ -5,12 +5,12 @@ import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { Prisma } from "@prisma/client";
 import type { Audience, AudienceCondition, AudienceNode } from "./types";
-import { isAudienceGroup, EMPTY_AUDIENCE } from "./types";
+import { isAudienceGroup, EMPTY_AUDIENCE, CYCLE_VALUED_FIELD_KEYS } from "./types";
 import { compileNodeWhere, compilePersonWhere } from "./compile";
 import type { AudienceCtx } from "./person-fields";
 import { personVariables } from "./variables";
 import { asArray } from "./operators";
-import { COUNT_LOADERS } from "./person-fields";
+import { APPLICANT_TYPE_VALUES, COUNT_LOADERS } from "./person-fields";
 
 export type Recipient = {
   email: string;
@@ -35,8 +35,8 @@ function collectConditions(nodes: AudienceNode[]): AudienceCondition[] {
 /**
  * Applicant facts resolved to person ids, bucketed several ways.
  *
- * `appliedByCycle` and `acceptedByCycle` are keyed by cycle id, `bySubcommittee`
- * by subcommittee id -- all three pre-seeded identically from their requested-id
+ * The five cycle-keyed buckets are keyed by cycle id and `bySubcommittee` by
+ * subcommittee id -- all six pre-seeded identically from their requested-id
  * arrays (see loadApplicantFacts below), each id mapped to an empty Set before
  * any applicant row is scanned. That pre-seeding is what makes the
  * `bySubcommittee.has(...)` guard downstream correct: it is a "was this id one
@@ -44,12 +44,39 @@ function collectConditions(nodes: AudienceNode[]): AudienceCondition[] {
  * because every requested id is already a key -- not built lazily as applicants
  * matching it are found -- so a subcommittee the audience never named can never
  * pass the check no matter what an applicant's row references.
+ *
+ * `byApplicantType` is the one bucket keyed by something other than a requested
+ * id, because `Application.applicantType` is an enum with fixed members rather
+ * than a row somebody picks. It is pre-seeded from APPLICANT_TYPE_VALUES on the
+ * same principle: the seeded keys ARE the allowlist, so a stored audience naming
+ * a type that is not in the enum finds no bucket and matches nobody.
  */
 type ApplicantFacts = {
-  /** Person ids with any submitted application, keyed by cycle id. */
+  /**
+   * Person ids with any application row at all in that cycle, keyed by cycle id.
+   *
+   * Including a DRAFT one. This comment used to say "submitted", which the query
+   * below does not ask for (`applications: { some: {} }`, no status filter), and
+   * the test named "ignores an applicant with no submitted application" does not
+   * catch the difference because its fixture has no Application row at all.
+   * Corrected rather than the behaviour changed, because that behaviour shipped
+   * and narrowing it would change an existing field's meaning: today "exclude
+   * everyone who already applied" also excludes someone who opened the wizard,
+   * let it autosave, and never submitted. That is the under-match direction, so
+   * it is a quiet miss rather than a send-all. `byApplicantType` below
+   * deliberately does NOT inherit it; see its DRAFT skip.
+   */
   appliedByCycle: Map<string, Set<string>>;
   /** Person ids whose application in that cycle has at least one Acceptance. */
   acceptedByCycle: Map<string, Set<string>>;
+  /** Person ids rejected in that cycle, by EITHER decision column. */
+  rejectedByCycle: Map<string, Set<string>>;
+  /** Person ids sent an interview invite in that cycle (invitedAt non-null). */
+  interviewInvitedByCycle: Map<string, Set<string>>;
+  /** Person ids whose application in that cycle is WITHDRAWN. */
+  withdrewByCycle: Map<string, Set<string>>;
+  /** Person ids who applied as each ApplicantType; NOT cycle-keyed. */
+  byApplicantType: Map<string, Set<string>>;
   /** Person ids assigned to each subcommittee, keyed by subcommittee id. */
   bySubcommittee: Map<string, Set<string>>;
 };
@@ -74,25 +101,66 @@ type ApplicantFacts = {
 async function loadApplicantFacts(
   cycleIds: string[],
   subcommitteeIds: string[],
+  wantApplicantTypes: boolean,
 ): Promise<ApplicantFacts> {
-  const appliedByCycle = new Map<string, Set<string>>(cycleIds.map((id) => [id, new Set<string>()]));
-  const acceptedByCycle = new Map<string, Set<string>>(cycleIds.map((id) => [id, new Set<string>()]));
+  const seededByCycle = () =>
+    new Map<string, Set<string>>(cycleIds.map((id) => [id, new Set<string>()]));
+  const appliedByCycle = seededByCycle();
+  const acceptedByCycle = seededByCycle();
+  const rejectedByCycle = seededByCycle();
+  const interviewInvitedByCycle = seededByCycle();
+  const withdrewByCycle = seededByCycle();
+  const byApplicantType = new Map<string, Set<string>>(
+    APPLICANT_TYPE_VALUES.map((t) => [t, new Set<string>()]),
+  );
   const bySubcommittee = new Map<string, Set<string>>(
     subcommitteeIds.map((id) => [id, new Set<string>()]),
   );
+  const facts = (): ApplicantFacts => ({
+    appliedByCycle,
+    acceptedByCycle,
+    rejectedByCycle,
+    interviewInvitedByCycle,
+    withdrewByCycle,
+    byApplicantType,
+    bySubcommittee,
+  });
+
   const wantSubcommittees = subcommitteeIds.length > 0;
-  if (cycleIds.length === 0 && !wantSubcommittees) {
-    return { appliedByCycle, acceptedByCycle, bySubcommittee };
-  }
+  if (cycleIds.length === 0 && !wantSubcommittees && !wantApplicantTypes) return facts();
 
   const applicants = await prisma.applicant.findMany({
     where: {
-      OR: [
-        ...(cycleIds.length > 0 ? [{ cycleId: { in: cycleIds } }] : []),
-        ...(wantSubcommittees
-          ? [{ applications: { some: { assignedSubcommitteeId: { in: subcommitteeIds } } } }]
-          : []),
-      ],
+      // An applicantType condition names no cycle and no subcommittee -- the
+      // type is a property of the application, so the question spans every
+      // cycle. There is therefore nothing to narrow by, and the OR is dropped
+      // rather than widened with a third disjunct that would match every row
+      // anyway. The cycle and subcommittee buckets stay correct under the wider
+      // scan because they are guarded by `has(...)` on their pre-seeded keys,
+      // not by which rows the query happened to return.
+      //
+      // THE COST, named so it is a decision rather than an accident: with an
+      // applicantType condition present this scan is UNBOUNDED where every
+      // other path narrows it. One request reads every Applicant that has an
+      // application, plus each of their applications, acceptances and
+      // interviews, and then the whole Person table below. The builder re-counts
+      // on a 400ms debounce over every node, so an editing session issues that
+      // repeatedly, not once. Clinic-sized today (hundreds of applicants across
+      // a handful of cycles), which is why it is accepted as-is rather than
+      // paid for with a second, weaker resolution path. If applicant volume ever
+      // makes this hurt, the fix is to push the type filter into the query and
+      // bucket only what comes back -- the `has(...)` guards already make that
+      // safe -- not to give applicantType its own scan.
+      ...(wantApplicantTypes
+        ? {}
+        : {
+            OR: [
+              ...(cycleIds.length > 0 ? [{ cycleId: { in: cycleIds } }] : []),
+              ...(wantSubcommittees
+                ? [{ applications: { some: { assignedSubcommitteeId: { in: subcommitteeIds } } } }]
+                : []),
+            ],
+          }),
       applications: { some: {} },
     },
     select: {
@@ -104,12 +172,19 @@ async function loadApplicantFacts(
         select: {
           id: true,
           assignedSubcommitteeId: true,
+          status: true,
+          decision: true,
+          applicantType: true,
           acceptances: { select: { id: true } },
+          // Both interview columns come back on one join rather than two:
+          // `decision` is the director-track half of a rejection, `invitedAt`
+          // is the only stamp that says the applicant was actually told.
+          interviews: { select: { decision: true, invitedAt: true } },
         },
       },
     },
   });
-  if (applicants.length === 0) return { appliedByCycle, acceptedByCycle, bySubcommittee };
+  if (applicants.length === 0) return facts();
 
   const people = await prisma.person.findMany({
     select: { id: true, contactEmail: true, netId: true },
@@ -137,6 +212,48 @@ async function loadApplicantFacts(
       acceptedByCycle.get(a.cycleId)!.add(personId);
     }
 
+    // A rejection has TWO sources by design. Application.decision is the routed
+    // department's decision on a VOLUNTEER application (no interview);
+    // Interview.decision is the director-track decision, and on that track
+    // Application.decision stays PENDING. Reading either alone drops one whole
+    // track of applicants out of the cohort silently.
+    const rejected = a.applications.some(
+      (app) => app.decision === "REJECT" || app.interviews.some((iv) => iv.decision === "REJECT"),
+    );
+    if (rejected && rejectedByCycle.has(a.cycleId)) {
+      rejectedByCycle.get(a.cycleId)!.add(personId);
+    }
+
+    // invitedAt, not the Interview row. createInterview writes a row with no
+    // scheduledAt and no invitedAt; sendInterviewInvite stamps invitedAt only
+    // once the invite has been queued. A bare row is review state the applicant
+    // has never seen. See the interviewInvitedInCycle field for the full note.
+    const invited = a.applications.some((app) =>
+      app.interviews.some((iv) => iv.invitedAt !== null),
+    );
+    if (invited && interviewInvitedByCycle.has(a.cycleId)) {
+      interviewInvitedByCycle.get(a.cycleId)!.add(personId);
+    }
+
+    const withdrew = a.applications.some((app) => app.status === "WITHDRAWN");
+    if (withdrew && withdrewByCycle.has(a.cycleId)) {
+      withdrewByCycle.get(a.cycleId)!.add(personId);
+    }
+
+    if (wantApplicantTypes) {
+      for (const app of a.applications) {
+        // DRAFT is excluded, and that is the one place this bucket deliberately
+        // differs from appliedToCycle. saveDraft (recruitment/services/drafts.ts)
+        // creates the Application row at DRAFT with an applicantType already
+        // set, so somebody who only opened the wizard and let it autosave would
+        // otherwise be mailed as though they had applied as a renewal.
+        // WITHDRAWN stays in: they did apply, and withdrewFromCycle is the field
+        // that separates them.
+        if (app.status === "DRAFT") continue;
+        byApplicantType.get(app.applicantType)?.add(personId);
+      }
+    }
+
     if (wantSubcommittees) {
       for (const app of a.applications) {
         if (app.assignedSubcommitteeId && bySubcommittee.has(app.assignedSubcommitteeId)) {
@@ -145,7 +262,7 @@ async function loadApplicantFacts(
       }
     }
   }
-  return { appliedByCycle, acceptedByCycle, bySubcommittee };
+  return facts();
 }
 
 /**
@@ -228,11 +345,16 @@ async function buildAudienceCtx(
   // Recruitment applications reach a Person through a nullable link plus an
   // email/NetID fallback, so they cannot be a Prisma predicate either. Only the
   // cycles and subcommittees the audience actually names are loaded, and only
-  // when one of the three fields backed by this precompute is present.
+  // when one of the fields backed by this precompute is present.
+  //
+  // The cycle-valued fields are read from CYCLE_VALUED_FIELD_KEYS rather than an
+  // inline OR chain: a field left out of this collection gets buckets with no
+  // key for its cycle, which resolves to match-nobody -- invisible under ALL/ANY
+  // and a send-all under a NONE group. See that constant's comment.
   const wantedCycleIds = [
     ...new Set(
       conditions
-        .filter((c) => c.field === "appliedToCycle" || c.field === "acceptedInCycle")
+        .filter((c) => CYCLE_VALUED_FIELD_KEYS.includes(c.field))
         .flatMap((c) => asArray(c.value)),
     ),
   ];
@@ -241,11 +363,16 @@ async function buildAudienceCtx(
       conditions.filter((c) => c.field === "subcommittee").flatMap((c) => asArray(c.value)),
     ),
   ];
-  const needsApplicantFacts = conditions.some(
-    (c) => c.field === "appliedToCycle" || c.field === "acceptedInCycle" || c.field === "subcommittee",
-  );
+  // applicantType names no cycle, so it is tracked separately: it is the one
+  // condition that widens the applicant scan to every cycle (see
+  // loadApplicantFacts), and gating it on a cycle list would silently load
+  // nothing.
+  const needsApplicantTypes = conditions.some((c) => c.field === "applicantType");
+  const needsApplicantFacts =
+    needsApplicantTypes ||
+    conditions.some((c) => CYCLE_VALUED_FIELD_KEYS.includes(c.field) || c.field === "subcommittee");
   const applicantFacts = needsApplicantFacts
-    ? await loadApplicantFacts(wantedCycleIds, wantedSubcommitteeIds)
+    ? await loadApplicantFacts(wantedCycleIds, wantedSubcommitteeIds, needsApplicantTypes)
     : undefined;
 
   // Count fields each cost a scan, so run only the loaders the audience (or its
@@ -270,6 +397,10 @@ async function buildAudienceCtx(
     clearanceByPerson,
     appliedByCycle: applicantFacts?.appliedByCycle,
     acceptedByCycle: applicantFacts?.acceptedByCycle,
+    rejectedByCycle: applicantFacts?.rejectedByCycle,
+    interviewInvitedByCycle: applicantFacts?.interviewInvitedByCycle,
+    withdrewByCycle: applicantFacts?.withdrewByCycle,
+    byApplicantType: applicantFacts?.byApplicantType,
     bySubcommittee: applicantFacts?.bySubcommittee,
     countsByField,
   };

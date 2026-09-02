@@ -9,7 +9,12 @@ import type {
   AudienceNode,
   ConditionOp,
 } from "@/platform/email/audience/types";
-import { isAudienceGroup, isNegativeOp, VALUELESS_OPS } from "@/platform/email/audience/types";
+import {
+  isAudienceGroup,
+  isNegativeOp,
+  VALUELESS_OPS,
+  CYCLE_VALUED_FIELD_KEYS,
+} from "@/platform/email/audience/types";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Input, Textarea } from "@/platform/ui/input";
@@ -212,10 +217,12 @@ export function getFieldOptions(
   if (field.key === "department") {
     return departments.map((d) => ({ value: d.code, label: d.name }));
   }
-  // acceptedInCycle names the same recruitment cycles appliedToCycle does (see
-  // AudienceCtx.acceptedByCycle in person-fields.ts), so it maps to the exact
-  // same `cycles` source.
-  if (field.key === "appliedToCycle" || field.key === "acceptedInCycle") {
+  // Every cycle-valued field names the same recruitment cycles appliedToCycle
+  // does (see the applicant precompute in person-fields.ts), so they all map to
+  // the exact same `cycles` source. Read from the shared list rather than an
+  // inline OR chain: a field missing here renders "No options available", so a
+  // value can never be picked at all. See CYCLE_VALUED_FIELD_KEYS.
+  if (CYCLE_VALUED_FIELD_KEYS.includes(field.key)) {
     return cycles.map((c) => ({ value: c.id, label: c.label }));
   }
   if (field.key === "subcommittee") {

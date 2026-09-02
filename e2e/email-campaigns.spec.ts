@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { loginAs } from "./auth";
-import { prisma } from "./fixtures";
+import { prisma, tag } from "./fixtures";
 
 /**
  * The campaign editor is a TABBED shell (Compose / Audience / Review & send),
@@ -288,5 +288,244 @@ test("admin email: a date condition counts matches and the saved roll lists reci
     await expect(rows.first().locator("td").nth(1)).toContainText("@");
   } finally {
     await deleteDraft(campaignId);
+  }
+});
+
+/**
+ * Seeds one recruitment cycle and seven applicants, sized so that every
+ * recruitment-outcome cohort is a DIFFERENT number of people.
+ *
+ * A cycle is seeded rather than assumed: the three cycle-keyed outcome fields
+ * draw their checkboxes from the LIVE cycle list (loadAudienceBuilderOptions),
+ * and the base seed ships no RecruitmentCycle at all, so without this the
+ * builder would render "No options available" and nothing could be ticked.
+ *
+ * The differing sizes are the load-bearing part, and they are what a first
+ * draft of this fixture got wrong. Counts stay on screen while the next request
+ * is in flight (they are flagged stale, not blanked -- see useNodeCounts), so a
+ * `toHaveText` that polls its way to a match will happily match the PREVIOUS
+ * field's number and pass without the new field ever having been counted.
+ * One-per-cohort made every expected number 1, which is precisely the shape
+ * that cannot tell those two apart. With 1 / 2 / 3 / 4 no stale value is ever
+ * equal to the value being waited for, so the assertion can only pass on a
+ * genuinely recounted tree.
+ *
+ * The seventh applicant carries a BARE interview row -- created, never invited,
+ * exactly what createInterview writes -- so the invited cohort is 2 rather than
+ * 3 only if the field really keys on `invitedAt`.
+ */
+async function seedOutcomeCycle() {
+  const admin = await prisma.person.findFirstOrThrow({
+    where: { contactEmail: "j.carney@yale.edu" },
+  });
+  const stamp = tag();
+  const term = await prisma.term.create({
+    data: {
+      code: `OC${stamp}`,
+      name: `E2E Outcomes ${stamp}`,
+      startDate: new Date("2099-01-01"),
+      endDate: new Date("2099-05-01"),
+      status: "PLANNING",
+    },
+  });
+  const cycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER",
+      termId: term.id,
+      createdById: admin.id,
+      title: `E2E Outcomes ${stamp}`,
+      publicSlug: `e2e-outcomes-${stamp}`,
+    },
+  });
+
+  const personIds: string[] = [];
+  async function applicant(
+    label: string,
+    applicantType: "NEW" | "RENEWAL",
+    extra: { decision?: "REJECT"; status?: "WITHDRAWN"; interview?: "bare" | "invited" },
+  ) {
+    const email = `e2e-${label}-${stamp}@example.com`.toLowerCase();
+    const p = await prisma.person.create({
+      data: { name: `E2E ${label} ${stamp}`, contactEmail: email, status: "ACTIVE" },
+    });
+    personIds.push(p.id);
+    const a = await prisma.applicant.create({
+      data: {
+        cycleId: cycle.id,
+        applicantPersonId: p.id,
+        firstName: "E2E",
+        lastName: label,
+        email,
+        emailLower: email,
+      },
+    });
+    const app = await prisma.application.create({
+      data: {
+        cycleId: cycle.id,
+        applicantId: a.id,
+        answers: {},
+        applicantType,
+        ...(extra.decision ? { decision: extra.decision, decidedAt: new Date() } : {}),
+        ...(extra.status ? { status: extra.status, withdrawnAt: new Date() } : {}),
+      },
+    });
+    if (extra.interview) {
+      const invited = extra.interview === "invited";
+      await prisma.interview.create({
+        data: {
+          applicationId: app.id,
+          departmentCode: "CARDIO",
+          createdById: admin.id,
+          scheduledAt: invited ? new Date("2099-02-01T15:00:00.000Z") : null,
+          invitedAt: invited ? new Date("2099-01-20T15:00:00.000Z") : null,
+        },
+      });
+    }
+  }
+
+  // 1 rejected, 2 invited, 3 withdrew; 3 renewals and 4 new.
+  await applicant("rejected", "RENEWAL", { decision: "REJECT" });
+  await applicant("invited-a", "RENEWAL", { interview: "invited" });
+  await applicant("invited-b", "RENEWAL", { interview: "invited" });
+  await applicant("withdrew-a", "NEW", { status: "WITHDRAWN" });
+  await applicant("withdrew-b", "NEW", { status: "WITHDRAWN" });
+  await applicant("withdrew-c", "NEW", { status: "WITHDRAWN" });
+  await applicant("bare-interview", "NEW", { interview: "bare" });
+
+  return {
+    cycleTitle: cycle.title,
+    cleanup: async () => {
+      // Applicant cascades to Application, which cascades to Interview.
+      await prisma.applicant.deleteMany({ where: { cycleId: cycle.id } });
+      await prisma.recruitmentCycle.delete({ where: { id: cycle.id } }).catch(() => {});
+      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      await prisma.term.delete({ where: { id: term.id } }).catch(() => {});
+    },
+  };
+}
+
+/**
+ * Journey: admin picks each of the four recruitment-outcome fields through the
+ * real FieldPicker, fills its value control, and watches the live per-node
+ * count come back with the number the seeded cohort predicts.
+ *
+ * What this covers that nothing else does. person-fields.test.ts compiles these
+ * conditions against a stubbed ctx; recruitment-fields.test.ts resolves them
+ * against the database with no browser; audience-builder.test.tsx renders the
+ * builder against stubbed props and a stubbed count action. None of them sees
+ * the three meet, and this branch has shipped several defects that were
+ * compile-clean and lint-clean and failed only when a page was actually
+ * rendered. So this asserts the whole chain, per field:
+ *
+ *   - the field is REACHABLE in the picker at all (a new field whose group or
+ *     label is wrong is invisible while every unit test still passes);
+ *   - its value control is the right one AND is populated -- the three
+ *     cycle-keyed fields have to find the live cycle list rather than render
+ *     "No options available", and applicantType has to render its enum select;
+ *   - the count element EXISTS and carries a number. That is the load-bearing
+ *     half: countNodesAction degrades a server-side throw to an empty map and
+ *     NodeCount renders nothing at all for a missing count, so a compiler that
+ *     blew up on a new field leaves no element rather than an error message;
+ *   - the number is the seeded cohort's, so a field wired to the wrong bucket
+ *     surfaces as the wrong count rather than as a passing test.
+ *
+ * Two structural choices keep it from passing vacuously. Every assertion goes
+ * through a SETTLED locator (`data-stale="false"`), because the previous
+ * field's count stays on screen while the next request is in flight. And a
+ * second clause pinning the audience to the seeded cycle rides along in every
+ * tree, so the root count is bounded by this fixture rather than by whatever
+ * applicants another spec left in the shared database -- which matters for
+ * applicantType, the one field that names no cycle and so spans all of them.
+ */
+test("admin email: every recruitment outcome field picks, fills and counts", async ({
+  page,
+}) => {
+  const campaignName = `E2E Outcomes ${Date.now()}`;
+  let campaignId: string | null = null;
+  const seeded = await seedOutcomeCycle();
+
+  // Only a SETTLED count is ever asserted on. `stale` is true from the render
+  // that changes the tree until the answer for that change lands (see
+  // useNodeCounts), and a stale row still shows the old number, so a locator
+  // without this attribute would let `toHaveText` match the previous field's
+  // count and report a pass for a field that was never counted.
+  const leaf = page.locator('[data-node-count="0"][data-stale="false"]');
+  const root = page.locator('[data-node-count="root"][data-stale="false"]');
+
+  /**
+   * Repoints the FIRST condition row at `label` through the real picker.
+   *
+   * `.first()` throughout: the tree carries two rows and row 0 is the one under
+   * test. Row 1 is pinned to "Applied to recruitment cycle" for the whole test,
+   * so first/last stay stable rather than depending on what row 0 currently is.
+   */
+  async function pickField(current: string, label: string) {
+    await page.getByRole("button", { name: `Field: ${current}` }).click();
+    await page.getByRole("combobox", { name: "Search fields" }).fill(label);
+    // The option's accessible name is the label ALONE; the group is announced
+    // once by the enclosing role="group", not folded into every option.
+    await page.getByRole("option", { name: label, exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: `Field: ${label}, Recruitment` }),
+    ).toBeVisible();
+  }
+
+  try {
+    await loginAs(page, "admin");
+    campaignId = await createDraft(page, campaignName);
+    await editorTab(page, "Audience").click();
+    await page.waitForURL(/\?tab=audience$/);
+
+    // --- Row 0: the field under test, starting on the first outcome field ---
+    await page.getByRole("button", { name: /Add condition/i }).click();
+    await pickField("Full name, Identity", "Rejected in cycle");
+
+    // --- Row 1: the cycle pin, set once and left alone ---
+    await page.getByRole("button", { name: /Add condition/i }).click();
+    await pickField("Full name, Identity", "Applied to recruitment cycle");
+    await page.getByRole("checkbox", { name: seeded.cycleTitle }).last().check();
+
+    // --- The three cycle-keyed fields, each ticked against the seeded cycle ---
+    const cycleFields: [string, string, number][] = [
+      ["Rejected in cycle", "Rejected in cycle", 1],
+      ["Rejected in cycle, Recruitment", "Invited to interview in cycle", 2],
+      ["Invited to interview in cycle, Recruitment", "Withdrew from cycle", 3],
+    ];
+    for (const [from, label, expected] of cycleFields) {
+      // The first entry is already selected from the setup above; repointing it
+      // to itself would reopen the picker on a field it is already showing.
+      if (from !== label) await pickField(from, label);
+      // A multiEnum field re-defaults to a set operator its own registry
+      // declares. "in" over an empty selection is the safe starting state.
+      await expect(page.getByRole("combobox", { name: "Operator" }).first()).toHaveValue("in");
+      // The live cycle list reached the checkbox group, rather than the
+      // "No options available" a field with no option source renders.
+      await expect(page.getByText("No options available")).toHaveCount(0);
+      await page.getByRole("checkbox", { name: seeded.cycleTitle }).first().check();
+      // Generous timeout: a 400ms debounce plus a server action the dev server
+      // may still be compiling.
+      const people = expected === 1 ? "person" : "people";
+      await expect(leaf).toHaveText(`Matches ${expected} ${people}`, { timeout: 20_000 });
+      await expect(root).toHaveText(`Matches ${expected} ${people}`, { timeout: 20_000 });
+    }
+
+    // --- applicantType: an enum select, not a checkbox group ---
+    await pickField("Withdrew from cycle, Recruitment", "Applicant type");
+    await expect(page.getByRole("combobox", { name: "Operator" }).first()).toHaveValue("eq");
+    const valueSelect = page.getByRole("combobox", { name: "Value" });
+    // Defaults to the registry's first option rather than to a blank, so the
+    // condition is complete the moment the field is chosen.
+    await expect(valueSelect).toHaveValue("NEW");
+    // The leaf spans every cycle, so only its SHAPE is pinned here; the root,
+    // which is intersected with the cycle pin, carries the exact number.
+    await expect(leaf).toHaveText(/^Matches \d+ (person|people)$/, { timeout: 20_000 });
+    await expect(root).toHaveText("Matches 4 people", { timeout: 20_000 });
+    // Changing the value re-counts, and 3 is a number no earlier step left on
+    // screen, so this cannot pass on a stale render either.
+    await valueSelect.selectOption("RENEWAL");
+    await expect(root).toHaveText("Matches 3 people", { timeout: 20_000 });
+  } finally {
+    await deleteDraft(campaignId);
+    await seeded.cleanup();
   }
 });

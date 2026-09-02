@@ -873,10 +873,12 @@ describe("countAudienceNodes", () => {
     expect(counts.root).toBe(1);
   });
 
-  // The root count is not a derived aggregate over its children: it is the very
-  // resolution a send performs, which is why it can be checked against the
-  // preview the Review tab shows.
-  it("reports a root count equal to what the campaign actually resolves to", async () => {
+  // The root count is not a derived aggregate over its children: it is the
+  // scoped resolution of the whole tree, which is why it can be checked against
+  // the preview -- but only for a campaign where nothing ELSE moves the roll.
+  // The name is scoped to that case on purpose; the test below pins the
+  // divergence that makes the general claim false.
+  it("reports a root count equal to the preview for a fresh draft with no manual lists or prior runs", async () => {
     const scope = await activeOnlyScope("Active only (root)");
     await activePerson("Sam Rivera", "sam@example.com");
     await activePerson("Pat Lee", "pat@example.com");
@@ -894,6 +896,41 @@ describe("countAudienceNodes", () => {
 
     const counts = await countAudienceNodes(c.id, audience);
     expect(counts.root).toBe((await previewAudience(c.id)).count);
+  });
+
+  // The counts are of people the CONDITIONS match, which is not the same as the
+  // people a send would reach, and the gap is reachable today because the
+  // send-once toggle is already exposed in Timing. Pinned rather than left
+  // implicit: `root` legitimately exceeding the preview is the documented
+  // contract, so a future change that "fixed" it by folding the already-mailed
+  // filter into the counts would be changing the contract, not repairing a bug.
+  it("reports a root count ABOVE the preview once a send-once campaign has already mailed people", async () => {
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+
+    const audience = {
+      recordType: "PERSON" as const,
+      match: "ALL" as const,
+      conditions: [NAMED],
+    };
+    const c = await createDraft(null, "Send once", { scopeId: null });
+    await updateCampaign(null, c.id, {
+      subject: "s",
+      body: "b",
+      audience,
+      sendOncePerPerson: true,
+    });
+
+    // Both people match, and both get mailed on the first run.
+    expect((await countAudienceNodes(c.id, audience)).root).toBe(2);
+    expect(await sendCampaignNow(null, c.id, { confirmCount: 2 })).toMatchObject({
+      recipientCount: 2,
+    });
+
+    // The preview now excludes them; the node count still reports what the
+    // conditions match, because a count query cannot see prior EmailLog rows.
+    expect((await previewAudience(c.id)).count).toBe(0);
+    expect((await countAudienceNodes(c.id, audience)).root).toBe(2);
   });
 
   it("refuses a tree past the node budget and returns an empty map", async () => {

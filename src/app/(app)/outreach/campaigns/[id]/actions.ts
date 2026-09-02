@@ -38,6 +38,7 @@ import {
   CampaignConfirmationError,
   CampaignScopeError,
 } from "@/platform/email/campaigns/service";
+import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { parseZonedInput } from "@/platform/dates";
@@ -169,6 +170,15 @@ export async function previewAction(
  * unauthorized is a grant that changed mid-session; showing no numbers is the
  * fail-closed outcome, and every action that actually sends anything still
  * refuses loudly.
+ *
+ * UnknownAudienceFieldError is degraded for a different reason, and it matters
+ * that it is degraded HERE rather than left to reject: unlike a preview, this
+ * action fires automatically on every editor load, and a stored audience naming
+ * a retired field is a legacy state the builder is specifically built to render
+ * (field-picker.tsx shows it as "Unknown field" with a control to remove it).
+ * Rejecting would mean a server action failing on load for exactly the audience
+ * a sender opened the page to repair. Caught by type, so a wiring bug anywhere
+ * else in the compiler still surfaces.
  */
 export async function countNodesAction(
   id: string,
@@ -182,6 +192,7 @@ export async function countNodesAction(
   } catch (err) {
     if (err instanceof CampaignScopeError) return {};
     if (err instanceof CampaignValidationError) return {};
+    if (err instanceof UnknownAudienceFieldError) return {};
     throw err;
   }
 }

@@ -343,8 +343,11 @@ export const ROOT_NODE_PATH = "root";
  *
  * The path is positional: root-level children are "0", "1", ...; a child of the
  * node at "1" is "1.0". The builder derives the same key from the same indices
- * as it renders (see nodeCountPath in audience-builder.tsx), which is what lets
- * one server round trip address every row on the client.
+ * as it renders (see childNodePath and nodePaths in
+ * `src/app/(app)/outreach/campaigns/[id]/node-paths.ts`), which is what lets one
+ * server round trip address every row on the client. That duplication is
+ * deliberate (this module reaches into prisma and must stay out of the client
+ * bundle), so this cross-reference is the only thing linking the two.
  */
 function enumerateNodes(audience: Audience): { path: string; node: AudienceNode }[] {
   const out: { path: string; node: AudienceNode }[] = [
@@ -386,10 +389,21 @@ function enumerateNodes(audience: Audience): { path: string; node: AudienceNode 
  *
  * Counted with `prisma.person.count` rather than by resolving recipients: only
  * the number is wanted, and materialising rows per node would multiply the cost
- * of a keystroke by the size of the roster. The counts are therefore of PEOPLE
- * matching, before the send path drops anyone lacking an email address and
- * dedups by address; `previewAudience` remains the authority on how many
- * messages actually go out.
+ * of a keystroke by the size of the roster.
+ *
+ * What `root` therefore is, exactly: **the number of people the campaign's
+ * AUDIENCE CONDITIONS match within its scope**. It is not the number the
+ * campaign will email, and must not be documented as such. Every one of these
+ * moves the real roll and none is expressible in a count query:
+ * resolveCampaignAudience additionally drops anyone with no email address,
+ * dedups by lowercased address, unions in `includePersonIds` and
+ * `pastedEmails` (themselves re-filtered through the scope), subtracts
+ * `excludePersonIds`, and for a `sendOncePerPerson` campaign subtracts everyone
+ * a prior run already mailed. That last one is reachable today, since the
+ * send-once toggle is already exposed in Timing: after the first run of a
+ * send-once campaign `root` will exceed both the preview and the actual send.
+ * `previewAudience` is the authority on how many messages go out, and the
+ * builder's own copy says so.
  *
  * Sequential on purpose. The fan-out is already bounded by MAX_COUNTED_NODES,
  * and firing forty concurrent queries would saturate a connection pool shared

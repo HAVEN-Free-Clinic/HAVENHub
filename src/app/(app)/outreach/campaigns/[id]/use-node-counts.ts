@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Audience } from "@/platform/email/audience/types";
+import { audienceStructureKey } from "./node-paths";
 
 /**
  * How long the builder waits after the last edit before asking the server for
@@ -20,13 +21,18 @@ export type NodeCounts = Record<string, number>;
 /**
  * Live per-node match counts for the tree currently being edited.
  *
- * Two behaviours beyond the debounce, both about what the sender sees while a
+ * Three behaviours beyond the debounce, all about what the sender sees while a
  * request is in the air:
  *
- * - The previous counts stay on screen, flagged `stale`, rather than blanking.
- *   Blanking would make every row in the tree flicker on each keystroke, and an
- *   empty count reads as "matches nobody", which is the one misreading these
- *   numbers exist to prevent.
+ * - After a pure VALUE edit the previous counts stay on screen, flagged
+ *   `stale`, rather than blanking. Blanking would make every row in the tree
+ *   flicker on each keystroke; a row with no count renders nothing at all (see
+ *   NodeCount in audience-builder.tsx), so the tree would visibly lose and
+ *   regain its numbers on every character typed.
+ * - After a STRUCTURAL edit the map is dropped instead, because a retained
+ *   count would then be attached to the wrong clause: paths are positional, and
+ *   a group's connective decides how its count is labelled. See
+ *   audienceStructureKey for the two concrete misreadings this prevents.
  * - Responses are matched against a request sequence number and a LATER answer
  *   always wins. A server action cannot be aborted, so a slow early request is
  *   still in flight when a faster later one lands; without this guard it would
@@ -44,9 +50,11 @@ export function useNodeCounts(
   // fire another request, and re-serialising it here is the same JSON.stringify
   // the hidden form input already does on every render.
   const key = JSON.stringify(audience);
+  const structure = audienceStructureKey(audience);
 
   const [counts, setCounts] = useState<NodeCounts>({});
   const [stale, setStale] = useState(false);
+  const lastStructure = useRef(structure);
 
   // Held in a ref, and deliberately NOT an effect dependency: the bound server
   // action arrives as a prop, and depending on its identity would re-request on
@@ -61,6 +69,13 @@ export function useNodeCounts(
 
   useEffect(() => {
     if (!actionRef.current) return;
+    // A structural edit invalidates the map wholesale: its keys no longer name
+    // the same clauses. Dropped BEFORE the debounce, not when the answer lands,
+    // because the harm is on screen the instant the edit happens.
+    if (structure !== lastStructure.current) {
+      lastStructure.current = structure;
+      setCounts({});
+    }
     setStale(true);
     const requestId = ++latestRequest.current;
     const timer = setTimeout(() => {
@@ -80,7 +95,7 @@ export function useNodeCounts(
       );
     }, NODE_COUNT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [key]);
+  }, [key, structure]);
 
   return { counts, stale };
 }

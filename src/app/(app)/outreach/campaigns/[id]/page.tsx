@@ -198,7 +198,16 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               subcommittees={audienceSubcommittees}
               initial={parsedAudience}
               zoneLabel={audienceZoneLabel}
-              countAction={boundCountNodesAction}
+              // Gated on the ACTIVE tab, not merely on being a draft. Every
+              // section stays mounted regardless of which tab is showing (see
+              // tabs.tsx and the comment above), so the builder mounts on
+              // Compose and Review too, and an ungated prop would fan out up to
+              // MAX_COUNTED_NODES sequential person counts, plus a table scan
+              // per named count-kind field, on every editor load -- for numbers
+              // on a hidden pane that nobody can see. The builder itself must
+              // stay mounted for its hidden `audience` input; only the counting
+              // is conditional.
+              countAction={activeTab === "audience" ? boundCountNodesAction : undefined}
             />
           </div>
 

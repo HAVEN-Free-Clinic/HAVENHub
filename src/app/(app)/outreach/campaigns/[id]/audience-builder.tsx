@@ -17,29 +17,9 @@ import { Button } from "@/platform/ui/button";
 import { FieldPicker } from "./field-picker";
 import { ValueControl } from "./value-controls";
 import { useNodeCounts, type NodeCounts } from "./use-node-counts";
+import { ROOT_NODE_PATH, MAX_COUNTED_NODES, childNodePath, nodePaths } from "./node-paths";
 
 export type NamedOption = { id: string; label: string };
-
-/**
- * The whole tree's count key, distinct from any index-derived child path.
- *
- * Redeclared here rather than imported from audience/resolve.ts, which is a
- * server module reaching straight into prisma: importing it would drag the
- * whole query layer into the client bundle. Both sides' tests pin the literal
- * keys ("root", "0", "1.0"), so a drift between the two shows up as a failing
- * assertion rather than as counts silently landing on the wrong rows.
- */
-const ROOT_NODE_PATH = "root";
-
-/**
- * The key a node's count is returned under, mirroring enumerateNodes in
- * audience/resolve.ts. Root-level children are "0", "1"; a child of the node at
- * "1" is "1.0". Both sides derive the key from the same positional indices,
- * which is what lets one server round trip address every row on the client.
- */
-function childNodePath(parentPath: string, index: number): string {
-  return parentPath === ROOT_NODE_PATH ? String(index) : `${parentPath}.${index}`;
-}
 
 /**
  * A node's own match count, shown beside the clause that produced it.
@@ -53,9 +33,17 @@ function childNodePath(parentPath: string, index: number): string {
  * that makes the widening visible -- but a bare "812" beside a NONE group would
  * read as "adding 812 people", so that one case spells out what it counted.
  *
- * While a fresh count is in flight the previous number stays put, dimmed, so
- * the tree does not flicker on every keystroke and no row ever briefly reads as
- * matching nobody.
+ * While a fresh count is in flight the previous number stays put rather than
+ * blanking, so the tree does not lose and regain its numbers on every
+ * keystroke. It is marked in-flight with `aria-busy` and italics, NOT by
+ * fading the text: the obvious way to write that, `text-subtle-foreground/60`,
+ * measures 2.40:1 on the light surface and 2.28:1 on the light canvas, below
+ * the 4.5:1 AA floor for text and below even the 3:1 non-text floor. It lands
+ * squarely in the 2.3-2.6:1 band that `--color-subtle-foreground` was lifted
+ * off the raw slate steps to escape (globals.css:50), so dimming this token any
+ * further just walks back into the failure it was tuned out of. Italics carry
+ * the same "provisional" reading without touching contrast, and being a
+ * non-colour cue they also survive for a reader who cannot see the difference.
  */
 function NodeCount({
   path,
@@ -74,7 +62,8 @@ function NodeCount({
     <span
       data-node-count={path}
       data-stale={String(stale)}
-      className={`text-xs tabular-nums ${stale ? "text-subtle-foreground/60" : "text-subtle-foreground"}`}
+      aria-busy={stale || undefined}
+      className={`text-xs tabular-nums text-subtle-foreground ${stale ? "italic" : ""}`}
     >
       Matches {count} {count === 1 ? "person" : "people"}
       {match === "NONE" ? " (everyone matching none of these)" : ""}
@@ -682,6 +671,10 @@ export function AudienceBuilder({
   const audience: Audience = { recordType: "PERSON", match: rootMatch, conditions: root.children };
 
   const { counts, stale } = useNodeCounts(audience, countAction);
+  // Past the server's budget it returns no counts at all, so the note above the
+  // tree has to stop promising them. Without this the sender cannot tell an
+  // over-budget tree from a failed request: both render nothing.
+  const overNodeBudget = nodePaths(audience).length > MAX_COUNTED_NODES;
 
   return (
     <div className="space-y-4">
@@ -690,17 +683,35 @@ export function AudienceBuilder({
         <p className="mt-0.5 text-xs text-muted-foreground">
           Choose who receives this campaign. Add at least one condition; an empty audience matches nobody (a safeguard against an accidental send-all). Use groups to combine ALL/ANY logic, e.g. GROUP A (this and this) OR GROUP B (this or this), and a NONE group to exclude a cohort. Roster conditions apply to the current term unless you pick terms.
         </p>
-        {countAction && (
+        {/* Deliberately says "the audience conditions", not "who this campaign
+            will email". The counts are of people matching the tree within the
+            campaign's scope; the send additionally drops anyone with no email
+            address, dedups by address, applies the manual include/exclude and
+            pasted lists, and skips anyone already mailed by a send-once
+            campaign. Review's preview is the authority on the actual roll. */}
+        {countAction && !overNodeBudget && (
           <p className="mt-1 text-xs text-muted-foreground">
             Each clause shows how many people it matches ON ITS OWN, within this campaign&apos;s
-            scope, not how many it adds. The audience is the whole tree combined, counted beside
-            the top Match control.
+            scope, not how many it adds. The number beside the top Match control is the whole
+            tree combined. These count who the conditions match; Review shows the final
+            recipient list.
+          </p>
+        )}
+        {countAction && overNodeBudget && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Match counts are off for this audience: it has more than {MAX_COUNTED_NODES}{" "}
+            conditions and groups, and counting every one on each edit would be too slow.
+            Remove some clauses to get the counts back, or use Review to preview the recipients.
           </p>
         )}
       </div>
 
       <GroupEditor
-        group={root}
+        // The narrowed connective, not `root.match`, so the group's count label
+        // and the serialised audience below can never disagree about what the
+        // root is: a root reading NONE would otherwise be labelled "everyone
+        // matching none of these" beside a number the server compiled as ALL.
+        group={{ match: rootMatch, children: root.children }}
         fields={fields}
         departments={departments}
         terms={terms}

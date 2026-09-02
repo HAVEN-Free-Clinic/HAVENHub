@@ -15,6 +15,7 @@ import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import type { Audience, ConditionOp } from "@/platform/email/audience/types";
 import { AudienceBuilder, defaultConditionFor, getFieldOptions, opLabel } from "./audience-builder";
 import { NODE_COUNT_DEBOUNCE_MS } from "./use-node-counts";
+import { MAX_COUNTED_NODES } from "./node-paths";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -904,6 +905,24 @@ describe("AudienceBuilder node counts", () => {
     expect(countsShown().root).toBe("Matches 2 people");
   });
 
+  // The root's count label and the serialised audience must not be able to
+  // disagree about the root connective. MatchToggle never offers NONE at depth
+  // 0 and Audience.match excludes it, so this is unreachable through the UI --
+  // but the two lines derived it separately, and only one of them narrowed.
+  it("labels the root count with the same connective it serialises", async () => {
+    render(
+      { recordType: "PERSON", match: "NONE" as Audience["match"], conditions: [
+        { field: "name", op: "contains", value: "a" },
+      ] },
+      async () => ({ root: 4, "0": 4 }),
+    );
+    await flush();
+
+    expect(serialised().match).toBe("ALL");
+    expect(countsShown().root).toBe("Matches 4 people");
+    expect(countsShown().root).not.toContain("everyone matching none of these");
+  });
+
   it("says person, not people, for a single match", async () => {
     render(NESTED, async () => ({ root: 1, "0": 1, "1": 0, "1.0": 0, "1.1": 0 }));
     await flush();
@@ -915,6 +934,122 @@ describe("AudienceBuilder node counts", () => {
     render(NESTED);
     await flush();
     expect(countsShown()).toEqual({});
+  });
+
+  // The NONE parenthetical is the whole device that stops a widening group
+  // being misread, so it must never appear beside a number compiled under a
+  // different connective. Flipping the toggle changes the label instantly; the
+  // count it would have labelled has to go at the same moment.
+  it("drops a group's count the instant its connective flips, label and all", async () => {
+    render(
+      {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [
+          { match: "ALL", children: [{ field: "name", op: "contains", value: "a" }] },
+        ],
+      },
+      async () => ({ root: 5, "0": 5, "0.0": 5 }),
+    );
+    await flush();
+    expect(countsShown()["0"]).toBe("Matches 5 people");
+
+    // NONE is offered on nested groups only, so this is unambiguously the
+    // nested group's toggle.
+    click([...container.querySelectorAll("button")].find((b) => b.textContent === "NONE of these"));
+    expect(countsShown()).toEqual({});
+    expect(container.textContent).not.toContain("everyone matching none of these");
+  });
+
+  it("drops the map when a clause is removed and later siblings shift down", async () => {
+    render(
+      {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [
+          { field: "name", op: "contains", value: "a" },
+          { field: "name", op: "contains", value: "b" },
+        ],
+      },
+      async () => ({ root: 5, "0": 7, "1": 9 }),
+    );
+    await flush();
+    expect(countsShown()["0"]).toBe("Matches 7 people");
+
+    // Remove the first row: what was "1" becomes "0", so a retained map would
+    // print the removed clause's 7 against the survivor.
+    click([...container.querySelectorAll("button")].find((b) => b.textContent === "Remove"));
+    expect(countsShown()).toEqual({});
+  });
+
+  // A faded token is the obvious way to show "in flight" and the one that fails
+  // WCAG AA here, so the in-flight cue is pinned as non-colour.
+  it("marks an in-flight count without fading it below the readable token", async () => {
+    let resolve!: (counts: Record<string, number>) => void;
+    let first = true;
+    render(NESTED, () => {
+      if (first) {
+        first = false;
+        return Promise.resolve({ root: 2, "0": 3, "1": 30, "1.0": 20, "1.1": 10 });
+      }
+      return new Promise<Record<string, number>>((r) => {
+        resolve = r;
+      });
+    });
+    await flush();
+    const el = () => container.querySelector('[data-node-count="root"]')!;
+    expect(el().className).toContain("text-subtle-foreground");
+    expect(el().getAttribute("aria-busy")).toBe(null);
+
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Value"]')!, "zzz");
+    // Still the full-contrast token, never an alpha-modified one, plus a cue
+    // that does not depend on seeing a colour difference.
+    expect(el().className).toContain("text-subtle-foreground");
+    expect(el().className).not.toContain("text-subtle-foreground/");
+    expect(el().className).toContain("italic");
+    expect(el().getAttribute("aria-busy")).toBe("true");
+
+    await flush();
+    await act(async () => {
+      resolve({ root: 9, "0": 9, "1": 9, "1.0": 9, "1.1": 9 });
+    });
+    expect(el().getAttribute("aria-busy")).toBe(null);
+    expect(el().className).not.toContain("italic");
+  });
+
+  // Over the budget the server returns nothing, which on screen is
+  // indistinguishable from a failed request unless the builder says so.
+  it("explains the silence when the tree is past the node budget", async () => {
+    const overBudget: Audience = {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: Array.from({ length: MAX_COUNTED_NODES }, () => ({
+        field: "name",
+        op: "isNotEmpty" as ConditionOp,
+      })),
+    };
+    render(overBudget, async () => ({}));
+    await flush();
+
+    expect(container.textContent).toContain(`more than ${MAX_COUNTED_NODES}`);
+    expect(container.textContent).not.toContain("shows how many people it matches ON ITS OWN");
+    expect(countsShown()).toEqual({});
+  });
+
+  it("keeps the normal note one clause under the budget", async () => {
+    const atBudget: Audience = {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: Array.from({ length: MAX_COUNTED_NODES - 1 }, () => ({
+        field: "name",
+        op: "isNotEmpty" as ConditionOp,
+      })),
+    };
+    render(atBudget, async () => ({}));
+    await flush();
+
+    expect(container.textContent).toContain("shows how many people it matches ON ITS OWN");
+    expect(container.textContent).not.toContain(`more than ${MAX_COUNTED_NODES}`);
   });
 
   it("keeps the previous numbers on screen, dimmed, while a fresh count is in flight", async () => {

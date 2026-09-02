@@ -1,0 +1,105 @@
+/**
+ * countNodesAction: what the builder's live counts do when something is wrong.
+ *
+ * The counts fire automatically on every editor load, so every failure here has
+ * to degrade to "no numbers" rather than reject a server action. That is not
+ * leniency: the page's own loader already ran the same scope check before the
+ * builder could mount (see page.tsx), so a refusal reaching this action means a
+ * grant changed mid-session, and an empty map is the fail-closed answer. Every
+ * action that actually sends something still refuses loudly.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    const e = Object.assign(new Error("NEXT_REDIRECT"), { digest: `NEXT_REDIRECT;${url}` });
+    throw e;
+  },
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/platform/auth/session", () => ({ requireAnyPermission: vi.fn() }));
+
+import { prisma } from "@/platform/db";
+import { resetDb } from "@/platform/test/db";
+import { requireAnyPermission } from "@/platform/auth/session";
+import { createDraft } from "@/platform/email/campaigns/service";
+import { createScope } from "@/platform/email/audience/scopes";
+import * as rbac from "@/platform/rbac/engine";
+import type { Audience } from "@/platform/email/audience/types";
+import { countNodesAction } from "./actions";
+
+beforeEach(resetDb);
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(requireAnyPermission).mockReset();
+});
+
+async function signIn(personId: string) {
+  vi.mocked(requireAnyPermission).mockResolvedValue({ personId } as never);
+}
+
+const NAMED: Audience = {
+  recordType: "PERSON",
+  match: "ALL",
+  conditions: [{ field: "name", op: "isNotEmpty" }],
+};
+
+describe("countNodesAction", () => {
+  it("counts a campaign the sender may act on", async () => {
+    await prisma.person.create({ data: { name: "Sam", contactEmail: "s@x.com", status: "ACTIVE" } });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+
+    const c = await createDraft(null, "Counts", { scopeId: null });
+    expect(await countNodesAction(c.id, null, NAMED)).toEqual({ root: 2, "0": 2 });
+  });
+
+  // The legacy state field-picker.tsx renders as "Unknown field". It passes
+  // isAudience (a leaf needs only a string `field`), so it reaches the compiler
+  // and personFieldWhere throws on it. Before this was caught, opening any
+  // campaign holding one rejected a server action on page load, for an audience
+  // the builder itself is built to display and let you remove.
+  it("returns no counts for an audience naming a field that no longer exists", async () => {
+    await prisma.person.create({ data: { name: "Sam", contactEmail: "s@x.com", status: "ACTIVE" } });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+
+    const c = await createDraft(null, "Legacy", { scopeId: null });
+    const legacy = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "aFieldThatNoLongerExists", op: "eq", value: "x" }],
+    } as Audience;
+
+    await expect(countNodesAction(c.id, null, legacy)).resolves.toEqual({});
+  });
+
+  it("returns no counts to a sender whose scope grant has gone away", async () => {
+    await prisma.person.create({ data: { name: "Sam", contactEmail: "s@x.com", status: "ACTIVE" } });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    // Holds outreach.send, but was never granted this scope.
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+
+    const scope = await createScope(null, {
+      name: "Someone else's scope",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+    });
+    const c = await createDraft(null, "Not mine", { scopeId: scope.id });
+
+    await expect(countNodesAction(c.id, scope.id, NAMED)).resolves.toEqual({});
+  });
+
+  it("returns no counts for a malformed tree rather than compiling it", async () => {
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+
+    const c = await createDraft(null, "Malformed", { scopeId: null });
+    const malformed = { recordType: "PERSON", match: "ALL", conditions: [{ nope: 1 }] } as unknown as Audience;
+
+    await expect(countNodesAction(c.id, null, malformed)).resolves.toEqual({});
+  });
+});

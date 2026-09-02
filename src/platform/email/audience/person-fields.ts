@@ -890,9 +890,28 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   },
 ];
 
+/**
+ * A stored audience naming a field that no longer exists.
+ *
+ * Typed rather than a bare Error so a caller can degrade on THIS and nothing
+ * else. It is a reachable legacy state, not a programmer bug: `isAudience`
+ * admits any leaf carrying a string `field`, so a renamed or retired field
+ * survives in `audienceJson` indefinitely, and field-picker.tsx exists
+ * specifically to render it as "Unknown field" and let a sender remove it. The
+ * builder's live counts compile that same tree on every editor load, so they
+ * need to recognise this one case without also swallowing a genuine wiring bug
+ * from elsewhere in the compiler.
+ */
+export class UnknownAudienceFieldError extends Error {
+  constructor(field: string) {
+    super(`Unknown audience field: ${field}`);
+    this.name = "UnknownAudienceFieldError";
+  }
+}
+
 export function personFieldWhere(cond: AudienceCondition, ctx: AudienceCtx): Prisma.PersonWhereInput {
   const field = PERSON_FIELDS.find((f) => f.key === cond.field);
-  if (!field) throw new Error(`Unknown audience field: ${cond.field}`);
+  if (!field) throw new UnknownAudienceFieldError(cond.field);
   // An operator the field does not declare can only arrive from a hand-edited or
   // stale stored audience. Compiling it would either throw deep in a helper or,
   // worse, fall through to a default branch; match nobody instead.

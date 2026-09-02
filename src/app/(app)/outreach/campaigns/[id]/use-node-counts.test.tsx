@@ -159,4 +159,73 @@ describe("useNodeCounts", () => {
     await settle();
     expect(shown()).toEqual({ counts: {}, stale: false });
   });
+
+  // Path keys are positional, so the retained map is only safe while the tree's
+  // SHAPE is unchanged. These two are the cases where retaining it prints a
+  // number against the wrong clause.
+  describe("structural edits drop the map instead of retaining it", () => {
+    const twoConditions: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "name", op: "contains", value: "a" },
+        { field: "name", op: "contains", value: "b" },
+      ],
+    };
+
+    async function withCounts(initial: Audience, counts: Counts) {
+      const action = vi.fn<CountAction>(async () => counts);
+      render(initial, action);
+      await settle();
+      expect(shown().counts).toEqual(counts);
+      return action;
+    }
+
+    it("drops it when a clause is removed and later siblings shift down", async () => {
+      const action = await withCounts(twoConditions, { root: 5, "0": 7, "1": 9 });
+
+      // Remove the FIRST condition: what was "1" is now "0", so the retained
+      // map would render 7 (the removed clause's count) against the survivor.
+      render(
+        { ...twoConditions, conditions: [twoConditions.conditions[1]] },
+        action,
+      );
+      expect(shown().counts).toEqual({});
+    });
+
+    it("drops it when a group's connective flips, so the NONE label cannot attach to an ALL count", async () => {
+      const grouped: Audience = {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [
+          { match: "ALL", children: [{ field: "name", op: "contains", value: "a" }] },
+        ],
+      };
+      const action = await withCounts(grouped, { root: 5, "0": 5, "0.0": 5 });
+
+      // Same paths, same values, only the connective moved. The count for "0"
+      // was compiled as an intersection; leaving it on screen would put
+      // "(everyone matching none of these)" beside it.
+      render(
+        {
+          ...grouped,
+          conditions: [{ match: "NONE", children: [{ field: "name", op: "contains", value: "a" }] }],
+        },
+        action,
+      );
+      expect(shown().counts).toEqual({});
+    });
+
+    it("keeps it for a pure value edit, which is the case dimming exists for", async () => {
+      const action = await withCounts(twoConditions, { root: 5, "0": 7, "1": 9 });
+      render(
+        {
+          ...twoConditions,
+          conditions: [{ field: "name", op: "contains", value: "az" }, twoConditions.conditions[1]],
+        },
+        action,
+      );
+      expect(shown()).toEqual({ counts: { root: 5, "0": 7, "1": 9 }, stale: true });
+    });
+  });
 });

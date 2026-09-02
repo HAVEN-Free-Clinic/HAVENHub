@@ -1,5 +1,5 @@
 import type { AudienceNode } from "./types";
-import { isAudienceGroup } from "./types";
+import { isAudienceGroup, CYCLE_VALUED_FIELD_KEYS } from "./types";
 
 /**
  * The ids and codes a stored audience points at.
@@ -43,11 +43,12 @@ export function collectAudienceReferences(nodes: AudienceNode[]): AudienceRefere
         continue;
       }
       if (node.field === "department") addValues(refs.departmentCodes, node.value);
-      // acceptedInCycle names cycle ids the same way appliedToCycle does, so
-      // both feed the same referenced-cycles set: the cycle picker must keep a
-      // deleted cycle visible and removable no matter which of the two fields
-      // is the one still pointing at it.
-      if (node.field === "appliedToCycle" || node.field === "acceptedInCycle") {
+      // Every cycle-valued field feeds the same referenced-cycles set: the
+      // cycle picker must keep a deleted cycle visible and removable no matter
+      // which of them is the one still pointing at it. Read from the shared
+      // list rather than an inline OR chain, so a field added to the registry
+      // cannot be added here by hand and missed (see CYCLE_VALUED_FIELD_KEYS).
+      if (CYCLE_VALUED_FIELD_KEYS.includes(node.field)) {
         addValues(refs.cycleIds, node.value);
       }
       if (node.field === "subcommittee") addValues(refs.subcommitteeIds, node.value);

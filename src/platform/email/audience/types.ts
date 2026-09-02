@@ -52,6 +52,38 @@ export function isNegativeOp(op: ConditionOp): boolean {
   return NEGATIVE_OPS.includes(op);
 }
 
+/**
+ * Field keys whose condition VALUE is a list of RecruitmentCycle ids.
+ *
+ * Stated once because THREE separate places have to agree about it and each
+ * fails differently when they drift:
+ *
+ *   - `buildAudienceCtx` (resolve.ts) collects the named cycle ids into the
+ *     pre-seeded buckets. A field missing here gets a bucket map with no key
+ *     for its cycle, which resolves to match-nobody -- silent under ALL/ANY and
+ *     a send-all under a NONE group.
+ *   - `collectAudienceReferences` (references.ts) keeps a deleted cycle visible
+ *     in the builder's picker. A field missing here re-opens #82: the stored
+ *     value filters forever and nobody can see or remove it.
+ *   - `getFieldOptions` (audience-builder.tsx) points the checkbox list at the
+ *     cycle source. A field missing here renders "No options available", so a
+ *     value can never be picked at all.
+ *
+ * It lives in this module rather than beside the field registry because
+ * person-fields.ts reaches prisma through its count loaders and so cannot be
+ * imported for a runtime value by the client builder. This file already is the
+ * shared client/server vocabulary (VALUELESS_OPS and NEGATIVE_OPS are here for
+ * the same reason), and "what does this condition's value MEAN" is exactly what
+ * it describes.
+ */
+export const CYCLE_VALUED_FIELD_KEYS: string[] = [
+  "appliedToCycle",
+  "acceptedInCycle",
+  "rejectedInCycle",
+  "interviewInvitedInCycle",
+  "withdrewFromCycle",
+];
+
 /** A single leaf condition on a field. */
 export type AudienceCondition = {
   field: string;

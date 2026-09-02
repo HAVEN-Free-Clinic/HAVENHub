@@ -214,8 +214,14 @@ model Person {
   emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
   recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
   campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
+  /// Campaigns whose sending identity this person chose. See EmailCampaign.fromEmailSetById.
+  campaignSendersChosen          EmailCampaign[]            @relation("campaignFromEmailSetBy")
   audienceScopesCreated          AudienceScope[]            @relation("audienceScopeCreatedBy")
   audienceScopeGrants            AudienceScopeGrant[]       @relation("audienceScopeGrantPerson")
+  /// Addresses this person has been issued permission to send campaigns as.
+  sendingIdentities              SendingIdentity[]          @relation("sendingIdentityPerson")
+  sendingIdentitiesIssued        SendingIdentity[]          @relation("sendingIdentityIssuedBy")
+  sendingIdentitiesRevoked       SendingIdentity[]          @relation("sendingIdentityRevokedBy")
   complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
   spanishAssessments             SpanishAssessmentRecord[]
@@ -1132,8 +1138,15 @@ model AudienceScope {
   description  String?
   /// An `Audience` tree, the exact shape EmailCampaign.audienceJson holds.
   audienceJson Json
-  /// Sending identity for campaigns sent under this scope. Unused until Phase 4.
+  /// Sending identity for campaigns sent under this scope, and the STRONGER of
+  /// the two claims a campaign can make (see sender-identity.ts): an admin set
+  /// it on the delegation boundary itself, so it outranks anything issued to the
+  /// person sending.
+  /// Validated against the SENDING_DOMAINS allowlist when it is written, so a
+  /// scope cannot carry an identity that is guaranteed to fail at send.
   fromEmail    String?
+  /// Cosmetic display name paired with fromEmail. Never part of DKIM/SPF
+  /// alignment, so it is not validated against anything.
   fromName     String?
   createdById  String?
   createdBy    Person?              @relation("audienceScopeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -1160,6 +1173,51 @@ model AudienceScopeGrant {
   @@index([scopeId])
   @@index([personId])
   @@index([roleId])
+}
+
+/// An address a specific person has been ISSUED permission to send campaigns as.
+/// The delegation half of sender identity: without a row here, a delegated
+/// sender's ONLY claim is their campaign's scope identity, and nothing else they
+/// can put in a From is accepted. Notably not their own Person.contactEmail,
+/// which is unverified free text they write themselves; sender-identity.ts
+/// records why at length.
+///
+/// UNIQUENESS IS (personId, address), NOT address alone. A shared mailbox such
+/// as recruitment@havenfreeclinic.org is deliberately issuable to several
+/// people, so uniqueness on the address would make the second issue fail. The
+/// address is lowercased on write, which is what makes the pair constraint
+/// case-insensitive without a raw-SQL expression index that a later
+/// `prisma migrate diff` would silently DROP.
+///
+/// REVOCATION FLIPS revokedAt ON THE SAME ROW; it never inserts a second one.
+/// That is what lets (personId, address) stay unique, and re-issuing an address
+/// someone once held clears revokedAt in place (the shape
+/// restoreServiceCredential already uses). Consequently EVERY read that means
+/// "may send as this" MUST filter revokedAt: null. A presence-only check is the
+/// exact bug ServiceCredential shipped, where a revoked credential still counted
+/// as held; see the hasServiceCredential note in audience/person-fields.ts.
+model SendingIdentity {
+  id          String    @id @default(cuid())
+  personId    String
+  person      Person    @relation("sendingIdentityPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Lowercased on write. Refused at write time unless SENDING_DOMAINS carries a
+  /// transport that can DKIM-sign for its domain: an identity nothing can sign is
+  /// a campaign that fails after the sender has already hit Send.
+  address     String
+  /// Cosmetic display name. Never part of DKIM/SPF alignment.
+  displayName String?
+  /// SetNull, like every other actor reference here: an identity outlives the
+  /// admin who issued it.
+  issuedById  String?
+  issuedBy    Person?   @relation("sendingIdentityIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  issuedAt    DateTime  @default(now())
+  /// Non-null means revoked, and is the SOLE validity signal. See the model note.
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   Person?   @relation("sendingIdentityRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([personId, address])
+  @@index([personId])
 }
 
 model EmailCampaign {
@@ -1190,6 +1248,23 @@ model EmailCampaign {
   /// Raw addresses pasted by the sender, resolved to people at send time and
   /// then subject to exactly the same scope intersection as includePersonIds.
   pastedEmails      String[]            @default([])
+  /// The sending identity CHOSEN for this campaign, or null to take whatever the
+  /// resolution order yields (the scope identity, then an address issued to the
+  /// sender; there is no third layer, and sender-identity.ts records at length
+  /// why the sender's own profile address is not one). Storing the address
+  /// alone, not a foreign key, is deliberate: it can arrive from either source,
+  /// and the choice must survive the issued row being revoked -- at which point the
+  /// run re-resolves DOWN the order rather than sending as it. Authorized when
+  /// written and re-authorized at enqueue; see resolveCampaignSender.
+  fromEmail         String?
+  /// WHO made that choice, which is who the enqueue-time re-check runs against.
+  /// Not createdById: a campaign inside a shared scope can be created by one
+  /// person and composed by another, and re-checking the chooser's claim against
+  /// somebody else's would silently swap the From between Save and Send. SetNull,
+  /// so a departed chooser degrades to "no claim" and the run falls back down the
+  /// resolution order rather than sending as an address nobody can still vouch for.
+  fromEmailSetById  String?
+  fromEmailSetBy    Person?             @relation("campaignFromEmailSetBy", fields: [fromEmailSetById], references: [id], onDelete: SetNull)
   createdById       String?
   createdBy         Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt         DateTime            @default(now())
@@ -1197,6 +1272,13 @@ model EmailCampaign {
   runs              EmailCampaignRun[]
   scopeId           String?
   scope             AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  /// Declared here only to match what migration 20260831120000 already CREATEd.
+  /// It was missing from this model, so every `prisma migrate diff` since Phase 1
+  /// has proposed DROPping it -- the drift this repo's migration note warns about,
+  /// caught when generating the Phase 3 migration. The index is load-bearing:
+  /// listCampaigns filters `scopeId IN (...)` on every scoped sender's list.
+  @@index([scopeId])
 }
 
 model EmailCampaignRun {

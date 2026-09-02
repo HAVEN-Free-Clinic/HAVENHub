@@ -12,10 +12,17 @@ import { MAX_COUNTED_NODES, PERSON_SEARCH_LIMIT } from "@/platform/email/audienc
 import type { Audience } from "@/platform/email/audience/types";
 import * as audienceResolve from "@/platform/email/audience/resolve";
 import * as sendModule from "@/platform/email/send";
-import { createScope, grantScope } from "@/platform/email/audience/scopes";
+import { createScope, grantScope, updateScope } from "@/platform/email/audience/scopes";
 import * as scopes from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
 import { assertMayActOnScope, resolveCampaignAudience, CampaignScopeError } from "./service";
+import { senderIdentitiesForCampaign } from "./service";
+import {
+  issueSendingIdentity,
+  revokeSendingIdentity,
+  SenderIdentityError,
+} from "@/platform/email/sender-identity";
+import { saveSenderRule } from "@/platform/email/sender-rules";
 
 beforeEach(resetDb);
 
@@ -1429,5 +1436,235 @@ describe("editManualLists", () => {
 
     const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.excludePersonIds).toEqual([]);
+  });
+});
+
+/**
+ * Sender identity on a campaign: the authorization boundary at the seam the
+ * compose form actually posts to, plus what one RUN goes out as.
+ *
+ * sender-identity.test.ts covers the resolution order in isolation. These cases
+ * exist because the interesting failures are at the joins: a hand-crafted
+ * fromEmail reaching updateCampaign, and an identity revoked in the window
+ * between Save and Send.
+ */
+describe("campaign sending identity", () => {
+  const SUBJECT = "Hello";
+  const BODY = "<p>Hi</p>";
+
+  async function scopedCampaign(scopeFromEmail: string | null) {
+    const sender = await prisma.person.create({
+      // A profile address on a Maileroo-signed clinic domain, deliberately: it
+      // is the shape that used to be usable as a From, so every case below is
+      // exercised against the dangerous version rather than a harmless one.
+      data: { name: "Scoped Sender", contactEmail: "directors@havenfreeclinic.org", status: "ACTIVE" },
+    });
+    const scope = await createScope(null, {
+      name: "Peds",
+      audience: ALL_ACTIVE,
+      ...(scopeFromEmail ? { fromEmail: scopeFromEmail } : {}),
+    });
+    await grantScope(null, scope.id, { personId: sender.id });
+    const campaign = await createDraft(sender.id, "Newsletter", { scopeId: scope.id });
+    return { sender, scope, campaign };
+  }
+
+  it("refuses a hand-crafted fromEmail that is not one of the sender's identities", async () => {
+    // THE crafted request. A scoped sender holds outreach.send and a grant, so
+    // they legitimately reach saveAction; the compose form offers them two
+    // addresses and they POST a third:
+    //
+    //   fromEmail=dean%40yale.edu
+    //
+    // On yale.edu, which the allowlist carries, so nothing but the ownership
+    // check can refuse it. Asserted at the SERVICE, not only at the action,
+    // because the action is one caller and this has to hold standalone.
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+
+    await expect(
+      updateCampaign(sender.id, campaign.id, {
+        subject: SUBJECT,
+        body: BODY,
+        audience: ALL_ACTIVE,
+        fromEmail: "dean@yale.edu",
+      }),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // Refused, not silently downgraded to the default: nothing was stored, and
+    // the rest of the save did not land either.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(after.fromEmail).toBeNull();
+    expect(after.subject).toBe("");
+  });
+
+  it("stores an authorized choice with the chooser, and sends every recipient as it", async () => {
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    await issueSendingIdentity(null, {
+      personId: sender.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Recruitment",
+    });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await activePerson("Pat Lee", "pat@example.com");
+
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+      fromEmail: "recruitment@havenfreeclinic.org",
+    });
+    const stored = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(stored.fromEmail).toBe("recruitment@havenfreeclinic.org");
+    // Who chose it, which is who the enqueue-time re-check runs against.
+    expect(stored.fromEmailSetById).toBe(sender.id);
+
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    // Three, not two: the sender is an ACTIVE person and so matches their own
+    // audience. Every row, whoever it is addressed to, carries the one identity.
+    expect(logs).toHaveLength(3);
+    expect(logs.every((l) => l.fromEmail === "recruitment@havenfreeclinic.org")).toBe(true);
+    expect(logs.every((l) => l.fromName === "HAVEN Recruitment")).toBe(true);
+  });
+
+  it("falls back down the order when the chosen identity is revoked before the send", async () => {
+    // The window that makes the enqueue-time re-resolve necessary at all: a
+    // recurring campaign is dispatched by cron, with no actor, weeks after it
+    // was composed.
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    const issued = await issueSendingIdentity(null, {
+      personId: sender.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+      fromEmail: "recruitment@havenfreeclinic.org",
+    });
+
+    await revokeSendingIdentity(null, issued.id);
+
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    // NOT the revoked address, and not nothing either: the run falls back to the
+    // scope identity, which an admin controls.
+    expect(logs.length).toBeGreaterThan(0);
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual(["peds@havenfreeclinic.org"]);
+    // The stored choice is left alone. It is the record of what the sender asked
+    // for, and re-issuing the address makes it live again without a re-save.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(after.fromEmail).toBe("recruitment@havenfreeclinic.org");
+  });
+
+  it("reads a blank or whitespace-only choice as CLEARED, not as a pin", async () => {
+    // A whitespace-only value is truthy. Read as a choice, it would store
+    // whatever the default resolves to today as an explicit pin, which then
+    // survives the scope identity changing underneath it.
+    const { sender, scope, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+      fromEmail: "   ",
+    });
+    const stored = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(stored.fromEmail).toBeNull();
+    expect(stored.fromEmailSetById).toBeNull();
+
+    // Which is what lets the scope identity keep governing when it changes.
+    await updateScope(null, scope.id, {
+      name: "Peds",
+      audience: ALL_ACTIVE,
+      fromEmail: "peds2@havenfreeclinic.org",
+    });
+    await activePerson("Sam Rivera", "sam@example.com");
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual(["peds2@havenfreeclinic.org"]);
+  });
+
+  it("uses the scope identity when the sender chose nothing", async () => {
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    await activePerson("Sam Rivera", "sam@example.com");
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+    });
+
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual(["peds@havenfreeclinic.org"]);
+  });
+
+  it("leaves a campaign with no resolvable identity on the template sender rules", async () => {
+    // The pre-Phase-3 behaviour, which must survive: no scope identity, nothing
+    // issued, and a creator whose contactEmail is not on a verified domain.
+    const outsider = await prisma.person.create({
+      data: { name: "Outsider", contactEmail: "outsider@gmail.com", status: "ACTIVE" },
+    });
+    await saveSenderRule(null, "CATEGORY", "campaign", { fromEmail: "rules@yale.edu" });
+    const campaign = await createDraft(outsider.id, "Newsletter", { scopeId: null });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await updateCampaign(outsider.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+    });
+
+    const res = await sendCampaignNow(outsider.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual(["rules@yale.edu"]);
+  });
+
+  it("offers the campaign's own scope identity, never another scope's", async () => {
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    await createScope(null, {
+      name: "Executive",
+      audience: ALL_ACTIVE,
+      fromEmail: "exec@havenfreeclinic.org",
+    });
+
+    const options = await senderIdentitiesForCampaign(sender.id, campaign.id);
+    // Only the bound scope's identity. Not the OTHER scope's, which is real and
+    // admin-configured but belongs to a campaign this one is not, and not the
+    // sender's own profile address, which is on a Maileroo-signed clinic domain
+    // and would therefore have left as itself.
+    expect(options.map((o) => o.address)).toEqual(["peds@havenfreeclinic.org"]);
+  });
+
+  it("refuses the sender's own profile address end to end, through the save seam", async () => {
+    // The Critical from review round 1, at the seam the compose form posts to.
+    // The sender sets their profile to an unclaimed clinic role address and
+    // submits it as the campaign's From. Nothing is issued to them, so the only
+    // claim behind it is "I typed it into my own profile".
+    const { sender, campaign } = await scopedCampaign(null);
+    await activePerson("Sam Rivera", "sam@example.com");
+
+    expect(await senderIdentitiesForCampaign(sender.id, campaign.id)).toEqual([]);
+    await expect(
+      updateCampaign(sender.id, campaign.id, {
+        subject: SUBJECT,
+        body: BODY,
+        audience: ALL_ACTIVE,
+        fromEmail: "directors@havenfreeclinic.org",
+      }),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // And with no claim at all, the run falls through to the template rules and
+    // the global sender rather than quietly using the profile address.
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+    });
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual([null]);
   });
 });

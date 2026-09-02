@@ -50,6 +50,23 @@ const schema = z
     // off "is Graph selected".
     EMAIL_TRANSPORT: z.enum(["log", "graph", "maileroo"]).default("log"),
     MAILEROO_API_KEY: z.string().optional(),
+    // The verified-domain allowlist: which transport can DKIM-sign for which
+    // From domain, as comma-separated "<domain>:<transport>" pairs, e.g.
+    // "havenfreeclinic.org:maileroo,yale.edu:graph".
+    //
+    // Optional, and the shipped default lives in email/sending-domains.ts rather
+    // than here, so the two domains stay readable next to the DNS evidence for
+    // each. This override exists because the thing that changes is a MAILEROO
+    // DASHBOARD state, not code: re-enabling yale.edu there should be reflectable
+    // without waiting on a code edit. An override REPLACES the default table.
+    // Empty or whitespace-only means "not configured" (see parseSendingDomains)
+    // -- an unset Vercel variable and vitest.setup.ts's env claim both arrive
+    // as "". A domain listed twice takes its LAST verdict, which neither this
+    // check nor the parser flags.
+    SENDING_DOMAINS: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().optional()
+    ),
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
@@ -371,6 +388,54 @@ const schema = z
           message: "required when EMAIL_TRANSPORT is maileroo",
         });
       }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // A malformed SENDING_DOMAINS override must refuse to boot rather than be
+    // silently narrowed. parseSendingDomains skips an entry it cannot read, so a
+    // typo'd "yale.edu:grap" would quietly drop yale.edu off the allowlist and
+    // send every Yale identity out pinned to the fallback address -- a routing
+    // change with no error anywhere. Same shape as ENTRY_RE in
+    // email/sending-domains.ts; duplicated rather than imported because that
+    // module reads this config and importing it back would be circular.
+    if (!env.SENDING_DOMAINS) return;
+    let pairs = 0;
+    for (const entry of env.SENDING_DOMAINS.split(",")) {
+      // An empty segment is a trailing comma or a stray double comma, not a
+      // malformed pair. parseSendingDomains already reads "yale.edu:graph,"
+      // correctly, and this config is loaded at import by most of the app, so
+      // refusing it here would turn a typo on the emergency SENDING_DOMAINS lever
+      // into an app-wide cold-start failure. On its own, an empty segment narrows
+      // nothing -- but see the count below for when ALL of them are empty.
+      if (entry.trim() === "") continue;
+      if (/^[^\s@:,]+:(maileroo|graph)$/.test(entry.trim())) {
+        pairs += 1;
+        continue;
+      }
+      ctx.addIssue({
+        code: "custom",
+        path: ["SENDING_DOMAINS"],
+        message: `"${entry.trim()}" is not a "<domain>:<transport>" pair with transport one of maileroo, graph`,
+      });
+    }
+    // A non-empty value that yields NO domains -- "," or ",," -- is the failure
+    // this whole check exists for, arrived at from the other side. It is not
+    // whitespace-only, so it is not "not configured"; every segment is then
+    // skipped, so the allowlist is empty; and an empty allowlist puts every send
+    // on the pinned fallback with its configured From demoted to Reply-To, in
+    // silence. Refuse, rather than fall back to the defaults, because that is
+    // what every other branch in this file does with a configured-but-unusable
+    // value: an operator who set this variable meant something by it, and
+    // quietly substituting the shipped table would hide that they did not get it.
+    if (pairs === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SENDING_DOMAINS"],
+        message:
+          `"${env.SENDING_DOMAINS}" names no <domain>:<transport> pairs at all. An empty ` +
+          `allowlist would silently pin every send to the email.sender setting. Leave the ` +
+          `variable unset to use the shipped default table.`,
+      });
     }
   })
   .superRefine((env, ctx) => {

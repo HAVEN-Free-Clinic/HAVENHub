@@ -40,6 +40,7 @@ import {
   CampaignConfirmationError,
   CampaignScopeError,
 } from "@/platform/email/campaigns/service";
+import { SenderIdentityError } from "@/platform/email/sender-identity";
 import type { PersonSearchHit } from "@/platform/email/audience/resolve";
 import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
@@ -151,6 +152,12 @@ export async function saveAction(
   const subject = (formData.get("subject") as string | null) ?? "";
   const body = (formData.get("body") as string | null) ?? "";
   const sendOncePerPerson = formData.get("sendOncePerPerson") === "on";
+  // The chosen sending identity, or "" for the resolution default. Passed
+  // through unvalidated ON PURPOSE: updateCampaign authorizes it against the
+  // campaign's own scope, and doing it there rather than here is what makes the
+  // check hold for every caller instead of only for this form. A hand-crafted
+  // value is exactly what that check exists to refuse.
+  const fromEmail = ((formData.get("fromEmail") as string | null) ?? "").trim();
   let audience: Audience;
   try {
     const raw = JSON.parse((formData.get("audience") as string | null) ?? "{}");
@@ -176,9 +183,16 @@ export async function saveAction(
       body,
       audience,
       sendOncePerPerson,
+      fromEmail,
     });
   } catch (err) {
     if (err instanceof CampaignValidationError) return { problems: err.problems };
+    // Returned, not redirected, for the same reason every other refusal here is:
+    // the sender's entire unsaved draft is in client state and a redirect would
+    // take it with them. A refused identity is also the one refusal a sender can
+    // reach without doing anything odd -- an address issued to them and then
+    // revoked while the editor was open lands here.
+    if (err instanceof SenderIdentityError) return { problems: [err.message] };
     throw err;
   }
 

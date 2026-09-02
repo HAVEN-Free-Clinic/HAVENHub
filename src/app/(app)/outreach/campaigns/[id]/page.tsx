@@ -4,10 +4,13 @@ import {
   getCampaign,
   assertMayActOnScope,
   previewAudience,
+  senderIdentitiesForCampaign,
   CampaignScopeError,
   CampaignValidationError,
   type AudiencePreview,
 } from "@/platform/email/campaigns/service";
+import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
+import { mailConnectionStatus } from "@/platform/email/oauth";
 import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -32,6 +35,8 @@ import { ReviewActions } from "./review-actions";
 import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
 import { EditorTabs, type EditorTab } from "./tabs";
+import { SenderPicker } from "./sender-picker";
+import type { SendingDomainMap } from "../../sender-identity-notes";
 import {
   saveAction,
   previewAction,
@@ -134,6 +139,18 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
   const scopeName = boundScope?.name ?? "a deleted scope";
 
+  // The identities this person may send this campaign as, in resolution order.
+  // The same list the server authorizes a submitted choice against, so the menu
+  // can never offer something the save would refuse. Loaded only for a draft,
+  // since nothing else can change the sender.
+  const senderOptions = isDraft ? await senderIdentitiesForCampaign(actor.personId, id) : [];
+  // Plain data for the client notes: sending-domains.ts reads `@/platform/config`
+  // at import and must not be bundled into the browser.
+  const domains: SendingDomainMap = Object.fromEntries(SENDING_DOMAINS);
+  const mail = isDraft
+    ? await mailConnectionStatus()
+    : { account: null as string | null };
+
   const zone = await getDisplayTimeZone();
 
   // Resolved on the server, and only for the tab that shows it. Unlike the
@@ -215,6 +232,18 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <div className="max-w-sm">
               <CampaignNameField initialName={campaign.name} />
             </div>
+
+            {/* Sending identity. Sits in the Compose section because the From
+                address is part of composing the message, and because this is
+                the point at which the two consequences the sender cannot
+                otherwise see (the Graph throughput ceiling and the Send-As
+                requirement) are still cheap to act on. */}
+            <SenderPicker
+              options={senderOptions}
+              initial={campaign.fromEmail}
+              domains={domains}
+              connectedMailbox={mail.account}
+            />
 
             {/* Template editor (subject + body) */}
             <TemplateEditor

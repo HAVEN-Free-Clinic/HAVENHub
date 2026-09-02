@@ -23,6 +23,77 @@ const prodExtras = {
   R2_BUCKET: "havenhub-uploads",
 };
 
+// ---------------------------------------------------------------------------
+// SENDING_DOMAINS: the verified-domain allowlist override
+// ---------------------------------------------------------------------------
+
+describe("loadConfig - SENDING_DOMAINS", () => {
+  it("treats an unset or empty value as not configured, not as an empty allowlist", () => {
+    // The distinction decides whether the shipped default table applies. An unset
+    // Vercel variable and vitest.setup.ts's env claim both arrive as "".
+    expect(loadConfig(base).SENDING_DOMAINS).toBeUndefined();
+    expect(loadConfig({ ...base, SENDING_DOMAINS: "" }).SENDING_DOMAINS).toBeUndefined();
+  });
+
+  it("accepts a well-formed override", () => {
+    const value = "havenfreeclinic.org:maileroo,yale.edu:graph";
+    expect(loadConfig({ ...base, SENDING_DOMAINS: value }).SENDING_DOMAINS).toBe(value);
+  });
+
+  // The one input this MUST NOT reject. `export const config = loadConfig()` runs
+  // at import and dozens of modules import it, so a refusal here is an app-wide
+  // cold-start failure, not an email-only one. And it would land on exactly the
+  // operator action this feature ships for: the emergency
+  // SENDING_DOMAINS=havenfreeclinic.org:maileroo lever, typed under pressure with
+  // a trailing comma. parseSendingDomains already reads that correctly, so the
+  // strict half rejecting what the lenient half handles is a pure false positive.
+  it("tolerates a trailing comma and blank segments, matching parseSendingDomains", () => {
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "yale.edu:graph," })).not.toThrow();
+    expect(() =>
+      loadConfig({ ...base, SENDING_DOMAINS: "havenfreeclinic.org:maileroo, ,yale.edu:graph" })
+    ).not.toThrow();
+    expect(
+      loadConfig({ ...base, SENDING_DOMAINS: "yale.edu:graph," }).SENDING_DOMAINS
+    ).toBe("yale.edu:graph,");
+  });
+
+  it("treats a whitespace-only value as not configured too", () => {
+    // Same class as the empty string, and the parser already reads it as
+    // "not configured". Rejecting it would be the same app-wide outage.
+    expect(loadConfig({ ...base, SENDING_DOMAINS: "   " }).SENDING_DOMAINS).toBeUndefined();
+  });
+
+  // The regression the trailing-comma fix caused, and the reason the boot check
+  // exists at all. "," and ",," survive the preprocess (they are not
+  // whitespace-only), and then every segment is skipped as empty, so the app
+  // booted clean on an EMPTY allowlist. Every send then falls off it:
+  // havenfreeclinic.org mail is silently pinned to the sender setting with its
+  // configured From demoted to Reply-To -- precisely the silent narrowing this
+  // check refuses a malformed entry to prevent.
+  it("refuses a non-empty value that yields no domains at all", () => {
+    for (const spec of [",", " , ", ",,", ",,,"]) {
+      expect(() => loadConfig({ ...base, SENDING_DOMAINS: spec }), spec).toThrowError(
+        /SENDING_DOMAINS/
+      );
+    }
+  });
+
+  it("refuses to boot on a malformed entry rather than silently narrowing the allowlist", () => {
+    // parseSendingDomains skips an entry it cannot read, so a typo like
+    // "yale.edu:grap" would otherwise drop yale.edu off the allowlist and route
+    // every Yale identity to the pinned fallback, with no error anywhere.
+    expect(() =>
+      loadConfig({ ...base, SENDING_DOMAINS: "havenfreeclinic.org:maileroo,yale.edu:grap" })
+    ).toThrowError(/SENDING_DOMAINS/);
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "nocolon" })).toThrowError(
+      /SENDING_DOMAINS/
+    );
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "someone@yale.edu:graph" })).toThrowError(
+      /SENDING_DOMAINS/
+    );
+  });
+});
+
 describe("loadConfig", () => {
   it("accepts a valid development env without Azure vars", () => {
     const config = loadConfig(base);

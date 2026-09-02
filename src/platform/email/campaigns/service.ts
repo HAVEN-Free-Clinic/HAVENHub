@@ -19,6 +19,14 @@ import { getStarter } from "./starters";
 import { can } from "@/platform/rbac/engine";
 import { getScope, scopesForPerson } from "@/platform/email/audience/scopes";
 import type { AudienceScopeView } from "@/platform/email/audience/scopes";
+import {
+  availableSenderIdentities,
+  normalizeSendingAddress,
+  resolveCampaignSender,
+  resolveSenderIdentity,
+} from "@/platform/email/sender-identity";
+import type { SenderIdentityOption } from "@/platform/email/sender-identity";
+import { log } from "@/platform/logging";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -492,6 +500,17 @@ export async function updateCampaign(
     body?: string;
     audience: Audience;
     sendOncePerPerson?: boolean;
+    /**
+     * The sending identity the sender chose. Omit the key to leave the stored
+     * choice alone; pass null or "" to clear it back to the resolution default.
+     *
+     * AUTHORIZED HERE, in the service, and not only in the server action that
+     * calls it. The action is one caller; this function has to be correct
+     * standalone, for the same reason assertMayActOnScope re-checks rather than
+     * trusting its call site. A scoped sender submitting a hand-crafted
+     * `fromEmail` in the compose form is exactly the request this refuses.
+     */
+    fromEmail?: string | null;
   },
 ) {
   const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
@@ -523,6 +542,26 @@ export async function updateCampaign(
     throw new CampaignValidationError(problems);
   }
 
+  // The sending identity. Resolved against the CAMPAIGN's scope, not against any
+  // scope the actor happens to hold: authorization is per campaign, so naming
+  // another scope's admin-configured identity is refused exactly as an
+  // unissued address is. resolveSenderIdentity throws SenderIdentityError,
+  // which the caller renders alongside the template problems.
+  const senderData: { fromEmail?: string | null; fromEmailSetById?: string | null } = {};
+  if (input.fromEmail !== undefined) {
+    // Normalized BEFORE the truthiness test, not after. A whitespace-only value
+    // is truthy, and reading it as a choice would store whatever the resolution
+    // default happens to be TODAY as an explicit pin, which then survives the
+    // scope identity changing underneath it.
+    const requested = normalizeSendingAddress(input.fromEmail);
+    const scope = existing.scopeId ? await getScope(existing.scopeId) : null;
+    const chosen = await resolveSenderIdentity(actorId, scope, requested);
+    // A cleared choice drops the chooser with it, so a later re-check has no
+    // stale claim to evaluate.
+    senderData.fromEmail = requested ? (chosen?.address ?? null) : null;
+    senderData.fromEmailSetById = senderData.fromEmail ? actorId : null;
+  }
+
   return prisma.emailCampaign.update({
     where: { id },
     data: {
@@ -531,8 +570,57 @@ export async function updateCampaign(
       body,
       audienceJson: input.audience as object,
       ...(input.sendOncePerPerson !== undefined ? { sendOncePerPerson: input.sendOncePerPerson } : {}),
+      ...senderData,
     },
   });
+}
+
+/**
+ * The identities a person may choose from for this campaign, for the compose UI.
+ *
+ * Resolved against the campaign's OWN scope, which is the same scope
+ * authorization runs against, so the menu and the check can never disagree.
+ */
+export async function senderIdentitiesForCampaign(
+  personId: string,
+  campaignId: string,
+): Promise<SenderIdentityOption[]> {
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { scopeId: true },
+  });
+  const scope = campaign.scopeId ? await getScope(campaign.scopeId) : null;
+  return availableSenderIdentities(personId, scope);
+}
+
+/**
+ * The sender one run goes out as, re-resolved at enqueue time.
+ *
+ * Re-resolved rather than trusted for the same reason assertMayActOnScope
+ * re-checks on every call: a recurring campaign is dispatched by cron, with no
+ * actor, weeks after it was composed, and an identity revoked in between must
+ * stop being used. A choice that no longer resolves falls back DOWN the order
+ * (to the scope identity, then to the global default) rather than failing the
+ * run, and the swap is logged here because this is the layer that knows which
+ * campaign it was.
+ */
+async function senderForRun(campaign: {
+  id: string;
+  scopeId: string | null;
+  fromEmail: string | null;
+  fromEmailSetById: string | null;
+}): Promise<{ fromEmail: string; fromName: string | null } | null> {
+  const scope = campaign.scopeId ? await getScope(campaign.scopeId) : null;
+  const { identity, honoredChoice } = await resolveCampaignSender(campaign, scope);
+  if (!honoredChoice) {
+    log.warn("[campaign] stored sending identity no longer resolves; falling back", {
+      campaignId: campaign.id,
+      requested: campaign.fromEmail,
+      sendingAs: identity?.address ?? null,
+    });
+  }
+  if (!identity) return null;
+  return { fromEmail: identity.address, fromName: identity.displayName };
 }
 
 /**
@@ -758,13 +846,21 @@ export async function testSend(actorId: string | null, id: string, toEmail: stri
     { subject: campaign.subject, body: campaign.body },
     sampleCtx,
   );
-  await queueEmail(prisma, {
-    to: toEmail,
-    subject,
-    html,
-    template: "campaign:test",
-    triggeredById: actorId,
-  });
+  // The test send goes out as the SAME identity the real run would use, resolved
+  // through the same function. A test that arrived from a different address
+  // would confirm nothing about the send it is standing in for -- in particular
+  // it would not exercise the Send-As grant a yale.edu identity needs.
+  await queueEmail(
+    prisma,
+    {
+      to: toEmail,
+      subject,
+      html,
+      template: "campaign:test",
+      triggeredById: actorId,
+    },
+    { sender: await senderForRun(campaign) },
+  );
   await recordAudit({
     actorPersonId: actorId,
     action: "campaign.test_send",
@@ -817,6 +913,13 @@ export async function executeRun(
   // layoutSource) keeps the per-recipient render at zero DB round-trips.
   const brandColor = await getSetting<string>("branding.brandColor");
 
+  // Resolved once for the whole run, and BEFORE the claim: every recipient of one
+  // run must come from the same address, and re-resolving here (rather than
+  // trusting the stored choice) is what makes a revocation between Save and Send
+  // take effect. Null means no campaign identity resolved, and the enqueue falls
+  // through to the per-template sender rules exactly as it did before Phase 3.
+  const runSender = await senderForRun(campaign);
+
   // Render every recipient BEFORE opening the claim transaction. With layoutSource
   // and brandColor hoisted, renderInlineEmail is pure CPU (no DB round-trips), so
   // doing it up front keeps the transaction short and independent of recipient count.
@@ -867,6 +970,7 @@ export async function executeRun(
     prisma,
     "campaign",
     rendered.map((r) => ({ ...r, triggeredById: opts.actorId, campaignRunId: runId })),
+    { sender: runSender },
   );
 
   await recordAudit({

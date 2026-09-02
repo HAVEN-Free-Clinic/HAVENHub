@@ -462,6 +462,67 @@ describe("sendSenderTest", () => {
     expect(audit).not.toBeNull();
   });
 
+  // The sender test's only value is that it mirrors what a real send will do
+  // with the same From. Under the allowlist that is no longer one answer per
+  // transport setting, so these cover all three outcomes maileroo mode can now
+  // produce. Asserted at both polarities on purpose: a test that only checked
+  // the pinned case would pass against the old unconditional pin.
+  describe("in maileroo mode it mirrors what the drain would do with the same From", () => {
+    const mailerooOk = () =>
+      new Response(JSON.stringify({ success: true, message: "queued" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    beforeEach(async () => {
+      await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+      await prisma.setting.create({
+        data: { key: "email.sender", value: "noreply@havenfreeclinic.org" },
+      });
+      _resetSettingsCache();
+    });
+
+    it("tests a Maileroo-signable address AS ITSELF", async () => {
+      const fetchMock = vi.fn(async () => mailerooOk());
+      await sendSenderTest(
+        ACTOR,
+        { toEmail: "me@yale.edu", fromEmail: "recruitment@havenfreeclinic.org" },
+        { fetchImpl: fetchMock as typeof fetch }
+      );
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("smtp.maileroo.com");
+      expect(JSON.parse(String(init.body)).from.address).toBe("recruitment@havenfreeclinic.org");
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "email.sender_test" },
+      });
+      expect((audit.after as { sentAs: string }).sentAs).toBe("recruitment@havenfreeclinic.org");
+    });
+
+    it("tests the pinned global sender for an address no transport can sign", async () => {
+      const fetchMock = vi.fn(async () => mailerooOk());
+      await sendSenderTest(
+        ACTOR,
+        { toEmail: "me@yale.edu", fromEmail: "someone@example.com" },
+        { fetchImpl: fetchMock as typeof fetch }
+      );
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("smtp.maileroo.com");
+      expect(JSON.parse(String(init.body)).from.address).toBe("noreply@havenfreeclinic.org");
+    });
+
+    it("tests a Graph-signable address through Graph, because that is where the drain sends it", async () => {
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      await sendSenderTest(
+        ACTOR,
+        { toEmail: "me@yale.edu", fromEmail: "hfc.it@yale.edu" },
+        { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+      );
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("graph.microsoft.com");
+      expect(String(url)).toContain(encodeURIComponent("hfc.it@yale.edu"));
+    });
+  });
+
   it("in graph mode it throws when Graph responds non-OK", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
     _resetSettingsCache();

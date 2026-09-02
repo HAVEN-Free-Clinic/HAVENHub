@@ -16,6 +16,7 @@ import { recordAudit } from "@/platform/audit";
 import { getSetting } from "@/platform/settings/service";
 import { getDescriptor } from "./templates/registry";
 import type { TemplateGroup } from "./templates/types";
+import { EMAIL_RE } from "./address";
 
 export type ResolvedSender = { fromEmail: string; fromName: string | null };
 
@@ -46,9 +47,10 @@ export class SenderRuleValidationError extends Error {
   }
 }
 
-// A pragmatic email check: non-space, an @, a dot in the domain. Semantic
-// validity (Send-As rights) is confirmed by the admin via the test send.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The address format check is EMAIL_RE, imported from ./address. It moved there
+// so the sender-identity write seams share this exact pattern rather than
+// inventing a second one. Semantic validity (Send-As rights) is still confirmed
+// by the admin via the test send.
 
 // ---------------------------------------------------------------------------
 // Cache

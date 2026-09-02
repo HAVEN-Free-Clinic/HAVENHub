@@ -274,6 +274,10 @@ export const MODULES: ModuleManifest[] = [
       // additionalAccessPermissions) sees a tab that bounces to /no-access.
       { label: "Campaigns", href: "/outreach/campaigns", permission: ["outreach.send", "outreach.send_unrestricted"] },
       { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
+      // Same gate as the page (see the comment at the top of identities/page.tsx
+      // for why issuing an address reuses manage_scopes rather than minting a
+      // fourth permission).
+      { label: "Sending identities", href: "/outreach/identities", permission: "outreach.manage_scopes" },
     ],
   },
   {

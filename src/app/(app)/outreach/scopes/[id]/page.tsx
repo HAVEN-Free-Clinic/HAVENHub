@@ -17,8 +17,12 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
+import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
+import { mailConnectionStatus } from "@/platform/email/oauth";
 import { AudienceBuilder } from "../../campaigns/[id]/audience-builder";
 import { GrantForm } from "./grant-form";
+import { ScopeIdentityFields } from "./identity-fields";
+import type { SendingDomainMap } from "../../sender-identity-notes";
 
 export default async function ScopeDetailPage({
   params,
@@ -52,6 +56,12 @@ export default async function ScopeDetailPage({
     zoneLabel: audienceZoneLabel,
   } = await loadAudienceBuilderOptions(scope.audience);
 
+  // The allowlist as plain data plus the mailbox Graph is connected as, both for
+  // the client-side identity notes. Resolved here because sending-domains.ts
+  // reads `@/platform/config` at import and must not reach the browser.
+  const domains: SendingDomainMap = Object.fromEntries(SENDING_DOMAINS);
+  const mail = await mailConnectionStatus();
+
   async function saveAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("outreach.manage_scopes");
@@ -63,10 +73,24 @@ export default async function ScopeDetailPage({
       redirect(`/outreach/scopes/${id}?error=Invalid+audience`);
     }
     if (!isAudience(parsed)) redirect(`/outreach/scopes/${id}?error=Invalid+audience`);
-    await updateScope(actor.personId, id, {
-      name: ((formData.get("name") as string | null) ?? "").trim(),
-      audience: parsed as Audience,
-    });
+    try {
+      await updateScope(actor.personId, id, {
+        name: ((formData.get("name") as string | null) ?? "").trim(),
+        audience: parsed as Audience,
+        // Always submitted by the form, so an empty field genuinely means
+        // "clear it" rather than "leave it alone".
+        fromEmail: (formData.get("fromEmail") as string | null) ?? "",
+        fromName: (formData.get("fromName") as string | null) ?? "",
+      });
+    } catch (e) {
+      // Chiefly the write-time allowlist refusal: an identity no transport can
+      // sign for is a campaign that fails after the sender has hit Send, so the
+      // save is refused here with the reason rather than stored to fail later.
+      if (e instanceof ScopeValidationError) {
+        redirect(`/outreach/scopes/${id}?error=${encodeURIComponent(e.message)}`);
+      }
+      throw e;
+    }
     redirect(`/outreach/scopes/${id}`);
   }
 
@@ -126,6 +150,12 @@ export default async function ScopeDetailPage({
             <Input name="name" type="text" defaultValue={scope.name} required />
           </Field>
         </div>
+        <ScopeIdentityFields
+          initialFromEmail={scope.fromEmail}
+          initialFromName={scope.fromName}
+          domains={domains}
+          connectedMailbox={mail.account}
+        />
         <AudienceBuilder
           fields={PERSON_FIELD_VIEWS}
           departments={audienceDepartments}

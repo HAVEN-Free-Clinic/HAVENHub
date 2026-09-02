@@ -1,4 +1,5 @@
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -9,6 +10,7 @@ import {
   LogTransport,
   GraphTransport,
   MailerooTransport,
+  SigningDomainRouter,
   TransientEmailError,
   resolveEmailTransport,
   type EmailMessage,
@@ -17,6 +19,7 @@ import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache, getSetting } from "@/platform/settings/service";
+import { __resetTokenCache } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,6 +32,16 @@ const msg: EmailMessage = {
 };
 
 const fakeGetAccessToken = () => Promise.resolve("test-token");
+
+/**
+ * What the admin Failed card actually renders for a row: EmailLog.lastError cut
+ * to 60 characters (src/app/(app)/admin/email/page.tsx). Everything past this is
+ * tooltip-only, and log.error does not fire until all 8 attempts are spent, so a
+ * diagnosis that does not fit here is a diagnosis the operator does not read.
+ */
+function failedCardText(err: unknown): string {
+  return String(err instanceof Error ? err.message : err).slice(0, 60);
+}
 
 describe("LogTransport", () => {
   it("logs to console and resolves", async () => {
@@ -233,6 +246,56 @@ describe("GraphTransport", () => {
     const err = await t.send(msg).catch((e) => e);
     expect(err).not.toBeInstanceOf(TransientEmailError);
   });
+
+  // ---- Send-As refusals -------------------------------------------------
+  //
+  // The owner accepted that routing all @yale.edu through Graph fails for an
+  // address the connected mailbox has no Send-As grant on. Legibility was the
+  // mitigation. Raw, Graph says only:
+  //   Graph sendMail failed: 403 {"error":{"code":"ErrorAccessDenied", ...}}
+  // which names neither the address it tried, nor Send-As, nor any remedy -- and
+  // the admin card shows only the first 60 characters of it.
+  const DENIED_403 = JSON.stringify({
+    error: { code: "ErrorAccessDenied", message: "Access is denied. Check credentials and try again." },
+  });
+
+  const denying = (body = DENIED_403, status = 403) =>
+    graph({ fetchImpl: (async () => new Response(body, { status })) as typeof fetch });
+
+  it("restates a Send-As refusal, naming the address and the grant needed", async () => {
+    const err = await denying().send({ ...msg, from: "recruit@yale.edu" }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(err.message).toContain("recruit@yale.edu");
+    expect(err.message).toMatch(/Send-As/);
+    // The raw Graph code is kept, just demoted behind the remedy.
+    expect(err.message).toContain("ErrorAccessDenied");
+  });
+
+  it("puts the Send-As remedy in the first 60 characters the admin card shows", async () => {
+    const shown = failedCardText(
+      await denying().send({ ...msg, from: "recruit@yale.edu" }).catch((e) => e)
+    );
+    expect(shown).toMatch(/Send-As/);
+    expect(shown).toContain("recruit@yale.edu");
+  });
+
+  it("names the mailbox itself when the message carries no per-message from", async () => {
+    const err = await denying().send(msg).catch((e) => e);
+    expect(err.message).toContain("hfc.it@yale.edu");
+  });
+
+  it("leaves an unrelated 403 alone rather than guessing Send-As", async () => {
+    const body = JSON.stringify({ error: { code: "ErrorQuotaExceeded", message: "Mailbox full." } });
+    const err = await denying(body).send(msg).catch((e) => e);
+    expect(err.message).toContain("Graph sendMail failed: 403");
+    expect(err.message).not.toMatch(/Send-As/);
+  });
+
+  it("does not mistake a 401 for a Send-As problem", async () => {
+    const err = await denying(DENIED_403, 401).send(msg).catch((e) => e);
+    expect(err.message).not.toMatch(/Send-As/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -281,18 +344,68 @@ describe("MailerooTransport", () => {
     expect(String(init.body)).not.toContain("test-key");
   });
 
-  // Maileroo can only sign for a domain verified in our account, so the From is
-  // pinned to the configured sender. Honoring a per-template @yale.edu sender rule
-  // would fail permanently on an unverified sending domain.
-  it("ignores a per-message from and always sends as the configured sender", async () => {
+  // ---- The allowlist, at both polarities --------------------------------
+  //
+  // These two tests are a pair on purpose. Either one alone would pass against
+  // an implementation that did only that one thing: the off-list case alone
+  // passes against the old unconditional pin, and the on-list case alone passes
+  // against a transport that blindly honors every `from`.
+
+  // OFF-LIST. Maileroo cannot sign yale.edu (its entry there is registered but
+  // disabled), so honoring a per-template @yale.edu sender rule would fail the
+  // send permanently on an unsignable domain.
+  it("pins the sender when the From is on a domain Maileroo cannot sign", async () => {
     const fetchMock = vi.fn(async () => ok());
     await maileroo(fetchMock as typeof fetch).send({ ...msg, from: "recruit@yale.edu" });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    // The unverified @yale.edu address must never be the signed From...
+    // The unsignable @yale.edu address must never be the signed From...
     expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
     // ...but it is preserved as Reply-To so replies still reach a human.
     expect(parsed.reply_to.address).toBe("recruit@yale.edu");
+  });
+
+  // ON-LIST. havenfreeclinic.org publishes include:_spf.maileroo.com, so this
+  // address is signable as itself and pinning it would be a downgrade with no
+  // upside: the sender the admin configured never appears on the message.
+  it("sends AS the From when it is on a Maileroo-signable domain", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({
+      ...msg,
+      from: "recruitment@havenfreeclinic.org",
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("recruitment@havenfreeclinic.org");
+    // No Reply-To: the address the sender rule intended IS the signed From, so
+    // there is nothing to preserve.
+    expect(parsed.reply_to).toBeUndefined();
+  });
+
+  // A domain on neither side of the allowlist keeps the fallback behaviour
+  // exactly, which is what makes the allowlist safe to narrow.
+  it("pins the sender when the From is on a domain the allowlist does not carry", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: "someone@example.com" });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    expect(parsed.reply_to.address).toBe("someone@example.com");
+  });
+
+  it("keeps the display name on a send that leaves as its own From", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    await maileroo(fetchMock as typeof fetch).send({
+      ...msg,
+      from: "recruitment@havenfreeclinic.org",
+      fromName: "HAVEN Recruitment",
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from).toEqual({
+      address: "recruitment@havenfreeclinic.org",
+      display_name: "HAVEN Recruitment",
+    });
   });
 
   // Rows queued before the transport switch already carry an @yale.edu address in
@@ -319,14 +432,33 @@ describe("MailerooTransport", () => {
     expect(JSON.parse(String(init.body)).reply_to).toBeUndefined();
   });
 
+  // Still reachable after the allowlist, via a transport whose own sender is on
+  // an unsignable domain (a leftover from the graph era): every send is pinned,
+  // including one whose From already names that same address.
   it("omits a redundant reply_to when the intended sender is already the pinned one", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    const pinnedToYale = new MailerooTransport({
+      apiKey: "test-key",
+      sender: "hfc.it@yale.edu",
+      fetchImpl: fetchMock as typeof fetch,
+    });
+    await pinnedToYale.send({ ...msg, from: "  HFC.IT@Yale.edu  " });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("hfc.it@yale.edu");
+    expect(parsed.reply_to).toBeUndefined();
+  });
+
+  it("trims a signable From before sending as it", async () => {
     const fetchMock = vi.fn(async () => ok());
     await maileroo(fetchMock as typeof fetch).send({
       ...msg,
       from: "  NoReply@HavenFreeClinic.org  ",
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).reply_to).toBeUndefined();
+    const parsed = JSON.parse(String(init.body));
+    expect(parsed.from.address).toBe("NoReply@HavenFreeClinic.org");
+    expect(parsed.reply_to).toBeUndefined();
   });
 
   it("sets display_name when fromName is given and omits it otherwise", async () => {
@@ -403,6 +535,303 @@ describe("MailerooTransport", () => {
     const err = await t.send(msg).catch((e) => e);
     expect(String(err)).not.toContain("test-key");
   });
+
+  // ---- Domain-level rejections ------------------------------------------
+  //
+  // Both are CONFIGURATION states, not blips: no amount of retrying re-enables a
+  // domain in the Maileroo dashboard or re-scopes a sending key. A transient
+  // classification would spend the queue's whole back-off on something that
+  // cannot succeed, so both must stay permanent -- and the two must stay
+  // distinguishable, because they call for opposite fixes.
+  const DISABLED_400 =
+    "The domain 'yale.edu' is currently disabled. Please check your dashboard for more details.";
+  const UNASSOCIATED_400 =
+    "The domain 'example.com' is not associated with this sending key.";
+
+  /**
+   * A non-2xx from Maileroo, on the REAL wire shape: Maileroo answers JSON, and
+   * the !res.ok branch runs the recogniser on res.text(), which is still
+   * JSON-ESCAPED. A bare-string body would let a double-quoted domain match here
+   * that cannot match in production, so this fixture asserts a payload that
+   * actually occurs. See rejectingRaw for the plain-text case.
+   */
+  const rejecting = (message: string, status = 400) =>
+    maileroo((async () =>
+      new Response(JSON.stringify({ success: false, message }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch);
+
+  /** A non-2xx whose body is not JSON at all (a gateway page, a bare string). */
+  const rejectingRaw = (text: string, status = 400) =>
+    maileroo((async () => new Response(text, { status })) as typeof fetch);
+
+  it("classifies the domain-disabled rejection as PERMANENT", async () => {
+    const err = await rejecting(DISABLED_400).send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("classifies the not-associated-with-this-sending-key rejection as PERMANENT", async () => {
+    const err = await rejecting(UNASSOCIATED_400).send(msg).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  // Classified off the error TEXT, not the status, so the verdict survives
+  // Maileroo ever answering the same configuration state with a retryable code.
+  it("keeps the domain-disabled rejection permanent even on a status that is otherwise transient", async () => {
+    for (const status of [429, 503]) {
+      const err = await rejecting(DISABLED_400, status).send(msg).catch((e) => e);
+      expect(err, `status ${status}`).not.toBeInstanceOf(TransientEmailError);
+    }
+  });
+
+  // Asserted against the RESTATED diagnosis, not against words that survive in
+  // Maileroo's raw text. Both raw messages already name their domain and one of
+  // them already says "dashboard", so a looser assertion here would pass with the
+  // recognition deleted entirely and prove nothing.
+  it("distinguishes the two domain rejections in the surfaced message", async () => {
+    const disabled = String(await rejecting(DISABLED_400).send(msg).catch((e) => e));
+    const unassociated = String(await rejecting(UNASSOCIATED_400).send(msg).catch((e) => e));
+
+    // The disabled case: the domain IS this sending key's, and the fix is in the
+    // Maileroo dashboard.
+    expect(disabled).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
+    expect(disabled).toContain("SENDING_DOMAINS");
+    // The not-associated case is the opposite diagnosis: the key belongs to a
+    // different domain. Sending an operator to the dashboard here would point
+    // them at a domain entry that is fine.
+    expect(unassociated).toContain("Use a MAILEROO_API_KEY scoped to 'example.com'");
+    expect(unassociated).toContain("domain-scoped");
+    expect(unassociated).not.toMatch(/Re-enable/);
+    expect(unassociated).not.toMatch(/dashboard/i);
+
+    expect(disabled).not.toBe(unassociated);
+  });
+
+  // The admin Failed card truncates EmailLog.lastError to 60 characters
+  // (admin/email/page.tsx), and the loud log.error only fires after all 8
+  // attempts, so those 60 characters are the operator's whole diagnosis for a
+  // long time. A leading "Maileroo send failed: 400 " status line spent 26 of
+  // them saying nothing actionable.
+  it("puts the fix in the first 60 characters, which is all the admin card shows", async () => {
+    const disabled = failedCardText(await rejecting(DISABLED_400).send(msg).catch((e) => e));
+    expect(disabled).toContain("Re-enable");
+    expect(disabled).toContain("yale.edu");
+
+    const unassociated = failedCardText(
+      await rejecting(UNASSOCIATED_400).send(msg).catch((e) => e)
+    );
+    expect(unassociated).toContain("MAILEROO_API_KEY");
+  });
+
+  // Maileroo's wording is not a contract. The recognition's whole added value
+  // over the generic 4xx rule is surviving a status change, and an exact-phrase
+  // match would survive only "the status changed but the sentence stayed
+  // byte-identical", which is the least likely pairing. Each variant is asserted
+  // at 503, where an unrecognised text WOULD be classified transient and burn the
+  // queue's back-off -- the precise failure this exists to prevent.
+  it.each([
+    ["has been disabled", "The domain 'yale.edu' has been disabled."],
+    ["is disabled", "The domain 'yale.edu' is disabled."],
+    ["is now disabled", "The domain 'yale.edu' is now disabled."],
+    ["an unquoted domain", "The domain yale.edu is currently disabled."],
+    ["a backtick-quoted domain", "The domain `yale.edu` is currently disabled."],
+    ['a double-quoted domain', 'The domain "yale.edu" is currently disabled.'],
+  ])("recognises the disabled rejection phrased as %s, even at 503", async (_label, text) => {
+    const err = await rejecting(text, 503).send(msg).catch((e) => e);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(String(err)).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
+  });
+
+  it.each([
+    ["associated with", "The domain 'example.com' is not associated with this sending key."],
+    ["linked to", "The domain 'example.com' is not linked to this sending key."],
+    ["linked with", "The domain example.com is not linked with this sending key."],
+  ])("recognises the wrong-key rejection phrased as %s, even at 503", async (_label, text) => {
+    const err = await rejecting(text, 503).send(msg).catch((e) => e);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(String(err)).toContain("Use a MAILEROO_API_KEY scoped to 'example.com'");
+  });
+
+  // The widening must not swallow an unrelated 5xx: those really are transient.
+  it("still classifies an ordinary 503 as transient", async () => {
+    await expect(rejecting("upstream unavailable", 503).send(msg)).rejects.toBeInstanceOf(
+      TransientEmailError
+    );
+    await expect(rejectingRaw("upstream unavailable", 503).send(msg)).rejects.toBeInstanceOf(
+      TransientEmailError
+    );
+  });
+
+  // The recogniser exists so the diagnosis does not depend on which shape the API
+  // used. That is only true if it survives JSON ESCAPING: the !res.ok branch runs
+  // on res.text(), where a double-quoted domain arrives as \"yale.edu\", while
+  // the 200/success:false branch runs on the already-parsed body.message. One
+  // payload, two code paths, one answer.
+  it("gives the same diagnosis for one payload on both the non-2xx and the 200 path", async () => {
+    const message = 'The domain "yale.edu" is currently disabled.';
+    const body = JSON.stringify({ success: false, message });
+
+    const viaNonOk = await rejecting(message, 400).send(msg).catch((e) => e);
+    const viaOkEnvelope = await maileroo((async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch)
+      .send(msg)
+      .catch((e) => e);
+
+    for (const err of [viaNonOk, viaOkEnvelope]) {
+      expect(err).not.toBeInstanceOf(TransientEmailError);
+      expect(String(err)).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
+    }
+  });
+
+  // The captured domain goes into the message an operator reads and may paste
+  // back into SENDING_DOMAINS, so it must be the domain and nothing else. Letting
+  // the escape into the character class matches, but captures "yale.edu\\".
+  it("captures the domain without the JSON escape that quoted it", async () => {
+    const err = await rejecting('The domain "yale.edu" is currently disabled.', 400)
+      .send(msg)
+      .catch((e) => e);
+    expect(String(err)).toContain("'yale.edu'");
+    expect(String(err)).not.toMatch(/yale\.edu\\/);
+  });
+
+  // Maileroo also spells rejections as a 200 carrying success:false, so the same
+  // recognition has to apply on that path or the diagnosis depends on which
+  // shape the API happened to use.
+  it("recognises a domain rejection delivered as a 200 with success:false", async () => {
+    const body = JSON.stringify({ success: false, message: DISABLED_400 });
+    const t = maileroo((async () =>
+      new Response(body, { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch);
+    const err = await t.send(msg).catch((e) => e);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(String(err)).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
+    // Same truncation rule applies on this path.
+    expect(failedCardText(err)).toContain("Re-enable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SigningDomainRouter
+// ---------------------------------------------------------------------------
+
+describe("SigningDomainRouter", () => {
+  /** A transport that records the messages handed to it and does nothing else. */
+  const spyTransport = () => {
+    const sent: EmailMessage[] = [];
+    return { sent, send: async (m: EmailMessage) => void sent.push(m) };
+  };
+
+  const build = () => {
+    const mailerooStub = spyTransport();
+    const graphStub = spyTransport();
+    const fallback = spyTransport();
+    const router = new SigningDomainRouter({
+      fallback,
+      signers: { maileroo: mailerooStub, graph: graphStub },
+    });
+    return { router, mailerooStub, graphStub, fallback };
+  };
+
+  it("routes a From on a Graph-signable domain to Graph", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build();
+    await router.send({ ...msg, from: "hfc.it@yale.edu" });
+    expect(graphStub.sent).toHaveLength(1);
+    expect(mailerooStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  it("routes a From on a Maileroo-signable domain to Maileroo", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build();
+    await router.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  it("sends a message with no From to the fallback", async () => {
+    const { router, graphStub, fallback } = build();
+    await router.send(msg);
+    expect(fallback.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
+  it("sends a From on an unlisted domain to the fallback", async () => {
+    const { router, graphStub, fallback } = build();
+    await router.send({ ...msg, from: "someone@example.com" });
+    expect(fallback.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
+  it("hands the message through untouched, so the chosen transport still decides the From", async () => {
+    const { router, graphStub } = build();
+    await router.send({ ...msg, from: "hfc.it@yale.edu", fromName: "HAVEN IT" });
+    expect(graphStub.sent[0].from).toBe("hfc.it@yale.edu");
+    expect(graphStub.sent[0].fromName).toBe("HAVEN IT");
+  });
+
+  // The router owns routing and nothing else. Swallowing or re-wrapping an error
+  // here would break the queue's transient/permanent split, which reads the
+  // error's own type (see drainEmailQueue).
+  it("propagates the chosen transport's error unchanged, transient class included", async () => {
+    const boom = new TransientEmailError("throttled");
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw new Error("wrong transport"); } },
+      signers: { graph: { send: async () => { throw boom; } } },
+    });
+    await expect(router.send({ ...msg, from: "hfc.it@yale.edu" })).rejects.toBe(boom);
+    // A transient failure is going to be retried, so routing advice on it is
+    // noise. The message must be untouched as well as the type.
+    expect(boom.message).toBe("throttled");
+  });
+
+  // ---- Why was this message even on that transport? ----------------------
+  //
+  // The routing decision is the router's own knowledge and nowhere else's. A
+  // Graph failure inside a Maileroo deployment otherwise reads as a broken Graph
+  // mailbox rather than as a From-domain routing consequence, which is the wrong
+  // thing to go and fix.
+  it("says which allowlist row put a failing message on that transport", async () => {
+    const boom = new Error("Grant Send-As on recruit@yale.edu ...");
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw new Error("wrong transport"); } },
+      signers: { graph: { send: async () => { throw boom; } } },
+    });
+    const err = await router.send({ ...msg, from: "recruit@yale.edu" }).catch((e) => e);
+    // Same object: the queue reads the error's type and name, so re-wrapping it
+    // in a fresh Error would silently re-classify the failure.
+    expect(err).toBe(boom);
+    expect(err.message).toContain("SENDING_DOMAINS");
+    expect(err.message).toContain("yale.edu");
+    // The remedy the transport wrote still comes first, for the 60-char card.
+    expect(failedCardText(err)).toContain("Grant Send-As");
+  });
+
+  it("adds no note when the message went to the fallback, since nothing surprising happened", async () => {
+    const boom = new Error("plain failure");
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw boom; } },
+      signers: {},
+    });
+    await expect(router.send({ ...msg, from: "someone@example.com" })).rejects.toBe(boom);
+    expect(boom.message).toBe("plain failure");
+  });
+
+  it("adds no note when the signer chosen IS the fallback", async () => {
+    // havenfreeclinic.org routes to the maileroo slot, which in a Maileroo
+    // deployment is the same object as the fallback. Nothing was rerouted.
+    const boom = new Error("plain failure");
+    const maileroo = { send: async () => { throw boom; } };
+    const router = new SigningDomainRouter({ fallback: maileroo, signers: { maileroo } });
+    await expect(
+      router.send({ ...msg, from: "recruitment@havenfreeclinic.org" })
+    ).rejects.toBe(boom);
+    expect(boom.message).toBe("plain failure");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -463,12 +892,172 @@ describe("resolveEmailTransport", () => {
     }
   }
 
-  it("returns a MailerooTransport when email.transport is maileroo and the key is set", async () => {
+  it("returns a domain router over Maileroo when email.transport is maileroo and the key is set", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
     await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
     _resetSettingsCache();
     const t = await withApiKey("test-key", resolveEmailTransport);
-    expect(t).toBeInstanceOf(MailerooTransport);
+    expect(t).toBeInstanceOf(SigningDomainRouter);
+  });
+
+  /** Set the Graph OAuth credentials for one test and restore them afterwards. */
+  async function withGraphOAuth<T>(present: boolean, fn: () => Promise<T>): Promise<T> {
+    const keys = [
+      "GRAPH_OAUTH_TENANT_ID",
+      "GRAPH_OAUTH_CLIENT_ID",
+      "GRAPH_OAUTH_CLIENT_SECRET",
+    ] as const;
+    const mutable = config as unknown as Record<string, string | undefined>;
+    const previous = keys.map((key) => mutable[key]);
+    for (const key of keys) mutable[key] = present ? "configured" : "";
+    try {
+      return await fn();
+    } finally {
+      keys.forEach((key, i) => {
+        mutable[key] = previous[i];
+      });
+    }
+  }
+
+  /** The singleton row that means "an admin has connected a Graph mailbox". */
+  const connectGraphMailbox = () =>
+    prisma.mailCredential.create({
+      data: { id: "mailer", refreshToken: "rt", account: "hfc.it@yale.edu" },
+    });
+
+  // The router is only worth having if its slots are wired to the right
+  // transports, and an instanceof check cannot see that. These send a real
+  // message through the resolved transport and assert on which upstream it
+  // reached, at both polarities.
+  describe("wires the maileroo router to the transport that signs each domain", () => {
+    beforeEach(async () => {
+      await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
+      await prisma.setting.create({
+        data: { key: "email.sender", value: "noreply@havenfreeclinic.org" },
+      });
+      _resetSettingsCache();
+      __resetTokenCache();
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      __resetTokenCache();
+    });
+
+    it("sends a Maileroo-signable From to the Maileroo API", async () => {
+      const fetchMock = vi.fn(async () =>
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", async () => {
+        const t = await resolveEmailTransport();
+        await t.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+      });
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("smtp.maileroo.com");
+    });
+
+    it("sends a Graph-signable From to Graph, not Maileroo", async () => {
+      await connectGraphMailbox();
+      const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", () =>
+        withGraphOAuth(true, async () => {
+          const t = await resolveEmailTransport();
+          // The Entra token POST is the assertion: only the Graph transport asks
+          // for a delegated token, so reaching login.microsoftonline proves the
+          // message was not handed to Maileroo.
+          await t.send({ ...msg, from: "hfc.it@yale.edu" }).catch(() => undefined);
+        })
+      );
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("login.microsoftonline.com");
+    });
+
+    // ---- The Graph signer's preconditions ------------------------------
+    //
+    // The maileroo branch refuses a missing MAILEROO_API_KEY or email.sender with
+    // a named reason. Its Graph signer used to be wired with no guard at all, so
+    // a deployment that chose Maileroo precisely to avoid Graph failed every
+    // yale.edu-From row with "Mail account is not connected", which reads as a
+    // broken mailbox rather than as a routing decision. Blast radius includes the
+    // auth sender category, i.e. magic-link login.
+
+    it("refuses per message, routing-first, when no Graph mailbox is connected", async () => {
+      // No MailCredential row: resetDb truncated it and this test creates none.
+      const err = await withApiKey("test-key", () =>
+        withGraphOAuth(true, async () => {
+          const t = await resolveEmailTransport();
+          return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+        })
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(TransientEmailError);
+      // The first 60 characters must say this is a routing decision with a lever,
+      // not that the mailbox is broken.
+      expect(failedCardText(err)).toContain("SENDING_DOMAINS");
+      expect(err.message).toContain("yale.edu");
+    });
+
+    it("refuses per message, naming the missing Graph credentials", async () => {
+      await connectGraphMailbox();
+      const err = await withApiKey("test-key", () =>
+        withGraphOAuth(false, async () => {
+          const t = await resolveEmailTransport();
+          return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+        })
+      );
+      expect(err).not.toBeInstanceOf(TransientEmailError);
+      expect(err.message).toContain("GRAPH_OAUTH_CLIENT_ID");
+      expect(failedCardText(err)).toContain("SENDING_DOMAINS");
+    });
+
+    // The project-wide rule is that reads DEGRADE rather than throw, which is why
+    // the settings reads above catch P1001. A failed credential read must not be
+    // read as "not connected": that would refuse every Graph-routed send for the
+    // whole tick on the strength of one bad read.
+    it("does not read a database failure as 'no mailbox connected'", async () => {
+      const spy = vi
+        .spyOn(prisma.mailCredential, "findUnique")
+        .mockRejectedValue(new Error("P1001: Can't reach database server"));
+      try {
+        const err = await withApiKey("test-key", () =>
+          withGraphOAuth(true, async () => {
+            const t = await resolveEmailTransport();
+            return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+          })
+        );
+        // A real GraphTransport was wired. The failure that surfaces is the one
+        // the token path hit on the same unreachable database, NOT a refusal
+        // telling an admin to go and connect a mailbox that is already connected.
+        expect(String(err)).toContain("P1001");
+        expect(String(err)).not.toContain("connect a mailbox in Admin");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("leaves the Maileroo half working when the Graph signer is unusable", async () => {
+      // The guard must refuse only the Graph-routed messages. A deployment with
+      // no Graph mailbox still sends all of its havenfreeclinic.org mail.
+      const fetchMock = vi.fn(async () =>
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", () =>
+        withGraphOAuth(false, async () => {
+          const t = await resolveEmailTransport();
+          await t.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+          await t.send(msg);
+        })
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("falls back to the log transport outside production when the Maileroo key is missing", async () => {

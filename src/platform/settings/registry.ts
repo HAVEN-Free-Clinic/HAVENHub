@@ -159,12 +159,18 @@ export const SETTINGS: SettingDef<unknown>[] = [
     label: "Email sender address",
     // One setting, two incompatible meanings, and the help text used to name only
     // the first (audit 14, EMAIL-3). Under Graph this must be a Yale mailbox the
-    // connected account has Send-As on; under Maileroo it must be on the verified
-    // Maileroo domain, because MailerooTransport PINS it and ignores every
-    // per-message `from`. Switching transport without changing this address makes
-    // every send fail permanently as a 4xx, and nothing told the admin to look.
+    // connected account has Send-As on; under Maileroo it must be on a domain
+    // Maileroo can sign, because this is the FALLBACK From that every message
+    // whose own sender is NOT on a signable domain leaves as (MailerooTransport's
+    // verified-domain allowlist). Switching transport without changing this
+    // address makes every such send fail permanently as a 4xx, and nothing told
+    // the admin to look.
+    //
+    // It used to override every per-template sender unconditionally. It no longer
+    // does: a per-template address on a domain the allowlist carries now sends as
+    // itself, so this address is only reached by the ones that cannot.
     help:
-      "From-address for outbound email. Under Microsoft Graph this must be a mailbox the connected account can Send-As. Under Maileroo it must be on your verified Maileroo domain, and it overrides every per-template sender. Change it when you switch transport, then run a sender test.",
+      "From-address for outbound email. Under Microsoft Graph this must be a mailbox the connected account can Send-As. Under Maileroo it must be on a verified Maileroo domain. It is the fallback used for any per-template sender on a domain no transport can sign for. Change it when you switch transport, then run a sender test.",
     input: { type: "text" },
     schema: z.string(),
     envDefault: () => config.EMAIL_SENDER ?? "",

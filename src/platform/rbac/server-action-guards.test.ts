@@ -44,8 +44,12 @@ const INLINE_DIRECTIVE = /^[ \t]+"use server";[ \t]*$/gm;
  */
 const EXEMPT: Record<string, { count: number; reason: string }> = {
   "src/app/login/page.tsx": {
-    count: 2,
-    reason: "SSO and dev-credentials sign-in: the caller has no session yet",
+    count: 1,
+    reason:
+      "dev-credentials sign-in: the caller has no session yet. Was 2 until the " +
+      "Yale SSO closure moved to login-actions.ts as signInWithYaleAction, which " +
+      "is pre-authentication for the same reason (a file-level 'use server' " +
+      "module, so outside this scan either way)",
   },
   "src/app/login/verify/page.tsx": {
     count: 1,

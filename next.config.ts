@@ -1,5 +1,29 @@
 import type { NextConfig } from "next";
 import { withPostHogConfig } from "@posthog/nextjs-config";
+import { pinServerActionsEncryptionKey } from "./src/platform/server-actions-key";
+
+/**
+ * Give this build the same Server Action ids as the last one.
+ *
+ * Must run at module scope: Next loads this config before it generates the
+ * build's encryption key, and that key is the salt every action id is hashed
+ * with. See server-actions-key.ts for the failure this prevents (members locked
+ * out of /login by UnrecognizedActionError after an unrelated deploy).
+ *
+ * Only announced when it could not be done, and even then only on a real deploy
+ * -- a local `next build` without AUTH_SECRET is not worth a warning, and the
+ * key itself must never be printed.
+ */
+const serverActionsKeySource = pinServerActionsEncryptionKey();
+if (serverActionsKeySource === "unavailable" && process.env.VERCEL_ENV) {
+  console.warn(
+    "[server-actions] AUTH_SECRET is not set at build time, so Next will use a random " +
+      "Server Action encryption key. Every action id will change on this deploy, and any " +
+      "tab still open from an earlier one will fail with UnrecognizedActionError on its " +
+      "next form submit. Set AUTH_SECRET (or NEXT_SERVER_ACTIONS_ENCRYPTION_KEY) for the " +
+      "build environment.",
+  );
+}
 
 /**
  * Refs whose builds upload source maps to PostHog Error Tracking. These are

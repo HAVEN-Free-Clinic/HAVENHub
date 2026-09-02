@@ -17,9 +17,34 @@ import { Button } from "@/platform/ui/button";
 import { FieldPicker } from "./field-picker";
 import { ValueControl } from "./value-controls";
 import { useNodeCounts, type NodeCounts } from "./use-node-counts";
-import { ROOT_NODE_PATH, MAX_COUNTED_NODES, childNodePath, nodePaths } from "./node-paths";
+import {
+  ROOT_NODE_PATH,
+  MAX_COUNTED_NODES,
+  MAX_COUNTED_CLAUSES,
+  childNodePath,
+  nodePaths,
+} from "./node-paths";
 
 export type NamedOption = { id: string; label: string };
+
+/**
+ * Does the tree name a field that no longer exists?
+ *
+ * A stored audience can outlive a field: `isAudience` admits any leaf with a
+ * string `field`, so a retired one survives in `audienceJson` indefinitely, and
+ * FieldPicker renders it as "Unknown field" with a control to remove it. The
+ * server's compiler cannot count such a tree at all (it throws, and
+ * countNodesAction degrades that to an empty map), so the builder detects the
+ * same condition itself in order to SAY so. Same reasoning as the node budget:
+ * an absent count must never be left looking like a request that failed.
+ */
+function hasUnknownField(nodes: AudienceNode[], fields: PersonFieldView[]): boolean {
+  return nodes.some((node) =>
+    isAudienceGroup(node)
+      ? hasUnknownField(node.children, fields)
+      : !fields.some((f) => f.key === node.field),
+  );
+}
 
 /**
  * A node's own match count, shown beside the clause that produced it.
@@ -671,10 +696,19 @@ export function AudienceBuilder({
   const audience: Audience = { recordType: "PERSON", match: rootMatch, conditions: root.children };
 
   const { counts, stale } = useNodeCounts(audience, countAction);
-  // Past the server's budget it returns no counts at all, so the note above the
-  // tree has to stop promising them. Without this the sender cannot tell an
-  // over-budget tree from a failed request: both render nothing.
-  const overNodeBudget = nodePaths(audience).length > MAX_COUNTED_NODES;
+
+  // Why the counts are unavailable, when they are. Both cases return an empty
+  // map from the server and therefore render nothing at all, which is
+  // indistinguishable from a failed request unless the builder says which it
+  // is. Derived from the tree rather than inferred from an empty response, so
+  // the reason is on screen before the first round trip even resolves and is
+  // never confused with "the answer has not arrived yet".
+  const countsUnavailable: "budget" | "unknownField" | null =
+    nodePaths(audience).length > MAX_COUNTED_NODES
+      ? "budget"
+      : hasUnknownField(root.children, fields)
+        ? "unknownField"
+        : null;
 
   return (
     <div className="space-y-4">
@@ -689,7 +723,7 @@ export function AudienceBuilder({
             address, dedups by address, applies the manual include/exclude and
             pasted lists, and skips anyone already mailed by a send-once
             campaign. Review's preview is the authority on the actual roll. */}
-        {countAction && !overNodeBudget && (
+        {countAction && countsUnavailable === null && (
           <p className="mt-1 text-xs text-muted-foreground">
             Each clause shows how many people it matches ON ITS OWN, within this campaign&apos;s
             scope, not how many it adds. The number beside the top Match control is the whole
@@ -697,11 +731,18 @@ export function AudienceBuilder({
             recipient list.
           </p>
         )}
-        {countAction && overNodeBudget && (
+        {countAction && countsUnavailable === "budget" && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Match counts are off for this audience: it has more than {MAX_COUNTED_NODES}{" "}
+            Match counts are off for this audience: it has more than {MAX_COUNTED_CLAUSES}{" "}
             conditions and groups, and counting every one on each edit would be too slow.
             Remove some clauses to get the counts back, or use Review to preview the recipients.
+          </p>
+        )}
+        {countAction && countsUnavailable === "unknownField" && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Match counts are off for this audience: it uses a field that no longer exists,
+            marked below. Remove that condition to get the counts back, or use Review to
+            preview the recipients.
           </p>
         )}
       </div>

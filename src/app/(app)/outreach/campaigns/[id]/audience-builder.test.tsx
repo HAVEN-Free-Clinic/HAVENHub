@@ -15,7 +15,7 @@ import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import type { Audience, ConditionOp } from "@/platform/email/audience/types";
 import { AudienceBuilder, defaultConditionFor, getFieldOptions, opLabel } from "./audience-builder";
 import { NODE_COUNT_DEBOUNCE_MS } from "./use-node-counts";
-import { MAX_COUNTED_NODES } from "./node-paths";
+import { MAX_COUNTED_CLAUSES } from "./node-paths";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -1023,7 +1023,7 @@ describe("AudienceBuilder node counts", () => {
     const overBudget: Audience = {
       recordType: "PERSON",
       match: "ANY",
-      conditions: Array.from({ length: MAX_COUNTED_NODES }, () => ({
+      conditions: Array.from({ length: MAX_COUNTED_CLAUSES + 1 }, () => ({
         field: "name",
         op: "isNotEmpty" as ConditionOp,
       })),
@@ -1031,16 +1031,56 @@ describe("AudienceBuilder node counts", () => {
     render(overBudget, async () => ({}));
     await flush();
 
-    expect(container.textContent).toContain(`more than ${MAX_COUNTED_NODES}`);
+    expect(container.textContent).toContain(`more than ${MAX_COUNTED_CLAUSES}`);
     expect(container.textContent).not.toContain("shows how many people it matches ON ITS OWN");
     expect(countsShown()).toEqual({});
+  });
+
+  // The note has to be counted in the units the sender counts: rows they added.
+  // The 41st node is the implicit root, which is not a row and which nobody
+  // added, so quoting the raw server budget tells someone looking at exactly 40
+  // rows that they have more than 40.
+  it("states the budget in clauses the sender can actually count", async () => {
+    const overBudget: Audience = {
+      recordType: "PERSON",
+      match: "ANY",
+      conditions: Array.from({ length: MAX_COUNTED_CLAUSES + 1 }, () => ({
+        field: "name",
+        op: "isNotEmpty" as ConditionOp,
+      })),
+    };
+    render(overBudget, async () => ({}));
+    await flush();
+
+    const rows = container.querySelectorAll("div.bg-muted").length;
+    expect(rows).toBe(MAX_COUNTED_CLAUSES + 1);
+    expect(container.textContent).toContain(`more than ${MAX_COUNTED_CLAUSES}`);
+    // The number quoted must be one the sender's own row count exceeds.
+    expect(rows).toBeGreaterThan(MAX_COUNTED_CLAUSES);
+  });
+
+  // The other way counts go missing. Both render nothing, so both have to say
+  // which one happened, or an absent count reads as a broken page.
+  it("explains the silence when the audience names a field that no longer exists", async () => {
+    render(
+      {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "aFieldThatNoLongerExists", op: "eq", value: "x" }],
+      },
+      async () => ({}),
+    );
+    await flush();
+
+    expect(container.textContent).toContain("uses a field that no longer exists");
+    expect(container.textContent).not.toContain("shows how many people it matches ON ITS OWN");
   });
 
   it("keeps the normal note one clause under the budget", async () => {
     const atBudget: Audience = {
       recordType: "PERSON",
       match: "ANY",
-      conditions: Array.from({ length: MAX_COUNTED_NODES - 1 }, () => ({
+      conditions: Array.from({ length: MAX_COUNTED_CLAUSES }, () => ({
         field: "name",
         op: "isNotEmpty" as ConditionOp,
       })),
@@ -1049,7 +1089,7 @@ describe("AudienceBuilder node counts", () => {
     await flush();
 
     expect(container.textContent).toContain("shows how many people it matches ON ITS OWN");
-    expect(container.textContent).not.toContain(`more than ${MAX_COUNTED_NODES}`);
+    expect(container.textContent).not.toContain(`more than ${MAX_COUNTED_CLAUSES}`);
   });
 
   it("keeps the previous numbers on screen, dimmed, while a fresh count is in flight", async () => {

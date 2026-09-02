@@ -160,6 +160,43 @@ describe("useNodeCounts", () => {
     expect(shown()).toEqual({ counts: {}, stale: false });
   });
 
+  // The path every sender actually takes into the Audience tab. The editor's
+  // panes are one form with hidden divs, so switching tabs is a soft nav that
+  // RECONCILES rather than remounting: the builder stays mounted, the tree is
+  // untouched, and the only thing that changes is `action` going from undefined
+  // to a bound one. Nothing else in this hook's inputs moves, so if the effect
+  // does not treat that transition as a reason to run, the sender lands on a
+  // tree with no numbers under a note promising them, until they happen to edit
+  // something. That shipped once.
+  it("starts counting when an action arrives on a tree that has not otherwise changed", async () => {
+    const action = vi.fn<CountAction>(async () => ({ root: 3 }));
+    const tree = audienceWith("a");
+
+    render(tree, undefined);
+    await settle();
+    expect(action).not.toHaveBeenCalled();
+
+    // Byte-identical tree, only the action appears.
+    render(tree, action);
+    await settle();
+
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(shown()).toEqual({ counts: { root: 3 }, stale: false });
+  });
+
+  it("stops counting when the action goes away again", async () => {
+    const action = vi.fn<CountAction>(async () => ({ root: 3 }));
+    const tree = audienceWith("a");
+
+    render(tree, action);
+    await settle();
+    expect(action).toHaveBeenCalledTimes(1);
+
+    render(tree, undefined);
+    await settle();
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
   // Path keys are positional, so the retained map is only safe while the tree's
   // SHAPE is unchanged. These two are the cases where retaining it prints a
   // number against the wrong clause.

@@ -25,6 +25,16 @@ export const ROOT_NODE_PATH = "root";
 export const MAX_COUNTED_NODES = 40;
 
 /**
+ * The same budget expressed in the units a SENDER counts: rows they added.
+ *
+ * The server's budget includes the implicit root, which is not a clause anyone
+ * added and is not visible as a row. Telling someone with exactly 40 rows on
+ * screen that they have "more than 40 conditions and groups" is a statement
+ * they can see is false, and it points them at the wrong thing to fix.
+ */
+export const MAX_COUNTED_CLAUSES = MAX_COUNTED_NODES - 1;
+
+/**
  * The key a node's count is returned under. Root-level children are "0", "1";
  * a child of the node at "1" is "1.0". Mirrors enumerateNodes in resolve.ts.
  */
@@ -63,6 +73,29 @@ export function nodePaths(audience: Audience): string[] {
  * A pure VALUE edit leaves this signature untouched, which is the case the
  * retain-and-dim behaviour exists for: typing into a text box must not blank
  * every row in the tree on each keystroke.
+ *
+ * Two things it deliberately does NOT separate, both of which are correct today
+ * and one of which is a trap for a future feature:
+ *
+ * 1. **A sibling REORDER is invisible to it.** Every leaf serialises as ".", so
+ *    swapping two sibling leaves (or two sibling groups of identical shape and
+ *    connective) leaves the key byte-identical while every count below them
+ *    moves to the wrong clause. That is the finding-A harm exactly. It is
+ *    unreachable today because GroupEditor offers only update, remove, add
+ *    condition and add group, with no move or drag control anywhere. **Anything
+ *    that lets a sender reorder clauses must extend this key**, most simply by
+ *    folding each leaf's field into its serialisation.
+ * 2. **A leaf's OPERATOR is not part of it**, including a flip to a negative
+ *    operator. `contains -> notContains` inverts a leaf's match set much as
+ *    ALL -> NONE inverts a group's, and the builder's "Negative conditions
+ *    widen the audience" note appears in the same paint as the flip, beside the
+ *    small pre-flip number. That is still retain-and-dim, and the asymmetry
+ *    with the group case is deliberate: what a group's connective changes is
+ *    the count's LABEL, so a retained number becomes actively FALSE, whereas an
+ *    operator flip changes only the number, leaving it merely stale and already
+ *    carrying the provisional cue. Widening the key to cover operators would
+ *    drag every field and operator edit into blank-and-refetch and cost the
+ *    flicker behaviour for no correctness gain.
  */
 export function audienceStructureKey(audience: Audience): string {
   const node = (n: AudienceNode): string =>

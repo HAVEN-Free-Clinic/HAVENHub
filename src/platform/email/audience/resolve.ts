@@ -348,8 +348,13 @@ export const ROOT_NODE_PATH = "root";
  * server round trip address every row on the client. That duplication is
  * deliberate (this module reaches into prisma and must stay out of the client
  * bundle), so this cross-reference is the only thing linking the two.
+ *
+ * Exported solely so node-paths.test.ts can compare the two walks directly
+ * rather than each against its own hardcoded literal, which is a guard that
+ * passes while the halves disagree. Nothing else should call it: callers want
+ * countAudienceNodes.
  */
-function enumerateNodes(audience: Audience): { path: string; node: AudienceNode }[] {
+export function enumerateNodes(audience: Audience): { path: string; node: AudienceNode }[] {
   const out: { path: string; node: AudienceNode }[] = [
     // The root is a group in every respect except that Audience spells its two
     // halves as `match` + `conditions`, so it is counted through the same

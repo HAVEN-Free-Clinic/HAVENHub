@@ -23,12 +23,14 @@ if (!window.HTMLElement.prototype.scrollIntoView) {
 let container: HTMLDivElement;
 let root: Root;
 
-function render(value: string, onChange: (key: string) => void) {
+function render(value: string, onChange: (key: string) => void, onRemove: () => void = () => {}) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root.render(<FieldPicker fields={PERSON_FIELD_VIEWS} value={value} onChange={onChange} />);
+    root.render(
+      <FieldPicker fields={PERSON_FIELD_VIEWS} value={value} onChange={onChange} onRemove={onRemove} />,
+    );
   });
 }
 
@@ -155,7 +157,8 @@ describe("FieldPicker keyboard", () => {
 describe("FieldPicker unknown stored field", () => {
   it("renders a removable unknown instead of crashing", () => {
     const onChange = vi.fn();
-    expect(() => render("aFieldThatNoLongerExists", onChange)).not.toThrow();
+    const onRemove = vi.fn();
+    expect(() => render("aFieldThatNoLongerExists", onChange, onRemove)).not.toThrow();
     expect(trigger().textContent).toContain("Unknown field");
 
     const removeButton = container.querySelector(
@@ -163,8 +166,13 @@ describe("FieldPicker unknown stored field", () => {
     ) as HTMLButtonElement;
     expect(removeButton).toBeTruthy();
 
+    // Removing an unknown field removes the whole condition via `onRemove`,
+    // NOT a swap to some other field via `onChange` -- a condition with no
+    // real field is meaningless, and silently defaulting to one would leave
+    // behind what reads as a fully configured, legitimate condition.
     act(() => removeButton.click());
-    expect(onChange).toHaveBeenCalledWith("");
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("still opens and lets a real field be picked from an unknown starting value", () => {

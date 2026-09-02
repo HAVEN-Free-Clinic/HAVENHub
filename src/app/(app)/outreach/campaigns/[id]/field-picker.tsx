@@ -56,15 +56,24 @@ function filterGroups(groups: FieldGroup[], query: string): FieldGroup[] {
  * field key, `onChange` reports the newly chosen key. Nothing is buffered
  * internally except the in-progress search query, which is local UI state
  * that never needs to survive a re-render from the parent.
+ *
+ * `onRemove` is the row's own removal callback (the same one `GroupEditor`
+ * already wires to the visible "Remove" button on every condition). It is
+ * required, not optional: this picker has exactly one caller today
+ * (`ConditionRow`), which always has a real `onRemove`, and requiring it here
+ * closes off a silent-no-op path for the unknown-field control below rather
+ * than leaving that as a possibility for some future caller to trip over.
  */
 export function FieldPicker({
   fields,
   value,
   onChange,
+  onRemove,
 }: {
   fields: PersonFieldView[];
   value: string;
   onChange: (key: string) => void;
+  onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -80,10 +89,8 @@ export function FieldPicker({
   const filtered = useMemo(() => filterGroups(groups, query), [groups, query]);
   const flat = useMemo(() => filtered.flatMap((g) => g.fields), [filtered]);
   // A stale stored key (a field renamed or removed since the audience was
-  // saved) resolves to no definition at all. That must never throw --
-  // ConditionRow's own `fields.find(...) ?? fields[0]` fallback already
-  // tolerates exactly this for the operator/value controls beside this one --
-  // so `selected` is simply undefined here, and the trigger below renders a
+  // saved) resolves to no definition at all. That must never throw -- so
+  // `selected` is simply undefined here, and the trigger below renders a
   // distinct "Unknown field" state instead of crashing on `.label`.
   const selected = fields.find((f) => f.key === value);
 
@@ -199,16 +206,19 @@ export function FieldPicker({
       {/* A stored key with no surviving definition gets the same treatment as
           a deleted term/cycle/department in builder-options.ts: labelled so
           it can be recognised, and removable rather than stuck forever.
-          Removing here means clearing to no key at all; ConditionRow's
-          changeField falls back to the first available field for any key it
-          cannot resolve (including this one), the same tolerant fallback it
-          already applies when reading a stale `cond.field`. */}
+          "Removable" here means removing the WHOLE condition via `onRemove`,
+          not swapping in some other field: a condition is meaningless without
+          a real field (AudienceCondition.field is never "unset" anywhere in
+          the data model), so silently rewriting it to, say, the first
+          registered field would leave behind what looks like a fully
+          configured, legitimate condition -- exactly the state a sender
+          reviewing an audience before sending could miss. */}
       {!selected && (
         <button
           type="button"
           aria-label="Remove unknown field"
-          onClick={() => onChange("")}
-          // eslint-disable-next-line no-restricted-syntax -- icon-only inline control clearing a stale field reference, not a standard form action Button
+          onClick={onRemove}
+          // eslint-disable-next-line no-restricted-syntax -- icon-only inline control removing a condition with a stale field reference, not a standard form action Button
           className="rounded-md p-1 text-subtle-foreground outline-none hover:bg-muted hover:text-critical-foreground focus-visible:ring-2 focus-visible:ring-brand/15"
         >
           <X aria-hidden className="h-3.5 w-3.5" />

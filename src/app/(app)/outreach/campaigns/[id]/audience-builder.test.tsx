@@ -271,3 +271,35 @@ describe("AudienceBuilder recruitment option rendering", () => {
     expect(container.textContent).not.toContain("No options available");
   });
 });
+
+// Fix round 1 finding: FieldPicker's "remove unknown field" control used to
+// call changeField("") -> `fields.find(...) ?? fields[0]`, which silently
+// rewrote the condition to `{ field: "name", op: "contains", value: "" }`
+// rather than removing it. That fails closed at compile time (MATCH_NOBODY),
+// but reads to a sender reviewing an audience as a fully-configured,
+// legitimate "Full name contains (empty)" condition -- not as the removed,
+// unfinished row it actually is. This test exercises the fix through the
+// whole stack: a stored condition naming a field key the registry no longer
+// has, with the picker's own remove control activated.
+describe("AudienceBuilder unknown stored field", () => {
+  it("removes the whole condition rather than silently defaulting to a name condition", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "aFieldThatNoLongerExists", op: "eq", value: "x" }],
+    });
+    expect(container.textContent).toContain("Unknown field");
+
+    const removeButton = container.querySelector(
+      'button[aria-label="Remove unknown field"]',
+    ) as HTMLButtonElement;
+    expect(removeButton).toBeTruthy();
+
+    click(removeButton);
+
+    expect(serialised().conditions).toEqual([]);
+    expect(serialised().conditions).not.toContainEqual(
+      expect.objectContaining({ field: "name" }),
+    );
+  });
+});

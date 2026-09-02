@@ -236,11 +236,15 @@ function ConditionRow({
   const textValue = typeof cond.value === "string" ? cond.value : "";
 
   function changeField(newFieldKey: string) {
-    // Falls back to the first field for any key this registry cannot resolve
-    // -- the same tolerant fallback `def` above already applies when READING
-    // a stale `cond.field`. That covers both a genuine pick and FieldPicker's
-    // "remove unknown field" control, which reports the empty string.
-    const nextDef = fields.find((f) => f.key === newFieldKey) ?? fields[0];
+    // Deliberately NOT `?? fields[0]`: FieldPicker only ever calls onChange
+    // with a key drawn from its own `fields` list (see its `choose`), so
+    // `newFieldKey` should always resolve. An unresolvable key here is a
+    // wiring bug, not user input -- FieldPicker's "remove unknown field"
+    // control goes through `onRemove` below instead of `onChange`, precisely
+    // so it never reaches this function at all. Silently defaulting to an
+    // arbitrary field would hide that bug behind a condition that LOOKS
+    // deliberately configured; doing nothing at least fails visibly inert.
+    const nextDef = fields.find((f) => f.key === newFieldKey);
     if (nextDef) onChange(defaultConditionFor(nextDef));
   }
 
@@ -259,7 +263,7 @@ function ConditionRow({
 
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3">
-      <FieldPicker fields={fields} value={cond.field} onChange={changeField} />
+      <FieldPicker fields={fields} value={cond.field} onChange={changeField} onRemove={onRemove} />
 
       {/* The operator select doubles as the value control for booleans, whose
           two operators (yes / no) ARE the value. */}

@@ -50,6 +50,18 @@ const schema = z
     // off "is Graph selected".
     EMAIL_TRANSPORT: z.enum(["log", "graph", "maileroo"]).default("log"),
     MAILEROO_API_KEY: z.string().optional(),
+    // The verified-domain allowlist: which transport can DKIM-sign for which
+    // From domain, as comma-separated "<domain>:<transport>" pairs, e.g.
+    // "havenfreeclinic.org:maileroo,yale.edu:graph".
+    //
+    // Optional, and the shipped default lives in email/sending-domains.ts rather
+    // than here, so the two domains stay readable next to the DNS evidence for
+    // each. This override exists because the thing that changes is a MAILEROO
+    // DASHBOARD state, not code: re-enabling yale.edu there should be reflectable
+    // without waiting on a code edit. An override REPLACES the default table.
+    // Empty means "not configured" (see parseSendingDomains) -- an unset Vercel
+    // variable and vitest.setup.ts's env claim both arrive as "".
+    SENDING_DOMAINS: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
@@ -371,6 +383,24 @@ const schema = z
           message: "required when EMAIL_TRANSPORT is maileroo",
         });
       }
+    }
+  })
+  .superRefine((env, ctx) => {
+    // A malformed SENDING_DOMAINS override must refuse to boot rather than be
+    // silently narrowed. parseSendingDomains skips an entry it cannot read, so a
+    // typo'd "yale.edu:grap" would quietly drop yale.edu off the allowlist and
+    // send every Yale identity out pinned to the fallback address -- a routing
+    // change with no error anywhere. Same shape as ENTRY_RE in
+    // email/sending-domains.ts; duplicated rather than imported because that
+    // module reads this config and importing it back would be circular.
+    if (!env.SENDING_DOMAINS) return;
+    for (const entry of env.SENDING_DOMAINS.split(",")) {
+      if (/^[^\s@:,]+:(maileroo|graph)$/.test(entry.trim())) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: ["SENDING_DOMAINS"],
+        message: `"${entry.trim()}" is not a "<domain>:<transport>" pair with transport one of maileroo, graph`,
+      });
     }
   })
   .superRefine((env, ctx) => {

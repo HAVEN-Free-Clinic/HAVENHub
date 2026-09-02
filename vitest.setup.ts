@@ -55,6 +55,10 @@ for (const key of [
   "GRAPH_OAUTH_CLIENT_SECRET",
   "GRAPH_OAUTH_REDIRECT_URI",
   "MAILEROO_API_KEY",
+  // The verified-domain allowlist override. Claimed so the suite always exercises
+  // the shipped default table, never whatever a developer has pointed their own
+  // deploy at.
+  "SENDING_DOMAINS",
   // Airtable import sources.
   "AIRTABLE_PAT",
   "AIRTABLE_MIRROR_ENABLED",

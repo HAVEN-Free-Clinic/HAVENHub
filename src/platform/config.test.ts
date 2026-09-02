@@ -23,6 +23,39 @@ const prodExtras = {
   R2_BUCKET: "havenhub-uploads",
 };
 
+// ---------------------------------------------------------------------------
+// SENDING_DOMAINS: the verified-domain allowlist override
+// ---------------------------------------------------------------------------
+
+describe("loadConfig - SENDING_DOMAINS", () => {
+  it("treats an unset or empty value as not configured, not as an empty allowlist", () => {
+    // The distinction decides whether the shipped default table applies. An unset
+    // Vercel variable and vitest.setup.ts's env claim both arrive as "".
+    expect(loadConfig(base).SENDING_DOMAINS).toBeUndefined();
+    expect(loadConfig({ ...base, SENDING_DOMAINS: "" }).SENDING_DOMAINS).toBeUndefined();
+  });
+
+  it("accepts a well-formed override", () => {
+    const value = "havenfreeclinic.org:maileroo,yale.edu:graph";
+    expect(loadConfig({ ...base, SENDING_DOMAINS: value }).SENDING_DOMAINS).toBe(value);
+  });
+
+  it("refuses to boot on a malformed entry rather than silently narrowing the allowlist", () => {
+    // parseSendingDomains skips an entry it cannot read, so a typo like
+    // "yale.edu:grap" would otherwise drop yale.edu off the allowlist and route
+    // every Yale identity to the pinned fallback, with no error anywhere.
+    expect(() =>
+      loadConfig({ ...base, SENDING_DOMAINS: "havenfreeclinic.org:maileroo,yale.edu:grap" })
+    ).toThrowError(/SENDING_DOMAINS/);
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "nocolon" })).toThrowError(
+      /SENDING_DOMAINS/
+    );
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "someone@yale.edu:graph" })).toThrowError(
+      /SENDING_DOMAINS/
+    );
+  });
+});
+
 describe("loadConfig", () => {
   it("accepts a valid development env without Azure vars", () => {
     const config = loadConfig(base);

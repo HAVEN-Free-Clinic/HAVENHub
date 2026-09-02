@@ -19,6 +19,7 @@ import { config } from "@/platform/config";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatForDateInput, parseZonedInput } from "@/platform/dates/format";
 import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
+import { signingTransportFor } from "@/platform/email/sending-domains";
 import { getSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
@@ -263,7 +264,7 @@ export async function retryAllFailedEmails(actorPersonId: string, now?: Date): P
 
 /**
  * Send a one-off test email AS `fromEmail`, directly (NOT via the queue), so any
- * rejection (malformed address, missing Send-As rights, unverified sending
+ * rejection (malformed address, missing Send-As rights, unsignable sending
  * domain) surfaces synchronously to the admin. In log mode it just logs. Records
  * an audit entry.
  *
@@ -276,36 +277,46 @@ export async function sendSenderTest(
 ): Promise<void> {
   const transportKind = await getSetting<"log" | "graph" | "maileroo">("email.transport");
 
-  // The address the test actually sends AS. On graph that is the rule's own
-  // address, which is exactly what the test checks (Send-As rights). Maileroo
-  // pins every send to the one verified domain and ignores per-rule addresses
-  // entirely (see MailerooTransport), so testing a rule's @yale.edu address would
-  // report a failure for an address that has no bearing on real mail. Test the
-  // pinned sender instead, so the result mirrors what production will do.
-  const effectiveFrom =
-    transportKind === "maileroo"
-      ? await getSetting<string>("email.sender")
-      : input.fromEmail;
+  // Which transport can DKIM-sign for the requested address decides BOTH what
+  // this test sends as and which transport carries it, because that is what the
+  // drain does with a real message naming the same From (SigningDomainRouter).
+  // Testing anything else would report on a send production never makes.
+  //
+  // This used to be one answer per transport setting: maileroo pinned every send
+  // to the global sender, so a rule's own address was never the one tested. That
+  // is now only the OFF-LIST case; an address Maileroo can sign is tested as
+  // itself, and a Graph-signed address (yale.edu today) is tested through Graph.
+  const signer = signingTransportFor(input.fromEmail);
 
   // Build the transport that is actually selected. Falling through to LogTransport
   // for a live non-graph transport would make the test send silently "pass"
   // without sending, defeating the one check that confirms the From address is
-  // usable (Send-As rights on graph, a verified sending domain on maileroo).
+  // usable (Send-As rights on graph, a signable sending domain on maileroo).
   let transport: EmailTransport;
-  if (transportKind === "graph") {
-    transport = new GraphTransport({
-      getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
-      sender: effectiveFrom,
-      fetchImpl: opts?.fetchImpl,
-    });
-  } else if (transportKind === "maileroo") {
+  let effectiveFrom: string;
+  if (transportKind === "log") {
+    effectiveFrom = input.fromEmail;
+    transport = new LogTransport();
+  } else if (transportKind === "maileroo" && signer !== "graph") {
+    // Maileroo signs it, or nothing does: either way the real send goes through
+    // Maileroo. It leaves as the requested address when the allowlist carries its
+    // domain, and as the pinned global sender when it does not.
+    effectiveFrom =
+      signer === "maileroo" ? input.fromEmail : await getSetting<string>("email.sender");
     transport = new MailerooTransport({
       apiKey: config.MAILEROO_API_KEY ?? "",
       sender: effectiveFrom,
       fetchImpl: opts?.fetchImpl,
     });
   } else {
-    transport = new LogTransport();
+    // Graph mode, or maileroo mode with a Graph-signed From. Either way the
+    // address itself is what is tested, which is exactly the Send-As check.
+    effectiveFrom = input.fromEmail;
+    transport = new GraphTransport({
+      getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,
+      sender: effectiveFrom,
+      fetchImpl: opts?.fetchImpl,
+    });
   }
 
   await transport.send({
@@ -320,7 +331,7 @@ export async function sendSenderTest(
     actorPersonId,
     action: "email.sender_test",
     entityType: "EmailSenderRule",
-    // Record both: under maileroo the requested address is not the one used, and
+    // Record both: an off-list address under maileroo is not the one used, and
     // the audit trail should not imply otherwise.
     after: { toEmail: input.toEmail, fromEmail: input.fromEmail, sentAs: effectiveFrom },
   });

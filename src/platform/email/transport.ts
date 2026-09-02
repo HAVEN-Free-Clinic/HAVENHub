@@ -1,5 +1,6 @@
 import { getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
+import { signingTransportFor, type SigningTransport } from "./sending-domains";
 import { config } from "@/platform/config";
 import { getSettingUncached } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
@@ -209,10 +210,61 @@ export class GraphTransport implements EmailTransport {
 /** POST target for a single transactional send (Maileroo API v2). */
 const MAILEROO_SEND_URL = "https://smtp.maileroo.com/api/v2/emails";
 
+/**
+ * Recognise Maileroo's two DOMAIN-level rejections and restate them as something
+ * an operator can act on, or return null for anything else.
+ *
+ * Both are configuration states rather than blips, so both are PERMANENT: no
+ * amount of retrying re-enables a domain in the Maileroo dashboard or re-scopes
+ * a sending key. Classifying either as transient would spend the queue's whole
+ * back-off -- 8 attempts spread across minute-ticks, holding the row's claim
+ * between them (see drainEmailQueue) -- on something that cannot succeed inside
+ * any retry window.
+ *
+ * They arrive as a 400 today, which the generic 4xx rule below ALREADY treats as
+ * permanent. Naming them here does three things that rule cannot: it makes the
+ * verdict intentional rather than incidental, it keeps the verdict correct if
+ * Maileroo ever answers the same state with a 429 or a 5xx, and it puts the
+ * actual fix into EmailLog.lastError instead of a raw API string.
+ *
+ * The two are kept apart because they call for opposite fixes, and the error
+ * text is the only thing that distinguishes them (probed live 2026-08-21; see
+ * the maileroo-yale-domain-disabled note):
+ *   "...is currently disabled"                    -> that domain IS this sending
+ *                                                    key's domain, and it is off
+ *   "...is not associated with this sending key"  -> the key belongs to a
+ *                                                    DIFFERENT domain
+ * Maileroo sending keys are domain-scoped, which is why the second case exists
+ * at all and why "check the dashboard" would be the wrong advice for it.
+ */
+function describeMailerooDomainRejection(text: string): string | null {
+  const disabled = /domain\s+['"]([^'"]+)['"]\s+is currently disabled/i.exec(text);
+  if (disabled) {
+    return (
+      `sending domain '${disabled[1]}' is DISABLED in the Maileroo dashboard, so no send from it ` +
+      `can be signed. Permanent: re-enable the domain in Maileroo (it needs its DNS records ` +
+      `published), or point that domain at another transport in SENDING_DOMAINS.`
+    );
+  }
+  const unassociated = /domain\s+['"]([^'"]+)['"]\s+is not associated with this sending key/i.exec(
+    text
+  );
+  if (unassociated) {
+    return (
+      `sending domain '${unassociated[1]}' is not associated with this Maileroo sending key. ` +
+      `Sending keys are domain-scoped, so MAILEROO_API_KEY belongs to a different domain. ` +
+      `Permanent: configure the key for that domain, or point it at another transport in ` +
+      `SENDING_DOMAINS.`
+    );
+  }
+  return null;
+}
+
 interface MailerooTransportOpts {
   /**
-   * The ONLY From address this transport will use. Must be on a domain verified
-   * in Maileroo. Per-message `from` overrides are ignored -- see the class note.
+   * The fallback From address, used for every message whose own `from` is on a
+   * domain Maileroo cannot sign (and for one that carries no `from` at all).
+   * Must itself be on a domain verified in Maileroo. See the class note.
    */
   sender: string;
   /** Sending key from the Maileroo dashboard, sent as the X-API-Key header. */
@@ -229,22 +281,38 @@ interface MailerooTransportOpts {
  * any roster-wide campaign into multi-hour delivery. Maileroo sends from our own
  * verified domain with no comparable per-minute ceiling.
  *
- * PINNED SENDER: unlike GraphTransport, this ignores a per-message `from` and
- * always sends as `this.sender`. Maileroo can only sign mail for a domain
- * verified in our Maileroo account, and the per-template/per-category sender
- * rules (see sender-rules.ts) point at @yale.edu addresses that Yale ITS has not
- * published Maileroo DKIM records for. Honoring those rules here would fail every
- * such send permanently on an unverified sending domain. Pinning also rescues
- * rows enqueued BEFORE the transport switch, whose @yale.edu sender was already
- * snapshotted onto EmailLog.fromEmail at queue time.
+ * SENDER, BY ALLOWLIST: a per-message `from` is honored when SENDING_DOMAINS
+ * says Maileroo is the transport that can sign for its domain, and ignored
+ * otherwise. Maileroo can only sign mail for a domain verified in our Maileroo
+ * account, so honoring an address on any other domain fails the send permanently
+ * on an unsignable sending domain.
  *
- * The display name (`fromName`) IS still honored: it is cosmetic and plays no
- * part in DKIM/SPF alignment, so "HAVEN Recruitment <noreply@...>" stays intact.
- * The overridden address is not discarded either -- it becomes the Reply-To, so
- * replies still reach the human mailbox the sender rule intended.
+ * OFF-LIST, the fallback is exactly what this class used to do unconditionally:
+ * the message leaves as `this.sender`. That still matters for the two cases that
+ * motivated the original pin. The per-template/per-category sender rules (see
+ * sender-rules.ts) point at @yale.edu addresses that Yale ITS has not published
+ * Maileroo DKIM records for, and yale.edu's own Maileroo entry is registered but
+ * DISABLED, so those sends would fail rather than merely look wrong. The
+ * fallback also rescues rows enqueued BEFORE the transport switch, whose
+ * @yale.edu sender was already snapshotted onto EmailLog.fromEmail at queue time.
  *
- * Revisit once Yale publishes Maileroo DKIM records for yale.edu, at which point
- * the per-message override can come back.
+ * The pin was written as unconditional because, at the time, every sender rule
+ * in play named a domain Maileroo could not sign. It over-reached: it also
+ * pinned @havenfreeclinic.org addresses, which Maileroo signs perfectly well, so
+ * the address an admin configured never reached the recipient. The allowlist is
+ * the same protection stated as the rule it always was.
+ *
+ * The display name (`fromName`) IS honored either way: it is cosmetic and plays
+ * no part in DKIM/SPF alignment, so "HAVEN Recruitment <noreply@...>" stays
+ * intact even on a pinned send. An off-list address is not discarded either --
+ * it becomes the Reply-To, so replies still reach the human mailbox the sender
+ * rule intended. Reply-To is likewise outside DKIM/SPF alignment, so it can
+ * safely name an unsignable domain.
+ *
+ * Yale mail is NOT stranded by the fallback: SigningDomainRouter sends a
+ * yale.edu From to Graph, which signs it today, instead of handing it here to be
+ * pinned. What changes when Maileroo re-enables yale.edu is one row of
+ * SENDING_DOMAINS, not this class.
  *
  * Like GraphTransport this NEVER retries -- the outbox queue owns back-off and
  * the transient/permanent split (see drainEmailQueue).
@@ -261,10 +329,14 @@ export class MailerooTransport implements EmailTransport {
   }
 
   async send(message: EmailMessage): Promise<void> {
-    // message.from is deliberately NOT consulted -- see the PINNED SENDER note on
-    // the class. Every message leaves as this.sender so it stays DKIM-aligned with
-    // the one domain verified in Maileroo.
-    const sender = this.sender;
+    const intended = message.from?.trim();
+    // The ALLOWLIST decides, not the address itself. signingTransportFor answers
+    // "which transport can DKIM-sign for this domain"; only "maileroo" means this
+    // send may leave as the address it names. A Graph-signed domain, an unlisted
+    // domain and a message with no From all fall back to this.sender, which stays
+    // DKIM-aligned with a domain verified in Maileroo. See sending-domains.ts.
+    const sender =
+      intended && signingTransportFor(intended) === "maileroo" ? intended : this.sender;
 
     // Same pre-delivery inlining as Graph: Gmail clips messages carrying an
     // embedded <style> block behind "[Message clipped]". Every real send funnels
@@ -287,8 +359,12 @@ export class MailerooTransport implements EmailTransport {
     // mailbox. The template's intended sender (the per-template/per-category rule
     // snapshotted onto the row at enqueue) is still the right human destination,
     // so it is preserved as Reply-To. Reply-To is not part of DKIM/SPF alignment,
-    // so it can safely name an unverified domain like @yale.edu.
-    const intended = message.from?.trim();
+    // so it can safely name an unsignable domain like @yale.edu.
+    //
+    // The comparison, not a flag: when the allowlist let this message leave as
+    // its own From, `sender` IS `intended` and there is nothing to preserve, so
+    // the same condition that has always suppressed a redundant Reply-To covers
+    // the on-list case without a second branch.
     if (intended && intended.toLowerCase() !== sender.toLowerCase()) {
       const replyTo: Record<string, string> = { address: intended };
       if (from.display_name) replyTo.display_name = from.display_name;
@@ -319,9 +395,16 @@ export class MailerooTransport implements EmailTransport {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      // Checked BEFORE the status rules, so the verdict follows the error text
+      // rather than the code Maileroo happened to answer with. See
+      // describeMailerooDomainRejection for why both of these must stay permanent.
+      const domainRejection = describeMailerooDomainRejection(text);
+      if (domainRejection) {
+        throw new Error(`Maileroo send failed: ${res.status} ${domainRejection}`);
+      }
       // Mirrors the Graph classification: 429 (rate limited) and 5xx are upstream
       // blips, not bad recipients, so retry without burning the attempt budget.
-      // 4xx (bad key, unverified sending domain, malformed address) is permanent.
+      // 4xx (bad key, unsignable sending domain, malformed address) is permanent.
       if (res.status === 429 || res.status >= 500) {
         const retryAfter = res.headers.get("retry-after");
         throw new TransientEmailError(
@@ -343,8 +426,63 @@ export class MailerooTransport implements EmailTransport {
       throw new Error(`Maileroo send returned ${res.status} with an unparseable body`);
     }
     if (body?.success !== true) {
-      throw new Error(`Maileroo send rejected: ${body?.message ?? "no message"}`);
+      // Maileroo spells some rejections this way rather than as a non-2xx, so the
+      // same domain-level recognition has to apply here or the diagnosis an
+      // operator gets would depend on which shape the API chose.
+      const message = body?.message ?? "no message";
+      throw new Error(
+        `Maileroo send rejected: ${describeMailerooDomainRejection(message) ?? message}`
+      );
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SigningDomainRouter
+// ---------------------------------------------------------------------------
+
+/**
+ * Sends each message through the transport that can DKIM-sign for its From
+ * domain, falling back to a single default for everything else.
+ *
+ * This exists because the two domains we send from are signable by DIFFERENT
+ * transports (see sending-domains.ts), so an allowlist alone could not make both
+ * work: havenfreeclinic.org needs Maileroo, and yale.edu needs Graph until its
+ * Maileroo entry is re-enabled. Routing is the only place that difference is
+ * acted on; every other layer just reads the map.
+ *
+ * The router routes and nothing else. It does not rewrite the message, and it
+ * does not catch: the chosen transport still owns the From decision, and the
+ * error it throws must reach drainEmailQueue with its type intact, because that
+ * type is the queue's whole transient/permanent split.
+ *
+ * The throughput consequence is real and worth stating where the routing
+ * happens: Graph sends as a Yale shared mailbox and inherits Exchange Online's
+ * ~30 messages/minute submission cap, which is the reason MailerooTransport
+ * exists at all. A roster-wide campaign sent from a yale.edu identity paces out
+ * over hours; the same campaign from a havenfreeclinic.org identity does not.
+ */
+export class SigningDomainRouter implements EmailTransport {
+  private readonly fallback: EmailTransport;
+  private readonly signers: Partial<Record<SigningTransport, EmailTransport>>;
+
+  constructor(opts: {
+    /** Used for a From on no listed domain, and for a message with no From. */
+    fallback: EmailTransport;
+    /** The transport to use for each signing capability that is available here. */
+    signers: Partial<Record<SigningTransport, EmailTransport>>;
+  }) {
+    this.fallback = opts.fallback;
+    this.signers = opts.signers;
+  }
+
+  async send(message: EmailMessage): Promise<void> {
+    const signer = signingTransportFor(message.from);
+    // A capability with no transport wired for it falls back rather than
+    // failing: the allowlist describes what the DOMAINS support, and a given
+    // deployment may not have every transport configured.
+    const chosen = (signer && this.signers[signer]) ?? this.fallback;
+    await chosen.send(message);
   }
 }
 
@@ -379,7 +517,28 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
       );
       return new LogTransport();
     }
-    return new MailerooTransport({ apiKey, sender });
+    const maileroo = new MailerooTransport({ apiKey, sender });
+    // Route by From domain. yale.edu is on the allowlist as GRAPH-signed (its
+    // Maileroo entry is registered but disabled), so a message whose From names a
+    // Yale identity goes out through Graph AS ITSELF rather than being pinned to
+    // `sender` with the address demoted to Reply-To. Everything else, including a
+    // message with no From at all, stays on Maileroo.
+    //
+    // GraphTransport's `sender` is only its default for a message that carries no
+    // From, and the router never hands it one: a message reaches the graph signer
+    // precisely because its own From named a graph-signed domain. It is passed to
+    // honor the constructor's contract, not because this path reads it.
+    //
+    // Deliberately one-directional: the graph branch below does NOT gain a
+    // Maileroo signer for havenfreeclinic.org. email.transport is an explicit
+    // operator choice, and making "graph" quietly send part of its mail through
+    // Maileroo on the mere presence of MAILEROO_API_KEY would be a routing change
+    // nobody asked for. The deployed transport is maileroo, which is the case
+    // this routing exists to serve.
+    return new SigningDomainRouter({
+      fallback: maileroo,
+      signers: { maileroo, graph: new GraphTransport({ getAccessToken, sender }) },
+    });
   }
   if (transport === "graph") {
     const sender = await getSettingUncached<string>("email.sender");

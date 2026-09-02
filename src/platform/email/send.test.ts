@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { queueEmail, drainEmailQueue } from "./send";
-import type { EmailTransport } from "./transport";
+import { MailerooTransport, type EmailTransport } from "./transport";
 import { saveSenderRule } from "./sender-rules";
 
 // ---------------------------------------------------------------------------
@@ -364,5 +364,56 @@ describe("queueEmail sender snapshot", () => {
     await drainEmailQueue(transport);
     expect(transport.froms).toEqual(["recruit@yale.edu"]);
     expect(transport.fromNames).toEqual([undefined]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Maileroo domain rejections, judged by the queue
+// ---------------------------------------------------------------------------
+
+/**
+ * The transport's own classification is only half the contract. What decides
+ * whether a row burns its retry budget is drainEmailQueue reading the error's
+ * TYPE, so these assert the outcome the queue records rather than anything the
+ * transport returns.
+ *
+ * Getting this wrong is invisible until a real send sits in the queue: a
+ * disabled sending domain is a configuration state, so a transient verdict would
+ * spend all 8 attempts, spread across minute-ticks and holding the row's claim
+ * between them, on something that cannot succeed inside any retry window.
+ */
+describe("drainEmailQueue on a Maileroo domain rejection", () => {
+  const DISABLED_400 =
+    "The domain 'yale.edu' is currently disabled. Please check your dashboard for more details.";
+
+  const mailerooReturning = (status: number, text: string) =>
+    new MailerooTransport({
+      apiKey: "test-key",
+      sender: "noreply@havenfreeclinic.org",
+      fetchImpl: (async () => new Response(text, { status })) as typeof fetch,
+    });
+
+  it("counts a domain-disabled 400 against the row's permanent attempt budget", async () => {
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+
+    await drainEmailQueue(mailerooReturning(400, DISABLED_400));
+
+    const row = await prisma.emailLog.findFirstOrThrow();
+    // attempts incremented is precisely how the queue spells "permanent".
+    expect(row.attempts).toBe(1);
+    // And the fix reaches the operator, on the admin Failed card and in the logs.
+    expect(row.lastError).toMatch(/DISABLED in the Maileroo dashboard/);
+  });
+
+  // The control that keeps the assertion above from being vacuous: the queue CAN
+  // record attempts 0 for the same transport and the same drain, so attempts 1 is
+  // a real verdict rather than the only thing this code path can produce.
+  it("leaves the budget untouched for a genuinely transient upstream failure", async () => {
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+
+    await drainEmailQueue(mailerooReturning(503, "upstream unavailable"));
+
+    const row = await prisma.emailLog.findFirstOrThrow();
+    expect(row.attempts).toBe(0);
   });
 });

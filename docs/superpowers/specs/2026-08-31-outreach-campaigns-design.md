@@ -1,7 +1,8 @@
 # Outreach: delegated, scope-bounded email campaigns
 
 Date: 2026-08-31
-Status: Phase 1 shipped (PR #702). Phase 2 planned. Phase 3 not yet planned.
+Status: Phase 1 shipped (PR #702). Phase 2 shipped (PR #707). Phase 3 not yet
+planned; see the prerequisite under "Sender identity" before starting it.
 
 ## Problem
 
@@ -200,8 +201,21 @@ digest.
 ### Builder UI
 
 A two-pane editor: the condition tree on the left, a **live recipient preview**
-on the right showing the matched count and a scrollable list of who, with the
-values that caused each match.
+on the right showing the matched count and a scrollable list of who.
+
+**Amended 2026-09-02, after Phase 2 shipped.** This section originally promised
+the preview would show "the values that caused each match", and the whole-branch
+review found the shipped preview does not: its "Why" column reports which LIST a
+person arrived on (matched / included / pasted), not which condition or which
+values matched them. Recorded as a divergence rather than left asserting
+something untrue. Closing it needs per-person, per-condition evaluation, which is
+a different resolve from the one the roll uses; the per-node match counts below
+cover most of what this was reaching for. Two further divergences from the same
+review: the editor is **stacked, not two-pane** (the preview panel must be a
+sibling of the compose form, because a nested `<form>` is unnested by the parser
+and would reparent every control into the compose form), and the roll describes
+the **saved** campaign rather than being live, and is deliberately disabled while
+the compose form is dirty.
 
 - **Searchable, grouped field picker.** Fifty fields is well past what a `<select>`
   can carry.

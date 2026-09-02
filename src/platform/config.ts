@@ -55,10 +55,13 @@ const schema = z
     // "havenfreeclinic.org:maileroo,yale.edu:graph".
     //
     // Optional, and the shipped default lives in email/sending-domains.ts rather
-    // than here, so the two domains stay readable next to the DNS evidence for
-    // each. This override exists because the thing that changes is a MAILEROO
-    // DASHBOARD state, not code: re-enabling yale.edu there should be reflectable
-    // without waiting on a code edit. An override REPLACES the default table.
+    // than here, so the two domains stay readable next to the evidence for each.
+    // This override exists because the thing that changes is a MAILEROO DASHBOARD
+    // state, not code: a domain being verified or disabled there should be
+    // reflectable without waiting on a code edit. Both directions have now been
+    // exercised, the second the one to remember: yale.edu was Graph-signed until
+    // Maileroo verified it on 2026-09-02, and "yale.edu:graph" is what puts it
+    // back if Maileroo disables it again. An override REPLACES the default table.
     // Empty or whitespace-only means "not configured" (see parseSendingDomains)
     // -- an unset Vercel variable and vitest.setup.ts's env claim both arrive
     // as "". A domain listed twice takes its LAST verdict, which neither this

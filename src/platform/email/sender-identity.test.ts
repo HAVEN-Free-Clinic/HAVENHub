@@ -12,7 +12,41 @@
  * would pass against an implementation that had no per-person authorization at
  * all. Each of these has to be refused by the ownership check specifically.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * THE ALLOWLIST THIS FILE VALIDATES AGAINST, stated here rather than borrowed.
+ *
+ * Almost every test below only needs a domain to BE on the allowlist, and the
+ * two real ones are what the fixtures have always used. They stay, and stay
+ * Maileroo-signed, which is what production says today.
+ *
+ * The third row is the point. One test asserts that issueSendingIdentity records
+ * whatever transport the allowlist gives an address, and that only means
+ * something if the allowlist can give two different answers. It used to get its
+ * second answer from yale.edu, which was Graph-signed until Maileroo verified it
+ * on 2026-09-02. With the shipped table now answering "maileroo" for everything,
+ * a test written against it could no longer tell "reads the allowlist" from
+ * "returns maileroo". So the Graph polarity comes from a domain declared here,
+ * for that purpose, on the RFC 2606 reserved `.example` TLD so it can never
+ * quietly start meaning something about a real sending domain.
+ *
+ * Set through SENDING_DOMAINS, the same override an operator pulls, so the real
+ * chain underneath still runs: config.ts's format check, parseSendingDomains,
+ * and the module-level map signingTransportFor reads. vitest.setup.ts re-claims
+ * the variable before every test file, so this cannot leak into one that expects
+ * the shipped default.
+ */
+const { GRAPH_SIGNED_ADDRESS } = vi.hoisted(() => {
+  const GRAPH_SIGNED_DOMAIN = "graph-signed.example";
+  process.env.SENDING_DOMAINS = [
+    "havenfreeclinic.org:maileroo",
+    "yale.edu:maileroo",
+    `${GRAPH_SIGNED_DOMAIN}:graph`,
+  ].join(",");
+  return { GRAPH_SIGNED_ADDRESS: `dean@${GRAPH_SIGNED_DOMAIN}` };
+});
+
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -69,8 +103,8 @@ describe("authorization: a scoped sender cannot send as an arbitrary address", (
     //   POST /outreach/campaigns/<their campaign>
     //   name=Newsletter&subject=...&body=...&fromEmail=dean%40yale.edu
     //
-    // dean@yale.edu is on yale.edu, which SENDING_DOMAINS carries (Graph-signed),
-    // so the allowlist check passes and only the ownership check can stop it.
+    // dean@yale.edu is on yale.edu, which SENDING_DOMAINS carries, so the
+    // allowlist check passes and only the ownership check can stop it.
     const sender = await person("Scoped Sender", "sender@yale.edu");
     await issueSendingIdentity(null, {
       personId: sender.id,
@@ -531,20 +565,23 @@ describe("write-time validation", () => {
     expect(await prisma.sendingIdentity.count()).toBe(0);
   });
 
-  it("accepts an address on either allowlisted domain and records the transport", async () => {
-    // Both polarities of the allowlist, and both signing transports, because the
-    // two domains are signable by DIFFERENT ones.
+  it("records the transport the allowlist gives the address, at both polarities", async () => {
+    // The claim is that the recorded transport is READ from the allowlist, not
+    // decided here. Only two different answers can show that: an implementation
+    // that hardcoded "maileroo" would pass the first of these on its own, and the
+    // whole map could collapse to one transport without either half noticing.
+    // Both domains below are declared at the top of this file for that reason.
     const sender = await person("Scoped Sender", "sender@yale.edu");
     const clinic = await issueSendingIdentity(null, {
       personId: sender.id,
       address: "recruitment@havenfreeclinic.org",
     });
     expect(clinic.transport).toBe("maileroo");
-    const yale = await issueSendingIdentity(null, {
+    const routedToGraph = await issueSendingIdentity(null, {
       personId: sender.id,
-      address: "hfc.it@yale.edu",
+      address: GRAPH_SIGNED_ADDRESS,
     });
-    expect(yale.transport).toBe("graph");
+    expect(routedToGraph.transport).toBe("graph");
   });
 
   it("lists issued identities including revoked ones, so an admin can see the history", async () => {

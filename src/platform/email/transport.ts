@@ -67,9 +67,11 @@ const GRAPH_REQUEST_TIMEOUT_MS = 8000;
  * Restate a Graph Send-As refusal as something an operator can act on, or return
  * null for any other failure.
  *
- * This is the accepted cost of routing every yale.edu identity through Graph: an
- * address the connected mailbox holds no Send-As grant on is refused, and the
- * decision to accept that was made knowing so. Legibility was the mitigation.
+ * This is the accepted cost of routing ANY domain through Graph: an address the
+ * connected mailbox holds no Send-As grant on is refused, and the decision to
+ * accept that was made knowing so. Legibility was the mitigation. It outlives
+ * the domain that prompted it, because SENDING_DOMAINS can put a domain back on
+ * Graph without a code change and this is what that operator lands in.
  * Raw, Graph says only:
  *
  *   Graph sendMail failed: 403 {"error":{"code":"ErrorAccessDenied","message":
@@ -240,7 +242,7 @@ export class GraphTransport implements EmailTransport {
         );
       }
       // A Send-As refusal is the one 4xx with a specific, actionable cause, and
-      // it is the failure mode routing every yale.edu identity here creates.
+      // it is the failure mode that routing a whole domain here creates.
       const sendAs = describeGraphSendAsRejection(res.status, sender, text);
       throw new Error(sendAs ?? `Graph sendMail failed: ${res.status} ${text}`);
     }
@@ -378,12 +380,12 @@ interface MailerooTransportOpts {
  *
  * OFF-LIST, the fallback is exactly what this class used to do unconditionally:
  * the message leaves as `this.sender`. That still matters for the two cases that
- * motivated the original pin. The per-template/per-category sender rules (see
- * sender-rules.ts) point at @yale.edu addresses that Yale ITS has not published
- * Maileroo DKIM records for, and yale.edu's own Maileroo entry is registered but
- * DISABLED, so those sends would fail rather than merely look wrong. The
- * fallback also rescues rows enqueued BEFORE the transport switch, whose
- * @yale.edu sender was already snapshotted onto EmailLog.fromEmail at queue time.
+ * motivated the original pin. A per-template/per-category sender rule (see
+ * sender-rules.ts) can name an address on any domain at all, including one
+ * Maileroo holds no key for, and such a send would fail rather than merely look
+ * wrong. The fallback also rescues rows enqueued BEFORE the transport switch,
+ * whose sender was already snapshotted onto EmailLog.fromEmail at queue time and
+ * may name a domain the allowlist has since stopped giving to Maileroo.
  *
  * The pin was written as unconditional because, at the time, every sender rule
  * in play named a domain Maileroo could not sign. It over-reached: it also
@@ -398,10 +400,11 @@ interface MailerooTransportOpts {
  * rule intended. Reply-To is likewise outside DKIM/SPF alignment, so it can
  * safely name an unsignable domain.
  *
- * Yale mail is NOT stranded by the fallback: SigningDomainRouter sends a
- * yale.edu From to Graph, which signs it today, instead of handing it here to be
- * pinned. What changes when Maileroo re-enables yale.edu is one row of
- * SENDING_DOMAINS, not this class.
+ * A Graph-signed domain is NOT stranded by the fallback: SigningDomainRouter
+ * sends its mail to Graph instead of handing it here to be pinned. Which domains
+ * those are is one row each of SENDING_DOMAINS, not anything in this class.
+ * There are none as of 2026-09-02, when yale.edu moved to Maileroo, and this
+ * class did not change for that and would not change if it moved back.
  *
  * Like GraphTransport this NEVER retries -- the outbox queue owns back-off and
  * the transient/permanent split (see drainEmailQueue).
@@ -448,7 +451,7 @@ export class MailerooTransport implements EmailTransport {
     // mailbox. The template's intended sender (the per-template/per-category rule
     // snapshotted onto the row at enqueue) is still the right human destination,
     // so it is preserved as Reply-To. Reply-To is not part of DKIM/SPF alignment,
-    // so it can safely name an unsignable domain like @yale.edu.
+    // so it can safely name a domain no transport here could sign.
     //
     // The comparison, not a flag: when the allowlist let this message leave as
     // its own From, `sender` IS `intended` and there is nothing to preserve, so
@@ -537,11 +540,15 @@ export class MailerooTransport implements EmailTransport {
  * Sends each message through the transport that can DKIM-sign for its From
  * domain, falling back to a single default for everything else.
  *
- * This exists because the two domains we send from are signable by DIFFERENT
- * transports (see sending-domains.ts), so an allowlist alone could not make both
- * work: havenfreeclinic.org needs Maileroo, and yale.edu needs Graph until its
- * Maileroo entry is re-enabled. Routing is the only place that difference is
- * acted on; every other layer just reads the map.
+ * This exists because a From domain is signable only by the transports holding a
+ * key for it (see sending-domains.ts), so a yes/no allowlist could not make two
+ * domains with different signers both work. Routing is the only place that
+ * difference is acted on; every other layer just reads the map.
+ *
+ * Every domain in the shipped map routes to Maileroo as of 2026-09-02, so the
+ * graph slot goes unused on a default deployment. That is the resting state, not
+ * dead code: a "<domain>:graph" row in SENDING_DOMAINS is the documented reversal
+ * for a domain Maileroo stops signing, and it needs this class to already work.
  *
  * The router routes and nothing else. It does not rewrite the message, and the
  * error the chosen transport throws must reach drainEmailQueue with its type
@@ -557,8 +564,8 @@ export class MailerooTransport implements EmailTransport {
  * The throughput consequence is real and worth stating where the routing
  * happens: Graph sends as a Yale shared mailbox and inherits Exchange Online's
  * ~30 messages/minute submission cap, which is the reason MailerooTransport
- * exists at all. A roster-wide campaign sent from a yale.edu identity paces out
- * over hours; the same campaign from a havenfreeclinic.org identity does not.
+ * exists at all. A roster-wide campaign sent from a Graph-routed identity paces
+ * out over hours; the same campaign from a Maileroo-signed one does not.
  */
 export class SigningDomainRouter implements EmailTransport {
   private readonly fallback: EmailTransport;
@@ -654,11 +661,12 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
       return new LogTransport();
     }
     const maileroo = new MailerooTransport({ apiKey, sender });
-    // Route by From domain. yale.edu is on the allowlist as GRAPH-signed (its
-    // Maileroo entry is registered but disabled), so a message whose From names a
-    // Yale identity goes out through Graph AS ITSELF rather than being pinned to
+    // Route by From domain. A message whose From is on a GRAPH-signed row of the
+    // allowlist goes out through Graph AS ITSELF rather than being pinned to
     // `sender` with the address demoted to Reply-To. Everything else, including a
-    // message with no From at all, stays on Maileroo.
+    // message with no From at all, stays on Maileroo. No row is graph-signed by
+    // default since 2026-09-02, so the graph signer below is wired for a state
+    // SENDING_DOMAINS can reach rather than one it is in.
     //
     // GraphTransport's `sender` is only its default for a message that carries no
     // From, and the router never hands it one: a message reaches the graph signer
@@ -728,20 +736,20 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
  * both misdiagnoses, not merely terse ones:
  *
  *   - No connected mailbox. Entirely plausible on a deployment that chose
- *     Maileroo precisely to avoid Graph. Every yale.edu-From row then failed with
+ *     Maileroo precisely to avoid Graph. Every Graph-routed row then failed with
  *     "Mail account is not connected. An admin must connect the mailbox in Admin
  *     > Email", which reads as a broken Graph connection rather than as a
  *     consequence of the From domain's allowlist row. The blast radius includes
- *     the `auth` sender category (SENDER_CATEGORIES in sender-rules.ts), so a
- *     yale.edu auth sender rule on a Graph-unconnected deployment means people
- *     cannot log in, diagnosed as a mailbox problem.
+ *     the `auth` sender category (SENDER_CATEGORIES in sender-rules.ts), so an
+ *     auth sender rule on a graph-signed domain, on a Graph-unconnected
+ *     deployment, means people cannot log in, diagnosed as a mailbox problem.
  *   - Missing GRAPH_OAUTH_* credentials, which surfaced as an opaque Entra 400.
  *
  * The refusal is a per-message UnconfiguredTransport rather than a throw, for
  * exactly the reason that class exists: a throw at resolution time escapes before
  * a single row is claimed and takes the whole cron tick with it (audit 14,
  * EMAIL-1). And it refuses ONLY the Graph-routed messages: a deployment with no
- * Graph mailbox still sends all of its havenfreeclinic.org mail.
+ * Graph mailbox still sends all of its Maileroo-signed mail.
  *
  * Both messages lead with the SENDING_DOMAINS lever, because that is the fix an
  * operator can apply immediately and it must survive the admin Failed card's

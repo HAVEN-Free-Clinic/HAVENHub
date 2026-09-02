@@ -6,6 +6,52 @@ import {
   it,
   vi,
 } from "vitest";
+
+/**
+ * THE ALLOWLIST THESE TESTS ROUTE AGAINST, stated here rather than borrowed.
+ *
+ * What this file tests is ROUTING: which transport a From domain is handed to,
+ * and what each transport does with a From it may or may not sign. None of that
+ * is a claim about which real domain is signable by whom, and all of it has to
+ * keep working whichever way that business fact points.
+ *
+ * It used to borrow the shipped table anyway, with yale.edu standing in for both
+ * "a domain Maileroo cannot sign" and "a Graph-signable domain", and
+ * havenfreeclinic.org for "a domain Maileroo can sign". That made every routing
+ * test depend on a Maileroo dashboard state. On 2026-09-02 the dashboard
+ * changed: Maileroo verified yale.edu, DEFAULT_SENDING_DOMAINS flipped that row
+ * to maileroo, and eleven tests here went red at once, several of them named for
+ * routing to Graph. Renaming their expectations to "maileroo" would have left
+ * tests whose name and body disagree, passing while checking nothing.
+ *
+ * So each shape is named for the shape it is and pinned by SENDING_DOMAINS, the
+ * same override an operator pulls. `.example` is reserved by RFC 2606 and can
+ * never become a real sending domain, so nothing below can quietly start meaning
+ * something about production again. In particular the GRAPH branch stays
+ * genuinely exercised, which matters because "SENDING_DOMAINS=<domain>:graph" is
+ * the documented reversal lever: no domain routes to Graph by default today, and
+ * these are the tests that have to still mean something the day one does.
+ *
+ * Set through the environment rather than by mocking ./sending-domains so the
+ * whole real chain still runs underneath: config.ts's format check,
+ * parseSendingDomains, and the module-level map signingTransportFor reads. What
+ * the SHIPPED table says, and that an override reaches this far at all, are
+ * sending-domains.test.ts's job, not this file's.
+ *
+ * vitest.setup.ts re-claims SENDING_DOMAINS as "" before every test file, so
+ * this cannot leak into a file that expects the shipped default.
+ */
+const { MAILEROO_DOMAIN, GRAPH_DOMAIN, UNLISTED_DOMAIN } = vi.hoisted(() => {
+  const domains = {
+    MAILEROO_DOMAIN: "maileroo-signed.example",
+    GRAPH_DOMAIN: "graph-signed.example",
+    /** Deliberately absent from the spec below: the off-allowlist case. */
+    UNLISTED_DOMAIN: "unlisted.example",
+  };
+  process.env.SENDING_DOMAINS = `${domains.MAILEROO_DOMAIN}:maileroo,${domains.GRAPH_DOMAIN}:graph`;
+  return domains;
+});
+
 import {
   LogTransport,
   GraphTransport,
@@ -30,6 +76,19 @@ const msg: EmailMessage = {
   subject: "Test subject",
   html: "<p>Hello</p>",
 };
+
+/** A From the fixture allowlist says Maileroo can sign, so it sends AS itself. */
+const MAILEROO_FROM = `campaigns@${MAILEROO_DOMAIN}`;
+/** A From the fixture allowlist routes to Graph, so Maileroo must not sign it. */
+const GRAPH_FROM = `dean@${GRAPH_DOMAIN}`;
+/** A From on a domain the fixture allowlist does not carry at all. */
+const UNLISTED_FROM = `someone@${UNLISTED_DOMAIN}`;
+/**
+ * What MailerooTransport falls back to when it may not send as the From. A real
+ * deployment's pin is always on a Maileroo-signable domain, or every pinned send
+ * would fail DMARC, so the fixture's pin is on one too.
+ */
+const PINNED_SENDER = `noreply@${MAILEROO_DOMAIN}`;
 
 const fakeGetAccessToken = () => Promise.resolve("test-token");
 
@@ -249,9 +308,10 @@ describe("GraphTransport", () => {
 
   // ---- Send-As refusals -------------------------------------------------
   //
-  // The owner accepted that routing all @yale.edu through Graph fails for an
-  // address the connected mailbox has no Send-As grant on. Legibility was the
-  // mitigation. Raw, Graph says only:
+  // The owner accepted that routing a domain to Graph fails for any address the
+  // connected mailbox has no Send-As grant on. Legibility was the mitigation, and
+  // it survives the flip that took the last domain off Graph: this is what the
+  // reversal lever lands an operator in. Raw, Graph says only:
   //   Graph sendMail failed: 403 {"error":{"code":"ErrorAccessDenied", ...}}
   // which names neither the address it tried, nor Send-As, nor any remedy -- and
   // the admin card shows only the first 60 characters of it.
@@ -313,7 +373,7 @@ describe("MailerooTransport", () => {
   const maileroo = (fetchImpl?: typeof fetch) =>
     new MailerooTransport({
       apiKey: "test-key",
-      sender: "noreply@havenfreeclinic.org",
+      sender: PINNED_SENDER,
       fetchImpl: (fetchImpl ?? (async () => ok())) as typeof fetch,
     });
 
@@ -331,7 +391,7 @@ describe("MailerooTransport", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
 
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    expect(parsed.from.address).toBe(PINNED_SENDER);
     expect(parsed.to).toEqual([{ address: msg.to }]);
     expect(parsed.subject).toBe(msg.subject);
     expect(parsed.html).toBe(msg.html);
@@ -351,32 +411,33 @@ describe("MailerooTransport", () => {
   // passes against the old unconditional pin, and the on-list case alone passes
   // against a transport that blindly honors every `from`.
 
-  // OFF-LIST. Maileroo cannot sign yale.edu (its entry there is registered but
-  // disabled), so honoring a per-template @yale.edu sender rule would fail the
-  // send permanently on an unsignable domain.
+  // OFF-LIST. The allowlist gives this domain to a DIFFERENT transport, so
+  // Maileroo holds no key for it. Honoring a per-template sender rule pointing
+  // at one would put a Maileroo signature on a domain Maileroo cannot sign and
+  // fail the send permanently.
   it("pins the sender when the From is on a domain Maileroo cannot sign", async () => {
     const fetchMock = vi.fn(async () => ok());
-    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: "recruit@yale.edu" });
+    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: GRAPH_FROM });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    // The unsignable @yale.edu address must never be the signed From...
-    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    // The address Maileroo cannot sign must never be the signed From...
+    expect(parsed.from.address).toBe(PINNED_SENDER);
     // ...but it is preserved as Reply-To so replies still reach a human.
-    expect(parsed.reply_to.address).toBe("recruit@yale.edu");
+    expect(parsed.reply_to.address).toBe(GRAPH_FROM);
   });
 
-  // ON-LIST. havenfreeclinic.org publishes include:_spf.maileroo.com, so this
-  // address is signable as itself and pinning it would be a downgrade with no
-  // upside: the sender the admin configured never appears on the message.
+  // ON-LIST. The allowlist says Maileroo signs this domain, so the address is
+  // deliverable as itself and pinning it would be a downgrade with no upside:
+  // the sender the admin configured never appears on the message.
   it("sends AS the From when it is on a Maileroo-signable domain", async () => {
     const fetchMock = vi.fn(async () => ok());
     await maileroo(fetchMock as typeof fetch).send({
       ...msg,
-      from: "recruitment@havenfreeclinic.org",
+      from: MAILEROO_FROM,
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("recruitment@havenfreeclinic.org");
+    expect(parsed.from.address).toBe(MAILEROO_FROM);
     // No Reply-To: the address the sender rule intended IS the signed From, so
     // there is nothing to preserve.
     expect(parsed.reply_to).toBeUndefined();
@@ -386,43 +447,47 @@ describe("MailerooTransport", () => {
   // exactly, which is what makes the allowlist safe to narrow.
   it("pins the sender when the From is on a domain the allowlist does not carry", async () => {
     const fetchMock = vi.fn(async () => ok());
-    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: "someone@example.com" });
+    await maileroo(fetchMock as typeof fetch).send({ ...msg, from: UNLISTED_FROM });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
-    expect(parsed.reply_to.address).toBe("someone@example.com");
+    expect(parsed.from.address).toBe(PINNED_SENDER);
+    expect(parsed.reply_to.address).toBe(UNLISTED_FROM);
   });
 
   it("keeps the display name on a send that leaves as its own From", async () => {
     const fetchMock = vi.fn(async () => ok());
     await maileroo(fetchMock as typeof fetch).send({
       ...msg,
-      from: "recruitment@havenfreeclinic.org",
+      from: MAILEROO_FROM,
       fromName: "HAVEN Recruitment",
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
     expect(parsed.from).toEqual({
-      address: "recruitment@havenfreeclinic.org",
+      address: MAILEROO_FROM,
       display_name: "HAVEN Recruitment",
     });
   });
 
-  // Rows queued before the transport switch already carry an @yale.edu address in
-  // EmailLog.fromEmail; the pin has to rescue those too rather than fail the backlog.
-  it("pins the sender for a backlog row whose @yale.edu sender was snapshotted at enqueue", async () => {
+  // A row queued before the transport switch carries whatever address the sender
+  // rule named at enqueue, snapshotted onto EmailLog.fromEmail. When the
+  // allowlist since stopped giving that domain to Maileroo, the pin has to rescue
+  // the backlog rather than fail it. Distinct from the OFF-LIST case above in
+  // what it asserts: the display name survives a pin, and the whole Reply-To
+  // object is carried over rather than just its address.
+  it("pins the sender for a backlog row whose snapshotted sender Maileroo cannot sign", async () => {
     const fetchMock = vi.fn(async () => ok());
     await maileroo(fetchMock as typeof fetch).send({
       ...msg,
-      from: "hfc.it@yale.edu",
+      from: GRAPH_FROM,
       fromName: "HAVEN IT",
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("noreply@havenfreeclinic.org");
+    expect(parsed.from.address).toBe(PINNED_SENDER);
     // The display name is cosmetic and plays no part in DKIM alignment, so it survives.
     expect(parsed.from.display_name).toBe("HAVEN IT");
-    expect(parsed.reply_to).toEqual({ address: "hfc.it@yale.edu", display_name: "HAVEN IT" });
+    expect(parsed.reply_to).toEqual({ address: GRAPH_FROM, display_name: "HAVEN IT" });
   });
 
   it("omits reply_to when the message carries no per-template sender", async () => {
@@ -432,32 +497,37 @@ describe("MailerooTransport", () => {
     expect(JSON.parse(String(init.body)).reply_to).toBeUndefined();
   });
 
-  // Still reachable after the allowlist, via a transport whose own sender is on
-  // an unsignable domain (a leftover from the graph era): every send is pinned,
-  // including one whose From already names that same address.
+  // Still reachable after the allowlist, via a transport whose own sender sits on
+  // a domain Maileroo cannot sign (a leftover from the graph era): every send is
+  // pinned, including one whose From already names that same address. The From is
+  // given in a different case to prove the redundancy check is the same
+  // case-insensitive comparison the pin uses, not string equality.
   it("omits a redundant reply_to when the intended sender is already the pinned one", async () => {
     const fetchMock = vi.fn(async () => ok());
-    const pinnedToYale = new MailerooTransport({
+    const pinnedToAnUnsignableAddress = new MailerooTransport({
       apiKey: "test-key",
-      sender: "hfc.it@yale.edu",
+      sender: GRAPH_FROM,
       fetchImpl: fetchMock as typeof fetch,
     });
-    await pinnedToYale.send({ ...msg, from: "  HFC.IT@Yale.edu  " });
+    await pinnedToAnUnsignableAddress.send({ ...msg, from: `  ${GRAPH_FROM.toUpperCase()}  ` });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("hfc.it@yale.edu");
+    expect(parsed.from.address).toBe(GRAPH_FROM);
     expect(parsed.reply_to).toBeUndefined();
   });
 
   it("trims a signable From before sending as it", async () => {
     const fetchMock = vi.fn(async () => ok());
+    // Upper-cased as well as padded: the allowlist lookup has to be
+    // case-insensitive to recognise it, and the address still has to reach
+    // Maileroo in the casing the sender rule wrote.
     await maileroo(fetchMock as typeof fetch).send({
       ...msg,
-      from: "  NoReply@HavenFreeClinic.org  ",
+      from: `  ${MAILEROO_FROM.toUpperCase()}  `,
     });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const parsed = JSON.parse(String(init.body));
-    expect(parsed.from.address).toBe("NoReply@HavenFreeClinic.org");
+    expect(parsed.from.address).toBe(MAILEROO_FROM.toUpperCase());
     expect(parsed.reply_to).toBeUndefined();
   });
 
@@ -737,9 +807,13 @@ describe("SigningDomainRouter", () => {
     return { router, mailerooStub, graphStub, fallback };
   };
 
+  // The pair, at both polarities. Either one alone passes against a router that
+  // sends everything to that one transport, so neither is worth much without the
+  // other. The Graph half is the one nothing in the shipped default reaches
+  // today, which is exactly why it is driven from the fixture allowlist.
   it("routes a From on a Graph-signable domain to Graph", async () => {
     const { router, mailerooStub, graphStub, fallback } = build();
-    await router.send({ ...msg, from: "hfc.it@yale.edu" });
+    await router.send({ ...msg, from: GRAPH_FROM });
     expect(graphStub.sent).toHaveLength(1);
     expect(mailerooStub.sent).toHaveLength(0);
     expect(fallback.sent).toHaveLength(0);
@@ -747,7 +821,7 @@ describe("SigningDomainRouter", () => {
 
   it("routes a From on a Maileroo-signable domain to Maileroo", async () => {
     const { router, mailerooStub, graphStub, fallback } = build();
-    await router.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+    await router.send({ ...msg, from: MAILEROO_FROM });
     expect(mailerooStub.sent).toHaveLength(1);
     expect(graphStub.sent).toHaveLength(0);
     expect(fallback.sent).toHaveLength(0);
@@ -762,15 +836,15 @@ describe("SigningDomainRouter", () => {
 
   it("sends a From on an unlisted domain to the fallback", async () => {
     const { router, graphStub, fallback } = build();
-    await router.send({ ...msg, from: "someone@example.com" });
+    await router.send({ ...msg, from: UNLISTED_FROM });
     expect(fallback.sent).toHaveLength(1);
     expect(graphStub.sent).toHaveLength(0);
   });
 
   it("hands the message through untouched, so the chosen transport still decides the From", async () => {
     const { router, graphStub } = build();
-    await router.send({ ...msg, from: "hfc.it@yale.edu", fromName: "HAVEN IT" });
-    expect(graphStub.sent[0].from).toBe("hfc.it@yale.edu");
+    await router.send({ ...msg, from: GRAPH_FROM, fromName: "HAVEN IT" });
+    expect(graphStub.sent[0].from).toBe(GRAPH_FROM);
     expect(graphStub.sent[0].fromName).toBe("HAVEN IT");
   });
 
@@ -783,7 +857,7 @@ describe("SigningDomainRouter", () => {
       fallback: { send: async () => { throw new Error("wrong transport"); } },
       signers: { graph: { send: async () => { throw boom; } } },
     });
-    await expect(router.send({ ...msg, from: "hfc.it@yale.edu" })).rejects.toBe(boom);
+    await expect(router.send({ ...msg, from: GRAPH_FROM })).rejects.toBe(boom);
     // A transient failure is going to be retried, so routing advice on it is
     // noise. The message must be untouched as well as the type.
     expect(boom.message).toBe("throttled");
@@ -796,17 +870,20 @@ describe("SigningDomainRouter", () => {
   // mailbox rather than as a From-domain routing consequence, which is the wrong
   // thing to go and fix.
   it("says which allowlist row put a failing message on that transport", async () => {
-    const boom = new Error("Grant Send-As on recruit@yale.edu ...");
+    const boom = new Error(`Grant Send-As on ${GRAPH_FROM} ...`);
     const router = new SigningDomainRouter({
       fallback: { send: async () => { throw new Error("wrong transport"); } },
       signers: { graph: { send: async () => { throw boom; } } },
     });
-    const err = await router.send({ ...msg, from: "recruit@yale.edu" }).catch((e) => e);
+    const err = await router.send({ ...msg, from: GRAPH_FROM }).catch((e) => e);
     // Same object: the queue reads the error's type and name, so re-wrapping it
     // in a fresh Error would silently re-classify the failure.
     expect(err).toBe(boom);
     expect(err.message).toContain("SENDING_DOMAINS");
-    expect(err.message).toContain("yale.edu");
+    // The whole allowlist row, not just the domain: an operator who is told only
+    // which domain is involved has not been told what it was routed to, which is
+    // the fact that explains why a Graph mailbox failed a Maileroo deployment.
+    expect(err.message).toContain(`lists ${GRAPH_DOMAIN} as graph-signed`);
     // The remedy the transport wrote still comes first, for the 60-char card.
     expect(failedCardText(err)).toContain("Grant Send-As");
   });
@@ -817,19 +894,17 @@ describe("SigningDomainRouter", () => {
       fallback: { send: async () => { throw boom; } },
       signers: {},
     });
-    await expect(router.send({ ...msg, from: "someone@example.com" })).rejects.toBe(boom);
+    await expect(router.send({ ...msg, from: UNLISTED_FROM })).rejects.toBe(boom);
     expect(boom.message).toBe("plain failure");
   });
 
   it("adds no note when the signer chosen IS the fallback", async () => {
-    // havenfreeclinic.org routes to the maileroo slot, which in a Maileroo
+    // A Maileroo-signed domain routes to the maileroo slot, which in a Maileroo
     // deployment is the same object as the fallback. Nothing was rerouted.
     const boom = new Error("plain failure");
     const maileroo = { send: async () => { throw boom; } };
     const router = new SigningDomainRouter({ fallback: maileroo, signers: { maileroo } });
-    await expect(
-      router.send({ ...msg, from: "recruitment@havenfreeclinic.org" })
-    ).rejects.toBe(boom);
+    await expect(router.send({ ...msg, from: MAILEROO_FROM })).rejects.toBe(boom);
     expect(boom.message).toBe("plain failure");
   });
 });
@@ -894,7 +969,7 @@ describe("resolveEmailTransport", () => {
 
   it("returns a domain router over Maileroo when email.transport is maileroo and the key is set", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
-    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: PINNED_SENDER } });
     _resetSettingsCache();
     const t = await withApiKey("test-key", resolveEmailTransport);
     expect(t).toBeInstanceOf(SigningDomainRouter);
@@ -933,7 +1008,7 @@ describe("resolveEmailTransport", () => {
     beforeEach(async () => {
       await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
       await prisma.setting.create({
-        data: { key: "email.sender", value: "noreply@havenfreeclinic.org" },
+        data: { key: "email.sender", value: PINNED_SENDER },
       });
       _resetSettingsCache();
       __resetTokenCache();
@@ -953,7 +1028,7 @@ describe("resolveEmailTransport", () => {
       vi.stubGlobal("fetch", fetchMock);
       await withApiKey("test-key", async () => {
         const t = await resolveEmailTransport();
-        await t.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+        await t.send({ ...msg, from: MAILEROO_FROM });
       });
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(String(url)).toContain("smtp.maileroo.com");
@@ -969,7 +1044,7 @@ describe("resolveEmailTransport", () => {
           // The Entra token POST is the assertion: only the Graph transport asks
           // for a delegated token, so reaching login.microsoftonline proves the
           // message was not handed to Maileroo.
-          await t.send({ ...msg, from: "hfc.it@yale.edu" }).catch(() => undefined);
+          await t.send({ ...msg, from: GRAPH_FROM }).catch(() => undefined);
         })
       );
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -981,7 +1056,7 @@ describe("resolveEmailTransport", () => {
     // The maileroo branch refuses a missing MAILEROO_API_KEY or email.sender with
     // a named reason. Its Graph signer used to be wired with no guard at all, so
     // a deployment that chose Maileroo precisely to avoid Graph failed every
-    // yale.edu-From row with "Mail account is not connected", which reads as a
+    // Graph-routed row with "Mail account is not connected", which reads as a
     // broken mailbox rather than as a routing decision. Blast radius includes the
     // auth sender category, i.e. magic-link login.
 
@@ -990,7 +1065,7 @@ describe("resolveEmailTransport", () => {
       const err = await withApiKey("test-key", () =>
         withGraphOAuth(true, async () => {
           const t = await resolveEmailTransport();
-          return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+          return t.send({ ...msg, from: GRAPH_FROM }).catch((e) => e);
         })
       );
       expect(err).toBeInstanceOf(Error);
@@ -998,7 +1073,9 @@ describe("resolveEmailTransport", () => {
       // The first 60 characters must say this is a routing decision with a lever,
       // not that the mailbox is broken.
       expect(failedCardText(err)).toContain("SENDING_DOMAINS");
-      expect(err.message).toContain("yale.edu");
+      // And it names the row that put the message here, so the operator knows
+      // which domain to take off rather than which mailbox to go and repair.
+      expect(err.message).toContain(GRAPH_DOMAIN);
     });
 
     it("refuses per message, naming the missing Graph credentials", async () => {
@@ -1006,7 +1083,7 @@ describe("resolveEmailTransport", () => {
       const err = await withApiKey("test-key", () =>
         withGraphOAuth(false, async () => {
           const t = await resolveEmailTransport();
-          return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+          return t.send({ ...msg, from: GRAPH_FROM }).catch((e) => e);
         })
       );
       expect(err).not.toBeInstanceOf(TransientEmailError);
@@ -1026,7 +1103,7 @@ describe("resolveEmailTransport", () => {
         const err = await withApiKey("test-key", () =>
           withGraphOAuth(true, async () => {
             const t = await resolveEmailTransport();
-            return t.send({ ...msg, from: "hfc.it@yale.edu" }).catch((e) => e);
+            return t.send({ ...msg, from: GRAPH_FROM }).catch((e) => e);
           })
         );
         // A real GraphTransport was wired. The failure that surfaces is the one
@@ -1052,7 +1129,7 @@ describe("resolveEmailTransport", () => {
       await withApiKey("test-key", () =>
         withGraphOAuth(false, async () => {
           const t = await resolveEmailTransport();
-          await t.send({ ...msg, from: "recruitment@havenfreeclinic.org" });
+          await t.send({ ...msg, from: MAILEROO_FROM });
           await t.send(msg);
         })
       );
@@ -1062,7 +1139,7 @@ describe("resolveEmailTransport", () => {
 
   it("falls back to the log transport outside production when the Maileroo key is missing", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
-    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: PINNED_SENDER } });
     _resetSettingsCache();
     const t = await withApiKey(undefined, resolveEmailTransport);
     expect(t).toBeInstanceOf(LogTransport);
@@ -1073,7 +1150,7 @@ describe("resolveEmailTransport", () => {
   // nothing, exactly as it would for a graph transport with no sender (#76).
   it("refuses PER MESSAGE in production when the Maileroo key is missing, so rows go FAILED", async () => {
     await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
-    await prisma.setting.create({ data: { key: "email.sender", value: "noreply@havenfreeclinic.org" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: PINNED_SENDER } });
     _resetSettingsCache();
     vi.stubEnv("VERCEL_ENV", "production");
     try {

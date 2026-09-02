@@ -121,30 +121,39 @@ describe("SenderPicker with identities available", () => {
 });
 
 /**
- * NO SenderIdentityNotes, which is the owner's second request and the reason
- * this file's fixtures use a yale.edu address at all.
+ * NO SenderIdentityNotes, which is the owner's second request.
  *
- * yale.edu is the case that USED to produce two stacked warning panels here: it
- * routes to Graph, so the picker rendered both the throughput ceiling and (since
- * it is not the connected mailbox) the Send-As requirement. Both are facts an
- * ADMIN needs while issuing an address or setting one on a scope, where the
- * notes still render. Neither is actionable for a sender, who can only pick from
- * what an admin already approved, so on this screen they were two warnings about
- * a decision already made for them.
+ * A Graph-routed address is what USED to produce two stacked warning panels
+ * here: the throughput ceiling, and (whenever the address is not the connected
+ * mailbox) the Send-As requirement. Both are facts an ADMIN needs while issuing
+ * an address or setting one on a scope, where the notes still render. Neither is
+ * actionable for a sender, who can only pick from what an admin already
+ * approved, so on this screen they were two warnings about a decision already
+ * made for them.
+ *
+ * WHAT THIS CAN AND CANNOT CATCH, stated because the fixture below reads like it
+ * carries more weight than it does. The picker takes no allowlist at all, and
+ * SenderIdentityNotes cannot render without one, so no address makes these
+ * panels appear from here. This guards the WORDS and the alert count against a
+ * reintroduction, which is the shape a regression would take: someone threads a
+ * domains map in and renders the notes again. It is not a transport assertion,
+ * and the fixture's domain is not load-bearing. It was yale.edu because that was
+ * the Graph-routed domain when this was written; that stopped being true on
+ * 2026-09-02 and nothing here noticed, which is the point.
  *
  * Asserted BOTH ways on purpose. The text assertions say which words must not
  * come back; the role-count assertion catches a reintroduction that reworded
  * them, which the text ones alone would miss.
  */
 describe("SenderPicker does not warn the sender about the transport", () => {
-  const YALE: SenderOption = {
+  const ISSUED_ELSEWHERE: SenderOption = {
     address: "dean@yale.edu",
     displayName: null,
     source: "issued",
   };
 
-  it("renders no alert at all for a Graph-routed identity", () => {
-    render([YALE]);
+  it("renders no transport warning, whatever the identity would route to", () => {
+    render([ISSUED_ELSEWHERE]);
     expect(optionTexts()[0]).toContain("dean@yale.edu");
     expect(container.textContent).not.toContain("Paces out over hours");
     expect(container.textContent).not.toContain("Send-As");
@@ -158,7 +167,7 @@ describe("SenderPicker does not warn the sender about the transport", () => {
     // The picker keeps exactly one Alert, and it is about authorization rather
     // than transport: a choice the sender may no longer use. Removing the notes
     // must not have taken it with them.
-    render([YALE], "revoked@havenfreeclinic.org");
+    render([ISSUED_ELSEWHERE], "revoked@havenfreeclinic.org");
     const alerts = container.querySelectorAll('[role="alert"],[role="status"]');
     expect(alerts).toHaveLength(1);
     expect(alerts[0].textContent).toContain("no longer available to you");

@@ -1,32 +1,45 @@
 /**
  * Verified sending domains: which transport can DKIM-sign for which From domain.
  *
- * A plain yes/no allowlist would not be enough, because the two domains we send
- * from are signable by DIFFERENT transports, and mail signed by the wrong one
- * fails DMARC rather than merely looking odd. Verified in DNS on 2026-09-02,
- * consistent with a live Maileroo send probed on 2026-08-21:
+ * A plain yes/no allowlist would not be enough, because a From domain is only
+ * signable by the transports that hold a key for it, and mail signed by the
+ * wrong one fails DMARC rather than merely looking odd.
  *
  *   havenfreeclinic.org -- SPF includes _spf.maileroo.com, DMARC p=reject,
  *     verified in the Maileroo account and sending today. GRAPH cannot sign it:
  *     Exchange Online's sending IPs are not authorized by that SPF record.
- *   yale.edu -- SPF is Valimail only with NO _spf.maileroo.com include, no
- *     Maileroo DKIM selector at maileroo._domainkey, DMARC p=quarantine. The
- *     domain IS registered in the Maileroo account but is DISABLED there: a live
- *     send returns HTTP 400 "The domain 'yale.edu' is currently disabled."
- *     MAILEROO cannot sign it; Graph does, as the delegated hfc.it@yale.edu
- *     mailbox.
+ *   yale.edu -- verified in the Maileroo account as of 2026-09-02, so Maileroo
+ *     holds a published DKIM key for it and signs it as itself.
+ *
+ * On yale.edu's SPF, because it looks alarming and is not: the record is
+ * Valimail only and carries NO _spf.maileroo.com include. That does not block
+ * anything. DMARC passes when EITHER SPF or DKIM aligns, so a Maileroo DKIM
+ * signature on d=yale.edu satisfies its p=quarantine policy on its own. Do not
+ * "fix" this by chasing an SPF include, and do not read the absence of a
+ * maileroo._domainkey record as evidence either way: havenfreeclinic.org has no
+ * record at that selector name either, and it has been sending through Maileroo
+ * for months. Maileroo's own dashboard verification is the authority on whether
+ * it will sign a domain; DNS probing from outside is not.
  *
  * So each domain maps to the transport that can actually sign for it, and a
  * domain that is on neither list falls back to the sending transport's own
  * pinned address (see MailerooTransport).
  *
- * WHEN MAILEROO'S yale.edu ENTRY IS RE-ENABLED this is a ONE-LINE change: flip
- * the "yale.edu" row below from "graph" to "maileroo". Nothing else moves --
- * MailerooTransport, SigningDomainRouter, the admin sender test and the queue
- * all read this map and none of them names a domain. Re-enabling is a Yale ITS
- * DNS change plus a Maileroo dashboard action rather than a code change, so the
- * same flip is available WITHOUT A CODE EDIT through the SENDING_DOMAINS env
- * override (declared and format-checked in platform/config.ts).
+ * yale.edu WAS routed to Graph here, while its Maileroo entry was disabled. On
+ * 2026-09-02 Maileroo marked it valid and the row flipped to "maileroo" -- a
+ * one-line change, exactly as designed: MailerooTransport, SigningDomainRouter,
+ * the admin sender test and the queue all read this map and none of them names
+ * a domain. Two consequences follow automatically and are worth knowing, since
+ * both were live constraints until that flip: a yale.edu identity no longer
+ * needs an Exchange Send-As grant, and it no longer paces against Exchange
+ * Online's ~30 messages/minute submission ceiling. SenderIdentityNotes drops
+ * both warnings on its own, because it branches on this map rather than on a
+ * domain name.
+ *
+ * If Maileroo ever disables it again, the reverse flip is available WITHOUT A
+ * CODE EDIT through the SENDING_DOMAINS env override (declared and
+ * format-checked in platform/config.ts) -- set "yale.edu:graph" to put it back
+ * on the delegated hfc.it@yale.edu mailbox.
  *
  * "Without a code edit" is the accurate claim, and it is narrower than it may
  * read. It is NOT "without a deploy": a Vercel environment change only reaches
@@ -47,8 +60,9 @@ export type SigningTransport = "maileroo" | "graph";
  */
 export const DEFAULT_SENDING_DOMAINS: Readonly<Record<string, SigningTransport>> = {
   "havenfreeclinic.org": "maileroo",
-  // Graph, not Maileroo: see the yale.edu paragraph above. This is the one line.
-  "yale.edu": "graph",
+  // Maileroo since 2026-09-02, when it verified the domain. See above; this is
+  // the one line, and "yale.edu:graph" in SENDING_DOMAINS reverses it.
+  "yale.edu": "maileroo",
 };
 
 /**

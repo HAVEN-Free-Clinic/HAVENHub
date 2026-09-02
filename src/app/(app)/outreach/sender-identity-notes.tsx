@@ -5,18 +5,25 @@
  * them out loud, shown wherever an identity is CHOSEN or CONFIGURED rather than
  * buried in a doc. Both were discovered the expensive way.
  *
- * 1. THE GRAPH THROUGHPUT CEILING. A yale.edu identity routes to Microsoft
- *    Graph, which inherits Exchange Online's roughly 30 messages per minute
- *    submission cap. That ceiling is the reason MailerooTransport exists at all.
- *    A roster-wide campaign from a yale.edu identity paces out over hours; the
- *    same campaign from havenfreeclinic.org does not. Nothing in the send path
- *    surfaces this: the campaign just appears to be taking a long time.
+ * Both apply to any domain SENDING_DOMAINS routes to Graph, which is why the
+ * branch below tests the transport rather than naming a domain. As of
+ * 2026-09-02 no domain does: yale.edu moved to Maileroo when Maileroo verified
+ * it, so these render for nothing today and this panel is inert. That is the
+ * intended resting state, not dead code -- the reverse flip is one env var
+ * (see sending-domains.ts), and the day someone pulls it these have to be here.
  *
- * 2. THE SEND-AS REQUIREMENT. ALL @yale.edu is deliberately routed through
- *    Graph, which sends as the one connected mailbox's delegated session. An
- *    address that mailbox has no Exchange Send-As grant on fails PERMANENTLY.
- *    Task 1 made that failure legible at send time; this makes it visible at
- *    CONFIGURE time, which is the only point at which it is still cheap.
+ * 1. THE GRAPH THROUGHPUT CEILING. A Graph-routed identity inherits Exchange
+ *    Online's roughly 30 messages per minute submission cap. That ceiling is the
+ *    reason MailerooTransport exists at all. A roster-wide campaign from such an
+ *    identity paces out over hours; the same campaign from a Maileroo-signed
+ *    domain does not. Nothing in the send path surfaces this: the campaign just
+ *    appears to be taking a long time.
+ *
+ * 2. THE SEND-AS REQUIREMENT. Graph sends as the one connected mailbox's
+ *    delegated session. An address that mailbox has no Exchange Send-As grant on
+ *    fails PERMANENTLY. Task 1 made that failure legible at send time; this
+ *    makes it visible at CONFIGURE time, which is the only point at which it is
+ *    still cheap.
  *
  * Client-side because it reacts to whatever the admin is typing or has just
  * picked. It is handed the resolved allowlist as plain data rather than reading

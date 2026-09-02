@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient, EmailLog } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { log } from "@/platform/logging";
 import { resolveEmailTransport, TransientEmailError, type EmailTransport } from "./transport";
-import { resolveSenderForTemplate } from "./sender-rules";
+import { resolveSenderForTemplate, type ResolvedSender } from "./sender-rules";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -16,6 +16,22 @@ export type QueueEmailInput = {
   triggeredById?: string | null;
   campaignRunId?: string | null;
 };
+
+/**
+ * An already-resolved sender that REPLACES the per-template/per-category rule
+ * lookup for this enqueue.
+ *
+ * Campaigns own their own sender identity (see sender-identity.ts): who may send
+ * as what is decided by the campaign's scope, what has been issued to the person,
+ * and their own address -- none of which the template rules know anything about.
+ * Passing the resolved identity in keeps that decision in one place instead of
+ * teaching the rule table about campaigns.
+ *
+ * Omitting the field, or passing null, means "resolve from the template rules",
+ * which is what every non-campaign caller does and what a campaign with no
+ * resolvable identity of its own falls back to.
+ */
+export type SenderOverride = { sender?: ResolvedSender | null };
 
 const MAX_ATTEMPTS = 8;
 /** A per-row send claim older than this is treated as abandoned (crashed worker)
@@ -37,8 +53,12 @@ export const flushEmailQueue = emailFlusher.flushNow;
  * rolled-back mutation never leaks a phantom send. Callers pass any Db handle
  * (PrismaClient or TransactionClient) so the job commits atomically with it.
  */
-export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailLog> {
-  const sender = await resolveSenderForTemplate(input.template);
+export async function queueEmail(
+  db: Db,
+  input: QueueEmailInput,
+  opts: SenderOverride = {},
+): Promise<EmailLog> {
+  const sender = opts.sender ?? (await resolveSenderForTemplate(input.template));
   const row = await db.emailLog.create({
     data: {
       toEmail: input.to,
@@ -61,8 +81,9 @@ export async function queueEmail(db: Db, input: QueueEmailInput): Promise<EmailL
 
 /**
  * Batch-append many email jobs of ONE template (e.g. a campaign fan-out). The
- * sender is resolved once (all rows share the template) and rows are inserted
- * with a chunked createMany, then a single flush is scheduled.
+ * sender is resolved once (all rows share the template, or the caller supplies
+ * one via opts.sender) and rows are inserted with a chunked createMany, then a
+ * single flush is scheduled.
  *
  * Unlike queueEmail, this is meant to run OUTSIDE a long interactive
  * transaction: enqueuing hundreds of recipients inside one tx can exceed the
@@ -74,9 +95,10 @@ export async function queueEmails(
   db: Db,
   template: string,
   inputs: Omit<QueueEmailInput, "template">[],
+  opts: SenderOverride = {},
 ): Promise<void> {
   if (inputs.length === 0) return;
-  const sender = await resolveSenderForTemplate(template);
+  const sender = opts.sender ?? (await resolveSenderForTemplate(template));
   const rows = inputs.map((input) => ({
     toEmail: input.to,
     subject: input.subject,

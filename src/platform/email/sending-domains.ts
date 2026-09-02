@@ -35,6 +35,7 @@
  * the change is an operator action rather than a pull request.
  */
 import { config } from "@/platform/config";
+import { domainOf } from "./address";
 
 /** The transports that can hold a domain's DKIM signature. */
 export type SigningTransport = "maileroo" | "graph";
@@ -111,18 +112,12 @@ export const SENDING_DOMAINS: ReadonlyMap<string, SigningTransport> = parseSendi
 );
 
 /**
- * The domain part of an email address, lowercased, or null when the value is not
- * an address with a domain. Deliberately permissive about the local part: this
- * answers "which domain would this be signed under", not "is this deliverable".
+ * The domain part of an address. Re-exported from ./address, where it lives so a
+ * CLIENT component can import it: this module resolves the allowlist from
+ * `@/platform/config` at import time and must not reach the browser. Every
+ * existing importer keeps the name it already used.
  */
-export function domainOf(address: string | null | undefined): string | null {
-  const trimmed = address?.trim();
-  if (!trimmed) return null;
-  const at = trimmed.lastIndexOf("@");
-  // at < 1 covers both "no @" and "@nolocalpart"; the last check covers "x@".
-  if (at < 1 || at === trimmed.length - 1) return null;
-  return trimmed.slice(at + 1).toLowerCase();
-}
+export { domainOf } from "./address";
 
 /**
  * The transport that can DKIM-sign for this From address, or null when its

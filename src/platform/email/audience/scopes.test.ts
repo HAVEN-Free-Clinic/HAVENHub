@@ -35,6 +35,42 @@ describe("audience scopes", () => {
     ).rejects.toBeInstanceOf(ScopeValidationError);
   });
 
+  it("refuses a sending identity on a domain the allowlist does not carry", async () => {
+    // Refused at WRITE time, on both the create and the update path. Accepting
+    // it would store an identity that no transport can DKIM-sign for, which
+    // surfaces as a campaign failing after the sender has already hit Send --
+    // by which point the run is claimed and every recipient is enqueued.
+    await expect(
+      createScope(null, { name: "Peds", audience: ACTIVE_ONLY, fromEmail: "peds@example.net" }),
+    ).rejects.toBeInstanceOf(ScopeValidationError);
+    expect(await listScopes()).toHaveLength(0);
+
+    const s = await createScope(null, { name: "Peds", audience: ACTIVE_ONLY });
+    await expect(
+      updateScope(null, s.id, { name: "Peds", audience: ACTIVE_ONLY, fromEmail: "peds@example.net" }),
+    ).rejects.toBeInstanceOf(ScopeValidationError);
+    expect((await getScope(s.id))?.fromEmail).toBeNull();
+  });
+
+  it("stores a sending identity on an allowlisted domain, lowercased, and can clear it", async () => {
+    const s = await createScope(null, {
+      name: "Peds",
+      audience: ACTIVE_ONLY,
+      fromEmail: "  Peds@HavenFreeClinic.org ",
+      fromName: " HAVEN Pediatrics ",
+    });
+    expect(s.fromEmail).toBe("peds@havenfreeclinic.org");
+    expect(s.fromName).toBe("HAVEN Pediatrics");
+
+    // A save that does not carry the fields at all must not blank them.
+    await updateScope(null, s.id, { name: "Peds", audience: ACTIVE_ONLY });
+    expect((await getScope(s.id))?.fromEmail).toBe("peds@havenfreeclinic.org");
+
+    // An explicit empty string clears.
+    await updateScope(null, s.id, { name: "Peds", audience: ACTIVE_ONLY, fromEmail: "", fromName: "" });
+    expect((await getScope(s.id))?.fromEmail).toBeNull();
+  });
+
   it("returns scopes granted directly to a person", async () => {
     const p = await prisma.person.create({ data: { name: "P" } });
     const s = await createScope(null, { name: "Direct", audience: ACTIVE_ONLY });

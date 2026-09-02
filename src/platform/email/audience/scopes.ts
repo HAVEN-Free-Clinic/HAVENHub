@@ -13,6 +13,7 @@ import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { isAudience, EMPTY_AUDIENCE } from "./types";
 import type { Audience } from "./types";
+import { normalizeSendingAddress, unsignableReason } from "../sender-identity";
 
 export type AudienceScopeView = {
   id: string;
@@ -64,6 +65,40 @@ function validate(input: { name: string; audience: Audience }): void {
   if (!isAudience(input.audience)) throw new ScopeValidationError("Invalid audience.");
 }
 
+/** The scope's identity columns, normalized, or a refusal. */
+type IdentityInput = { fromEmail?: string | null; fromName?: string | null };
+
+/**
+ * Turn the submitted identity fields into the columns to write, refusing an
+ * address no transport can DKIM-sign for.
+ *
+ * Validated HERE, at write time, and not merely when a campaign sends: a scope
+ * identity that cannot be signed is a campaign that fails after the sender has
+ * already hit Send, at which point the run is claimed and the recipients are
+ * enqueued. The check is the same `unsignableReason` the issued-identity path
+ * uses, reported as this module's error type so the scope page's existing
+ * ?error= handling picks it up unchanged.
+ *
+ * Returns {} when the caller supplied neither field, so a form that does not
+ * carry them (the create form) cannot blank an identity an admin already set.
+ * Clearing is an explicit empty string, which normalizes to null.
+ */
+function identityData(input: IdentityInput): { fromEmail?: string | null; fromName?: string | null } {
+  const data: { fromEmail?: string | null; fromName?: string | null } = {};
+  if (input.fromEmail !== undefined) {
+    const address = normalizeSendingAddress(input.fromEmail);
+    if (address) {
+      const reason = unsignableReason(address);
+      if (reason) throw new ScopeValidationError(reason);
+    }
+    data.fromEmail = address;
+  }
+  if (input.fromName !== undefined) {
+    data.fromName = input.fromName?.trim() ? input.fromName.trim() : null;
+  }
+  return data;
+}
+
 export async function listScopes(): Promise<AudienceScopeView[]> {
   const rows = await prisma.audienceScope.findMany({ orderBy: { name: "asc" } });
   return rows.map(toView);
@@ -76,7 +111,7 @@ export async function getScope(id: string): Promise<AudienceScopeView | null> {
 
 export async function createScope(
   actorId: string | null,
-  input: { name: string; description?: string; audience: Audience },
+  input: { name: string; description?: string; audience: Audience } & IdentityInput,
 ): Promise<AudienceScopeView> {
   validate(input);
   const row = await prisma.audienceScope.create({
@@ -85,6 +120,7 @@ export async function createScope(
       description: input.description?.trim() || null,
       audienceJson: input.audience,
       createdById: actorId,
+      ...identityData(input),
     },
   });
   await recordAudit({
@@ -100,7 +136,7 @@ export async function createScope(
 export async function updateScope(
   actorId: string | null,
   id: string,
-  input: { name: string; description?: string; audience: Audience },
+  input: { name: string; description?: string; audience: Audience } & IdentityInput,
 ): Promise<AudienceScopeView> {
   validate(input);
   const before = await prisma.audienceScope.findUniqueOrThrow({ where: { id } });
@@ -109,6 +145,7 @@ export async function updateScope(
     data: {
       name: input.name.trim(),
       audienceJson: input.audience,
+      ...identityData(input),
       // Only touch description when the caller actually supplied the field.
       // The scope detail page's save form never submits one today, so an
       // unconditional write here would silently erase any description ever
@@ -123,8 +160,8 @@ export async function updateScope(
     action: "audience_scope.update",
     entityType: "AudienceScope",
     entityId: id,
-    before: { name: before.name, audienceJson: before.audienceJson },
-    after: { name: row.name, audienceJson: row.audienceJson },
+    before: { name: before.name, audienceJson: before.audienceJson, fromEmail: before.fromEmail },
+    after: { name: row.name, audienceJson: row.audienceJson, fromEmail: row.fromEmail },
   });
   return toView(row);
 }

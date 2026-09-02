@@ -63,10 +63,29 @@ export function recoverOnce(heal: SelfHeal, error: unknown): boolean {
   // global handler; this records that the member was put back on their feet,
   // which is what tells us the self-heal is earning its keep. No URL property of
   // our own: posthog-js attaches $current_url and `sanitize_properties` scrubs
-  // it (see scrub-url.ts). It rides out on posthog-js's unload flush alongside
-  // that $exception, which is how the crashes we have already seen reached Error
-  // Tracking at all.
-  posthog.capture(heal.recoveredEvent);
+  // it (see scrub-url.ts).
+  //
+  // Sent as a beacon, and sent NOW. A default capture goes onto posthog-js's
+  // batched queue and waits for a flush that the very next line makes sure never
+  // happens: `location.reload()` tears the page down, and an XHR that has not
+  // left yet dies with it. `send_instantly` skips the queue and `sendBeacon`
+  // hands the payload to the browser, which is obliged to deliver it even as the
+  // document goes away. This is the ONE event whose whole job is to be emitted
+  // immediately before a reload, so it is the one event that cannot rely on the
+  // normal path.
+  //
+  // We know the cost of getting this wrong, because we paid it. Across 90 days
+  // this project has recorded zero client_*_recovered events of any kind, from
+  // any of the four heals, while Error Tracking holds crashes each of them
+  // exists to catch. That is not proof the heals never fired -- every recorded
+  // crash so far came from a bundle built before its own heal shipped, so most
+  // of them could not have fired -- but it does mean the signal we would use to
+  // tell the difference has never once arrived. Until it can survive the reload,
+  // "no recovery events" says nothing at all.
+  posthog.capture(heal.recoveredEvent, undefined, {
+    send_instantly: true,
+    transport: "sendBeacon",
+  });
   window.location.reload();
   return true;
 }

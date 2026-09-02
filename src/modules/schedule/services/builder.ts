@@ -18,6 +18,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
+import { mailingEmailForPerson } from "@/platform/auth/match-person";
 import { loadClearanceMap } from "@/platform/clearance";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
@@ -1300,7 +1301,11 @@ export async function builderView(
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
-        person: { select: { id: true, name: true, licensedRN: true, contactEmail: true } },
+        // netId feeds the shift email list's fallback address (see shiftEmails
+        // below); it is never displayed from here.
+        person: {
+          select: { id: true, name: true, licensedRN: true, contactEmail: true, netId: true },
+        },
       },
     }),
     prisma.termMembership.findMany({
@@ -1403,11 +1408,18 @@ export async function builderView(
   // department's members, so it is exactly the people working this date, and it
   // still carries someone who has since lost their membership but is still on
   // the schedule -- they are turning up, so they should get the email.
+  //
+  // mailingEmailForPerson rather than a bare contactEmail: the contact address
+  // still wins, so nothing here changes for anyone who has one, but a member
+  // with only a NetID now gets their Yale address instead of being silently
+  // absent from a list the director is about to paste into a To: field. It is
+  // also the resolver the people directory's address list uses, so the two
+  // lists cannot disagree about how to reach the same person.
   const shiftEmails = [
     ...new Set(
       selectedAssignments
-        .map((a) => a.person.contactEmail?.trim())
-        .filter((e): e is string => Boolean(e)),
+        .map((a) => mailingEmailForPerson(a.person))
+        .filter((e) => e !== ""),
     ),
   ].sort();
 

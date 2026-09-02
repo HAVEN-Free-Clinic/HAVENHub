@@ -25,7 +25,7 @@ import { PROCEDURE_KEYS } from "@/modules/schedule/engine/rhd";
 import type { BuilderRhd } from "@/modules/schedule/services/builder";
 import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { ShiftEmailList } from "./shift-email-list";
+import { EmailList } from "@/platform/ui/email-list";
 
 // ---------------------------------------------------------------------------
 // Label maps
@@ -236,7 +236,7 @@ export function ReadinessPanel({
         {/* Clinic emails. Spans all three RHD departments, unlike the shift list
             in the sidebar above, which is the selected department alone. */}
         {readiness.emails.length > 0 && (
-          <ShiftEmailList emails={readiness.emails} label="Clinic emails (all RHD)" />
+          <EmailList emails={readiness.emails} label="Clinic emails (all RHD)" />
         )}
       </div>
     </section>

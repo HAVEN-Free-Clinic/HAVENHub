@@ -29,6 +29,21 @@ describe("system roles", () => {
     expect(grantsFor("Director")).not.toContain("schedule.edit_own_dept");
   });
 
+  // Directors get the people directory for the departments they direct, so
+  // "mail every SCTM" is a Copy button rather than fourteen addresses typed by
+  // hand. It must be the SCOPED half of the pair: the Director role is attached
+  // kind-targeted, and the clinic-wide permission is department-blind, so
+  // granting that one here would hand every director every department's roster
+  // and contact details -- the exact leak permissionDepartmentIds exists for.
+  it("grants the Director role the scoped directory, never the clinic-wide one", () => {
+    expect(grantsFor("Director")).toContain("volunteers.view_directory_own_dept");
+    expect(grantsFor("Director")).not.toContain("volunteers.view_directory");
+  });
+
+  it("keeps the clinic-wide directory on the Executive Director role", () => {
+    expect(grantsFor("Executive Director")).toContain("volunteers.view_directory");
+  });
+
   // #135: admin.manage_roster is only honored by routes under the admin.access
   // module gate, which the VOM role does not grant -- so the permission was
   // unreachable for its entire intended audience (the holder was bounced to

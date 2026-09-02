@@ -59,6 +59,7 @@ describe("buildDirectoryCsv, people scope", () => {
 
     const { csv, rowCount } = await buildDirectoryCsv(
       { scope: "people" },
+      null,
       { termId: term.id, termCode: "FA26", departmentCode: null },
       NOW,
     );
@@ -88,6 +89,7 @@ describe("buildDirectoryCsv, people scope", () => {
 
     const { csv, rowCount } = await buildDirectoryCsv(
       { scope: "people" },
+      null,
       { termId: term.id, termCode: "FA26", departmentCode: null },
       NOW,
     );
@@ -115,6 +117,7 @@ describe("buildDirectoryCsv, people scope", () => {
 
     const { csv, rowCount, filename } = await buildDirectoryCsv(
       { scope: "people", departmentId: nurs.id },
+      null,
       { termId: term.id, termCode: "FA26", departmentCode: "NURS" },
       NOW,
     );
@@ -132,6 +135,7 @@ describe("buildDirectoryCsv, people scope", () => {
 
     const { filename } = await buildDirectoryCsv(
       { scope: "people", kind: "DIRECTOR" },
+      null,
       { termId: term.id, termCode: "FA26", departmentCode: null },
       NOW,
     );
@@ -153,6 +157,7 @@ describe("buildDirectoryCsv, people scope", () => {
 
     const { csv } = await buildDirectoryCsv(
       { scope: "people" },
+      null,
       { termId: term.id, termCode: "FA26", departmentCode: null },
       NOW,
     );
@@ -165,6 +170,7 @@ describe("buildDirectoryCsv, people scope", () => {
   it("ships a header-only file when no term is active", async () => {
     const { csv, rowCount, filename } = await buildDirectoryCsv(
       { scope: "people" },
+      null,
       { termId: null, termCode: null, departmentCode: null },
       NOW,
     );
@@ -197,6 +203,7 @@ describe("buildDirectoryCsv, attendings scope", () => {
 
     const { csv, rowCount, filename } = await buildDirectoryCsv(
       { scope: "attendings" },
+      null,
       { termId: null, termCode: null, departmentCode: null },
       NOW,
     );
@@ -209,5 +216,74 @@ describe("buildDirectoryCsv, attendings scope", () => {
       'Dr. Casey Chen,"MD, MPH",Reproductive Health,casey@example.com,203-555-0199',
     );
     expect(filename).toBe("haven-attendings-2026-09-01.csv");
+  });
+});
+
+/**
+ * The export is the widest bulk PII egress in the app, so the scope it runs
+ * under matters more here than anywhere else: a download that outran the screen
+ * it came from is the leak the whole DirectoryScope exists to prevent.
+ */
+describe("buildDirectoryCsv, viewer scope", () => {
+  async function twoDepartments() {
+    const term = await createTerm();
+    const nurs = await createDepartment("NURS");
+    const tria = await createDepartment("TRIA");
+    const mine = await prisma.person.create({ data: { name: "In Scope", netId: "in111" } });
+    const theirs = await prisma.person.create({ data: { name: "Out Of Scope", netId: "out222" } });
+    await prisma.termMembership.create({
+      data: { personId: mine.id, termId: term.id, departmentId: nurs.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: theirs.id, termId: term.id, departmentId: tria.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    return { term, nurs, tria };
+  }
+
+  it("exports only the scoped viewer's departments when no filter is set", async () => {
+    const { term, nurs } = await twoDepartments();
+
+    const { csv, rowCount } = await buildDirectoryCsv(
+      { scope: "people" },
+      { departmentIds: [nurs.id] },
+      { termId: term.id, termCode: "FA26", departmentCode: null },
+      NOW,
+    );
+
+    expect(rowCount).toBe(1);
+    expect(csv).toContain("In Scope");
+    expect(csv).not.toContain("Out Of Scope");
+  });
+
+  it("returns a header-only file when the requested department is outside the scope", async () => {
+    const { term, nurs, tria } = await twoDepartments();
+
+    // Posting someone else's departmentId is the obvious way to try to widen a
+    // scoped export. It must select nobody, never fall back to everybody.
+    const { csv, rowCount } = await buildDirectoryCsv(
+      { scope: "people", departmentId: tria.id },
+      { departmentIds: [nurs.id] },
+      { termId: term.id, termCode: "FA26", departmentCode: "TRIA" },
+      NOW,
+    );
+
+    expect(rowCount).toBe(0);
+    expect(lines(csv)).toEqual(["Name,Email,NetID,Contact email,Phone,Departments,Role"]);
+  });
+
+  it("gives a scoped viewer no attendings, who belong to no department", async () => {
+    await prisma.attending.create({
+      data: { scheduleName: "Dr. Chen", fullName: "Dr. Casey Chen", isActive: true },
+    });
+    const nurs = await createDepartment("NURS");
+
+    const { rowCount } = await buildDirectoryCsv(
+      { scope: "attendings" },
+      { departmentIds: [nurs.id] },
+      { termId: null, termCode: null, departmentCode: null },
+      NOW,
+    );
+
+    expect(rowCount).toBe(0);
   });
 });

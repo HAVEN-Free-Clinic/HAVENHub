@@ -24,12 +24,21 @@ export const SYSTEM_ROLES: SystemRole[] = [
     // gate locks them out of the app (issue #65).
     // schedule.manage_attendance: directors run clinic day and mark walk-in
     // attendance when self check-in cannot happen.
+    // volunteers.view_directory_own_dept: mailing your own team should not mean
+    // copying addresses out of the roster one at a time. The _own_dept half of
+    // the pair, exactly like schedule.edit_own_dept: the Director role is
+    // attached KIND-targeted, so permissionDepartmentIds resolves it to the
+    // departments the person actually DIRECTS and the directory scopes itself
+    // to that set. Someone who directs Nursing and volunteers in Triage gets
+    // Nursing. Clinic-wide stays with volunteers.view_directory, which this
+    // deliberately is not.
     grants: [
       "schedule.view",
       "volunteers.view",
       "learning.access",
       "incidents.view_strikes",
       "schedule.manage_attendance",
+      "volunteers.view_directory_own_dept",
     ],
   },
   {

@@ -1,19 +1,26 @@
 /**
  * People directory: the clinic's headcount, where it sits, and how to reach it.
  *
- * Access: requirePermission("volunteers.view_directory"), the Executive Director
- * role's permission. The volunteers layout gates on module access, which this
- * permission also grants (registry.ts additionalAccessPermissions), so the page
- * re-checks its own permission for defense in depth exactly as /volunteers/master
- * does -- someone holding only volunteers.view is admitted by the layout and must
- * still be bounced here.
+ * Access: EITHER volunteers.view_directory (the Executive Director's clinic-wide
+ * grant) or volunteers.view_directory_own_dept (the Director baseline, scoped to
+ * the departments the person directs). The volunteers layout gates on module
+ * access, which both permissions also grant (registry.ts
+ * additionalAccessPermissions), so the page re-checks for defense in depth
+ * exactly as /volunteers/master does -- someone holding only volunteers.view is
+ * admitted by the layout and must still be bounced here.
+ *
+ * Which of the two the viewer holds decides how much of the clinic this page
+ * shows, and that decision is made ONCE, by directoryScopeFor, then handed to
+ * every query. The counts, the department table, the roster, the address list
+ * and the CSV all take it, so none of them can be wider than the others.
  *
  * Read-only by design. Nothing on this page edits a person; the export is the
  * one action, and it is audited server-side.
  */
 
 import Link from "next/link";
-import { requirePermission } from "@/platform/auth/session";
+import { redirect } from "next/navigation";
+import { requireAnyPermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -29,12 +36,15 @@ import { Badge } from "@/platform/ui/badge";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { NavForm } from "@/platform/ui/nav-form";
 import { Alert } from "@/platform/ui/alert";
+import { EmailList } from "@/platform/ui/email-list";
 import { DirectoryExportButton } from "@/modules/volunteers/components/directory-export-button";
 import {
   directorySummary,
   departmentBreakdown,
   directoryPeople,
+  directoryEmails,
   directoryAttendings,
+  directoryScopeFor,
   type DirectoryFilters,
 } from "@/modules/volunteers/services/directory";
 
@@ -50,7 +60,17 @@ type PageProps = {
 };
 
 export default async function DirectoryPage({ searchParams }: PageProps) {
-  const viewer = await requirePermission("volunteers.view_directory");
+  const viewer = await requireAnyPermission([
+    "volunteers.view_directory",
+    "volunteers.view_directory_own_dept",
+  ]);
+  const scope = await directoryScopeFor(viewer.personId);
+  // A scoped grant that resolves to no department opens an empty page, which is
+  // the dead-end-result shape this codebase has shipped four times. It should
+  // not be reachable -- the Director role is kind-targeted, so holding the
+  // grant means holding a directorship -- but a hand-made role assignment could
+  // manage it, and /no-access explains itself where a blank roster does not.
+  if (scope && scope.departmentIds.length === 0) redirect("/no-access");
   const { q, departmentId, kind: kindParam, page: pageParam } = await searchParams;
 
   // Validated before it reaches a Prisma enum filter; anything else is "no
@@ -68,13 +88,18 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
   const activeTerm = await getActiveTerm();
   const termId = activeTerm?.id ?? null;
 
-  const [summary, breakdown, people, attendings, departments, canOpenProfile] =
+  const [summary, breakdown, people, emails, attendings, departments, canOpenProfile] =
     await Promise.all([
-      directorySummary(termId),
-      departmentBreakdown(termId),
-      directoryPeople(termId, filters, pageNum, PAGE_SIZE),
-      directoryAttendings(),
+      directorySummary(termId, scope),
+      departmentBreakdown(termId, scope),
+      directoryPeople(termId, filters, scope, pageNum, PAGE_SIZE),
+      directoryEmails(termId, filters, scope),
+      directoryAttendings(scope),
       prisma.department.findMany({
+        // The picker offers only what the viewer may select. A scoped director
+        // choosing someone else's department from a full list would get an
+        // empty roster and no reason for it.
+        where: scope ? { id: { in: scope.departmentIds } } : {},
         select: { id: true, code: true, name: true },
         orderBy: { code: "asc" },
       }),
@@ -88,6 +113,19 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
   const seatTotal = breakdown.reduce((sum, row) => sum + row.total, 0);
   const hasFilters = Boolean(q || departmentId || kind);
   const showsOtherSeats = people.rows.some((p) => p.otherSeats.length > 0);
+  // Named rather than repeated as `scope !== null`: every section below asks
+  // the same question, and the answer reads better as what it means.
+  const clinicWide = scope === null;
+  const scopeCodes = breakdown.map((row) => row.code).join(", ");
+  // The header says WHOSE directory this is, because the same page answers "the
+  // clinic" for an Executive Director and "your departments" for a director,
+  // and a headcount the reader cannot place is worse than none.
+  const scopeLabel = clinicWide
+    ? "across the clinic"
+    : `for ${scopeCodes || "your departments"}`;
+  const headerDescription = activeTerm
+    ? `Headcount and contact details ${scopeLabel}, ${activeTerm.name}.`
+    : `Headcount and contact details ${scopeLabel}.`;
 
   function hrefFor(targetPage: number): string {
     const params = new URLSearchParams();
@@ -101,31 +139,28 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="People directory"
-        description={
-          activeTerm
-            ? `Headcount and contact details across the clinic for ${activeTerm.name}.`
-            : "Headcount and contact details across the clinic."
-        }
-      />
+      <PageHeader title="People directory" description={headerDescription} />
 
       {!activeTerm && (
         <Alert tone="warning">
           No term is active, so there is no roster to show. Membership is
           term-scoped: activate a term in Admin and the directory fills in.
-          Attendings are listed below regardless -- they are faculty and hold no
-          membership.
+          {clinicWide
+            ? " Attendings are listed below regardless -- they are faculty and hold no membership."
+            : ""}
         </Alert>
       )}
 
-      {/* Distinct PEOPLE, not seats. See the service's module comment. */}
+      {/* Distinct PEOPLE, not seats. See the service's module comment.
+          A scoped viewer gets four tiles, not five: attendings are faculty who
+          belong to no department, so there is no such thing as "your" share of
+          them and a zero would read as a bug rather than as a boundary. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Active people" value={summary.activePeople} tone="brand" />
         <StatCard label="Directors" value={summary.directors} />
         <StatCard label="Volunteers" value={summary.volunteers} />
         <StatCard label="Departments staffed" value={summary.departmentsStaffed} />
-        <StatCard label="Attendings" value={summary.attendings} />
+        {clinicWide && <StatCard label="Attendings" value={summary.attendings} />}
       </div>
 
       {/* The one number on this page that looks like an error and is not.
@@ -178,7 +213,9 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                 </TR>
               ))}
               <TR>
-                <TD className="font-medium">All departments</TD>
+                <TD className="font-medium">
+                  {clinicWide ? "All departments" : "Your departments"}
+                </TD>
                 <TD className="font-medium">
                   {breakdown.reduce((s, r) => s + r.directors, 0)}
                 </TD>
@@ -212,7 +249,11 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           <div className="w-52">
             <Field label="Department">
               <Select name="departmentId" defaultValue={departmentId ?? ""}>
-                <option value="">All departments</option>
+                {/* "All departments" would overpromise for a scoped viewer,
+                    whose list holds only the ones they direct. */}
+                <option value="">
+                  {clinicWide ? "All departments" : "All your departments"}
+                </option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.code} - {d.name}
@@ -252,6 +293,32 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
             label="Export CSV"
             disabled={people.total === 0}
             body={{ scope: "people", departmentId, kind, q }}
+          />
+        </div>
+
+        {/* The addresses, in one paste.
+            The CSV above already carried them, but "mail every SCTM" should not
+            require a download, a spreadsheet and a column copied out of it --
+            which is exactly how directors described doing it. Same filters as
+            the table and the CSV, so the department picker and the role picker
+            are how you narrow it, and EVERY match rather than this page's fifty:
+            a list that silently stopped at the page boundary would be worse than
+            no list at all. */}
+        <div className="mt-4 rounded-xl border border-border-subtle bg-muted px-3 py-3">
+          <EmailList
+            emails={emails}
+            label="Email addresses"
+            rows={4}
+            hint={
+              hasFilters
+                ? "Everyone matching these filters, across every page."
+                : `Everyone on the roster ${clinicWide ? "clinic-wide" : `in ${scopeCodes}`}. Narrow it with the filters above.`
+            }
+            emptyLabel={
+              !activeTerm
+                ? "No active term, so nobody holds a membership to mail."
+                : "Nobody matches these filters."
+            }
           />
         </div>
 
@@ -347,57 +414,64 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
         <Pagination page={people.page} pageCount={people.pageCount} hrefFor={hrefFor} />
       </Card>
 
-      <Card>
-        <SectionHeader>Attendings</SectionHeader>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-subtle-foreground">
-            Attending Faculty: they hold no membership and belong to no
-            department, so they are counted and exported separately from the
-            roster above.
-          </p>
-          <DirectoryExportButton
-            label="Export attendings"
-            disabled={attendings.length === 0}
-            body={{ scope: "attendings" }}
-          />
-        </div>
-        <div className="mt-3 overflow-x-auto">
-          <Table>
-            <THead>
-              <TR>
-                <TH>Name</TH>
-                <TH>Specialty</TH>
-                <TH>Contact</TH>
-              </TR>
-            </THead>
-            <tbody>
-              {attendings.map((a) => (
-                <TR key={a.id}>
-                  <TD className="font-medium">
-                    {a.fullName}
-                    {a.credentials && (
-                      <span className="block text-xs font-normal text-subtle-foreground">
-                        {a.credentials}
-                      </span>
-                    )}
-                  </TD>
-                  <TD className="text-sm text-foreground-soft">{a.specialty ?? "-"}</TD>
-                  <TD className="text-sm text-foreground-soft break-words [overflow-wrap:anywhere]">
-                    {[a.email, a.phone].filter(Boolean).join(" · ") || "-"}
-                  </TD>
-                </TR>
-              ))}
-              {attendings.length === 0 && (
+      {/* Clinic-wide only. Attendings are faculty: they hold no membership and
+          belong to no department, so a department-scoped grant cannot reach
+          them, and a director's Saturday attending is already named on the
+          builder's readiness panel. The service returns an empty list for a
+          scoped viewer regardless of what this renders. */}
+      {clinicWide && (
+        <Card>
+          <SectionHeader>Attendings</SectionHeader>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-subtle-foreground">
+              Attending Faculty: they hold no membership and belong to no
+              department, so they are counted and exported separately from the
+              roster above.
+            </p>
+            <DirectoryExportButton
+              label="Export attendings"
+              disabled={attendings.length === 0}
+              body={{ scope: "attendings" }}
+            />
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <Table>
+              <THead>
                 <TR>
-                  <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
-                    No active attendings on the roster.
-                  </TD>
+                  <TH>Name</TH>
+                  <TH>Specialty</TH>
+                  <TH>Contact</TH>
                 </TR>
-              )}
-            </tbody>
-          </Table>
-        </div>
-      </Card>
+              </THead>
+              <tbody>
+                {attendings.map((a) => (
+                  <TR key={a.id}>
+                    <TD className="font-medium">
+                      {a.fullName}
+                      {a.credentials && (
+                        <span className="block text-xs font-normal text-subtle-foreground">
+                          {a.credentials}
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="text-sm text-foreground-soft">{a.specialty ?? "-"}</TD>
+                    <TD className="text-sm text-foreground-soft break-words [overflow-wrap:anywhere]">
+                      {[a.email, a.phone].filter(Boolean).join(" · ") || "-"}
+                    </TD>
+                  </TR>
+                ))}
+                {attendings.length === 0 && (
+                  <TR>
+                    <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
+                      No active attendings on the roster.
+                    </TD>
+                  </TR>
+                )}
+              </tbody>
+            </Table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

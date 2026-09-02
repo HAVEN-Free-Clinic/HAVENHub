@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClasses } from "@/platform/ui/button";
+import { cx } from "@/platform/ui/cx";
 import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
+import {
+  SHIFT_TAG_KEYS,
+  TAG_SHORT,
+  roleFillClasses,
+  tagChipStyle,
+} from "./shift-colors";
 
 // ---------------------------------------------------------------------------
 // BuilderCell
@@ -19,14 +26,6 @@ import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder
 //   grid-filled -- compact grid cell: filled slot, shows role glyph + tag dots.
 
 type Variant = "assign" | "tag" | "remove" | "grid" | "grid-filled";
-
-const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote" | "specialty", string> = {
-  triage: "T",
-  walkin: "W",
-  cc: "C",
-  remote: "R",
-  specialty: "S",
-};
 
 type Props = {
   action: (fd: FormData) => Promise<void>;
@@ -86,9 +85,7 @@ function GridFilledButton({
   useEffect(() => () => clearTimer(), []);
 
   const activeTags = assignment
-    ? (["triage", "walkin", "cc", "remote", "specialty"] as const).filter(
-        (t) => assignment.tags[t],
-      )
+    ? SHIFT_TAG_KEYS.filter((t) => assignment.tags[t])
     : [];
 
   if (armed) {
@@ -118,7 +115,18 @@ function GridFilledButton({
       }}
       aria-label={ariaLabel ?? label}
       // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
-      className="flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border border-border-strong bg-muted-strong text-foreground-soft hover:bg-critical-faint hover:border-critical/30 hover:text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className={cx(
+        "flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        // Role tint, so a term of cells says at a glance which are volunteers and
+        // which are shadows. Falls back to the old neutral fill when the caller
+        // did not pass an assignment (nothing does today, but the prop is
+        // optional and a colourless cell beats a crash).
+        assignment
+          ? roleFillClasses(assignment.role)
+          : "border-border-strong bg-muted-strong text-foreground-soft",
+        // Removal is still the action, so the hover state still says red.
+        "hover:border-critical/30 hover:bg-critical-faint hover:text-critical-foreground",
+      )}
       title={ariaLabel ?? label}
     >
       {pending ? (
@@ -131,7 +139,8 @@ function GridFilledButton({
               {activeTags.map((t) => (
                 <span
                   key={t}
-                  className="rounded-sm bg-brand-faint px-0.5 text-[10px] font-medium text-brand-fg leading-tight"
+                  style={tagChipStyle(t)}
+                  className="rounded-sm px-0.5 text-[10px] font-semibold leading-tight"
                 >
                   {TAG_SHORT[t]}
                 </span>

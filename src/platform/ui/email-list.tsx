@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * A copyable list of the addresses for everyone on a shift.
+ * A copyable list of addresses.
  *
- * Reproductive health has had one of these in its readiness panel for a while,
- * and it is the single thing directors of the other departments asked for most:
+ * Reproductive health had one of these in its readiness panel for a while, and
+ * it is the single thing directors of the other departments asked for most:
  * mailing your own Saturday should not mean opening the roster and typing
- * fourteen addresses by hand. This is that control, department-agnostic.
+ * fourteen addresses by hand. It then turned out the Saturday was the easy half
+ * -- "how do I mail every SCTM, not just this clinic day's" had no answer at
+ * all -- so this lives in platform/ui now and the people directory uses it too.
  *
  * Renders the addresses as readable text as well as copying them, because the
  * clipboard is not available in every context (an insecure origin, a locked-down
@@ -25,9 +27,19 @@ type Props = {
   label: string;
   /** Shown in place of the field when the list is empty. */
   emptyLabel?: string;
+  /** Rows for the address box. Longer lists deserve a taller default. */
+  rows?: number;
+  /** Optional line under the label, e.g. what the list is scoped to. */
+  hint?: string;
 };
 
-export function ShiftEmailList({ emails, label, emptyLabel = "Nobody on shift yet." }: Props) {
+export function EmailList({
+  emails,
+  label,
+  emptyLabel = "Nobody on shift yet.",
+  rows = 3,
+  hint,
+}: Props) {
   const [copied, setCopied] = useState(false);
   // Comma-space, which is what Outlook, Gmail and Apple Mail all accept in a To:
   // field. Semicolons work in Outlook alone.
@@ -66,12 +78,13 @@ export function ShiftEmailList({ emails, label, emptyLabel = "Nobody on shift ye
           </Button>
         )}
       </div>
+      {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
       {emails.length === 0 ? (
         <p className="text-sm text-subtle-foreground italic">{emptyLabel}</p>
       ) : (
         <Textarea
           readOnly
-          rows={3}
+          rows={rows}
           value={value}
           aria-label={label}
           onFocus={(e) => e.currentTarget.select()}

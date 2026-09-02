@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BuilderGrid } from "./builder-grid";
-import type { BuilderMember } from "@/modules/schedule/services/builder";
+import type {
+  BuilderMember,
+  BuilderAssignmentEntry,
+} from "@/modules/schedule/services/builder";
 
 /** Noon-UTC anchored calendar date, matching how the schema stores clinicDate. */
 function d(year: number, month: number, day: number): Date {
@@ -19,17 +22,44 @@ const member: BuilderMember = {
   intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
 };
 
-function renderGrid(clinicDates: Date[], closedDateKeys: string[] = []) {
+const NO_TAGS = {
+  triage: false,
+  walkin: false,
+  cc: false,
+  remote: false,
+  specialty: false,
+};
+
+function assignment(
+  role: BuilderAssignmentEntry["role"],
+  tags: Partial<typeof NO_TAGS> = {},
+): BuilderAssignmentEntry {
+  return {
+    role,
+    tags: { ...NO_TAGS, ...tags },
+    person: { name: "Alice Volunteer", verifiedLanguages: [], licensedRN: false },
+  };
+}
+
+function renderGrid(
+  clinicDates: Date[],
+  closedDateKeys: string[] = [],
+  opts: {
+    assignmentsByDate?: Record<string, Record<string, BuilderAssignmentEntry>>;
+    deptCode?: string;
+    mode?: "assign" | "shadow";
+  } = {},
+) {
   return renderToStaticMarkup(
     <BuilderGrid
       members={[member]}
       clinicDates={clinicDates}
-      assignmentsByDate={{}}
+      assignmentsByDate={opts.assignmentsByDate ?? {}}
       highlightDateKey={null}
       closedDateKeys={closedDateKeys}
       deptId="d1"
-      deptCode="MED"
-      mode="assign"
+      deptCode={opts.deptCode ?? "MED"}
+      mode={opts.mode ?? "assign"}
       assignAction={async () => {}}
       unassignAction={async () => {}}
     />,
@@ -95,5 +125,113 @@ describe("BuilderGrid", () => {
     const originalOrder = [...outOfOrder];
     renderGrid(outOfOrder);
     expect(outOfOrder).toEqual(originalOrder);
+  });
+
+  // -------------------------------------------------------------------------
+  // Colour coding
+  // -------------------------------------------------------------------------
+  //
+  // Directors asked for this outright: every filled cell painted the same slate
+  // box with the same faint blue chip, so reading a term for "who is shadowing"
+  // or "who is on triage" meant reading eighteen columns of 9px letters.
+
+  describe("colour coding", () => {
+    it("gives each role its own tint in the legend, and no two the same", () => {
+      const out = renderGrid([d(2026, 8, 7)]);
+
+      // The legend paints all three fills, so one render pins the whole set.
+      // Asserted as whole class strings: three roles sharing one tint is the
+      // bug, and any substring of a single utility cannot tell them apart.
+      expect(out).toContain("border-brand/30 bg-brand-faint text-brand-fg");
+      expect(out).toContain("border-warning/45 bg-warning/10 text-warning-foreground");
+      expect(out).toContain("border-success/40 bg-success/10 text-success-foreground");
+    });
+
+    it("names every glyph and chip it can paint", () => {
+      const out = renderGrid([d(2026, 8, 7)], [], { deptCode: "SCTP" });
+
+      expect(out).toContain("Volunteer");
+      expect(out).toContain("Shadow");
+      expect(out).toContain("Director");
+      expect(out).toContain("Triage");
+      expect(out).toContain("Walk-in");
+      expect(out).toContain("Specialty clinic");
+    });
+
+    it("leaves out the tags this department does not use", () => {
+      // rolesForDept: SCTP has triage/walk-in, JCTP has care coordinator, and
+      // everyone else has neither. Explaining a chip that can never appear is
+      // worse than explaining nothing.
+      const out = renderGrid([d(2026, 8, 7)], [], { deptCode: "MED" });
+
+      expect(out).toContain("Remote");
+      expect(out).not.toContain("Triage");
+      expect(out).not.toContain("Care coordinator");
+    });
+
+    it("tints a read-only filled cell by its role rather than one neutral grey", () => {
+      // A non-shadow assignment in shadow mode is the read-only cell: role
+      // changes go through the Day view, so it renders as display, not a form.
+      const out = renderGrid([d(2026, 8, 7)], [], {
+        mode: "shadow",
+        assignmentsByDate: { "2026-08-07": { p1: assignment("VOLUNTEER") } },
+      });
+
+      // Anchored on the readout's own wrapper classes, not on the tint alone:
+      // the legend above carries every tint, so a bare "text-brand-fg" would
+      // pass with the cell left grey.
+      expect(out).toContain(
+        "rounded-lg border px-1.5 py-0.5 border-brand/30 bg-brand-faint text-brand-fg",
+      );
+    });
+
+    it("colours each tag chip by its own hue", () => {
+      const out = renderGrid([d(2026, 8, 7)], [], {
+        deptCode: "SCTP",
+        mode: "shadow",
+        assignmentsByDate: {
+          "2026-08-07": { p1: assignment("VOLUNTEER", { triage: true, remote: true }) },
+        },
+      });
+
+      // Distinct custom properties, so the two chips in one cell cannot render
+      // as the same colour. Asserted as the whole style string: the hue and its
+      // tint have to come from the same tag or a chip reads as another tag.
+      expect(out).toContain("color:var(--tag-triage);background:var(--tag-triage-bg)");
+      expect(out).toContain("color:var(--tag-remote);background:var(--tag-remote-bg)");
+      // Only the tags actually set are chips. (The legend names walk-in too,
+      // which is why this asserts on the cell's own aria-label and not on the
+      // custom property, which the legend also carries.)
+      expect(out).not.toContain('aria-label="walkin"');
+    });
+
+    it("tints an interactive filled cell by its role too", () => {
+      // The common case: a volunteer cell in assign mode is a form, not a
+      // readout, and it is the one every director stares at all term.
+      const out = renderGrid([d(2026, 8, 7)], [], {
+        assignmentsByDate: { "2026-08-07": { p1: assignment("SHADOW") } },
+      });
+
+      // The trailing hover state belongs to the cell button alone, so this
+      // cannot be satisfied by the legend's copy of the same tint.
+      expect(out).toContain(
+        "border-warning/45 bg-warning/10 text-warning-foreground hover:border-critical/30",
+      );
+    });
+
+    it("keeps the letter on every cell, so the colour is never the only channel", () => {
+      const out = renderGrid([d(2026, 8, 7)], [], {
+        deptCode: "SCTP",
+        mode: "shadow",
+        assignmentsByDate: {
+          "2026-08-07": { p1: assignment("VOLUNTEER", { triage: true }) },
+        },
+      });
+
+      // WCAG 1.4.1: the glyph and the chip code carry the meaning; hue is the
+      // scanning aid on top of them.
+      expect(out).toContain(">V<");
+      expect(out).toContain(">T<");
+    });
   });
 });

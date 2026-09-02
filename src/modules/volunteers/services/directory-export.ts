@@ -27,6 +27,7 @@ import {
   directoryPeopleAll,
   directoryAttendings,
   type DirectoryFilters,
+  type DirectoryScope,
 } from "./directory";
 
 export type DirectoryExportRequest =
@@ -97,15 +98,23 @@ function peopleFilename(
   return `${parts.join("-")}.csv`;
 }
 
+/**
+ * `viewerScope` is the departments the CALLER may see (null = clinic-wide),
+ * distinct from `input.scope`, which is the half of the page being exported.
+ * Both go through the directory service's own selectors, so a scoped director's
+ * download is exactly the rows their screen was showing -- an export that
+ * outran the view would be the leak this whole scope exists to prevent.
+ */
 export async function buildDirectoryCsv(
   input: DirectoryExportRequest,
+  viewerScope: DirectoryScope,
   ctx: { termId: string | null; termCode: string | null; departmentCode: string | null },
   now: Date,
 ): Promise<{ filename: string; csv: string; rowCount: number }> {
   const day = now.toISOString().slice(0, 10);
 
   if (input.scope === "attendings") {
-    const attendings = await directoryAttendings();
+    const attendings = await directoryAttendings(viewerScope);
     const rows = attendings.map((a) => [
       a.fullName,
       a.credentials ?? "",
@@ -121,7 +130,7 @@ export async function buildDirectoryCsv(
   }
 
   const { scope: _scope, ...filters } = input;
-  const people = await directoryPeopleAll(ctx.termId, filters);
+  const people = await directoryPeopleAll(ctx.termId, filters, viewerScope);
   const rows = peopleRows(people);
   return {
     // No active term means no roster to export. The header row still ships, so

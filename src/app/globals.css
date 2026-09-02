@@ -109,6 +109,50 @@ html.dark {
 }
 
 /*
+ * Shift-tag hues. The schedule grid stacks a role glyph and up to five role tags
+ * into a ~52px cell; every chip painted the same faint brand blue, so "who is on
+ * triage" meant reading eighteen columns of 9px letters. Five hues spread around
+ * the wheel, one L/C family, same discipline as the module accents above.
+ *
+ * A tag is a CATEGORY, not a status, which is why these are their own family and
+ * not success/warning/critical: a walk-in is not a warning. The chip keeps its
+ * letter, so the hue is a scanning aid and never the only channel.
+ *
+ * Consumed via inline `style` (see shift-colors.ts) so Tailwind's static scan
+ * never has to see them. Light `fg` sits at L~0.45 to read as 9px text on its
+ * own L~0.95 tint.
+ */
+:root {
+  --tag-triage:       oklch(0.45 0.15 25);
+  --tag-triage-bg:    oklch(0.95 0.035 25);
+  --tag-walkin:       oklch(0.45 0.14 300);
+  --tag-walkin-bg:    oklch(0.95 0.032 300);
+  --tag-cc:           oklch(0.45 0.10 200);
+  --tag-cc-bg:        oklch(0.95 0.030 200);
+  --tag-remote:       oklch(0.45 0.09 95);
+  --tag-remote-bg:    oklch(0.95 0.035 95);
+  --tag-specialty:    oklch(0.45 0.12 150);
+  --tag-specialty-bg: oklch(0.95 0.035 150);
+}
+
+/*
+ * Dark variants, for the same reason the module accents have them: an L~0.95
+ * tint would burn a bright island into a dark grid cell. Tint darkens, hue lifts.
+ */
+html.dark {
+  --tag-triage:       oklch(0.80 0.12 25);
+  --tag-triage-bg:    oklch(0.32 0.055 25);
+  --tag-walkin:       oklch(0.80 0.12 300);
+  --tag-walkin-bg:    oklch(0.32 0.050 300);
+  --tag-cc:           oklch(0.80 0.10 200);
+  --tag-cc-bg:        oklch(0.32 0.045 200);
+  --tag-remote:       oklch(0.82 0.11 95);
+  --tag-remote-bg:    oklch(0.32 0.050 95);
+  --tag-specialty:    oklch(0.80 0.11 150);
+  --tag-specialty-bg: oklch(0.32 0.050 150);
+}
+
+/*
  * Dark theme. Activated by the `dark` class on <html> (set server-side for an
  * explicit light/dark preference, or by the inline no-flash script for system).
  * Values are tuned for WCAG AA body-text contrast on the surface/canvas pair.

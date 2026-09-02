@@ -21,6 +21,15 @@ import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
+import {
+  ROLE_GLYPH,
+  ROLE_LABEL,
+  TAG_LABEL,
+  TAG_SHORT,
+  roleFillClasses,
+  tagChipStyle,
+  type ShiftTagKey,
+} from "./shift-colors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,30 +79,17 @@ type Props = {
 // ---------------------------------------------------------------------------
 
 function roleGlyph(role: "DIRECTOR" | "VOLUNTEER" | "SHADOW" | null): string {
-  if (role === "DIRECTOR") return "D";
-  if (role === "VOLUNTEER") return "V";
-  if (role === "SHADOW") return "S";
-  return "";
+  return role ? ROLE_GLYPH[role] : "";
 }
 
 // Which tag abbreviations to show (dept-specific roles + remote always).
-function tagKeys(deptCode: string): Array<"triage" | "walkin" | "cc" | "remote" | "specialty"> {
+function tagKeys(deptCode: string): ShiftTagKey[] {
   const roles = rolesForDept(deptCode) as Array<"triage" | "walkin" | "cc">;
   // "remote" and "specialty" are offered for EVERY department, unlike the med
   // roles above, which only SCTP and JCTP use. Any team can work remotely, and
   // any team can be the one covering the day's specialty clinic.
-  return [...roles, "remote", "specialty"] as Array<
-    "triage" | "walkin" | "cc" | "remote" | "specialty"
-  >;
+  return [...roles, "remote", "specialty"] as ShiftTagKey[];
 }
-
-const TAG_SHORT: Record<"triage" | "walkin" | "cc" | "remote" | "specialty", string> = {
-  triage: "T",
-  walkin: "W",
-  cc: "C",
-  remote: "R",
-  specialty: "S",
-};
 
 // ---------------------------------------------------------------------------
 // CellContent -- pure display, no interactivity
@@ -114,14 +110,20 @@ function CellContent({
   const activeTags = tagKeys(deptCode).filter((t) => assignment.tags[t]);
 
   return (
-    <span className="inline-flex flex-col items-center gap-0.5">
-      <span className="text-xs font-semibold text-foreground-soft">{glyph}</span>
+    <span
+      className={cx(
+        "inline-flex flex-col items-center gap-0.5 rounded-lg border px-1.5 py-0.5",
+        roleFillClasses(assignment.role),
+      )}
+    >
+      <span className="text-xs font-semibold leading-none">{glyph}</span>
       {activeTags.length > 0 && (
         <span className="inline-flex gap-0.5">
           {activeTags.map((t) => (
             <span
               key={t}
-              className="inline-block rounded-sm bg-brand-faint px-0.5 text-[9px] font-medium text-brand-fg leading-tight"
+              style={tagChipStyle(t)}
+              className="inline-block rounded-sm px-0.5 text-[9px] font-semibold leading-tight"
               aria-label={t}
             >
               {TAG_SHORT[t]}
@@ -130,6 +132,57 @@ function CellContent({
         </span>
       )}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GridLegend -- what the colours mean
+// ---------------------------------------------------------------------------
+
+/**
+ * Names every glyph and chip the grid below can paint.
+ *
+ * Colour coding that nobody can decode is decoration, and the cells are far too
+ * small to label themselves. Only the tags this department actually uses are
+ * listed, so a Nursing director is not told what a care-coordinator chip means.
+ */
+function GridLegend({ deptCode }: { deptCode: string }) {
+  const roles = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Role</span>
+        {roles.map((role) => (
+          <span key={role} className="inline-flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              className={cx(
+                "inline-flex h-5 w-5 items-center justify-center rounded-md border text-[11px] font-semibold leading-none",
+                roleFillClasses(role),
+              )}
+            >
+              {ROLE_GLYPH[role]}
+            </span>
+            {ROLE_LABEL[role]}
+          </span>
+        ))}
+      </span>
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Tags</span>
+        {tagKeys(deptCode).map((t) => (
+          <span key={t} className="inline-flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              style={tagChipStyle(t)}
+              className="inline-block rounded-sm px-1 text-[10px] font-semibold leading-tight"
+            >
+              {TAG_SHORT[t]}
+            </span>
+            {TAG_LABEL[t]}
+          </span>
+        ))}
+      </span>
+    </div>
   );
 }
 
@@ -377,100 +430,103 @@ export function BuilderGrid({
   const closedDates = new Set(closedDateKeys ?? []);
 
   return (
-    <div
-      className={cx(
-        "overflow-x-auto rounded-2xl border",
-        mode === "shadow" ? "border-warning bg-warning/5" : "border-border",
-      )}
-    >
-      <table className="border-collapse text-sm" aria-label="Schedule grid">
-        <thead>
-          <tr className="bg-muted">
-            {/* Sticky header for member column */}
-            <th
-              scope="col"
-              className="sticky left-0 z-10 bg-muted border border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[160px]"
-            >
-              Member
-            </th>
-            {sortedClinicDates.map((d) => {
-              const dk = isoDateKey(d);
-              const isHighlight = dk === highlightDateKey;
-              const isClosed = closedDates.has(dk);
+    <div>
+      <GridLegend deptCode={deptCode} />
+      <div
+        className={cx(
+          "overflow-x-auto rounded-2xl border",
+          mode === "shadow" ? "border-warning bg-warning/5" : "border-border",
+        )}
+      >
+        <table className="border-collapse text-sm" aria-label="Schedule grid">
+          <thead>
+            <tr className="bg-muted">
+              {/* Sticky header for member column */}
+              <th
+                scope="col"
+                className="sticky left-0 z-10 bg-muted border border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[160px]"
+              >
+                Member
+              </th>
+              {sortedClinicDates.map((d) => {
+                const dk = isoDateKey(d);
+                const isHighlight = dk === highlightDateKey;
+                const isClosed = closedDates.has(dk);
+                return (
+                  <th
+                    key={dk}
+                    scope="col"
+                    className={cx(
+                      "border border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px]",
+                      isHighlight ? "bg-brand text-white" : "text-muted-foreground",
+                    )}
+                  >
+                    {displayDate(dk)}
+                    {isClosed && (
+                      // Stacked under the date rather than beside it: the columns
+                      // are ~52px wide and a second word on the same line would
+                      // widen every one of ~18 of them.
+                      <span
+                        className={cx(
+                          "block text-[10px] font-semibold uppercase tracking-wide",
+                          isHighlight ? "text-white/90" : "text-warning-foreground",
+                        )}
+                      >
+                        Closed
+                      </span>
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const isDirector = row.kind === "DIRECTOR";
               return (
-                <th
-                  key={dk}
-                  scope="col"
-                  className={cx(
-                    "border border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px]",
-                    isHighlight ? "bg-brand text-white" : "text-muted-foreground",
-                  )}
-                >
-                  {displayDate(dk)}
-                  {isClosed && (
-                    // Stacked under the date rather than beside it: the columns
-                    // are ~52px wide and a second word on the same line would
-                    // widen every one of ~18 of them.
-                    <span
-                      className={cx(
-                        "block text-[10px] font-semibold uppercase tracking-wide",
-                        isHighlight ? "text-white/90" : "text-warning-foreground",
+                <tr key={row.personId} className="hover:bg-muted/60">
+                  {/* Sticky member name column */}
+                  <th scope="row" className="sticky left-0 z-10 bg-surface border border-border px-3 py-2 whitespace-nowrap text-left font-normal">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-foreground">
+                        {row.name}
+                      </span>
+                      {row.isMember ? (
+                        <Badge tone={isDirector ? "brand" : "default"}>
+                          {isDirector ? "Dir" : "Vol"}
+                        </Badge>
+                      ) : (
+                        // Former member (offboarded) who still holds a live
+                        // assignment. Flagged so directors can clear the leftover
+                        // shift; they are not an assignable active member.
+                        <Badge tone="warning">Former</Badge>
                       )}
-                    >
-                      Closed
-                    </span>
-                  )}
-                </th>
+                    </div>
+                  </th>
+                  {sortedClinicDates.map((d) => {
+                    const dk = isoDateKey(d);
+                    const assignment = assignmentsByDate[dk]?.[row.personId];
+                    return (
+                      <GridCell
+                        key={dk}
+                        row={row}
+                        dateKey={dk}
+                        assignment={assignment}
+                        deptId={deptId}
+                        deptCode={deptCode}
+                        mode={mode}
+                        isHighlightDate={dk === highlightDateKey}
+                        assignAction={assignAction}
+                        unassignAction={unassignAction}
+                      />
+                    );
+                  })}
+                </tr>
               );
             })}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const isDirector = row.kind === "DIRECTOR";
-            return (
-              <tr key={row.personId} className="hover:bg-muted/60">
-                {/* Sticky member name column */}
-                <th scope="row" className="sticky left-0 z-10 bg-surface border border-border px-3 py-2 whitespace-nowrap text-left font-normal">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-foreground">
-                      {row.name}
-                    </span>
-                    {row.isMember ? (
-                      <Badge tone={isDirector ? "brand" : "default"}>
-                        {isDirector ? "Dir" : "Vol"}
-                      </Badge>
-                    ) : (
-                      // Former member (offboarded) who still holds a live
-                      // assignment. Flagged so directors can clear the leftover
-                      // shift; they are not an assignable active member.
-                      <Badge tone="warning">Former</Badge>
-                    )}
-                  </div>
-                </th>
-                {sortedClinicDates.map((d) => {
-                  const dk = isoDateKey(d);
-                  const assignment = assignmentsByDate[dk]?.[row.personId];
-                  return (
-                    <GridCell
-                      key={dk}
-                      row={row}
-                      dateKey={dk}
-                      assignment={assignment}
-                      deptId={deptId}
-                      deptCode={deptCode}
-                      mode={mode}
-                      isHighlightDate={dk === highlightDateKey}
-                      assignAction={assignAction}
-                      unassignAction={unassignAction}
-                    />
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

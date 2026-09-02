@@ -44,6 +44,10 @@ const MIGRATION_SQL_FILES = [
   // manage_compliance (see system-roles.ts), splitting the clinic-wide
   // compliance read out of the manage permission.
   "prisma/migrations/20260901140000_volunteers_view_compliance_grant/migration.sql",
+  // volunteers.view_directory_own_dept backfilled onto Director: the scoped
+  // half of the directory pair, so a director gets the roster and the address
+  // list for the departments they direct (see system-roles.ts).
+  "prisma/migrations/20260902140000_director_directory_grant/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

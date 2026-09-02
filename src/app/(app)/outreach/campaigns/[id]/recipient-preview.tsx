@@ -78,20 +78,25 @@ export function UnresolvedPastedAddresses({ addresses }: { addresses: string[] }
  * would edit a list against a stale roll, and the navigation would throw away
  * the unsaved condition edits on the way.
  *
- * Unlike those two, this panel must NOT be remounted to reset that guard: it
- * holds text the sender has typed and not saved. Keyed on updatedAt, clicking
- * Exclude on one row silently threw away a whole pasted block, because every
- * manual-list action bumps updatedAt. The reset therefore arrives as the
- * `savedAt` prop and the panel reconciles across the soft nav instead.
+ * THREE things keep that guard honest, and none of them is redundant.
  *
- * That is necessary and not sufficient, which is worth knowing before anyone
- * simplifies it. Measured on the real page: a server action that redirects
- * replaces the ENTIRE page tree on some paths (Add and Save-addresses do, with
- * no full page load and no error; Exclude does not), and nothing a component
- * can do survives that -- an uncontrolled DOM value and React state die
- * together. So the paste box ALSO disables every control here that navigates
- * while it holds anything unsaved. The two together are what make the text
- * safe; either alone leaves a click that destroys it.
+ * 1. The panel stays mounted for the whole life of the editor, including on the
+ *    tabs where it shows nothing (`preview` is null off the Audience tab, and
+ *    this returns null). useFormDirty is a listener seeded clean at mount, so a
+ *    panel that mounted only when the roll arrived could not see an edit made
+ *    before it: open on Compose, change the subject, click Audience, and the
+ *    panel appeared with every control enabled. What the first click then threw
+ *    away was not only the paste box, but TemplateEditor's subject and body and
+ *    AudienceBuilder's entire audience tree, all of which are client state.
+ * 2. The guard's reset arrives as the `savedAt` PROP, never as a `key`. Keyed on
+ *    updatedAt, the panel remounted on every manual-list action, which both
+ *    reset the guard and threw away a half-typed block of addresses.
+ * 3. Unsaved text in the paste box ALSO disables every control here that
+ *    navigates. That is the belt for 2's braces: a server action that redirects
+ *    can replace the ENTIRE page tree below AppShell, and nothing a component
+ *    can do survives that -- an uncontrolled DOM value and React state die
+ *    together. See the comment on pastedDraft below for what is actually known
+ *    about when that happens.
  */
 export function RecipientPreview({
   formId,
@@ -110,11 +115,17 @@ export function RecipientPreview({
    * The campaign's updatedAt, as an ISO string. Drives the compose-dirty reset
    * (see useFormDirty), and is deliberately a PROP rather than a `key` on this
    * component: keying it would remount the panel on every manual-list action,
-   * and the paste box below is an uncontrolled textarea whose half-typed
-   * contents would go with it.
+   * and take the half-typed contents of the paste box with it.
    */
   savedAt: string;
-  preview: AudiencePreview;
+  /**
+   * The resolved roll, or null on the tabs that do not show one. Null is a
+   * rendering state, NOT an excuse to unmount: the panel is mounted for the
+   * whole life of the editor so its dirty guard sees edits made on other tabs.
+   * Resolving a roll costs a full audience resolve, which is why the server
+   * only does it for the Audience tab.
+   */
+  preview: AudiencePreview | null;
   /** How many ids are in excludePersonIds. Deliberately a count and not a roll: see clearExcludedAction. */
   excludedCount: number;
   pastedText: string;
@@ -133,24 +144,58 @@ export function RecipientPreview({
    * The paste box, held in state so the panel can tell whether it holds
    * anything the server has not got yet.
    *
-   * `savedAt` keeps this panel from remounting on the actions it can see
-   * coming, but that is not enough on its own: a server action that redirects
-   * replaces the whole page tree on some paths (Add and Save-addresses do,
-   * Exclude does not), and no in-component technique survives that -- neither
-   * an uncontrolled DOM value nor this state. So unsaved text also DISABLES
-   * every control here that navigates. Together the two mean a half-typed block
-   * of addresses cannot be thrown away by a click somewhere else in the panel.
+   * Not keeping this panel mounted is not enough on its own, because a server
+   * action that redirects can replace the whole page tree below AppShell, and
+   * no in-component technique survives that -- neither an uncontrolled DOM
+   * value nor this state. So unsaved text also DISABLES every control here that
+   * navigates.
+   *
+   * What is known about that replacement, at the confidence it deserves: the
+   * only boundary whose blast radius matches (AppShell survives, everything
+   * under it is recreated, with no document load) is the Suspense boundary from
+   * `(app)/loading.tsx`, and there is no nearer loading.tsx under outreach/.
+   * That part is solid. The trigger is not: every one of these actions calls
+   * revalidatePath and redirects to the URL the sender is already on, so all
+   * four must refetch the segment and all four are candidates for committing
+   * the fallback. React suppresses a fallback for already-visible content only
+   * while the update is inside a transition, and a form action runs in React's
+   * own transition, so which of them commits it is a RACE. Do not read the
+   * measurements in the task report as "Exclude reconciles and Add does not";
+   * that was one sample of a race, and any of the four can land either way.
    */
   const [pastedDraft, setPastedDraft] = useState(pastedText);
+  // Re-seeded whenever the SERVER's stored block changes, which is the only
+  // thing that reliably means a paste was accepted. Comparing a typed string
+  // with a stored one is not enough on its own: editManualLists splits on
+  // commas and whitespace, trims, and dedupes, then the page joins with
+  // newlines, so a successful save routinely hands back a different string from
+  // the one that was typed. Without this the guard below latches on forever
+  // after such a save, insisting the addresses are unsaved when they are
+  // stored. Same render-time reset useFormDirty uses, and keyed on pastedText
+  // rather than savedAt so an unrelated action cannot clear a real draft.
+  const [seenPastedText, setSeenPastedText] = useState(pastedText);
+  if (seenPastedText !== pastedText) {
+    setSeenPastedText(pastedText);
+    setPastedDraft(pastedText);
+  }
   const pastedUnsaved = pastedDraft !== pastedText;
   // Anything that posts and navigates. The paste box's OWN save is deliberately
   // not in here: it is the way out.
   const navigatingDisabled = dirty || pastedUnsaved;
 
+  // Mounted on every tab, rendered only where there is a roll to render. The
+  // hooks above run either way, which is the entire point: see 1 in the doc
+  // comment.
+  const showPanel = preview !== null;
+
   function runSearch() {
     if (query.trim().length < MIN_SEARCH_LENGTH) return;
     startSearch(async () => setResults(await searchAction(query)));
   }
+
+  // AFTER every hook, never before one. This is the "mounted but showing
+  // nothing" state, not an unmount.
+  if (!showPanel) return null;
 
   return (
     <div className="space-y-4">
@@ -351,9 +396,14 @@ export function RecipientPreview({
         </form>
 
         {pastedUnsaved && (
+          // Two different states, and the first one used to be told to do
+          // something it could not: while the compose form is dirty, Save
+          // addresses is disabled too, so "save or discard" left only half a
+          // sentence true.
           <Alert tone="warning">
-            Save or discard these addresses first. Excluding, adding and restoring all reload
-            the page, and anything typed here that has not been saved would go with it.
+            {dirty
+              ? "These addresses cannot be saved while the compose form has unsaved changes, because either save reloads the page. Discard clears them, or copy them somewhere before you save your changes."
+              : "Save or discard these addresses first. Excluding, adding and restoring all reload the page, and anything typed here that has not been saved would go with it."}
           </Alert>
         )}
 

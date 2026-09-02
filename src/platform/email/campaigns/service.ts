@@ -199,18 +199,24 @@ export type ResolvedCampaignAudience = {
    * Why each MANUALLY added recipient is in the roll, keyed by person id. A
    * recipient absent from this map is a condition match.
    *
-   * ONE rule decides every label: it names a route that ALONE would keep the
-   * person on the roll if the others were taken away. So a person who is both a
-   * condition match and an explicit include reads "matched" -- the conditions
-   * hold them there with the manual entry deleted, and "included" would tell
-   * the sender that deleting it drops them, which is false. They never become a
-   * manual candidate at all (see the matchedIds filter below), which is what
-   * makes that outcome structural rather than a second check.
+   * Every label is a TRUE statement of the same kind: it names a route that
+   * ALONE would keep the person on the roll if the others were taken away. That
+   * is what rules out the labels that would mislead, but it does not by itself
+   * pick between two routes that both qualify, and two separate precedence
+   * choices do that. They point different ways, so neither generalises to the
+   * other and both are written down here rather than dressed up as one rule:
    *
-   * When two routes both qualify (on both manual lists), the tie goes to the
-   * one the sender can see and act on, the paste box. See the comment at the
-   * assignment; both labels are true statements under the rule, so the tie-break
-   * is about usefulness, not truth.
+   * 1. A condition match outranks BOTH manual routes. Someone who is both a
+   *    match and an explicit include reads "matched", because the conditions
+   *    hold them with the manual entry deleted, and because it is the route the
+   *    sender never had to create. They never become a manual candidate at all
+   *    (see the matchedIds filter below), so this one is structural rather than
+   *    a check that could be forgotten.
+   * 2. Between the two MANUAL routes, the one the sender can see and act on
+   *    wins, which is the paste box. See the comment at the assignment.
+   *
+   * Applying 2 uniformly would label a condition-match-plus-pasted person
+   * "pasted"; the code labels them "matched", and 1 is why.
    */
   manualReasons: Record<string, Exclude<RecipientReason, "matched">>;
   /** See unresolvedPastedAddresses. */
@@ -415,17 +421,19 @@ export async function resolveCampaignAudience(campaign: {
           addedExcludedNoEmail++;
           continue;
         }
-        // Between the two manual routes, the label names the one the sender can
+        // Between the two MANUAL routes, the label names the one the sender can
         // SEE and act on. Both admit them, so neither one's removal alone drops
         // them, and the paste box is the entry that is on screen: taking the
         // address out re-labels them "included", which is how the panel tells
         // them a second entry exists. The include list has no UI of its own.
         //
-        // This is the same rule "matched" comes from, not a second one: the
-        // label always names a route that ALONE keeps them on the roll, and the
-        // tie between two such routes is broken towards the actionable one. An
-        // earlier version broke it towards "the more deliberate act", which
-        // contradicted the rule that makes "matched" beat an include.
+        // This tie-break is its own choice, not a consequence of the one that
+        // makes "matched" win: that one prefers the route the sender never had
+        // to create, and this one prefers the route they can act on. Both
+        // labels are true either way (see ResolvedCampaignAudience). An earlier
+        // version broke this tie towards "the more deliberate act", which was a
+        // third principle again and would have made an include beat a condition
+        // match too.
         manualReasons[p.id] = pastedSet.has(p.id) ? "pasted" : "included";
         addedRecipients.push({
           email,

@@ -282,20 +282,26 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           these buttons into the compose form and make each one save the
           campaign instead. Tab-gated the same way the sections inside the form
           are. */}
-      {isDraft && recipientPreview && (
-        // No `hidden` here: unlike the sections inside the compose form, this
-        // pane holds no input that has to keep submitting from another tab, so
-        // its own presence is the gate. `recipientPreview` is null unless the
-        // Audience tab is the active one (see loadRecipientPreview's call site).
-        <div className="border-t border-border pt-6">
+      {isDraft && (
+        // Rendered on EVERY tab, not just the Audience one, and gated only with
+        // `hidden` like the sections inside the compose form above. The panel
+        // returns null without a roll, so this costs nothing to show, and it is
+        // not a style choice: its dirty guard is a listener that starts at
+        // mount, so a panel mounted by the tab switch could not see an edit made
+        // on Compose beforehand and arrived with every control enabled. The
+        // first click then discarded the unsaved compose state, audience tree
+        // included. See the doc comment in recipient-preview.tsx.
+        //
+        // Only the ROLL is tab-gated, on the server, because resolving one costs
+        // a full audience resolve (see loadRecipientPreview's call site).
+        <div hidden={activeTab !== "audience"} className="border-t border-border pt-6">
           <RecipientPreview
             // savedAt, NOT key. Keying this on updatedAt remounts the panel on
-            // every manual-list action, and the paste box is an uncontrolled
-            // textarea: an Exclude click threw away addresses the sender had
-            // typed and not yet saved. The dirty guard resets from the prop
-            // instead (useFormDirty), so the panel reconciles and the text
-            // survives. ReviewActions and TimingActions still use the key,
-            // which is correct for them: neither holds unsaved text.
+            // every manual-list action, which resets the guard and takes the
+            // half-typed contents of the paste box with it. The dirty guard
+            // resets from the prop instead (useFormDirty). ReviewActions and
+            // TimingActions still use the key, which is correct for them:
+            // neither holds unsaved text.
             savedAt={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             preview={recipientPreview}

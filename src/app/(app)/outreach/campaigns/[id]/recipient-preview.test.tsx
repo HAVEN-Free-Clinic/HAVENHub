@@ -39,12 +39,12 @@ type Opts = {
   searchAction?: (query: string) => Promise<PersonSearchHit[]>;
 };
 
-function panel(preview: Partial<AudiencePreview>, opts: Opts = {}) {
+function panel(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
   return (
     <RecipientPreview
       formId="campaign-compose"
       savedAt={opts.savedAt ?? "2026-09-02T00:00:00.000Z"}
-      preview={{ ...EMPTY_PREVIEW, ...preview }}
+      preview={preview === null ? null : { ...EMPTY_PREVIEW, ...preview }}
       excludedCount={opts.excludedCount ?? 0}
       pastedText={opts.pastedText ?? ""}
       searchAction={opts.searchAction ?? (async () => [])}
@@ -56,7 +56,7 @@ function panel(preview: Partial<AudiencePreview>, opts: Opts = {}) {
   );
 }
 
-function render(preview: Partial<AudiencePreview>, opts: Opts = {}) {
+function render(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -66,7 +66,7 @@ function render(preview: Partial<AudiencePreview>, opts: Opts = {}) {
 }
 
 /** A second server render arriving as a soft nav: same root, new props, no remount. */
-function rerender(preview: Partial<AudiencePreview>, opts: Opts = {}) {
+function rerender(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
   act(() => {
     root.render(panel(preview, opts));
   });
@@ -183,8 +183,87 @@ describe("RecipientPreview", () => {
     expect(after.value).toBe("typed-but-unsaved@example.com");
   });
 
-  // The other half, and the one that actually closes the hole. A redirecting
-  // server action replaces the whole page tree on some paths, which no
+  // The sequence that used to walk straight past the guard: the editor opens on
+  // Compose, the sender edits the subject there, and only THEN goes to the
+  // Audience tab. The roll is resolved for that tab alone, so the panel has no
+  // roll to show until the switch. If it only starts listening once the roll
+  // arrives, it mounts believing nothing is dirty, and the first Exclude click
+  // discards the unsaved compose state -- which is not only the paste box but
+  // the entire audience tree, held in AudienceBuilder's own useState.
+  it("has already seen a compose edit made before it had a roll to show", () => {
+    const form = mountComposeForm();
+    // No roll yet: this is the panel sitting on the Compose tab.
+    render(null);
+
+    act(() => {
+      form.querySelector("input")!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // The tab switch. Same root, so the panel reconciles the way a soft nav
+    // reconciles it, and the roll arrives for the first time.
+    rerender({ count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] });
+
+    expect(button("Exclude")?.disabled).toBe(true);
+    expect(text()).toContain("Save your changes before editing this list");
+  });
+
+  it("renders nothing until it has a roll, so it can stay mounted off the Audience tab", () => {
+    render(null, { pastedText: "a@x.com" });
+    expect(container.textContent).toBe("");
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  // The server normalises a pasted block (splitting on commas and whitespace,
+  // trimming, deduping) and hands it back joined by newlines, so what comes back
+  // is routinely a different string from what was typed. Comparing the two
+  // without re-seeding leaves the guard latched on after a SUCCESSFUL save: the
+  // controls stay disabled and the notice keeps insisting the addresses are
+  // unsaved when they are stored.
+  it("clears the unsaved-paste guard when the server accepts a block it normalised", () => {
+    render(
+      { count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] },
+      { pastedText: "a@x.com" },
+    );
+
+    typePasted("a@x.com, b@x.com\n");
+    expect(button("Exclude")?.disabled).toBe(true);
+
+    // What Save addresses produces: the same two addresses, normalised, plus a
+    // newer savedAt. The typed string and the stored one do not match.
+    rerender(
+      { count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] },
+      { pastedText: "a@x.com\nb@x.com", savedAt: "2026-09-02T03:00:00.000Z" },
+    );
+
+    expect(button("Exclude")?.disabled).toBe(false);
+    expect(text()).not.toContain("Save or discard these addresses first");
+    expect(
+      container.querySelector<HTMLTextAreaElement>('textarea[name="pastedEmails"]')!.value,
+    ).toBe("a@x.com\nb@x.com");
+  });
+
+  // Both guards at once. "Save or discard these addresses first" is untrue in
+  // that state, because Save addresses is itself disabled by the compose guard.
+  it("says something true when the compose form is dirty and the paste box is not saved", () => {
+    const form = mountComposeForm();
+    render(
+      { count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] },
+      { pastedText: "a@x.com" },
+    );
+    typePasted("a@x.com\nb@x.com");
+    act(() => {
+      form.querySelector("input")!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(button("Save addresses")?.disabled).toBe(true);
+    expect(text()).not.toContain("Save or discard these addresses first");
+    expect(text()).toContain("cannot be saved while the compose form has unsaved changes");
+    // Discard is the only thing still available, and stays available.
+    expect(button("Discard")?.disabled).toBeFalsy();
+  });
+
+  // The other half of the paste protection, and the one that actually closes the
+  // hole. A redirecting server action can replace the whole page tree, which no
   // component-level trick survives, so while the box holds anything unsaved the
   // controls that navigate are refused outright.
   it("refuses to navigate while the paste box holds unsaved text, and says why", () => {

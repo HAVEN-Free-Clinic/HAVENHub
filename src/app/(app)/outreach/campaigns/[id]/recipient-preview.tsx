@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import type { AudiencePreview, RecipientReason } from "@/platform/email/campaigns/service";
 import type { PersonSearchHit } from "@/platform/email/audience/resolve";
 import { Alert } from "@/platform/ui/alert";
@@ -10,6 +10,7 @@ import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "./submit-button";
 import { useFormDirty } from "./use-form-dirty";
+import type { FormProblems } from "./form-state";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 
@@ -92,11 +93,10 @@ export function UnresolvedPastedAddresses({ addresses }: { addresses: string[] }
  *    updatedAt, the panel remounted on every manual-list action, which both
  *    reset the guard and threw away a half-typed block of addresses.
  * 3. Unsaved text in the paste box ALSO disables every control here that
- *    navigates. That is the belt for 2's braces: a server action that redirects
- *    can replace the ENTIRE page tree below AppShell, and nothing a component
- *    can do survives that -- an uncontrolled DOM value and React state die
- *    together. See the comment on pastedDraft below for what is actually known
- *    about when that happens.
+ *    navigates. Not a belt for 2's braces: on this route EVERY server-action
+ *    redirect replaces the whole page tree below AppShell, and nothing a
+ *    component can do survives that -- an uncontrolled DOM value and React
+ *    state die together. See the comment on pastedDraft below.
  */
 export function RecipientPreview({
   formId,
@@ -133,7 +133,12 @@ export function RecipientPreview({
   includeAction: FormAction;
   excludeAction: FormAction;
   clearExcludedAction: () => void | Promise<void>;
-  pastedEmailsAction: FormAction;
+  /**
+   * Returns its problems rather than redirecting with them, for the reason in
+   * form-state.ts: its only refusal is "too many addresses", and a redirect
+   * would destroy the block it was complaining about.
+   */
+  pastedEmailsAction: (prevState: FormProblems, formData: FormData) => Promise<FormProblems>;
 }) {
   const dirty = useFormDirty(formId, savedAt);
   const [query, setQuery] = useState("");
@@ -150,18 +155,19 @@ export function RecipientPreview({
    * value nor this state. So unsaved text also DISABLES every control here that
    * navigates.
    *
-   * What is known about that replacement, at the confidence it deserves: the
-   * only boundary whose blast radius matches (AppShell survives, everything
-   * under it is recreated, with no document load) is the Suspense boundary from
-   * `(app)/loading.tsx`, and there is no nearer loading.tsx under outreach/.
-   * That part is solid. The trigger is not: every one of these actions calls
-   * revalidatePath and redirects to the URL the sender is already on, so all
-   * four must refetch the segment and all four are candidates for committing
-   * the fallback. React suppresses a fallback for already-visible content only
-   * while the update is inside a transition, and a form action runs in React's
-   * own transition, so which of them commits it is a RACE. Do not read the
-   * measurements in the task report as "Exclude reconciles and Add does not";
-   * that was one sample of a race, and any of the four can land either way.
+   * What that replacement is, measured rather than reasoned: the boundary is
+   * the Suspense fallback from `(app)/loading.tsx` (its blast radius matches
+   * exactly -- AppShell survives, everything under it is recreated, with no
+   * document load -- and there is no nearer loading.tsx under outreach/). On
+   * this route it is what every server-action redirect does: 6 of 6 replaced
+   * the tree, while 2 of 2 tab Link navigations reconciled. Each of these
+   * actions calls revalidatePath and redirects to the URL the sender is
+   * already on, so each must refetch the segment and each commits the fallback.
+   *
+   * An earlier reading of this file called it a race and singled out Exclude as
+   * the one that reconciles. That was one sample, since corrected by the wider
+   * measurement: treat EVERY action redirect here as destroying client state.
+   * Which makes the guard below load-bearing rather than defensive.
    */
   const [pastedDraft, setPastedDraft] = useState(pastedText);
   // Re-seeded whenever the SERVER's stored block changes, which is the only
@@ -187,6 +193,8 @@ export function RecipientPreview({
   // hooks above run either way, which is the entire point: see 1 in the doc
   // comment.
   const showPanel = preview !== null;
+
+  const [pasteState, pasteFormAction] = useActionState(pastedEmailsAction, null);
 
   function runSearch() {
     if (query.trim().length < MIN_SEARCH_LENGTH) return;
@@ -365,7 +373,7 @@ export function RecipientPreview({
       {/* Pasted addresses. Saved as a whole block, so removing one is an edit
           here rather than another control. */}
       <Card className="space-y-3">
-        <form action={pastedEmailsAction} className="space-y-3">
+        <form action={pasteFormAction} className="space-y-3">
           <Field
             label="Paste addresses"
             hint="One per line, or separated by commas. Held to the same audience scope as everything else."
@@ -393,6 +401,11 @@ export function RecipientPreview({
               </Button>
             )}
           </div>
+
+          {/* Rendered here rather than carried away in a redirect: the only
+              refusal this action has is "too many addresses", and redirecting
+              with it destroyed the block being complained about. */}
+          {pasteState && <Alert tone="error">{pasteState.problems.join("; ")}</Alert>}
         </form>
 
         {pastedUnsaved && (
@@ -403,7 +416,7 @@ export function RecipientPreview({
           <Alert tone="warning">
             {dirty
               ? "These addresses cannot be saved while the compose form has unsaved changes, because either save reloads the page. Discard clears them, or copy them somewhere before you save your changes."
-              : "Save or discard these addresses first. Excluding, adding and restoring all reload the page, and anything typed here that has not been saved would go with it."}
+              : "Save these addresses, or discard them, before using the controls above. Excluding, adding, restoring and the compose form's own Save all reload the page, and anything typed here that has not been saved would go with it."}
           </Alert>
         )}
 

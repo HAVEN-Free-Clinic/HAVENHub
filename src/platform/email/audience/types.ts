@@ -137,6 +137,44 @@ function isValidNode(v: unknown): boolean {
   return false;
 }
 
+/**
+ * The deepest nesting a client-supplied audience tree may have.
+ *
+ * Ten is far past anything the builder can produce by hand and far short of
+ * what a call stack minds. The deepest tree in the starters is two.
+ */
+export const MAX_AUDIENCE_DEPTH = 10;
+
+/**
+ * Whether a tree nests deeper than MAX_AUDIENCE_DEPTH, checked ITERATIVELY.
+ *
+ * Guards the recursive walks that come after it. isAudience and enumerateNodes
+ * both recurse, and both run BEFORE any node budget applies, so a tree nested
+ * tens of thousands deep is a stack overflow rather than a rejection or a slow
+ * query. The only way in is an authenticated sender posting a hand-built tree
+ * to their own campaign's count action, so the damage is a 500 they caused
+ * themselves, but the check is a few lines and the crash is unbounded.
+ *
+ * An explicit stack rather than recursion, or the guard would be the thing it
+ * guards against. Reads `children`, which is what a group nests under; the
+ * root's own `conditions` array is level one.
+ */
+export function exceedsAudienceDepth(v: unknown, max = MAX_AUDIENCE_DEPTH): boolean {
+  const root = (v as { conditions?: unknown[] } | null)?.conditions;
+  const stack: { node: unknown; depth: number }[] = Array.isArray(root)
+    ? root.map((node) => ({ node, depth: 1 }))
+    : [];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop()!;
+    if (depth > max) return true;
+    const children = (node as { children?: unknown[] } | null)?.children;
+    if (Array.isArray(children)) {
+      for (const child of children) stack.push({ node: child, depth: depth + 1 });
+    }
+  }
+  return false;
+}
+
 export function isAudience(v: unknown): v is Audience {
   if (!v || typeof v !== "object") return false;
   const a = v as Record<string, unknown>;

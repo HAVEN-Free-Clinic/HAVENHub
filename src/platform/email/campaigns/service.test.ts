@@ -957,6 +957,31 @@ describe("countAudienceNodes", () => {
     expect(overBudget).toEqual({});
   });
 
+  // isAudience and enumerateNodes both recurse, and both run before
+  // MAX_COUNTED_NODES applies, so without an iterative guard in front of them a
+  // deeply nested tree is a stack overflow rather than a rejection. Reachable
+  // only by an authenticated sender hand-posting to their own campaign, so the
+  // damage is a 500 they caused themselves, but it is unbounded and the guard
+  // is cheap.
+  it("rejects a tree nested past the depth limit instead of overflowing on it", async () => {
+    const c = await createDraft(null, "Deep", { scopeId: null });
+
+    // Deep enough to blow a real call stack, built iteratively so the FIXTURE
+    // is not the thing that overflows.
+    let node: unknown = { field: "name", op: "isNotEmpty" };
+    for (let i = 0; i < 20000; i++) node = { match: "ALL", children: [node] };
+    const deep = { recordType: "PERSON", match: "ALL", conditions: [node] } as unknown as Audience;
+
+    await expect(countAudienceNodes(c.id, deep)).rejects.toBeInstanceOf(CampaignValidationError);
+
+    // And the limit is not so tight that ordinary nesting trips it: the builder
+    // can nest groups, and a tree well inside the limit still counts.
+    let ok: unknown = { field: "name", op: "isNotEmpty" };
+    for (let i = 0; i < 5; i++) ok = { match: "ALL", children: [ok] };
+    const shallow = { recordType: "PERSON", match: "ALL", conditions: [ok] } as unknown as Audience;
+    await expect(countAudienceNodes(c.id, shallow)).resolves.toBeTypeOf("object");
+  });
+
   it("rejects a malformed client-supplied audience instead of compiling it", async () => {
     const c = await createDraft(null, "Malformed", { scopeId: null });
     await expect(

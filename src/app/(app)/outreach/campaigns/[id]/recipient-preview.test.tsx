@@ -18,6 +18,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { AudiencePreview } from "@/platform/email/campaigns/service";
 import type { PersonSearchHit } from "@/platform/email/audience/resolve";
 import { RecipientPreview } from "./recipient-preview";
+import type { FormProblems } from "./form-state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -37,6 +38,7 @@ type Opts = {
   pastedText?: string;
   savedAt?: string;
   searchAction?: (query: string) => Promise<PersonSearchHit[]>;
+  pastedEmailsAction?: (prev: FormProblems, formData: FormData) => Promise<FormProblems>;
 };
 
 function panel(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
@@ -51,7 +53,7 @@ function panel(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
       includeAction={() => {}}
       excludeAction={() => {}}
       clearExcludedAction={() => {}}
-      pastedEmailsAction={() => {}}
+      pastedEmailsAction={opts.pastedEmailsAction ?? (async () => null)}
     />
   );
 }
@@ -236,13 +238,13 @@ describe("RecipientPreview", () => {
     );
 
     expect(button("Exclude")?.disabled).toBe(false);
-    expect(text()).not.toContain("Save or discard these addresses first");
+    expect(text()).not.toContain("Save these addresses, or discard them");
     expect(
       container.querySelector<HTMLTextAreaElement>('textarea[name="pastedEmails"]')!.value,
     ).toBe("a@x.com\nb@x.com");
   });
 
-  // Both guards at once. "Save or discard these addresses first" is untrue in
+  // Both guards at once. The clean-compose wording is untrue in
   // that state, because Save addresses is itself disabled by the compose guard.
   it("says something true when the compose form is dirty and the paste box is not saved", () => {
     const form = mountComposeForm();
@@ -256,7 +258,7 @@ describe("RecipientPreview", () => {
     });
 
     expect(button("Save addresses")?.disabled).toBe(true);
-    expect(text()).not.toContain("Save or discard these addresses first");
+    expect(text()).not.toContain("Save these addresses, or discard them");
     expect(text()).toContain("cannot be saved while the compose form has unsaved changes");
     // Discard is the only thing still available, and stays available.
     expect(button("Discard")?.disabled).toBeFalsy();
@@ -280,7 +282,10 @@ describe("RecipientPreview", () => {
     expect(button("Restore all")?.disabled).toBe(true);
     // The paste box's own save is the way out and must stay live.
     expect(button("Save addresses")?.disabled).toBe(false);
-    expect(text()).toContain("Save or discard these addresses first");
+    expect(text()).toContain("Save these addresses, or discard them, before using the controls above");
+    // The compose form's own Save is the one control that can still reach this
+    // text, and the warning that omitted it was the one a sender would trust.
+    expect(text()).toContain("the compose form's own Save");
 
     // Discard is the other way out, for a sender who does not want to keep it.
     act(() => button("Discard")!.click());

@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { validateTemplate } from "@/platform/email/render/validate";
-import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
+import { isAudience, exceedsAudienceDepth, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES, personVariables } from "@/platform/email/audience/variables";
 import {
@@ -594,7 +594,12 @@ export async function countAudienceNodes(
   campaignId: string,
   audience: Audience,
 ): Promise<Record<string, number>> {
-  if (!isAudience(audience)) {
+  // Depth BEFORE validity, because isAudience is itself recursive: a tree
+  // nested deeply enough overflows the stack inside the validator that was
+  // supposed to reject it, and again inside enumerateNodes, both of which run
+  // before MAX_COUNTED_NODES gets a say. Iterative, so it cannot be its own
+  // victim. See exceedsAudienceDepth.
+  if (exceedsAudienceDepth(audience) || !isAudience(audience)) {
     throw new CampaignValidationError(["Invalid audience"]);
   }
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({

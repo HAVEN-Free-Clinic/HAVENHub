@@ -47,6 +47,7 @@ import type { Audience } from "@/platform/email/audience/types";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { PreviewResult } from "./review-actions";
+import type { FormProblems } from "./form-state";
 import type { EditorTab } from "./tabs";
 
 /**
@@ -93,13 +94,58 @@ async function assertScopeOrRedirect(
   }
 }
 
+/**
+ * The scope check for the actions that must not navigate when they refuse.
+ *
+ * Same predicate as assertScopeOrRedirect above, same failure, different
+ * delivery: the reason comes back as a string for the caller to render, rather
+ * than as a redirect that would take the sender's unsaved work with it. Used by
+ * saveAction and pastedEmailsAction; every other action here still redirects,
+ * because none of them can be reached with unsaved state on the page that a
+ * navigation would destroy.
+ */
+async function scopeProblems(
+  personId: string,
+  scopeId: string | null,
+): Promise<string[] | null> {
+  try {
+    await assertMayActOnScope(personId, scopeId);
+    return null;
+  } catch (err) {
+    if (err instanceof CampaignScopeError) return [err.message];
+    throw err;
+  }
+}
+
+/**
+ * Save the compose form.
+ *
+ * RETURNS its problems rather than redirecting with them, which is the whole
+ * point of the signature: this action is reached with the sender's entire
+ * unsaved draft held in client state (TemplateEditor's subject and body,
+ * AudienceBuilder's whole tree), and on this route a redirect replaces the page
+ * tree below AppShell through the (app)/loading.tsx Suspense boundary. A
+ * mistyped template variable is the most ordinary way to reach a refusal, and
+ * redirecting on it destroyed everything typed since the last save while
+ * showing a toast about a variable name. previewAction has always returned its
+ * problems for a related reason; this action was the odd one out.
+ *
+ * Success still redirects, and should: the work is stored by then, and the
+ * redirect is what re-seeds the editor from it.
+ *
+ * The leading `prevState` is useActionState's calling convention (see
+ * compose-form.tsx). It is unused: everything this action needs is in the
+ * FormData.
+ */
 export async function saveAction(
   id: string,
   scopeId: string | null,
+  _prevState: FormProblems,
   formData: FormData,
-): Promise<void> {
+): Promise<FormProblems> {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const refused = await scopeProblems(actor.personId, scopeId);
+  if (refused) return { problems: refused };
   const tab = resolveTab(formData.get("tab"));
   const name = ((formData.get("name") as string | null) ?? "").trim();
   const subject = (formData.get("subject") as string | null) ?? "";
@@ -113,20 +159,26 @@ export async function saveAction(
     audience = EMPTY_AUDIENCE;
   }
 
+  // Checked here rather than with the browser's `required` attribute, which is
+  // what guarded this before. That attribute cannot report a reason the server
+  // knows, and it refuses to submit at all when the control it names sits in a
+  // hidden tab panel: the sender got "An invalid form control with name='name'
+  // is not focusable" in the console and a Save button that silently did
+  // nothing. Returned on its own rather than merged with the template problems
+  // below, because updateCampaign must not run while the name is missing, so
+  // there is nothing yet to merge it with.
+  if (name === "") return { problems: ["Enter a campaign name."] };
+
   try {
     await updateCampaign(actor.personId, id, {
-      name: name || undefined,
+      name,
       subject,
       body,
       audience,
       sendOncePerPerson,
     });
   } catch (err) {
-    if (err instanceof CampaignValidationError) {
-      redirect(
-        `/outreach/campaigns/${id}?tab=${tab}&error=${encodeURIComponent(err.problems.join("; "))}`,
-      );
-    }
+    if (err instanceof CampaignValidationError) return { problems: err.problems };
     throw err;
   }
 
@@ -295,13 +347,24 @@ export async function clearExcludedAction(id: string, scopeId: string | null): P
   redirect(`/outreach/campaigns/${id}?tab=audience`);
 }
 
+/**
+ * Save the pasted-address block.
+ *
+ * Returns its problems for the same reason saveAction does, and the case that
+ * forces it is exact: the only refusal here is "that is more than
+ * MAX_PASTED_EMAILS addresses", and redirecting with that message destroyed the
+ * very block it was complaining about. The sender pasted six hundred addresses
+ * and was told to paste fewer, with nothing left to trim.
+ */
 export async function pastedEmailsAction(
   id: string,
   scopeId: string | null,
+  _prevState: FormProblems,
   formData: FormData,
-): Promise<void> {
+): Promise<FormProblems> {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
-  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const refused = await scopeProblems(actor.personId, scopeId);
+  if (refused) return { problems: refused };
   const raw = (formData.get("pastedEmails") as string | null) ?? "";
   // Newlines, commas, semicolons, and whitespace all separate addresses: a
   // sender pasting out of a spreadsheet column, an email client's To: field, or
@@ -310,11 +373,7 @@ export async function pastedEmailsAction(
   try {
     await editManualLists(actor.personId, id, { op: "paste", emails });
   } catch (err) {
-    if (err instanceof CampaignValidationError) {
-      redirect(
-        `/outreach/campaigns/${id}?tab=audience&error=${encodeURIComponent(err.problems.join("; "))}`,
-      );
-    }
+    if (err instanceof CampaignValidationError) return { problems: err.problems };
     throw err;
   }
   revalidatePath(`/outreach/campaigns/${id}`);

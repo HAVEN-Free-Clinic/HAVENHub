@@ -21,13 +21,13 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
-import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
 import { AudienceBuilder } from "./audience-builder";
-import { SubmitButton } from "./submit-button";
+import { ComposeForm } from "./compose-form";
+import { CampaignNameField } from "./campaign-name-field";
 import { ReviewActions } from "./review-actions";
 import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
@@ -201,7 +201,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Main save form: editable only while a draft */}
       {isDraft && (
-        <form id="campaign-compose" action={boundSaveAction} className="space-y-8">
+        <ComposeForm id="campaign-compose" action={boundSaveAction}>
           {/* Tracks which tab was showing when Save was clicked, so a
               successful (or rejected) save redirects back to the same tab
               instead of always landing on Compose. */}
@@ -213,14 +213,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
             {/* Campaign name */}
             <div className="max-w-sm">
-              <Field label="Campaign name">
-                <Input
-                  name="name"
-                  type="text"
-                  defaultValue={campaign.name}
-                  required
-                />
-              </Field>
+              <CampaignNameField initialName={campaign.name} />
             </div>
 
             {/* Template editor (subject + body) */}
@@ -264,15 +257,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             />
           </div>
 
-          {/* Sticky save footer. Always visible (not tab-gated): Save is the
-              only way to persist the sendOncePerPerson toggle in the Timing
-              section below, which lives under the Review tab, so a sender
-              who flips it there still needs Save reachable without switching
-              tabs first. */}
-          <div className="sticky bottom-0 -mx-1 border-t border-border bg-surface py-3">
-            <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
-          </div>
-        </form>
+        </ComposeForm>
       )}
 
       {/* The recipient roll and the manual include / exclude / paste controls.

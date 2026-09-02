@@ -26,7 +26,11 @@ import { createDraft } from "@/platform/email/campaigns/service";
 import { createScope } from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
 import type { Audience } from "@/platform/email/audience/types";
-import { countNodesAction, searchPeopleAction, excludePersonAction } from "./actions";
+import {
+  countNodesAction, searchPeopleAction, excludePersonAction,
+  saveAction, pastedEmailsAction,
+} from "./actions";
+import { MAX_PASTED_EMAILS } from "@/platform/email/campaigns/service";
 
 beforeEach(resetDb);
 afterEach(() => {
@@ -175,5 +179,152 @@ describe("excludePersonAction", () => {
     const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.excludePersonIds).toEqual([]);
     expect(after.includePersonIds).toEqual([]);
+  });
+});
+
+/**
+ * The actions that must NOT navigate when they refuse.
+ *
+ * Every navigation out of this page destroys unsaved client state: the compose
+ * form's subject and body live in TemplateEditor's useState and the whole
+ * audience tree lives in AudienceBuilder's useState, and a server action that
+ * redirects replaces the page tree below AppShell through the
+ * (app)/loading.tsx Suspense boundary. So a REJECTED save must hand its
+ * problems back to be rendered in place, the way previewAction already does. A
+ * mistyped template variable is the most ordinary way to reach this path, and
+ * before the fix it cost the sender everything they had typed since their last
+ * save.
+ *
+ * The successful path still redirects, and must: there is nothing left to lose
+ * once the work is stored, and the redirect is what re-seeds the editor.
+ */
+describe("saveAction", () => {
+  const AUDIENCE = JSON.stringify({
+    recordType: "PERSON",
+    match: "ALL",
+    conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+  });
+
+  function form(fields: Record<string, string>): FormData {
+    const fd = new FormData();
+    fd.set("tab", "compose");
+    fd.set("name", "A campaign");
+    fd.set("subject", "Hello");
+    fd.set("body", "<p>Hello</p>");
+    fd.set("audience", AUDIENCE);
+    for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+    return fd;
+  }
+
+  async function sender() {
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+    return actor;
+  }
+
+  it("returns the problems from a rejected save instead of navigating away from them", async () => {
+    await sender();
+    const c = await createDraft(null, "Original name", { scopeId: null });
+
+    // The ordinary way in: a mistyped variable name.
+    const result = await saveAction(c.id, null, null, form({ subject: "Hi {{ firstNam }}" }));
+
+    expect(result).toEqual({ problems: ["Unknown variable in subject: firstNam"] });
+    // Nothing was written, so the sender's unsaved work is still the only copy
+    // of it, and it is still on screen.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.subject).toBe("");
+    expect(after.name).toBe("Original name");
+  });
+
+  it("still redirects when the save succeeds", async () => {
+    await sender();
+    const c = await createDraft(null, "Original name", { scopeId: null });
+
+    await expect(saveAction(c.id, null, null, form({}))).rejects.toThrow("NEXT_REDIRECT");
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.subject).toBe("Hello");
+    expect(after.name).toBe("A campaign");
+  });
+
+  it("returns a scope refusal instead of navigating away from the unsaved work", async () => {
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    // Holds outreach.send, but was never granted this scope.
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+    const scope = await createScope(null, {
+      name: "Someone else's scope",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+    });
+    const c = await createDraft(null, "Not mine", { scopeId: scope.id });
+
+    const result = await saveAction(c.id, scope.id, null, form({}));
+
+    expect(result).toEqual({ problems: ["You have not been granted that audience scope."] });
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.subject).toBe("");
+  });
+
+  // The name was previously guarded by the browser's `required` attribute,
+  // which cannot report anything the server knows and which left the sender
+  // stuck on a control that is invisible whenever the Compose tab is not the
+  // one showing. Now that a refusal renders in place, it is validated here like
+  // everything else.
+  it("refuses an empty campaign name and keeps the stored one", async () => {
+    await sender();
+    const c = await createDraft(null, "Original name", { scopeId: null });
+
+    const result = await saveAction(c.id, null, null, form({ name: "   " }));
+
+    expect(result).toEqual({ problems: ["Enter a campaign name."] });
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.name).toBe("Original name");
+  });
+});
+
+describe("pastedEmailsAction", () => {
+  async function sender() {
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+  }
+
+  it("returns the problem for an over-long block instead of destroying the block", async () => {
+    await sender();
+    const c = await createDraft(null, "Big paste", { scopeId: null });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { pastedEmails: ["already@example.com"] },
+    });
+
+    const tooMany = Array.from({ length: MAX_PASTED_EMAILS + 1 }, (_, i) => `p${i}@example.com`);
+    const formData = new FormData();
+    formData.set("pastedEmails", tooMany.join("\n"));
+
+    const result = await pastedEmailsAction(c.id, null, null, formData);
+
+    expect(result).toEqual({
+      problems: [
+        `That is ${MAX_PASTED_EMAILS + 1} addresses. A campaign may hold at most ${MAX_PASTED_EMAILS}.`,
+      ],
+    });
+    // The stored block is untouched, and because nothing navigated the rejected
+    // block is still in the textarea for the sender to trim.
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.pastedEmails).toEqual(["already@example.com"]);
+  });
+
+  it("still redirects when the block is accepted", async () => {
+    await sender();
+    const c = await createDraft(null, "Paste", { scopeId: null });
+
+    const formData = new FormData();
+    formData.set("pastedEmails", "sam@example.com, pat@example.com");
+    await expect(pastedEmailsAction(c.id, null, null, formData)).rejects.toThrow("NEXT_REDIRECT");
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.pastedEmails).toEqual(["sam@example.com", "pat@example.com"]);
   });
 });

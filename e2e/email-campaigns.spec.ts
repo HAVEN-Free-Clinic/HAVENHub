@@ -97,6 +97,23 @@ test("admin email: create a campaign with an audience condition and preview", as
     await editorTab(page, "Audience").click();
     await page.waitForURL(/\?tab=audience$/);
 
+    // --- Step 4b: the unsaved subject SURVIVED the crossing ---
+    // The premise the whole tabbed editor rests on, and nothing else asserts
+    // it. Every tab is a real navigation to ?tab=..., and everything unsaved on
+    // this page is client state: the subject and body live in TemplateEditor's
+    // useState and the entire audience tree lives in AudienceBuilder's. If a
+    // tab switch remounted the page tree the way a server action's redirect
+    // does, crossing to Audience to build the audience would silently discard
+    // the subject typed in step 2, and the recipient panel's dirty guard would
+    // come up clean and let the next click destroy the rest. Asserted on the
+    // input's live value rather than the preview, so it is the form state being
+    // measured and not a re-render of saved data.
+    await editorTab(page, "Compose").click();
+    await page.waitForURL(/\?tab=compose$/);
+    await expect(page.locator('input[name="subject"]')).toHaveValue("Hello {{ firstName }}");
+    await editorTab(page, "Audience").click();
+    await page.waitForURL(/\?tab=audience$/);
+
     // --- Step 5: Add one audience condition via the builder ---
     await page.getByRole("button", { name: /Add condition/i }).click();
 
@@ -124,6 +141,34 @@ test("admin email: create a campaign with an audience condition and preview", as
     // The root group's "+ Add group" button appends an empty nested group, which
     // shows its own empty-state notice until a condition is added to it.
     await page.getByRole("button", { name: /Add group/i }).first().click();
+    await expect(page.getByText(/Empty group/)).toBeVisible();
+
+    // --- Step 7: a REJECTED save keeps everything unsaved on the page ---
+    // The blocker this spec exists to keep closed. Every navigation off this
+    // route replaces the page tree below AppShell through the (app)/loading.tsx
+    // Suspense boundary, and everything unsaved here is client state: the name,
+    // the subject and body in TemplateEditor, and the whole audience tree in
+    // AudienceBuilder. So saveAction returns its problems instead of
+    // redirecting with them. A mistyped template variable is the ordinary way
+    // in, and it used to cost the sender the lot.
+    await editorTab(page, "Compose").click();
+    await page.waitForURL(/\?tab=compose$/);
+    await page.fill('input[name="name"]', `${campaignName} renamed`);
+    await page.fill('input[name="subject"]', "Hello {{ firstNam }}");
+    await page.getByRole("button", { name: "Save" }).click();
+
+    // The problem renders in place. Nothing navigated: the URL is untouched.
+    await expect(page.getByText(/Unknown variable in subject: firstNam/)).toBeVisible();
+    await expect(page).toHaveURL(/\?tab=compose$/);
+
+    // And all three kinds of unsaved state are still there. The name is
+    // asserted because it is the one React would reset on its own: an
+    // uncontrolled field is restored to its defaultValue after a form action,
+    // so this field is deliberately controlled (campaign-name-field.tsx).
+    await expect(page.locator('input[name="name"]')).toHaveValue(`${campaignName} renamed`);
+    await expect(page.locator('input[name="subject"]')).toHaveValue("Hello {{ firstNam }}");
+    await editorTab(page, "Audience").click();
+    await page.waitForURL(/\?tab=audience$/);
     await expect(page.getByText(/Empty group/)).toBeVisible();
   } finally {
     await deleteDraft(campaignId);

@@ -182,11 +182,18 @@ git commit -m "feat(outreach): add a searchable grouped field picker to the audi
 
 Part A's date and count conditions currently have no way to be created from the UI. This task gives each operator the control it needs.
 
-**Three defects Part A knowingly left for this task. They are requirements here, not optional cleanup.** Part A's reviews found each one and deferred it rather than patching the old builder twice:
+**Defects Part A left for this task. They are requirements here, not optional cleanup.**
 
-1. **`defaultConditionFor` has no `date` or `count` branch.** It falls through to `{ op: "eq" }`, and `eq` is in neither `DATE_OPERATORS` nor `NUMBER_OPERATORS`. So selecting any of Part A's new fields today produces a condition that compiles to `MATCH_NOBODY`. It fails safe rather than over-matching, but the field is unusable. Give both kinds a sensible default operator (`onOrAfter` for date, `gte` for count are reasonable) and add a test that every field kind in `PersonFieldKind` gets a default operator its own field actually accepts. That test is what stops the next kind from reintroducing this.
-2. **`OP_LABELS` is keyed by operator alone, not by field kind.** `lt`/`gt` read "is before"/"is after", which is right for a date and wrong for a count: a shift-count condition currently renders as "Shift count is before 3". Make the label resolution aware of the field's kind.
-3. **A stale comment in `audience-builder.tsx`** says no field of kind `date` is registered yet. Five now are. Fix it while you are in the file.
+Part A's final review escalated two of the three originally listed here into its own fix wave, because a date condition inside a NONE group turned out to match the ENTIRE Person table rather than failing safe. Those are **already done**; do not redo them:
+
+- `defaultConditionFor` now has explicit `date`, `count`, and `year` branches, each with its reasoning in a comment, and `audience-builder.test.tsx` carries an invariant test asserting that for EVERY field in `PERSON_FIELD_VIEWS` the default operator is one that field declares. Extend that test if you add a kind; do not weaken it.
+- The stale "no field of kind date is registered yet" comment is gone.
+
+What remains for you:
+
+1. **`OP_LABELS` is keyed by operator alone, not by field kind.** `lt` and `gt` read "is before" and "is after", right for a date and wrong for a count: a shift-count condition renders as "Shift count is before 3". Make label resolution aware of the field's kind.
+2. **Absolute dates are validated as digit shapes, not real calendar dates.** `DATE_RE` is a four-two-two digit pattern, so `2026-02-30` passes and `Date.UTC` silently rolls it to March 2, shifting a boundary by up to three days and WIDENING `before` and `onOrBefore`. A native date input will not emit one, but a stored or hand-edited audience can. Close it with a round-trip check (reformat the parsed date and compare) so an impossible date matches nobody rather than a different day.
+3. **The two condition kinds disagree on a reversed range.** `countWhere` returns match-nobody for a low bound above the high one; `dateWhere` returns a gte/lt pair, empty by range rather than by sentinel. Equivalent under ALL and ANY, different under NONE. Pick one representation while you are in the file.
 
 **Files:**
 - Create: `src/app/(app)/outreach/campaigns/[id]/value-controls.tsx`

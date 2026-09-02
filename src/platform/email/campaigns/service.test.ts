@@ -1558,6 +1558,64 @@ describe("campaign sending identity", () => {
     expect(after.fromEmail).toBe("recruitment@havenfreeclinic.org");
   });
 
+  it("falls back down the order when the chooser LOSES THE ROLE before the send", async () => {
+    // The Task 3 window, and the same class of event as the revocation above: a
+    // campaign composed under one set of claims, dispatched under another. Here
+    // the identity is untouched and still live for everyone else in the role --
+    // it is the CHOOSER who stopped being in it, weeks later, with nobody
+    // touching the campaign.
+    //
+    // Nothing in the send path knows about roles. This works because the
+    // enqueue-time re-resolve goes through availableSenderIdentities, which
+    // expands roles live; a snapshot taken at Save would send as an address the
+    // person may no longer use, and would look identical in every other test.
+    const { sender, campaign } = await scopedCampaign("peds@havenfreeclinic.org");
+    const successor = await activePerson("Successor", "successor@example.com");
+    const editors = await prisma.role.create({ data: { name: "Editors" } });
+    for (const p of [sender, successor]) {
+      await prisma.roleAssignment.create({
+        data: { roleId: editors.id, personId: p.id, termId: null },
+      });
+    }
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await activePerson("Sam Rivera", "sam@example.com");
+
+    // The role is the ONLY thing that puts this address in front of them, so the
+    // save proves the role route reaches the authorization check too.
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+      fromEmail: "recruitment@havenfreeclinic.org",
+    });
+    expect(
+      (await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } })).fromEmail,
+    ).toBe("recruitment@havenfreeclinic.org");
+
+    await prisma.roleAssignment.deleteMany({ where: { roleId: editors.id, personId: sender.id } });
+
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    // NOT the address they may no longer use. The fallback lands on the scope
+    // identity, which is admin-controlled and which they COULD still have picked
+    // at this moment -- it is drawn from the same freshly-resolved list.
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual(["peds@havenfreeclinic.org"]);
+
+    // The identity itself is untouched, and the successor still holds it. Only
+    // the chooser's route to it went away, which is exactly what was asserted.
+    expect(
+      (await senderIdentitiesForCampaign(successor.id, campaign.id)).map((o) => o.address),
+    ).toContain("recruitment@havenfreeclinic.org");
+    // And the picker agrees with the send: the chooser is no longer offered it.
+    expect(
+      (await senderIdentitiesForCampaign(sender.id, campaign.id)).map((o) => o.address),
+    ).toEqual(["peds@havenfreeclinic.org"]);
+  });
+
   it("reads a blank or whitespace-only choice as CLEARED, not as a pin", async () => {
     // A whitespace-only value is truthy. Read as a choice, it would store
     // whatever the default resolves to today as an explicit pin, which then

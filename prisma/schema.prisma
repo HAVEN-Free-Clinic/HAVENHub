@@ -218,9 +218,12 @@ model Person {
   campaignSendersChosen          EmailCampaign[]            @relation("campaignFromEmailSetBy")
   audienceScopesCreated          AudienceScope[]            @relation("audienceScopeCreatedBy")
   audienceScopeGrants            AudienceScopeGrant[]       @relation("audienceScopeGrantPerson")
-  /// Addresses this person has been issued permission to send campaigns as.
-  sendingIdentities              SendingIdentity[]          @relation("sendingIdentityPerson")
-  sendingIdentitiesIssued        SendingIdentity[]          @relation("sendingIdentityIssuedBy")
+  /// Addresses this person has been granted DIRECTLY. Not the whole answer to
+  /// "what may they send as": a role grant reaches them with no row here at all,
+  /// which is the point of the split. Ask availableSenderIdentities, never this.
+  sendingIdentityGrants          SendingIdentityGrant[]     @relation("sendingIdentityGrantPerson")
+  sendingIdentityGrantsMade      SendingIdentityGrant[]     @relation("sendingIdentityGrantedBy")
+  sendingIdentitiesCreated       SendingIdentity[]          @relation("sendingIdentityCreatedBy")
   sendingIdentitiesRevoked       SendingIdentity[]          @relation("sendingIdentityRevokedBy")
   complianceReminder             MemberReminderState?
   teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
@@ -397,16 +400,16 @@ model TermOnboardingStep {
 }
 
 model Department {
-  id                         String                  @id @default(cuid())
-  code                       String                  @unique // "ITCM", "EXEC", "SRR", ...
+  id                         String                       @id @default(cuid())
+  code                       String                       @unique // "ITCM", "EXEC", "SRR", ...
   name                       String
-  isActive                   Boolean                 @default(true)
+  isActive                   Boolean                      @default(true)
   memberships                TermMembership[]
   roleAssignments            RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations         DepartmentDelegation[]  @relation("delegationManager")
+  managesDelegations         DepartmentDelegation[]       @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
-  managedByDelegations       DepartmentDelegation[]  @relation("delegationManaged")
+  managedByDelegations       DepartmentDelegation[]       @relation("delegationManaged")
   shiftAssignments           ShiftAssignment[]
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
@@ -423,7 +426,7 @@ model Department {
   /// Null means "not configured" and must render as "not recorded", never as
   /// zero hours: a fabricated total on a document a member hands to a residency
   /// application is worse than an honest omission.
-  hoursPerShift              Decimal?                @db.Decimal(4, 2)
+  hoursPerShift              Decimal?                     @db.Decimal(4, 2)
   /// Capacity panel config: imported then admin-maintained.
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
@@ -432,8 +435,8 @@ model Department {
   /// Drives OnboardingContract.epicNeeded, which promotion.ts uses to raise the
   /// EpicRequest. Defaults are deliberately NONE so a newly created department
   /// never silently provisions Epic accounts.
-  requiresEpicDirector       EpicRequirement         @default(NONE)
-  requiresEpicVolunteer      EpicRequirement         @default(NONE)
+  requiresEpicDirector       EpicRequirement              @default(NONE)
+  requiresEpicVolunteer      EpicRequirement              @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
   epicGuidance               String?
   /// The lowest INTP Spanish proficiency score (1-5) this department will staff as
@@ -460,7 +463,7 @@ model Department {
   /// admin-maintained: a new clinical department must be coverable without a deploy.
   ///
   /// Defaults to false so creating a department never silently bypasses scoring.
-  autoRouteApplicants        Boolean                 @default(false)
+  autoRouteApplicants        Boolean                      @default(false)
   /// Whether members may raise a DROP request against this department's shifts.
   /// False makes the department swap-only: the drop form disappears from
   /// /schedule and createRequest refuses a drop, so a member who cannot find a
@@ -474,9 +477,9 @@ model Department {
   ///
   /// Defaults to TRUE -- the permissive, pre-existing behaviour -- so creating a
   /// department never silently blocks its members from dropping.
-  allowShiftDrop             Boolean                 @default(true)
-  createdAt                  DateTime                @default(now())
-  updatedAt                  DateTime                @updatedAt
+  allowShiftDrop             Boolean                      @default(true)
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
 }
 
 /// Admin-managed subcommittees applicants rank at application time and the
@@ -551,13 +554,15 @@ model TermMembership {
 }
 
 model Role {
-  id                  String               @id @default(cuid())
-  name                String               @unique
-  description         String?
-  isSystem            Boolean              @default(false)
-  grants              RoleGrant[]
-  assignments         RoleAssignment[]
-  audienceScopeGrants AudienceScopeGrant[]
+  id                    String                 @id @default(cuid())
+  name                  String                 @unique
+  description           String?
+  isSystem              Boolean                @default(false)
+  grants                RoleGrant[]
+  assignments           RoleAssignment[]
+  audienceScopeGrants   AudienceScopeGrant[]
+  /// Sending identities everyone holding this role may send campaigns as.
+  sendingIdentityGrants SendingIdentityGrant[]
 }
 
 model RoleGrant {
@@ -958,7 +963,7 @@ model DisciplinaryAction {
   /// Person who issued the action. Restrict: the issuer should not be deleted while records exist.
   issuedBy        Person          @relation("disciplinaryActionIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
 
-  forwards        IncidentForward[]
+  forwards IncidentForward[]
 
   @@unique([reportId, personId])
   @@index([personId])
@@ -1079,26 +1084,26 @@ model IncidentReportSubject {
 /// (see the migration): a CHECK constraint, following the RoleAssignment
 /// precedent, because Prisma cannot express "exactly one of these".
 model IncidentForward {
-  id           String              @id @default(cuid())
-  reportId     String?
-  actionId     String?
+  id            String              @id @default(cuid())
+  reportId      String?
+  actionId      String?
   /// Address as sent. Stored rather than referenced: the settings directory is
   /// free text and an entry can be edited or removed after a forward, which must
   /// not rewrite or orphan the historical record of who actually received it.
-  toEmail      String
+  toEmail       String
   /// Display name at the time of sending, when the directory entry had one.
-  toName       String?
+  toName        String?
   /// The reviewer's optional covering note, included in the email body.
-  note         String?             @db.Text
+  note          String?             @db.Text
   forwardedById String
-  createdAt    DateTime            @default(now())
+  createdAt     DateTime            @default(now())
   /// Cascade: the trail belongs to the report.
-  report       IncidentReport?     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  report        IncidentReport?     @relation(fields: [reportId], references: [id], onDelete: Cascade)
   /// Cascade: the trail belongs to the strike.
-  action       DisciplinaryAction? @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  action        DisciplinaryAction? @relation(fields: [actionId], references: [id], onDelete: Cascade)
   /// Restrict: the forwarding reviewer is the accountable party on a disclosure
   /// that left the clinic, so the record must not lose them.
-  forwardedBy  Person              @relation("incidentForwardForwardedBy", fields: [forwardedById], references: [id], onDelete: Restrict)
+  forwardedBy   Person              @relation("incidentForwardForwardedBy", fields: [forwardedById], references: [id], onDelete: Restrict)
 
   @@index([reportId])
   @@index([actionId])
@@ -1175,49 +1180,99 @@ model AudienceScopeGrant {
   @@index([roleId])
 }
 
-/// An address a specific person has been ISSUED permission to send campaigns as.
-/// The delegation half of sender identity: without a row here, a delegated
-/// sender's ONLY claim is their campaign's scope identity, and nothing else they
-/// can put in a From is accepted. Notably not their own Person.contactEmail,
-/// which is unverified free text they write themselves; sender-identity.ts
-/// records why at length.
+/// An address the clinic may speak as, and WHO may speak as it.
 ///
-/// UNIQUENESS IS (personId, address), NOT address alone. A shared mailbox such
-/// as recruitment@havenfreeclinic.org is deliberately issuable to several
-/// people, so uniqueness on the address would make the second issue fail. The
-/// address is lowercased on write, which is what makes the pair constraint
-/// case-insensitive without a raw-SQL expression index that a later
-/// `prisma migrate diff` would silently DROP.
+/// THE ADDRESS IS THE ROW. Until Phase 3 Task 3 this table carried `personId`
+/// directly and was unique on (personId, address), so one shared mailbox issued
+/// to four people was four rows. Holders now hang off it as
+/// SendingIdentityGrant, exactly the way AudienceScopeGrant hangs off
+/// AudienceScope, so an address can be granted to a ROLE and everyone holding
+/// that role gains it (and loses it) with no per-person row to maintain.
 ///
-/// REVOCATION FLIPS revokedAt ON THE SAME ROW; it never inserts a second one.
-/// That is what lets (personId, address) stay unique, and re-issuing an address
-/// someone once held clears revokedAt in place (the shape
-/// restoreServiceCredential already uses). Consequently EVERY read that means
-/// "may send as this" MUST filter revokedAt: null. A presence-only check is the
-/// exact bug ServiceCredential shipped, where a revoked credential still counted
-/// as held; see the hasServiceCredential note in audience/person-fields.ts.
+/// Still the delegation half of sender identity: without a grant reaching them,
+/// a delegated sender's ONLY claim is their campaign's scope identity, and
+/// nothing else they can put in a From is accepted. Notably not their own
+/// Person.contactEmail, which is unverified free text they write themselves;
+/// sender-identity.ts records why at length.
+///
+/// UNIQUENESS IS THE ADDRESS ITSELF, and the property the old pair constraint
+/// carried -- a shared mailbox is deliberately usable by several people -- now
+/// lives on the grant table, whose COALESCE unique index stops the same holder
+/// being granted the same address twice. The address is lowercased on write,
+/// which is what makes this constraint case-insensitive without a raw-SQL
+/// expression index that a later `prisma migrate diff` would silently DROP.
+///
+/// REVOCATION LIVES HERE, AND ONLY HERE. revokedAt retires the ADDRESS: nobody
+/// may send as it any more, through any grant, direct or role. That is a flip
+/// and never a delete, so re-issuing clears it in place and the row survives as
+/// the record that this address was once live. Losing ONE holder is the
+/// different event and is a DELETE of that grant (see SendingIdentityGrant), so
+/// there is exactly one revocation flag across this pair of tables and exactly
+/// one place a read can forget to filter it. EVERY read that means "may send as
+/// this" MUST filter revokedAt: null; a presence-only check is the exact bug
+/// ServiceCredential shipped, where a revoked credential still counted as held
+/// (see the hasServiceCredential note in audience/person-fields.ts), and here
+/// the thing it would wrongly grant is the right to speak as the clinic.
 model SendingIdentity {
-  id          String    @id @default(cuid())
-  personId    String
-  person      Person    @relation("sendingIdentityPerson", fields: [personId], references: [id], onDelete: Cascade)
-  /// Lowercased on write. Refused at write time unless SENDING_DOMAINS carries a
-  /// transport that can DKIM-sign for its domain: an identity nothing can sign is
-  /// a campaign that fails after the sender has already hit Send.
-  address     String
-  /// Cosmetic display name. Never part of DKIM/SPF alignment.
+  id          String                 @id @default(cuid())
+  /// Lowercased on write, and UNIQUE. Refused at write time unless
+  /// SENDING_DOMAINS carries a transport that can DKIM-sign for its domain: an
+  /// identity nothing can sign is a campaign that fails after the sender has
+  /// already hit Send.
+  address     String                 @unique
+  /// Cosmetic display name, and a property of the ADDRESS rather than of any one
+  /// holder: recipients see one From for one address, so two holders of a shared
+  /// mailbox showing different names would be a bug rather than a feature.
+  /// Never part of DKIM/SPF alignment.
   displayName String?
   /// SetNull, like every other actor reference here: an identity outlives the
-  /// admin who issued it.
-  issuedById  String?
-  issuedBy    Person?   @relation("sendingIdentityIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
-  issuedAt    DateTime  @default(now())
-  /// Non-null means revoked, and is the SOLE validity signal. See the model note.
+  /// admin who created it.
+  createdById String?
+  createdBy   Person?                @relation("sendingIdentityCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime               @default(now())
+  /// Non-null means the ADDRESS is retired, and is the SOLE validity signal for
+  /// every route to it. See the model note.
   revokedAt   DateTime?
   revokedById String?
-  revokedBy   Person?   @relation("sendingIdentityRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  revokedBy   Person?                @relation("sendingIdentityRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  grants      SendingIdentityGrant[]
+}
 
-  @@unique([personId, address])
+/// Exactly one of personId / roleId is set. One holder of one sending identity.
+/// DB-LEVEL GUARDS LIVE IN RAW SQL (see migration 20260902160000): a CHECK
+/// constraint (target = exactly one) and a COALESCE unique index (duplicate
+/// grants). Guarded by src/platform/rbac/schema-guards.test.ts. Never resolve a
+/// prisma migrate diff by accepting a DROP of objects you do not recognize.
+///
+/// LOSING A GRANT IS A DELETE, not a flag, and the trail is the audit log
+/// (`sending_identity.revoke_grant`), exactly as revokeScope does it for
+/// AudienceScopeGrant. Two reasons it is not a second revokedAt: a revoked grant
+/// row would collide with the re-grant under the COALESCE unique index above, so
+/// re-granting would have to clear a flag in place and every read would then
+/// carry a second nullable filter it could forget. Retiring the address itself
+/// IS auditable state and lives on SendingIdentity.revokedAt.
+///
+/// A ROLE grant is expanded LIVE through roleIdsForPerson on every read, never
+/// snapshotted, so losing the role loses the identity on the next resolve --
+/// including the one executeRun does at enqueue time.
+model SendingIdentityGrant {
+  id          String          @id @default(cuid())
+  identityId  String
+  identity    SendingIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+  personId    String?
+  person      Person?         @relation("sendingIdentityGrantPerson", fields: [personId], references: [id], onDelete: Cascade)
+  roleId      String?
+  role        Role?           @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  /// Who handed it over, and when. AudienceScopeGrant carries neither because
+  /// its screen never showed one; the identities screen has shown an issued date
+  /// per holder since Task 2, and dropping it would be a visible regression.
+  grantedById String?
+  grantedBy   Person?         @relation("sendingIdentityGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedAt   DateTime        @default(now())
+
+  @@index([identityId])
   @@index([personId])
+  @@index([roleId])
 }
 
 model EmailCampaign {
@@ -1622,17 +1677,17 @@ model SchedulePublication {
 /// Soft-deleted via isActive so a TriageChat created from a retired preset still
 /// resolves to a name.
 model TriageChatPreset {
-  id              String                        @id @default(cuid())
+  id              String                       @id @default(cuid())
   /// Shown on the card, e.g. "Ancillary".
   name            String
   /// Rendered into the Teams chat topic, e.g. "{{clinicDateShort}} Ancillary Triage Chat".
   nameTemplate    String
   /// Plain-text opening message with {{placeholders}}. Converted to Teams HTML at send.
   messageTemplate String
-  isActive        Boolean                       @default(true)
-  order           Int                           @default(0)
-  createdAt       DateTime                      @default(now())
-  updatedAt       DateTime                      @updatedAt
+  isActive        Boolean                      @default(true)
+  order           Int                          @default(0)
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
   departments     TriageChatPresetDepartment[]
   chats           TriageChat[]
 
@@ -1754,32 +1809,32 @@ model PersonLanguage {
 /// PersonLanguage.score, which is what scheduling and the profile badge read;
 /// recordLanguageAssessment writes both so they cannot drift apart.
 model SpanishAssessmentRecord {
-  id          String    @id @default(cuid())
+  id        String   @id @default(cuid())
   /// Contact email as it appeared in the assessment list. Empty string for rows
   /// entered in Hub, where personId is the identity instead.
-  email       String
+  email     String
   /// Name as it appeared in the assessment list, for rows the list identified by
   /// name rather than email (2019 onward). Display fallback when personId is null.
-  name        String?
+  name      String?
   /// Numeric score 1-5. Null if the person was assessed but no score recorded.
-  score       Int?
+  score     Int?
   /// Optional modifier carried by imported rows written as "3+" or "3-".
   /// New assessments record a plain 1-5 and leave this null.
-  modifier    String?
+  modifier  String?
   /// Free-text notes from the assessor.
-  notes       String?
+  notes     String?
   /// Term label e.g. "Spring 2026", "Summer 2012". Display only.
-  term        String
+  term      String
   /// Sortable form of `term` (year * 10 + season). ALWAYS order on this, never
   /// on `term`: see platform/languages/assessment-terms.ts for why.
-  termRank    Int       @default(0)
+  termRank  Int      @default(0)
   /// The Person this record belongs to, if they exist in Hub.
-  personId    String?
-  person      Person?   @relation(fields: [personId], references: [id])
+  personId  String?
+  person    Person?  @relation(fields: [personId], references: [id])
   /// Whether this person was verified as a Spanish speaker in Hub.
-  verified    Boolean?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  verified  Boolean?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// One assessment per person per term: the review page upserts on this rather
   /// than find-then-create, which raced two reviewers into duplicate rows.
@@ -2304,24 +2359,24 @@ model RecruitmentCycleContract {
 /// the invite from anyone who abandoned the form and came back, stranding them
 /// mid-application. Binding to the claimant's email is what lets them return.
 model RecruitmentInvite {
-  id       String @id @default(cuid())
-  cycleId  String
-  tokenHash String @unique
+  id                  String    @id @default(cuid())
+  cycleId             String
+  tokenHash           String    @unique
   /// Staff-facing note ("info-session walk-up", "Dr. Patel's referral") so an
   /// outstanding invite is identifiable in the list. Never shown to the applicant.
-  label    String?
+  label               String?
   /// Null = never expires. Defaults to 14 days out at creation.
-  expiresAt   DateTime?
+  expiresAt           DateTime?
   /// Set at the invitee's first sign-in, together with claimedByEmailLower.
-  claimedAt   DateTime?
+  claimedAt           DateTime?
   /// The applicant identity that claimed it. Lets them resume a draft after the
   /// single-use token itself is spent.
   claimedByEmailLower String?
   /// Set when staff revoke an unclaimed invite. Kept rather than deleted so the
   /// audit trail of who was invited survives.
-  revokedAt   DateTime?
-  createdById String
-  createdAt   DateTime @default(now())
+  revokedAt           DateTime?
+  createdById         String
+  createdAt           DateTime  @default(now())
 
   cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   /// Restrict: the issuing staffer is the accountable party for admitting someone

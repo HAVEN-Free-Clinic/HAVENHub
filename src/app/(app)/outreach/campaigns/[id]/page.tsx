@@ -9,8 +9,6 @@ import {
   CampaignValidationError,
   type AudiencePreview,
 } from "@/platform/email/campaigns/service";
-import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
-import { mailConnectionStatus } from "@/platform/email/oauth";
 import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
@@ -36,7 +34,6 @@ import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
 import { EditorTabs, type EditorTab } from "./tabs";
 import { SenderPicker } from "./sender-picker";
-import type { SendingDomainMap } from "../../sender-identity-notes";
 import {
   saveAction,
   previewAction,
@@ -143,13 +140,13 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   // The same list the server authorizes a submitted choice against, so the menu
   // can never offer something the save would refuse. Loaded only for a draft,
   // since nothing else can change the sender.
+  // The sending-domain notes (SENDING_DOMAINS as plain data, plus the mailbox
+  // Graph is connected as) used to be resolved here for SenderPicker. They were
+  // removed from the composer: they answer an ADMIN's question at issue time,
+  // not a sender's at compose time, and a sender can only pick from what an
+  // admin already approved. mailConnectionStatus() went with them, which also
+  // takes an OAuth-status read off every draft render.
   const senderOptions = isDraft ? await senderIdentitiesForCampaign(actor.personId, id) : [];
-  // Plain data for the client notes: sending-domains.ts reads `@/platform/config`
-  // at import and must not be bundled into the browser.
-  const domains: SendingDomainMap = Object.fromEntries(SENDING_DOMAINS);
-  const mail = isDraft
-    ? await mailConnectionStatus()
-    : { account: null as string | null };
 
   const zone = await getDisplayTimeZone();
 
@@ -234,16 +231,11 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             </div>
 
             {/* Sending identity. Sits in the Compose section because the From
-                address is part of composing the message, and because this is
-                the point at which the two consequences the sender cannot
-                otherwise see (the Graph throughput ceiling and the Send-As
-                requirement) are still cheap to act on. */}
-            <SenderPicker
-              options={senderOptions}
-              initial={campaign.fromEmail}
-              domains={domains}
-              connectedMailbox={mail.account}
-            />
+                address is part of composing the message. A closed list, no
+                warning panels: the Graph throughput ceiling and the Send-As
+                requirement are shown where they are still actionable, which is
+                the three admin surfaces that CREATE an identity. */}
+            <SenderPicker options={senderOptions} initial={campaign.fromEmail} />
 
             {/* Template editor (subject + body) */}
             <TemplateEditor

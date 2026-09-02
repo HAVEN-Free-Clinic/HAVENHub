@@ -77,15 +77,32 @@
  * read covers a row written before a check existed, or one whose domain left the
  * allowlist afterwards.
  *
- * REVOCATION IS A FLIP, NOT A DELETE. SendingIdentity.revokedAt is the sole
- * validity signal and every read here filters on it. ServiceCredential shipped
- * exactly the opposite bug -- a presence-only relation check counted a revoked
- * credential as held (see the hasServiceCredential note in
- * audience/person-fields.ts) -- and the same shape would be worse here, because
- * the thing it wrongly grants is the right to speak as the clinic.
+ * REVOCATION IS A FLIP, NOT A DELETE, AND IT IS ON THE ADDRESS. Task 3 split
+ * SendingIdentity into the address and its holders (SendingIdentityGrant), so
+ * revokedAt now retires the ADDRESS -- through every route to it, direct grant
+ * and role grant alike -- and is still the sole validity signal every read here
+ * filters on. Keeping it there rather than on the grant is what makes that
+ * structurally true rather than a property of remembering to filter N places:
+ * every route passes through the identity row, so a grant added later cannot
+ * resurrect a retired address. ServiceCredential shipped exactly the opposite
+ * bug -- a presence-only relation check counted a revoked credential as held
+ * (see the hasServiceCredential note in audience/person-fields.ts) -- and the
+ * same shape would be worse here, because the thing it wrongly grants is the
+ * right to speak as the clinic.
+ *
+ * A ROLE GRANT IS EXPANDED LIVE, NEVER SNAPSHOTTED. availableSenderIdentities
+ * calls roleIdsForPerson -- the SAME helper scopesForPerson uses, not a second
+ * expansion -- on every call, and nothing stores the answer. So losing a role
+ * loses the identity on the very next resolve, with no save and no refresh in
+ * between, and because resolveCampaignSender goes through this one function, the
+ * enqueue-time re-resolve re-expands roles for free. Role loss between Save and
+ * Send is the same class of event as a revocation between Save and Send, and it
+ * gets the same treatment because it travels the same code path.
  */
-import { prisma } from "@/platform/db";
+import { Prisma } from "@prisma/client";
+import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { signingTransportFor, type SigningTransport } from "./sending-domains";
 import { EMAIL_RE } from "./address";
 
@@ -113,17 +130,31 @@ export type SenderIdentityOption = {
   transport: SigningTransport;
 };
 
-/** An issued row as the admin screen shows it, revoked ones included. */
+/** One holder of one identity: a person, or a role, never both. */
+export type SendingIdentityGrantView = {
+  id: string;
+  personId: string | null;
+  roleId: string | null;
+  /** The person's or the role's name, whichever this grant targets. */
+  targetName: string;
+  kind: "person" | "role";
+  grantedAt: Date;
+};
+
+/** An issued address as the admin screen shows it, revoked ones included. */
 export type IssuedIdentityView = {
   id: string;
-  personId: string;
-  personName: string;
   address: string;
   displayName: string | null;
   transport: SigningTransport | null;
-  issuedAt: Date;
+  createdAt: Date;
   revokedAt: Date | null;
+  /** Every holder, person and role alike. Empty means nobody can send as it. */
+  grants: SendingIdentityGrantView[];
 };
+
+/** Who an address is being issued to. Exactly one, mirroring grantScope. */
+export type SendingIdentityTarget = { personId: string } | { roleId: string };
 
 /** Just the two identity columns of a scope, so callers can pass a row or a view. */
 export type ScopeIdentity = { fromEmail: string | null; fromName: string | null };
@@ -188,52 +219,97 @@ export function assertSignable(address: string): SigningTransport {
 // ---------------------------------------------------------------------------
 
 /**
- * Issue an address to a person, or restore one previously revoked.
+ * Issue an address to a person or a role, restoring it if it was retired.
  *
- * Upsert on the (personId, address) pair rather than insert, because revocation
- * flips revokedAt on the row instead of deleting it: a second insert for the
- * same pair would violate the constraint, so re-issuing has to clear the flag in
- * place. That is the same shape restoreServiceCredential already uses.
+ * ONE CALL DOES BOTH JOBS -- mint the address and hand it to a holder -- because
+ * after the Task 3 split they are two writes to two tables and an admin screen
+ * that made you do them separately would leave an address with no holder as its
+ * most common outcome. Issuing an address that already exists simply adds a
+ * grant, which is how a shared mailbox reaches several people now that it is one
+ * row rather than one row each.
+ *
+ * Upsert on the address rather than insert, because retiring an address flips
+ * revokedAt on the row instead of deleting it: a second insert would violate the
+ * unique constraint, so re-issuing has to clear the flag in place. That is the
+ * same shape restoreServiceCredential already uses.
+ *
+ * RE-ISSUING A RETIRED ADDRESS UN-RETIRES IT, deliberately: the admin has just
+ * named that exact address and chosen a holder for it, which is the same
+ * explicit act that issued it in the first place. What it does NOT do is
+ * resurrect the OLD holders -- their grants had to be deleted for the retirement
+ * to mean anything, and they are not recreated here.
  */
 export async function issueSendingIdentity(
   actorPersonId: string | null,
-  input: { personId: string; address: string; displayName?: string | null },
+  input: { address: string; displayName?: string | null } & SendingIdentityTarget,
 ): Promise<IssuedIdentityView> {
   const address = normalizeSendingAddress(input.address);
   if (!address) throw new SenderIdentityError("Enter an email address.");
-  const transport = assertSignable(address);
+  assertSignable(address);
   const displayName = input.displayName?.trim() ? input.displayName.trim() : null;
+  const target: SendingIdentityTarget =
+    "personId" in input ? { personId: input.personId } : { roleId: input.roleId };
 
   const row = await prisma.sendingIdentity.upsert({
-    where: { personId_address: { personId: input.personId, address } },
-    create: {
-      personId: input.personId,
-      address,
-      displayName,
-      issuedById: actorPersonId,
-    },
+    where: { address },
+    create: { address, displayName, createdById: actorPersonId },
     update: {
-      displayName,
-      issuedById: actorPersonId,
-      issuedAt: new Date(),
+      // ONLY when one was actually supplied. The display name is a property of
+      // the ADDRESS now, and this form is how a SECOND holder gets added, so an
+      // unconditional write means adding a role to an existing address silently
+      // erases the name recipients have been seeing -- with the blank optional
+      // field on the form reading as "erase it" rather than "I did not set one".
+      // Caught by driving the page, not by tsc, eslint, or any test that existed
+      // at the time. Same distinction identityData draws for a scope's identity
+      // columns. Clearing a display name is not something this screen offered
+      // before the split either.
+      ...(displayName ? { displayName } : {}),
       revokedAt: null,
       revokedById: null,
     },
-    include: { person: { select: { name: true } } },
   });
+
+  // The shipped UI builds its person and role options from the full roster with
+  // no exclusion of who already holds a grant, and a stale page (or a genuine
+  // double click) can also race two identical submits, so this unique-constraint
+  // violation (SendingIdentityGrant_unique_grant) is one click away in normal
+  // use rather than an edge case. Translate it into this module's typed error,
+  // exactly as grantScope does, instead of letting a raw P2002 reach the generic
+  // error boundary.
+  try {
+    await prisma.sendingIdentityGrant.create({
+      data: { identityId: row.id, ...target, grantedById: actorPersonId },
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new SenderIdentityError(
+        `That person or role can already send as "${address}".`,
+      );
+    }
+    throw err;
+  }
 
   await recordAudit({
     actorPersonId,
     action: "sending_identity.issue",
     entityType: "SendingIdentity",
     entityId: row.id,
-    after: { personId: row.personId, address: row.address, displayName: row.displayName },
+    after: { address: row.address, displayName: row.displayName, ...target },
   });
 
-  return { ...toIssuedView(row), transport };
+  return loadIssuedIdentity(row.id);
 }
 
-/** Revoke an issued address. Idempotent: revoking a revoked row changes nothing. */
+/**
+ * Retire an ADDRESS. Idempotent: retiring a retired one changes nothing.
+ *
+ * This is the revocation with the auditable trail, and the one that has to kill
+ * EVERY route to the address. It does that by flipping one flag on the row every
+ * route passes through, rather than by deleting grants: a delete would be
+ * undone by the next grant anyone adds, and would leave no record that the
+ * address was ever retired. The grants are deliberately left in place, so the
+ * admin screen can still say who used to hold it.
+ */
 export async function revokeSendingIdentity(
   actorPersonId: string | null,
   id: string,
@@ -252,46 +328,111 @@ export async function revokeSendingIdentity(
     action: "sending_identity.revoke",
     entityType: "SendingIdentity",
     entityId: id,
-    before: { personId: existing.personId, address: existing.address },
+    before: { address: existing.address },
+  });
+}
+
+/**
+ * Take one address away from one holder, leaving it live for the others.
+ *
+ * A DELETE, not a flag, and the trail is this audit row -- the same call
+ * revokeScope makes for an AudienceScopeGrant. Keeping it a delete is what lets
+ * the COALESCE unique index stay a plain unique (a retired grant row would
+ * collide with the re-grant), and it keeps the number of nullable revocation
+ * filters a read can forget at exactly one, on SendingIdentity.
+ */
+export async function revokeSendingIdentityGrant(
+  actorPersonId: string | null,
+  grantId: string,
+): Promise<void> {
+  // Same shape as issueSendingIdentity's P2002 handling, for the double-submit
+  // and stale-page P2025 case (the grant was already removed in another tab).
+  let grant;
+  try {
+    grant = await prisma.sendingIdentityGrant.delete({ where: { id: grantId } });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      throw new SenderIdentityError("That grant no longer exists.");
+    }
+    throw err;
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "sending_identity.revoke_grant",
+    entityType: "SendingIdentity",
+    entityId: grant.identityId,
+    before: { personId: grant.personId, roleId: grant.roleId },
   });
 }
 
 type IssuedRow = {
   id: string;
-  personId: string;
   address: string;
   displayName: string | null;
-  issuedAt: Date;
+  createdAt: Date;
   revokedAt: Date | null;
-  person: { name: string };
+  grants: Array<{
+    id: string;
+    personId: string | null;
+    roleId: string | null;
+    grantedAt: Date;
+    person: { name: string } | null;
+    role: { name: string } | null;
+  }>;
 };
+
+const ISSUED_INCLUDE = {
+  grants: {
+    include: { person: { select: { name: true } }, role: { select: { name: true } } },
+    orderBy: [{ grantedAt: "asc" }, { id: "asc" }],
+  },
+} as const satisfies Prisma.SendingIdentityInclude;
 
 function toIssuedView(row: IssuedRow): IssuedIdentityView {
   return {
     id: row.id,
-    personId: row.personId,
-    personName: row.person.name,
     address: row.address,
     displayName: row.displayName,
     // Read live rather than snapshotted, so an admin can SEE that a previously
     // fine identity stopped being signable when the allowlist narrowed.
     transport: signingTransportFor(row.address),
-    issuedAt: row.issuedAt,
+    createdAt: row.createdAt,
     revokedAt: row.revokedAt,
+    grants: row.grants.map((g) => ({
+      id: g.id,
+      personId: g.personId,
+      roleId: g.roleId,
+      // The XOR constraint guarantees one of the two, so the fallback is
+      // unreachable rather than a real state; it exists so a row written before
+      // that constraint (or by a future migration that forgets it) renders as
+      // something an admin can see and delete instead of crashing the screen.
+      targetName: g.person?.name ?? g.role?.name ?? "(no target)",
+      kind: g.personId ? "person" : "role",
+      grantedAt: g.grantedAt,
+    })),
   };
 }
 
+async function loadIssuedIdentity(id: string): Promise<IssuedIdentityView> {
+  const row = await prisma.sendingIdentity.findUniqueOrThrow({
+    where: { id },
+    include: ISSUED_INCLUDE,
+  });
+  return toIssuedView(row);
+}
+
 /**
- * Every issued row for the admin screen, revoked ones included.
+ * Every issued address for the admin screen, retired ones included.
  *
- * Revoked rows are shown deliberately: they are the record of who used to be
- * able to speak as the clinic, and hiding them would make a revoke look like a
- * delete on a screen whose whole job is to explain who holds what.
+ * Retired rows are shown deliberately: they are the record of an address the
+ * clinic once spoke as, and hiding them would make a revoke look like a delete
+ * on a screen whose whole job is to explain who holds what.
  */
 export async function listIssuedIdentities(): Promise<IssuedIdentityView[]> {
   const rows = await prisma.sendingIdentity.findMany({
-    include: { person: { select: { name: true } } },
-    orderBy: [{ person: { name: "asc" } }, { address: "asc" }],
+    include: ISSUED_INCLUDE,
+    orderBy: { address: "asc" },
   });
   return rows.map(toIssuedView);
 }
@@ -309,7 +450,14 @@ export async function listIssuedIdentities(): Promise<IssuedIdentityView[]> {
  *
  * `personId` is nullable because the enqueue-time re-resolve can reach here with
  * no surviving chooser. The scope layer does not depend on a person, so it still
- * resolves; the other two simply contribute nothing.
+ * resolves; the issued layer simply contributes nothing.
+ *
+ * ROLE EXPANSION HAPPENS HERE AND NOWHERE ELSE, which is what keeps the menu and
+ * the check one list. The compose UI, the save-time authorization check, and the
+ * enqueue-time re-resolve all reach this function; none of them expands roles
+ * itself, and none of them caches the answer. So "the identities you may send
+ * as" is a single live query in a single place, and a role removed a second ago
+ * is gone from all three at once.
  */
 export async function availableSenderIdentities(
   personId: string | null,
@@ -338,14 +486,33 @@ export async function availableSenderIdentities(
   // 1. The scope identity. Strongest: an admin set it on the delegation boundary.
   add(normalizeSendingAddress(scope?.fromEmail), scope?.fromName ?? null, "scope");
 
-  // 2. Addresses issued to this person, and THE LAST LAYER. revokedAt: null is
-  // the whole validity check -- a presence-only lookup here is the
-  // ServiceCredential bug. There is deliberately no third layer reading
+  // 2. Addresses issued to this person -- DIRECTLY, or to a role they hold --
+  // and THE LAST LAYER. There is deliberately no third layer reading
   // Person.contactEmail: see the module note for why a self-service unverified
   // field cannot be a claim, and do not re-add it as a convenience.
+  //
+  // Two things about this one query are load-bearing:
+  //
+  //   `revokedAt: null` sits on the IDENTITY, outside the grants filter, so it
+  //   is not a condition a grant can satisfy its way around. A retired address
+  //   is gone through the direct route and the role route at once, which is why
+  //   the flag lives on this table and not on the grants.
+  //
+  //   roleIdsForPerson is the SAME helper scopesForPerson uses (rbac/engine),
+  //   not a second expansion, so "which roles does this person hold" has one
+  //   definition. It reads live DB state, so a role removed between two calls
+  //   is absent from the second with nothing to invalidate.
   if (personId) {
+    const roleIds = await roleIdsForPerson(personId);
     const issued = await prisma.sendingIdentity.findMany({
-      where: { personId, revokedAt: null },
+      where: {
+        revokedAt: null,
+        grants: {
+          some: {
+            OR: [{ personId }, ...(roleIds.length ? [{ roleId: { in: roleIds } }] : [])],
+          },
+        },
+      },
       orderBy: { address: "asc" },
     });
     for (const row of issued) add(row.address, row.displayName, "issued");
@@ -390,15 +557,23 @@ export async function resolveSenderIdentity(
  * Re-resolved rather than trusted, for the same reason assertMayActOnScope
  * re-checks on every call: a campaign can be composed under one set of claims
  * and dispatched under another, and a recurring campaign is dispatched by cron
- * with no actor at all, weeks later. Specifically, an issued identity revoked
- * between Save and Send must stop being used.
+ * with no actor at all, weeks later. TWO events of the same class have to be
+ * caught here, and both are, because both travel one code path:
+ *
+ *   - the identity was RETIRED between Save and Send, and
+ *   - the chooser LOST THE ROLE the grant reached them through.
+ *
+ * The second needs no code of its own: availableSenderIdentities expands roles
+ * live on every call, so a stored choice that only a lost role justified is
+ * simply not in the list this function searches.
  *
  * A stored choice that no longer resolves FALLS BACK down the order rather than
- * failing the run. The fallback lands on the scope identity or the global
- * default, both of which are admin-controlled, so the failure mode is a campaign
- * that goes out from a safe address rather than a recurring campaign that
- * silently stops. The swap is logged by the caller, which is the only place that
- * knows which campaign it was.
+ * failing the run. The fallback is drawn from THAT SAME freshly-resolved list,
+ * so it can only ever be something the chooser could still pick at this moment:
+ * it lands on the scope identity or the global default, both admin-controlled.
+ * The failure mode is a campaign that goes out from a safe address rather than a
+ * recurring campaign that silently stops. The swap is logged by the caller,
+ * which is the only place that knows which campaign it was.
  */
 export async function resolveCampaignSender(
   campaign: { fromEmail: string | null; fromEmailSetById: string | null },

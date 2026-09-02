@@ -350,7 +350,7 @@ export const MIN_PERSON_SEARCH_LENGTH = 2;
  * this function ever takes a scope from a client, and there is deliberately no
  * entry point that would let one.
  *
- * People with no address on file are left out. Adding one to a campaign does
+ * People with no usable address are left out. Adding one to a campaign does
  * nothing except grow the "excluded, no email" count, so offering them would
  * only invite a manual include that silently does nothing.
  */
@@ -367,7 +367,22 @@ export async function searchPeople(
   const scopeWhere = opts.scope ? compilePersonWhere(opts.scope, ctx) : null;
 
   const matches: Prisma.PersonWhereInput = {
-    NOT: { contactEmail: null },
+    // "Has a usable address" asked in the QUERY, not applied to the rows that
+    // come back. Applied afterwards it runs AFTER `take`, so people whose
+    // address is set but blank consume result slots and the search reports
+    // nothing while in-scope matches sit just past the cap.
+    //
+    // Spelled as `contains: "@"` because no Prisma string filter can express
+    // "trims to non-empty", and whitespace-only is the spelling that matters:
+    // contactEmail is @unique, so at most ONE row can hold "" and it could
+    // waste at most one slot, while "  ", "   " and so on are distinct values
+    // that can fill every slot. A NULL address never satisfies `contains`
+    // either, so this one predicate covers all three spellings of "blank".
+    //
+    // The cost of asking it this way: a non-blank address with no "@" stops
+    // being offered for manual add. Nothing can deliver such a value anyway, so
+    // the search would only be offering a person the send path will drop.
+    contactEmail: { contains: "@" },
     OR: [
       { name: { contains: q, mode: "insensitive" } },
       { contactEmail: { contains: q, mode: "insensitive" } },
@@ -381,9 +396,12 @@ export async function searchPeople(
     take: PERSON_SEARCH_LIMIT,
   });
 
-  return people
-    .map((p) => ({ personId: p.id, name: p.name, email: p.contactEmail?.trim() ?? "" }))
-    .filter((p) => p.email !== "");
+  // Trimmed to match what the send path would actually use as the address.
+  return people.map((p) => ({
+    personId: p.id,
+    name: p.name,
+    email: (p.contactEmail ?? "").trim(),
+  }));
 }
 
 /**

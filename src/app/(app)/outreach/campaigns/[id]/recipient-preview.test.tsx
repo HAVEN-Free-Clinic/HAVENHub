@@ -32,38 +32,61 @@ const EMPTY_PREVIEW: AudiencePreview = {
   unresolved: [],
 };
 
-function render(
-  preview: Partial<AudiencePreview>,
-  opts: {
-    excludedCount?: number;
-    pastedText?: string;
-    searchAction?: (query: string) => Promise<PersonSearchHit[]>;
-  } = {},
-) {
+type Opts = {
+  excludedCount?: number;
+  pastedText?: string;
+  savedAt?: string;
+  searchAction?: (query: string) => Promise<PersonSearchHit[]>;
+};
+
+function panel(preview: Partial<AudiencePreview>, opts: Opts = {}) {
+  return (
+    <RecipientPreview
+      formId="campaign-compose"
+      savedAt={opts.savedAt ?? "2026-09-02T00:00:00.000Z"}
+      preview={{ ...EMPTY_PREVIEW, ...preview }}
+      excludedCount={opts.excludedCount ?? 0}
+      pastedText={opts.pastedText ?? ""}
+      searchAction={opts.searchAction ?? (async () => [])}
+      includeAction={() => {}}
+      excludeAction={() => {}}
+      clearExcludedAction={() => {}}
+      pastedEmailsAction={() => {}}
+    />
+  );
+}
+
+function render(preview: Partial<AudiencePreview>, opts: Opts = {}) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root.render(
-      <RecipientPreview
-        formId="campaign-compose"
-        preview={{ ...EMPTY_PREVIEW, ...preview }}
-        excludedCount={opts.excludedCount ?? 0}
-        pastedText={opts.pastedText ?? ""}
-        searchAction={opts.searchAction ?? (async () => [])}
-        includeAction={() => {}}
-        excludeAction={() => {}}
-        clearExcludedAction={() => {}}
-        pastedEmailsAction={() => {}}
-      />,
-    );
+    root.render(panel(preview, opts));
+  });
+}
+
+/** A second server render arriving as a soft nav: same root, new props, no remount. */
+function rerender(preview: Partial<AudiencePreview>, opts: Opts = {}) {
+  act(() => {
+    root.render(panel(preview, opts));
   });
 }
 
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  document.getElementById("campaign-compose")?.remove();
 });
+
+/** Mounts the compose form the dirty guard listens to, before the panel renders. */
+function mountComposeForm(): HTMLFormElement {
+  const form = document.createElement("form");
+  form.id = "campaign-compose";
+  const input = document.createElement("input");
+  form.appendChild(input);
+  document.body.appendChild(form);
+  return form;
+}
 
 function text(): string {
   return container.textContent ?? "";
@@ -129,6 +152,99 @@ describe("RecipientPreview", () => {
     expect(text()).toContain(
       "An address is listed here whether nobody has it or somebody outside this campaign's audience scope does",
     );
+  });
+
+  /** Types into the paste box the way a sender would. */
+  function typePasted(value: string) {
+    const box = container.querySelector<HTMLTextAreaElement>('textarea[name="pastedEmails"]')!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(box, value);
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  // Half of the protection for unsaved pasted text: a new server render must
+  // not reach into the box. The panel takes savedAt as a PROP for this reason
+  // and must never be given a key that moves with it.
+  it("keeps unsaved pasted addresses across a new server render", () => {
+    render({ count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] });
+
+    typePasted("typed-but-unsaved@example.com");
+
+    // Exactly what an Exclude produces: a newer savedAt, a shorter roll, and
+    // the pastedText prop unchanged because that action wrote a different column.
+    rerender({ count: 0 }, { excludedCount: 1, savedAt: "2026-09-02T01:00:00.000Z" });
+
+    const after = container.querySelector<HTMLTextAreaElement>('textarea[name="pastedEmails"]')!;
+    expect(after.value).toBe("typed-but-unsaved@example.com");
+  });
+
+  // The other half, and the one that actually closes the hole. A redirecting
+  // server action replaces the whole page tree on some paths, which no
+  // component-level trick survives, so while the box holds anything unsaved the
+  // controls that navigate are refused outright.
+  it("refuses to navigate while the paste box holds unsaved text, and says why", () => {
+    render(
+      { count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] },
+      { excludedCount: 2, pastedText: "saved@example.com" },
+    );
+    expect(button("Exclude")?.disabled).toBe(false);
+    expect(button("Restore all")?.disabled).toBe(false);
+
+    typePasted("saved@example.com\nhalf-typed@examp");
+
+    expect(button("Exclude")?.disabled).toBe(true);
+    expect(button("Restore all")?.disabled).toBe(true);
+    // The paste box's own save is the way out and must stay live.
+    expect(button("Save addresses")?.disabled).toBe(false);
+    expect(text()).toContain("Save or discard these addresses first");
+
+    // Discard is the other way out, for a sender who does not want to keep it.
+    act(() => button("Discard")!.click());
+    expect(
+      container.querySelector<HTMLTextAreaElement>('textarea[name="pastedEmails"]')!.value,
+    ).toBe("saved@example.com");
+    expect(button("Exclude")?.disabled).toBe(false);
+    expect(button("Restore all")?.disabled).toBe(false);
+  });
+
+  it("re-enables its controls once a newer saved version arrives", () => {
+    const form = mountComposeForm();
+    render({ count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] });
+    expect(button("Exclude")?.disabled).toBe(false);
+
+    // An edit anywhere in the compose form: the roll on screen now describes a
+    // version that is no longer what would be sent.
+    act(() => {
+      form.querySelector("input")!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(button("Exclude")?.disabled).toBe(true);
+
+    // The save lands. Without the savedAt prop the panel would have to be
+    // remounted to notice, and remounting is what destroys the paste box.
+    rerender(
+      { count: 1, sample: [{ personId: "p1", name: "A", email: "a@x.com", reason: "matched" }] },
+      { savedAt: "2026-09-02T02:00:00.000Z" },
+    );
+    expect(button("Exclude")?.disabled).toBe(false);
+  });
+
+  it("blames hand-exclusions, not the conditions, when they are what emptied the roll", () => {
+    render({ count: 0 }, { excludedCount: 3 });
+    expect(text()).toContain("Nobody is left on this list");
+    expect(text()).toContain("3 people were excluded by hand");
+    expect(text()).not.toContain("check that every condition has a value");
+
+    act(() => root.unmount());
+    container.remove();
+
+    render({ count: 0 });
+    expect(text()).toContain("check that every condition has a value");
+    expect(text()).not.toContain("Nobody is left on this list");
   });
 
   it("surfaces the people dropped for having no email address", () => {

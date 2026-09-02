@@ -11,22 +11,41 @@ import { useEffect, useState } from "react";
  * database -- preview, test, send, schedule, recurring -- must gate on this so it
  * cannot silently act on the last-saved version while the compose form is dirty.
  *
- * Resets to clean on remount. A successful save is a soft nav (revalidate + redirect
- * ?saved=1), which RECONCILES rather than remounts, so the consuming component must be
- * keyed on the campaign's updatedAt by its parent to force the remount (#14) -- this
- * hook has no path back to false on its own.
+ * `savedAt` is how a caller says "everything up to here has been persisted":
+ * pass the campaign's updatedAt, and the flag drops back to false whenever the
+ * server hands down a newer one. Callers that omit it get the original
+ * behaviour, which has no path back to false on its own and therefore has to be
+ * REMOUNTED by its parent to reset (ReviewActions and TimingActions are keyed
+ * on updatedAt for exactly that, #14).
+ *
+ * The reset argument exists because a remount is not free for every consumer. A
+ * component holding an uncontrolled input -- the recipient panel's paste box --
+ * loses the text in it every time the key changes, and manual-list actions bump
+ * updatedAt without the sender having touched the compose form at all. Passing
+ * savedAt lets that panel reconcile across the soft nav instead of remounting,
+ * which is what keeps a half-typed block of addresses alive.
  */
-export function useFormDirty(formId: string): boolean {
-  const [dirty, setDirty] = useState(false);
+export function useFormDirty(formId: string, savedAt?: string): boolean {
+  // The two questions live in one state object so they can only ever move
+  // together: "is it dirty" and "which saved version was that judged against".
+  const [tracked, setTracked] = useState({ dirty: false, savedAt });
+
+  // Derived during render rather than in an effect, so a re-render carrying a
+  // newer savedAt reports clean IMMEDIATELY. An effect would let one paint go
+  // out with the controls still disabled straight after a successful save,
+  // which is the papercut the remount was hiding.
+  if (tracked.savedAt !== savedAt) {
+    setTracked({ dirty: false, savedAt });
+  }
 
   useEffect(() => {
     const form = document.getElementById(formId);
     if (!form) return;
 
-    const markDirty = () => setDirty(true);
+    const markDirty = () => setTracked((t) => ({ ...t, dirty: true }));
     const onClick = (event: Event) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('button[type="button"]')) setDirty(true);
+      if (target?.closest('button[type="button"]')) markDirty();
     };
 
     form.addEventListener("input", markDirty);
@@ -39,5 +58,5 @@ export function useFormDirty(formId: string): boolean {
     };
   }, [formId]);
 
-  return dirty;
+  return tracked.dirty;
 }

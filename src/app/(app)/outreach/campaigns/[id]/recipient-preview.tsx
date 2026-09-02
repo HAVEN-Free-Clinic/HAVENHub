@@ -77,9 +77,25 @@ export function UnresolvedPastedAddresses({ addresses }: { addresses: string[] }
  * same guard ReviewActions and TimingActions use: acting while it is dirty
  * would edit a list against a stale roll, and the navigation would throw away
  * the unsaved condition edits on the way.
+ *
+ * Unlike those two, this panel must NOT be remounted to reset that guard: it
+ * holds text the sender has typed and not saved. Keyed on updatedAt, clicking
+ * Exclude on one row silently threw away a whole pasted block, because every
+ * manual-list action bumps updatedAt. The reset therefore arrives as the
+ * `savedAt` prop and the panel reconciles across the soft nav instead.
+ *
+ * That is necessary and not sufficient, which is worth knowing before anyone
+ * simplifies it. Measured on the real page: a server action that redirects
+ * replaces the ENTIRE page tree on some paths (Add and Save-addresses do, with
+ * no full page load and no error; Exclude does not), and nothing a component
+ * can do survives that -- an uncontrolled DOM value and React state die
+ * together. So the paste box ALSO disables every control here that navigates
+ * while it holds anything unsaved. The two together are what make the text
+ * safe; either alone leaves a click that destroys it.
  */
 export function RecipientPreview({
   formId,
+  savedAt,
   preview,
   excludedCount,
   pastedText,
@@ -90,6 +106,14 @@ export function RecipientPreview({
   pastedEmailsAction,
 }: {
   formId: string;
+  /**
+   * The campaign's updatedAt, as an ISO string. Drives the compose-dirty reset
+   * (see useFormDirty), and is deliberately a PROP rather than a `key` on this
+   * component: keying it would remount the panel on every manual-list action,
+   * and the paste box below is an uncontrolled textarea whose half-typed
+   * contents would go with it.
+   */
+  savedAt: string;
   preview: AudiencePreview;
   /** How many ids are in excludePersonIds. Deliberately a count and not a roll: see clearExcludedAction. */
   excludedCount: number;
@@ -100,10 +124,28 @@ export function RecipientPreview({
   clearExcludedAction: () => void | Promise<void>;
   pastedEmailsAction: FormAction;
 }) {
-  const dirty = useFormDirty(formId);
+  const dirty = useFormDirty(formId, savedAt);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PersonSearchHit[] | null>(null);
   const [searching, startSearch] = useTransition();
+
+  /**
+   * The paste box, held in state so the panel can tell whether it holds
+   * anything the server has not got yet.
+   *
+   * `savedAt` keeps this panel from remounting on the actions it can see
+   * coming, but that is not enough on its own: a server action that redirects
+   * replaces the whole page tree on some paths (Add and Save-addresses do,
+   * Exclude does not), and no in-component technique survives that -- neither
+   * an uncontrolled DOM value nor this state. So unsaved text also DISABLES
+   * every control here that navigates. Together the two mean a half-typed block
+   * of addresses cannot be thrown away by a click somewhere else in the panel.
+   */
+  const [pastedDraft, setPastedDraft] = useState(pastedText);
+  const pastedUnsaved = pastedDraft !== pastedText;
+  // Anything that posts and navigates. The paste box's OWN save is deliberately
+  // not in here: it is the way out.
+  const navigatingDisabled = dirty || pastedUnsaved;
 
   function runSearch() {
     if (query.trim().length < MIN_SEARCH_LENGTH) return;
@@ -147,7 +189,7 @@ export function RecipientPreview({
                     excluded people would echo back a name for any id posted to
                     this page; see clearExcludedAction in actions.ts. */}
                 <form action={clearExcludedAction}>
-                  <SubmitButton variant="ghost" pendingLabel="Restoring..." disabled={dirty}>
+                  <SubmitButton variant="ghost" pendingLabel="Restoring..." disabled={navigatingDisabled}>
                     Restore all
                   </SubmitButton>
                 </form>
@@ -157,10 +199,23 @@ export function RecipientPreview({
         </div>
 
         {preview.count === 0 ? (
-          <Alert tone="warning">
-            This audience matches nobody. An empty or incomplete condition deliberately matches
-            no one rather than everyone, so check that every condition has a value.
-          </Alert>
+          /* Two different reasons for an empty roll, and the copy has to say
+             which. "Check that every condition has a value" is actively
+             misleading to a sender whose conditions matched fine and who then
+             excluded everyone by hand: it sends them to edit a tree that is
+             working, when the fix is one Restore away. */
+          excludedCount > 0 ? (
+            <Alert tone="warning">
+              Nobody is left on this list. {excludedCount}{" "}
+              {excludedCount === 1 ? "person was" : "people were"} excluded by hand; Restore all
+              puts {excludedCount === 1 ? "them" : "them all"} back.
+            </Alert>
+          ) : (
+            <Alert tone="warning">
+              This audience matches nobody. An empty or incomplete condition deliberately matches
+              no one rather than everyone, so check that every condition has a value.
+            </Alert>
+          )
         ) : (
           <div className="max-h-96 overflow-y-auto">
             <Table>
@@ -183,7 +238,7 @@ export function RecipientPreview({
                     <TD>
                       <form action={excludeAction}>
                         <input type="hidden" name="personId" value={r.personId} />
-                        <SubmitButton variant="ghost" pendingLabel="Excluding..." disabled={dirty}>
+                        <SubmitButton variant="ghost" pendingLabel="Excluding..." disabled={navigatingDisabled}>
                           Exclude
                         </SubmitButton>
                       </form>
@@ -252,7 +307,7 @@ export function RecipientPreview({
                 </span>
                 <form action={includeAction}>
                   <input type="hidden" name="personId" value={p.personId} />
-                  <SubmitButton variant="outline" pendingLabel="Adding..." disabled={dirty}>
+                  <SubmitButton variant="outline" pendingLabel="Adding..." disabled={navigatingDisabled}>
                     Add
                   </SubmitButton>
                 </form>
@@ -274,15 +329,33 @@ export function RecipientPreview({
             <Textarea
               name="pastedEmails"
               rows={4}
-              defaultValue={pastedText}
+              value={pastedDraft}
+              onChange={(e) => setPastedDraft(e.target.value)}
               disabled={dirty}
               placeholder={"someone@example.com\nsomeone-else@example.com"}
             />
           </Field>
-          <SubmitButton variant="outline" pendingLabel="Saving..." disabled={dirty}>
-            Save addresses
-          </SubmitButton>
+          <div className="flex flex-wrap items-center gap-2">
+            <SubmitButton variant="outline" pendingLabel="Saving..." disabled={dirty}>
+              Save addresses
+            </SubmitButton>
+            {pastedUnsaved && (
+              // The way out of the guard that is not a save. Without it a sender
+              // who typed something they did not want has to reconstruct the
+              // stored text by hand before the rest of the panel works again.
+              <Button type="button" variant="ghost" onClick={() => setPastedDraft(pastedText)}>
+                Discard
+              </Button>
+            )}
+          </div>
         </form>
+
+        {pastedUnsaved && (
+          <Alert tone="warning">
+            Save or discard these addresses first. Excluding, adding and restoring all reload
+            the page, and anything typed here that has not been saved would go with it.
+          </Alert>
+        )}
 
         <UnresolvedPastedAddresses addresses={preview.unresolved} />
       </Card>

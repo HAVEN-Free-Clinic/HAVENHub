@@ -197,12 +197,20 @@ export type ResolvedCampaignAudience = {
   excludedNoEmail: number;
   /**
    * Why each MANUALLY added recipient is in the roll, keyed by person id. A
-   * recipient absent from this map is a condition match, which is also the
-   * deliberate answer for someone who is BOTH a match and an explicit include:
-   * they never become a manual candidate at all (see the matchedIds filter
-   * below), so they stay labelled "matched". That is the truthful label --
-   * deleting the manual entry would not remove them -- and "included" would
-   * tell the sender the opposite.
+   * recipient absent from this map is a condition match.
+   *
+   * ONE rule decides every label: it names a route that ALONE would keep the
+   * person on the roll if the others were taken away. So a person who is both a
+   * condition match and an explicit include reads "matched" -- the conditions
+   * hold them there with the manual entry deleted, and "included" would tell
+   * the sender that deleting it drops them, which is false. They never become a
+   * manual candidate at all (see the matchedIds filter below), which is what
+   * makes that outcome structural rather than a second check.
+   *
+   * When two routes both qualify (on both manual lists), the tie goes to the
+   * one the sender can see and act on, the paste box. See the comment at the
+   * assignment; both labels are true statements under the rule, so the tie-break
+   * is about usefulness, not truth.
    */
   manualReasons: Record<string, Exclude<RecipientReason, "matched">>;
   /** See unresolvedPastedAddresses. */
@@ -218,8 +226,16 @@ export type ResolvedCampaignAudience = {
  * sender pasted, and by nothing else. It never asks whether a Person with a
  * given address exists, so it cannot answer that question. An address
  * belonging to a real person the campaign's scope excludes and an address
- * belonging to nobody at all produce the same entry, in the same list, with the
- * same wording and the same count.
+ * belonging to nobody at all produce the same OUTPUT: the same entry, in the
+ * same list, with the same wording and the same count.
+ *
+ * Output is the word to be precise about, because it is not the only channel.
+ * This function's shape guarantees nothing about what the code AROUND it does
+ * with the same two cases, and the first version of that code gave the
+ * difference away by doing measurably more work when the address matched a real
+ * person -- see the comment on the hoisted scope resolve in
+ * resolveCampaignAudience. Anything added to that path has to stay symmetric
+ * too; matching output is necessary, not sufficient.
  *
  * Do not "improve" this by distinguishing them. Reporting "no such person"
  * separately from "outside your scope" hands a scoped sender an existence
@@ -308,6 +324,32 @@ export async function resolveCampaignAudience(campaign: {
   }
 
   if (includePersonIds.length > 0 || pastedEmails.length > 0) {
+    // The scope is resolved HERE, before anything has looked at what the manual
+    // lists resolved to, and unconditionally whenever there is a manual list at
+    // all. That position is a security requirement, not a tidiness one.
+    //
+    // This resolve used to sit inside `if (candidateIds.length > 0)` below, and
+    // candidateIds is non-empty iff a pasted address matched a Person row
+    // ANYWHERE in the directory. So an address belonging to a real person
+    // outside the scope cost a full extra resolveAudience of the whole scope
+    // (its buildAudienceCtx reloads the compliance, HIPAA-expiry and clearance
+    // maps when the scope names those fields, plus an unbounded findMany) while
+    // an address belonging to nobody cost none of it. The two cases are
+    // identical in everything the sender can READ, but a scoped sender who set
+    // the campaign's conditions to something trivial could still tell them
+    // apart by reloading the Audience tab and timing it -- the same existence
+    // oracle, arriving over a side channel instead of the output.
+    //
+    // Note which half leaked: an include cannot, because a forged personId
+    // makes candidateIds non-empty whether or not that person exists, so its
+    // timing reveals only in-scope-ness, which is already inside the sender's
+    // authority. Only the paste path turned on the existence of a row.
+    let inScopeIds: Set<string> | null = null;
+    if (scope) {
+      const inScope = await resolveAudience(scope.audience);
+      inScopeIds = new Set(inScope.recipients.map((r) => r.recordId));
+    }
+
     // Resolve pasted addresses to Person ids case-insensitively, the same way
     // loadApplicantFacts (audience/resolve.ts) matches unlinked applicants back
     // to a Person: Prisma ignores `mode: "insensitive"` on `in` for Postgres,
@@ -334,54 +376,69 @@ export async function resolveCampaignAudience(campaign: {
     // "matched" reading (no entry in manualReasons) rather than being
     // relabelled by a redundant include or paste. See ResolvedCampaignAudience.
     const matchedIds = new Set(resolved.recipients.map((r) => r.recordId));
-    const includeSet = new Set(includePersonIds);
+    const pastedSet = new Set(pastedPersonIds);
     const candidateIds = [...new Set([...includePersonIds, ...pastedPersonIds])].filter(
       (id) => !matchedIds.has(id),
     );
 
-    if (candidateIds.length > 0) {
-      // Manual additions go through the SAME scope filter the conditions went
-      // through. Skipping that would let a pasted address reach anyone in the
-      // database, which is the thing scopes exist to prevent.
-      let admittedIds = candidateIds;
-      if (scope) {
-        const inScope = await resolveAudience(scope.audience);
-        const inScopeIds = new Set(inScope.recipients.map((r) => r.recordId));
-        admittedIds = candidateIds.filter((id) => inScopeIds.has(id));
-      }
+    // Manual additions go through the SAME scope filter the conditions went
+    // through. Skipping that would let a pasted address reach anyone in the
+    // database, which is the thing scopes exist to prevent.
+    const admittedIds = inScopeIds
+      ? candidateIds.filter((id) => inScopeIds.has(id))
+      : candidateIds;
 
-      if (admittedIds.length > 0) {
-        const added = await prisma.person.findMany({
-          where: { id: { in: admittedIds } },
-          select: { id: true, name: true, contactEmail: true },
-          // Same ordering resolveAudience gives the matched half. Without it the
-          // manual block comes back in whatever order Postgres finds the rows,
-          // so the preview (and the send order) would shuffle between calls for
-          // no reason a sender could see.
-          orderBy: { name: "asc" },
-        });
-        const addedRecipients: Recipient[] = [];
-        let addedExcludedNoEmail = 0;
-        for (const p of added) {
-          const email = p.contactEmail?.trim() ?? "";
-          if (email === "") { addedExcludedNoEmail++; continue; }
-          // An explicit include outranks a pasted address for the same person:
-          // the include is the deliberate act, and the paste box is where a
-          // whole block of addresses lands at once.
-          manualReasons[p.id] = includeSet.has(p.id) ? "included" : "pasted";
-          addedRecipients.push({
-            email,
-            displayName: p.name,
-            recordType: "PERSON",
-            recordId: p.id,
-            variables: personVariables({ name: p.name }),
-          });
+    if (admittedIds.length > 0) {
+      const added = await prisma.person.findMany({
+        where: { id: { in: admittedIds } },
+        select: { id: true, name: true, contactEmail: true },
+        // Same ordering resolveAudience gives the matched half. Without it the
+        // manual block comes back in whatever order Postgres finds the rows,
+        // so the preview (and the send order) would shuffle between calls for
+        // no reason a sender could see.
+        orderBy: { name: "asc" },
+      });
+      const addedRecipients: Recipient[] = [];
+      let addedExcludedNoEmail = 0;
+      for (const p of added) {
+        const email = p.contactEmail?.trim() ?? "";
+        if (email === "") {
+          // KNOWN, and cosmetic: someone the CONDITIONS matched but who has no
+          // address was already counted by resolveAudience above, and if they
+          // are also on a manual list they are counted a second time here.
+          // Reachable without forging anything on an unscoped campaign: add
+          // someone by search, then have their contactEmail cleared later.
+          // resolveAudience returns only a count, not the ids it dropped, so
+          // deduplicating this means widening ResolvedAudience, which is a
+          // change to a type the whole send path shares. Recorded rather than
+          // done, because the only consequence is one number reading high.
+          addedExcludedNoEmail++;
+          continue;
         }
-        resolved = {
-          recipients: [...resolved.recipients, ...addedRecipients],
-          excludedNoEmail: resolved.excludedNoEmail + addedExcludedNoEmail,
-        };
+        // Between the two manual routes, the label names the one the sender can
+        // SEE and act on. Both admit them, so neither one's removal alone drops
+        // them, and the paste box is the entry that is on screen: taking the
+        // address out re-labels them "included", which is how the panel tells
+        // them a second entry exists. The include list has no UI of its own.
+        //
+        // This is the same rule "matched" comes from, not a second one: the
+        // label always names a route that ALONE keeps them on the roll, and the
+        // tie between two such routes is broken towards the actionable one. An
+        // earlier version broke it towards "the more deliberate act", which
+        // contradicted the rule that makes "matched" beat an include.
+        manualReasons[p.id] = pastedSet.has(p.id) ? "pasted" : "included";
+        addedRecipients.push({
+          email,
+          displayName: p.name,
+          recordType: "PERSON",
+          recordId: p.id,
+          variables: personVariables({ name: p.name }),
+        });
       }
+      resolved = {
+        recipients: [...resolved.recipients, ...addedRecipients],
+        excludedNoEmail: resolved.excludedNoEmail + addedExcludedNoEmail,
+      };
     }
   }
 

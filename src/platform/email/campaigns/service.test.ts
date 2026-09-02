@@ -4,11 +4,11 @@ import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
   scheduleCampaign, cancelCampaign, executeRun, listCampaigns, countAudienceNodes,
-  searchAudiencePeople,
+  searchAudiencePeople, editManualLists, MAX_PASTED_EMAILS,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import type { AudiencePreview } from "./service";
-import { MAX_COUNTED_NODES } from "@/platform/email/audience/resolve";
+import { MAX_COUNTED_NODES, PERSON_SEARCH_LIMIT } from "@/platform/email/audience/resolve";
 import type { Audience } from "@/platform/email/audience/types";
 import * as audienceResolve from "@/platform/email/audience/resolve";
 import * as sendModule from "@/platform/email/send";
@@ -1030,6 +1030,49 @@ describe("recipient preview and the scoped person search", () => {
     ]);
   });
 
+  // The oracle the OUTPUT tests below cannot see. `resolveAudience(scope)` used
+  // to sit inside `if (candidateIds.length > 0)`, and candidateIds is non-empty
+  // iff a pasted address matched a Person row ANYWHERE in the directory. So the
+  // two cases the unresolved report is careful to make identical in output did
+  // measurably different work, and a scoped sender with a trivial baseline
+  // audience could sample the difference by reloading the Audience tab.
+  //
+  // Counted rather than timed: a wall-clock assertion would be a flake, and the
+  // property that actually matters is that the same queries run either way.
+  it("runs the same scope resolve whether a pasted address matches a real out-of-scope person or nobody", async () => {
+    const scope = await activeOnlyScope("Active only (timing)");
+    await activePerson("In Scope", "in-scope@example.com");
+    await prisma.person.create({
+      data: {
+        name: "Real But Unreachable",
+        contactEmail: "real-outsider@example.com",
+        status: "OFFBOARDED",
+      },
+    });
+
+    async function resolveCallsFor(pasted: string): Promise<number> {
+      const c = await createDraft(null, `Probe ${pasted}`, { scopeId: scope.id });
+      await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+      await prisma.emailCampaign.update({
+        where: { id: c.id },
+        data: { pastedEmails: [pasted] },
+      });
+      const spy = vi.spyOn(audienceResolve, "resolveAudience");
+      await previewAudience(c.id);
+      const calls = spy.mock.calls.length;
+      spy.mockRestore();
+      return calls;
+    }
+
+    const withRealPerson = await resolveCallsFor("real-outsider@example.com");
+    const withNobody = await resolveCallsFor("nobody-at-all@example.com");
+    expect(withNobody).toBe(withRealPerson);
+    // Named, not just compared: two paths that BOTH skipped the scope resolve
+    // would be equal here and would be a scope bypass rather than a fix. Two is
+    // the campaign's own resolve plus the scope's.
+    expect(withRealPerson).toBe(2);
+  });
+
   it("the person search finds nobody at all once the campaign's scope is gone", async () => {
     const scope = await activeOnlyScope("Active only (vanishing search)");
     await activePerson("Rivera Sam", "sam@example.com");
@@ -1128,12 +1171,22 @@ describe("recipient preview and the scoped person search", () => {
     const pasted = await prisma.person.create({
       data: { name: "Cal Pasted", contactEmail: "pasted@example.com", status: "OFFBOARDED" },
     });
+    // On BOTH manual lists. Neither route's removal alone would drop them, so
+    // the label names the one the sender can see and act on: the paste box.
+    // Removing that address then re-labels them "included", which is the panel
+    // telling them a second entry exists.
+    const both = await prisma.person.create({
+      data: { name: "Dee Both", contactEmail: "both@example.com", status: "OFFBOARDED" },
+    });
 
     const c = await createDraft(null, "Labels", { scopeId: scope.id });
     await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
     await prisma.emailCampaign.update({
       where: { id: c.id },
-      data: { includePersonIds: [included.id], pastedEmails: ["pasted@example.com"] },
+      data: {
+        includePersonIds: [included.id, both.id],
+        pastedEmails: ["pasted@example.com", "both@example.com"],
+      },
     });
 
     const preview = await previewAudience(c.id);
@@ -1141,7 +1194,18 @@ describe("recipient preview and the scoped person search", () => {
       { personId: matched.id, name: "Anna Matched", email: "matched@example.com", reason: "matched" },
       { personId: included.id, name: "Bea Included", email: "included@example.com", reason: "included" },
       { personId: pasted.id, name: "Cal Pasted", email: "pasted@example.com", reason: "pasted" },
+      { personId: both.id, name: "Dee Both", email: "both@example.com", reason: "pasted" },
     ]);
+
+    // Drop the pasted half and the same person is now labelled "included": the
+    // label always names a route that alone keeps them on the roll, and it
+    // moves to the next one as routes are removed.
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { pastedEmails: ["pasted@example.com"] },
+    });
+    const after = await previewAudience(c.id);
+    expect(after.sample.find((r) => r.personId === both.id)?.reason).toBe("included");
   });
 
   // The deliberate answer to "both a condition match AND an explicit include".
@@ -1215,5 +1279,130 @@ describe("recipient preview and the scoped person search", () => {
     // they can find it in the box they pasted it into.
     expect(preview.unresolved).toEqual(["Typo@Example.com"]);
     expect(preview.sample.map((r) => r.personId)).toEqual([person.id]);
+  });
+
+  // The blank-address test has to be pushed into the QUERY rather than applied
+  // to the rows that come back, or people with an unusable address fill the
+  // result slots before anyone reachable is reached and the search reports
+  // nothing while in-scope matches exist.
+  //
+  // Whitespace, not "": Person.contactEmail is @unique, so only ONE row can
+  // hold the empty string and it could waste at most one slot. Whitespace-only
+  // addresses are all DISTINCT values, so they can fill every slot -- and they
+  // are the spelling of "blank" that no Prisma string filter can test for,
+  // which is why the query has to ask the question a different way.
+  it("does not let people with a blank address consume the search's result slots", async () => {
+    await prisma.person.createMany({
+      data: Array.from({ length: PERSON_SEARCH_LIMIT }, (_, i) => ({
+        // Sorts before the real match, so under a filter applied after `take`
+        // these are the only rows the query ever returns.
+        name: `Aaa Rivera Blank ${String(i).padStart(2, "0")}`,
+        contactEmail: " ".repeat(i + 1),
+        status: "ACTIVE" as const,
+      })),
+    });
+    const real = await activePerson("Zzz Rivera Sam", "sam@example.com");
+
+    const c = await createDraft(null, "Blank slots", { scopeId: null });
+    expect(await searchAudiencePeople(c.id, "Rivera")).toEqual([
+      { personId: real.id, name: "Zzz Rivera Sam", email: "sam@example.com" },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The manual lists' only writer.
+//
+// Tested at the service rather than left to the thin actions above it, unlike
+// the seven older campaign actions whose services are already covered: this
+// function is new, has four branches, and is the sole writer of
+// excludePersonIds. The column it writes is computed from a union literal, so a
+// swapped ternary type-checks, stays self-consistent, and makes Exclude append
+// to the INCLUDE list -- mailing someone the sender deliberately removed, which
+// a bulk send cannot take back.
+// ---------------------------------------------------------------------------
+describe("editManualLists", () => {
+  it("an exclude writes the exclude column and leaves the include column alone", async () => {
+    const person = await activePerson("Excluded", "excluded@example.com");
+    const c = await createDraft(null, "Exclude write", { scopeId: null });
+
+    await editManualLists(null, c.id, { op: "exclude", personId: person.id });
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    // Both columns asserted, in both directions: naming only the one that
+    // should have changed would pass just as well if BOTH had.
+    expect(after.excludePersonIds).toEqual([person.id]);
+    expect(after.includePersonIds).toEqual([]);
+  });
+
+  it("an include writes the include column and leaves the exclude column alone", async () => {
+    const person = await activePerson("Included", "included@example.com");
+    const c = await createDraft(null, "Include write", { scopeId: null });
+
+    await editManualLists(null, c.id, { op: "include", personId: person.id });
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.includePersonIds).toEqual([person.id]);
+    expect(after.excludePersonIds).toEqual([]);
+  });
+
+  it("clearing the exclusions empties that column and nothing else", async () => {
+    const a = await activePerson("A", "a@example.com");
+    const b = await activePerson("B", "b@example.com");
+    const c = await createDraft(null, "Clear", { scopeId: null });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: {
+        excludePersonIds: [a.id, b.id],
+        includePersonIds: [a.id],
+        pastedEmails: ["kept@example.com"],
+      },
+    });
+
+    await editManualLists(null, c.id, { op: "clearExcluded" });
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.excludePersonIds).toEqual([]);
+    expect(after.includePersonIds).toEqual([a.id]);
+    expect(after.pastedEmails).toEqual(["kept@example.com"]);
+  });
+
+  it("normalises a pasted block and refuses one past the cap", async () => {
+    const c = await createDraft(null, "Paste", { scopeId: null });
+
+    await editManualLists(null, c.id, {
+      op: "paste",
+      emails: ["  Sam@Example.com  ", "", "sam@example.com", "pat@example.com"],
+    });
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    // Trimmed, blanks dropped, deduped case-insensitively, and the sender's own
+    // casing kept on the entry that survives.
+    expect(after.pastedEmails).toEqual(["Sam@Example.com", "pat@example.com"]);
+
+    await expect(
+      editManualLists(null, c.id, {
+        op: "paste",
+        emails: Array.from({ length: MAX_PASTED_EMAILS + 1 }, (_, i) => `p${i}@example.com`),
+      }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    // Refused, not truncated: the previous block is still what is stored.
+    const unchanged = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(unchanged.pastedEmails).toEqual(["Sam@Example.com", "pat@example.com"]);
+  });
+
+  // The only thing stopping a manual-list edit from silently changing who a
+  // SCHEDULED campaign is about to mail.
+  it("refuses to edit a campaign that is no longer a draft", async () => {
+    const person = await activePerson("Locked", "locked@example.com");
+    const c = await createDraft(null, "Scheduled", { scopeId: null });
+    await prisma.emailCampaign.update({ where: { id: c.id }, data: { status: "SCHEDULED" } });
+
+    await expect(
+      editManualLists(null, c.id, { op: "exclude", personId: person.id }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.excludePersonIds).toEqual([]);
   });
 });

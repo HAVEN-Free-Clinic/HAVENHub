@@ -283,11 +283,20 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           campaign instead. Tab-gated the same way the sections inside the form
           are. */}
       {isDraft && recipientPreview && (
-        <div hidden={activeTab !== "audience"} className="border-t border-border pt-6">
+        // No `hidden` here: unlike the sections inside the compose form, this
+        // pane holds no input that has to keep submitting from another tab, so
+        // its own presence is the gate. `recipientPreview` is null unless the
+        // Audience tab is the active one (see loadRecipientPreview's call site).
+        <div className="border-t border-border pt-6">
           <RecipientPreview
-            // Remounted on save so the dirty guard resets, exactly as
-            // ReviewActions and TimingActions are keyed (#14).
-            key={campaign.updatedAt.toISOString()}
+            // savedAt, NOT key. Keying this on updatedAt remounts the panel on
+            // every manual-list action, and the paste box is an uncontrolled
+            // textarea: an Exclude click threw away addresses the sender had
+            // typed and not yet saved. The dirty guard resets from the prop
+            // instead (useFormDirty), so the panel reconciles and the text
+            // survives. ReviewActions and TimingActions still use the key,
+            // which is correct for them: neither holds unsaved text.
+            savedAt={campaign.updatedAt.toISOString()}
             formId="campaign-compose"
             preview={recipientPreview}
             excludedCount={campaign.excludePersonIds.length}

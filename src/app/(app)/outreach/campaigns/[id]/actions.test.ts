@@ -26,7 +26,7 @@ import { createDraft } from "@/platform/email/campaigns/service";
 import { createScope } from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
 import type { Audience } from "@/platform/email/audience/types";
-import { countNodesAction, searchPeopleAction } from "./actions";
+import { countNodesAction, searchPeopleAction, excludePersonAction } from "./actions";
 
 beforeEach(resetDb);
 afterEach(() => {
@@ -141,5 +141,39 @@ describe("searchPeopleAction", () => {
     const c = await createDraft(null, "Not mine", { scopeId: scope.id });
 
     await expect(searchPeopleAction(c.id, scope.id, "Rivera")).resolves.toEqual([]);
+  });
+});
+
+/**
+ * The mutating manual-list actions.
+ *
+ * Unlike the search, these must refuse LOUDLY rather than degrade: they change
+ * who a campaign mails, so a sender whose grant has gone away gets the same
+ * ?error= redirect the other seven mutating actions give, and nothing is
+ * written on the way out.
+ */
+describe("excludePersonAction", () => {
+  it("writes nothing and redirects when the sender's scope grant has gone away", async () => {
+    const target = await prisma.person.create({
+      data: { name: "Target", contactEmail: "t@x.com", status: "ACTIVE" },
+    });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    // Holds outreach.send, but was never granted this scope.
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+
+    const scope = await createScope(null, {
+      name: "Someone else's scope",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+    });
+    const c = await createDraft(null, "Not mine", { scopeId: scope.id });
+
+    const formData = new FormData();
+    formData.set("personId", target.id);
+    await expect(excludePersonAction(c.id, scope.id, formData)).rejects.toThrow("NEXT_REDIRECT");
+
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.excludePersonIds).toEqual([]);
+    expect(after.includePersonIds).toEqual([]);
   });
 });

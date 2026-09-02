@@ -4,8 +4,10 @@ import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
   scheduleCampaign, cancelCampaign, executeRun, listCampaigns, countAudienceNodes,
+  searchAudiencePeople,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
+import type { AudiencePreview } from "./service";
 import { MAX_COUNTED_NODES } from "@/platform/email/audience/resolve";
 import type { Audience } from "@/platform/email/audience/types";
 import * as audienceResolve from "@/platform/email/audience/resolve";
@@ -971,5 +973,247 @@ describe("countAudienceNodes", () => {
         conditions: [{ nope: 1 }],
       } as unknown as Audience),
     ).rejects.toBeInstanceOf(CampaignValidationError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recipient preview, manual-list surfacing, and the scoped person search
+//
+// Two of these surfaces are information oracles if built the obvious way, so
+// both scope tests come FIRST, ahead of every labelling test:
+//
+// 1. searchAudiencePeople. A search over all people would let a scoped sender
+//    enumerate the whole directory by typing letters, even though the send that
+//    follows is still scope-filtered. Learning who exists is itself the leak.
+//
+// 2. The unresolved-pasted-address report. If an address belonging to a real
+//    person OUTSIDE the sender's scope were reported any differently from one
+//    belonging to nobody at all, the sender would hold an existence oracle over
+//    the whole directory, one address at a time. The test below asserts on the
+//    entire user-visible result, not merely on membership in a list.
+// ---------------------------------------------------------------------------
+describe("recipient preview and the scoped person search", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function activeOnlyScope(name: string) {
+    return createScope(null, {
+      name,
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
+      },
+    });
+  }
+
+  // No conditions compiles to MATCH_NOBODY (compileGroup in audience/compile.ts),
+  // so a campaign carrying this audience shows exactly what the manual lists
+  // themselves reach and nothing that leaked in from the conditions.
+  const MATCH_NOBODY: Audience = { recordType: "PERSON", match: "ALL", conditions: [] };
+
+  it("the person search returns nobody outside the campaign's scope", async () => {
+    const scope = await activeOnlyScope("Active only (search)");
+    // Deliberately paired: both people answer the SAME query, and neither name
+    // is a substring of the other. A fixture where only the in-scope person
+    // could match would pass just as well against a search that ignored the
+    // scope entirely.
+    const inScope = await activePerson("Rivera Sam", "sam@example.com");
+    await prisma.person.create({
+      data: { name: "Rivera Pat", contactEmail: "pat@example.com", status: "OFFBOARDED" },
+    });
+
+    const scoped = await createDraft(null, "Scoped search", { scopeId: scope.id });
+    expect(await searchAudiencePeople(scoped.id, "Rivera")).toEqual([
+      { personId: inScope.id, name: "Rivera Sam", email: "sam@example.com" },
+    ]);
+  });
+
+  it("the person search finds nobody at all once the campaign's scope is gone", async () => {
+    const scope = await activeOnlyScope("Active only (vanishing search)");
+    await activePerson("Rivera Sam", "sam@example.com");
+    const c = await createDraft(null, "Orphaned scope search", { scopeId: scope.id });
+
+    vi.spyOn(scopes, "getScope").mockResolvedValue(null);
+    expect(await searchAudiencePeople(c.id, "Rivera")).toEqual([]);
+  });
+
+  it("reports a pasted address belonging to an out-of-scope person identically to one belonging to nobody", async () => {
+    const scope = await activeOnlyScope("Active only (oracle)");
+    // The roll itself is identical in both campaigns, so any difference the
+    // comparison finds comes from the pasted address alone.
+    await activePerson("In Scope", "in-scope@example.com");
+    await prisma.person.create({
+      data: {
+        name: "Real But Unreachable",
+        contactEmail: "real-outsider@example.com",
+        status: "OFFBOARDED",
+      },
+    });
+
+    const REAL_OUTSIDER = "real-outsider@example.com";
+    const NOBODY = "nobody-at-all@example.com";
+
+    const withRealOutsider = await createDraft(null, "Probe A", { scopeId: scope.id });
+    await updateCampaign(null, withRealOutsider.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: withRealOutsider.id },
+      data: { pastedEmails: [REAL_OUTSIDER] },
+    });
+
+    const withNobody = await createDraft(null, "Probe B", { scopeId: scope.id });
+    await updateCampaign(null, withNobody.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: withNobody.id },
+      data: { pastedEmails: [NOBODY] },
+    });
+
+    const a = await previewAudience(withRealOutsider.id);
+    const b = await previewAudience(withNobody.id);
+
+    // Everything the sender can observe, with the pasted address itself masked.
+    // If the two cases differed in ANY other way -- a different list, a
+    // different count, a different roll, a different order, an extra field --
+    // this comparison fails. Asserting only "both appear in unresolved" would
+    // not: a report that tagged the out-of-scope one, or dropped it from the
+    // list while still counting it, would pass that weaker check.
+    const observable = (preview: AudiencePreview, pasted: string) => ({
+      ...preview,
+      unresolved: preview.unresolved.map((u) => (u === pasted ? "<the pasted address>" : u)),
+    });
+    expect(observable(a, REAL_OUTSIDER)).toEqual(observable(b, NOBODY));
+
+    // And the shape they share is the one that really does report the address
+    // back, so the equality above is not two empty reports agreeing.
+    expect(a.unresolved).toEqual([REAL_OUTSIDER]);
+    expect(b.unresolved).toEqual([NOBODY]);
+  });
+
+  it("does not put a pasted out-of-scope address into the roll, matching what a real send does", async () => {
+    const scope = await activeOnlyScope("Active only (pasted roll)");
+    const inScope = await activePerson("In Scope", "in-scope@example.com");
+    await prisma.person.create({
+      data: { name: "Out Of Scope", contactEmail: "out-of-scope@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "Pasted roll", { scopeId: scope.id });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: MATCH_NOBODY });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { pastedEmails: ["in-scope@example.com", "out-of-scope@example.com"] },
+    });
+
+    const preview = await previewAudience(c.id);
+    expect(preview.sample.map((r) => r.personId)).toEqual([inScope.id]);
+    expect(preview.count).toBe(1);
+  });
+
+  it("labels a condition match 'matched' and a manual addition 'included' or 'pasted'", async () => {
+    // Scope: everyone with a name. The two manual additions are inside it but
+    // OUTSIDE the campaign's own conditions, so each label has to come from the
+    // list the person arrived on rather than from the condition match.
+    const scope = await createScope(null, {
+      name: "Everyone with a name",
+      audience: {
+        recordType: "PERSON",
+        match: "ALL",
+        conditions: [{ field: "name", op: "isNotEmpty" }],
+      },
+    });
+    const matched = await activePerson("Anna Matched", "matched@example.com");
+    const included = await prisma.person.create({
+      data: { name: "Bea Included", contactEmail: "included@example.com", status: "OFFBOARDED" },
+    });
+    const pasted = await prisma.person.create({
+      data: { name: "Cal Pasted", contactEmail: "pasted@example.com", status: "OFFBOARDED" },
+    });
+
+    const c = await createDraft(null, "Labels", { scopeId: scope.id });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { includePersonIds: [included.id], pastedEmails: ["pasted@example.com"] },
+    });
+
+    const preview = await previewAudience(c.id);
+    expect(preview.sample).toEqual([
+      { personId: matched.id, name: "Anna Matched", email: "matched@example.com", reason: "matched" },
+      { personId: included.id, name: "Bea Included", email: "included@example.com", reason: "included" },
+      { personId: pasted.id, name: "Cal Pasted", email: "pasted@example.com", reason: "pasted" },
+    ]);
+  });
+
+  // The deliberate answer to "both a condition match AND an explicit include".
+  // "matched" is the truthful one: the person is in the roll with the manual
+  // entry deleted, and labelling them "included" would tell the sender that
+  // removing it drops them, which is false.
+  it("labels someone who is both a condition match and an explicit include 'matched'", async () => {
+    const both = await activePerson("Both Ways", "both@example.com");
+
+    const c = await createDraft(null, "Both ways", { scopeId: null });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { includePersonIds: [both.id], pastedEmails: ["both@example.com"] },
+    });
+
+    const preview = await previewAudience(c.id);
+    expect(preview.sample).toEqual([
+      { personId: both.id, name: "Both Ways", email: "both@example.com", reason: "matched" },
+    ]);
+    // And the address is not ALSO reported back as unresolved: it reached the roll.
+    expect(preview.unresolved).toEqual([]);
+  });
+
+  it("an exclude beats an explicit include of the same person, in the preview as in a send", async () => {
+    const excluded = await activePerson("Excluded Person", "excluded@example.com");
+    const kept = await activePerson("Kept Person", "kept@example.com");
+
+    const c = await createDraft(null, "Exclude wins", { scopeId: null });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { includePersonIds: [excluded.id], excludePersonIds: [excluded.id] },
+    });
+
+    const preview = await previewAudience(c.id);
+    // The survivor is named as well as counted: a preview that returned nobody
+    // at all would satisfy "the excluded person is gone" without proving the
+    // exclude was targeted.
+    expect(preview.sample).toEqual([
+      { personId: kept.id, name: "Kept Person", email: "kept@example.com", reason: "matched" },
+    ]);
+    expect(preview.count).toBe(1);
+  });
+
+  it("surfaces how many matched people were dropped for having no email address", async () => {
+    await activePerson("Has Email", "has@example.com");
+    await prisma.person.create({ data: { name: "No Email At All", status: "ACTIVE" } });
+    await prisma.person.create({ data: { name: "Blank Email", contactEmail: "   ", status: "ACTIVE" } });
+
+    const c = await createDraft(null, "No email", { scopeId: null });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+
+    const preview = await previewAudience(c.id);
+    expect(preview.count).toBe(1);
+    expect(preview.excludedNoEmail).toBe(2);
+  });
+
+  it("reports an unresolvable pasted address back rather than dropping it silently", async () => {
+    const person = await activePerson("Real Match", "real@example.com");
+
+    const c = await createDraft(null, "Typo", { scopeId: null });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { pastedEmails: ["  Typo@Example.com  ", "real@example.com"] },
+    });
+
+    const preview = await previewAudience(c.id);
+    // Trimmed but not lower-cased: echoed back the way the sender typed it, so
+    // they can find it in the box they pasted it into.
+    expect(preview.unresolved).toEqual(["Typo@Example.com"]);
+    expect(preview.sample.map((r) => r.personId)).toEqual([person.id]);
   });
 });

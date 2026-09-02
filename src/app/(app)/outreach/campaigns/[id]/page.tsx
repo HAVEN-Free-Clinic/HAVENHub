@@ -3,8 +3,12 @@ import { requireAnyPermission } from "@/platform/auth/session";
 import {
   getCampaign,
   assertMayActOnScope,
+  previewAudience,
   CampaignScopeError,
+  CampaignValidationError,
+  type AudiencePreview,
 } from "@/platform/email/campaigns/service";
+import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
@@ -25,12 +29,18 @@ import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview"
 import { AudienceBuilder } from "./audience-builder";
 import { SubmitButton } from "./submit-button";
 import { ReviewActions } from "./review-actions";
+import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
 import { EditorTabs, type EditorTab } from "./tabs";
 import {
   saveAction,
   previewAction,
   countNodesAction,
+  searchPeopleAction,
+  includePersonAction,
+  excludePersonAction,
+  clearExcludedAction,
+  pastedEmailsAction,
   testAction,
   sendAction,
   scheduleLaterAction,
@@ -42,6 +52,31 @@ type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string }>;
 };
+
+/**
+ * The recipient roll for the Audience tab, or null if it cannot be resolved.
+ *
+ * Module scope, like every other helper this page's server actions sit beside:
+ * see the doc comment at the top of actions.ts for what a render-scope function
+ * costs at runtime.
+ *
+ * Degrades to null rather than propagating, for the same reason
+ * countNodesAction returns an empty map. Both failures here describe an audience
+ * the builder is specifically built to let a sender REPAIR: a stored tree that
+ * no longer parses, and one naming a field that has since been retired (which
+ * field-picker.tsx renders as "Unknown field" with a control to remove it).
+ * Throwing would take down the whole editor for exactly the campaign someone
+ * opened it to fix. Caught by type, so any other failure still surfaces.
+ */
+async function loadRecipientPreview(id: string): Promise<AudiencePreview | null> {
+  try {
+    return await previewAudience(id);
+  } catch (err) {
+    if (err instanceof CampaignValidationError) return null;
+    if (err instanceof UnknownAudienceFieldError) return null;
+    throw err;
+  }
+}
 
 export default async function CampaignEditorPage({ params, searchParams }: Props) {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
@@ -101,6 +136,16 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
   const zone = await getDisplayTimeZone();
 
+  // Resolved on the server, and only for the tab that shows it. Unlike the
+  // per-node counts (which the builder fetches as the sender types), this is the
+  // saved roll: rendering it up front is what makes the Audience tab show who is
+  // about to be emailed without a button press. Gated on the ACTIVE tab because
+  // every section of this page stays mounted regardless of which one is showing
+  // (see tabs.tsx), so an ungated call would resolve the entire audience on
+  // every Compose and Review load for a pane nobody can see.
+  const recipientPreview =
+    isDraft && activeTab === "audience" ? await loadRecipientPreview(id) : null;
+
   // ---------------------------------------------------------------------------
   // Server actions, bound to this campaign's id and scope. `.bind()` is the
   // sanctioned way to pass extra arguments to a Server Action referenced from
@@ -114,6 +159,14 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   // reason: the audience it counts arrives as its own trailing argument from
   // the client, never captured from this render scope.
   const boundCountNodesAction = countNodesAction.bind(null, id, scopeId);
+  // The manual-list controls. Bound exactly like the rest, and gated on the
+  // same scope inside actions.ts: a scoped sender may no more edit another
+  // department's recipient list than they may preview or send that campaign.
+  const boundSearchPeopleAction = searchPeopleAction.bind(null, id, scopeId);
+  const boundIncludePersonAction = includePersonAction.bind(null, id, scopeId);
+  const boundExcludePersonAction = excludePersonAction.bind(null, id, scopeId);
+  const boundClearExcludedAction = clearExcludedAction.bind(null, id, scopeId);
+  const boundPastedEmailsAction = pastedEmailsAction.bind(null, id, scopeId);
   const boundTestAction = testAction.bind(null, id, scopeId);
   const boundSendAction = sendAction.bind(null, id, scopeId);
   const boundScheduleLaterAction = scheduleLaterAction.bind(null, id, scopeId);
@@ -220,6 +273,32 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
           </div>
         </form>
+      )}
+
+      {/* The recipient roll and the manual include / exclude / paste controls.
+          A SIBLING of the compose form, not a child of it: every control here is
+          its own form posting its own server action, and a nested <form> is
+          invalid HTML that the parser unnests, which would silently reparent
+          these buttons into the compose form and make each one save the
+          campaign instead. Tab-gated the same way the sections inside the form
+          are. */}
+      {isDraft && recipientPreview && (
+        <div hidden={activeTab !== "audience"} className="border-t border-border pt-6">
+          <RecipientPreview
+            // Remounted on save so the dirty guard resets, exactly as
+            // ReviewActions and TimingActions are keyed (#14).
+            key={campaign.updatedAt.toISOString()}
+            formId="campaign-compose"
+            preview={recipientPreview}
+            excludedCount={campaign.excludePersonIds.length}
+            pastedText={campaign.pastedEmails.join("\n")}
+            searchAction={boundSearchPeopleAction}
+            includeAction={boundIncludePersonAction}
+            excludeAction={boundExcludePersonAction}
+            clearExcludedAction={boundClearExcludedAction}
+            pastedEmailsAction={boundPastedEmailsAction}
+          />
+        </div>
       )}
 
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}

@@ -3,8 +3,9 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { loadComplianceStatusMap, loadHipaaExpiryMap } from "@/platform/compliance/status";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import type { Prisma } from "@prisma/client";
 import type { Audience, AudienceCondition, AudienceNode } from "./types";
-import { isAudienceGroup } from "./types";
+import { isAudienceGroup, EMPTY_AUDIENCE } from "./types";
 import { compileNodeWhere, compilePersonWhere } from "./compile";
 import type { AudienceCtx } from "./person-fields";
 import { personVariables } from "./variables";
@@ -317,6 +318,72 @@ export async function resolveAudience(
     });
   }
   return { recipients, excludedNoEmail };
+}
+
+/** One person a scoped search may offer, in the shape the builder renders. */
+export type PersonSearchHit = { personId: string; name: string; email: string };
+
+/**
+ * How many hits one search returns, and the shortest query that runs at all.
+ *
+ * Neither is a security boundary -- the scope below is -- but a one-character
+ * query would scan the whole in-scope roster on every keystroke to render a
+ * list nobody can use, so it is refused instead.
+ */
+export const PERSON_SEARCH_LIMIT = 25;
+export const MIN_PERSON_SEARCH_LENGTH = 2;
+
+/**
+ * People matching a free-text query, bounded by an audience the results may not
+ * escape.
+ *
+ * `opts.scope` is the same parameter resolveAudience and countAudienceNodes
+ * take and is applied the same way: compiled independently and intersected at
+ * the ROOT of the where, never appended as a sibling condition. This is the
+ * scope-bounded half of the manual-include control, and the bound matters as
+ * much here as it does for a count or a send: an unscoped search would let a
+ * scoped sender enumerate the entire directory a letter at a time, and learning
+ * who EXISTS is the leak even when the eventual send stays scope-filtered.
+ *
+ * WHICH scope applies is decided by searchAudiencePeople in
+ * campaigns/service.ts, which reads it from the campaign row. Nothing above
+ * this function ever takes a scope from a client, and there is deliberately no
+ * entry point that would let one.
+ *
+ * People with no address on file are left out. Adding one to a campaign does
+ * nothing except grow the "excluded, no email" count, so offering them would
+ * only invite a manual include that silently does nothing.
+ */
+export async function searchPeople(
+  query: string,
+  opts: { scope?: Audience | null; now?: Date } = {},
+): Promise<PersonSearchHit[]> {
+  const q = query.trim();
+  if (q.length < MIN_PERSON_SEARCH_LENGTH) return [];
+
+  // No campaign tree of its own to precompute for: the only conditions in play
+  // are the scope's, which buildAudienceCtx collects from its second argument.
+  const ctx = await buildAudienceCtx(EMPTY_AUDIENCE, opts.scope, opts.now ?? new Date());
+  const scopeWhere = opts.scope ? compilePersonWhere(opts.scope, ctx) : null;
+
+  const matches: Prisma.PersonWhereInput = {
+    NOT: { contactEmail: null },
+    OR: [
+      { name: { contains: q, mode: "insensitive" } },
+      { contactEmail: { contains: q, mode: "insensitive" } },
+    ],
+  };
+
+  const people = await prisma.person.findMany({
+    where: scopeWhere ? { AND: [scopeWhere, matches] } : matches,
+    select: { id: true, name: true, contactEmail: true },
+    orderBy: { name: "asc" },
+    take: PERSON_SEARCH_LIMIT,
+  });
+
+  return people
+    .map((p) => ({ personId: p.id, name: p.name, email: p.contactEmail?.trim() ?? "" }))
+    .filter((p) => p.email !== "");
 }
 
 /**

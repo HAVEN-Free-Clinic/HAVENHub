@@ -4,8 +4,12 @@ import { validateTemplate } from "@/platform/email/render/validate";
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { PERSON_VARIABLES, personVariables } from "@/platform/email/audience/variables";
-import { resolveAudience, countAudienceNodes as countNodes } from "@/platform/email/audience/resolve";
-import type { Recipient } from "@/platform/email/audience/resolve";
+import {
+  resolveAudience,
+  countAudienceNodes as countNodes,
+  searchPeople,
+} from "@/platform/email/audience/resolve";
+import type { Recipient, PersonSearchHit } from "@/platform/email/audience/resolve";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail, queueEmails } from "@/platform/email/send";
@@ -185,6 +189,68 @@ export async function assertMayActOnScope(
   return scope;
 }
 
+/** Why a recipient is in the roll. See ResolvedCampaignAudience.manualReasons. */
+export type RecipientReason = "matched" | "included" | "pasted";
+
+export type ResolvedCampaignAudience = {
+  recipients: Recipient[];
+  excludedNoEmail: number;
+  /**
+   * Why each MANUALLY added recipient is in the roll, keyed by person id. A
+   * recipient absent from this map is a condition match, which is also the
+   * deliberate answer for someone who is BOTH a match and an explicit include:
+   * they never become a manual candidate at all (see the matchedIds filter
+   * below), so they stay labelled "matched". That is the truthful label --
+   * deleting the manual entry would not remove them -- and "included" would
+   * tell the sender the opposite.
+   */
+  manualReasons: Record<string, Exclude<RecipientReason, "matched">>;
+  /** See unresolvedPastedAddresses. */
+  unresolvedPasted: string[];
+};
+
+/**
+ * Which pasted addresses this campaign will not email, echoed back so a typo is
+ * visible instead of quietly shrinking the audience.
+ *
+ * SECURITY, and this is the whole reason the function is shaped this way: the
+ * answer is computed by subtracting the FINAL recipient roll from what the
+ * sender pasted, and by nothing else. It never asks whether a Person with a
+ * given address exists, so it cannot answer that question. An address
+ * belonging to a real person the campaign's scope excludes and an address
+ * belonging to nobody at all produce the same entry, in the same list, with the
+ * same wording and the same count.
+ *
+ * Do not "improve" this by distinguishing them. Reporting "no such person"
+ * separately from "outside your scope" hands a scoped sender an existence
+ * oracle over the entire directory, one address at a time: paste an address,
+ * read which message comes back, learn whether that person is in the database.
+ * The send itself stays correct either way -- the roll is scope-filtered
+ * upstream -- so what leaks is not who gets mail, it is who EXISTS, and that is
+ * the leak. The UI wording (recipient-preview.tsx) carries the same rule.
+ *
+ * Two consequences are accepted deliberately, both because avoiding them would
+ * mean looking a person up: an address belonging to someone the sender
+ * explicitly excluded, and an address a send-once campaign has already mailed,
+ * are both listed here too. In each case the address genuinely will not receive
+ * this campaign, which is exactly what the list claims.
+ */
+function unresolvedPastedAddresses(pasted: string[], recipients: Recipient[]): string[] {
+  const delivered = new Set(recipients.map((r) => r.email.trim().toLowerCase()));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of pasted) {
+    const trimmed = raw.trim();
+    const key = trimmed.toLowerCase();
+    if (key === "" || seen.has(key)) continue;
+    seen.add(key);
+    // Echoed with the sender's own casing so they can find it in the box they
+    // pasted it into; deduped case-insensitively, the way the match itself is.
+    if (!delivered.has(key)) out.push(trimmed);
+  }
+  return out;
+}
+
 /**
  * Resolve a campaign's recipients, honoring its scope, then layering on manual
  * include/exclude/pasted lists, then (if set) send-once dedup.
@@ -210,8 +276,26 @@ export async function resolveCampaignAudience(campaign: {
   includePersonIds?: string[];
   excludePersonIds?: string[];
   pastedEmails?: string[];
-}): Promise<{ recipients: Recipient[]; excludedNoEmail: number }> {
+}): Promise<ResolvedCampaignAudience> {
   const audience = campaign.audienceJson as Audience;
+
+  const includePersonIds = campaign.includePersonIds ?? [];
+  const excludePersonIds = campaign.excludePersonIds ?? [];
+  const pastedEmails = campaign.pastedEmails ?? [];
+
+  // Single exit point, so the pasted-address report is always computed from the
+  // roll that is actually being returned -- after the scope, after the
+  // excludes, after send-once dedup. A branch that returned early without it
+  // would report an address as deliverable that this call had just dropped.
+  const manualReasons: Record<string, Exclude<RecipientReason, "matched">> = {};
+  const finish = (r: {
+    recipients: Recipient[];
+    excludedNoEmail: number;
+  }): ResolvedCampaignAudience => ({
+    ...r,
+    manualReasons,
+    unresolvedPasted: unresolvedPastedAddresses(pastedEmails, r.recipients),
+  });
 
   let scope: AudienceScopeView | null = null;
   let resolved: { recipients: Recipient[]; excludedNoEmail: number };
@@ -219,13 +303,9 @@ export async function resolveCampaignAudience(campaign: {
     resolved = await resolveAudience(audience);
   } else {
     scope = await getScope(campaign.scopeId);
-    if (!scope) return { recipients: [], excludedNoEmail: 0 };
+    if (!scope) return finish({ recipients: [], excludedNoEmail: 0 });
     resolved = await resolveAudience(audience, { scope: scope.audience });
   }
-
-  const includePersonIds = campaign.includePersonIds ?? [];
-  const excludePersonIds = campaign.excludePersonIds ?? [];
-  const pastedEmails = campaign.pastedEmails ?? [];
 
   if (includePersonIds.length > 0 || pastedEmails.length > 0) {
     // Resolve pasted addresses to Person ids case-insensitively, the same way
@@ -249,7 +329,12 @@ export async function resolveCampaignAudience(campaign: {
       }
     }
 
+    // Anyone the CONDITIONS already matched is dropped from the manual
+    // candidates here, which is also what decides their label: they keep the
+    // "matched" reading (no entry in manualReasons) rather than being
+    // relabelled by a redundant include or paste. See ResolvedCampaignAudience.
     const matchedIds = new Set(resolved.recipients.map((r) => r.recordId));
+    const includeSet = new Set(includePersonIds);
     const candidateIds = [...new Set([...includePersonIds, ...pastedPersonIds])].filter(
       (id) => !matchedIds.has(id),
     );
@@ -269,12 +354,21 @@ export async function resolveCampaignAudience(campaign: {
         const added = await prisma.person.findMany({
           where: { id: { in: admittedIds } },
           select: { id: true, name: true, contactEmail: true },
+          // Same ordering resolveAudience gives the matched half. Without it the
+          // manual block comes back in whatever order Postgres finds the rows,
+          // so the preview (and the send order) would shuffle between calls for
+          // no reason a sender could see.
+          orderBy: { name: "asc" },
         });
         const addedRecipients: Recipient[] = [];
         let addedExcludedNoEmail = 0;
         for (const p of added) {
           const email = p.contactEmail?.trim() ?? "";
           if (email === "") { addedExcludedNoEmail++; continue; }
+          // An explicit include outranks a pasted address for the same person:
+          // the include is the deliberate act, and the paste box is where a
+          // whole block of addresses lands at once.
+          manualReasons[p.id] = includeSet.has(p.id) ? "included" : "pasted";
           addedRecipients.push({
             email,
             displayName: p.name,
@@ -301,7 +395,7 @@ export async function resolveCampaignAudience(campaign: {
     };
   }
 
-  if (!campaign.sendOncePerPerson) return resolved;
+  if (!campaign.sendOncePerPerson) return finish(resolved);
 
   // Everyone who already received any run of this campaign. Matched on
   // personId, not email, so a person whose address changed between runs is
@@ -310,7 +404,7 @@ export async function resolveCampaignAudience(campaign: {
     where: { campaignId: campaign.id },
     select: { id: true },
   });
-  if (priorRuns.length === 0) return resolved;
+  if (priorRuns.length === 0) return finish(resolved);
 
   const mailed = await prisma.emailLog.findMany({
     where: { campaignRunId: { in: priorRuns.map((r) => r.id) }, personId: { not: null } },
@@ -318,10 +412,10 @@ export async function resolveCampaignAudience(campaign: {
     distinct: ["personId"],
   });
   const already = new Set(mailed.map((m) => m.personId!));
-  return {
+  return finish({
     recipients: resolved.recipients.filter((r) => !already.has(r.recordId)),
     excludedNoEmail: resolved.excludedNoEmail,
-  };
+  });
 }
 
 export async function updateCampaign(
@@ -383,13 +477,28 @@ export async function updateCampaign(
  */
 export const PREVIEW_SAMPLE_LIMIT = 200;
 
+export type PreviewRecipient = {
+  personId: string;
+  name: string;
+  email: string;
+  /** Why they are in the roll. See ResolvedCampaignAudience.manualReasons. */
+  reason: RecipientReason;
+};
+
 export type AudiencePreview = {
   count: number;
   excludedNoEmail: number;
-  /** The first PREVIEW_SAMPLE_LIMIT recipients, in the send order (name asc). */
-  sample: { name: string; email: string }[];
+  /** The first PREVIEW_SAMPLE_LIMIT recipients, in the send order. */
+  sample: PreviewRecipient[];
   /** True when `count` exceeds what `sample` shows. */
   truncated: boolean;
+  /**
+   * Pasted addresses this campaign will not email. ONE list, with one wording,
+   * whether the address belongs to nobody or to a real person outside the
+   * campaign's scope -- see unresolvedPastedAddresses for why telling those two
+   * apart would be an existence oracle over the whole directory.
+   */
+  unresolved: string[];
 };
 
 /**
@@ -437,7 +546,8 @@ export async function previewAudience(id: string): Promise<AudiencePreview> {
   if (!isAudience(campaign.audienceJson)) {
     throw new CampaignValidationError(["Stored audience is malformed"]);
   }
-  const { recipients, excludedNoEmail } = await resolveCampaignAudience(campaign);
+  const { recipients, excludedNoEmail, manualReasons, unresolvedPasted } =
+    await resolveCampaignAudience(campaign);
   // Dedup by lowercased email exactly as the send path does, so the previewed
   // count matches what the confirm-count workflow will actually enqueue.
   const seen = new Set<string>();
@@ -451,11 +561,121 @@ export async function previewAudience(id: string): Promise<AudiencePreview> {
     count: deduped.length,
     excludedNoEmail,
     sample: deduped.slice(0, PREVIEW_SAMPLE_LIMIT).map((r) => ({
+      personId: r.recordId,
       name: r.displayName,
       email: r.email,
+      // Absent from the map means the conditions matched them; see the type.
+      reason: manualReasons[r.recordId] ?? "matched",
     })),
     truncated: deduped.length > PREVIEW_SAMPLE_LIMIT,
+    unresolved: unresolvedPasted,
   };
+}
+
+/**
+ * People a sender may manually add to THIS campaign, matching a free-text query.
+ *
+ * The scope comes from the campaign ROW, read here exactly as countAudienceNodes
+ * reads it, and there is deliberately no scope parameter for a caller to supply
+ * one. That is the security property: a search over all people would let a
+ * scoped sender enumerate the whole directory by typing letters, and learning
+ * who EXISTS is the leak even though the send that follows is still
+ * scope-filtered. The bound is applied one layer down, in searchPeople.
+ *
+ * A campaign whose scope has been deleted searches NOBODY (EMPTY_AUDIENCE
+ * compiles to match-nobody), for the same reason its counts count nobody and
+ * its send sends to nobody: falling back to an unscoped search would turn a
+ * deleted boundary into a full-directory readout.
+ */
+export async function searchAudiencePeople(
+  campaignId: string,
+  query: string,
+): Promise<PersonSearchHit[]> {
+  const campaign = await prisma.emailCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { scopeId: true },
+  });
+  if (campaign.scopeId === null) return searchPeople(query);
+  const scope = await getScope(campaign.scopeId);
+  return searchPeople(query, { scope: scope?.audience ?? EMPTY_AUDIENCE });
+}
+
+/**
+ * The most addresses one campaign's paste box may hold.
+ *
+ * Every one of them is compared against every Person row on each resolve, and
+ * the whole array is echoed back into the editor, so an unbounded paste is a
+ * cheap way to make every preview and every send of a campaign expensive.
+ * Refused outright rather than silently truncated: a sender who pasted a
+ * thousand addresses and got five hundred would have no way to tell.
+ */
+export const MAX_PASTED_EMAILS = 500;
+
+/** One edit to a campaign's manual include / exclude / pasted lists. */
+export type ManualListEdit =
+  | { op: "include"; personId: string }
+  | { op: "exclude"; personId: string }
+  | { op: "clearExcluded" }
+  | { op: "paste"; emails: string[] };
+
+/**
+ * Apply one edit to a campaign's manual lists.
+ *
+ * Read-modify-write in the service rather than in the action, so the array
+ * arithmetic (dedupe, order, the case-insensitive paste normalisation) lives in
+ * one place next to the resolver that consumes it.
+ *
+ * DRAFT-only, the same gate updateCampaign applies: once a campaign is sent or
+ * scheduled its roll is decided, and editing the lists behind it would either
+ * do nothing or silently change who a pending schedule mails.
+ *
+ * Storing a person id here is NOT a grant of anything. resolveCampaignAudience
+ * re-filters every manual addition through the campaign's scope at resolve
+ * time, so an id that never came from this campaign's own scoped search simply
+ * resolves to nobody. The gate that decides who may edit is on the action; the
+ * filter that decides who may be mailed is at resolution. Neither is this.
+ */
+export async function editManualLists(
+  actorId: string | null,
+  id: string,
+  edit: ManualListEdit,
+): Promise<void> {
+  const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  if (existing.status !== "DRAFT") {
+    throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
+  }
+
+  if (edit.op === "paste") {
+    const seen = new Set<string>();
+    const emails: string[] = [];
+    for (const raw of edit.emails) {
+      const trimmed = raw.trim();
+      const key = trimmed.toLowerCase();
+      if (key === "" || seen.has(key)) continue;
+      seen.add(key);
+      emails.push(trimmed);
+    }
+    if (emails.length > MAX_PASTED_EMAILS) {
+      throw new CampaignValidationError([
+        `That is ${emails.length} addresses. A campaign may hold at most ${MAX_PASTED_EMAILS}.`,
+      ]);
+    }
+    await prisma.emailCampaign.update({ where: { id }, data: { pastedEmails: emails } });
+    return;
+  }
+
+  if (edit.op === "clearExcluded") {
+    await prisma.emailCampaign.update({ where: { id }, data: { excludePersonIds: [] } });
+    return;
+  }
+
+  const column = edit.op === "include" ? "includePersonIds" : "excludePersonIds";
+  const current = existing[column];
+  if (current.includes(edit.personId)) return;
+  await prisma.emailCampaign.update({
+    where: { id },
+    data: { [column]: [...current, edit.personId] },
+  });
 }
 
 export async function testSend(actorId: string | null, id: string, toEmail: string) {

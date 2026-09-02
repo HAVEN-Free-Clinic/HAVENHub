@@ -4,6 +4,7 @@ import type { AudiencePreview } from "@/platform/email/campaigns/service";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { UnresolvedPastedAddresses } from "./recipient-preview";
 
 /**
  * The resolved recipient roll for a draft campaign.
@@ -17,10 +18,16 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) {
   if (preview.count === 0) {
     return (
-      <Alert tone="warning">
-        This audience matches nobody. An empty or incomplete condition deliberately
-        matches no one rather than everyone, so check that every condition has a value.
-      </Alert>
+      <div className="space-y-3">
+        <Alert tone="warning">
+          This audience matches nobody. An empty or incomplete condition deliberately
+          matches no one rather than everyone, so check that every condition has a value.
+        </Alert>
+        {/* Still shown on an empty roll: a campaign whose ONLY intended
+            recipients were pasted, all of them mistyped, is exactly the case
+            where this list is the whole explanation. */}
+        <UnresolvedPastedAddresses addresses={preview.unresolved} />
+      </div>
     );
   }
 
@@ -62,6 +69,11 @@ export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) 
           Showing the first {preview.sample.length} of {preview.count}. The count above is exact.
         </p>
       )}
+
+      {/* The same component the Audience tab renders, so the one wording that
+          keeps an out-of-scope address indistinguishable from a nonexistent one
+          cannot drift between the two surfaces. */}
+      <UnresolvedPastedAddresses addresses={preview.unresolved} />
     </Card>
   );
 }

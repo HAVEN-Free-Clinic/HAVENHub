@@ -26,7 +26,7 @@ import { createDraft } from "@/platform/email/campaigns/service";
 import { createScope } from "@/platform/email/audience/scopes";
 import * as rbac from "@/platform/rbac/engine";
 import type { Audience } from "@/platform/email/audience/types";
-import { countNodesAction } from "./actions";
+import { countNodesAction, searchPeopleAction } from "./actions";
 
 beforeEach(resetDb);
 afterEach(() => {
@@ -101,5 +101,45 @@ describe("countNodesAction", () => {
     const malformed = { recordType: "PERSON", match: "ALL", conditions: [{ nope: 1 }] } as unknown as Audience;
 
     await expect(countNodesAction(c.id, null, malformed)).resolves.toEqual({});
+  });
+});
+
+/**
+ * The manual-include search box.
+ *
+ * The scope bound itself is enforced in the service and tested there (a search
+ * that ignored the campaign's scope would let a scoped sender enumerate the
+ * whole directory by typing letters). What this action adds is the permission
+ * re-check, and its answer to a sender who fails it: an empty list, the same
+ * fail-closed degrade countNodesAction makes, because both run automatically
+ * against a page whose loader already applied the identical check.
+ */
+describe("searchPeopleAction", () => {
+  it("searches for a sender who may act on the campaign", async () => {
+    await prisma.person.create({ data: { name: "Rivera Sam", contactEmail: "s@x.com", status: "ACTIVE" } });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+
+    const c = await createDraft(null, "Search", { scopeId: null });
+    expect(await searchPeopleAction(c.id, null, "Rivera")).toEqual([
+      { personId: expect.any(String), name: "Rivera Sam", email: "s@x.com" },
+    ]);
+  });
+
+  it("returns nobody to a sender whose scope grant has gone away", async () => {
+    await prisma.person.create({ data: { name: "Rivera Sam", contactEmail: "s@x.com", status: "ACTIVE" } });
+    const actor = await prisma.person.create({ data: { name: "Sender" } });
+    await signIn(actor.id);
+    // Holds outreach.send, but was never granted this scope.
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send");
+
+    const scope = await createScope(null, {
+      name: "Someone else's scope",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+    });
+    const c = await createDraft(null, "Not mine", { scopeId: scope.id });
+
+    await expect(searchPeopleAction(c.id, scope.id, "Rivera")).resolves.toEqual([]);
   });
 });

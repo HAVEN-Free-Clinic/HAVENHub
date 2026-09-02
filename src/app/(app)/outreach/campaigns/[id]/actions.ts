@@ -29,6 +29,8 @@ import {
   updateCampaign,
   previewAudience,
   countAudienceNodes,
+  searchAudiencePeople,
+  editManualLists,
   testSend,
   sendCampaignNow,
   scheduleCampaign,
@@ -38,6 +40,7 @@ import {
   CampaignConfirmationError,
   CampaignScopeError,
 } from "@/platform/email/campaigns/service";
+import type { PersonSearchHit } from "@/platform/email/audience/resolve";
 import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
@@ -195,6 +198,127 @@ export async function countNodesAction(
     if (err instanceof UnknownAudienceFieldError) return {};
     throw err;
   }
+}
+
+/**
+ * The scoped person search behind the manual-include control.
+ *
+ * Same split as previewAction and countNodesAction: the BOUND `scopeId` is used
+ * only to re-check permission, while the scope the search is actually bounded
+ * by is read from the campaign row inside searchAudiencePeople. There is
+ * deliberately no scope parameter here, because a search a caller could
+ * unscope would let a scoped sender enumerate the whole directory a letter at a
+ * time -- and learning who exists is the leak, even though every send stays
+ * scope-filtered regardless.
+ *
+ * Fails closed to an empty list for the same reason countNodesAction does: this
+ * runs as the sender types, on a page they already passed the identical scope
+ * check to open, so the only way to arrive here unauthorized is a grant that
+ * changed mid-session. Showing no results is the fail-closed answer, and every
+ * action that mutates a list or sends anything still refuses loudly.
+ */
+export async function searchPeopleAction(
+  id: string,
+  scopeId: string | null,
+  query: string,
+): Promise<PersonSearchHit[]> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  try {
+    await assertMayActOnScope(actor.personId, scopeId);
+    return await searchAudiencePeople(id, query);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) return [];
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manual list edits.
+//
+// Four separate actions rather than one taking an op, so each form on the page
+// names the thing it does. Every one of them carries the same gate as the seven
+// actions above -- a scoped sender may no more edit another department's
+// recipient list than they may preview, edit, or send that campaign -- and each
+// takes id and scopeId as explicit leading parameters for the module-scope
+// reason documented at the top of this file.
+//
+// All four redirect back to ?tab=audience: they are driven from controls that
+// only exist on that tab, and landing the sender on Compose after excluding a
+// row would lose their place in a list they are working down.
+// ---------------------------------------------------------------------------
+
+export async function includePersonAction(
+  id: string,
+  scopeId: string | null,
+  formData: FormData,
+): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const personId = ((formData.get("personId") as string | null) ?? "").trim();
+  if (personId !== "") {
+    await editManualLists(actor.personId, id, { op: "include", personId });
+  }
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?tab=audience`);
+}
+
+export async function excludePersonAction(
+  id: string,
+  scopeId: string | null,
+  formData: FormData,
+): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const personId = ((formData.get("personId") as string | null) ?? "").trim();
+  if (personId !== "") {
+    await editManualLists(actor.personId, id, { op: "exclude", personId });
+  }
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?tab=audience`);
+}
+
+/**
+ * Clears the whole exclusion list, which is the editor's only undo for it.
+ *
+ * All-or-nothing on purpose. Per-row restore would mean rendering the excluded
+ * people by name, and a name is exactly what this page must not echo back for
+ * an id the sender supplied: a forged personId would come back with the name
+ * attached, turning the undo list into the directory oracle the search box is
+ * so carefully not. A count of ids the sender themselves wrote reveals nothing
+ * they did not already have.
+ */
+export async function clearExcludedAction(id: string, scopeId: string | null): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  await editManualLists(actor.personId, id, { op: "clearExcluded" });
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?tab=audience`);
+}
+
+export async function pastedEmailsAction(
+  id: string,
+  scopeId: string | null,
+  formData: FormData,
+): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const raw = (formData.get("pastedEmails") as string | null) ?? "";
+  // Newlines, commas, semicolons, and whitespace all separate addresses: a
+  // sender pasting out of a spreadsheet column, an email client's To: field, or
+  // a wrapped list should not have to reformat it first.
+  const emails = raw.split(/[\s,;]+/).filter((e) => e !== "");
+  try {
+    await editManualLists(actor.personId, id, { op: "paste", emails });
+  } catch (err) {
+    if (err instanceof CampaignValidationError) {
+      redirect(
+        `/outreach/campaigns/${id}?tab=audience&error=${encodeURIComponent(err.problems.join("; "))}`,
+      );
+    }
+    throw err;
+  }
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?tab=audience`);
 }
 
 export async function testAction(id: string, scopeId: string | null): Promise<void> {

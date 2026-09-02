@@ -123,22 +123,38 @@ function asSingle(value: AudienceCondition["value"]): string {
 }
 
 /**
- * The values a range condition actually presents to the compiler.
+ * Exactly the list `asArray` (operators.ts) hands the compiler.
  *
- * Mirrors `asArray` in operators.ts, which DROPS empty strings and only then
- * applies the `pair.length !== 2` gate. That order matters and is easy to get
- * wrong: `["a","b",""]` and `["","a","b"]` both compile as the range a..b, so a
- * control that judged "is this a usable pair" by array length would put a false
- * match-nobody warning on two conditions that are quietly working. Length is
- * not the compiler's test; the count of non-empty values is.
+ * Two details of that function are load-bearing and both are easy to lose:
+ *
+ * 1. It drops empty strings and only THEN applies the `pair.length !== 2`
+ *    gate, so `["a","b",""]` and `["","a","b"]` both compile as the range a..b.
+ *    Judging "is this a usable pair" by array length would put a false
+ *    match-nobody warning on two conditions that are quietly working.
+ * 2. It filters on the RAW member, `v !== ""`, with no trimming. A
+ *    whitespace-only member therefore COUNTS: `["a"," ","b"]` is three values
+ *    to the compiler and matches nobody. Trimming before filtering here would
+ *    make the control see two, show both boxes filled, and say nothing, which
+ *    is the silent direction of that bug and the one that matters, since under
+ *    a NONE group an always-false leaf stops the group excluding anyone.
+ *
+ * Trimming belongs in `displayValues`, after the count has been taken.
  */
-function usedValues(value: AudienceCondition["value"]): string[] {
-  if (typeof value === "string") {
-    const one = value.trim();
-    return one === "" ? [] : [one];
-  }
-  const list = Array.isArray(value) ? value : [];
-  return list.map((v) => (v ?? "").trim()).filter((v) => v !== "");
+function compilerValues(value: AudienceCondition["value"]): string[] {
+  if (typeof value === "string") return value.length > 0 ? [value] : [];
+  return (Array.isArray(value) ? value : []).filter((v) => v !== "");
+}
+
+/**
+ * The same values trimmed, with anything that was only whitespace dropped:
+ * what the boxes should actually show. A whitespace-only member is counted by
+ * `compilerValues` (it breaks the condition) but is not a value anyone can see
+ * or edit, so it must not occupy a box.
+ */
+function displayValues(value: AudienceCondition["value"]): string[] {
+  return compilerValues(value)
+    .map((v) => (v ?? "").trim())
+    .filter((v) => v !== "");
 }
 
 /**
@@ -153,7 +169,8 @@ function usedValues(value: AudienceCondition["value"]): string[] {
  *
  * A well-formed two-element array keeps its POSITIONS, so a sender who filled
  * in only the end date sees it in the end box. Any other shape falls back to
- * the compiler's own reading (`usedValues`), because once the array is off-shape
+ * the compiler's own reading (`displayValues`), because once the array is
+ * off-shape
  * position is no longer what the compiler goes by, and showing the first two
  * slots would put "" in a box while a real value further along was doing the
  * filtering.
@@ -166,18 +183,21 @@ function asPair(value: AudienceCondition["value"]): [string, string] {
   if (Array.isArray(value) && value.length === 2) {
     return [(value[0] ?? "").trim(), (value[1] ?? "").trim()];
   }
-  const used = usedValues(value);
-  return [used[0] ?? "", used[1] ?? ""];
+  const shown = displayValues(value);
+  return [shown[0] ?? "", shown[1] ?? ""];
 }
 
 /**
  * True when a range holds MORE than the two values the compiler accepts.
  *
+ * Counted the compiler's way, so a whitespace-only member counts even though
+ * it occupies no box (see compilerValues).
+ *
  * Fewer than two needs no note of its own: `asPair` always leaves at least one
  * box blank in that case, and the empty-endpoint note already covers it.
  */
 function hasTooManyValues(value: AudienceCondition["value"]): boolean {
-  return usedValues(value).length > 2;
+  return compilerValues(value).length > 2;
 }
 
 export function ValueControl({ kind, op, value, onChange, zoneLabel }: Props) {
@@ -350,7 +370,7 @@ function DateRange({
   // exists to prevent, and the compiler answers MATCH_NOBODY for it. Say so and
   // let the sender re-pick; editing either box then writes a clean pair.
   const tooMany = hasTooManyValues(value);
-  const valueCount = usedValues(value).length;
+  const valueCount = compilerValues(value).length;
 
   // A legacy bare string under `between` is shown in the start box by asPair;
   // write the normalised pair back up so the STORED audience matches what is on
@@ -488,8 +508,10 @@ function WholeNumber({
   suffix?: string;
   message: string;
   /**
-   * A note owned by the PARENT that also describes this box, and whose presence
-   * means the surrounding range is itself unusable. CountRange's reversed-range
+   * Space-separated ids of notes owned by the PARENT that also describe this
+   * box, and whose presence means the surrounding range is itself unusable.
+   * More than one can be showing at once (a reversed range that ALSO holds too
+   * many values), so this is the joined list, not a single id. CountRange's reversed-range
    * and over-long warnings belong to the pair rather than to either endpoint,
    * and without this they were rendered pointing at nothing: a screen reader
    * heard the equivalent warning on a reversed DATE range and not on a count
@@ -603,11 +625,14 @@ function CountRange({
   // a third value matches nobody here too. Warned rather than truncated, for
   // the reason given in DateRange.
   const tooMany = hasTooManyValues(value);
-  const valueCount = usedValues(value).length;
+  const valueCount = compilerValues(value).length;
 
-  // Both warnings belong to the PAIR, so both boxes point at whichever one is
-  // showing. WholeNumber cannot derive either on its own: it sees one endpoint.
-  const rangeNoteId = reversed ? reversedId : tooMany ? tooManyId : undefined;
+  // Both warnings belong to the PAIR, so both boxes point at EVERY one that is
+  // showing: `["9","1","5"]` renders both, and passing only the first left the
+  // other pointed at by nothing. WholeNumber cannot derive either on its own,
+  // since it sees one endpoint. DateRange never had this because it renders its
+  // own two inputs and already joins every id.
+  const rangeNoteId = describedBy(reversed && reversedId, tooMany && tooManyId);
 
   function set(index: 0 | 1, next: AudienceCondition["value"]) {
     const pair: [string, string] = [low, high];

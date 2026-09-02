@@ -582,6 +582,22 @@ describe("a between value that is not a usable pair", () => {
     render("date", "between", ["2026-03-18", "2026-03-20"]);
     expect(container.textContent).not.toContain("matches nobody");
   });
+
+  // asArray filters on the RAW member, so a whitespace-only one is NOT padding:
+  // it is a third value, and the range matches nobody. Counting after trimming
+  // made the control see two, which is the silent direction of this same bug.
+  it.each<[PersonFieldKind, string[]]>([
+    ["date", ["2026-03-18", " ", "2026-03-20"]],
+    ["date", ["2026-03-18", "2026-03-20", " "]],
+    ["date", [" ", "2026-03-18", "2026-03-20"]],
+    ["count", ["1", " ", "3"]],
+    ["count", ["1", "3", " "]],
+    ["count", [" ", "1", "3"]],
+  ])("counts a whitespace-only member of a %s range the way asArray does", (kind, value) => {
+    render(kind, "between", value);
+    expect(container.textContent).toContain("matches nobody");
+    expect(container.textContent).toContain("3 values");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -595,11 +611,63 @@ describe("a between value that is not a usable pair", () => {
 // and the audience is empty (or, under NONE, is everyone).
 describe("the match-nobody note agrees with the compiler", () => {
   const CTX = { now: new Date("2026-03-15T18:00:00.000Z"), zone: "America/New_York" };
+
+  /**
+   * The count fixture, and a PREMISE the table below silently depends on.
+   *
+   * `countWhere` returns MATCH_NOBODY for two different reasons: a condition it
+   * cannot use, and a perfectly usable condition that happened to match no
+   * person in the map (operators.ts, the `matched.length === 0` branch). Only
+   * the first is a UI concern, and only the first is what the biconditional is
+   * about, so every well-shaped count row in CASES must match at least one
+   * person here. `count / gt / "10"` would not, and it would fail the
+   * biconditional with no UI bug behind it, which invites weakening the
+   * invariant to fix a fixture problem.
+   *
+   * The guard below enforces that structurally, so a row like that fails with a
+   * message naming the real cause instead.
+   */
   const COUNTS = new Map([
     ["p-zero", 0],
     ["p-three", 3],
     ["p-ten", 10],
   ]);
+
+  /**
+   * Whether a count value is well SHAPED, judged from the value alone.
+   *
+   * Deliberately an independent oracle rather than a call into `countWhere`:
+   * asking the compiler whether a condition is usable is exactly the question
+   * that has two answers collapsed into one sentinel, so the guard has to
+   * decide it without the map. Kept to the shape rules `parseCount` and
+   * `asArray` apply, and nothing else.
+   */
+  function isWellShapedCount(op: ConditionOp, value: AudienceCondition["value"]): boolean {
+    const list = Array.isArray(value)
+      ? value.filter((v) => v !== "")
+      : typeof value === "string" && value.length > 0
+        ? [value]
+        : [];
+    const whole = (s: string) => /^\d+$/.test(s.trim());
+    if (op === "between") {
+      return list.length === 2 && list.every(whole) && Number(list[0]) <= Number(list[1]);
+    }
+    return list.length === 1 && whole(list[0]);
+  }
+
+  it("every well-shaped count row matches a fixture person, or the table means something else", () => {
+    const unmatched = CASES.filter(
+      ([kind, op, value]) =>
+        kind === "count" &&
+        isWellShapedCount(op, value) &&
+        JSON.stringify(countWhere(COUNTS, { field: "f", op, value })) ===
+          JSON.stringify(MATCH_NOBODY),
+    );
+    expect(
+      unmatched.map(([, op, value]) => `${op} ${JSON.stringify(value)}`),
+      "these rows are usable conditions that matched nobody in COUNTS, not UI bugs: widen the fixture rather than weakening the biconditional",
+    ).toEqual([]);
+  });
 
   const CASES: [PersonFieldKind, ConditionOp, AudienceCondition["value"]][] = [
     ["date", "before", ""],
@@ -632,6 +700,17 @@ describe("the match-nobody note agrees with the compiler", () => {
     ["count", "between", ["1", "3", ""]],
     ["count", "between", ["", "1", "3"]],
     ["count", "between", ["1", ""]],
+    // Whitespace-only members. asArray filters on the RAW value, so " " is a
+    // third value to the compiler even though it looks like padding. A control
+    // that trimmed before counting would show two filled boxes and no note over
+    // a condition that matches nobody: finding 3 surviving in the silent
+    // direction, which under NONE stops a group excluding anyone.
+    ["date", "between", ["2026-03-18", " ", "2026-03-20"]],
+    ["date", "between", ["2026-03-18", "2026-03-20", " "]],
+    ["date", "between", [" ", "2026-03-18", "2026-03-20"]],
+    ["count", "between", ["1", " ", "3"]],
+    ["count", "between", ["1", "3", " "]],
+    ["count", "between", [" ", "1", "3"]],
   ];
 
   it.each(CASES)("%s / %s / %j", (kind, op, value) => {
@@ -668,6 +747,11 @@ describe("aria wiring", () => {
     ["a stored non-number count", "count", "gte", "abc"],
     ["a reversed count range", "count", "between", ["9", "1"]],
     ["an over-long count range", "count", "between", ["1", "3", "9"]],
+    // Both pair-level notes at once. CountRange used to pass at most ONE id to
+    // its boxes, so the second note was left pointed at by nothing. DateRange
+    // joins every id, which is why the date side never had this.
+    ["a reversed AND over-long count range", "count", "between", ["9", "1", "5"]],
+    ["a reversed AND over-long date range", "date", "between", ["2026-03-20", "2026-03-18", "2026-03-25"]],
   ])("points an input at every note rendered for %s", (_label, kind, op, value) => {
     render(kind, op, value);
     const rendered = noteIds();

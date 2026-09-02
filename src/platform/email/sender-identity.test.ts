@@ -139,6 +139,54 @@ describe("authorization: a scoped sender cannot send as an arbitrary address", (
       resolveSenderIdentity(sender.id, null, "dean@yale.edu"),
     ).rejects.toBeInstanceOf(SenderIdentityError);
   });
+
+  it("refuses an address the sender merely typed into their own profile", async () => {
+    // The reason Person.contactEmail is NOT a claim. It is self-service,
+    // unverified free text (/my-info writes it), so treating it as proof of
+    // anything reduces the check to "is it the value I just typed". The
+    // allowlist cannot save this: it is domain-level and cannot tell sender@
+    // from directors@, and havenfreeclinic.org is Maileroo-signed, so an address
+    // on it leaves AS ITSELF, DKIM-aligned, under DMARC p=reject. There is no
+    // Send-As brake the way there is for yale.edu.
+    //
+    // Reproduced end to end before this was closed: a person holding only
+    // outreach.send plus one scope grant set their profile to
+    // directors@havenfreeclinic.org, and the campaign enqueued from it.
+    const sender = await person("Scoped Sender", "directors@havenfreeclinic.org");
+
+    // Not offered, so the picker cannot present it as legitimate...
+    expect(await availableSenderIdentities(sender.id, null)).toEqual([]);
+    // ...and not accepted either, which is the half that matters, since the
+    // picker is only a menu and the POST is what gets authorized.
+    await expect(
+      resolveSenderIdentity(sender.id, null, "directors@havenfreeclinic.org"),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // Nor does an admin-set scope identity make the typed one legitimate by
+    // sitting beside it: every layer used to be appended to ONE option list, so
+    // a scope identity did not displace the profile address, it accompanied it.
+    expect(
+      (await availableSenderIdentities(sender.id, scopeIdentity("peds@havenfreeclinic.org"))).map(
+        (o) => o.address,
+      ),
+    ).toEqual(["peds@havenfreeclinic.org"]);
+    await expect(
+      resolveSenderIdentity(
+        sender.id,
+        scopeIdentity("peds@havenfreeclinic.org"),
+        "directors@havenfreeclinic.org",
+      ),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // Issuing that same address is how it becomes legitimate: an admin acts.
+    await issueSendingIdentity(null, {
+      personId: sender.id,
+      address: "directors@havenfreeclinic.org",
+    });
+    expect(
+      (await resolveSenderIdentity(sender.id, null, "directors@havenfreeclinic.org"))?.source,
+    ).toBe("issued");
+  });
 });
 
 describe("authorization: revocation", () => {
@@ -169,10 +217,9 @@ describe("authorization: revocation", () => {
     await expect(
       resolveSenderIdentity(sender.id, null, "recruitment@havenfreeclinic.org"),
     ).rejects.toBeInstanceOf(SenderIdentityError);
-    expect(await availableSenderIdentities(sender.id, null)).toEqual([
-      // Only their own address is left.
-      expect.objectContaining({ address: "sender@yale.edu", source: "own" }),
-    ]);
+    // Nothing is left: revoking the only issued address leaves this person with
+    // no claim at all, because their profile address is not one.
+    expect(await availableSenderIdentities(sender.id, null)).toEqual([]);
   });
 
   it("re-issues in place rather than creating a second row", async () => {
@@ -243,6 +290,27 @@ describe("write-time validation", () => {
     expect(await prisma.sendingIdentity.count()).toBe(0);
   });
 
+  it("refuses a malformed LOCAL part on an allowlisted domain", async () => {
+    // The domain check alone is not a format check. domainOf is deliberately
+    // permissive about the local part (it answers "which domain would this be
+    // signed under", not "is this deliverable"), so without a format check these
+    // store fine and fail at send -- exactly the class of failure a write-time
+    // check exists to prevent. Every address below is on a domain the allowlist
+    // DOES carry, so only the format check can refuse it.
+    const sender = await person("Scoped Sender", "sender@yale.edu");
+    for (const address of [
+      "a b@havenfreeclinic.org",
+      "x@y@havenfreeclinic.org",
+      "@havenfreeclinic.org",
+      "recruitment@havenfreeclinic.org ,evil@havenfreeclinic.org",
+    ]) {
+      await expect(
+        issueSendingIdentity(null, { personId: sender.id, address }),
+      ).rejects.toBeInstanceOf(SenderIdentityError);
+    }
+    expect(await prisma.sendingIdentity.count()).toBe(0);
+  });
+
   it("accepts an address on either allowlisted domain and records the transport", async () => {
     // Both polarities of the allowlist, and both signing transports, because the
     // two domains are signable by DIFFERENT ones.
@@ -278,8 +346,10 @@ describe("write-time validation", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolution order", () => {
-  it("prefers the scope identity, then an issued one, then the sender's own", async () => {
-    const sender = await person("Scoped Sender", "sender@yale.edu");
+  it("prefers the scope identity, then an issued one, and has no third layer", async () => {
+    // A contactEmail on an allowlisted clinic domain throughout, so if a third
+    // layer were ever re-added this test would notice rather than shrug.
+    const sender = await person("Scoped Sender", "directors@havenfreeclinic.org");
     await issueSendingIdentity(null, {
       personId: sender.id,
       address: "recruitment@havenfreeclinic.org",
@@ -298,7 +368,7 @@ describe("resolution order", () => {
       source: "scope",
     });
 
-    // 2. With no scope identity, an issued address outranks their own.
+    // 2. With no scope identity, an address issued to them.
     const withIssued = await resolveSenderIdentity(sender.id, scopeIdentity(null), null);
     expect(withIssued).toMatchObject({
       address: "recruitment@havenfreeclinic.org",
@@ -306,17 +376,13 @@ describe("resolution order", () => {
       source: "issued",
     });
 
-    // 3. With neither, their own address, which is always theirs to use.
-    const bare = await person("Bare", "bare@yale.edu");
-    expect(await resolveSenderIdentity(bare.id, null, null)).toMatchObject({
-      address: "bare@yale.edu",
-      source: "own",
-    });
-
-    // 4. With none of the three, null: the caller falls through to the existing
-    // template/category sender rules and then the global default.
-    const outsider = await person("Outsider", "outsider@gmail.com");
-    expect(await resolveSenderIdentity(outsider.id, null, null)).toBeNull();
+    // 3. With neither, NULL, not their profile address: the caller falls through
+    // to the existing template/category sender rules and then the global
+    // default. A sender with nothing issued to them and no scope identity has no
+    // claim of their own to fall back on, by design.
+    const bare = await person("Bare", "bare@havenfreeclinic.org");
+    expect(await resolveSenderIdentity(bare.id, null, null)).toBeNull();
+    expect(await resolveSenderIdentity(bare.id, scopeIdentity(null), null)).toBeNull();
   });
 
   it("offers every claim in order, deduplicated, with the strongest source winning", async () => {
@@ -337,8 +403,10 @@ describe("resolution order", () => {
       ["peds@havenfreeclinic.org", "scope"],
       ["shared@havenfreeclinic.org", "issued"],
     ]);
-    // And the sender's own address, which is also the shared issued one, has not
-    // produced a third entry.
+    // shared@ is BOTH issued to them and the address on their profile, and it
+    // appears exactly once, as the issued claim. The profile half contributes
+    // nothing at all: it is what makes the address usable, not the fact that
+    // they typed it.
     expect(options).toHaveLength(2);
   });
 

@@ -1138,9 +1138,10 @@ model AudienceScope {
   description  String?
   /// An `Audience` tree, the exact shape EmailCampaign.audienceJson holds.
   audienceJson Json
-  /// Sending identity for campaigns sent under this scope, and the STRONGEST of
-  /// the three claims a campaign can make (see sender-identity.ts): an admin set
-  /// it, so it outranks anything issued to, or owned by, the person sending.
+  /// Sending identity for campaigns sent under this scope, and the STRONGER of
+  /// the two claims a campaign can make (see sender-identity.ts): an admin set
+  /// it on the delegation boundary itself, so it outranks anything issued to the
+  /// person sending.
   /// Validated against the SENDING_DOMAINS allowlist when it is written, so a
   /// scope cannot carry an identity that is guaranteed to fail at send.
   fromEmail    String?
@@ -1176,8 +1177,10 @@ model AudienceScopeGrant {
 
 /// An address a specific person has been ISSUED permission to send campaigns as.
 /// The delegation half of sender identity: without a row here, a delegated
-/// sender's only claims are their campaign's scope identity and their own
-/// contactEmail, and nothing else they can put in a From is accepted.
+/// sender's ONLY claim is their campaign's scope identity, and nothing else they
+/// can put in a From is accepted. Notably not their own Person.contactEmail,
+/// which is unverified free text they write themselves; sender-identity.ts
+/// records why at length.
 ///
 /// UNIQUENESS IS (personId, address), NOT address alone. A shared mailbox such
 /// as recruitment@havenfreeclinic.org is deliberately issuable to several
@@ -1246,10 +1249,11 @@ model EmailCampaign {
   /// then subject to exactly the same scope intersection as includePersonIds.
   pastedEmails      String[]            @default([])
   /// The sending identity CHOSEN for this campaign, or null to take whatever the
-  /// resolution order yields (scope identity, then an issued identity, then the
-  /// sender's own address). Storing the address alone, not a foreign key, is
-  /// deliberate: the same address can arrive from any of the three sources, and
-  /// the choice must survive the issued row being revoked -- at which point the
+  /// resolution order yields (the scope identity, then an address issued to the
+  /// sender; there is no third layer, and sender-identity.ts records at length
+  /// why the sender's own profile address is not one). Storing the address
+  /// alone, not a foreign key, is deliberate: it can arrive from either source,
+  /// and the choice must survive the issued row being revoked -- at which point the
   /// run re-resolves DOWN the order rather than sending as it. Authorized when
   /// written and re-authorized at enqueue; see resolveCampaignSender.
   fromEmail         String?

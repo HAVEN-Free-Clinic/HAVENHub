@@ -26,7 +26,7 @@
  */
 
 import { Alert } from "@/platform/ui/alert";
-import { domainOf } from "@/platform/email/address";
+import { domainOf, EMAIL_RE } from "@/platform/email/address";
 
 export type SendingDomainMap = Record<string, "maileroo" | "graph">;
 
@@ -47,6 +47,22 @@ export function SenderIdentityNotes({
   if (!normalized) return null;
   const domain = domainOf(normalized);
   const transport = domain ? domains[domain] : undefined;
+
+  // The format half of the server's check (sendingAddressProblem), mirrored here
+  // so it is answered while the field is still focused. The domain check below
+  // cannot stand in for it: "a b@havenfreeclinic.org" has a perfectly good
+  // domain, so without this the admin gets no feedback at all until the server
+  // refuses. Same EMAIL_RE the server uses, so the two cannot disagree. The
+  // server still decides; this only shortens the loop.
+  if (!EMAIL_RE.test(normalized)) {
+    if (!warnUnsignable) return null;
+    return (
+      <Alert tone="error">
+        <strong>{normalized}</strong>{" "}
+        is not a valid email address, so it cannot be issued.
+      </Alert>
+    );
+  }
 
   if (!transport) {
     if (!warnUnsignable) return null;

@@ -9,28 +9,34 @@ import { SenderIdentityNotes, type SendingDomainMap } from "../../sender-identit
 export type SenderOption = {
   address: string;
   displayName: string | null;
-  source: "scope" | "issued" | "own";
+  /** Both values name something an admin did; there is no third. */
+  source: "scope" | "issued";
 };
 
 const SOURCE_LABEL: Record<SenderOption["source"], string> = {
   scope: "this campaign's scope",
   issued: "issued to you",
-  own: "your own address",
 };
 
 /**
  * Choose which identity this campaign sends as.
  *
  * A CLOSED LIST, not a text field, and that is the security property rather than
- * a convenience: the server accepts only an address that is this campaign's
- * scope identity, one issued to this person, or their own, so a free-text box
- * could only ever offer ways to be refused. The options here are the exact list
- * the server authorizes against (see senderIdentitiesForCampaign), so the menu
- * and the check cannot drift apart.
+ * a convenience: the server accepts only this campaign's scope identity or an
+ * address issued to this person, so a free-text box could only ever offer ways
+ * to be refused. The options here are the exact list the server authorizes
+ * against (see senderIdentitiesForCampaign), so the menu and the check cannot
+ * drift apart.
  *
- * A stored choice that is no longer in the list is still shown, disabled, with
- * the reason: an issued address revoked after the campaign was composed would
- * otherwise vanish from the form and silently re-save as the default.
+ * The list can legitimately be EMPTY, and that is not a bug to design around: a
+ * sender with nothing issued to them, whose campaign's scope carries no
+ * identity, has no claim of their own to fall back on. Their own profile address
+ * is deliberately not one (see sender-identity.ts). They get the default option
+ * only, which is the clinic's configured sender.
+ *
+ * A stored choice that is no longer in the list is still shown, with the reason:
+ * an issued address revoked after the campaign was composed would otherwise
+ * vanish from the form and silently re-save as the default.
  */
 export function SenderPicker({
   options,

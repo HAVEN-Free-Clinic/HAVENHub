@@ -32,7 +32,7 @@ export function ScopeIdentityFields({
           <Input
             name="fromEmail"
             type="email"
-            placeholder="Leave blank for the sender's own address"
+            placeholder="Leave blank to use each sender's issued address"
             value={fromEmail}
             onChange={(e) => setFromEmail(e.target.value)}
           />
@@ -47,8 +47,10 @@ export function ScopeIdentityFields({
         </Field>
       </div>
       <p className="text-sm text-muted-foreground">
-        This outranks anything issued to the sender, and their own address. Leave it blank and each
-        sender falls back to an address issued to them, then to their own.
+        This outranks anything issued to the sender. Leave it blank and each sender falls back to an
+        address issued to them on the Sending identities page, and then to the clinic&apos;s
+        configured sender. A sender&apos;s own profile address is never used: it is unverified free
+        text, so it has to be issued to them first.
       </p>
       <SenderIdentityNotes
         address={fromEmail}

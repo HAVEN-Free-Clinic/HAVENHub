@@ -22,10 +22,10 @@ export type QueueEmailInput = {
  * lookup for this enqueue.
  *
  * Campaigns own their own sender identity (see sender-identity.ts): who may send
- * as what is decided by the campaign's scope, what has been issued to the person,
- * and their own address -- none of which the template rules know anything about.
- * Passing the resolved identity in keeps that decision in one place instead of
- * teaching the rule table about campaigns.
+ * as what is decided by the campaign's scope and by what has been issued to the
+ * person, neither of which the template rules know anything about. Passing the
+ * resolved identity in keeps that decision in one place instead of teaching the
+ * rule table about campaigns.
  *
  * Omitting the field, or passing null, means "resolve from the template rules",
  * which is what every non-campaign caller does and what a campaign with no

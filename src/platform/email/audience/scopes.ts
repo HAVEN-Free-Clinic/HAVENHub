@@ -13,7 +13,7 @@ import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { isAudience, EMPTY_AUDIENCE } from "./types";
 import type { Audience } from "./types";
-import { normalizeSendingAddress, unsignableReason } from "../sender-identity";
+import { normalizeSendingAddress, sendingAddressProblem } from "../sender-identity";
 
 export type AudienceScopeView = {
   id: string;
@@ -70,14 +70,15 @@ type IdentityInput = { fromEmail?: string | null; fromName?: string | null };
 
 /**
  * Turn the submitted identity fields into the columns to write, refusing an
- * address no transport can DKIM-sign for.
+ * address that is malformed or that no transport can DKIM-sign for.
  *
- * Validated HERE, at write time, and not merely when a campaign sends: a scope
- * identity that cannot be signed is a campaign that fails after the sender has
- * already hit Send, at which point the run is claimed and the recipients are
- * enqueued. The check is the same `unsignableReason` the issued-identity path
- * uses, reported as this module's error type so the scope page's existing
- * ?error= handling picks it up unchanged.
+ * Validated HERE, at write time, and not merely when a campaign sends: an
+ * identity that cannot be signed, or whose local part is malformed, is a
+ * campaign that fails after the sender has already hit Send, at which point the
+ * run is claimed and the recipients are enqueued. The check is the same
+ * `sendingAddressProblem` the issued-identity path uses -- one function, not two
+ * drifting copies -- reported as this module's error type so the scope page's
+ * existing ?error= handling picks it up unchanged.
  *
  * Returns {} when the caller supplied neither field, so a form that does not
  * carry them (the create form) cannot blank an identity an admin already set.
@@ -88,7 +89,7 @@ function identityData(input: IdentityInput): { fromEmail?: string | null; fromNa
   if (input.fromEmail !== undefined) {
     const address = normalizeSendingAddress(input.fromEmail);
     if (address) {
-      const reason = unsignableReason(address);
+      const reason = sendingAddressProblem(address);
       if (reason) throw new ScopeValidationError(reason);
     }
     data.fromEmail = address;

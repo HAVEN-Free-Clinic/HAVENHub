@@ -115,11 +115,22 @@ export default async function SendingIdentitiesPage({
    * send a live message to an arbitrary address would widen its reach beyond
    * anything outreach itself grants. Sending to yourself answers the only
    * question being asked ("will Graph accept this From") and reaches nobody new.
+   *
+   * The FROM is resolved from an id, and the row is re-read here with
+   * `revokedAt: null` rather than trusted from the form. The button renders only
+   * on an active row, so reading a raw address out of the FormData would leave
+   * the server not enforcing what the UI implies -- and it would be the one read
+   * of an identity on this page that skips the revocation filter, which is
+   * exactly the shape the whole revocation risk is about.
    */
   async function testAction(formData: FormData) {
     "use server";
     const admin = await requirePermission("outreach.manage_scopes");
-    const address = ((formData.get("address") as string | null) ?? "").trim();
+    const identity = await prisma.sendingIdentity.findFirst({
+      where: { id: ((formData.get("id") as string | null) ?? "").trim(), revokedAt: null },
+      select: { address: true },
+    });
+    if (!identity) back("That sending identity is no longer active.");
     const row = await prisma.person.findUnique({
       where: { id: admin.personId },
       select: { contactEmail: true },
@@ -128,19 +139,29 @@ export default async function SendingIdentitiesPage({
       back("You have no contact email on file, so there is nowhere to send the test.");
     }
     try {
-      await sendSenderTest(admin.personId, { toEmail: row.contactEmail, fromEmail: address });
+      await sendSenderTest(admin.personId, {
+        toEmail: row.contactEmail,
+        fromEmail: identity.address,
+      });
     } catch (e) {
       back(e instanceof Error ? e.message : "The test send failed.");
     }
-    redirect(`${PATH}?sent=${encodeURIComponent(address)}`);
+    redirect(`${PATH}?sent=${encodeURIComponent(identity.address)}`);
   }
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Sending identities"
-        description="Addresses a person may send a campaign as. Without one, a delegated sender can only use their campaign's scope identity or their own address."
+        description="Addresses a person may send a campaign as. Without one, a delegated sender can only use their campaign's scope identity. A person's own profile address is not a sending identity: it is unverified free text, so it has to be issued here before they can send as it."
       />
+      {/* Usually redundant, and kept as the fallback rather than the primary
+          channel: FlashReader (root layout) CLAIMS an `error` param, toasts it,
+          and strips it with router.replace, so in practice the refusal reaches
+          the admin as a transient toast and this branch has already lost its
+          value by the time the page re-renders. Verified in a browser. Left in
+          place so a refusal is still visible if that param ever stops being
+          claimed, which is the failure this page must not have. */}
       {error && <Alert tone="error">{error}</Alert>}
       {sent && (
         <Alert tone="success">
@@ -166,8 +187,8 @@ export default async function SendingIdentitiesPage({
         <h2 className="text-base font-semibold text-foreground">Issued</h2>
         {identities.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nothing issued yet. Every sender can still use their campaign&apos;s scope identity and
-            their own address.
+            Nothing issued yet. Senders can still use their campaign&apos;s scope identity, and
+            anyone without one sends from the clinic&apos;s configured address.
           </p>
         ) : (
           <Table>
@@ -218,7 +239,10 @@ export default async function SendingIdentitiesPage({
                       <div className="flex items-center justify-end gap-2">
                         {me?.contactEmail && (
                           <form action={testAction}>
-                            <input type="hidden" name="address" value={identity.address} />
+                            {/* The id, not the address: the server re-reads the
+                                row with revokedAt: null rather than trusting a
+                                From that came from the page. */}
+                            <input type="hidden" name="id" value={identity.id} />
                             <Button type="submit" variant="outline">
                               Test to me
                             </Button>

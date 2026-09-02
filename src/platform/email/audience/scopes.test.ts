@@ -52,6 +52,19 @@ describe("audience scopes", () => {
     expect((await getScope(s.id))?.fromEmail).toBeNull();
   });
 
+  it("refuses a malformed local part on an allowlisted domain", async () => {
+    // The allowlist check is domain-level and says nothing about the local part,
+    // so without a format check these store fine and fail at send. Same seam,
+    // same class of bug, as the issued-identity path.
+    const s = await createScope(null, { name: "Peds", audience: ACTIVE_ONLY });
+    for (const fromEmail of ["a b@havenfreeclinic.org", "x@y@havenfreeclinic.org"]) {
+      await expect(
+        updateScope(null, s.id, { name: "Peds", audience: ACTIVE_ONLY, fromEmail }),
+      ).rejects.toBeInstanceOf(ScopeValidationError);
+    }
+    expect((await getScope(s.id))?.fromEmail).toBeNull();
+  });
+
   it("stores a sending identity on an allowlisted domain, lowercased, and can clear it", async () => {
     const s = await createScope(null, {
       name: "Peds",

@@ -21,3 +21,16 @@ export function domainOf(address: string | null | undefined): string | null {
   if (at < 1 || at === trimmed.length - 1) return null;
   return trimmed.slice(at + 1).toLowerCase();
 }
+
+/**
+ * A pragmatic email check: non-space, an @, a dot in the domain.
+ *
+ * Lives here so the two sender-identity write seams and the pre-existing
+ * `saveSenderRule` share ONE pattern rather than each carrying its own. It is
+ * deliberately not an RFC 5322 parser: semantic validity (Send-As rights, a
+ * signable domain) is decided elsewhere. What it does catch is the class that
+ * `domainOf` cannot -- a local part with a space or a second `@` passes the
+ * domain check, stores fine, and then fails at send, which is exactly what a
+ * write-time check exists to prevent.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

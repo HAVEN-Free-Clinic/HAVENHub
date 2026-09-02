@@ -1454,7 +1454,10 @@ describe("campaign sending identity", () => {
 
   async function scopedCampaign(scopeFromEmail: string | null) {
     const sender = await prisma.person.create({
-      data: { name: "Scoped Sender", contactEmail: "sender@yale.edu", status: "ACTIVE" },
+      // A profile address on a Maileroo-signed clinic domain, deliberately: it
+      // is the shape that used to be usable as a From, so every case below is
+      // exercised against the dangerous version rather than a harmless one.
+      data: { name: "Scoped Sender", contactEmail: "directors@havenfreeclinic.org", status: "ACTIVE" },
     });
     const scope = await createScope(null, {
       name: "Peds",
@@ -1627,9 +1630,41 @@ describe("campaign sending identity", () => {
     });
 
     const options = await senderIdentitiesForCampaign(sender.id, campaign.id);
-    expect(options.map((o) => o.address)).toEqual([
-      "peds@havenfreeclinic.org",
-      "sender@yale.edu",
-    ]);
+    // Only the bound scope's identity. Not the OTHER scope's, which is real and
+    // admin-configured but belongs to a campaign this one is not, and not the
+    // sender's own profile address, which is on a Maileroo-signed clinic domain
+    // and would therefore have left as itself.
+    expect(options.map((o) => o.address)).toEqual(["peds@havenfreeclinic.org"]);
+  });
+
+  it("refuses the sender's own profile address end to end, through the save seam", async () => {
+    // The Critical from review round 1, at the seam the compose form posts to.
+    // The sender sets their profile to an unclaimed clinic role address and
+    // submits it as the campaign's From. Nothing is issued to them, so the only
+    // claim behind it is "I typed it into my own profile".
+    const { sender, campaign } = await scopedCampaign(null);
+    await activePerson("Sam Rivera", "sam@example.com");
+
+    expect(await senderIdentitiesForCampaign(sender.id, campaign.id)).toEqual([]);
+    await expect(
+      updateCampaign(sender.id, campaign.id, {
+        subject: SUBJECT,
+        body: BODY,
+        audience: ALL_ACTIVE,
+        fromEmail: "directors@havenfreeclinic.org",
+      }),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // And with no claim at all, the run falls through to the template rules and
+    // the global sender rather than quietly using the profile address.
+    await updateCampaign(sender.id, campaign.id, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+    });
+    const res = await sendCampaignNow(sender.id, campaign.id, {});
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual([null]);
   });
 });

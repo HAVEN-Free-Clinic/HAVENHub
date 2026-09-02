@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PersonFieldView } from "@/platform/email/audience/person-fields";
+import type { PersonFieldKind, PersonFieldView } from "@/platform/email/audience/person-fields";
 import type {
   Audience,
   AudienceCondition,
@@ -15,6 +15,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { FieldPicker } from "./field-picker";
+import { ValueControl } from "./value-controls";
 
 export type NamedOption = { id: string; label: string };
 
@@ -25,8 +26,23 @@ type Props = {
   cycles: NamedOption[];
   subcommittees: NamedOption[];
   initial: Audience;
+  /**
+   * The clinic's display zone in words, e.g. "Eastern (New York)". Shown beside
+   * every absolute date control, because a calendar day in a condition is
+   * resolved in THAT zone (see dateWhere in operators.ts) and not in the
+   * sender's. Supplied by loadAudienceBuilderOptions so both call sites, the
+   * campaign editor and the scope editor, get it from one place.
+   */
+  zoneLabel: string;
 };
 
+/**
+ * The default reading of each operator, used when a field's kind has nothing
+ * more specific to say. These have to be true for EVERY kind that declares the
+ * operator, so `lt`/`gt` are the neutral numeric wording: an ordered comparison
+ * is what they always mean, and a kind that wants a sharper reading overrides
+ * it below.
+ */
 const OP_LABELS: Record<ConditionOp, string> = {
   contains: "contains",
   notContains: "does not contain",
@@ -40,8 +56,10 @@ const OP_LABELS: Record<ConditionOp, string> = {
   isNotEmpty: "is not empty",
   isTrue: "yes",
   isFalse: "no",
-  lt: "is before",
-  gt: "is after",
+  lt: "is less than",
+  gt: "is greater than",
+  lte: "is at most",
+  gte: "is at least",
   // Date operators, used by every dateField/relationDateField in
   // person-fields.ts (joinedAt, hipaaCompletedAt, ehsCompletedAt, etc.).
   before: "is before",
@@ -49,16 +67,53 @@ const OP_LABELS: Record<ConditionOp, string> = {
   onOrBefore: "is on or before",
   onOrAfter: "is on or after",
   between: "is between",
-  withinNextDays: "is within the next (days)",
-  withinLastDays: "is within the last (days)",
-  // Count operators, used by every countField in person-fields.ts
-  // (shiftCountThisTerm, attendanceCountThisTerm, etc.).
-  lte: "is at most",
-  gte: "is at least",
+  // The unit is not in the label because the control renders a "days" suffix
+  // next to the number input (see value-controls.tsx).
+  withinNextDays: "is within the next",
+  withinLastDays: "is within the last",
 };
+
+/**
+ * Per-kind overrides, for the operators whose neutral reading is not the right
+ * one for a particular kind of field.
+ *
+ * The bug this exists to close: labels were keyed by OPERATOR ALONE, so `lt`
+ * and `gt` read "is before" and "is after" for every kind that declares them.
+ * DATE_OPERATORS contains neither (dates use before/after), so those two labels
+ * were consumed only by `year` and `count` fields, and a count condition
+ * rendered as "Shifts assigned this term is before 3", which describes a
+ * comparison the condition is not making.
+ *
+ * Renaming the shared label alone would have moved the problem to `year`, where
+ * the chronological reading is the correct one. So the neutral numeric wording
+ * is the shared default (never WRONG for any kind, just less idiomatic for a
+ * year) and `year` overrides it here. The shared table stays the fallback, so
+ * an operator with no kind-specific entry still renders words.
+ *
+ * Every operator every kind declares (TEXT_OPERATORS, ENUM_OPERATORS,
+ * MULTI_ENUM_OPERATORS, YEAR_OPERATORS, BOOLEAN_OPERATORS, NUMBER_OPERATORS and
+ * DATE_OPERATORS in operators.ts) was read against the shared table; `lt` and
+ * `gt` on a year are the only pair that needed a kind-specific reading. The two
+ * relative-window labels were reworded in the shared table instead, since they
+ * belong to `date` alone and no other kind declares them.
+ */
+const KIND_OP_LABELS: Partial<Record<PersonFieldKind, Partial<Record<ConditionOp, string>>>> = {
+  // gradYear is a point in time held in a String column, so its ordered
+  // comparison really is chronological.
+  year: { lt: "is before", gt: "is after" },
+};
+
+/** The words shown for `op` on a field of `kind`. Exported for its own test. */
+export function opLabel(kind: PersonFieldKind | undefined, op: ConditionOp): string {
+  const specific = kind ? KIND_OP_LABELS[kind]?.[op] : undefined;
+  return specific ?? OP_LABELS[op] ?? op;
+}
 
 /** Operators whose value is a checkbox selection rather than typed text. */
 const SET_OPS = new Set<ConditionOp>(["in", "notIn"]);
+
+/** Operators whose value is a whole number of days, not a calendar day. */
+const WINDOW_OPS = new Set<ConditionOp>(["withinNextDays", "withinLastDays"]);
 
 const VALUELESS = new Set<ConditionOp>(VALUELESS_OPS);
 
@@ -114,17 +169,55 @@ export function defaultConditionFor(def: PersonFieldView): AudienceCondition {
 }
 
 /**
+ * What an operator's value looks like, which is what decides whether a value
+ * can survive an operator change.
+ *
+ * `pair` and `days` were folded in for the date and count controls. Before
+ * them, `between` counted as "single", so switching a date `between` to
+ * `before` left the two-element ARRAY in place: a condition that renders with
+ * an empty date box while the stored audience still holds `["2026-03-18",
+ * "2026-03-20"]`, and compiles to match-nobody. `days` is separate from
+ * `single` for the same reason in the other direction: "30" is a whole number
+ * of days, and carrying it into an absolute date operator puts it in a date
+ * input, which renders blank while the saved JSON still says "30".
+ */
+type ValueArity = "none" | "single" | "days" | "pair" | "set";
+
+function valueArity(op: ConditionOp): ValueArity {
+  if (VALUELESS.has(op)) return "none";
+  if (SET_OPS.has(op)) return "set";
+  if (WINDOW_OPS.has(op)) return "days";
+  if (op === "between") return "pair";
+  return "single";
+}
+
+/**
  * Values do not survive an operator change intact: a checkbox selection is a
- * string[], a pasted list is one newline-joined string, and a single value is a
- * bare string. Carrying the wrong shape across produces a condition that looks
- * filled in but compiles to match-nobody, which is confusing rather than unsafe.
+ * string[], a pasted list is one newline-joined string, a range is a
+ * two-element array, and a single value is a bare string. Carrying the wrong
+ * shape across produces a condition that looks filled in but compiles to
+ * match-nobody, which is confusing rather than unsafe.
+ *
+ * The one value that IS carried across a shape change is a range endpoint,
+ * because there the meaning survives: the start of "between the 18th and the
+ * 20th" is a sensible "before the 18th", and a sender narrowing a range to a
+ * single boundary should not have to retype the day they already picked. Every
+ * other transition resets, since nothing about the old text means anything in
+ * the new shape.
  */
 function valueForOp(cond: AudienceCondition, nextOp: ConditionOp): AudienceCondition["value"] {
-  if (VALUELESS.has(nextOp)) return undefined;
-  const wasSet = SET_OPS.has(cond.op);
-  const isSet = SET_OPS.has(nextOp);
-  if (wasSet === isSet) return cond.value;
-  return isSet ? [] : "";
+  const from = valueArity(cond.op);
+  const to = valueArity(nextOp);
+  if (to === "none") return undefined;
+  if (from === to) return cond.value;
+  if (to === "set") return [];
+  if (to === "pair") {
+    return from === "single" && typeof cond.value === "string" ? [cond.value, ""] : ["", ""];
+  }
+  if (to === "single" && from === "pair") {
+    return Array.isArray(cond.value) ? (cond.value[0] ?? "") : "";
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +311,7 @@ function ConditionRow({
   terms,
   cycles,
   subcommittees,
+  zoneLabel,
   onChange,
   onRemove,
 }: {
@@ -227,6 +321,7 @@ function ConditionRow({
   terms: NamedOption[];
   cycles: NamedOption[];
   subcommittees: NamedOption[];
+  zoneLabel: string;
   onChange: (next: AudienceCondition) => void;
   onRemove: () => void;
 }) {
@@ -260,6 +355,10 @@ function ConditionRow({
 
   const isBoolean = def?.kind === "boolean";
   const usesCheckboxes = def && (def.kind === "multiEnum" || (def.kind === "enum" && SET_OPS.has(cond.op)));
+  // Date and count fields get their own controls (a date picker, a range, a
+  // whole-number box) rather than the generic text input, which could only ever
+  // produce a string the compiler then had to reject. See value-controls.tsx.
+  const usesValueControl = def?.kind === "date" || def?.kind === "count";
 
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3">
@@ -275,7 +374,7 @@ function ConditionRow({
           className="w-auto"
         >
           {def.operators.map((op) => (
-            <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
+            <option key={op} value={op}>{opLabel(def.kind, op)}</option>
           ))}
         </Select>
       )}
@@ -305,6 +404,14 @@ function ConditionRow({
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </Select>
+        ) : usesValueControl && def ? (
+          <ValueControl
+            kind={def.kind}
+            op={cond.op}
+            value={cond.value}
+            onChange={(value) => onChange({ ...cond, value })}
+            zoneLabel={zoneLabel}
+          />
         ) : SET_OPS.has(cond.op) ? (
           <Textarea
             aria-label="Value"
@@ -352,6 +459,7 @@ function GroupEditor({
   terms,
   cycles,
   subcommittees,
+  zoneLabel,
   onChange,
   onRemove,
   depth,
@@ -362,6 +470,7 @@ function GroupEditor({
   terms: NamedOption[];
   cycles: NamedOption[];
   subcommittees: NamedOption[];
+  zoneLabel: string;
   onChange: (next: AudienceGroup) => void;
   onRemove?: () => void;
   depth: number;
@@ -421,6 +530,7 @@ function GroupEditor({
               terms={terms}
               cycles={cycles}
               subcommittees={subcommittees}
+              zoneLabel={zoneLabel}
               onChange={(g) => updateChild(i, g)}
               onRemove={() => removeChild(i)}
               depth={depth + 1}
@@ -434,6 +544,7 @@ function GroupEditor({
               terms={terms}
               cycles={cycles}
               subcommittees={subcommittees}
+              zoneLabel={zoneLabel}
               onChange={(c) => updateChild(i, c)}
               onRemove={() => removeChild(i)}
             />
@@ -457,7 +568,15 @@ function GroupEditor({
 // Root builder
 // ---------------------------------------------------------------------------
 
-export function AudienceBuilder({ fields, departments, terms, cycles, subcommittees, initial }: Props) {
+export function AudienceBuilder({
+  fields,
+  departments,
+  terms,
+  cycles,
+  subcommittees,
+  initial,
+  zoneLabel,
+}: Props) {
   const [root, setRoot] = useState<AudienceGroup>({ match: initial.match, children: initial.conditions });
 
   // The root connective is narrowed back to ALL/ANY: MatchToggle never offers
@@ -481,6 +600,7 @@ export function AudienceBuilder({ fields, departments, terms, cycles, subcommitt
         terms={terms}
         cycles={cycles}
         subcommittees={subcommittees}
+        zoneLabel={zoneLabel}
         onChange={setRoot}
         depth={0}
       />

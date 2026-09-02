@@ -93,6 +93,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
     terms: audienceTerms,
     cycles: audienceCycles,
     subcommittees: audienceSubcommittees,
+    zoneLabel: audienceZoneLabel,
   } = await loadAudienceBuilderOptions(parsedAudience);
 
   const scopeName = boundScope?.name ?? "a deleted scope";
@@ -191,6 +192,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               cycles={audienceCycles}
               subcommittees={audienceSubcommittees}
               initial={parsedAudience}
+              zoneLabel={audienceZoneLabel}
             />
           </div>
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { dateField } from "./person-fields";
 import { resolveAudience } from "./resolve";
 import type { Audience } from "./types";
 
@@ -179,6 +180,53 @@ describe("compliance and training date fields", () => {
       { now: NOW },
     );
     expect(recipients.map((r) => r.email)).toEqual(["trainee@x.com"]);
+  });
+});
+
+// Defect 1.3, proved against real SQL rather than against a compiled shape.
+//
+// A reversed date range is empty either way, but under a NONE group -- which
+// compileGroup renders as `NOT { OR: fragments }` -- HOW it is empty decides
+// the answer for rows whose column is NULL:
+//
+//   MATCH_NOBODY sentinel  ->  NOT 1=0                      -> every row
+//   empty gte/lt pair      ->  NOT (col >= X AND col < Y)   -> NULL for a NULL
+//                                                              column, so NOT
+//                                                              TRUE: dropped
+//
+// No date field in PERSON_FIELDS is exposed to this today: `joinedAt` is
+// Person.createdAt, which is NOT NULL; the four relation date fields compile
+// through `NOT EXISTS (...)`, which is false (not NULL) for a person with no
+// matching row; and `hipaaExpiresAt` resolves through mappedDateWhere, which
+// already returns the sentinel. But `dateField`'s `nullable` parameter DEFAULTS
+// to true, so the next nullable date column anybody registers walks straight
+// into it. This test registers exactly that shape against a real nullable
+// Person column and executes the query, so the guarantee is checked rather than
+// reasoned about.
+describe("an empty date range inside a NONE group, on a NULLABLE column", () => {
+  it("keeps the rows whose date is NULL instead of silently dropping them", async () => {
+    const neverLoggedIn = await prisma.person.create({
+      data: { name: "Never logged in", status: "ACTIVE", lastLoginAt: null },
+    });
+    const loggedIn = await prisma.person.create({
+      data: { name: "Logged in", status: "ACTIVE", lastLoginAt: new Date("2020-01-01T00:00:00.000Z") },
+    });
+
+    // nullable defaults to true, exactly as a future registration would.
+    const field = dateField("lastLoginAt", "Last login", "Identity", "lastLoginAt");
+    const fragment = field.compile(
+      { field: "lastLoginAt", op: "between", value: ["2026-03-20", "2026-03-18"] },
+      { activeTermId: null, now: NOW, zone: "America/New_York" },
+    );
+
+    // The NONE group's shape, applied directly so the assertion is about the
+    // SQL Postgres runs and not about the object compileGroup builds.
+    const rows = await prisma.person.findMany({
+      where: { NOT: { OR: [fragment] } },
+      select: { id: true },
+    });
+
+    expect(rows.map((r) => r.id).sort()).toEqual([neverLoggedIn.id, loggedIn.id].sort());
   });
 });
 

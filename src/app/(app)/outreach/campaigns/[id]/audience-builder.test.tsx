@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
-import type { Audience } from "@/platform/email/audience/types";
-import { AudienceBuilder, defaultConditionFor, getFieldOptions } from "./audience-builder";
+import type { Audience, ConditionOp } from "@/platform/email/audience/types";
+import { AudienceBuilder, defaultConditionFor, getFieldOptions, opLabel } from "./audience-builder";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,6 +25,7 @@ const TERMS = [
 const CYCLES = [{ id: "c-fall", label: "Fall 2026 (open)" }];
 const DEPARTMENTS = [{ code: "CARDIO", name: "Cardiology" }];
 const SUBCOMMITTEES = [{ id: "sub-outreach", label: "Outreach" }];
+const ZONE_LABEL = "Eastern (New York)";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -42,6 +43,7 @@ function render(initial: Audience) {
         cycles={CYCLES}
         subcommittees={SUBCOMMITTEES}
         initial={initial}
+        zoneLabel={ZONE_LABEL}
       />,
     );
   });
@@ -61,6 +63,26 @@ function serialised(): Audience {
 function click(el: Element | null | undefined) {
   act(() => {
     (el as HTMLElement).click();
+  });
+}
+
+/** React installs its own value setter, so a plain assignment does not fire onChange. */
+function typeInto(input: HTMLInputElement, text: string) {
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  act(() => {
+    nativeSetter.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function chooseOp(op: ConditionOp) {
+  const select = container.querySelector('select[aria-label="Operator"]') as HTMLSelectElement;
+  act(() => {
+    select.value = op;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -196,6 +218,259 @@ describe("AudienceBuilder operator changes", () => {
       opSelect.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(serialised().conditions[0]).toEqual({ field: "netId", op: "isEmpty" });
+  });
+});
+
+// OP_LABELS used to be keyed by operator alone, so `lt`/`gt` read "is before"
+// and "is after" for EVERY kind that declares them. DATE_OPERATORS contains
+// neither (dates use before/after), so those two labels were consumed only by
+// `year` and `count` fields, and a shift-count condition rendered as
+// "Shifts assigned this term is before 3", which says something the condition
+// does not mean.
+describe("opLabel", () => {
+  it("never describes a count comparison in chronological words", () => {
+    const counts = PERSON_FIELD_VIEWS.filter((f) => f.kind === "count");
+    // Guard the guard: with no count fields registered the loop below passes
+    // vacuously and stops meaning anything.
+    expect(counts.length).toBeGreaterThan(0);
+    for (const field of counts) {
+      for (const op of field.operators) {
+        expect(opLabel(field.kind, op), `${field.key} / ${op}`).not.toMatch(/before|after/i);
+      }
+    }
+  });
+
+  it("labels an ordered count comparison numerically", () => {
+    expect(opLabel("count", "lt")).toBe("is less than");
+    expect(opLabel("count", "gt")).toBe("is greater than");
+  });
+
+  // A graduation year IS a point in time, so the chronological reading is the
+  // right one there. This is the half of the fix that is easy to lose by
+  // renaming the shared label instead of making resolution kind-aware.
+  it("keeps the chronological reading for a year field", () => {
+    expect(opLabel("year", "lt")).toBe("is before");
+    expect(opLabel("year", "gt")).toBe("is after");
+  });
+
+  it("keeps the date operators' own wording", () => {
+    expect(opLabel("date", "before")).toBe("is before");
+    expect(opLabel("date", "after")).toBe("is after");
+    expect(opLabel("date", "onOrBefore")).toBe("is on or before");
+    expect(opLabel("date", "onOrAfter")).toBe("is on or after");
+  });
+
+  // The control now supplies the "days" unit next to the input, so the label
+  // no longer has to carry it in parentheses.
+  it("drops the parenthetical unit from the relative windows, which the control now shows", () => {
+    expect(opLabel("date", "withinNextDays")).toBe("is within the next");
+    expect(opLabel("date", "withinLastDays")).toBe("is within the last");
+  });
+
+  it("gives every operator every registered field declares a non-empty label", () => {
+    for (const field of PERSON_FIELD_VIEWS) {
+      for (const op of field.operators) {
+        expect(opLabel(field.kind, op).length, `${field.key} (${field.kind}) / ${op}`)
+          .toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+// The mandated render check: a date field and a count field driven end to end
+// through the real builder, asserting the JSON the save action would receive.
+// tsc and eslint do not catch a control that renders but serialises the wrong
+// shape, and the wrong shape compiles to match-nobody rather than throwing.
+describe("AudienceBuilder date and count value controls", () => {
+  it("renders a date input for a date field and serialises a bare YYYY-MM-DD", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "" }],
+    });
+    const dateInput = container.querySelector<HTMLInputElement>('input[aria-label="Date"]')!;
+    expect(dateInput).toBeTruthy();
+    expect(dateInput.type).toBe("date");
+
+    typeInto(dateInput, "2026-03-20");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "onOrAfter",
+      value: "2026-03-20",
+    });
+  });
+
+  it("stops rendering the generic text input for a date field", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "" }],
+    });
+    expect(container.querySelector('input[type="text"][aria-label="Value"]')).toBeNull();
+  });
+
+  it("names the clinic zone beside the date control", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "" }],
+    });
+    expect(container.textContent).toContain(ZONE_LABEL);
+  });
+
+  it("renders two date inputs for `between` and serialises a two-element array", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "between", value: ["", ""] }],
+    });
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Start date"]')!, "2026-03-18");
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="End date"]')!, "2026-03-20");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "between",
+      value: ["2026-03-18", "2026-03-20"],
+    });
+  });
+
+  it("renders a whole-number input for a count field and serialises the number as a string", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "shiftCountThisTerm", op: "gte", value: "" }],
+    });
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Value"]')!;
+    expect(input.type).toBe("number");
+    expect(input.min).toBe("0");
+
+    typeInto(input, "3");
+    expect(serialised().conditions[0]).toEqual({
+      field: "shiftCountThisTerm",
+      op: "gte",
+      value: "3",
+    });
+  });
+
+  it("does not name the clinic zone for a count field", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "shiftCountThisTerm", op: "gte", value: "" }],
+    });
+    expect(container.textContent).not.toContain(ZONE_LABEL);
+  });
+
+  it("labels a count condition's operator numerically, not chronologically", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "shiftCountThisTerm", op: "lt", value: "3" }],
+    });
+    const select = container.querySelector('select[aria-label="Operator"]')!;
+    expect(select.textContent).toContain("is less than");
+    expect(select.textContent).not.toContain("is before");
+  });
+
+  it("keeps a negative day count out of the serialised audience", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "withinLastDays", value: "30" }],
+    });
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Days"]')!, "-5");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "withinLastDays",
+      value: "",
+    });
+    expect(container.textContent).toMatch(/whole number/i);
+  });
+});
+
+// Operator changes that RESHAPE a value. A stale shape does not throw: it
+// compiles to match-nobody, so the condition reads as configured and sends to
+// no one. valueForOp is the single place that reshapes; these drive it through
+// the rendered builder rather than calling it directly, so the control that
+// then renders the value is covered too.
+describe("AudienceBuilder operator changes that reshape a date or count value", () => {
+  it("reduces a date `between` pair to a single day when switching to `before`", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "between", value: ["2026-03-18", "2026-03-20"] }],
+    });
+    chooseOp("before");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "before",
+      value: "2026-03-18",
+    });
+  });
+
+  it("reduces a count `between` pair to a single value when switching to `gte`", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "shiftCountThisTerm", op: "between", value: ["1", "3"] }],
+    });
+    chooseOp("gte");
+    expect(serialised().conditions[0]).toEqual({
+      field: "shiftCountThisTerm",
+      op: "gte",
+      value: "1",
+    });
+  });
+
+  it("carries a single day into the start of a range when switching to `between`", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "before", value: "2026-03-18" }],
+    });
+    chooseOp("between");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "between",
+      value: ["2026-03-18", ""],
+    });
+  });
+
+  it("clears the value when switching a date operator to isEmpty", () => {
+    // hipaaCompletedAt, not joinedAt: joinedAt is Person.createdAt, which is NOT
+    // NULL, so dateField drops isEmpty/isNotEmpty from its operator list.
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "hipaaCompletedAt", op: "before", value: "2026-03-18" }],
+    });
+    chooseOp("isEmpty");
+    expect(serialised().conditions[0]).toEqual({ field: "hipaaCompletedAt", op: "isEmpty" });
+  });
+
+  // A day COUNT is not a calendar day. Carrying "30" across would put it in a
+  // date input, which renders blank while the stored audience still says "30".
+  it("clears a relative window's day count when switching to an absolute date", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "withinLastDays", value: "30" }],
+    });
+    chooseOp("before");
+    expect(serialised().conditions[0]).toEqual({ field: "joinedAt", op: "before", value: "" });
+  });
+
+  it("clears an absolute date when switching to a relative window", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "before", value: "2026-03-18" }],
+    });
+    chooseOp("withinNextDays");
+    expect(serialised().conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "withinNextDays",
+      value: "",
+    });
   });
 });
 

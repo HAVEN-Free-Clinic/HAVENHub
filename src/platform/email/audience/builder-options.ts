@@ -10,6 +10,8 @@
  * references, labelled so it can be recognised and removed (#82).
  */
 import { prisma } from "@/platform/db";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { zoneLabel } from "@/platform/dates/zone";
 import { collectAudienceReferences } from "./references";
 import type { Audience } from "./types";
 
@@ -18,12 +20,25 @@ export type AudienceBuilderOptions = {
   terms: { id: string; label: string }[];
   cycles: { id: string; label: string }[];
   subcommittees: { id: string; label: string }[];
+  /**
+   * The clinic's display zone in words, e.g. "Eastern (New York)".
+   *
+   * Not an option LIST, but it belongs here for the same reason the lists do:
+   * it is per-request context the builder cannot compute for itself, and
+   * resolving it here means both call sites (the campaign editor and the scope
+   * editor) get it without either having to remember to. A date condition
+   * resolves its calendar day in THIS zone, not the sender's, and the builder
+   * shows the zone beside every absolute date control so the difference is not
+   * invisible. getDisplayTimeZone is React-cached per request, so this adds no
+   * query when the page has already resolved the zone for something else.
+   */
+  zoneLabel: string;
 };
 
 export async function loadAudienceBuilderOptions(
   audience: Audience,
 ): Promise<AudienceBuilderOptions> {
-  const [departments, terms, cycles, subcommittees] = await Promise.all([
+  const [departments, terms, cycles, subcommittees, zone] = await Promise.all([
     prisma.department.findMany({
       where: { isActive: true },
       select: { code: true, name: true },
@@ -46,6 +61,7 @@ export async function loadAudienceBuilderOptions(
       select: { id: true, name: true },
       orderBy: { order: "asc" },
     }),
+    getDisplayTimeZone(),
   ]);
 
   const referenced = collectAudienceReferences(audience.conditions);
@@ -77,6 +93,7 @@ export async function loadAudienceBuilderOptions(
   const foundSubIds = new Set(inactiveReferencedSubs.map((s) => s.id));
 
   return {
+    zoneLabel: zoneLabel(zone),
     departments: [
       ...departments,
       ...inactiveReferenced.map((d) => ({ code: d.code, name: `${d.name} (inactive)` })),

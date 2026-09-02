@@ -121,6 +121,32 @@ describe("compilePersonWhere", () => {
     expect(where).toEqual({ AND: [{ NOT: { OR: [{ id: { in: [] } }] } }] });
   });
 
+  // Defect 1.3: the date and count kinds must AGREE on how an empty range is
+  // represented, because under a NONE group the representation is what decides
+  // whether rows with a NULL column survive. countWhere has always returned the
+  // MATCH_NOBODY sentinel for `lo > hi`; the date branch used to return a
+  // gte/lt pair that was empty by range instead. See date-fields.test.ts for
+  // the executed-SQL proof that the two are not interchangeable under NOT once
+  // the column is nullable.
+  it("a reversed range compiles to the same match-nobody sentinel for a date and for a count", () => {
+    const dateSide = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "joinedAt", op: "between", value: ["2026-03-20", "2026-03-18"] },
+        ] },
+      ] }, ctx);
+    const countSide = compilePersonWhere(
+      { recordType: "PERSON", match: "ALL", conditions: [
+        { match: "NONE", children: [
+          { field: "shiftCountThisTerm", op: "between", value: ["5", "2"] },
+        ] },
+      ] },
+      { ...ctx, countsByField: new Map([["shiftCountThisTerm", new Map([["p1", 3]])]]) },
+    );
+    expect(dateSide).toEqual({ AND: [{ NOT: { OR: [{ id: { in: [] } }] } }] });
+    expect(countSide).toEqual(dateSide);
+  });
+
   it("a NONE group nests inside another group", () => {
     const where = compilePersonWhere(
       { recordType: "PERSON", match: "ANY", conditions: [

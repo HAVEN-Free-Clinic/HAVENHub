@@ -28,7 +28,7 @@
 import type { Prisma } from "@prisma/client";
 import { parseZonedInput } from "@/platform/dates";
 import type { AudienceCondition, ConditionOp } from "./types";
-import { shiftDay, startOfDayOffsetFromNow } from "./zoned-day";
+import { isCalendarDay, shiftDay, startOfDayOffsetFromNow } from "./zoned-day";
 
 /** Empty/incomplete conditions compile to this; never an accidental send-all. */
 export const MATCH_NOBODY: Prisma.PersonWhereInput = { id: { in: [] } };
@@ -250,9 +250,6 @@ export const DATE_OPERATORS: ConditionOp[] = [
   "isNotEmpty",
 ];
 
-/** A calendar date with no time part, the only shape the absolute operators accept. */
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 /** A whole, non-negative day count, the only shape the window operators accept. */
 const WINDOW_RE = /^\d+$/;
 
@@ -262,19 +259,26 @@ const WINDOW_RE = /^\d+$/;
  * Delegates to parseZonedInput rather than reimplementing the offset maths: it
  * already resolves the offset twice to settle DST transitions, so a date on the
  * far side of a spring-forward lands on the real local midnight rather than an
- * hour off. Returns null for anything that is not a bare calendar date, which
+ * hour off. Returns null for anything that is not a REAL calendar date, which
  * every caller turns into MATCH_NOBODY.
+ *
+ * The gate is isCalendarDay, not a digit-shape regex: "2026-02-30" is correctly
+ * shaped and does not exist, and both parseZonedInput and shiftDay would roll it
+ * forward to March 2 rather than reject it. See isCalendarDay in zoned-day.ts
+ * for why a rolled boundary is a widening bug and not merely an inaccurate one.
+ * Both this and startOfNextDay gate on it, so every absolute date operator gets
+ * the check from one place.
  */
 function startOfDay(day: string, zone: string): Date | null {
   const raw = day.trim();
-  if (!DATE_RE.test(raw)) return null;
+  if (!isCalendarDay(raw)) return null;
   return parseZonedInput(`${raw}T00:00`, zone);
 }
 
 /** The instant at which the day AFTER `day` begins in `zone`. */
 function startOfNextDay(day: string, zone: string): Date | null {
   const raw = day.trim();
-  if (!DATE_RE.test(raw)) return null;
+  if (!isCalendarDay(raw)) return null;
   return parseZonedInput(`${shiftDay(raw, 1)}T00:00`, zone);
 }
 
@@ -332,6 +336,30 @@ function dateBoundaryFor(cond: AudienceCondition, ctx: { now: Date; zone: string
       const gte = startOfDay(pair[0], ctx.zone);
       const lt = startOfNextDay(pair[1], ctx.zone);
       if (!gte || !lt) return { kind: "nobody" };
+      // A REVERSED range ("between the 20th and the 18th") is empty, and how
+      // that emptiness is REPRESENTED changes the answer. Returning the range
+      // anyway would be empty "by range"; countWhere's `lo > hi` branch is
+      // empty "by sentinel" (MATCH_NOBODY). The two are interchangeable as a
+      // positive fragment and are NOT interchangeable under a NONE group,
+      // which compileGroup renders as `NOT { OR: fragments }`:
+      //
+      //   sentinel:    NOT 1=0                    -> every row, NULLs included
+      //   empty range: NOT (col >= X AND col < Y) -> NULL, and so NOT TRUE, for
+      //                                              a NULL column: those rows
+      //                                              are DROPPED
+      //
+      // The second line is invariant 2 at the top of this file (the
+      // `prisma-not-excludes-null` class of bug) arriving through a range
+      // rather than through a `not` filter.
+      //
+      // "Exclude anyone who joined between the 20th and the 18th" excludes
+      // nobody, so it must leave everyone in the audience, including everyone
+      // with no date at all. Both kinds now answer with the same sentinel.
+      //
+      // gte is the start of pair[0] and lt the start of the day AFTER pair[1],
+      // so a valid range (a single day included) always has gte < lt; gte >= lt
+      // is reversed by a day or more.
+      if (gte.getTime() >= lt.getTime()) return { kind: "nobody" };
       return { kind: "range", gte, lt };
     }
 

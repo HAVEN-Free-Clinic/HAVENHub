@@ -31,6 +31,15 @@ function audienceWith(value: string): Audience {
   };
 }
 
+/** A root ALL over one leaf per value, for exercising shape changes. */
+function audienceOf(...values: string[]): Audience {
+  return {
+    recordType: "PERSON",
+    match: "ALL",
+    conditions: values.map((value) => ({ field: "name", op: "contains", value })),
+  };
+}
+
 function Harness({ audience, action }: { audience: Audience; action?: CountAction }) {
   const { counts, stale } = useNodeCounts(audience, action);
   return <div data-counts={JSON.stringify(counts)} data-stale={String(stale)} />;
@@ -139,19 +148,33 @@ describe("useNodeCounts", () => {
   });
 
   it("clears the stale flag and keeps the last counts when a request fails", async () => {
-    const rejecters: ((err: Error) => void)[] = [];
+    const settlers: { resolve: (c: Counts) => void; reject: (e: Error) => void }[] = [];
     const action = vi.fn<CountAction>(
-      () => new Promise<Counts>((_resolve, reject) => rejecters.push(reject)),
+      () => new Promise<Counts>((resolve, reject) => settlers.push({ resolve, reject })),
     );
 
+    // A SUCCESSFUL answer first, so "keeps the last counts" is actually being
+    // tested. Failing straight from the initial empty state asserts {} === {},
+    // which passes whether the numbers are retained or wiped.
     render(audienceWith("a"), action);
     await settle();
     await act(async () => {
-      rejecters[0](new Error("network"));
+      settlers[0].resolve({ root: 12 });
+    });
+    expect(shown()).toEqual({ counts: { root: 12 }, stale: false });
+
+    // A value edit, so the shape is unchanged and the old numbers are still
+    // about the same clauses. Then the request for it fails.
+    render(audienceWith("ab"), action);
+    await settle();
+    expect(shown()).toEqual({ counts: { root: 12 }, stale: true });
+    await act(async () => {
+      settlers[1].reject(new Error("network"));
     });
 
-    // No counts to show, but not stuck dimmed forever either.
-    expect(shown()).toEqual({ counts: {}, stale: false });
+    // The numbers stay put rather than blanking, and the tree does not stay
+    // dimmed forever waiting for an answer that is never coming.
+    expect(shown()).toEqual({ counts: { root: 12 }, stale: false });
   });
 
   it("never counts without an action, which is how the scope editor renders", async () => {
@@ -182,6 +205,72 @@ describe("useNodeCounts", () => {
 
     expect(action).toHaveBeenCalledTimes(1);
     expect(shown()).toEqual({ counts: { root: 3 }, stale: false });
+  });
+
+  // The other half of finding F, which nothing pinned: the action's IDENTITY
+  // must not re-trigger anything. The campaign editor rebinds it on every
+  // render of the page, so depending on it (the obvious simplification once
+  // the ref looks redundant) silently restores the per-render fan-out that
+  // gating on the tab removed.
+  it("ignores a fresh action identity on an unchanged tree", async () => {
+    const calls: string[] = [];
+    const first = vi.fn<CountAction>(async () => {
+      calls.push("first");
+      return { root: 1 };
+    });
+    const tree = audienceWith("a");
+
+    render(tree, first);
+    await settle();
+    expect(calls).toEqual(["first"]);
+
+    // A different function object, same tree, same behaviour: exactly what a
+    // parent re-render hands down.
+    const second = vi.fn<CountAction>(async () => {
+      calls.push("second");
+      return { root: 2 };
+    });
+    render(tree, second);
+    await settle();
+
+    expect(calls).toEqual(["first"]);
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  // Compose -> Audience and back. Returning re-enables counting, so a request
+  // really is in flight, and the numbers on screen must say so. Keying the
+  // in-flight signal on the tree alone got this wrong: the tree never changed
+  // across the navigation, so the counts read settled while a request was out.
+  it("shows the counts as in flight when returning to the tab re-enables counting", async () => {
+    const resolvers: ((counts: Counts) => void)[] = [];
+    const action = vi.fn<CountAction>(
+      () => new Promise<Counts>((resolve) => resolvers.push(resolve)),
+    );
+    const tree = audienceWith("a");
+
+    render(tree, action);
+    await settle();
+    await act(async () => {
+      resolvers[0]({ root: 4 });
+    });
+    expect(shown()).toEqual({ counts: { root: 4 }, stale: false });
+
+    // Leave the tab: no counting, and nothing claiming to be in flight.
+    render(tree, undefined);
+    await settle();
+    expect(shown().stale).toBe(false);
+
+    // Come back: a second request goes out for the same tree, so the numbers
+    // showing are provisional until it lands.
+    render(tree, action);
+    await settle();
+    expect(action).toHaveBeenCalledTimes(2);
+    expect(shown()).toEqual({ counts: { root: 4 }, stale: true });
+
+    await act(async () => {
+      resolvers[1]({ root: 6 });
+    });
+    expect(shown()).toEqual({ counts: { root: 6 }, stale: false });
   });
 
   it("stops counting when the action goes away again", async () => {
@@ -250,6 +339,56 @@ describe("useNodeCounts", () => {
         },
         action,
       );
+      expect(shown().counts).toEqual({});
+    });
+
+    // Shapes RECUR. "Has this answer's shape changed since?" and "does this
+    // answer's shape equal the current one?" are different questions, and only
+    // the first one is safe: two clicks with controls that ship today (Remove,
+    // then Add condition) land back on a shape a previous answer was compiled
+    // under, while the clauses underneath are entirely different ones.
+    it("does not revive a superseded answer when the tree returns to an earlier shape", async () => {
+      const action = vi.fn<CountAction>(async () => ({ root: 5, "0": 7, "1": 9 }));
+      render(audienceOf("alpha", "bravo"), action);
+      await settle();
+      expect(shown().counts).toEqual({ root: 5, "0": 7, "1": 9 });
+
+      // Remove the FIRST clause. Shape changed, so the map goes.
+      render(audienceOf("bravo"), action);
+      expect(shown().counts).toEqual({});
+
+      // Add a blank clause back. Same SHAPE as the answered tree, completely
+      // different clauses: "0" is now bravo and "1" is a brand new blank row,
+      // so reviving would print alpha's 7 and bravo's 9 against them.
+      render(audienceOf("bravo", ""), action);
+      expect(shown().counts).toEqual({});
+    });
+
+    // The same revival with no timing involved at all. A failed request keeps
+    // the last answer on purpose (numbers stay put rather than blanking), so a
+    // superseded answer can sit indefinitely with nothing in flight to correct
+    // it, waiting for the shape to come back around.
+    it("does not revive a superseded answer after an intermediate request fails", async () => {
+      const settlers: { resolve: (c: Counts) => void; reject: (e: Error) => void }[] = [];
+      const action = vi.fn<CountAction>(
+        () => new Promise<Counts>((resolve, reject) => settlers.push({ resolve, reject })),
+      );
+
+      render(audienceOf("alpha", "bravo"), action);
+      await settle();
+      await act(async () => {
+        settlers[0].resolve({ root: 5, "0": 7, "1": 9 });
+      });
+      expect(shown().counts).toEqual({ root: 5, "0": 7, "1": 9 });
+
+      render(audienceOf("bravo"), action);
+      await settle();
+      await act(async () => {
+        settlers[1].reject(new Error("network"));
+      });
+      expect(shown().counts).toEqual({});
+
+      render(audienceOf("bravo", ""), action);
       expect(shown().counts).toEqual({});
     });
 

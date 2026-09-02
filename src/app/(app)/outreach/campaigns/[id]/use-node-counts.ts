@@ -35,14 +35,21 @@ export type NodeCounts = Record<string, number>;
  *   audienceStructureKey for the misreadings this prevents.
  *
  *   That drop is a RENDER-PHASE derivation, not an effect: each answer is
- *   stamped with the structure it was compiled under, and a stamp that no
- *   longer matches yields `{}`. Dropping it in the effect instead left a window
- *   of exactly one paint, because React commits the render carrying the new
+ *   stamped with a monotonic SHAPE EPOCH, and an answer whose epoch is not the
+ *   current one yields `{}`. Dropping it in an effect instead left a window of
+ *   exactly one paint, because React commits the render carrying the new
  *   connective and the OLD counts before running passive effects, so a frame
  *   could show "Matches 5 people (everyone matching none of these)" against a
  *   number compiled as an intersection. Tests cannot see that window at all
  *   (act() flushes passive effects before returning), which is precisely why it
  *   is closed structurally rather than guarded by one.
+ *
+ *   The epoch is a COUNTER, not the shape itself, and that distinction is the
+ *   whole correctness argument: shapes recur, so comparing an answer's shape to
+ *   the current one asks "is this the same shape" when the question is "has the
+ *   shape changed since". Remove a clause and add one back, two clicks with
+ *   controls that ship today, and a shape-keyed test revives the old map over
+ *   completely different clauses. A counter that only advances cannot.
  * - Responses are matched against a request sequence number and a LATER answer
  *   always wins. A server action cannot be aborted, so a slow early request is
  *   still in flight when a faster later one lands; without this guard it would
@@ -64,15 +71,6 @@ export function useNodeCounts(
   const key = JSON.stringify(audience);
   const structure = audienceStructureKey(audience);
 
-  // The last SUCCESSFUL answer, stamped with the tree it was computed for.
-  const [answer, setAnswer] = useState<
-    { counts: NodeCounts; structure: string; key: string } | null
-  >(null);
-  // The last tree that got a definitive answer, success or failure. Separate
-  // from `answer` so a failed request can end the in-flight state without
-  // discarding the numbers still on screen.
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-
   // The action's IDENTITY is held in a ref and deliberately kept out of the
   // deps: it arrives as a prop, and depending on it would re-request on any
   // parent re-render that handed down a new reference. Its PRESENCE is a
@@ -86,6 +84,52 @@ export function useNodeCounts(
     actionRef.current = action;
   }, [action]);
   const enabled = action !== undefined;
+
+  // Everything the effect keys on, as one string: a change here means a new
+  // request goes out.
+  const trigger = `${enabled ? "on" : "off"}|${key}`;
+
+  /**
+   * Two monotonic counters, advanced during render.
+   *
+   * `epoch` counts SHAPE changes and `gen` counts requests, and both matter for
+   * the same reason: the questions being asked are temporal ("has this been
+   * superseded since?"), and answering them by comparing CONTENT is wrong
+   * because content recurs.
+   *
+   * `epoch` is what stops a superseded map coming back. Comparing an answer's
+   * shape key against the current one asks "is this the same shape", not "has
+   * the shape changed since", and two clicks that exist today (Remove, then Add
+   * condition) return to a previously answered shape over entirely different
+   * clauses. A counter that only ever goes up cannot match an older answer.
+   *
+   * `gen` is what makes the in-flight cue honest. Keying it on the tree alone
+   * said "settled" whenever the tree matched the last answered one, including
+   * on the Compose -> Audience return, where re-enabling issues a real request
+   * for an unchanged tree. It also missed an exact revert after a failure.
+   * Counting requests instead covers both, because a re-fire always advances.
+   *
+   * Advanced during render (React's documented adjust-state-during-render
+   * pattern) rather than in an effect: the value has to be right in the SAME
+   * render that changed the tree, or the drop below is a paint late. React
+   * re-runs this component immediately, before children render or anything is
+   * committed, so nothing intermediate is ever shown. It converges after one
+   * extra pass because the branch is false once `tracked` matches.
+   */
+  const [tracked, setTracked] = useState({ structure, trigger, epoch: 0, gen: 0 });
+  const epoch = tracked.structure === structure ? tracked.epoch : tracked.epoch + 1;
+  const gen = tracked.trigger === trigger ? tracked.gen : tracked.gen + 1;
+  if (epoch !== tracked.epoch || gen !== tracked.gen) {
+    setTracked({ structure, trigger, epoch, gen });
+  }
+
+  // The last SUCCESSFUL answer, stamped with the shape epoch it was compiled
+  // under.
+  const [answer, setAnswer] = useState<{ counts: NodeCounts; epoch: number } | null>(null);
+  // The newest request that reached a definitive end, success or failure.
+  // Separate from `answer` so a failed request can end the in-flight state
+  // without discarding the numbers still on screen.
+  const [settledGen, setSettledGen] = useState(-1);
 
   // Monotonic request id. Only the newest request may write to state.
   const latestRequest = useRef(0);
@@ -101,39 +145,44 @@ export function useNodeCounts(
       run(JSON.parse(key) as Audience).then(
         (next) => {
           if (requestId !== latestRequest.current) return;
-          // Stamped with the tree this request was issued for, which is what
-          // lets the two derivations below decide whether it still describes
-          // what is on screen.
-          setAnswer({ counts: next, structure, key });
-          setSettledKey(key);
+          // Stamped with the shape epoch this request was issued under, which
+          // is what lets the derivation below decide whether it still
+          // describes the clauses on screen.
+          setAnswer({ counts: next, epoch });
+          setSettledGen(gen);
         },
         () => {
           // A failed count leaves the last good numbers in place rather than
           // wiping them, but must not leave the tree dimmed forever.
-          if (requestId === latestRequest.current) setSettledKey(key);
+          if (requestId === latestRequest.current) setSettledGen(gen);
         },
       );
     }, NODE_COUNT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [key, structure, enabled]);
+  }, [key, enabled, epoch, gen]);
 
   // Both derived during render rather than pushed from the effect. Nothing is
-  // set synchronously inside the effect at all, which is what keeps the two
+  // set synchronously inside the effect at all, which is what keeps both
   // windows below closed AND what the set-state-in-effect lint rule is asking
   // for: a value React can compute from what it already has should not be
   // round-tripped through an extra render.
   //
-  // counts: no frame can paint a number beside a clause it was not compiled
-  // for, because a stamp that no longer matches yields {} in the same render
-  // that introduced the mismatch.
+  // counts: an answer is shown only while the shape it was compiled under is
+  // still the current one. Because `epoch` only ever advances, that is a
+  // strictly one-way test, so a structurally superseded answer is never
+  // displayed again no matter what the tree is edited back into. And because
+  // it is derived, the render that supersedes it is the render that drops it:
+  // there is no frame in which a number paints beside a clause it was not
+  // compiled for, and in particular none in which a NONE label paints beside
+  // an intersection-compiled number.
   //
-  // stale: the provisional cue appears in the same commit as the edit, rather
-  // than one paint later. Keyed on the serialised tree, so the one gap is an
-  // exact revert to a tree that already settled (type, fail, edit, undo): the
-  // retry flies without a dim. Cosmetic, on a failure path, and preferable to
-  // reintroducing an effect that writes state.
-  const counts = answer !== null && answer.structure === structure ? answer.counts : {};
-  const stale = enabled && settledKey !== key;
+  // stale: true exactly while the newest request has not reached a definitive
+  // end, success or failure. Counting requests rather than comparing trees is
+  // what makes it right on the two paths where the tree is not what changed:
+  // the Compose -> Audience return, which issues a real request for an
+  // unchanged tree, and an exact revert to a tree that already settled.
+  const counts = answer !== null && answer.epoch === epoch ? answer.counts : {};
+  const stale = enabled && settledGen !== gen;
 
   return { counts, stale };
 }

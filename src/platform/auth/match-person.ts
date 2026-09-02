@@ -74,6 +74,41 @@ export function accountEmailForPerson(person: {
 }
 
 /**
+ * The one address to MAIL a Person at, which is not the same question as which
+ * account they sign in with, and resolves in the opposite order.
+ *
+ * `contactEmail` first, because that is the address the person themselves put in
+ * /my-info and the address every message this app sends already goes to
+ * (platform/email/reminders.ts, shift-reminders.ts, checkin-invites.ts all
+ * select it and skip anyone without one). A copyable list that disagreed with
+ * where the Hub's own mail lands would be a quiet trap: the director pastes it,
+ * and someone who has never seen a Hub email does not see this one either.
+ *
+ * `netid@yale.edu` is the fallback rather than the preference. It is a real
+ * Yale-deliverable address, so a member who never filled in a contact address
+ * still gets mailed instead of silently missing from "everyone in my
+ * department" -- but it is the address the institution knows them by, not the
+ * one they chose.
+ *
+ * Contrast {@link accountEmailForPerson}, which answers "which account is this",
+ * prefers the NetID address for exactly that reason, and is what the CSV export
+ * puts in its Email column NEXT TO a separate Contact email column. A CSV can
+ * hand the reader both and let them choose; a To: field cannot.
+ *
+ * Returns "" when we hold neither, so a caller building a CSV row keeps the
+ * person with a visibly blank cell rather than dropping them. Callers building a
+ * mailing list must filter those out: a blank entry breaks the paste.
+ */
+export function mailingEmailForPerson(person: {
+  netId: string | null;
+  contactEmail: string | null;
+}): string {
+  const contact = person.contactEmail?.trim();
+  if (contact) return contact;
+  return person.netId ? yaleEmailForNetId(person.netId) : "";
+}
+
+/**
  * The identity half of login resolution (spec §5), with NO status gate and NO
  * write of any kind: given a claim, which Person does it name?
  *

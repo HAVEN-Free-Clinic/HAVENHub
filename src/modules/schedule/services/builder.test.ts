@@ -2533,7 +2533,12 @@ describe("builderView", () => {
     const shadow = await createPerson("Shadow", { contactEmail: "mid@yale.edu" });
     const noEmail = await createPerson("No Email");
     const otherDate = await createPerson("Other Date", { contactEmail: "other@yale.edu" });
-    for (const p of [director, vol, shadow, noEmail, otherDate]) {
+    // A member with no contact address but a NetID. Their Yale account is a
+    // real deliverable address, so they belong in a list the director is about
+    // to paste into a To: field rather than being silently absent from it.
+    const netIdOnly = await createPerson("NetId Only");
+    await prisma.person.update({ where: { id: netIdOnly.id }, data: { netId: "nio123" } });
+    for (const p of [director, vol, shadow, noEmail, otherDate, netIdOnly]) {
       await createMembership(p.id, term.id, dept.id, p.id === director.id ? "DIRECTOR" : "VOLUNTEER");
     }
     await createShift(term.id, dept.id, director.id, dates[0], "DIRECTOR");
@@ -2541,6 +2546,7 @@ describe("builderView", () => {
     // Shadows are on shift too, so they belong in the mail.
     await createShift(term.id, dept.id, shadow.id, dates[0], "SHADOW");
     await createShift(term.id, dept.id, noEmail.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, dept.id, netIdOnly.id, dates[0], "VOLUNTEER");
     await createShift(term.id, dept.id, otherDate.id, dates[1], "VOLUNTEER");
 
     const view = await builderView(director.id, {
@@ -2548,9 +2554,16 @@ describe("builderView", () => {
       dateKey: isoDateKey(dates[0]),
       termId: term.id,
     });
-    // Sorted, and a member with no address on file is absent rather than blank:
-    // an empty entry would silently break a paste into a To: field.
-    expect(view.shiftEmails).toEqual(["alpha@yale.edu", "mid@yale.edu", "zeta@yale.edu"]);
+    // Sorted. The contact address wins wherever there is one; a member with a
+    // NetID and no contact address falls back to their Yale account; and a
+    // member with neither is absent rather than blank, because an empty entry
+    // would silently break a paste into a To: field.
+    expect(view.shiftEmails).toEqual([
+      "alpha@yale.edu",
+      "mid@yale.edu",
+      "nio123@yale.edu",
+      "zeta@yale.edu",
+    ]);
   });
 
   it("rhd block is null for a non-RHD department", async () => {

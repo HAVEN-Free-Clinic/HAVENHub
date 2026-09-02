@@ -42,7 +42,7 @@
  */
 
 import { prisma } from "@/platform/db";
-import { accountEmailForPerson } from "@/platform/auth/match-person";
+import { accountEmailForPerson, mailingEmailForPerson } from "@/platform/auth/match-person";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 
 /** Only ACTIVE people in ACTIVE memberships are on the roster. A REMOVED
@@ -445,9 +445,16 @@ export async function directoryPeopleAll(
  * clinic is a few hundred people, so this is a short query returning two small
  * columns, not the roster.
  *
+ * Addresses come from {@link mailingEmailForPerson}, NOT from the
+ * accountEmailForPerson the CSV column uses: the member's own contact address
+ * first, their Yale account only as a fallback. That is where every message this
+ * app sends already goes, and it is what the builder's own clinic-day list has
+ * always shown, so the two lists a director copies from cannot disagree about
+ * how to reach the same person.
+ *
  * Deduped because a mailing list must not carry the same address twice for
  * someone who sits in two departments -- the same rule the CSV's one-row-per-
- * person shape enforces. People with neither a NetID nor a contact address
+ * person shape enforces. People with neither a contact address nor a NetID
  * resolve to "" and are dropped rather than pasted into a To: field as a blank.
  */
 export async function directoryEmails(
@@ -461,7 +468,7 @@ export async function directoryEmails(
     select: { netId: true, contactEmail: true },
     orderBy: { name: "asc" },
   });
-  return [...new Set(rows.map(accountEmailForPerson).filter((email) => email !== ""))];
+  return [...new Set(rows.map(mailingEmailForPerson).filter((email) => email !== ""))];
 }
 
 /**

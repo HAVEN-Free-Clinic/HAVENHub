@@ -18,6 +18,9 @@
  * Attendings WITH a Hub account still see the same schedule at /schedule, which
  * is where the email points them.
  *
+ * Faculty Relations is copied on the week's letter -- one copy of the same body,
+ * subject-marked, to whoever holds the role. See facultyRelationsRecipients.
+ *
  * Enqueue-only, like every other reminder here: the per-minute
  * /api/cron/email drainer delivers. Draining here would double-send.
  */
@@ -31,6 +34,7 @@ import { selectCurrentClinicDate } from "@/platform/teams/channel-link";
 import { renderEmail } from "./templates/renderEmail";
 import { queueEmail } from "./send";
 import { attendingReminderContext } from "./templates/attending";
+import { FACULTY_RELATIONS_ROLE } from "@/platform/rbac/system-roles";
 import { log, errorAttrs } from "@/platform/logging";
 
 export type AttendingReminderRunResult = {
@@ -39,6 +43,8 @@ export type AttendingReminderRunResult = {
   skippedNoEmail: number;
   /** Already reminded for this clinic date. */
   skippedAlreadySent: number;
+  /** Copies of the letter sent to Faculty Relations. */
+  copiesSent: number;
 };
 
 /** Coverage of one clinic date, grouped by slot, as the email renders it. */
@@ -68,6 +74,69 @@ export function renderScheduleTable(coverage: ReminderCoverage): string {
 }
 
 /**
+ * Who gets a copy of the letter: whoever holds the Faculty Relations role.
+ *
+ * Resolved from the ROLE rather than a settings field so the copy follows
+ * whoever actually has the job this term instead of an address someone has to
+ * remember to update. By role NAME rather than by the schedule.manage_attendings
+ * permission, which is the other way to ask this question (see requestApprovers
+ * in the schedule module) but which the "*" wildcard would widen to every
+ * Platform Admin -- fine for an approval queue that admins can service, wrong
+ * for a weekly copy nobody asked them for.
+ *
+ * All three RoleAssignment target shapes are expanded, the way the RBAC engine
+ * does: an assignment scoped to a department or a membership kind reaches people
+ * through their ACTIVE membership in the active term, and reading personId alone
+ * would resolve those to nobody without saying so.
+ */
+async function facultyRelationsRecipients(
+  term: { id: string } | null,
+): Promise<Array<{ id: string; name: string; contactEmail: string }>> {
+  const assignments = await prisma.roleAssignment.findMany({
+    where: {
+      role: { name: FACULTY_RELATIONS_ROLE },
+      OR: [{ termId: null }, ...(term ? [{ termId: term.id }] : [])],
+    },
+    select: { personId: true, departmentId: true, kind: true },
+  });
+  if (assignments.length === 0) return [];
+
+  const personIds = new Set<string>();
+  const departmentIds = new Set<string>();
+  const kinds = new Set<NonNullable<(typeof assignments)[number]["kind"]>>();
+  for (const a of assignments) {
+    if (a.personId) personIds.add(a.personId);
+    if (a.departmentId) departmentIds.add(a.departmentId);
+    if (a.kind) kinds.add(a.kind);
+  }
+
+  if (term && (departmentIds.size > 0 || kinds.size > 0)) {
+    const members = await prisma.termMembership.findMany({
+      where: {
+        termId: term.id,
+        status: "ACTIVE",
+        OR: [
+          ...(departmentIds.size > 0 ? [{ departmentId: { in: [...departmentIds] } }] : []),
+          ...(kinds.size > 0 ? [{ kind: { in: [...kinds] } }] : []),
+        ],
+      },
+      select: { personId: true },
+    });
+    for (const m of members) personIds.add(m.personId);
+  }
+  if (personIds.size === 0) return [];
+
+  const people = await prisma.person.findMany({
+    // `not: null` drops NULL rows, which is exactly what is wanted here: a
+    // director with no contact address on file cannot be sent a copy.
+    where: { id: { in: [...personIds] }, status: "ACTIVE", contactEmail: { not: null } },
+    select: { id: true, name: true, contactEmail: true },
+    orderBy: { name: "asc" },
+  });
+  return people.map((p) => ({ ...p, contactEmail: p.contactEmail! }));
+}
+
+/**
  * Weekly attending reminders for the upcoming clinic day.
  *
  * Sends ONE email per attending covering the day. The body is the same for all
@@ -81,6 +150,7 @@ export async function runAttendingReminders(
     remindersSent: 0,
     skippedNoEmail: 0,
     skippedAlreadySent: 0,
+    copiesSent: 0,
   };
 
   const term = await getActiveTerm();
@@ -192,6 +262,55 @@ export async function runAttendingReminders(
         `[attending-reminders] Failed to remind attending ${attendingId}`,
         errorAttrs(err, { attendingId, targetKey }),
       );
+    }
+  }
+
+  // Faculty Relations' copy of their own letter: the same body the attendings
+  // just received, addressed to the director and marked in the subject so it
+  // reads as a copy rather than as a shift they are on.
+  //
+  // A copy, not a Cc header: the reminder goes out as one message per attending,
+  // so a real Cc would land the identical letter in the director's inbox once
+  // per covering attending. One copy is what they would have kept had they sent
+  // the letter by hand.
+  //
+  // Gated on remindersSent, so nothing is copied when nothing went out. A run
+  // that sent nothing because every attending was already reminded is the same
+  // run that already sent this copy, and the address dedupe below catches the
+  // case where only some were new.
+  if (result.remindersSent > 0) {
+    const copySubject = `Copy: ${rendered.subject}`;
+    for (const person of await facultyRelationsRecipients(term)) {
+      // Same 6-day address window as the attendings. It also covers the
+      // director who is themselves on the roster: their attending copy was
+      // queued above, so this one is skipped rather than duplicated.
+      const already = await prisma.emailLog.findFirst({
+        where: {
+          toEmail: person.contactEmail,
+          template: "attending-reminder",
+          createdAt: { gte: cutoff },
+        },
+        select: { id: true },
+      });
+      if (already) continue;
+
+      try {
+        await queueEmail(prisma, {
+          to: person.contactEmail,
+          subject: copySubject,
+          html: rendered.html,
+          template: "attending-reminder",
+          personId: person.id,
+        });
+        result.copiesSent++;
+      } catch (err) {
+        // Best-effort, like the reminders themselves: failing to copy Faculty
+        // Relations must not fail the run that already reminded the attendings.
+        log.error(
+          `[attending-reminders] Failed to copy Faculty Relations ${person.id}`,
+          errorAttrs(err, { personId: person.id, targetKey }),
+        );
+      }
     }
   }
 

@@ -828,9 +828,30 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     // Person.serviceCredential is a nullable one-to-one, not a list, so this is
-    // a plain relation-presence check rather than a some/none over rows.
+    // a relation-presence check rather than a some/none over rows -- but
+    // presence alone is not enough. ServiceCredential.revokedAt is the SOLE
+    // invalidating signal everywhere else a credential is read (see
+    // src/modules/passport/services/credential.ts: getCredentialByToken,
+    // revokeServiceCredential, restoreServiceCredential all key off it alone).
+    // publicToken/unpublishedAt are ORTHOGONAL -- they gate whether the public
+    // credential page is visible, not whether the underlying service record is
+    // valid -- so they play no part here. A credential revoked for falsified
+    // service must not count as "has a service credential".
+    //
+    // Prisma's `is`/`isNot` on a nullable to-one relation give exactly the
+    // needed positive/negative pair from one shared inner filter:
+    //   is:    { revokedAt: null } -- a credential row exists AND is unrevoked.
+    //   isNot: { revokedAt: null } -- NOT(exists AND unrevoked), i.e. either no
+    //          credential row at all, OR a credential row that IS revoked.
+    // The isNot branch is what makes the negative case correct: a naive
+    // `{ is: null }` (bare relation-absence) would miss the revoked-but-present
+    // row, silently keeping a falsified credential in the "does not have a
+    // valid credential" cohort's complement. Verified against a live Postgres
+    // database with three people (active credential / revoked credential / no
+    // credential row) -- see membership-fields.test.ts's three-way test.
     compile: (cond) => ({
-      serviceCredential: cond.op === "isTrue" ? { isNot: null } : { is: null },
+      serviceCredential:
+        cond.op === "isTrue" ? { is: { revokedAt: null } } : { isNot: { revokedAt: null } },
     }),
   },
   {

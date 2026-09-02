@@ -320,14 +320,18 @@ describe("membership detail fields", () => {
     });
   });
 
-  it("hasServiceCredential -> relation presence, not a some/none over a list", () => {
-    // Person.serviceCredential is a nullable one-to-one, so this is a plain
-    // is/isNot check, unlike the list-shaped relations above.
+  it("hasServiceCredential -> unrevoked relation presence, not bare presence", () => {
+    // Person.serviceCredential is a nullable one-to-one, so this is an is/isNot
+    // check, unlike the list-shaped relations above -- but a revoked credential
+    // must not count as "has a service credential" (revokedAt is the sole
+    // invalidating signal; see the field's own doc comment). isFalse must match
+    // BOTH no credential row and a revoked one, which is exactly what isNot
+    // gives over the same inner filter as the isTrue branch.
     expect(personFieldWhere({ field: "hasServiceCredential", op: "isTrue" }, ctx)).toEqual({
-      serviceCredential: { isNot: null },
+      serviceCredential: { is: { revokedAt: null } },
     });
     expect(personFieldWhere({ field: "hasServiceCredential", op: "isFalse" }, ctx)).toEqual({
-      serviceCredential: { is: null },
+      serviceCredential: { isNot: { revokedAt: null } },
     });
   });
 });

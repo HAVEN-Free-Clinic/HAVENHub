@@ -146,4 +146,42 @@ describe("resolveAudience hasServiceCredential", () => {
     });
     expect(res.recipients.map((r) => r.email)).toEqual(["nocred2@example.com"]);
   });
+
+  // The trap this fix is built around: a credential revoked for falsified
+  // service (ServiceCredential.revokedAt set) is not a valid credential.
+  // revokedAt is the SOLE invalidating signal everywhere else it is read (see
+  // src/modules/passport/services/credential.ts), so "has a service
+  // credential" must mean "has one that is not revoked" -- and the negative
+  // branch must catch BOTH a revoked credential AND no credential row at all,
+  // since Person.serviceCredential is a nullable one-to-one.
+  it("isTrue matches only the active credential, not the revoked one or the person with none", async () => {
+    const active = await person("Active Credential", "active-cred@example.com");
+    await prisma.serviceCredential.create({
+      data: { personId: active.id, record: { terms: [] } },
+    });
+
+    const revoked = await person("Revoked Credential", "revoked-cred@example.com");
+    await prisma.serviceCredential.create({
+      data: { personId: revoked.id, record: { terms: [] }, revokedAt: new Date() },
+    });
+
+    await person("No Credential", "no-cred@example.com");
+
+    const isTrue = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "hasServiceCredential", op: "isTrue" }],
+    });
+    expect(isTrue.recipients.map((r) => r.email)).toEqual(["active-cred@example.com"]);
+
+    const isFalse = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "hasServiceCredential", op: "isFalse" }],
+    });
+    expect(isFalse.recipients.map((r) => r.email).sort()).toEqual([
+      "no-cred@example.com",
+      "revoked-cred@example.com",
+    ]);
+  });
 });

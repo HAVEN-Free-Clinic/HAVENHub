@@ -674,4 +674,29 @@ describe("relative date conditions re-evaluate per run", () => {
     const far = await resolveAudience(audience, { now: new Date("2026-04-30T18:00:00.000Z") });
     expect(far.recipients).toEqual([]);
   });
+
+  // complianceStatus is derived the same way hipaaCompletedAt's window is --
+  // live, from the run's clock -- so it must resolve against opts.now too, not
+  // the wall clock, for a recurring campaign to be deterministic across runs.
+  it("resolves complianceStatus against the pinned `now`, not the wall clock", async () => {
+    // No active term, so COMPLIANT iff expiresAt (completionDate + 365d) is at
+    // least 60 days out from `now`. completionDate 2026-01-01 -> expiresAt
+    // 2027-01-01.
+    const p = await person("Cert Holder", "cert@example.com");
+    await cert(p.id, new Date("2026-01-01T00:00:00.000Z"));
+
+    const audience: Audience = {
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }],
+    };
+
+    // Well before expiresAt - 60d: COMPLIANT.
+    const early = await resolveAudience(audience, { now: new Date("2026-06-01T00:00:00.000Z") });
+    expect(early.recipients.map((r) => r.email)).toEqual(["cert@example.com"]);
+
+    // Past expiresAt entirely: EXPIRED, so the COMPLIANT filter matches nobody.
+    const late = await resolveAudience(audience, { now: new Date("2027-02-01T00:00:00.000Z") });
+    expect(late.recipients).toEqual([]);
+  });
 });

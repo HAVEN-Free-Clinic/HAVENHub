@@ -178,18 +178,23 @@ export async function resolveAudience(
   // Compliance status is derived live (newest cert + term end), so it can't be a
   // Prisma predicate. Precompute the per-person status map only when a condition
   // needs it, then let the field compiler resolve selected statuses to ids.
+  // `now` is threaded through so the EXPIRED/COMPLIANT/EXPIRING_SOON thresholds
+  // resolve against the run's own pinned clock, the same as everything else in
+  // this function -- getActiveTerm() resolves off a stored ACTIVE flag with no
+  // clock dependency of its own, so this creates no new coupling with the
+  // term-end boundary math inside complianceStatus.
   const needsCompliance = conditions.some((c) => c.field === "complianceStatus");
   const complianceStatusByPerson = needsCompliance
-    ? await loadComplianceStatusMap(activeTerm?.endDate ?? null)
+    ? await loadComplianceStatusMap(activeTerm?.endDate ?? null, now)
     : undefined;
 
   // Certificate expiry is likewise derived (completion date + validity period,
   // via the SAME effective-certificate selection complianceStatus uses -- see
   // loadHipaaExpiryMap), so it takes the identical precompute-only-when-named
-  // route. Unlike complianceStatusByPerson above, `now` IS threaded through:
-  // hipaaExpiresAt is compared with withinNextDays/withinLastDays, which must
-  // re-evaluate against the run's own clock for a recurring campaign to mean
-  // something different on each send (see AudienceCtx.now's doc comment).
+  // route, `now` threaded through the same way: hipaaExpiresAt is compared with
+  // withinNextDays/withinLastDays, which must re-evaluate against the run's own
+  // clock for a recurring campaign to mean something different on each send
+  // (see AudienceCtx.now's doc comment).
   const needsHipaaExpiry = conditions.some((c) => c.field === "hipaaExpiresAt");
   const hipaaExpiresAtByPerson = needsHipaaExpiry
     ? await loadHipaaExpiryMap(activeTerm?.endDate ?? null, now)

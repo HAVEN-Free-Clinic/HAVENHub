@@ -548,7 +548,22 @@ describe("MailerooTransport", () => {
   const UNASSOCIATED_400 =
     "The domain 'example.com' is not associated with this sending key.";
 
-  const rejecting = (text: string, status = 400) =>
+  /**
+   * A non-2xx from Maileroo, on the REAL wire shape: Maileroo answers JSON, and
+   * the !res.ok branch runs the recogniser on res.text(), which is still
+   * JSON-ESCAPED. A bare-string body would let a double-quoted domain match here
+   * that cannot match in production, so this fixture asserts a payload that
+   * actually occurs. See rejectingRaw for the plain-text case.
+   */
+  const rejecting = (message: string, status = 400) =>
+    maileroo((async () =>
+      new Response(JSON.stringify({ success: false, message }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch);
+
+  /** A non-2xx whose body is not JSON at all (a gateway page, a bare string). */
+  const rejectingRaw = (text: string, status = 400) =>
     maileroo((async () => new Response(text, { status })) as typeof fetch);
 
   it("classifies the domain-disabled rejection as PERMANENT", async () => {
@@ -645,6 +660,44 @@ describe("MailerooTransport", () => {
     await expect(rejecting("upstream unavailable", 503).send(msg)).rejects.toBeInstanceOf(
       TransientEmailError
     );
+    await expect(rejectingRaw("upstream unavailable", 503).send(msg)).rejects.toBeInstanceOf(
+      TransientEmailError
+    );
+  });
+
+  // The recogniser exists so the diagnosis does not depend on which shape the API
+  // used. That is only true if it survives JSON ESCAPING: the !res.ok branch runs
+  // on res.text(), where a double-quoted domain arrives as \"yale.edu\", while
+  // the 200/success:false branch runs on the already-parsed body.message. One
+  // payload, two code paths, one answer.
+  it("gives the same diagnosis for one payload on both the non-2xx and the 200 path", async () => {
+    const message = 'The domain "yale.edu" is currently disabled.';
+    const body = JSON.stringify({ success: false, message });
+
+    const viaNonOk = await rejecting(message, 400).send(msg).catch((e) => e);
+    const viaOkEnvelope = await maileroo((async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch)
+      .send(msg)
+      .catch((e) => e);
+
+    for (const err of [viaNonOk, viaOkEnvelope]) {
+      expect(err).not.toBeInstanceOf(TransientEmailError);
+      expect(String(err)).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
+    }
+  });
+
+  // The captured domain goes into the message an operator reads and may paste
+  // back into SENDING_DOMAINS, so it must be the domain and nothing else. Letting
+  // the escape into the character class matches, but captures "yale.edu\\".
+  it("captures the domain without the JSON escape that quoted it", async () => {
+    const err = await rejecting('The domain "yale.edu" is currently disabled.', 400)
+      .send(msg)
+      .catch((e) => e);
+    expect(String(err)).toContain("'yale.edu'");
+    expect(String(err)).not.toMatch(/yale\.edu\\/);
   });
 
   // Maileroo also spells rejections as a 200 carrying success:false, so the same

@@ -63,6 +63,21 @@ describe("loadConfig - SENDING_DOMAINS", () => {
     expect(loadConfig({ ...base, SENDING_DOMAINS: "   " }).SENDING_DOMAINS).toBeUndefined();
   });
 
+  // The regression the trailing-comma fix caused, and the reason the boot check
+  // exists at all. "," and ",," survive the preprocess (they are not
+  // whitespace-only), and then every segment is skipped as empty, so the app
+  // booted clean on an EMPTY allowlist. Every send then falls off it:
+  // havenfreeclinic.org mail is silently pinned to the sender setting with its
+  // configured From demoted to Reply-To -- precisely the silent narrowing this
+  // check refuses a malformed entry to prevent.
+  it("refuses a non-empty value that yields no domains at all", () => {
+    for (const spec of [",", " , ", ",,", ",,,"]) {
+      expect(() => loadConfig({ ...base, SENDING_DOMAINS: spec }), spec).toThrowError(
+        /SENDING_DOMAINS/
+      );
+    }
+  });
+
   it("refuses to boot on a malformed entry rather than silently narrowing the allowlist", () => {
     // parseSendingDomains skips an entry it cannot read, so a typo like
     // "yale.edu:grap" would otherwise drop yale.edu off the allowlist and route

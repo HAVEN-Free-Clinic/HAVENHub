@@ -79,6 +79,18 @@ describe("parseSendingDomains", () => {
     );
   });
 
+  it("falls back to the default table when a non-empty spec yields no domains", () => {
+    // config.ts REFUSES to boot on this, so it is unreachable in a booted app.
+    // The parser still has to pick a direction, and an empty map is the worst
+    // one: it silently pins every send. Defaulting keeps the two halves agreeing
+    // that the input is degenerate, and differing only in how loudly they say so.
+    for (const spec of [",", " , ", ",,", "nocolon", "yale.edu:smtp"]) {
+      const map = parseSendingDomains(spec);
+      expect(map.get("havenfreeclinic.org"), spec).toBe("maileroo");
+      expect(map.get("yale.edu"), spec).toBe("graph");
+    }
+  });
+
   it("takes the LAST verdict when a domain is listed twice", () => {
     // Last-wins, documented rather than rejected: it is the ordinary convention
     // for a key/value list, and it is the one ambiguous input neither this parser

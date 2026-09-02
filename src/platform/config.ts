@@ -399,19 +399,42 @@ const schema = z
     // email/sending-domains.ts; duplicated rather than imported because that
     // module reads this config and importing it back would be circular.
     if (!env.SENDING_DOMAINS) return;
+    let pairs = 0;
     for (const entry of env.SENDING_DOMAINS.split(",")) {
       // An empty segment is a trailing comma or a stray double comma, not a
       // malformed pair. parseSendingDomains already reads "yale.edu:graph,"
       // correctly, and this config is loaded at import by most of the app, so
       // refusing it here would turn a typo on the emergency SENDING_DOMAINS lever
-      // into an app-wide cold-start failure. There is nothing to protect against:
-      // an empty segment narrows nothing.
+      // into an app-wide cold-start failure. On its own, an empty segment narrows
+      // nothing -- but see the count below for when ALL of them are empty.
       if (entry.trim() === "") continue;
-      if (/^[^\s@:,]+:(maileroo|graph)$/.test(entry.trim())) continue;
+      if (/^[^\s@:,]+:(maileroo|graph)$/.test(entry.trim())) {
+        pairs += 1;
+        continue;
+      }
       ctx.addIssue({
         code: "custom",
         path: ["SENDING_DOMAINS"],
         message: `"${entry.trim()}" is not a "<domain>:<transport>" pair with transport one of maileroo, graph`,
+      });
+    }
+    // A non-empty value that yields NO domains -- "," or ",," -- is the failure
+    // this whole check exists for, arrived at from the other side. It is not
+    // whitespace-only, so it is not "not configured"; every segment is then
+    // skipped, so the allowlist is empty; and an empty allowlist puts every send
+    // on the pinned fallback with its configured From demoted to Reply-To, in
+    // silence. Refuse, rather than fall back to the defaults, because that is
+    // what every other branch in this file does with a configured-but-unusable
+    // value: an operator who set this variable meant something by it, and
+    // quietly substituting the shipped table would hide that they did not get it.
+    if (pairs === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SENDING_DOMAINS"],
+        message:
+          `"${env.SENDING_DOMAINS}" names no <domain>:<transport> pairs at all. An empty ` +
+          `allowlist would silently pin every send to the email.sender setting. Leave the ` +
+          `variable unset to use the shipped default table.`,
       });
     }
   })

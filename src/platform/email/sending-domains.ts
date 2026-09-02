@@ -65,16 +65,19 @@ const ENTRY_RE = /^([^\s@:,]+):(maileroo|graph)$/;
  * variable arrives as "", and vitest.setup.ts deliberately claims every
  * external-service env name as "" so a local run cannot diverge from CI. Reading
  * either as an empty allowlist would silently pin every send.
+ *
+ * A spec that is non-empty but names NO usable pair -- "," or "yale.edu:smtp" --
+ * gets the same treatment, and for the same reason: an empty allowlist is the one
+ * outcome with no safe reading, because it puts every message on the pinned
+ * fallback in silence. config.ts REFUSES to boot on that input, so this branch is
+ * unreachable in a booted app; it exists so the direction is safe rather than
+ * silent if that check is ever relaxed. The two halves agree the input is
+ * degenerate and differ only in how loudly they say so.
  */
 export function parseSendingDomains(spec: string | undefined): Map<string, SigningTransport> {
   const map = new Map<string, SigningTransport>();
   const source = spec?.trim();
-  if (!source) {
-    for (const [domain, transport] of Object.entries(DEFAULT_SENDING_DOMAINS)) {
-      map.set(domain, transport);
-    }
-    return map;
-  }
+  if (!source) return withDefaults(map);
   for (const entry of source.split(",")) {
     const match = ENTRY_RE.exec(entry.trim());
     // Skips both a malformed pair and an EMPTY segment, the latter being a
@@ -82,13 +85,22 @@ export function parseSendingDomains(spec: string | undefined): Map<string, Signi
     // an empty segment explicitly, because it has no regex to fall through to.
     // The two halves must agree here or the strict one refuses to boot on input
     // this one reads correctly, which is what a trailing comma on the emergency
-    // SENDING_DOMAINS lever used to do to the whole app.
+    // SENDING_DOMAINS lever used to do to the whole app. When EVERY segment is
+    // skipped the result is an empty allowlist, which is handled at the return.
     if (!match) continue;
     // A domain listed twice takes its LAST verdict, the ordinary convention for a
     // key/value list. Documented rather than rejected: it is the one ambiguous
     // input neither this parser nor config.ts's boot check flags, so a reader
     // should not have to infer which end wins.
     map.set(match[1].toLowerCase(), match[2] as SigningTransport);
+  }
+  return map.size > 0 ? map : withDefaults(map);
+}
+
+/** Fill an empty map with the shipped table. */
+function withDefaults(map: Map<string, SigningTransport>): Map<string, SigningTransport> {
+  for (const [domain, transport] of Object.entries(DEFAULT_SENDING_DOMAINS)) {
+    map.set(domain, transport);
   }
   return map;
 }

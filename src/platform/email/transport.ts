@@ -257,9 +257,25 @@ const MAILEROO_SEND_URL = "https://smtp.maileroo.com/api/v2/emails";
 /**
  * A domain in a Maileroo error, however that release happens to quote it: single,
  * double, backtick, or bare. The wording is not a contract, so neither is the
- * punctuation.
+ * punctuation. Resolves to:
+ *
+ *   (?:\\?['"`])?([^'"`\\\s]+)(?:\\?['"`])?
+ *
+ * The optional BACKSLASH before each quote is what makes this work on the
+ * !res.ok path. Maileroo answers JSON, and that branch runs the recogniser on
+ * res.text(), which is still JSON-escaped: a double-quoted domain arrives as
+ * \\"yale.edu\\", not "yale.edu". Without it that payload matched on the
+ * 200/success:false branch (which reads the already-parsed body.message) and
+ * missed on the non-2xx branch, which is exactly the "the diagnosis depends on
+ * which shape the API used" failure this recogniser exists to prevent -- and at
+ * 503 the miss is a transient verdict burning the queue's back-off.
+ *
+ * Excluding the backslash from the domain class is the other half. With the
+ * optional escape but a permissive class the pattern DOES match, and captures
+ * "yale.edu\\" with the escape still attached, which then lands in the message an
+ * operator reads and may paste back into SENDING_DOMAINS.
  */
-const REJECTED_DOMAIN = "['\"`]?([^'\"`\\s]+)['\"`]?";
+const REJECTED_DOMAIN = "(?:\\\\?['\"`])?([^'\"`\\\\\\s]+)(?:\\\\?['\"`])?";
 
 /** "The domain 'x' is currently disabled", and the phrasings next to it. */
 const MAILEROO_DISABLED_RE = new RegExp(
@@ -538,7 +554,6 @@ export class MailerooTransport implements EmailTransport {
  * the wrong thing. The note is appended, never prepended, so the transport's own
  * remedy still occupies the 60 characters the admin Failed card shows.
  *
-
  * The throughput consequence is real and worth stating where the routing
  * happens: Graph sends as a Yale shared mailbox and inherits Exchange Online's
  * ~30 messages/minute submission cap, which is the reason MailerooTransport

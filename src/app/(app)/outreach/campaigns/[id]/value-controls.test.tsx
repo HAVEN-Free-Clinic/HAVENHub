@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PersonFieldKind } from "@/platform/email/audience/person-fields";
+import { countWhere, dateWhere, MATCH_NOBODY } from "@/platform/email/audience/operators";
 import type { AudienceCondition, ConditionOp } from "@/platform/email/audience/types";
 import { ValueControl } from "./value-controls";
 
@@ -84,6 +85,22 @@ function inputs(): HTMLInputElement[] {
 
 function byLabel(label: string): HTMLInputElement {
   return container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+}
+
+/** Every id an input points at with aria-describedby. */
+function describedIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const input of inputs()) {
+    for (const id of (input.getAttribute("aria-describedby") ?? "").split(" ")) {
+      if (id !== "") ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/** Every note element the control rendered, by id. */
+function noteIds(): string[] {
+  return [...container.querySelectorAll("span[id]")].map((el) => el.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +477,218 @@ describe("count, between", () => {
   it("stops saying so once both bounds are entered", () => {
     render("count", "between", ["1", "3"]);
     expect(container.textContent).not.toContain("matches nobody");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 2, finding 1: a STORED value that is not a whole number
+// ---------------------------------------------------------------------------
+
+// The rejection note was built for text the sender just typed. A value that
+// ARRIVED in the stored audience took the same branch, so the row read "your
+// entry was not applied; this condition still uses abc" -- which claims `abc`
+// is what is filtering. It is not: countWhere and WINDOW_RE both gate on
+// ^\d+$, so it compiles to MATCH_NOBODY, and under a NONE group that widens to
+// every Person while the row says it is working.
+//
+// Reachable from real saved data, not only hand edits: before the value
+// controls existed, date and count fields fell through to the generic free-text
+// input, which stored "-5", "1.5" and "three" without complaint.
+describe("a stored value that is not a whole number", () => {
+  const STORED_BAD: [PersonFieldKind, ConditionOp, string][] = [
+    ["count", "gte", "abc"],
+    ["count", "eq", "-5"],
+    ["count", "lt", "1.5"],
+    ["date", "withinLastDays", "1.5"],
+    ["date", "withinNextDays", "-5"],
+  ];
+
+  it.each(STORED_BAD)("says %s / %s with a stored %s matches nobody", (kind, op, stored) => {
+    render(kind, op, stored);
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  it.each(STORED_BAD)("never claims %s / %s is still using the stored %s", (kind, op, stored) => {
+    render(kind, op, stored);
+    expect(container.textContent).not.toMatch(/still uses/i);
+  });
+
+  it("names the offending value, the way the impossible-date note does", () => {
+    render("count", "gte", "abc");
+    expect(container.textContent).toContain("abc");
+  });
+
+  it("marks the input invalid on mount", () => {
+    render("count", "gte", "abc");
+    expect(byLabel("Value").getAttribute("aria-invalid")).toBe("true");
+  });
+
+  // The rejection note is still the right one for a live keystroke, and it
+  // must not claim an unusable stored value is in force either.
+  it("still reports a rejected keystroke, without claiming the bad stored value filters", () => {
+    render("count", "gte", "abc", () => {});
+    type(byLabel("Value"), "-5");
+    expect(container.textContent).toMatch(/not applied/i);
+    expect(container.textContent).not.toMatch(/still uses/i);
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  // The case the "still uses" clause WAS built for: a usable stored value.
+  it("keeps naming a usable stored value when a keystroke is rejected", () => {
+    render("date", "withinNextDays", "30", () => {});
+    type(byLabel("Days"), "-5");
+    expect(container.textContent).toMatch(/still uses 30/i);
+  });
+
+  it("says nothing on mount when the stored value is fine", () => {
+    render("count", "gte", "3");
+    expect(container.textContent).not.toMatch(/not applied|matches nobody/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 2, finding 3: a `between` value that is not a usable pair
+// ---------------------------------------------------------------------------
+
+// asArray (operators.ts) drops empty strings and THEN rejects
+// `pair.length !== 2`, so the compiler's test is "how many non-empty values are
+// there", not "how long is the array". A three-value range compiles to
+// MATCH_NOBODY while the control showed two filled boxes and no note.
+describe("a between value that is not a usable pair", () => {
+  it.each<[PersonFieldKind, string[]]>([
+    ["date", ["2026-03-18", "2026-03-20", "2026-03-25"]],
+    ["count", ["1", "3", "9"]],
+  ])("says a %s range holding three values matches nobody", (kind, value) => {
+    render(kind, "between", value);
+    expect(container.textContent).toContain("matches nobody");
+    expect(container.textContent).toContain("3 values");
+  });
+
+  // Padding blanks are filtered by asArray before the length gate, so these two
+  // DO compile, and the control must not claim otherwise. Position is not
+  // load-bearing once the array is off-shape: the compiler reads the non-empty
+  // values in order, so the boxes show those.
+  it.each<[string, string[]]>([
+    ["a trailing blank", ["2026-03-18", "2026-03-20", ""]],
+    ["a leading blank", ["", "2026-03-18", "2026-03-20"]],
+  ])("treats a range padded with %s as the pair the compiler reads", (_label, value) => {
+    render("date", "between", value);
+    expect(byLabel("Start date").value).toBe("2026-03-18");
+    expect(byLabel("End date").value).toBe("2026-03-20");
+    expect(container.textContent).not.toContain("matches nobody");
+  });
+
+  it("leaves a well-formed two-element range alone", () => {
+    render("date", "between", ["2026-03-18", "2026-03-20"]);
+    expect(container.textContent).not.toContain("matches nobody");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 2: the note and the compiler must agree
+// ---------------------------------------------------------------------------
+
+// The invariant behind findings 1 and 3, stated once instead of case by case:
+// the row says "matches nobody" exactly when the compiler returns the
+// match-nobody sentinel for the same stored value. Both findings were an
+// instance of this drifting apart, in the direction where the row looks healthy
+// and the audience is empty (or, under NONE, is everyone).
+describe("the match-nobody note agrees with the compiler", () => {
+  const CTX = { now: new Date("2026-03-15T18:00:00.000Z"), zone: "America/New_York" };
+  const COUNTS = new Map([
+    ["p-zero", 0],
+    ["p-three", 3],
+    ["p-ten", 10],
+  ]);
+
+  const CASES: [PersonFieldKind, ConditionOp, AudienceCondition["value"]][] = [
+    ["date", "before", ""],
+    ["date", "before", "2026-03-20"],
+    ["date", "before", "2026-02-30"],
+    ["date", "before", " 2026-03-20 "],
+    ["date", "onOrAfter", "2026-13-01"],
+    ["date", "between", ["", ""]],
+    ["date", "between", ["2026-03-18", ""]],
+    ["date", "between", ["", "2026-03-20"]],
+    ["date", "between", ["2026-03-18", "2026-03-20"]],
+    ["date", "between", ["2026-03-20", "2026-03-18"]],
+    ["date", "between", ["2026-03-18", "2026-03-20", "2026-03-25"]],
+    ["date", "between", ["2026-03-18", "2026-03-20", ""]],
+    ["date", "between", ["", "2026-03-18", "2026-03-20"]],
+    ["date", "between", "2026-03-18"],
+    ["date", "withinNextDays", ""],
+    ["date", "withinNextDays", "30"],
+    ["date", "withinNextDays", "-5"],
+    ["date", "withinNextDays", "1.5"],
+    ["date", "withinLastDays", "abc"],
+    ["count", "gte", ""],
+    ["count", "gte", "3"],
+    ["count", "gte", "abc"],
+    ["count", "gte", "-5"],
+    ["count", "eq", "1.5"],
+    ["count", "between", ["1", "3"]],
+    ["count", "between", ["3", "1"]],
+    ["count", "between", ["1", "3", "9"]],
+    ["count", "between", ["1", "3", ""]],
+    ["count", "between", ["", "1", "3"]],
+    ["count", "between", ["1", ""]],
+  ];
+
+  it.each(CASES)("%s / %s / %j", (kind, op, value) => {
+    const cond: AudienceCondition = { field: "f", op, value };
+    const compiled =
+      kind === "date" ? dateWhere("col", cond, CTX) : countWhere(COUNTS, cond);
+    const compilesToNobody = JSON.stringify(compiled) === JSON.stringify(MATCH_NOBODY);
+
+    render(kind, op, value);
+    const saysNobody = (container.textContent ?? "").includes("matches nobody");
+
+    expect(saysNobody, compilesToNobody ? "compiler matches nobody, row is silent" : "row cries wolf")
+      .toBe(compilesToNobody);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 2, finding 2: every note is reachable from an input
+// ---------------------------------------------------------------------------
+
+// CountRange's reversed-range note belonged to the PAIR, not to either box, and
+// WholeNumber had no way to accept a describedby from its parent, so a screen
+// reader heard the warning on a reversed date range and not on a reversed count
+// range. Asserted as an invariant over every state that renders a note rather
+// than for that one case, so the next parent-owned note cannot repeat it.
+describe("aria wiring", () => {
+  it.each<[string, PersonFieldKind, ConditionOp, AudienceCondition["value"]]>([
+    ["an empty date", "date", "before", ""],
+    ["an impossible date", "date", "before", "2026-02-30"],
+    ["a half-filled date range", "date", "between", ["2026-03-18", ""]],
+    ["a reversed date range", "date", "between", ["2026-03-20", "2026-03-18"]],
+    ["an over-long date range", "date", "between", ["2026-03-18", "2026-03-20", "2026-03-25"]],
+    ["an empty count", "count", "gte", ""],
+    ["a stored non-number count", "count", "gte", "abc"],
+    ["a reversed count range", "count", "between", ["9", "1"]],
+    ["an over-long count range", "count", "between", ["1", "3", "9"]],
+  ])("points an input at every note rendered for %s", (_label, kind, op, value) => {
+    render(kind, op, value);
+    const rendered = noteIds();
+    expect(rendered.length).toBeGreaterThan(0);
+    const referenced = describedIds();
+    for (const id of rendered) {
+      expect(referenced.has(id), `note ${id} is referenced by no input`).toBe(true);
+    }
+  });
+
+  it("points at no id that does not exist", () => {
+    render("date", "between", ["2026-03-20", "2026-03-18"]);
+    for (const id of describedIds()) {
+      expect(document.getElementById(id), `aria-describedby names missing id ${id}`).toBeTruthy();
+    }
+  });
+
+  it("marks both boxes of a reversed count range invalid", () => {
+    render("count", "between", ["9", "1"]);
+    expect(byLabel("Lowest value").getAttribute("aria-invalid")).toBe("true");
+    expect(byLabel("Highest value").getAttribute("aria-invalid")).toBe("true");
   });
 });
 

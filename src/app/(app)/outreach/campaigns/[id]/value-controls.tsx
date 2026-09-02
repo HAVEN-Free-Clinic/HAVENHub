@@ -20,11 +20,22 @@
  * Either way the sender cannot see it. So the controls here are narrow on
  * purpose, and where the compiler would fail quietly they say so out loud.
  *
- * There are four such states and all four carry a note:
- *   - no value entered yet             (much the most common)
- *   - a stored day that does not exist ("2026-02-30")
+ * Every state that compiles to MATCH_NOBODY carries a note saying so, whether
+ * the sender typed it or it arrived in the stored audience:
+ *   - no value entered yet                  (much the most common)
+ *   - a stored day that does not exist      ("2026-02-30")
+ *   - a stored number that is not a whole   ("-5", "1.5", "three")
  *   - a range whose end precedes its start
- *   - text that is not a whole number  (rejected outright; see WholeNumber)
+ *   - a range holding more than two values  (asArray rejects it)
+ *
+ * `value-controls.test.tsx` pins that as a biconditional over a table of stored
+ * values: the row says "matches nobody" exactly when the compiler returns the
+ * sentinel for the same value. Saying it when the compiler does NOT is its own
+ * bug, so a note must never be added on a hunch.
+ *
+ * Separately, text the sender types that is not a whole number is refused
+ * outright and never reaches the audience; see WholeNumber for that one, which
+ * is not a match-nobody state because the stored value is left alone.
  *
  * ConditionRow keeps its own controls for every other field kind; this
  * component returns null for them rather than trying to be the one value
@@ -83,7 +94,18 @@ const WHOLE_COUNT_MESSAGE = "Enter a whole number, zero or more.";
  * audience. That is a worse failure than the one being fixed. This constant
  * fixes the scope editor at the same time, which the restructure would not.
  *
- * Do not add a `name` to any control in this file without removing this first.
+ * Two invariants this depends on, neither of which any test can catch:
+ *
+ * 1. Do not add a `name` to any control in this file without removing this
+ *    first. A named control here would silently stop submitting.
+ * 2. NOTHING ANYWHERE IN THE APP MAY TAKE THIS STRING AS A FORM `id`. A form
+ *    with this id makes every control below its form-associated child again,
+ *    which reinstates the Save bug in full with no test failure and nothing on
+ *    screen: the tests here assert `input.form === null` in documents that
+ *    contain no such form, so they would keep passing. The value is
+ *    deliberately long and specific so that a collision can only be
+ *    deliberate, and it is a module constant so a search for the literal finds
+ *    every use.
  */
 const NO_FORM_OWNER = "audience-value-control-has-no-form-owner";
 
@@ -101,7 +123,26 @@ function asSingle(value: AudienceCondition["value"]): string {
 }
 
 /**
- * The two endpoints of a range, trimmed.
+ * The values a range condition actually presents to the compiler.
+ *
+ * Mirrors `asArray` in operators.ts, which DROPS empty strings and only then
+ * applies the `pair.length !== 2` gate. That order matters and is easy to get
+ * wrong: `["a","b",""]` and `["","a","b"]` both compile as the range a..b, so a
+ * control that judged "is this a usable pair" by array length would put a false
+ * match-nobody warning on two conditions that are quietly working. Length is
+ * not the compiler's test; the count of non-empty values is.
+ */
+function usedValues(value: AudienceCondition["value"]): string[] {
+  if (typeof value === "string") {
+    const one = value.trim();
+    return one === "" ? [] : [one];
+  }
+  const list = Array.isArray(value) ? value : [];
+  return list.map((v) => (v ?? "").trim()).filter((v) => v !== "");
+}
+
+/**
+ * The two endpoints of a range, trimmed, as the two boxes should show them.
  *
  * A bare string is accepted because a Part A audience can hold one under
  * `between`: the pre-fix `valueForOp` treated `between` as single-valued, so
@@ -110,14 +151,33 @@ function asSingle(value: AudienceCondition["value"]): string {
  * unchanged, which is the display-versus-stored divergence this file exists to
  * prevent. DateRange also writes the normalised pair back up on mount.
  *
+ * A well-formed two-element array keeps its POSITIONS, so a sender who filled
+ * in only the end date sees it in the end box. Any other shape falls back to
+ * the compiler's own reading (`usedValues`), because once the array is off-shape
+ * position is no longer what the compiler goes by, and showing the first two
+ * slots would put "" in a box while a real value further along was doing the
+ * filtering.
+ *
  * Trimming matches startOfDay/startOfNextDay, which both `.trim()` before
  * validating: a stored " 2026-03-20" compiles to a real boundary and matches
  * people, so the control must neither hide it nor call it impossible.
  */
 function asPair(value: AudienceCondition["value"]): [string, string] {
-  if (typeof value === "string") return [value.trim(), ""];
-  const list = Array.isArray(value) ? value : [];
-  return [(list[0] ?? "").trim(), (list[1] ?? "").trim()];
+  if (Array.isArray(value) && value.length === 2) {
+    return [(value[0] ?? "").trim(), (value[1] ?? "").trim()];
+  }
+  const used = usedValues(value);
+  return [used[0] ?? "", used[1] ?? ""];
+}
+
+/**
+ * True when a range holds MORE than the two values the compiler accepts.
+ *
+ * Fewer than two needs no note of its own: `asPair` always leaves at least one
+ * box blank in that case, and the empty-endpoint note already covers it.
+ */
+function hasTooManyValues(value: AudienceCondition["value"]): boolean {
+  return usedValues(value).length > 2;
 }
 
 export function ValueControl({ kind, op, value, onChange, zoneLabel }: Props) {
@@ -281,9 +341,16 @@ function DateRange({
   const zoneId = `${base}-zone`;
   const emptyId = `${base}-empty`;
   const reversedId = `${base}-reversed`;
+  const tooManyId = `${base}-too-many`;
   const impossibleId = (index: 0 | 1) => `${base}-impossible-${index}`;
 
   const [from, to] = asPair(value);
+  // A third value is not truncated silently: dropping data the sender did not
+  // ask to drop is exactly the display-versus-stored divergence this file
+  // exists to prevent, and the compiler answers MATCH_NOBODY for it. Say so and
+  // let the sender re-pick; editing either box then writes a clean pair.
+  const tooMany = hasTooManyValues(value);
+  const valueCount = usedValues(value).length;
 
   // A legacy bare string under `between` is shown in the start box by asPair;
   // write the normalised pair back up so the STORED audience matches what is on
@@ -312,6 +379,7 @@ function DateRange({
     zoneId,
     empty && emptyId,
     reversed && reversedId,
+    tooMany && tooManyId,
     ...impossible.map(impossibleId),
   );
 
@@ -362,6 +430,12 @@ function DateRange({
           This range ends before it starts, {MATCHES_NOBODY}.
         </Note>
       )}
+      {tooMany && (
+        <Note id={tooManyId} tone="critical">
+          This range was saved with {valueCount} values instead of two,{" "}
+          {MATCHES_NOBODY}. Re-pick both dates.
+        </Note>
+      )}
     </div>
   );
 }
@@ -406,16 +480,27 @@ function WholeNumber({
   ariaLabel,
   suffix,
   message,
+  rangeNoteId,
 }: {
   value: AudienceCondition["value"];
   onChange: (value: AudienceCondition["value"]) => void;
   ariaLabel: string;
   suffix?: string;
   message: string;
+  /**
+   * A note owned by the PARENT that also describes this box, and whose presence
+   * means the surrounding range is itself unusable. CountRange's reversed-range
+   * and over-long warnings belong to the pair rather than to either endpoint,
+   * and without this they were rendered pointing at nothing: a screen reader
+   * heard the equivalent warning on a reversed DATE range and not on a count
+   * one, because DateRange owns both of its inputs and can wire them itself.
+   */
+  rangeNoteId?: string;
 }) {
   const base = useId();
   const rejectedId = `${base}-rejected`;
   const emptyId = `${base}-empty`;
+  const storedInvalidId = `${base}-stored-invalid`;
 
   const stored = asSingle(value).trim();
   const [text, setText] = useState(stored);
@@ -427,8 +512,23 @@ function WholeNumber({
   }
 
   const typed = text.trim();
-  const rejected = typed !== "" && !WHOLE_NUMBER_RE.test(typed);
   const empty = stored === "";
+  // A STORED value that is not a whole number. countWhere and WINDOW_RE both
+  // gate on ^\d+$, so this compiles to MATCH_NOBODY exactly like an empty one,
+  // and it needs the same note. It used to fall into the `rejected` branch
+  // below and produce "your entry was not applied; this condition still uses
+  // abc", which is wrong twice over: nothing was entered, and `abc` is not
+  // filtering anything. Reachable from real saved data, since date and count
+  // fields used a free-text input before these controls existed.
+  const storedInvalid = !empty && !WHOLE_NUMBER_RE.test(stored);
+  // Text the sender just typed and this control refused, as distinct from text
+  // that arrived in the stored audience. They are only distinguishable by the
+  // text differing from what is stored, because a refused keystroke is exactly
+  // the case where the two diverge.
+  const rejected = typed !== stored && typed !== "" && !WHOLE_NUMBER_RE.test(typed);
+  // Whether the STORED value is doing any filtering at all. The rejection note
+  // may only claim a value is "still in force" when this is true.
+  const storedUsable = !empty && !storedInvalid;
 
   function handle(next: string) {
     setText(next);
@@ -450,8 +550,13 @@ function WholeNumber({
           form={NO_FORM_OWNER}
           value={text}
           onChange={(e) => handle(e.target.value)}
-          aria-invalid={rejected || undefined}
-          aria-describedby={describedBy(rejected && rejectedId, empty && emptyId)}
+          aria-invalid={rejected || storedInvalid || Boolean(rangeNoteId) || undefined}
+          aria-describedby={describedBy(
+            rejected && rejectedId,
+            empty && emptyId,
+            storedInvalid && storedInvalidId,
+            rangeNoteId,
+          )}
           className="w-24"
         />
         {suffix && <span className="text-sm text-foreground-soft">{suffix}</span>}
@@ -459,12 +564,17 @@ function WholeNumber({
       {rejected && (
         <Note id={rejectedId} tone="critical">
           {message} Your entry was not applied
-          {empty ? "" : `; this condition still uses ${stored}`}.
+          {storedUsable ? `; this condition still uses ${stored}` : ""}.
         </Note>
       )}
       {empty && (
         <Note id={emptyId} tone="critical">
           No value entered yet, {MATCHES_NOBODY}.
+        </Note>
+      )}
+      {storedInvalid && (
+        <Note id={storedInvalidId} tone="critical">
+          {stored} is not a whole number, {MATCHES_NOBODY}.
         </Note>
       )}
     </div>
@@ -480,14 +590,24 @@ function CountRange({
 }) {
   const base = useId();
   const reversedId = `${base}-reversed`;
+  const tooManyId = `${base}-too-many`;
 
   const [low, high] = asPair(value);
   // countWhere already returns match-nobody for lo > hi (operators.ts). Same
-  // reasoning as the date range above: safe, but worth saying. The empty case
-  // is reported by whichever nested WholeNumber is empty, so it is not repeated
-  // here.
+  // reasoning as the date range above: safe, but worth saying. The empty and
+  // stored-not-a-number cases are reported by whichever nested WholeNumber has
+  // them, so they are not repeated here.
   const reversed =
     WHOLE_NUMBER_RE.test(low) && WHOLE_NUMBER_RE.test(high) && Number(low) > Number(high);
+  // countWhere's `between` runs the same asArray gate dateBoundaryFor does, so
+  // a third value matches nobody here too. Warned rather than truncated, for
+  // the reason given in DateRange.
+  const tooMany = hasTooManyValues(value);
+  const valueCount = usedValues(value).length;
+
+  // Both warnings belong to the PAIR, so both boxes point at whichever one is
+  // showing. WholeNumber cannot derive either on its own: it sees one endpoint.
+  const rangeNoteId = reversed ? reversedId : tooMany ? tooManyId : undefined;
 
   function set(index: 0 | 1, next: AudienceCondition["value"]) {
     const pair: [string, string] = [low, high];
@@ -503,6 +623,7 @@ function CountRange({
           onChange={(v) => set(0, v)}
           ariaLabel="Lowest value"
           message={WHOLE_COUNT_MESSAGE}
+          rangeNoteId={rangeNoteId}
         />
         <span className="text-sm text-foreground-soft">and</span>
         <WholeNumber
@@ -510,11 +631,18 @@ function CountRange({
           onChange={(v) => set(1, v)}
           ariaLabel="Highest value"
           message={WHOLE_COUNT_MESSAGE}
+          rangeNoteId={rangeNoteId}
         />
       </div>
       {reversed && (
         <Note id={reversedId} tone="critical">
           This range ends below where it starts, {MATCHES_NOBODY}.
+        </Note>
+      )}
+      {tooMany && (
+        <Note id={tooManyId} tone="critical">
+          This range was saved with {valueCount} values instead of two,{" "}
+          {MATCHES_NOBODY}. Re-pick both numbers.
         </Note>
       )}
     </div>

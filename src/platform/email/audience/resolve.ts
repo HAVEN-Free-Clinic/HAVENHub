@@ -138,6 +138,19 @@ async function loadApplicantFacts(
       // anyway. The cycle and subcommittee buckets stay correct under the wider
       // scan because they are guarded by `has(...)` on their pre-seeded keys,
       // not by which rows the query happened to return.
+      //
+      // THE COST, named so it is a decision rather than an accident: with an
+      // applicantType condition present this scan is UNBOUNDED where every
+      // other path narrows it. One request reads every Applicant that has an
+      // application, plus each of their applications, acceptances and
+      // interviews, and then the whole Person table below. The builder re-counts
+      // on a 400ms debounce over every node, so an editing session issues that
+      // repeatedly, not once. Clinic-sized today (hundreds of applicants across
+      // a handful of cycles), which is why it is accepted as-is rather than
+      // paid for with a second, weaker resolution path. If applicant volume ever
+      // makes this hurt, the fix is to push the type filter into the query and
+      // bucket only what comes back -- the `has(...)` guards already make that
+      // safe -- not to give applicantType its own scan.
       ...(wantApplicantTypes
         ? {}
         : {

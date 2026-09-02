@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { ApplicantType } from "@prisma/client";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-import { PERSON_FIELDS, PERSON_FIELD_VIEWS, countField, personFieldWhere } from "./person-fields";
+import {
+  APPLICANT_TYPE_VALUES,
+  PERSON_FIELDS,
+  PERSON_FIELD_VIEWS,
+  countField,
+  personFieldWhere,
+} from "./person-fields";
 
 // Fixed clock/zone shared by tests that don't care about date behavior; kept
 // separate from date-operators.test.ts's own fixture so a change there can't
@@ -678,6 +685,36 @@ describe("appliedToCycle", () => {
 // literally everyone), and a missing precompute map must THROW rather than fail
 // closed, because a leaf that is always false excludes nobody inside a NONE
 // group. See bucketedIdWhere in person-fields.ts.
+// APPLICANT_TYPE_VALUES is a hand-maintained mirror of the Prisma enum, and it
+// is load-bearing twice over: it is the allowlist bucketedIdWhere filters the
+// condition value against, and it is the key list loadApplicantFacts pre-seeds
+// byApplicantType from. So ONE member added at schema.prisma's
+// `enum ApplicantType` without touching this constant produces two SILENT
+// failures rather than an error. The new member cannot be selected in the
+// builder at all, and `byApplicantType.get(app.applicantType)?.add(personId)`
+// drops every applicant of that type through the optional chain without a
+// sound. Neither surfaces as anything but a wrong number in a send list, so it
+// is pinned to the generated enum: the migration that adds a member fails here
+// instead of shipping.
+describe("APPLICANT_TYPE_VALUES", () => {
+  it("mirrors the Prisma ApplicantType enum exactly, in both directions", () => {
+    // Sorted and compared whole rather than checked for containment: a missing
+    // member and an extra one are both drift, and an extra one is the worse
+    // half (it seeds a bucket no applicant can ever land in, so the field
+    // offers a value that always matches nobody).
+    expect([...APPLICANT_TYPE_VALUES].sort()).toEqual(Object.values(ApplicantType).sort());
+  });
+
+  it("is exactly the option list the builder renders", () => {
+    // The buckets and the checkbox/select list have to be the same set, or a
+    // member is bucketed but unpickable (invisible) or pickable but unbucketed
+    // (silently matches nobody). Order included: the enum select defaults to
+    // the first option, so a reorder changes what a fresh condition means.
+    const field = PERSON_FIELD_VIEWS.find((f) => f.key === "applicantType")!;
+    expect(field.options?.map((o) => o.value)).toEqual(APPLICANT_TYPE_VALUES);
+  });
+});
+
 describe("recruitment outcome fields", () => {
   const outcomeCtx = {
     activeTermId: "term1",

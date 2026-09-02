@@ -513,7 +513,109 @@ describe("resolveAudience appliedToCycle", () => {
     expect(res.recipients.map((r) => r.email)).toEqual(["notyet@example.com"]);
   });
 
-  it("ignores an applicant with no submitted application", async () => {
+  /**
+   * Today's DRAFT behaviour, pinned deliberately rather than left accidental.
+   *
+   * `loadApplicantFacts` selects applicants on `applications: { some: {} }` with
+   * no status predicate, so an Application row created by the wizard's autosave
+   * counts as having applied. Both halves of that are real and neither is
+   * obviously right:
+   *
+   *   - `in`  MAILS someone whose only row is an autosaved draft. A "thanks for
+   *     applying, here is what happens next" campaign lands in the inbox of
+   *     somebody who never submitted.
+   *   - `notIn` correspondingly EXCLUDES that person from a "you have not
+   *     applied yet" nudge, which is the one message they actually need.
+   *
+   * Recorded, NOT endorsed. It is left alone here because `appliedToCycle` is
+   * usable inside an `AudienceScope`, and a scope is a send BOUNDARY: narrowing
+   * this shrinks reach under `in` but WIDENS it under `notIn` and inside a NONE
+   * group, so it needs a scope-by-scope audit rather than a one-line edit. The
+   * edit itself would be one line -- `applications: { some: { status: { not:
+   * "DRAFT" } } }` in loadApplicantFacts -- and is safe on the data model,
+   * since `Application` is unique on (cycleId, applicantId) so a draft-only
+   * applicant has exactly one row, and every other bucket built from that scan
+   * is already stricter (a draft can reach none of their states: routing.ts,
+   * interviews.ts, interview-decisions.ts and withdraw.ts all refuse a
+   * non-SUBMITTED application).
+   *
+   * Whoever makes that change should get the two tests below failing, one per
+   * direction, rather than a surprise in a sent campaign.
+   */
+  /**
+   * One drafter, one real submitter, one person who never applied.
+   *
+   * Split across the two tests below rather than asserted in one, so a failure
+   * names WHICH direction changed: the two are separate harms with separate
+   * audiences, and the narrowing edit breaks both at once.
+   */
+  async function cycleWithADraftAndASubmission() {
+    const drafter = await person("Drafter", "drafter@example.com");
+    const submitter = await person("Submitter", "submitter@example.com");
+    // Never applied at all. Present so the notIn assertions are answering a
+    // populated query rather than passing on an empty result.
+    await person("Bystander", "bystander@example.com");
+
+    const cycleId = await cycleWithApplicant({
+      personId: submitter.id,
+      email: "submitter@example.com",
+    });
+    const drafterApplicant = await prisma.applicant.create({
+      data: {
+        cycleId,
+        applicantPersonId: drafter.id,
+        firstName: "D",
+        lastName: "Rafter",
+        email: "drafter@example.com",
+        emailLower: "drafter@example.com",
+      },
+    });
+    await prisma.application.create({
+      data: { cycleId, applicantId: drafterApplicant.id, answers: {}, status: "DRAFT" },
+    });
+    return cycleId;
+  }
+
+  it("MAILS a draft-only applicant under `in` (the inclusion half)", async () => {
+    const cycleId = await cycleWithADraftAndASubmission();
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "in", value: [cycleId] }],
+    });
+    // The drafter is in the send list beside a genuine submitter. A "thanks for
+    // applying, here is what happens next" campaign reaches somebody who never
+    // submitted.
+    expect(res.recipients.map((r) => r.email).sort()).toEqual([
+      "drafter@example.com",
+      "submitter@example.com",
+    ]);
+  });
+
+  it("EXCLUDES a draft-only applicant under `notIn` (the exclusion half)", async () => {
+    const cycleId = await cycleWithADraftAndASubmission();
+
+    const res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "appliedToCycle", op: "notIn", value: [cycleId] }],
+    });
+    const stillOffered = res.recipients.map((r) => r.email);
+    // Someone who never applied is still reachable, which is what makes the two
+    // absences below meaningful rather than an empty result.
+    expect(stillOffered).toContain("bystander@example.com");
+    // The drafter is dropped from a "you have not applied yet" nudge, which is
+    // the one message they actually need.
+    expect(stillOffered).not.toContain("drafter@example.com");
+    expect(stillOffered).not.toContain("submitter@example.com");
+  });
+
+  it("ignores an applicant with no Application row at all", async () => {
+    // Distinct from the DRAFT case above, and the weaker of the two: this
+    // exercises the `applications: { some: {} }` half of the query, not the
+    // status. The test used to be named for the submitted/draft distinction it
+    // does not actually make.
     const p = await person("Draft Only", "draft@example.com");
     const t = await prisma.term.create({
       data: {

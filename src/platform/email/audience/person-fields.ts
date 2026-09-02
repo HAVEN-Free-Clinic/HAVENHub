@@ -421,10 +421,36 @@ const TRACKS = ["DIRECTOR", "VOLUNTEER"] as const;
  * value that is not a member of the field's enum matches nobody in both
  * polarities -- exactly what enumWhere does for every other enum-kind field
  * here. Without it a stored `applicantType notEq GRADUATE` would find no bucket,
- * negate an empty id list, and mail the entire database. It is deliberately NOT
- * passed for the cycle and subcommittee fields: those keys are row ids, so there
- * is no allowlist to check them against, and `notIn` over a cycle nobody was
- * rejected in genuinely IS everyone (see the field comments).
+ * negate an empty id list, and mail the entire database.
+ *
+ * The cycle and subcommittee fields are NOT given one, and that asymmetry is a
+ * COST/BENEFIT CALL, not an impossibility. An earlier version of this comment
+ * claimed there was no allowlist available for row ids. That is true only of a
+ * live cycle with an empty cohort; it is false of a DELETED one, whose id is
+ * exactly what `loadAudienceBuilderOptions` already detects well enough to
+ * render a "Deleted cycle" checkbox (builder-options.ts). So the widening is
+ * reachable and has been verified end to end: with the named cycle deleted, a
+ * single `rejectedInCycle notIn ["gone"]` clause resolves to EVERY Person with
+ * an address.
+ *
+ * It is left as-is here for three reasons, none of them "it cannot be done":
+ *
+ *   1. This shape is byte-identical to what `appliedToCycle` and
+ *      `acceptedInCycle` already shipped. Narrowing it is a change to the
+ *      meaning of two live fields, and `appliedToCycle` is usable inside an
+ *      AudienceScope, which is a send BOUNDARY -- so the change shrinks reach
+ *      under `in` and widens it under `notIn` and inside NONE. That needs a
+ *      scope-by-scope audit, not a rider on a new field.
+ *   2. The reading is defensible on its own terms: "was not rejected in cycle
+ *      X" genuinely is everyone when nobody was rejected in X.
+ *   3. It is visible three ways before anything is sent. The dead id renders as
+ *      a CHECKED "Deleted cycle" box rather than vanishing (#82); the per-node
+ *      count next to the clause shows the widened number; and any send over
+ *      CAMPAIGN_CONFIRM_THRESHOLD (25) makes the sender retype the exact
+ *      recipient count before it will go (campaigns/service.ts).
+ *
+ * Whoever revisits this should weigh those against the failure mode, rather
+ * than re-deriving them.
  */
 function bucketedIdWhere(
   buckets: Map<string, Set<string>> | undefined,

@@ -16,14 +16,25 @@ describe("collectAudienceReferences", () => {
     expect([...refs.termIds].sort()).toEqual(["sp26", "su26"]);
   });
 
-  // Driven off the shared registry rather than a hand-listed pair, because the
-  // failure a hand-listed pair misses is exactly the #82 one: a cycle-valued
-  // field added later and not collected here keeps a deleted cycle out of the
-  // builder's picker, so the stored value filters forever with nothing on
-  // screen to uncheck. Every member of the list has to be collected, including
-  // ones that do not exist yet.
-  it("collects the cycle ids named by EVERY cycle-valued field into one set", () => {
-    // Guard the guard: an empty list would make the loop below vacuous.
+  // What this DOES guard: that references.ts reads CYCLE_VALUED_FIELD_KEYS
+  // rather than a hand-listed pair of field names. Reverting it to
+  // `appliedToCycle || acceptedInCycle` fails here, which is worth having,
+  // because that omission is the #82 failure: a cycle-valued field whose ids
+  // are not collected keeps a deleted cycle out of the builder's picker, so the
+  // stored value filters forever with nothing on screen to uncheck.
+  //
+  // What it does NOT guard, despite the name reading that way: COMPLETENESS of
+  // the constant. The fixture is built FROM CYCLE_VALUED_FIELD_KEYS, so a field
+  // registered in PERSON_FIELDS and never added to that list is invisible to
+  // this test. The completeness guard is elsewhere and is non-circular, because
+  // it drives off the field registry instead: "gives every dynamically-sourced
+  // multiEnum field a non-empty option source" in audience-builder.test.tsx,
+  // backed at the rendered layer by the "No options available" assertion in
+  // e2e/email-campaigns.spec.ts. Both fail when a key is missing from the
+  // constant.
+  it("reads the shared cycle-valued field list rather than a hand-listed pair", () => {
+    // Guard the guard: a one-element list would make the loop below vacuous,
+    // since a hand-listed `appliedToCycle` alone would still satisfy it.
     expect(CYCLE_VALUED_FIELD_KEYS.length).toBeGreaterThan(1);
     const refs = collectAudienceReferences(
       CYCLE_VALUED_FIELD_KEYS.map((field, i) => ({

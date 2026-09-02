@@ -26,8 +26,12 @@ import {
   ROLE_LABEL,
   TAG_LABEL,
   TAG_SHORT,
-  roleFillClasses,
+  primaryTag,
+  roleFillClass,
+  roleRingClasses,
+  tagCellStyle,
   tagChipStyle,
+  tagSwatchStyle,
   type ShiftTagKey,
 } from "./shift-colors";
 
@@ -107,14 +111,19 @@ function CellContent({
   }
 
   const glyph = roleGlyph(assignment.role);
-  const activeTags = tagKeys(deptCode).filter((t) => assignment.tags[t]);
+  const shown = tagKeys(deptCode);
+  const activeTags = shown.filter((t) => assignment.tags[t]);
+  // The special shift owns the fill; the role keeps the ring and the glyph.
+  const fillTag = primaryTag(assignment.tags, shown);
 
   return (
     <span
       className={cx(
         "inline-flex flex-col items-center gap-0.5 rounded-lg border px-1.5 py-0.5",
-        roleFillClasses(assignment.role),
+        roleRingClasses(assignment.role),
+        fillTag ? "" : roleFillClass(assignment.role),
       )}
+      style={fillTag ? tagCellStyle(fillTag) : undefined}
     >
       <span className="text-xs font-semibold leading-none">{glyph}</span>
       {activeTags.length > 0 && (
@@ -140,26 +149,32 @@ function CellContent({
 // ---------------------------------------------------------------------------
 
 /**
- * Names every glyph and chip the grid below can paint.
+ * Names every colour the grid below can paint, in the two channels it paints
+ * them: the role rings a cell and letters it, the special shift fills it.
  *
- * Colour coding that nobody can decode is decoration, and the cells are far too
- * small to label themselves. Only the tags this department actually uses are
- * listed, so a Nursing director is not told what a care-coordinator chip means.
+ * Colour coding nobody can decode is decoration, and the cells are far too small
+ * to label themselves. Only the shifts this department actually uses are listed,
+ * so a Nursing director is not told what a care-coordinator fill means.
+ *
+ * The swatches are drawn the way the cells are -- role swatches ringed and
+ * lettered, shift swatches filled -- so the key is the thing itself rather than
+ * a description of it.
  */
 function GridLegend({ deptCode }: { deptCode: string }) {
   const roles = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
+  const swatch =
+    "inline-flex h-5 w-5 items-center justify-center rounded-md border text-[11px] font-semibold leading-none";
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+    <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Role</span>
+        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">
+          Role (ring)
+        </span>
         {roles.map((role) => (
           <span key={role} className="inline-flex items-center gap-1">
             <span
               aria-hidden="true"
-              className={cx(
-                "inline-flex h-5 w-5 items-center justify-center rounded-md border text-[11px] font-semibold leading-none",
-                roleFillClasses(role),
-              )}
+              className={cx(swatch, roleRingClasses(role), roleFillClass(role))}
             >
               {ROLE_GLYPH[role]}
             </span>
@@ -168,14 +183,12 @@ function GridLegend({ deptCode }: { deptCode: string }) {
         ))}
       </span>
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Tags</span>
+        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">
+          Shift (fill)
+        </span>
         {tagKeys(deptCode).map((t) => (
           <span key={t} className="inline-flex items-center gap-1">
-            <span
-              aria-hidden="true"
-              style={tagChipStyle(t)}
-              className="inline-block rounded-sm px-1 text-[10px] font-semibold leading-tight"
-            >
+            <span aria-hidden="true" style={tagSwatchStyle(t)} className={swatch}>
               {TAG_SHORT[t]}
             </span>
             {TAG_LABEL[t]}

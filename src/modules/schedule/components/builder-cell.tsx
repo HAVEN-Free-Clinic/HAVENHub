@@ -8,7 +8,10 @@ import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder
 import {
   SHIFT_TAG_KEYS,
   TAG_SHORT,
-  roleFillClasses,
+  primaryTag,
+  roleFillClass,
+  roleRingClasses,
+  tagCellStyle,
   tagChipStyle,
 } from "./shift-colors";
 
@@ -87,6 +90,8 @@ function GridFilledButton({
   const activeTags = assignment
     ? SHIFT_TAG_KEYS.filter((t) => assignment.tags[t])
     : [];
+  // The special shift owns the fill; the role keeps the ring and the glyph.
+  const fillTag = assignment ? primaryTag(assignment.tags) : null;
 
   if (armed) {
     return (
@@ -117,16 +122,23 @@ function GridFilledButton({
       // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
       className={cx(
         "flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
-        // Role tint, so a term of cells says at a glance which are volunteers and
-        // which are shadows. Falls back to the old neutral fill when the caller
-        // did not pass an assignment (nothing does today, but the prop is
-        // optional and a colourless cell beats a crash).
+        // Role ring + glyph, so a term of cells says at a glance which are
+        // volunteers and which are shadows. Falls back to the old neutral fill
+        // when the caller passed no assignment (nothing does today, but the prop
+        // is optional and a colourless cell beats a crash).
         assignment
-          ? roleFillClasses(assignment.role)
+          ? roleRingClasses(assignment.role)
           : "border-border-strong bg-muted-strong text-foreground-soft",
-        // Removal is still the action, so the hover state still says red.
-        "hover:border-critical/30 hover:bg-critical-faint hover:text-critical-foreground",
+        // The special shift takes the fill when there is one; otherwise the role
+        // keeps it. `bg-*` here would lose to the inline style anyway, so the
+        // two are mutually exclusive rather than layered.
+        assignment && !fillTag ? roleFillClass(assignment.role) : "",
+        // Removal is still the action, so the hover state still says red. The
+        // inline fill below would outrank a hover background, so the hover cue
+        // is carried by the ring and the glyph, which are classes.
+        "hover:border-critical/40 hover:text-critical-foreground",
       )}
+      style={fillTag ? tagCellStyle(fillTag) : undefined}
       title={ariaLabel ?? label}
     >
       {pending ? (

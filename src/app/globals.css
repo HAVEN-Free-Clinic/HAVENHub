@@ -109,47 +109,73 @@ html.dark {
 }
 
 /*
- * Shift-tag hues. The schedule grid stacks a role glyph and up to five role tags
- * into a ~52px cell; every chip painted the same faint brand blue, so "who is on
- * triage" meant reading eighteen columns of 9px letters. Five hues spread around
- * the wheel, one L/C family, same discipline as the module accents above.
+ * Shift-tag hues. A cell in the schedule grid says two things: what ROLE someone
+ * is holding (volunteer / shadow / director) and which SPECIAL SHIFT it is
+ * (triage, walk-in, care coordinator, remote, specialty clinic). Both used to be
+ * one slate box with one faint blue chip, so "who is on triage" meant reading
+ * eighteen columns of 9px letters.
+ *
+ * The split the grid draws: the ROLE takes the border and the glyph, from the
+ * semantic tokens; the SPECIAL SHIFT takes the FILL, from these. So a triage
+ * cell is pink whoever is standing in it, and a shadow is ringed in amber
+ * whatever they are doing -- the two facts never compete for one channel.
  *
  * A tag is a CATEGORY, not a status, which is why these are their own family and
- * not success/warning/critical: a walk-in is not a warning. The chip keeps its
- * letter, so the hue is a scanning aid and never the only channel.
+ * not success/warning/critical: a walk-in is not a warning. Every cell keeps its
+ * glyph and every chip its code, so hue is a scanning aid, never the only
+ * channel (WCAG 1.4.1).
  *
- * Consumed via inline `style` (see shift-colors.ts) so Tailwind's static scan
- * never has to see them. Light `fg` sits at L~0.45 to read as 9px text on its
- * own L~0.95 tint.
+ * Three steps per hue, all verified in sRGB gamut (an out-of-gamut oklch is
+ * clipped by the browser, which silently moves the colour you measured):
+ *   --tag-X       text: the chip code and the legend label. L .45 / .80.
+ *   --tag-X-chip  the chip behind that code. A clear step off the cell fill, so
+ *                 a chip still reads as a block when it sits on its own hue.
+ *   --tag-X-cell  the cell fill itself. The faintest step: it is a whole 52px
+ *                 cell, and it sits under a role glyph that must stay legible.
+ *
+ * Worst measured pair is 4.9:1 (dark volunteer glyph on the specialty fill);
+ * every tag code clears 5:1 on its own chip. Consumed via inline `style` (see
+ * shift-colors.ts) so Tailwind's static scan never has to see them.
  */
 :root {
-  --tag-triage:       oklch(0.45 0.15 25);
-  --tag-triage-bg:    oklch(0.95 0.035 25);
-  --tag-walkin:       oklch(0.45 0.14 300);
-  --tag-walkin-bg:    oklch(0.95 0.032 300);
-  --tag-cc:           oklch(0.45 0.10 200);
-  --tag-cc-bg:        oklch(0.95 0.030 200);
-  --tag-remote:       oklch(0.45 0.09 95);
-  --tag-remote-bg:    oklch(0.95 0.035 95);
-  --tag-specialty:    oklch(0.45 0.12 150);
-  --tag-specialty-bg: oklch(0.95 0.035 150);
+  --tag-triage:         oklch(0.45 0.150 25);
+  --tag-triage-chip:    oklch(0.88 0.051 25);
+  --tag-triage-cell:    oklch(0.95 0.017 25);
+  --tag-walkin:         oklch(0.45 0.150 300);
+  --tag-walkin-chip:    oklch(0.88 0.055 300);
+  --tag-walkin-cell:    oklch(0.95 0.021 300);
+  --tag-cc:             oklch(0.45 0.064 200);
+  --tag-cc-chip:        oklch(0.88 0.070 200);
+  --tag-cc-cell:        oklch(0.95 0.030 200);
+  --tag-remote:         oklch(0.45 0.077 95);
+  --tag-remote-chip:    oklch(0.88 0.070 95);
+  --tag-remote-cell:    oklch(0.95 0.030 95);
+  --tag-specialty:      oklch(0.45 0.102 150);
+  --tag-specialty-chip: oklch(0.88 0.070 150);
+  --tag-specialty-cell: oklch(0.95 0.030 150);
 }
 
 /*
  * Dark variants, for the same reason the module accents have them: an L~0.95
- * tint would burn a bright island into a dark grid cell. Tint darkens, hue lifts.
+ * fill would burn a bright island into a dark grid. The fill darkens, the chip
+ * lands between it and the text, and the hue lifts.
  */
 html.dark {
-  --tag-triage:       oklch(0.80 0.12 25);
-  --tag-triage-bg:    oklch(0.32 0.055 25);
-  --tag-walkin:       oklch(0.80 0.12 300);
-  --tag-walkin-bg:    oklch(0.32 0.050 300);
-  --tag-cc:           oklch(0.80 0.10 200);
-  --tag-cc-bg:        oklch(0.32 0.045 200);
-  --tag-remote:       oklch(0.82 0.11 95);
-  --tag-remote-bg:    oklch(0.32 0.050 95);
-  --tag-specialty:    oklch(0.80 0.11 150);
-  --tag-specialty-bg: oklch(0.32 0.050 150);
+  --tag-triage:         oklch(0.80 0.094 25);
+  --tag-triage-chip:    oklch(0.38 0.075 25);
+  --tag-triage-cell:    oklch(0.28 0.050 25);
+  --tag-walkin:         oklch(0.80 0.098 300);
+  --tag-walkin-chip:    oklch(0.38 0.075 300);
+  --tag-walkin-cell:    oklch(0.28 0.050 300);
+  --tag-cc:             oklch(0.80 0.115 200);
+  --tag-cc-chip:        oklch(0.38 0.051 200);
+  --tag-cc-cell:        oklch(0.28 0.038 200);
+  --tag-remote:         oklch(0.80 0.120 95);
+  --tag-remote-chip:    oklch(0.38 0.064 95);
+  --tag-remote-cell:    oklch(0.28 0.047 95);
+  --tag-specialty:      oklch(0.80 0.120 150);
+  --tag-specialty-chip: oklch(0.38 0.075 150);
+  --tag-specialty-cell: oklch(0.28 0.050 150);
 }
 
 /*

@@ -9,6 +9,7 @@ import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView } from "@/modules/schedule/services/builder";
 import { IntakeNotes } from "./intake-notes";
 import { sortClinicDates } from "./clinic-date-order";
+import { BUILDER_AVAILABILITY_PILL_CLASS } from "./availability-pill";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -94,7 +95,9 @@ export function BuilderAvailabilityView({
                       const key = isoDateKey(d);
                       const checked = availKeys.has(key);
                       return (
-                        <label key={key} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer transition-colors whitespace-nowrap ${checked ? "border-brand bg-brand/5 text-brand-fg font-semibold" : "border-border text-muted-foreground hover:border-border-strong"}`}>
+                        // Styling comes from the live checkbox, not from `checked`:
+                        // `checked` only seeds the initial state. See availability-pill.ts.
+                        <label key={key} className={BUILDER_AVAILABILITY_PILL_CLASS}>
                           <Checkbox
                             name="dates"
                             value={key}

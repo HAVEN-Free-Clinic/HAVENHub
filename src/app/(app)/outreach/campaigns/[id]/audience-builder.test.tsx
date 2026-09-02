@@ -165,7 +165,9 @@ describe("AudienceBuilder operator changes", () => {
       match: "ALL",
       conditions: [{ field: "status", op: "eq", value: "ACTIVE" }],
     });
-    const opSelect = container.querySelectorAll("select")[1] as HTMLSelectElement;
+    // Selected by aria-label, not position: the field control (FieldPicker) is
+    // no longer a native <select>, so it no longer occupies a select index.
+    const opSelect = container.querySelector('select[aria-label="Operator"]') as HTMLSelectElement;
 
     act(() => {
       opSelect.value = "in";
@@ -186,7 +188,9 @@ describe("AudienceBuilder operator changes", () => {
       match: "ALL",
       conditions: [{ field: "netId", op: "contains", value: "ab" }],
     });
-    const opSelect = container.querySelectorAll("select")[1] as HTMLSelectElement;
+    // Selected by aria-label, not position: the field control (FieldPicker) is
+    // no longer a native <select>, so it no longer occupies a select index.
+    const opSelect = container.querySelector('select[aria-label="Operator"]') as HTMLSelectElement;
     act(() => {
       opSelect.value = "isEmpty";
       opSelect.dispatchEvent(new Event("change", { bubbles: true }));

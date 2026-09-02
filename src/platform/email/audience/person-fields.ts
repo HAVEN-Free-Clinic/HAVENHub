@@ -462,7 +462,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "appliedToCycle",
     label: "Applied to recruitment cycle",
-    group: "Records",
+    group: "Recruitment",
     kind: "multiEnum",
     operators: MULTI_ENUM_OPERATORS,
     // Resolved from a precomputed per-cycle id set rather than a relation filter,
@@ -544,7 +544,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "complianceStatus",
     label: "HIPAA compliance status",
-    group: "Status & roles",
+    group: "Compliance",
     kind: "multiEnum",
     operators: MULTI_ENUM_OPERATORS,
     options: COMPLIANCE_OPTIONS,
@@ -575,7 +575,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "hasEpicId",
     label: "Has an Epic ID",
-    group: "Attributes",
+    group: "Identity",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) => (cond.op === "isFalse" ? { epicId: null } : { epicId: { not: null } }),
@@ -661,7 +661,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "hasVerifiedCertificate",
     label: "Has a verified HIPAA certificate",
-    group: "Records",
+    group: "Compliance",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) =>
@@ -672,7 +672,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "addedToEhs",
     label: "Added to Yale EHS",
-    group: "Attributes",
+    group: "Compliance",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond) => ({ addedToEhs: cond.op === "isTrue" }),
@@ -680,7 +680,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "completedVolunteerTraining",
     label: "Completed volunteer training",
-    group: "Status & roles",
+    group: "Training",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     termScoped: true,
@@ -740,7 +740,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "learningComplete",
     label: "Completed all assigned learning",
-    group: "Status & roles",
+    group: "Training",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     compile: (cond, ctx) => {
@@ -824,7 +824,7 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   {
     key: "hasServiceCredential",
     label: "Has a service credential",
-    group: "Volunteers",
+    group: "Records",
     kind: "boolean",
     operators: BOOLEAN_OPERATORS,
     // Person.serviceCredential is a nullable one-to-one, not a list, so this is

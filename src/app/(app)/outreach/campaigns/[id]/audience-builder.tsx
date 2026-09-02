@@ -14,6 +14,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Input, Textarea } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
+import { FieldPicker } from "./field-picker";
 
 export type NamedOption = { id: string; label: string };
 
@@ -25,8 +26,6 @@ type Props = {
   subcommittees: NamedOption[];
   initial: Audience;
 };
-
-type FieldGroup = { name: string; fields: PersonFieldView[] };
 
 const OP_LABELS: Record<ConditionOp, string> = {
   contains: "contains",
@@ -215,7 +214,6 @@ function TermScopePicker({
 function ConditionRow({
   cond,
   fields,
-  fieldGroups,
   departments,
   terms,
   cycles,
@@ -225,7 +223,6 @@ function ConditionRow({
 }: {
   cond: AudienceCondition;
   fields: PersonFieldView[];
-  fieldGroups: FieldGroup[];
   departments: { code: string; name: string }[];
   terms: NamedOption[];
   cycles: NamedOption[];
@@ -239,7 +236,11 @@ function ConditionRow({
   const textValue = typeof cond.value === "string" ? cond.value : "";
 
   function changeField(newFieldKey: string) {
-    const nextDef = fields.find((f) => f.key === newFieldKey);
+    // Falls back to the first field for any key this registry cannot resolve
+    // -- the same tolerant fallback `def` above already applies when READING
+    // a stale `cond.field`. That covers both a genuine pick and FieldPicker's
+    // "remove unknown field" control, which reports the empty string.
+    const nextDef = fields.find((f) => f.key === newFieldKey) ?? fields[0];
     if (nextDef) onChange(defaultConditionFor(nextDef));
   }
 
@@ -258,15 +259,7 @@ function ConditionRow({
 
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted p-3">
-      <Select aria-label="Field" value={cond.field} onChange={(e) => changeField(e.target.value)} className="w-auto">
-        {fieldGroups.map((g) => (
-          <optgroup key={g.name} label={g.name}>
-            {g.fields.map((f) => (
-              <option key={f.key} value={f.key}>{f.label}</option>
-            ))}
-          </optgroup>
-        ))}
-      </Select>
+      <FieldPicker fields={fields} value={cond.field} onChange={changeField} />
 
       {/* The operator select doubles as the value control for booleans, whose
           two operators (yes / no) ARE the value. */}
@@ -351,7 +344,6 @@ function ConditionRow({
 function GroupEditor({
   group,
   fields,
-  fieldGroups,
   departments,
   terms,
   cycles,
@@ -362,7 +354,6 @@ function GroupEditor({
 }: {
   group: AudienceGroup;
   fields: PersonFieldView[];
-  fieldGroups: FieldGroup[];
   departments: { code: string; name: string }[];
   terms: NamedOption[];
   cycles: NamedOption[];
@@ -422,7 +413,6 @@ function GroupEditor({
               key={i}
               group={child}
               fields={fields}
-              fieldGroups={fieldGroups}
               departments={departments}
               terms={terms}
               cycles={cycles}
@@ -436,7 +426,6 @@ function GroupEditor({
               key={i}
               cond={child}
               fields={fields}
-              fieldGroups={fieldGroups}
               departments={departments}
               terms={terms}
               cycles={cycles}
@@ -472,14 +461,6 @@ export function AudienceBuilder({ fields, departments, terms, cycles, subcommitt
   const rootMatch: Audience["match"] = root.match === "NONE" ? "ALL" : root.match;
   const audience: Audience = { recordType: "PERSON", match: rootMatch, conditions: root.children };
 
-  // Group fields for the selector while preserving order.
-  const fieldGroups: FieldGroup[] = [];
-  for (const f of fields) {
-    const existing = fieldGroups.find((g) => g.name === f.group);
-    if (existing) existing.fields.push(f);
-    else fieldGroups.push({ name: f.group, fields: [f] });
-  }
-
   return (
     <div className="space-y-4">
       <div>
@@ -492,7 +473,6 @@ export function AudienceBuilder({ fields, departments, terms, cycles, subcommitt
       <GroupEditor
         group={root}
         fields={fields}
-        fieldGroups={fieldGroups}
         departments={departments}
         terms={terms}
         cycles={cycles}

@@ -181,3 +181,107 @@ describe("compliance and training date fields", () => {
     expect(recipients.map((r) => r.email)).toEqual(["trainee@x.com"]);
   });
 });
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Creates a cert with explicit uploadedAt/verifiedAt control, for exercising
+ *  the newest-vs-effective certificate selection. */
+async function certWith(
+  personId: string,
+  completionDate: Date | null,
+  uploadedAt: Date,
+  verifiedAt: Date | null,
+) {
+  return prisma.hipaaCertificate.create({
+    data: {
+      personId,
+      fileName: "c.pdf",
+      storedName: "c.pdf",
+      size: 1,
+      mimeType: "application/pdf",
+      completionDate,
+      uploadedAt,
+      verifiedAt,
+    },
+  });
+}
+
+// The headline use case Part A's whole-branch review found missing: "certificates
+// expiring in the next N days", expressed directly rather than by ANDing
+// hipaaCompletedAt withinLastDays 365 against a NONE group.
+describe("hipaaExpiresAt (derived from completionDate + CERT_VALIDITY_DAYS)", () => {
+  it("matches a certificate expiring INSIDE a withinNextDays window and excludes one OUTSIDE it", async () => {
+    // Expires NOW + 20 days -> inside a 30-day window.
+    await personWithCert("Soon", "soon@x.com", new Date(NOW.getTime() - 345 * DAY));
+    // Expires NOW + 165 days -> outside a 30-day window.
+    await personWithCert("Later", "later@x.com", new Date(NOW.getTime() - 200 * DAY));
+
+    const { recipients } = await resolveAudience(
+      audienceFor("hipaaExpiresAt", "withinNextDays", "30"),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["soon@x.com"]);
+  });
+
+  // A person with no certificate at all has no computable expiry (null), and a
+  // null value satisfies no comparison operator -- the same reading a NULL
+  // column gets against gte/lt/lte. They are reachable only through isEmpty,
+  // exactly like hipaaCompletedAt's own null-date behavior above.
+  it("excludes a person with no certificate at all from a withinNextDays window", async () => {
+    await personWithCert("Soon", "soon@x.com", new Date(NOW.getTime() - 345 * DAY));
+    await prisma.person.create({
+      data: { name: "No Cert", contactEmail: "nocert@x.com", status: "ACTIVE" },
+    });
+
+    const { recipients } = await resolveAudience(
+      audienceFor("hipaaExpiresAt", "withinNextDays", "30"),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["soon@x.com"]);
+  });
+
+  it("isEmpty matches a person with no certificate at all", async () => {
+    await personWithCert("Soon", "soon@x.com", new Date(NOW.getTime() - 345 * DAY));
+    await prisma.person.create({
+      data: { name: "No Cert", contactEmail: "nocert@x.com", status: "ACTIVE" },
+    });
+
+    const { recipients } = await resolveAudience(audienceFor("hipaaExpiresAt", "isEmpty", ""), {
+      now: NOW,
+    });
+    expect(recipients.map((r) => r.email)).toEqual(["nocert@x.com"]);
+  });
+
+  // The trap this field exists to avoid: the newest cert (by uploadedAt) is an
+  // unverified early renewal, so complianceStatus falls back to the older
+  // still-valid VERIFIED cert. hipaaExpiresAt must select the SAME certificate,
+  // or a "certificates expiring soon" campaign would target a different person
+  // than the compliance page shows as expiring soon for identical data.
+  //
+  // Older verified cert expires NOW + 25 days (inside a 30-day window).
+  // Newest unverified cert expires NOW + 360 days (outside it). Selecting the
+  // newest cert instead of the effective one would flip this test's answer.
+  it("resolves the effective certificate the same way complianceStatus does: an unverified newest renewal defers to the older still-valid VERIFIED cert", async () => {
+    const p = await prisma.person.create({
+      data: { name: "Renewing", contactEmail: "renewing@x.com", status: "ACTIVE" },
+    });
+    await certWith(
+      p.id,
+      new Date(NOW.getTime() - 340 * DAY), // expires NOW+25d
+      new Date(NOW.getTime() - 50 * DAY),
+      new Date(NOW.getTime() - 50 * DAY), // verified
+    );
+    await certWith(
+      p.id,
+      new Date(NOW.getTime() - 5 * DAY), // expires NOW+360d
+      new Date(NOW.getTime() - 1 * DAY), // newest by uploadedAt
+      null, // unverified early renewal
+    );
+
+    const { recipients } = await resolveAudience(
+      audienceFor("hipaaExpiresAt", "withinNextDays", "30"),
+      { now: NOW },
+    );
+    expect(recipients.map((r) => r.email)).toEqual(["renewing@x.com"]);
+  });
+});

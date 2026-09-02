@@ -22,6 +22,17 @@ const complianceCtx = {
   ]),
 };
 
+const hipaaExpiryCtx = {
+  activeTermId: "term1",
+  now: NOW,
+  zone: ZONE,
+  hipaaExpiresAtByPerson: new Map<string, Date | null>([
+    ["p1", new Date("2026-01-10T12:00:00.000Z")], // 9 days out -> inside a 30-day window
+    ["p2", new Date("2026-06-01T12:00:00.000Z")], // ~151 days out -> outside
+    ["p3", null], // no computable expiry
+  ]),
+};
+
 describe("person fields", () => {
   it("exposes all expected person field keys in order", () => {
     const keys = PERSON_FIELDS.map((f) => f.key);
@@ -34,7 +45,7 @@ describe("person fields", () => {
       "completedVolunteerTraining", "flaggedForOffboarding", "isCleared", "learningComplete",
       "hipaaCompletedAt", "hipaaVerifiedAt", "ehsCompletedAt", "trainingCompletedAt", "joinedAt",
       "shiftCountThisTerm", "attendanceCountThisTerm", "noShowCountThisTerm", "upcomingShiftCount",
-      "speaksLanguage", "claimsLanguage", "hasServiceCredential",
+      "speaksLanguage", "claimsLanguage", "hasServiceCredential", "hipaaExpiresAt",
     ]);
   });
 
@@ -89,6 +100,33 @@ describe("person fields", () => {
     expect(() =>
       personFieldWhere({ field: "complianceStatus", op: "in", value: ["COMPLIANT"] }, ctx),
     ).toThrow(/status map/i);
+  });
+
+  it("hipaaExpiresAt -> withinNextDays matches ids whose precomputed expiry falls inside the window", () => {
+    expect(
+      personFieldWhere({ field: "hipaaExpiresAt", op: "withinNextDays", value: "30" }, hipaaExpiryCtx),
+    ).toEqual({ id: { in: ["p1"] } });
+  });
+
+  it("hipaaExpiresAt -> a person with no computable expiry never matches a comparison operator", () => {
+    const where = personFieldWhere(
+      { field: "hipaaExpiresAt", op: "onOrAfter", value: "2020-01-01" },
+      hipaaExpiryCtx,
+    );
+    const ids = (where as { id: { in: string[] } }).id.in;
+    expect(ids).not.toContain("p3");
+  });
+
+  it("hipaaExpiresAt -> isEmpty matches only people with no computable expiry", () => {
+    expect(personFieldWhere({ field: "hipaaExpiresAt", op: "isEmpty" }, hipaaExpiryCtx)).toEqual({
+      id: { in: ["p3"] },
+    });
+  });
+
+  it("hipaaExpiresAt -> throws when the expiry map was not precomputed", () => {
+    expect(() =>
+      personFieldWhere({ field: "hipaaExpiresAt", op: "withinNextDays", value: "30" }, ctx),
+    ).toThrow(/expiry map/i);
   });
 
   it("hasEpicId true/false", () => {

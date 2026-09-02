@@ -1,6 +1,6 @@
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
-import { loadComplianceStatusMap } from "@/platform/compliance/status";
+import { loadComplianceStatusMap, loadHipaaExpiryMap } from "@/platform/compliance/status";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { Audience, AudienceCondition, AudienceNode } from "./types";
@@ -183,6 +183,18 @@ export async function resolveAudience(
     ? await loadComplianceStatusMap(activeTerm?.endDate ?? null)
     : undefined;
 
+  // Certificate expiry is likewise derived (completion date + validity period,
+  // via the SAME effective-certificate selection complianceStatus uses -- see
+  // loadHipaaExpiryMap), so it takes the identical precompute-only-when-named
+  // route. Unlike complianceStatusByPerson above, `now` IS threaded through:
+  // hipaaExpiresAt is compared with withinNextDays/withinLastDays, which must
+  // re-evaluate against the run's own clock for a recurring campaign to mean
+  // something different on each send (see AudienceCtx.now's doc comment).
+  const needsHipaaExpiry = conditions.some((c) => c.field === "hipaaExpiresAt");
+  const hipaaExpiresAtByPerson = needsHipaaExpiry
+    ? await loadHipaaExpiryMap(activeTerm?.endDate ?? null, now)
+    : undefined;
+
   // Clearance (full onboarding status) is likewise derived. Precompute it per
   // active-term member when an isCleared/learningComplete condition is present.
   // With no active term nobody is cleared, so an empty map matches nobody rather
@@ -250,6 +262,7 @@ export async function resolveAudience(
     now,
     zone,
     complianceStatusByPerson,
+    hipaaExpiresAtByPerson,
     clearanceByPerson,
     appliedByCycle: applicantFacts?.appliedByCycle,
     acceptedByCycle: applicantFacts?.acceptedByCycle,

@@ -279,6 +279,81 @@ function startOfNextDay(day: string, zone: string): Date | null {
 }
 
 /**
+ * The boundary a date condition resolves to, independent of WHERE the value
+ * being compared lives (a Prisma column, or a plain in-memory Date for a
+ * derived field with no column at all -- see `mappedDateWhere`).
+ *
+ * Extracted out of `dateWhere` so the boundary math -- zoned midnights, the
+ * next-day shift for the inclusive operators, the `now`-anchored windows --
+ * is computed in exactly one place. A derived date field (certificate expiry;
+ * see person-fields.ts's `hipaaExpiresAt`) needs the identical resolution a
+ * real column gets, or the same condition would silently mean two different
+ * date ranges depending on which kind of field it was attached to.
+ */
+type DateBoundary =
+  | { kind: "isEmpty" }
+  | { kind: "isNotEmpty" }
+  | { kind: "range"; gte?: Date; lt?: Date; lte?: Date }
+  | { kind: "nobody" };
+
+function dateBoundaryFor(cond: AudienceCondition, ctx: { now: Date; zone: string }): DateBoundary {
+  const single = typeof cond.value === "string" ? cond.value : "";
+
+  switch (cond.op) {
+    case "isEmpty":
+      return { kind: "isEmpty" };
+    case "isNotEmpty":
+      return { kind: "isNotEmpty" };
+
+    case "before": {
+      const b = startOfDay(single, ctx.zone);
+      if (!b) return { kind: "nobody" };
+      return { kind: "range", lt: b };
+    }
+    case "onOrAfter": {
+      const b = startOfDay(single, ctx.zone);
+      if (!b) return { kind: "nobody" };
+      return { kind: "range", gte: b };
+    }
+    case "after": {
+      const b = startOfNextDay(single, ctx.zone);
+      if (!b) return { kind: "nobody" };
+      return { kind: "range", gte: b };
+    }
+    case "onOrBefore": {
+      const b = startOfNextDay(single, ctx.zone);
+      if (!b) return { kind: "nobody" };
+      return { kind: "range", lt: b };
+    }
+
+    case "between": {
+      const pair = asArray(cond.value);
+      if (pair.length !== 2) return { kind: "nobody" };
+      const gte = startOfDay(pair[0], ctx.zone);
+      const lt = startOfNextDay(pair[1], ctx.zone);
+      if (!gte || !lt) return { kind: "nobody" };
+      return { kind: "range", gte, lt };
+    }
+
+    case "withinNextDays": {
+      if (!WINDOW_RE.test(single.trim())) return { kind: "nobody" };
+      const lt = startOfDayOffsetFromNow(ctx.now, Number(single) + 1, ctx.zone);
+      if (!lt) return { kind: "nobody" };
+      return { kind: "range", gte: ctx.now, lt };
+    }
+    case "withinLastDays": {
+      if (!WINDOW_RE.test(single.trim())) return { kind: "nobody" };
+      const gte = startOfDayOffsetFromNow(ctx.now, -Number(single), ctx.zone);
+      if (!gte) return { kind: "nobody" };
+      return { kind: "range", gte, lte: ctx.now };
+    }
+
+    default:
+      throw new Error(`Unsupported date operator: ${cond.op}`);
+  }
+}
+
+/**
  * A DateTime column compared by CALENDAR DAY in the clinic's display zone.
  *
  * Every absolute operator resolves its boundary to a real local midnight, so
@@ -297,60 +372,67 @@ export function dateWhere(
   cond: AudienceCondition,
   ctx: { now: Date; zone: string },
 ): Prisma.PersonWhereInput {
-  const single = typeof cond.value === "string" ? cond.value : "";
-
-  switch (cond.op) {
+  const boundary = dateBoundaryFor(cond, ctx);
+  switch (boundary.kind) {
     case "isEmpty":
       return { [column]: null } as Prisma.PersonWhereInput;
     case "isNotEmpty":
       return { [column]: { not: null } } as Prisma.PersonWhereInput;
-
-    case "before": {
-      const b = startOfDay(single, ctx.zone);
-      if (!b) return MATCH_NOBODY;
-      return { [column]: { lt: b } } as Prisma.PersonWhereInput;
+    case "nobody":
+      return MATCH_NOBODY;
+    case "range": {
+      const range: Record<string, Date> = {};
+      if (boundary.gte !== undefined) range.gte = boundary.gte;
+      if (boundary.lt !== undefined) range.lt = boundary.lt;
+      if (boundary.lte !== undefined) range.lte = boundary.lte;
+      return { [column]: range } as Prisma.PersonWhereInput;
     }
-    case "onOrAfter": {
-      const b = startOfDay(single, ctx.zone);
-      if (!b) return MATCH_NOBODY;
-      return { [column]: { gte: b } } as Prisma.PersonWhereInput;
-    }
-    case "after": {
-      const b = startOfNextDay(single, ctx.zone);
-      if (!b) return MATCH_NOBODY;
-      return { [column]: { gte: b } } as Prisma.PersonWhereInput;
-    }
-    case "onOrBefore": {
-      const b = startOfNextDay(single, ctx.zone);
-      if (!b) return MATCH_NOBODY;
-      return { [column]: { lt: b } } as Prisma.PersonWhereInput;
-    }
-
-    case "between": {
-      const pair = asArray(cond.value);
-      if (pair.length !== 2) return MATCH_NOBODY;
-      const gte = startOfDay(pair[0], ctx.zone);
-      const lt = startOfNextDay(pair[1], ctx.zone);
-      if (!gte || !lt) return MATCH_NOBODY;
-      return { [column]: { gte, lt } } as Prisma.PersonWhereInput;
-    }
-
-    case "withinNextDays": {
-      if (!WINDOW_RE.test(single.trim())) return MATCH_NOBODY;
-      const lt = startOfDayOffsetFromNow(ctx.now, Number(single) + 1, ctx.zone);
-      if (!lt) return MATCH_NOBODY;
-      return { [column]: { gte: ctx.now, lt } } as Prisma.PersonWhereInput;
-    }
-    case "withinLastDays": {
-      if (!WINDOW_RE.test(single.trim())) return MATCH_NOBODY;
-      const gte = startOfDayOffsetFromNow(ctx.now, -Number(single), ctx.zone);
-      if (!gte) return MATCH_NOBODY;
-      return { [column]: { gte, lte: ctx.now } } as Prisma.PersonWhereInput;
-    }
-
-    default:
-      throw new Error(`Unsupported date operator: ${cond.op}`);
   }
+}
+
+/**
+ * A date comparison resolved against a precomputed per-person map, for a
+ * DERIVED date that cannot live as a Prisma column at all (e.g. certificate
+ * expiry, which is completion date plus a validity period computed in
+ * application code -- see `loadHipaaExpiryMap`). Shares `dateBoundaryFor` with
+ * `dateWhere`, so the same condition -- same operator, same value, same `now`
+ * -- resolves to the identical boundary whether the field is a real column or
+ * a derived one; only the evaluation target (an in-memory Date vs. a SQL
+ * column) differs.
+ *
+ * The map MUST contain an entry (a Date, or null for "not computable") for
+ * every candidate Person, the same requirement `countWhere`'s map carries: an
+ * absent entry would make `isEmpty` silently under- or over-match instead of
+ * reflecting "no date for this person" for everyone the audience should see.
+ */
+export function mappedDateWhere(
+  values: Map<string, Date | null>,
+  cond: AudienceCondition,
+  ctx: { now: Date; zone: string },
+): Prisma.PersonWhereInput {
+  const boundary = dateBoundaryFor(cond, ctx);
+  if (boundary.kind === "nobody") return MATCH_NOBODY;
+
+  const matched: string[] = [];
+  for (const [personId, value] of values) {
+    if (dateValueMatchesBoundary(value, boundary)) matched.push(personId);
+  }
+  if (matched.length === 0) return MATCH_NOBODY;
+  return { id: { in: matched } };
+}
+
+function dateValueMatchesBoundary(value: Date | null, boundary: DateBoundary): boolean {
+  if (boundary.kind === "isEmpty") return value === null;
+  if (boundary.kind === "isNotEmpty") return value !== null;
+  if (boundary.kind === "nobody") return false;
+  // A null (not computable) date satisfies no ordered comparison -- the same
+  // reading SQL gives a NULL column against gte/lt/lte.
+  if (value === null) return false;
+  const t = value.getTime();
+  if (boundary.gte !== undefined && t < boundary.gte.getTime()) return false;
+  if (boundary.lt !== undefined && t >= boundary.lt.getTime()) return false;
+  if (boundary.lte !== undefined && t > boundary.lte.getTime()) return false;
+  return true;
 }
 
 /** A whole, non-negative count. Nothing else is a valid comparison target. */

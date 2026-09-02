@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { loadComplianceStatusMap } from "./status";
+import { loadComplianceStatusMap, loadHipaaExpiryMap } from "./status";
+import { certExpiresAt } from "./rules";
 
 beforeEach(resetDb);
 
@@ -90,5 +91,67 @@ describe("loadComplianceStatusMap", () => {
 
     const map = await loadComplianceStatusMap(termEnd, NOW);
     expect(map.get(p.id)).toBe("COMPLIANT");
+  });
+});
+
+describe("loadHipaaExpiryMap", () => {
+  it("computes completion date + CERT_VALIDITY_DAYS, covering every person", async () => {
+    const termEnd = new Date(NOW.getTime() + 10 * DAY);
+    const completionDate = new Date(NOW.getTime() - 200 * DAY);
+
+    const withCert = await person("Has Cert");
+    await cert(withCert.id, completionDate, NOW);
+
+    const noCert = await person("No Cert");
+
+    const map = await loadHipaaExpiryMap(termEnd, NOW);
+
+    expect(map.get(withCert.id)).toEqual(certExpiresAt(completionDate));
+    // No certificate at all -> no computable expiry.
+    expect(map.get(noCert.id)).toBeNull();
+    expect(map.size).toBe(2);
+  });
+
+  it("resolves an unverified cert's completion date too -- expiry is about the DATE, not verification", async () => {
+    const termEnd = new Date(NOW.getTime() + 10 * DAY);
+    const completionDate = new Date(NOW.getTime() - 200 * DAY);
+    const p = await person("Unverified");
+    await cert(p.id, completionDate, NOW, null);
+
+    const map = await loadHipaaExpiryMap(termEnd, NOW);
+    expect(map.get(p.id)).toEqual(certExpiresAt(completionDate));
+  });
+
+  it("a cert with no parsed completion date has no computable expiry", async () => {
+    const termEnd = new Date(NOW.getTime() + 10 * DAY);
+    const p = await person("Undated");
+    await cert(p.id, null, NOW, null);
+
+    const map = await loadHipaaExpiryMap(termEnd, NOW);
+    expect(map.get(p.id)).toBeNull();
+  });
+
+  // The trap this whole field exists to avoid: mid-renewal, the newest upload
+  // is an unverified early renewal, so effectiveComplianceStatus falls back to
+  // the older still-valid VERIFIED cert. The expiry map must select the SAME
+  // certificate, or a "certificates expiring soon" campaign would target a
+  // different person than the compliance page shows as expiring soon for the
+  // exact same underlying data.
+  it("applies the same verified-fallback effectiveComplianceStatus does: expiry comes from the older still-valid VERIFIED cert, not the newest unverified upload", async () => {
+    const termEnd = new Date(NOW.getTime() + 10 * DAY);
+    const p = await person("Renewing");
+    const olderCompletionDate = new Date(NOW.getTime() - 200 * DAY); // still valid (COMPLIANT)
+    await cert(p.id, olderCompletionDate, new Date(NOW.getTime() - 50 * DAY));
+    // Newest cert (by uploadedAt) is an unverified early renewal.
+    const newerCompletionDate = new Date(NOW.getTime() - 5 * DAY);
+    await cert(p.id, newerCompletionDate, new Date(NOW.getTime() - 1 * DAY), null);
+
+    const statusMap = await loadComplianceStatusMap(termEnd, NOW);
+    expect(statusMap.get(p.id)).toBe("COMPLIANT"); // sanity: confirms the fallback fired
+
+    const expiryMap = await loadHipaaExpiryMap(termEnd, NOW);
+    // Must match the OLDER verified cert's expiry, not the newer unverified one.
+    expect(expiryMap.get(p.id)).toEqual(certExpiresAt(olderCompletionDate));
+    expect(expiryMap.get(p.id)).not.toEqual(certExpiresAt(newerCompletionDate));
   });
 });

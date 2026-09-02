@@ -24,6 +24,7 @@ import {
   countWhere,
   dateWhere,
   enumWhere,
+  mappedDateWhere,
   stringSetFilter,
   textWhere,
   yearWhere,
@@ -59,6 +60,15 @@ export type AudienceCtx = {
    * and injects it here. See loadComplianceStatusMap.
    */
   complianceStatusByPerson?: Map<string, ComplianceStatus>;
+  /**
+   * Live HIPAA certificate expiry date for every Person, keyed by id (`null`
+   * when there is no computable expiry). Required only when a `hipaaExpiresAt`
+   * condition is present. Expiry is DERIVED (completion date plus the
+   * certificate's validity period) and depends on the SAME effective-certificate
+   * selection `complianceStatus` uses, never a stored column, so it rides the
+   * identical precompute-and-inject seam. See loadHipaaExpiryMap.
+   */
+  hipaaExpiresAtByPerson?: Map<string, Date | null>;
   /**
    * Full clearance per active-term member, keyed by id. Required only when a
    * clearance-derived condition (isCleared, learningComplete) is present:
@@ -822,6 +832,40 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
     compile: (cond) => ({
       serviceCredential: cond.op === "isTrue" ? { isNot: null } : { is: null },
     }),
+  },
+  {
+    key: "hipaaExpiresAt",
+    label: "HIPAA certificate expires",
+    group: "Compliance",
+    kind: "date",
+    // Full DATE_OPERATORS, including isEmpty/isNotEmpty: "no computable expiry"
+    // (no certificate at all, or the effective certificate has no parsed
+    // completionDate) is a real, meaningful state for this field, the same way
+    // a null relation date is for hipaaCompletedAt.
+    operators: DATE_OPERATORS,
+    // Expiry is DERIVED (completionDate + CERT_VALIDITY_DAYS -- see
+    // compliance/rules.ts's certExpiresAt), not a stored column, so it cannot be
+    // a relationDateField over hipaaCertificates the way hipaaCompletedAt is.
+    // It also cannot be expressed as completionDate shifted by the validity
+    // window in the OPERATOR layer: the certificate that determines expiry is
+    // not always the newest one (see effectiveCompliance's verified-fallback --
+    // an unverified early renewal defers to an older still-valid VERIFIED
+    // cert), and relationDateField's `some` has no way to pick that SAME row.
+    // So this rides the same precompute-and-inject seam complianceStatus does:
+    // resolveAudience precomputes ctx.hipaaExpiresAtByPerson via
+    // loadHipaaExpiryMap (which reuses effectiveCompliance directly), and this
+    // field resolves the condition against that map with mappedDateWhere --
+    // the same date-boundary logic dateWhere uses for a real column, just
+    // evaluated against an in-memory Date instead of a SQL predicate. See
+    // loadHipaaExpiryMap's doc comment for the full reasoning.
+    compile: (cond, ctx) => {
+      if (!ctx.hipaaExpiresAtByPerson) {
+        throw new Error(
+          "hipaaExpiresAt audience requires a precomputed expiry map; resolveAudience must supply ctx.hipaaExpiresAtByPerson",
+        );
+      }
+      return mappedDateWhere(ctx.hipaaExpiresAtByPerson, cond, ctx);
+    },
   },
 ];
 

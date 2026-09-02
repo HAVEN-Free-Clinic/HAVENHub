@@ -44,8 +44,8 @@ const INLINE_DIRECTIVE = /^[ \t]+"use server";[ \t]*$/gm;
  */
 const EXEMPT: Record<string, { count: number; reason: string }> = {
   "src/app/login/page.tsx": {
-    count: 2,
-    reason: "SSO and dev-credentials sign-in: the caller has no session yet",
+    count: 1,
+    reason: "dev-credentials sign-in: the caller has no session yet",
   },
   "src/app/login/verify/page.tsx": {
     count: 1,

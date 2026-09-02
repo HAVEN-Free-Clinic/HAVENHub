@@ -25,8 +25,14 @@
  * MailerooTransport, SigningDomainRouter, the admin sender test and the queue
  * all read this map and none of them names a domain. Re-enabling is a Yale ITS
  * DNS change plus a Maileroo dashboard action rather than a code change, so the
- * same flip is available WITHOUT a deploy through the SENDING_DOMAINS env
+ * same flip is available WITHOUT A CODE EDIT through the SENDING_DOMAINS env
  * override (declared and format-checked in platform/config.ts).
+ *
+ * "Without a code edit" is the accurate claim, and it is narrower than it may
+ * read. It is NOT "without a deploy": a Vercel environment change only reaches
+ * running functions on a redeploy, and the map below is resolved once at module
+ * load, so a fresh process is needed either way. What the override buys is that
+ * the change is an operator action rather than a pull request.
  */
 import { config } from "@/platform/config";
 
@@ -71,7 +77,17 @@ export function parseSendingDomains(spec: string | undefined): Map<string, Signi
   }
   for (const entry of source.split(",")) {
     const match = ENTRY_RE.exec(entry.trim());
+    // Skips both a malformed pair and an EMPTY segment, the latter being a
+    // trailing comma or a stray double comma. config.ts's boot check has to skip
+    // an empty segment explicitly, because it has no regex to fall through to.
+    // The two halves must agree here or the strict one refuses to boot on input
+    // this one reads correctly, which is what a trailing comma on the emergency
+    // SENDING_DOMAINS lever used to do to the whole app.
     if (!match) continue;
+    // A domain listed twice takes its LAST verdict, the ordinary convention for a
+    // key/value list. Documented rather than rejected: it is the one ambiguous
+    // input neither this parser nor config.ts's boot check flags, so a reader
+    // should not have to infer which end wins.
     map.set(match[1].toLowerCase(), match[2] as SigningTransport);
   }
   return map;

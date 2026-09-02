@@ -64,6 +64,31 @@ describe("parseSendingDomains", () => {
     expect(map.get("yale.edu")).toBe("graph");
   });
 
+  it("reads a trailing comma and blank segments as the operator meant them", () => {
+    // Pinned on BOTH halves: config.ts's boot check must accept exactly what this
+    // accepts. It used to reject a trailing comma, which turned a typo on the
+    // emergency lever into an app-wide cold-start failure.
+    expect(parseSendingDomains("yale.edu:graph,")).toEqual(
+      new Map([["yale.edu", "graph"]])
+    );
+    expect(parseSendingDomains("havenfreeclinic.org:maileroo, ,yale.edu:graph")).toEqual(
+      new Map([
+        ["havenfreeclinic.org", "maileroo"],
+        ["yale.edu", "graph"],
+      ])
+    );
+  });
+
+  it("takes the LAST verdict when a domain is listed twice", () => {
+    // Last-wins, documented rather than rejected: it is the ordinary convention
+    // for a key/value list, and it is the one ambiguous input neither this parser
+    // nor config.ts's boot check flags.
+    expect(parseSendingDomains("yale.edu:graph,yale.edu:maileroo").get("yale.edu")).toBe(
+      "maileroo"
+    );
+    expect(parseSendingDomains("yale.edu:maileroo,yale.edu:graph").get("yale.edu")).toBe("graph");
+  });
+
   it("drops a malformed entry without taking the rest of the override with it", () => {
     // config.ts refuses to boot on a malformed override, so this is the
     // belt-and-braces half: one bad pair must not empty the allowlist and send

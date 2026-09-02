@@ -402,7 +402,9 @@ describe("drainEmailQueue on a Maileroo domain rejection", () => {
     // attempts incremented is precisely how the queue spells "permanent".
     expect(row.attempts).toBe(1);
     // And the fix reaches the operator, on the admin Failed card and in the logs.
-    expect(row.lastError).toMatch(/DISABLED in the Maileroo dashboard/);
+    // Asserted on the first 60 characters, because that is all the admin Failed
+    // card renders and log.error does not fire until attempt 8.
+    expect(row.lastError?.slice(0, 60)).toContain("Re-enable 'yale.edu' in the Maileroo dashboard");
   });
 
   // The control that keeps the assertion above from being vacuous: the queue CAN

@@ -40,6 +40,29 @@ describe("loadConfig - SENDING_DOMAINS", () => {
     expect(loadConfig({ ...base, SENDING_DOMAINS: value }).SENDING_DOMAINS).toBe(value);
   });
 
+  // The one input this MUST NOT reject. `export const config = loadConfig()` runs
+  // at import and dozens of modules import it, so a refusal here is an app-wide
+  // cold-start failure, not an email-only one. And it would land on exactly the
+  // operator action this feature ships for: the emergency
+  // SENDING_DOMAINS=havenfreeclinic.org:maileroo lever, typed under pressure with
+  // a trailing comma. parseSendingDomains already reads that correctly, so the
+  // strict half rejecting what the lenient half handles is a pure false positive.
+  it("tolerates a trailing comma and blank segments, matching parseSendingDomains", () => {
+    expect(() => loadConfig({ ...base, SENDING_DOMAINS: "yale.edu:graph," })).not.toThrow();
+    expect(() =>
+      loadConfig({ ...base, SENDING_DOMAINS: "havenfreeclinic.org:maileroo, ,yale.edu:graph" })
+    ).not.toThrow();
+    expect(
+      loadConfig({ ...base, SENDING_DOMAINS: "yale.edu:graph," }).SENDING_DOMAINS
+    ).toBe("yale.edu:graph,");
+  });
+
+  it("treats a whitespace-only value as not configured too", () => {
+    // Same class as the empty string, and the parser already reads it as
+    // "not configured". Rejecting it would be the same app-wide outage.
+    expect(loadConfig({ ...base, SENDING_DOMAINS: "   " }).SENDING_DOMAINS).toBeUndefined();
+  });
+
   it("refuses to boot on a malformed entry rather than silently narrowing the allowlist", () => {
     // parseSendingDomains skips an entry it cannot read, so a typo like
     // "yale.edu:grap" would otherwise drop yale.edu off the allowlist and route

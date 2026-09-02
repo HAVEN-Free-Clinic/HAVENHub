@@ -59,9 +59,14 @@ const schema = z
     // each. This override exists because the thing that changes is a MAILEROO
     // DASHBOARD state, not code: re-enabling yale.edu there should be reflectable
     // without waiting on a code edit. An override REPLACES the default table.
-    // Empty means "not configured" (see parseSendingDomains) -- an unset Vercel
-    // variable and vitest.setup.ts's env claim both arrive as "".
-    SENDING_DOMAINS: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+    // Empty or whitespace-only means "not configured" (see parseSendingDomains)
+    // -- an unset Vercel variable and vitest.setup.ts's env claim both arrive
+    // as "". A domain listed twice takes its LAST verdict, which neither this
+    // check nor the parser flags.
+    SENDING_DOMAINS: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().optional()
+    ),
     GRAPH_OAUTH_TENANT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_ID: z.string().optional(),
     GRAPH_OAUTH_CLIENT_SECRET: z.string().optional(),
@@ -395,6 +400,13 @@ const schema = z
     // module reads this config and importing it back would be circular.
     if (!env.SENDING_DOMAINS) return;
     for (const entry of env.SENDING_DOMAINS.split(",")) {
+      // An empty segment is a trailing comma or a stray double comma, not a
+      // malformed pair. parseSendingDomains already reads "yale.edu:graph,"
+      // correctly, and this config is loaded at import by most of the app, so
+      // refusing it here would turn a typo on the emergency SENDING_DOMAINS lever
+      // into an app-wide cold-start failure. There is nothing to protect against:
+      // an empty segment narrows nothing.
+      if (entry.trim() === "") continue;
       if (/^[^\s@:,]+:(maileroo|graph)$/.test(entry.trim())) continue;
       ctx.addIssue({
         code: "custom",

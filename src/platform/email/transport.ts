@@ -1,7 +1,8 @@
 import { getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
-import { signingTransportFor, type SigningTransport } from "./sending-domains";
+import { domainOf, signingTransportFor, type SigningTransport } from "./sending-domains";
 import { config } from "@/platform/config";
+import { prisma } from "@/platform/db";
 import { getSettingUncached } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
 
@@ -61,6 +62,46 @@ export function isTransientSendCause(err: unknown): boolean {
 /** Cap a single Graph request so a hung/black-holing endpoint can't consume the
  *  whole function budget (default 300s) and starve the rest of the drain. */
 const GRAPH_REQUEST_TIMEOUT_MS = 8000;
+
+/**
+ * Restate a Graph Send-As refusal as something an operator can act on, or return
+ * null for any other failure.
+ *
+ * This is the accepted cost of routing every yale.edu identity through Graph: an
+ * address the connected mailbox holds no Send-As grant on is refused, and the
+ * decision to accept that was made knowing so. Legibility was the mitigation.
+ * Raw, Graph says only:
+ *
+ *   Graph sendMail failed: 403 {"error":{"code":"ErrorAccessDenied","message":
+ *   "Access is denied. Check credentials and try again."}}
+ *
+ * which names neither the address it tried to send as, nor Send-As, nor any
+ * remedy -- and "check credentials" actively points at the wrong thing, because
+ * the credentials are fine and the grant is what is missing.
+ *
+ * ACTION FIRST, for the same reason as describeMailerooDomainRejection: the admin
+ * Failed card truncates EmailLog.lastError to 60 characters, and log.error does
+ * not fire until all 8 attempts are spent. The Graph error code is kept, demoted
+ * behind the remedy.
+ *
+ * Narrow on purpose. Only a 403 whose body names an access/Send-As denial is
+ * restated; every other 403 (a quota, a blocked mailbox) keeps the raw text
+ * rather than being given a confident wrong diagnosis.
+ */
+function describeGraphSendAsRejection(
+  status: number,
+  sender: string,
+  text: string
+): string | null {
+  if (status !== 403) return null;
+  if (!/ErrorAccessDenied|ErrorSendAsDenied|Access is denied/i.test(text)) return null;
+  return (
+    `Grant Send-As on ${sender} to the connected mailbox, or send as the mailbox itself. ` +
+    `Graph refused the send: the delegated token is valid, the Send-As right on that address ` +
+    `is what is missing. Permanent: retrying cannot grant a mailbox permission. ` +
+    `Graph said: 403 ${text}`
+  );
+}
 
 // ---------------------------------------------------------------------------
 // LogTransport
@@ -198,7 +239,10 @@ export class GraphTransport implements EmailTransport {
           `Graph sendMail transient failure: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
         );
       }
-      throw new Error(`Graph sendMail failed: ${res.status} ${text}`);
+      // A Send-As refusal is the one 4xx with a specific, actionable cause, and
+      // it is the failure mode routing every yale.edu identity here creates.
+      const sendAs = describeGraphSendAsRejection(res.status, sender, text);
+      throw new Error(sendAs ?? `Graph sendMail failed: ${res.status} ${text}`);
     }
   }
 }
@@ -209,6 +253,25 @@ export class GraphTransport implements EmailTransport {
 
 /** POST target for a single transactional send (Maileroo API v2). */
 const MAILEROO_SEND_URL = "https://smtp.maileroo.com/api/v2/emails";
+
+/**
+ * A domain in a Maileroo error, however that release happens to quote it: single,
+ * double, backtick, or bare. The wording is not a contract, so neither is the
+ * punctuation.
+ */
+const REJECTED_DOMAIN = "['\"`]?([^'\"`\\s]+)['\"`]?";
+
+/** "The domain 'x' is currently disabled", and the phrasings next to it. */
+const MAILEROO_DISABLED_RE = new RegExp(
+  `domain\\s+${REJECTED_DOMAIN}\\s+(?:is|has been)\\s+(?:currently\\s+|now\\s+)?disabled`,
+  "i"
+);
+
+/** "The domain 'x' is not associated with this sending key", and its neighbours. */
+const MAILEROO_WRONG_KEY_RE = new RegExp(
+  `domain\\s+${REJECTED_DOMAIN}\\s+is\\s+not\\s+(?:associated|linked)\\s+(?:with|to)\\s+this\\s+sending\\s+key`,
+  "i"
+);
 
 /**
  * Recognise Maileroo's two DOMAIN-level rejections and restate them as something
@@ -227,6 +290,13 @@ const MAILEROO_SEND_URL = "https://smtp.maileroo.com/api/v2/emails";
  * Maileroo ever answers the same state with a 429 or a 5xx, and it puts the
  * actual fix into EmailLog.lastError instead of a raw API string.
  *
+ * That second claim is why the two regexes above are tolerant of phrasing. An
+ * exact-phrase match would have survived only the pairing "Maileroo changed the
+ * status code but kept the sentence byte-identical", which is the least likely
+ * one. They are still recognisers, not a parser: an unrecognised text falls
+ * through to the generic rules, which keep a 4xx permanent and would classify a
+ * 5xx transient.
+ *
  * The two are kept apart because they call for opposite fixes, and the error
  * text is the only thing that distinguishes them (probed live 2026-08-21; see
  * the maileroo-yale-domain-disabled note):
@@ -236,25 +306,28 @@ const MAILEROO_SEND_URL = "https://smtp.maileroo.com/api/v2/emails";
  *                                                    DIFFERENT domain
  * Maileroo sending keys are domain-scoped, which is why the second case exists
  * at all and why "check the dashboard" would be the wrong advice for it.
+ *
+ * ACTION FIRST, deliberately. The admin Failed card truncates EmailLog.lastError
+ * to 60 characters (admin/email/page.tsx) and log.error does not fire until all
+ * 8 attempts are spent, so those 60 characters are the whole diagnosis for a long
+ * time. A leading "Maileroo send failed: 400 " status line spent 26 of them
+ * saying nothing an operator can act on; the status now trails instead.
  */
 function describeMailerooDomainRejection(text: string): string | null {
-  const disabled = /domain\s+['"]([^'"]+)['"]\s+is currently disabled/i.exec(text);
+  const disabled = MAILEROO_DISABLED_RE.exec(text);
   if (disabled) {
     return (
-      `sending domain '${disabled[1]}' is DISABLED in the Maileroo dashboard, so no send from it ` +
-      `can be signed. Permanent: re-enable the domain in Maileroo (it needs its DNS records ` +
-      `published), or point that domain at another transport in SENDING_DOMAINS.`
+      `Re-enable '${disabled[1]}' in the Maileroo dashboard, or point it at another transport ` +
+      `in SENDING_DOMAINS. Maileroo has that sending domain but it is disabled there, so nothing ` +
+      `from it can be signed. Permanent: retrying cannot change a dashboard setting.`
     );
   }
-  const unassociated = /domain\s+['"]([^'"]+)['"]\s+is not associated with this sending key/i.exec(
-    text
-  );
-  if (unassociated) {
+  const wrongKey = MAILEROO_WRONG_KEY_RE.exec(text);
+  if (wrongKey) {
     return (
-      `sending domain '${unassociated[1]}' is not associated with this Maileroo sending key. ` +
-      `Sending keys are domain-scoped, so MAILEROO_API_KEY belongs to a different domain. ` +
-      `Permanent: configure the key for that domain, or point it at another transport in ` +
-      `SENDING_DOMAINS.`
+      `Use a MAILEROO_API_KEY scoped to '${wrongKey[1]}', or point it at another transport in ` +
+      `SENDING_DOMAINS. Maileroo sending keys are domain-scoped and this one belongs to a ` +
+      `different domain. Permanent: retrying cannot re-scope a key.`
     );
   }
   return null;
@@ -400,7 +473,7 @@ export class MailerooTransport implements EmailTransport {
       // describeMailerooDomainRejection for why both of these must stay permanent.
       const domainRejection = describeMailerooDomainRejection(text);
       if (domainRejection) {
-        throw new Error(`Maileroo send failed: ${res.status} ${domainRejection}`);
+        throw new Error(`${domainRejection} (Maileroo answered ${res.status})`);
       }
       // Mirrors the Graph classification: 429 (rate limited) and 5xx are upstream
       // blips, not bad recipients, so retry without burning the attempt budget.
@@ -430,8 +503,11 @@ export class MailerooTransport implements EmailTransport {
       // same domain-level recognition has to apply here or the diagnosis an
       // operator gets would depend on which shape the API chose.
       const message = body?.message ?? "no message";
+      const domainRejection = describeMailerooDomainRejection(message);
       throw new Error(
-        `Maileroo send rejected: ${describeMailerooDomainRejection(message) ?? message}`
+        domainRejection
+          ? `${domainRejection} (Maileroo rejected the send)`
+          : `Maileroo send rejected: ${message}`
       );
     }
   }
@@ -451,11 +527,18 @@ export class MailerooTransport implements EmailTransport {
  * Maileroo entry is re-enabled. Routing is the only place that difference is
  * acted on; every other layer just reads the map.
  *
- * The router routes and nothing else. It does not rewrite the message, and it
- * does not catch: the chosen transport still owns the From decision, and the
- * error it throws must reach drainEmailQueue with its type intact, because that
- * type is the queue's whole transient/permanent split.
+ * The router routes and nothing else. It does not rewrite the message, and the
+ * error the chosen transport throws must reach drainEmailQueue with its type
+ * intact, because that type is the queue's whole transient/permanent split.
  *
+ * It does add one fact to a PERMANENT failure, because it is the only layer that
+ * holds it: WHY this message was on that transport. Without it, a Graph failure
+ * inside a Maileroo deployment reads as a broken Graph mailbox rather than as a
+ * consequence of the From domain's allowlist row, which sends an operator to fix
+ * the wrong thing. The note is appended, never prepended, so the transport's own
+ * remedy still occupies the 60 characters the admin Failed card shows.
+ *
+
  * The throughput consequence is real and worth stating where the routing
  * happens: Graph sends as a Yale shared mailbox and inherits Exchange Online's
  * ~30 messages/minute submission cap, which is the reason MailerooTransport
@@ -482,8 +565,46 @@ export class SigningDomainRouter implements EmailTransport {
     // failing: the allowlist describes what the DOMAINS support, and a given
     // deployment may not have every transport configured.
     const chosen = (signer && this.signers[signer]) ?? this.fallback;
-    await chosen.send(message);
+    // Nothing was rerouted when the fallback handled it, including the common
+    // case where the maileroo signer IS the fallback, so there is nothing to
+    // explain and the error passes through untouched.
+    if (!signer || chosen === this.fallback) {
+      await chosen.send(message);
+      return;
+    }
+    try {
+      await chosen.send(message);
+    } catch (err) {
+      throw annotateRoutedFailure(err, message.from, signer);
+    }
   }
+}
+
+/**
+ * Append the routing decision to a permanent failure from a rerouted message.
+ *
+ * The message is MUTATED on the caught error rather than re-wrapped in a fresh
+ * one, deliberately: drainEmailQueue splits transient from permanent on
+ * `instanceof TransientEmailError`, and isTransientSendCause additionally reads
+ * `err.name` (MailNotConnectedError, TimeoutError, AbortError, TypeError). A new
+ * Error would silently re-classify the failure, which is a far worse bug than an
+ * unhelpful message.
+ *
+ * Transient failures are left alone. They are going to be retried, so routing
+ * advice on them is noise on a row that is not stuck.
+ */
+function annotateRoutedFailure(
+  err: unknown,
+  from: string | undefined,
+  signer: SigningTransport
+): unknown {
+  if (!(err instanceof Error) || err instanceof TransientEmailError) return err;
+  const domain = domainOf(from) ?? "its domain";
+  err.message =
+    `${err.message} [Routing: SENDING_DOMAINS lists ${domain} as ${signer}-signed, which is why ` +
+    `${from} was sent through ${signer} rather than the default transport. Take ${domain} off ` +
+    `SENDING_DOMAINS to send it through the default transport instead.]`;
+  return err;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +658,7 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // this routing exists to serve.
     return new SigningDomainRouter({
       fallback: maileroo,
-      signers: { maileroo, graph: new GraphTransport({ getAccessToken, sender }) },
+      signers: { maileroo, graph: await resolveGraphSigner(sender) },
     });
   }
   if (transport === "graph") {
@@ -580,6 +701,77 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     );
   }
   return new LogTransport();
+}
+
+/**
+ * Build the Graph signer for a Maileroo-primary deployment, refusing PER MESSAGE
+ * with a named reason when Graph cannot possibly sign.
+ *
+ * This exists because the maileroo branch above goes to real trouble to refuse a
+ * missing MAILEROO_API_KEY or email.sender, and then used to wire its Graph
+ * signer with no precondition check at all. The two failures that produced are
+ * both misdiagnoses, not merely terse ones:
+ *
+ *   - No connected mailbox. Entirely plausible on a deployment that chose
+ *     Maileroo precisely to avoid Graph. Every yale.edu-From row then failed with
+ *     "Mail account is not connected. An admin must connect the mailbox in Admin
+ *     > Email", which reads as a broken Graph connection rather than as a
+ *     consequence of the From domain's allowlist row. The blast radius includes
+ *     the `auth` sender category (SENDER_CATEGORIES in sender-rules.ts), so a
+ *     yale.edu auth sender rule on a Graph-unconnected deployment means people
+ *     cannot log in, diagnosed as a mailbox problem.
+ *   - Missing GRAPH_OAUTH_* credentials, which surfaced as an opaque Entra 400.
+ *
+ * The refusal is a per-message UnconfiguredTransport rather than a throw, for
+ * exactly the reason that class exists: a throw at resolution time escapes before
+ * a single row is claimed and takes the whole cron tick with it (audit 14,
+ * EMAIL-1). And it refuses ONLY the Graph-routed messages: a deployment with no
+ * Graph mailbox still sends all of its havenfreeclinic.org mail.
+ *
+ * Both messages lead with the SENDING_DOMAINS lever, because that is the fix an
+ * operator can apply immediately and it must survive the admin Failed card's
+ * 60-character truncation.
+ */
+async function resolveGraphSigner(sender: string): Promise<EmailTransport> {
+  const missing = [
+    !config.GRAPH_OAUTH_TENANT_ID && "GRAPH_OAUTH_TENANT_ID",
+    !config.GRAPH_OAUTH_CLIENT_ID && "GRAPH_OAUTH_CLIENT_ID",
+    !config.GRAPH_OAUTH_CLIENT_SECRET && "GRAPH_OAUTH_CLIENT_SECRET",
+  ].filter((name): name is string => Boolean(name));
+  if (missing.length > 0) {
+    return new UnconfiguredTransport(
+      `Take this domain off SENDING_DOMAINS, or set ${missing.join(" and ")}. ` +
+        `SENDING_DOMAINS routes this From to Graph, but Graph has no OAuth credentials ` +
+        `configured, so it can never sign for it.`
+    );
+  }
+  if (!(await graphMailboxConnected())) {
+    return new UnconfiguredTransport(
+      "Take this domain off SENDING_DOMAINS, or connect a mailbox in Admin > Email. " +
+        "SENDING_DOMAINS routes this From to Graph, and no Graph mailbox is connected on this " +
+        "deployment. This is a routing consequence, not a broken mailbox: nothing else needs " +
+        "Graph here, and mail on every other domain is unaffected."
+    );
+  }
+  return new GraphTransport({ getAccessToken, sender });
+}
+
+/** Whether an admin has connected a Graph mailbox (the singleton MailCredential). */
+async function graphMailboxConnected(): Promise<boolean> {
+  try {
+    const row = await prisma.mailCredential.findUnique({
+      where: { id: "mailer" },
+      select: { id: true },
+    });
+    return row !== null;
+  } catch {
+    // A brief database problem must NOT be read as "not connected": that would
+    // refuse every Graph-routed send for the whole tick on the strength of one
+    // failed read. Assume connected and let GraphTransport produce the real
+    // per-message error, which is the same direction the settings reads above
+    // degrade in.
+    return true;
+  }
 }
 
 /**

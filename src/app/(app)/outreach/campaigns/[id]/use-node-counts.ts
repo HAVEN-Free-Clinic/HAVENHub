@@ -85,9 +85,10 @@ export function useNodeCounts(
   }, [action]);
   const enabled = action !== undefined;
 
-  // Everything the effect keys on, as one string: a change here means a new
-  // request goes out.
-  const trigger = `${enabled ? "on" : "off"}|${key}`;
+  // Everything the effect keys on, as ONE value: the tree to count, or null
+  // when counting is off. It encodes both "should a request go out" and "for
+  // what", so there is no second encoding of the same inputs to drift from it.
+  const request = enabled ? key : null;
 
   /**
    * Two monotonic counters, advanced during render.
@@ -109,6 +110,17 @@ export function useNodeCounts(
    * for an unchanged tree. It also missed an exact revert after a failure.
    * Counting requests instead covers both, because a re-fire always advances.
    *
+   * `gen` advances on ANY change to `tracked`, not on a separately spelled-out
+   * condition, and `tracked` is the effect's only dependency. That is what
+   * makes "a request went out" and "gen advanced" one event instead of two
+   * conditions that have to be kept in agreement. The earlier version stated
+   * the effect's inputs twice, once as a `trigger` string and once as a dep
+   * array, with nothing tying them together: dropping an input from the string
+   * fired requests that never advanced `gen` (the cue read settled while a
+   * request was out), and adding one to the string that the effect did not key
+   * on pinned `gen` ahead forever and dimmed the tree permanently. Neither is
+   * expressible now, because there is only one list.
+   *
    * Advanced during render (React's documented adjust-state-during-render
    * pattern) rather than in an effect: the value has to be right in the SAME
    * render that changed the tree, or the drop below is a paint late. React
@@ -116,12 +128,11 @@ export function useNodeCounts(
    * committed, so nothing intermediate is ever shown. It converges after one
    * extra pass because the branch is false once `tracked` matches.
    */
-  const [tracked, setTracked] = useState({ structure, trigger, epoch: 0, gen: 0 });
+  const [tracked, setTracked] = useState({ structure, request, epoch: 0, gen: 0 });
+  const changed = tracked.structure !== structure || tracked.request !== request;
   const epoch = tracked.structure === structure ? tracked.epoch : tracked.epoch + 1;
-  const gen = tracked.trigger === trigger ? tracked.gen : tracked.gen + 1;
-  if (epoch !== tracked.epoch || gen !== tracked.gen) {
-    setTracked({ structure, trigger, epoch, gen });
-  }
+  const gen = changed ? tracked.gen + 1 : tracked.gen;
+  if (changed) setTracked({ structure, request, epoch, gen });
 
   // The last SUCCESSFUL answer, stamped with the shape epoch it was compiled
   // under.
@@ -134,32 +145,41 @@ export function useNodeCounts(
   // Monotonic request id. Only the newest request may write to state.
   const latestRequest = useRef(0);
 
+  // `tracked` is the SOLE dependency, which is what keeps this honest. `gen`
+  // advances on every change to `tracked` and `tracked` is the only thing this
+  // effect reads, so "a request went out" and "gen advanced" are the same event
+  // by construction rather than by two conditions agreeing. Reading any other
+  // reactive value here would force it into this array (exhaustive-deps sees to
+  // that), and the fix is to put it in `tracked`, not beside it: a dep that is
+  // not part of `tracked` fires a request without advancing `gen`, which is the
+  // desync that made the in-flight cue read "settled" while a request was out.
   useEffect(() => {
-    // No action means no counting at all: the scope editor, or the campaign
-    // editor on a tab other than Audience.
-    if (!enabled) return;
+    const { request: pending, epoch: requestEpoch, gen: requestGen } = tracked;
+    // Null means no counting at all: the scope editor, or the campaign editor
+    // on a tab other than Audience.
+    if (pending === null) return;
     const requestId = ++latestRequest.current;
     const timer = setTimeout(() => {
       const run = actionRef.current;
       if (!run) return;
-      run(JSON.parse(key) as Audience).then(
+      run(JSON.parse(pending) as Audience).then(
         (next) => {
           if (requestId !== latestRequest.current) return;
           // Stamped with the shape epoch this request was issued under, which
           // is what lets the derivation below decide whether it still
           // describes the clauses on screen.
-          setAnswer({ counts: next, epoch });
-          setSettledGen(gen);
+          setAnswer({ counts: next, epoch: requestEpoch });
+          setSettledGen(requestGen);
         },
         () => {
           // A failed count leaves the last good numbers in place rather than
           // wiping them, but must not leave the tree dimmed forever.
-          if (requestId === latestRequest.current) setSettledGen(gen);
+          if (requestId === latestRequest.current) setSettledGen(requestGen);
         },
       );
     }, NODE_COUNT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [key, enabled, epoch, gen]);
+  }, [tracked]);
 
   // Both derived during render rather than pushed from the effect. Nothing is
   // set synchronously inside the effect at all, which is what keeps both
@@ -171,10 +191,17 @@ export function useNodeCounts(
   // still the current one. Because `epoch` only ever advances, that is a
   // strictly one-way test, so a structurally superseded answer is never
   // displayed again no matter what the tree is edited back into. And because
-  // it is derived, the render that supersedes it is the render that drops it:
-  // there is no frame in which a number paints beside a clause it was not
-  // compiled for, and in particular none in which a NONE label paints beside
-  // an intersection-compiled number.
+  // it is derived, the render that supersedes it is the render that drops it,
+  // with no intervening frame.
+  //
+  // The reach of that guarantee is exactly the reach of audienceStructureKey,
+  // and no wider: it covers every edit that key distinguishes, which is every
+  // change in nesting and every group connective, so in particular a NONE
+  // label can never paint beside an intersection-compiled number. It does NOT
+  // cover a sibling REORDER, which the key is deliberately blind to and which
+  // no control ships today. See audienceStructureKey in node-paths.ts, which
+  // owns that caveat and says what must change before any drag-to-reorder
+  // feature is added.
   //
   // stale: true exactly while the newest request has not reached a definitive
   // end, success or failure. Counting requests rather than comparing trees is

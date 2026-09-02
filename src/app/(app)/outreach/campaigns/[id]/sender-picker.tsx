@@ -28,11 +28,19 @@ const SOURCE_LABEL: Record<SenderOption["source"], string> = {
  * against (see senderIdentitiesForCampaign), so the menu and the check cannot
  * drift apart.
  *
- * The list can legitimately be EMPTY, and that is not a bug to design around: a
- * sender with nothing issued to them, whose campaign's scope carries no
- * identity, has no claim of their own to fall back on. Their own profile address
- * is deliberately not one (see sender-identity.ts). They get the default option
- * only, which is the clinic's configured sender.
+ * The list is EMPTY for every delegated sender with nothing issued to them whose
+ * campaign's scope carries no identity, and that is the ordinary case rather
+ * than an edge one: their own profile address is deliberately not a claim (see
+ * sender-identity.ts). They get the default row only, so this is the single
+ * surface on which a sender meets that state, and it has to say what to do about
+ * it rather than showing one inert entry with no explanation.
+ *
+ * What the default row must NOT claim is that the global email.sender setting is
+ * what goes out. With no identity the enqueue falls to
+ * resolveSenderForTemplate("campaign"), where a TEMPLATE or CATEGORY rule for the
+ * campaign group wins BEFORE that setting (see sender-rules.ts), and such a rule
+ * is exactly what the admin email screen exists to create. So the row names the
+ * behaviour, not a specific address it cannot know.
  *
  * A stored choice that is no longer in the list is still shown, with the reason:
  * an issued address revoked after the campaign was composed would otherwise
@@ -62,7 +70,7 @@ export function SenderPicker({
             <option value="">
               {fallback
                 ? `Default (${fallback.address}, ${SOURCE_LABEL[fallback.source]})`
-                : "Default (the clinic's configured sender)"}
+                : "Default (the clinic's configured campaign sender)"}
             </option>
             {options.map((o) => (
               <option key={o.address} value={o.address}>
@@ -72,6 +80,14 @@ export function SenderPicker({
           </Select>
         </Field>
       </div>
+
+      {options.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          You have no sending identities, so this campaign goes out from whichever address the
+          clinic has configured for campaigns. To send as a specific address, ask an admin to set
+          one on this campaign&apos;s audience scope, or to issue one to you.
+        </p>
+      )}
 
       {stale && (
         <Alert tone="warning">

@@ -51,9 +51,25 @@
  *
  * Re-adding it needs a proof-of-control mechanism this codebase does not have.
  * Until then, an address the clinic signs as itself comes from an issued row or
- * an admin-set scope identity, and from nowhere else. The cost is real and was
- * accepted deliberately: a delegated sender now needs an address issued to them
- * before they can send as anything but their campaign's scope identity.
+ * an admin-set scope identity, and from nowhere else.
+ *
+ * THE COST, accepted deliberately, and wider than "delegated senders lose a
+ * convenience": nobody can send as anything but an admin-issued address or their
+ * campaign's scope identity. That binds an outreach.send_unrestricted holder
+ * too, not only a scoped one. The two permissions are separate in
+ * platform/modules/registry.ts, so a person who may send to anyone but does not
+ * hold outreach.manage_scopes gets ZERO From options and no page on which to
+ * grant themselves one: their campaigns go out from whatever the campaign sender
+ * rules resolve to until somebody with manage_scopes issues them an address.
+ * That is the intended shape (issuing is an admin act, and self-issue is exactly
+ * what would make the check circular), but it is a real operational dependency
+ * rather than a papercut for scoped senders alone.
+ *
+ * A STALE COMMENT, deliberately not corrected in place: migration
+ * 20260902140000_sending_identity's header still describes the removed layer as
+ * current, because Prisma checksums applied migrations and a comment-only edit
+ * to an applied one breaks `migrate deploy` and `migrate status`. This module is
+ * the authority on the order; that header is not.
  *
  * EVERY LAYER IS VALIDATED WHEN IT IS WRITTEN, and filtered again when it is
  * read. Rejecting at write is the point: an identity nothing can sign is a

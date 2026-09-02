@@ -236,6 +236,10 @@
             "view_directory": {
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.view_directory permission in HAVEN Hub."
+            },
+            "view_directory_own_dept": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.view_directory_own_dept permission in HAVEN Hub."
             }
           },
           "additionalProperties": false

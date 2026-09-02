@@ -65,7 +65,7 @@ import { BuilderToolbar, resolveBuilderView } from "@/modules/schedule/component
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
 import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
-import { ShiftEmailList } from "@/modules/schedule/components/shift-email-list";
+import { EmailList } from "@/platform/ui/email-list";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
 import { displayTodayKey } from "@/platform/dates/today";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -659,7 +659,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     mails its own Saturday, so every department gets it. */}
                 {selectedDateKey && (
                   <section className={cardClasses({ pad: false }) + " px-4 py-3"}>
-                    <ShiftEmailList
+                    <EmailList
                       emails={data.shiftEmails}
                       label={`${dept.code} shift emails`}
                       emptyLabel="Nobody is assigned to this date yet."

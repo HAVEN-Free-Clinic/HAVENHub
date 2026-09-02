@@ -123,6 +123,11 @@ export const MODULES: ModuleManifest[] = [
     additionalAccessPermissions: [
       "volunteers.verify_spanish",
       "volunteers.view_directory",
+      // The scoped half of the directory pair opens the module for the same
+      // reason. A department director reaches it through volunteers.view
+      // anyway, but a role that grants only the scoped directory must not be
+      // admitted by accident of what else the holder happens to carry.
+      "volunteers.view_directory_own_dept",
       // Same reasoning as view_directory: a role granting only the read half of
       // compliance must be able to open the module its pages live in.
       "volunteers.view_compliance",
@@ -139,11 +144,17 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.manage_offboarding",
       "volunteers.verify_spanish",
       "volunteers.manage_board_attendance",
-      // Clinic-wide and deliberately unscoped, like schedule.manage_attendings:
-      // the directory answers "how many people does the clinic have, and where",
-      // which a department-scoped grant cannot express. Read-only -- it exposes
-      // headcount and contact details, never an edit.
+      // Clinic-wide: the directory answers "how many people does the clinic
+      // have, and where", which a department-scoped grant cannot express.
+      // Read-only -- it exposes headcount and contact details, never an edit.
       "volunteers.view_directory",
+      // The department-scoped half of the same page, mirroring
+      // schedule.edit_all / schedule.edit_own_dept. Held by the Director
+      // baseline: a director gets the directory for the departments they
+      // direct, so "mail every SCTM" is one Copy button rather than fourteen
+      // addresses typed by hand. Resolved through permissionDepartmentIds, so
+      // a directorship in one department never opens another.
+      "volunteers.view_directory_own_dept",
     ],
     status: "active",
     nav: [
@@ -160,7 +171,15 @@ export const MODULES: ModuleManifest[] = [
         href: "/volunteers/master",
         permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
       },
-      { label: "Directory", href: "/volunteers/directory", permission: "volunteers.view_directory" },
+      // EITHER permission opens it, and the page itself decides how much of the
+      // clinic the holder sees. Gating on the clinic-wide permission alone
+      // would hide the tab from exactly the directors this scoped grant exists
+      // to admit.
+      {
+        label: "Directory",
+        href: "/volunteers/directory",
+        permission: ["volunteers.view_directory", "volunteers.view_directory_own_dept"],
+      },
       {
         label: "EHS training",
         href: "/volunteers/ehs",

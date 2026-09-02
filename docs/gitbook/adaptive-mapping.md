@@ -251,8 +251,9 @@ in the file as long as they stay in the catalog.
 Note the direction of that containment: this list is the paths **used above**, not every leaf in
 the schema. The schema is derived from the whole of `MODULES[].permissions`, so it also carries
 leaves no docs condition references yet — `volunteers.view_directory` (the people directory, added
-2026-09-01) is one, alongside longer-standing ones like `volunteers.manage_offboarding` and
-`admin.manage_roster`. That is expected and is not drift.
+2026-09-01) and `volunteers.view_directory_own_dept` (its department-scoped half, held by the
+Director baseline, added 2026-09-02) are two, alongside longer-standing ones like
+`volunteers.manage_offboarding` and `admin.manage_roster`. That is expected and is not drift.
 
 `volunteers.view_compliance` (added 2026-09-01) is the opposite case: it IS used, in the two
 Volunteer Management rows above, whose conditions were widened from `manage_compliance` alone when

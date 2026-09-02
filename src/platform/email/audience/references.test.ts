@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { collectAudienceReferences } from "./references";
 import type { AudienceNode } from "./types";
+import { CYCLE_VALUED_FIELD_KEYS } from "./types";
 
 describe("collectAudienceReferences", () => {
   it("collects department codes, cycle ids and term scopes", () => {
@@ -15,12 +16,25 @@ describe("collectAudienceReferences", () => {
     expect([...refs.termIds].sort()).toEqual(["sp26", "su26"]);
   });
 
-  it("collects cycle ids named by acceptedInCycle into the same set as appliedToCycle", () => {
-    const refs = collectAudienceReferences([
-      { field: "appliedToCycle", op: "in", value: ["fall26"] },
-      { field: "acceptedInCycle", op: "in", value: ["spring27"] },
-    ]);
-    expect([...refs.cycleIds].sort()).toEqual(["fall26", "spring27"]);
+  // Driven off the shared registry rather than a hand-listed pair, because the
+  // failure a hand-listed pair misses is exactly the #82 one: a cycle-valued
+  // field added later and not collected here keeps a deleted cycle out of the
+  // builder's picker, so the stored value filters forever with nothing on
+  // screen to uncheck. Every member of the list has to be collected, including
+  // ones that do not exist yet.
+  it("collects the cycle ids named by EVERY cycle-valued field into one set", () => {
+    // Guard the guard: an empty list would make the loop below vacuous.
+    expect(CYCLE_VALUED_FIELD_KEYS.length).toBeGreaterThan(1);
+    const refs = collectAudienceReferences(
+      CYCLE_VALUED_FIELD_KEYS.map((field, i) => ({
+        field,
+        op: "in" as const,
+        value: [`cycle-${i}`],
+      })),
+    );
+    expect([...refs.cycleIds].sort()).toEqual(
+      CYCLE_VALUED_FIELD_KEYS.map((_, i) => `cycle-${i}`).sort(),
+    );
   });
 
   it("collects subcommittee ids named by a subcommittee condition", () => {

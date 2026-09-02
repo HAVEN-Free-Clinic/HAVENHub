@@ -39,6 +39,7 @@ describe("person fields", () => {
     expect(keys).toEqual([
       "name", "netId", "contactEmail", "epicId", "phone", "yaleAffiliation", "gradYear",
       "status", "onRoster", "role", "department", "appliedToCycle", "acceptedInCycle",
+      "rejectedInCycle", "interviewInvitedInCycle", "withdrewFromCycle", "applicantType",
       "subcommittee", "complianceStatus", "hasEpicId",
       "spanishVerified", "spanishSelfReported", "licensedRN", "hasOpenEpicRequest", "hasDisciplinaryAction",
       "hasApprovedStrike", "hasOpenTechTicket", "hasVerifiedCertificate", "addedToEhs",
@@ -667,6 +668,102 @@ describe("appliedToCycle", () => {
     expect(() =>
       personFieldWhere({ field: "appliedToCycle", op: "in", value: ["fall26"] }, ctx),
     ).toThrow(/precomputed applicant map/);
+  });
+});
+
+// The four recruitment-outcome fields compile through the SAME bucket helper
+// appliedToCycle does, so what is worth pinning here is not the union again but
+// the two properties a copy of that helper would be most likely to lose: an
+// empty selection must be match-nobody rather than `notIn: []` (which is
+// literally everyone), and a missing precompute map must THROW rather than fail
+// closed, because a leaf that is always false excludes nobody inside a NONE
+// group. See bucketedIdWhere in person-fields.ts.
+describe("recruitment outcome fields", () => {
+  const outcomeCtx = {
+    activeTermId: "term1",
+    now: NOW,
+    zone: ZONE,
+    rejectedByCycle: new Map([["fall26", new Set(["p1"])]]),
+    interviewInvitedByCycle: new Map([["fall26", new Set(["p2"])]]),
+    withdrewByCycle: new Map([["fall26", new Set(["p3"])]]),
+    byApplicantType: new Map([
+      ["NEW", new Set(["p4"])],
+      ["RENEWAL", new Set(["p5"])],
+      ["TRANSFER", new Set<string>()],
+    ]),
+  };
+
+  const CYCLE_KEYED = ["rejectedInCycle", "interviewInvitedInCycle", "withdrewFromCycle"] as const;
+  const CTX_FIELD: Record<string, string> = {
+    rejectedInCycle: "rejectedByCycle",
+    interviewInvitedInCycle: "interviewInvitedByCycle",
+    withdrewFromCycle: "withdrewByCycle",
+    applicantType: "byApplicantType",
+  };
+
+  it.each(CYCLE_KEYED)("%s resolves the named cycle's bucket to an id list", (field) => {
+    const expected = { rejectedInCycle: "p1", interviewInvitedInCycle: "p2", withdrewFromCycle: "p3" }[field];
+    expect(personFieldWhere({ field, op: "in", value: ["fall26"] }, outcomeCtx)).toEqual({
+      id: { in: [expected] },
+    });
+    expect(personFieldWhere({ field, op: "notIn", value: ["fall26"] }, outcomeCtx)).toEqual({
+      id: { notIn: [expected] },
+    });
+  });
+
+  it.each([...CYCLE_KEYED, "applicantType"])(
+    "%s matches nobody when nothing is selected, in BOTH polarities",
+    (field) => {
+      // `notIn` over an empty selection is the send-all shape: `{ notIn: [] }`
+      // is NOT false, i.e. every Person in the table.
+      expect(personFieldWhere({ field, op: "in", value: [] }, outcomeCtx)).toEqual({ id: { in: [] } });
+      expect(personFieldWhere({ field, op: "notIn", value: [] }, outcomeCtx)).toEqual({ id: { in: [] } });
+      expect(personFieldWhere({ field, op: "notIn", value: "" }, outcomeCtx)).toEqual({ id: { in: [] } });
+    },
+  );
+
+  it.each([...CYCLE_KEYED, "applicantType"])(
+    "%s throws when buildAudienceCtx did not precompute its map",
+    (field) => {
+      const value = field === "applicantType" ? "RENEWAL" : ["fall26"];
+      expect(() => personFieldWhere({ field, op: "in", value }, ctx)).toThrow(
+        new RegExp(`ctx\\.${CTX_FIELD[field]}`),
+      );
+    },
+  );
+
+  it("applicantType resolves a bare enum value and negates with notEq", () => {
+    expect(personFieldWhere({ field: "applicantType", op: "eq", value: "RENEWAL" }, outcomeCtx)).toEqual({
+      id: { in: ["p5"] },
+    });
+    // notEq is an ENUM_OPERATORS member, so it has to negate like notIn does; a
+    // helper that only special-cased notIn would compile this to an `in` list
+    // and mail exactly the people the sender asked to leave out.
+    expect(personFieldWhere({ field: "applicantType", op: "notEq", value: "RENEWAL" }, outcomeCtx)).toEqual({
+      id: { notIn: ["p5"] },
+    });
+  });
+
+  it("applicantType matches nobody for a type outside the enum, in BOTH polarities", () => {
+    // A hand-edited or migrated audience naming a type that is not in the enum
+    // is dropped by the allowlist before the emptiness check. The NEGATIVE half
+    // is the one that matters: unchecked, `notEq GRADUATE` finds no bucket,
+    // negates an empty id list into `{ notIn: [] }`, and mails everyone.
+    expect(personFieldWhere({ field: "applicantType", op: "eq", value: "GRADUATE" }, outcomeCtx)).toEqual({
+      id: { in: [] },
+    });
+    expect(personFieldWhere({ field: "applicantType", op: "notEq", value: "GRADUATE" }, outcomeCtx)).toEqual({
+      id: { in: [] },
+    });
+    expect(
+      personFieldWhere({ field: "applicantType", op: "notIn", value: ["GRADUATE"] }, outcomeCtx),
+    ).toEqual({ id: { in: [] } });
+  });
+
+  it("applicantType unions the selected types under `in`", () => {
+    expect(
+      personFieldWhere({ field: "applicantType", op: "in", value: ["NEW", "RENEWAL"] }, outcomeCtx),
+    ).toEqual({ id: { in: ["p4", "p5"] } });
   });
 });
 

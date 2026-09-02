@@ -129,12 +129,16 @@ describe("FieldPicker keyboard", () => {
     const onChange = vi.fn();
     render("netId", onChange);
     openPicker();
-    // The group name "Recruitment" matches all three of its fields, in their
-    // registered order: appliedToCycle, acceptedInCycle, subcommittee.
+    // The group name "Recruitment" matches every one of its fields, in their
+    // registered order.
     typeQuery("Recruitment");
     expect(optionLabels()).toEqual([
       "Applied to recruitment cycle",
       "Accepted in recruitment cycle",
+      "Rejected in cycle",
+      "Invited to interview in cycle",
+      "Withdrew from cycle",
+      "Applicant type",
       "Assigned subcommittee",
     ]);
     pressKey("ArrowDown");

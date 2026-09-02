@@ -13,7 +13,7 @@
  * Bare createRoot + act(), no testing-library: see audience-builder.test.tsx.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PersonFieldKind } from "@/platform/email/audience/person-fields";
 import type { AudienceCondition, ConditionOp } from "@/platform/email/audience/types";
@@ -40,6 +40,25 @@ function render(
       <ValueControl kind={kind} op={op} value={value} onChange={onChange} zoneLabel={ZONE_LABEL} />,
     );
   });
+}
+
+/**
+ * Renders the control the way the builder really does: with the emitted value
+ * fed straight back in as the next `value`. A `vi.fn()` onChange leaves the
+ * prop frozen at its initial value, which is fine for asserting what was
+ * emitted but useless for asserting what the control shows AFTERWARDS.
+ */
+function renderControlled(kind: PersonFieldKind, op: ConditionOp, initial: AudienceCondition["value"]) {
+  function Harness() {
+    const [value, setValue] = useState(initial);
+    return (
+      <ValueControl kind={kind} op={op} value={value} onChange={setValue} zoneLabel={ZONE_LABEL} />
+    );
+  }
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root.render(<Harness />));
 }
 
 afterEach(() => {
@@ -90,6 +109,22 @@ describe("date, one absolute boundary", () => {
     expect(inputs()[0].value).toBe("2026-03-20");
   });
 
+  // Fix round 1, finding 1. The empty box is the match-nobody state a sender
+  // actually reaches (add a condition, or backspace a value), and it was the
+  // one state these controls stayed silent about while warning on the two rare
+  // ones. Inside a NONE group an always-false leaf excludes nobody, so the
+  // group header's "everyone matching any condition here is excluded" becomes
+  // false and the audience quietly widens to everyone.
+  it("says an empty date matches nobody", () => {
+    render("date", "before", "");
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  it("stops saying so once a date is chosen", () => {
+    render("date", "before", "2026-03-20");
+    expect(container.textContent).not.toContain("matches nobody");
+  });
+
   // Part A resolves a calendar day in the CLINIC's configured zone, not the
   // sender's. Without this line a director in California picking "March 20"
   // has no way to know which March 20 they picked.
@@ -109,6 +144,30 @@ describe("date, one absolute boundary", () => {
   it("does not flag a real date", () => {
     render("date", "before", "2026-03-20");
     expect(container.textContent).not.toContain("not a real date");
+  });
+
+  // startOfDay and startOfNextDay both `.trim()` before validating, so a stored
+  // " 2026-03-20" compiles to a real boundary and matches people. Flagging it
+  // here would have the row declare it matches nobody while it actually sends.
+  it("does not flag a real date carrying stored whitespace", () => {
+    render("date", "before", " 2026-03-20 ");
+    expect(container.textContent).not.toContain("not a real date");
+  });
+
+  it("wires the notes to the input and marks it invalid", () => {
+    render("date", "before", "2026-02-30");
+    const input = byLabel("Date");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const describedBy = input.getAttribute("aria-describedby") ?? "";
+    expect(describedBy).not.toBe("");
+    for (const id of describedBy.split(" ")) {
+      expect(document.getElementById(id), `no element with id ${id}`).toBeTruthy();
+    }
+  });
+
+  it("does not mark a valid date invalid", () => {
+    render("date", "before", "2026-03-20");
+    expect(byLabel("Date").getAttribute("aria-invalid")).toBeNull();
   });
 });
 
@@ -148,6 +207,36 @@ describe("date, between", () => {
   it("does not warn on a single-day range, which is valid", () => {
     render("date", "between", ["2026-03-18", "2026-03-18"]);
     expect(container.textContent).not.toContain("matches nobody");
+  });
+
+  // Finding 1 again: a half-filled range is the state you are in for as long as
+  // it takes to pick the second date, and it compiles to match-nobody the whole
+  // time (asArray drops the blank, so pair.length !== 2).
+  it.each([
+    ["neither endpoint", ["", ""]],
+    ["only the start", ["2026-03-18", ""]],
+    ["only the end", ["", "2026-03-20"]],
+  ])("says a range with %s matches nobody", (_label, value) => {
+    render("date", "between", value as string[]);
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  // A Part A audience can hold a bare string under `between`: the old
+  // valueForOp treated `between` as single-valued, so switching `before` ->
+  // `between` left "2026-03-18" in place. Rendering two blank boxes over it
+  // would hide a stored value that then re-serialises unchanged.
+  it("shows a stored bare string in the start box and normalises it to a pair", () => {
+    const onChange = vi.fn();
+    render("date", "between", "2026-03-18", onChange);
+    expect(byLabel("Start date").value).toBe("2026-03-18");
+    expect(byLabel("End date").value).toBe("");
+    expect(onChange).toHaveBeenCalledWith(["2026-03-18", ""]);
+  });
+
+  it("does not rewrite a value that is already a pair", () => {
+    const onChange = vi.fn();
+    render("date", "between", ["2026-03-18", "2026-03-20"], onChange);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 
@@ -199,15 +288,46 @@ describe("date, relative window", () => {
     expect(inputs()[0].value).toBe("-5");
   });
 
-  // Leaving the last accepted number in the stored audience while the box shows
-  // something else is the "looks right, sends wrong" failure this whole file
-  // exists to catch: clear it instead, so the condition is unambiguously
-  // incomplete and the message explains why.
-  it("clears the stored value rather than leaving the last accepted number behind", () => {
+  // Fix round 1, finding 2. A rejected entry must not reach onChange AT ALL, so
+  // the previously stored number survives. "" and "-5" compile identically
+  // (match-nobody), so overwriting 30 with "" bought nothing at compile time
+  // and destroyed the author's work; and under a NONE group the empty state is
+  // the maximally INCLUSIVE one, so clearing was the widening direction.
+  it("leaves the stored value untouched when the entry is rejected", () => {
     const onChange = vi.fn();
     render("date", "withinNextDays", "30", onChange);
     type(inputs()[0], "-5");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  // The box then shows something different from what is stored, which is only
+  // honest if the control says which one is live.
+  it("says the entry was not applied and names the value still in force", () => {
+    render("date", "withinNextDays", "30", () => {});
+    type(inputs()[0], "-5");
+    expect(container.textContent).toMatch(/not applied/i);
+    expect(container.textContent).toContain("30");
+  });
+
+  it("says the condition still matches nobody when the rejected entry sits over an empty value", () => {
+    render("date", "withinNextDays", "", () => {});
+    type(inputs()[0], "-5");
+    expect(container.textContent).toMatch(/not applied/i);
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  // Clearing the box is NOT a rejected entry: it is a deliberate empty state,
+  // and it has to reach the audience or the stored number would be unremovable.
+  it("propagates an emptied box", () => {
+    const onChange = vi.fn();
+    render("date", "withinNextDays", "30", onChange);
+    type(inputs()[0], "");
     expect(onChange).toHaveBeenCalledWith("");
+  });
+
+  it("says an empty window matches nobody", () => {
+    render("date", "withinNextDays", "");
+    expect(container.textContent).toContain("matches nobody");
   });
 
   it("accepts a valid number again after a rejected one", () => {
@@ -216,7 +336,40 @@ describe("date, relative window", () => {
     type(inputs()[0], "-5");
     type(inputs()[0], "7");
     expect(onChange).toHaveBeenLastCalledWith("7");
-    expect(container.textContent).not.toMatch(/whole number/i);
+  });
+
+  // Same journey, but with the value fed back so the notes reflect what is
+  // actually stored at the end of it.
+  it("drops both notes once the rejected entry is replaced by a valid one", () => {
+    renderControlled("date", "withinNextDays", "");
+    expect(container.textContent).toContain("matches nobody");
+    type(inputs()[0], "-5");
+    expect(container.textContent).toMatch(/not applied/i);
+    type(inputs()[0], "7");
+    expect(container.textContent).not.toMatch(/not applied/i);
+    expect(container.textContent).not.toContain("matches nobody");
+    expect(inputs()[0].value).toBe("7");
+  });
+
+  // The rejected entry really is durable against a re-render: the parent is
+  // never told, so nothing arrives to overwrite the text on screen.
+  it("keeps showing the rejected text while the stored value stays 30", () => {
+    renderControlled("date", "withinNextDays", "30");
+    type(inputs()[0], "-5");
+    expect(inputs()[0].value).toBe("-5");
+    expect(container.textContent).toContain("30");
+  });
+
+  it("wires the rejection note to the input and marks it invalid", () => {
+    render("date", "withinNextDays", "30", () => {});
+    type(inputs()[0], "-5");
+    const input = byLabel("Days");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const describedBy = input.getAttribute("aria-describedby") ?? "";
+    expect(describedBy).not.toBe("");
+    for (const id of describedBy.split(" ")) {
+      expect(document.getElementById(id), `no element with id ${id}`).toBeTruthy();
+    }
   });
 });
 
@@ -258,8 +411,18 @@ describe("count, one comparison value", () => {
     const onChange = vi.fn();
     render("count", "gte", "", onChange);
     type(inputs()[0], "-1");
-    expect(onChange).not.toHaveBeenCalledWith("-1");
+    expect(onChange).not.toHaveBeenCalled();
     expect(container.textContent).toMatch(/whole number|whole, non-negative/i);
+  });
+
+  it("says an empty count matches nobody", () => {
+    render("count", "gte", "");
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  it("stops saying so once a number is entered", () => {
+    render("count", "gte", "3");
+    expect(container.textContent).not.toContain("matches nobody");
   });
 });
 
@@ -283,6 +446,60 @@ describe("count, between", () => {
     render("count", "between", ["1", "3"], onChange);
     type(byLabel("Highest value"), "9");
     expect(onChange).toHaveBeenCalledWith(["1", "9"]);
+  });
+
+  it.each([
+    ["neither bound", ["", ""]],
+    ["only the low bound", ["1", ""]],
+    ["only the high bound", ["", "3"]],
+  ])("says a range with %s matches nobody", (_label, value) => {
+    render("count", "between", value as string[]);
+    expect(container.textContent).toContain("matches nobody");
+  });
+
+  it("stops saying so once both bounds are entered", () => {
+    render("count", "between", ["1", "3"]);
+    expect(container.textContent).not.toContain("matches nobody");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 1, finding 3: constraint validation
+// ---------------------------------------------------------------------------
+
+// None of these inputs carries a `name`, so none of them contributes anything
+// to a form submission: the builder submits exactly one field, the serialised
+// JSON hidden input. Leaving them as form-owned controls let a rangeUnderflow
+// or a half-typed date block Save from inside a `hidden` tab panel, where the
+// browser cannot focus the offending control and gives up silently. See
+// audience-builder.test.tsx for the form-level regression test.
+describe("form participation", () => {
+  it.each<[PersonFieldKind, ConditionOp, AudienceCondition["value"]]>([
+    ["date", "before", ""],
+    ["date", "between", ["", ""]],
+    ["date", "withinNextDays", ""],
+    ["count", "gte", ""],
+    ["count", "between", ["", ""]],
+  ])("detaches every input it renders for %s / %s from any form", (kind, op, value) => {
+    const form = document.createElement("form");
+    document.body.appendChild(form);
+    container = document.createElement("div");
+    form.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root.render(
+        <ValueControl kind={kind} op={op} value={value} onChange={() => {}} zoneLabel={ZONE_LABEL} />,
+      );
+    });
+
+    const rendered = [...container.querySelectorAll("input")];
+    expect(rendered.length).toBeGreaterThan(0);
+    for (const input of rendered) {
+      expect(input.form, `${input.getAttribute("aria-label")} still has a form owner`).toBeNull();
+    }
+    expect([...form.elements]).toHaveLength(0);
+
+    form.remove();
   });
 });
 

@@ -9,7 +9,7 @@
  * testing-library.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import type { Audience, ConditionOp } from "@/platform/email/audience/types";
@@ -76,6 +76,18 @@ function typeInto(input: HTMLInputElement, text: string) {
     nativeSetter.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+/**
+ * The first condition row's own subtree.
+ *
+ * Assertions about what a CONTROL says must not be made against the whole
+ * container: the builder's header paragraph already contains the phrase
+ * "matches nobody", so a container-wide check would pass with every note
+ * deleted.
+ */
+function conditionRow(): HTMLElement {
+  return container.querySelector<HTMLElement>("div.bg-muted")!;
 }
 
 function chooseOp(op: ConditionOp) {
@@ -371,7 +383,12 @@ describe("AudienceBuilder date and count value controls", () => {
     expect(select.textContent).not.toContain("is before");
   });
 
-  it("keeps a negative day count out of the serialised audience", () => {
+  // Fix round 1, finding 2: a rejected entry leaves the stored value alone. It
+  // does NOT clear it: "" and "-5" compile identically (match-nobody), so
+  // clearing bought nothing while destroying the author's 30, and under a NONE
+  // group the empty state is the maximally inclusive one. A stale-but-valid 30
+  // is the narrow direction.
+  it("keeps a negative day count out of the serialised audience without discarding the stored one", () => {
     render({
       recordType: "PERSON",
       match: "ALL",
@@ -381,9 +398,36 @@ describe("AudienceBuilder date and count value controls", () => {
     expect(serialised().conditions[0]).toEqual({
       field: "joinedAt",
       op: "withinLastDays",
-      value: "",
+      value: "30",
     });
-    expect(container.textContent).toMatch(/whole number/i);
+    expect(container.textContent).toMatch(/not applied/i);
+  });
+
+  // Fix round 1, finding 1: the empty box is the match-nobody state a sender
+  // actually reaches, and it was the only one of the four the controls stayed
+  // silent about.
+  //
+  // Asserted on the CONDITION ROW, not on the whole container: the builder's
+  // own header paragraph says "an empty audience matches nobody", so a
+  // container-wide assertion passes whether the control warns or not. Verified
+  // by deleting the notes and watching the container-wide version keep passing.
+  it.each([
+    ["a date with no day chosen", { field: "joinedAt", op: "onOrAfter" as const, value: "" }],
+    ["a half-filled range", { field: "joinedAt", op: "between" as const, value: ["2026-03-18", ""] }],
+    ["an empty window", { field: "joinedAt", op: "withinLastDays" as const, value: "" }],
+    ["an empty count", { field: "shiftCountThisTerm", op: "gte" as const, value: "" }],
+  ])("says %s matches nobody", (_label, condition) => {
+    render({ recordType: "PERSON", match: "ALL", conditions: [condition] });
+    expect(conditionRow().textContent).toContain("matches nobody");
+  });
+
+  it("says nothing of the sort once the condition is complete", () => {
+    render({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "2026-03-20" }],
+    });
+    expect(conditionRow().textContent).not.toContain("matches nobody");
   });
 });
 
@@ -471,6 +515,176 @@ describe("AudienceBuilder operator changes that reshape a date or count value", 
       op: "withinNextDays",
       value: "",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 1, finding 3: the builder must never be able to block Save
+// ---------------------------------------------------------------------------
+
+/**
+ * The campaign editor's shape, reproduced closely enough to exercise the bug:
+ * one form, three panels that all stay MOUNTED and are toggled with the
+ * `hidden` attribute (see page.tsx's comment on why they stay mounted), the
+ * required campaign-name input in the Compose panel, and the audience builder
+ * in the Audience panel.
+ *
+ * `display: none` does not bar an element from constraint validation, so before
+ * the fix a "-5" left in a Days box made the whole form invalid. The browser
+ * cannot focus a hidden control, so it logged "An invalid form control with
+ * name='' is not focusable" and ABORTED the submit with nothing on screen: the
+ * sender clicks Save and believes the campaign saved. jsdom does not really
+ * implement form submission, so the invariant is asserted at the DOM level
+ * instead: nothing the audience builder renders may make the compose form
+ * invalid.
+ */
+function EditorHarness({ initial }: { initial: Audience }) {
+  const [tab, setTab] = useState<"compose" | "audience">("audience");
+  return (
+    <div>
+      <button type="button" data-tab="compose" onClick={() => setTab("compose")}>
+        Compose tab
+      </button>
+      <button type="button" data-tab="audience" onClick={() => setTab("audience")}>
+        Audience tab
+      </button>
+      <form id="campaign-compose">
+        <div hidden={tab !== "compose"}>
+          <input aria-label="Campaign name" name="name" type="text" defaultValue="Spring blast" required />
+        </div>
+        <div hidden={tab !== "audience"}>
+          <AudienceBuilder
+            fields={PERSON_FIELD_VIEWS}
+            departments={DEPARTMENTS}
+            terms={TERMS}
+            cycles={CYCLES}
+            subcommittees={SUBCOMMITTEES}
+            initial={initial}
+            zoneLabel={ZONE_LABEL}
+          />
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    </div>
+  );
+}
+
+function renderEditor(initial: Audience) {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  act(() => root.render(<EditorHarness initial={initial} />));
+}
+
+function composeForm(): HTMLFormElement {
+  return container.querySelector<HTMLFormElement>("#campaign-compose")!;
+}
+
+function switchTab(to: "compose" | "audience") {
+  click(container.querySelector(`button[data-tab="${to}"]`));
+}
+
+describe("the audience builder inside the campaign editor's form", () => {
+  it("cannot invalidate the compose form with an out-of-range day count", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "withinLastDays", value: "30" }],
+    });
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Days"]')!, "-5");
+
+    // The tab switch is the whole point: this is where the control becomes
+    // unfocusable and the browser gives up silently.
+    switchTab("compose");
+    expect(composeForm().checkValidity()).toBe(true);
+  });
+
+  it("cannot invalidate it with an out-of-range count either", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "shiftCountThisTerm", op: "gte", value: "2" }],
+    });
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Value"]')!, "-1");
+    switchTab("compose");
+    expect(composeForm().checkValidity()).toBe(true);
+  });
+
+  // The mechanism, asserted directly so a regression names its own cause: these
+  // controls carry no `name` and contribute nothing to the submission, so they
+  // are detached from the form owner entirely and never appear in form.elements.
+  it("puts none of its date or number inputs into form.elements", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [
+        { field: "joinedAt", op: "between", value: ["2026-03-18", "2026-03-20"] },
+        { field: "shiftCountThisTerm", op: "between", value: ["1", "3"] },
+      ],
+    });
+    // Four date/number controls are on screen (two range endpoints each).
+    expect(
+      container.querySelectorAll('input[type="date"], input[type="number"]'),
+    ).toHaveLength(4);
+    // None of them belongs to the form.
+    const owned = [...composeForm().elements].filter(
+      (el) => el instanceof HTMLInputElement && (el.type === "date" || el.type === "number"),
+    );
+    expect(owned).toHaveLength(0);
+    // The only things that actually submit are the campaign name and the
+    // builder's one serialised-audience hidden input.
+    const named = [...composeForm().elements]
+      .map((el) => el.getAttribute("name"))
+      .filter((n): n is string => n !== null);
+    expect(named.sort()).toEqual(["audience", "name"]);
+  });
+
+  // The audience still has to SUBMIT, and it does, through the one hidden input
+  // the builder renders. Detaching the visible controls must not detach that.
+  it("still submits the serialised audience", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "2026-03-20" }],
+    });
+    const data = new FormData(composeForm());
+    expect(JSON.parse(String(data.get("audience"))).conditions[0]).toEqual({
+      field: "joinedAt",
+      op: "onOrAfter",
+      value: "2026-03-20",
+    });
+  });
+
+  // useFormDirty listens for bubbling input/change events ON THE FORM ELEMENT.
+  // Detaching form OWNERSHIP leaves the controls as DOM descendants, so they
+  // still bubble; moving the panel out of the form's subtree instead would have
+  // silently stopped every audience edit from marking the draft dirty, and
+  // ReviewActions would re-enable Send on an unsaved audience.
+  it("still bubbles edits to the form element, so the unsaved-changes guard sees them", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "" }],
+    });
+    let heard = 0;
+    composeForm().addEventListener("input", () => {
+      heard += 1;
+    });
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Date"]')!, "2026-03-20");
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  // The pre-existing guard the fix must not weaken: the campaign name is the
+  // one real constraint on this form, and it still blocks an empty submit.
+  it("leaves the campaign name's required guard intact", () => {
+    renderEditor({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "joinedAt", op: "onOrAfter", value: "2026-03-20" }],
+    });
+    expect(composeForm().checkValidity()).toBe(true);
+    typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Campaign name"]')!, "");
+    expect(composeForm().checkValidity()).toBe(false);
   });
 });
 

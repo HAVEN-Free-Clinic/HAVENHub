@@ -13,6 +13,8 @@ import { Button } from "@/platform/ui/button";
 import { FormActions } from "@/platform/ui/form";
 import { SignInButton } from "./sign-in-button";
 import { MemberSignInForm } from "./member-sign-in-form";
+import { signInWithYaleAction } from "./login-actions";
+import { safeLoginPath } from "@/platform/auth/safe-next";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -33,23 +35,9 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
   const { error, callbackUrl } = await searchParams;
-  // Only honor a same-origin, slash-rooted destination (e.g. the GitBook docs
-  // auth endpoint) so the callback can never become an open redirect. Parsing
-  // against APP_BASE_URL with the WHATWG URL API rejects absolute URLs and the
-  // protocol-relative / backslash tricks ("//evil.com", "/\evil.com") that a
-  // naive string check misses. Anything else falls back to the home page.
-  let safeCallbackUrl = "/";
-  if (callbackUrl) {
-    try {
-      const base = new URL(config.APP_BASE_URL);
-      const target = new URL(callbackUrl, base);
-      if (target.origin === base.origin && /^\/[^/\\]/.test(target.pathname)) {
-        safeCallbackUrl = target.pathname + target.search;
-      }
-    } catch {
-      // Malformed callbackUrl: keep the "/" default.
-    }
-  }
+  // Only honor a same-origin, slash-rooted destination so the callback can never
+  // become an open redirect; anything else falls back to home. See `safeLoginPath`.
+  const safeCallbackUrl = safeLoginPath(callbackUrl);
   const session = await auth();
   if (session?.personId) redirect(safeCallbackUrl);
   const [appName, support, memberLinkEnabled] = await Promise.all([
@@ -116,22 +104,8 @@ export default async function LoginPage({
         )}
 
         {config.AZURE_AD_CLIENT_ID ? (
-          <form
-            className="mt-6"
-            action={async () => {
-              "use server";
-              try {
-                await signIn("microsoft-entra-id", { redirectTo: safeCallbackUrl });
-              } catch (error) {
-                if (error instanceof AuthError) {
-                  redirect(
-                    `/login?error=${error.type}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
-                  );
-                }
-                throw error;
-              }
-            }}
-          >
+          <form className="mt-6" action={signInWithYaleAction}>
+            <input type="hidden" name="callbackUrl" value={safeCallbackUrl} />
             <SignInButton />
           </form>
         ) : (

@@ -138,4 +138,59 @@ describe("CapabilityBadges Spanish proficiency bar", () => {
     expect(host.textContent).toContain("ES 2");
     expect(accessibleText(host)).not.toContain("ES 2");
   });
+
+  it("marks the top of the scale with a plus", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 5 });
+    expect(host.textContent).toContain("ES+");
+  });
+
+  it("names the level in the accessible text for a top scorer", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 5 });
+    expect(accessibleText(host)).toContain("Verified: Spanish, assessed 5 (Native)");
+  });
+
+  it("shows a plain code for a 4, which is fluent but not native", () => {
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false, spanishScore: 4 });
+    expect(host.textContent).toContain("ES");
+    expect(host.textContent).not.toContain("ES+");
+  });
+
+  it("shows a plain code for a 3 where the department accepts it", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },
+      { minInterpreterScore: 3 },
+    );
+    expect(host.textContent).toContain("ES");
+    expect(host.textContent).not.toContain("ES+");
+  });
+
+  // A below-bar speaker shows the exact number and never the plus. The two
+  // cannot collide for any sane bar: being below bar forces score < bar <= 5,
+  // so a below-bar speaker is never a 5. The !flagged guard in the component
+  // is unreachable through the app: validateInterpreterBar (departments.ts)
+  // rejects anything outside 1-5 on both the create and update paths, the
+  // only writers of minInterpreterScore. It only covers a bar written
+  // directly to Postgres by hand, bypassing that service.
+  it("shows the number, not the plus, for a speaker below the bar", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },
+      { minInterpreterScore: 4 },
+    );
+    expect(host.textContent).toContain("ES 3");
+    expect(host.textContent).not.toContain("ES+");
+  });
+
+  it("still shows the plus when the department bar is exactly the top score", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 5 },
+      { minInterpreterScore: 5 },
+    );
+    expect(host.textContent).toContain("ES+");
+  });
+
+  it("leaves a non-Spanish language unmarked at any score", () => {
+    const host = render({ verifiedLanguages: ["ht"], licensedRN: false, spanishScore: 5 });
+    expect(host.textContent).toContain("HT");
+    expect(host.textContent).not.toContain("HT+");
+  });
 });

@@ -116,6 +116,26 @@ export function spanishScoreTone(
  */
 export const CLINIC_WIDE_INTERPRETER_MIN_SCORE = 4;
 
+/**
+ * The score at which an assessment produces a verified Spanish badge.
+ *
+ * Lower than CLINIC_WIDE_INTERPRETER_MIN_SCORE on purpose. A 3 is
+ * conversational: the person genuinely speaks Spanish with patients, and
+ * whether that is enough to interpret is each department's call through
+ * Department.minInterpreterScore. Reading the interpreting bar as the badge
+ * floor would hide conversational speakers from the departments documented as
+ * staffing them.
+ *
+ * 1 and 2 are assessments too, and settle the question rather than badging it.
+ */
+export const SPANISH_SPEAKER_MIN_SCORE = 3;
+
+/**
+ * The top of the scale, rendered as a "+" on the roster badge so a director
+ * scanning a shift can pick out a native speaker without reading numbers.
+ */
+export const SPANISH_TOP_SCORE = 5;
+
 /** The bar in force for a department: its own, or the clinic-wide one. */
 export function interpreterBarFor(
   department: { minInterpreterScore: number | null } | null | undefined,

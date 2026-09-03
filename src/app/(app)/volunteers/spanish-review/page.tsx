@@ -51,7 +51,7 @@ import { Input } from "@/platform/ui/input";
  * are exactly the people who should assess any language.
  *
  * Three tabs:
- *   - queue      the claims awaiting assessment, split INTP / everyone else
+ *   - queue      the claims awaiting assessment, one flat queue for everyone
  *   - history    every INTP Spanish assessment, back to Spring 2012
  *   - crosscheck people flagged in Hub whose assessment does not back it up
  *
@@ -120,9 +120,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     const personId = String(formData.get("personId") ?? "");
     const language = String(formData.get("language") ?? "");
     const verified = formData.get("verified") === "true";
-    // Present only on the Spanish rows of the INTP queue. Absent means "this
-    // form never asked", which recordLanguageAssessment reads as leave-alone;
-    // an explicit empty selection means N/A and clears it.
+    // The score field is present only on Spanish rows; other languages carry
+    // no score. Absent means "this form never asked", which
+    // recordLanguageAssessment reads as leave-alone; an explicit empty
+    // selection means N/A and clears it.
     const hasScoreField = formData.has("score");
     const score = hasScoreField ? normalizeScore(formData.get("score")) : undefined;
 
@@ -231,9 +232,6 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     redirect(tabHref("history", { ok: "Assessment added." }));
   }
 
-  const intpRows = queueRows.filter((r) => r.isIntp);
-  const generalRows = queueRows.filter((r) => !r.isIntp);
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -257,105 +255,60 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       </nav>
 
       {activeTab === "queue" && (
-        <div className="space-y-8">
-          <section>
-            <div className="mb-3">
-              <h2 className="text-sm font-semibold text-foreground">INTP assessment queue</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Volunteers in interpreting this term who claimed a language. Record a proficiency
-                score for Spanish speakers before verifying. The score is internal and is never
-                shown to the volunteer.
-              </p>
-            </div>
-            {intpRows.length === 0 ? (
-              <EmptyCard>No INTP members are awaiting language assessment.</EmptyCard>
-            ) : (
-              <Table>
-                <THead>
-                  <TR>
-                    <TH>Name</TH>
-                    <TH>Language</TH>
-                    <TH>NetID</TH>
-                    <TH>Current score</TH>
-                    <TH>Assessment</TH>
+        <section>
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-foreground">Language review queue</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Everyone who reported speaking a language and is awaiting assessment. Record a 1-5
+              proficiency score for Spanish speakers before verifying: departments differ on the
+              score they will staff, so a conversational speaker is useful to someone even when
+              they are below the clinic-wide interpreting bar. The score is internal and is never
+              shown to the volunteer.
+            </p>
+          </div>
+          {queueRows.length === 0 ? (
+            <EmptyCard>No one is awaiting language review.</EmptyCard>
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Name</TH>
+                  <TH>Language</TH>
+                  <TH>NetID</TH>
+                  <TH>Current score</TH>
+                  <TH>Assessment</TH>
+                </TR>
+              </THead>
+              <tbody>
+                {queueRows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-medium">{r.name}</TD>
+                    <TD>
+                      <Badge>{r.languageLabel}</Badge>
+                    </TD>
+                    <TD className="text-muted-foreground">
+                      {r.netId ?? <span className="text-subtle-foreground">-</span>}
+                    </TD>
+                    <TD>
+                      {r.language !== SPANISH ? (
+                        <span className="text-xs text-subtle-foreground">-</span>
+                      ) : r.score === null ? (
+                        <span className="text-xs text-subtle-foreground">Not yet scored</span>
+                      ) : (
+                        <Badge tone={spanishScoreTone(r.score)}>
+                          {formatSpanishScore(r.score, null)}
+                        </Badge>
+                      )}
+                    </TD>
+                    <TD>
+                      <AssessForm row={r} action={assessAction} withScore={r.language === SPANISH} />
+                    </TD>
                   </TR>
-                </THead>
-                <tbody>
-                  {intpRows.map((r) => (
-                    <TR key={r.id}>
-                      <TD className="font-medium">{r.name}</TD>
-                      <TD>
-                        <Badge>{r.languageLabel}</Badge>
-                      </TD>
-                      <TD className="text-muted-foreground">
-                        {r.netId ?? <span className="text-subtle-foreground">-</span>}
-                      </TD>
-                      <TD>
-                        {r.score === null ? (
-                          <span className="text-xs text-subtle-foreground">Not yet scored</span>
-                        ) : (
-                          <Badge tone={spanishScoreTone(r.score)}>
-                            {formatSpanishScore(r.score, null)}
-                          </Badge>
-                        )}
-                      </TD>
-                      <TD>
-                        <AssessForm row={r} action={assessAction} withScore={r.language === SPANISH} />
-                      </TD>
-                    </TR>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-          </section>
-
-          <section>
-            <div className="mb-3">
-              <h2 className="text-sm font-semibold text-foreground">
-                General language verification queue
-              </h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Volunteers outside interpreting who claimed a language and are awaiting
-                verification. No score is recorded here, and verifying does not disturb one already
-                on record.
-              </p>
-            </div>
-            {generalRows.length === 0 ? (
-              <EmptyCard>No other volunteers are awaiting language verification.</EmptyCard>
-            ) : (
-              <Table>
-                <THead>
-                  <TR>
-                    <TH>Name</TH>
-                    <TH>Language</TH>
-                    <TH>NetID</TH>
-                    <TH>Email</TH>
-                    <TH>Assessment</TH>
-                  </TR>
-                </THead>
-                <tbody>
-                  {generalRows.map((r) => (
-                    <TR key={r.id}>
-                      <TD className="font-medium">{r.name}</TD>
-                      <TD>
-                        <Badge>{r.languageLabel}</Badge>
-                      </TD>
-                      <TD className="text-muted-foreground">
-                        {r.netId ?? <span className="text-subtle-foreground">-</span>}
-                      </TD>
-                      <TD className="text-muted-foreground">
-                        {r.contactEmail ?? <span className="text-subtle-foreground">-</span>}
-                      </TD>
-                      <TD>
-                        <AssessForm row={r} action={assessAction} withScore={false} />
-                      </TD>
-                    </TR>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-          </section>
-        </div>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </section>
       )}
 
       {activeTab === "history" && history && (

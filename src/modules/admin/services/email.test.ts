@@ -1,4 +1,47 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * THE ALLOWLIST THE SENDER TEST RESOLVES AGAINST, stated here rather than
+ * borrowed.
+ *
+ * sendSenderTest exists to mirror what the drain would do with the same From, so
+ * its cases are ROUTING cases: Maileroo signs it, Graph signs it, nothing signs
+ * it. Which real domain falls in which bucket is a Maileroo dashboard state and
+ * no business of this file.
+ *
+ * It borrowed that state anyway, with hfc.it@yale.edu as its Graph example, and
+ * broke when Maileroo verified yale.edu on 2026-09-02 and the shipped row
+ * flipped to maileroo: the test named for routing to Graph started routing to
+ * Maileroo. Same coupling as the twelve fixed in the commit before this one, in
+ * a directory that commit's verification globs did not cover.
+ *
+ * So the shapes are declared, on the RFC 2606 reserved `.example` TLD so they
+ * can never quietly start meaning something about a real sending domain. The
+ * unsignable case is declared by ABSENCE from this list, which is the same
+ * statement made the only way an allowlist can make it.
+ *
+ * Set through SENDING_DOMAINS, the same override an operator pulls, so the real
+ * chain still runs underneath: config.ts's format check, parseSendingDomains,
+ * and the module-level map signingTransportFor reads. vitest.setup.ts re-claims
+ * the variable before every test file, so this cannot leak into one that expects
+ * the shipped default.
+ */
+const { MAILEROO_FROM, GRAPH_FROM, UNSIGNABLE_FROM, PINNED_SENDER } = vi.hoisted(() => {
+  const MAILEROO_DOMAIN = "maileroo-signed.example";
+  const GRAPH_DOMAIN = "graph-signed.example";
+  process.env.SENDING_DOMAINS = `${MAILEROO_DOMAIN}:maileroo,${GRAPH_DOMAIN}:graph`;
+  return {
+    /** Signable by Maileroo, so the drain sends it AS ITSELF. */
+    MAILEROO_FROM: `recruitment@${MAILEROO_DOMAIN}`,
+    /** Signable only by Graph, so the drain routes it there. */
+    GRAPH_FROM: `hfc.it@${GRAPH_DOMAIN}`,
+    /** Deliberately on no row above: nothing can sign it, so it gets pinned. */
+    UNSIGNABLE_FROM: "someone@unlisted.example",
+    /** The global email.sender setting, which a pinned send leaves as. */
+    PINNED_SENDER: `noreply@${MAILEROO_DOMAIN}`,
+  };
+});
+
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache } from "@/platform/settings/service";
@@ -477,7 +520,7 @@ describe("sendSenderTest", () => {
     beforeEach(async () => {
       await prisma.setting.create({ data: { key: "email.transport", value: "maileroo" } });
       await prisma.setting.create({
-        data: { key: "email.sender", value: "noreply@havenfreeclinic.org" },
+        data: { key: "email.sender", value: PINNED_SENDER },
       });
       _resetSettingsCache();
     });
@@ -486,40 +529,53 @@ describe("sendSenderTest", () => {
       const fetchMock = vi.fn(async () => mailerooOk());
       await sendSenderTest(
         ACTOR,
-        { toEmail: "me@yale.edu", fromEmail: "recruitment@havenfreeclinic.org" },
+        { toEmail: "me@yale.edu", fromEmail: MAILEROO_FROM },
         { fetchImpl: fetchMock as typeof fetch }
       );
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(String(url)).toContain("smtp.maileroo.com");
-      expect(JSON.parse(String(init.body)).from.address).toBe("recruitment@havenfreeclinic.org");
+      expect(JSON.parse(String(init.body)).from.address).toBe(MAILEROO_FROM);
       const audit = await prisma.auditLog.findFirstOrThrow({
         where: { action: "email.sender_test" },
       });
-      expect((audit.after as { sentAs: string }).sentAs).toBe("recruitment@havenfreeclinic.org");
+      expect((audit.after as { sentAs: string }).sentAs).toBe(MAILEROO_FROM);
     });
 
     it("tests the pinned global sender for an address no transport can sign", async () => {
       const fetchMock = vi.fn(async () => mailerooOk());
       await sendSenderTest(
         ACTOR,
-        { toEmail: "me@yale.edu", fromEmail: "someone@example.com" },
+        { toEmail: "me@yale.edu", fromEmail: UNSIGNABLE_FROM },
         { fetchImpl: fetchMock as typeof fetch }
       );
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(String(url)).toContain("smtp.maileroo.com");
-      expect(JSON.parse(String(init.body)).from.address).toBe("noreply@havenfreeclinic.org");
+      expect(JSON.parse(String(init.body)).from.address).toBe(PINNED_SENDER);
+      // And the audit records what actually left, not what was asked for. An
+      // admin reading "sent as the address you typed" for a send that was pinned
+      // would take the wrong reassurance from a green sender test.
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: "email.sender_test" },
+      });
+      expect((audit.after as { sentAs: string }).sentAs).toBe(PINNED_SENDER);
     });
 
     it("tests a Graph-signable address through Graph, because that is where the drain sends it", async () => {
       const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
       await sendSenderTest(
         ACTOR,
-        { toEmail: "me@yale.edu", fromEmail: "hfc.it@yale.edu" },
+        { toEmail: "me@yale.edu", fromEmail: GRAPH_FROM },
         { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
       );
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      // Graph's own endpoint, and the requested address as the sending mailbox:
+      // the whole point of this case is that the address is tested AS ITSELF,
+      // which is what makes it a Send-As check. Nothing routes to Graph in the
+      // shipped default any more, so this case exists only because the fixture
+      // above declares it, and it is what the SENDING_DOMAINS reversal lever
+      // lands an operator in.
       expect(String(url)).toContain("graph.microsoft.com");
-      expect(String(url)).toContain(encodeURIComponent("hfc.it@yale.edu"));
+      expect(String(url)).toContain(encodeURIComponent(GRAPH_FROM));
     });
   });
 

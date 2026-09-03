@@ -114,6 +114,18 @@ export const SETTINGS: SettingDef<unknown>[] = [
     secret: false,
   }),
   define<number>({
+    key: "attendance.nudgeIntervalDays",
+    category: "Operations",
+    label: "Attendance nudge interval (days)",
+    help: "Days between follow-ups to someone who was checked in at training or an info session while their onboarding is still outstanding. The first nudge goes out at check-in regardless; this paces the ones after it, and the stream stops after three or as soon as nothing is outstanding.",
+    input: { type: "number", min: 1 },
+    schema: z.number().int().positive(),
+    // A literal rather than an env var: this is an operational dial ops turns in
+    // the admin UI, and adding an env name for it would mean two places to look.
+    envDefault: () => 7,
+    secret: false,
+  }),
+  define<number>({
     key: "clinic.checkInLatitude",
     category: "Operations",
     label: "Clinic check-in latitude",

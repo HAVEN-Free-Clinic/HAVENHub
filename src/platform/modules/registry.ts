@@ -309,10 +309,28 @@ export const MODULES: ModuleManifest[] = [
     // surfaces the tile + nav tab for them without granting anything new (each
     // page still enforces its own permission).
     additionalAccessPermissions: ["recruitment.score"],
-    permissions: ["recruitment.access", "recruitment.manage_cycles", "recruitment.review_all", "recruitment.score"],
+    // recruitment.record_attendance is deliberately UNSCOPED, like
+    // schedule.manage_attendance above and for the same operational reason: one
+    // person works the door at a training or info session and marks everybody
+    // present, including walk-ups who have no hub record at all. A
+    // department-scoped grant cannot express that. Holders of manage_cycles or
+    // review_all already act clinic-wide and get the same reach without it; a
+    // department-scoped director keeps exactly the narrower authority they had
+    // before events existed (their own departments' members, no walk-ups).
+    permissions: [
+      "recruitment.access",
+      "recruitment.manage_cycles",
+      "recruitment.review_all",
+      "recruitment.score",
+      "recruitment.record_attendance",
+    ],
     status: "active",
     nav: [
       { label: "Cycles", href: "/recruitment" },
+      // The real gate is "may record attendance on ANY scope", which stacks a
+      // permission check on a data-driven one (a director's review scope), so the
+      // module layout resolves it and drops the tab itself.
+      { label: "Events", href: "/recruitment/events", dynamicGate: true },
       // /recruitment/history hard-gates on recruitment.access (no committee-scorer
       // carve-out like the Cycles index has), so gate the tab the same way --
       // otherwise a score-only reviewer (admitted via additionalAccessPermissions

@@ -6,7 +6,7 @@ import {
   setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError, QuizLockedError,
   requiredTrainingTracks,
 } from "./training";
-import { recordAttendance, resolveTrainingState } from "./training";
+import { completeTraining, resolveTrainingState } from "./training";
 import { getMyTraining, submitQuiz, resetTraining, listTrainingRoster } from "./training";
 
 async function seed() {
@@ -107,34 +107,27 @@ async function seedMember() {
   return { ...base, dept, vol, membership, dir };
 }
 
-it("records attendance: marks COMPLETE/ATTENDANCE for the person and is idempotent", async () => {
-  const { term, srr, vol } = await seedMember();
-  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+/* The three tests that used to live here -- attendance is idempotent, a director
+ * in scope may record it and an unrelated person may not -- moved with the
+ * behavior itself to ./attendance-events.test.ts, which exercises them through
+ * recordEventCheckIn. What stays here is completeTraining, the shared write both
+ * the attendance path and the quiz path go through. */
+
+it("completeTraining via ATTENDANCE marks COMPLETE and is idempotent", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  const args = { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER" as const, via: "ATTENDANCE" as const, actorId: srr.id };
+  await completeTraining(prisma, args);
   expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
   const row = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(row.completedVia).toBe("ATTENDANCE");
   expect(row.attendanceRecordedById).toBe(srr.id);
-  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  await completeTraining(prisma, args);
   expect(await prisma.training.count({ where: { personId: vol.id, termId: term.id } })).toBe(1);
-});
-
-it("a director in scope can record attendance; an unrelated person cannot", async () => {
-  const { term, vol, dir, plain } = await seedMember();
-  await recordAttendance(vol.id, term.id, "VOLUNTEER", dir.id);
-  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
-  await prisma.training.deleteMany({});
-  await expect(recordAttendance(vol.id, term.id, "VOLUNTEER", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
 it("resolveTrainingState is PENDING with no row (no backfill)", async () => {
   const { term, vol } = await seedMember();
   expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("PENDING");
-});
-
-it("recordAttendance fails when the term has no designated training cycle", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await setTrainingCycle(c1.id, false, srr.id);
-  await expect(recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 /** Add a 2-question quiz to a cycle (both graded). Called before designation now
@@ -234,10 +227,10 @@ it("submitQuiz throws when every question is unkeyed, not only when there are no
 });
 
 it("does not reset a member whose training is already COMPLETE", async () => {
-  const { term, srr, vol } = await seedMember();
+  const { term, srr, vol, c1 } = await seedMember();
   // Reach COMPLETE via attendance, then confirm resetTraining leaves the row untouched
   // (its updateMany filters on status: { not: "COMPLETE" }).
-  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  await completeTraining(prisma, { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER", via: "ATTENDANCE", actorId: srr.id });
   const before = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
   expect(before.status).toBe("COMPLETE");
   expect(before.lockResetAt).toBeNull();
@@ -307,8 +300,8 @@ it("makeupOpen is true and submit works when no in-person date is set (backward 
 });
 
 it("submitQuiz rejects when already complete", async () => {
-  const { term, srr, vol } = await seedMember();
-  await recordAttendance(vol.id, term.id, "VOLUNTEER", srr.id);
+  const { term, srr, vol, c1 } = await seedMember();
+  await completeTraining(prisma, { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER", via: "ATTENDANCE", actorId: srr.id });
   await expect(submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
 

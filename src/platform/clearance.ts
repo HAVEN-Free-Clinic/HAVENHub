@@ -17,6 +17,18 @@ import { loadClearanceMap } from "@/modules/onboarding/services/clearance";
 export { loadClearanceMap, type ClearanceSummary, type ClearanceTask } from "@/modules/onboarding/services/clearance";
 
 /**
+ * The task-key union itself, re-exported through the same facade.
+ *
+ * ClearanceTask.key already had this type; platform code that names the keys
+ * (compliance/outstanding-items.ts, which turns them into member-facing
+ * sentences) needs the union by name, and reaching into the onboarding module
+ * for it directly is the import this facade exists to prevent. Type-only, so
+ * nothing is added to the runtime graph.
+ */
+// eslint-disable-next-line no-restricted-imports, import/no-restricted-paths
+export type { OnboardingTaskKey } from "@/modules/onboarding/engine/status";
+
+/**
  * The subset of `personIds` who are fully cleared in the ACTIVE term.
  *
  * This exists for the verified badge, which renders beside names on pages all

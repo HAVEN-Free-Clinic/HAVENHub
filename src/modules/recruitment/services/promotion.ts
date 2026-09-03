@@ -10,6 +10,7 @@ import { isNetIdShaped } from "@/platform/auth/match-person";
 import { normalizeIdentityKey } from "./identity-keys";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
+import { linkAttendanceByEmail } from "./attendance-events";
 
 /**
  * Parse an applicant's "availability" answer -- an array of YYYY-MM-DD clinic-date
@@ -324,6 +325,27 @@ export async function promoteContracts(
       if (contract.email) {
         await aliasPerson({ personId: result.personId, previousDistinctId: contract.email, flush: false });
         aliasedAny = true;
+        // This is the moment an event walk-up stops being an orphan: they were
+        // checked in at an info session or a training by name and email, and the
+        // Person that email belongs to now exists. Linking here backfills any
+        // training completion that attendance implies, so someone who sat through
+        // training before onboarding is not asked to attend it again.
+        //
+        // OUTSIDE the transaction and best-effort, deliberately: a failure here
+        // must not roll back a promotion (a Postgres error inside a transaction
+        // poisons the whole connection, whatever the try/catch says), and the
+        // nudge cron's relink sweep picks up anything missed.
+        try {
+          const linked = await linkAttendanceByEmail(result.personId, contract.email);
+          if (linked > 0) {
+            log.info("[promotion] linked prior event attendance", {
+              personId: result.personId,
+              linked,
+            });
+          }
+        } catch (err) {
+          log.error("[promotion] attendance link failed", errorAttrs(err, { contractId: id }));
+        }
       }
     } catch (err) {
       if (err instanceof ContractAlreadyClaimedError) {

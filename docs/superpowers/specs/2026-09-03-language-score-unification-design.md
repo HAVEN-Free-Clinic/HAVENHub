@@ -196,11 +196,44 @@ visible: its docstring says hiding it "would leave someone believing a claim the
 made on their application had made them a language provider when it had not." But
 it is a new negative statement to 8 real people, and unlike a live assessment
 through `recordLanguageAssessment` it sends no notification, by design, because a
-backfill of this size must not mail hundreds of people. Tell the interpreting
-directors before the apply run so nobody is surprised by a question about it.
+backfill of this size must not mail hundreds of people.
+
+**The wider number is 68, not 8.** The note is written on both outcomes, so
+roughly 68 of the 69 affected people get a new line on their own `/my-info` (all
+but the one already-assessed person, who takes the score-filled path and keeps
+their reviewer's note). The 60 positive ones are benign. Tell the interpreting
+directors the real figure before the apply run so nobody is surprised by which
+questions arrive.
 
 The note the backfill writes is member-facing for the same reason: "Recorded from
 your <term> assessment with the interpreting department."
+
+## Two consequences for the interpreting directors to rule on
+
+Neither is a defect in this work, and neither gates the merge. Both are existing
+behaviour that this backfill is the first change to actually exercise, and both
+are the directors' call rather than an engineering one.
+
+**1. The volunteer passport will attest a score of 3 without qualification.**
+`service-record.ts` reads `verifiedLanguagesByPerson`, and `passport-pdf.tsx`
+prints one line per verified language: "Spanish (verified by the interpreting
+department)". No score, no qualifier. After the apply run 61 people can generate
+that, including the 12 who scored 3, which is below INTP's own clinic-wide
+interpreting bar of 4. The passport is a public, token-gated credential a member
+hands to residency applications, and `people.ts` auto-issues it on offboard for
+every graduating volunteer, so the next offboard sweep mints these without anyone
+asking. Credentials already frozen are unaffected. The question for the directors
+is whether that sentence is the right wording for a conversational speaker.
+
+**2. The aggregate Spanish counters do not apply any bar.** The schedule builder
+and the RHD readiness panel both count any verified `es` row as one Spanish
+speaker and render "Spanish speakers: n". Those numbers are near zero today and
+will jump to include the 12 conversational speakers indistinguishably from the 49
+who clear the bar. Nothing is gated on them (capacity keys on headcount, the depo
+check keys on RN), and the per-person roster badge does show the shortfall, so
+this is a display honesty question rather than a safety one. It is also the
+honest answer to "is the floor applied everywhere": at the level of an individual
+being picked, yes; in the aggregate counts, no.
 
 Deleting the split reaches 36 of the 51 queued claims: 15 are INTP members who
 are scored today, and all 36 of the rest are Spanish claims that currently get a
@@ -230,6 +263,11 @@ bare yes/no. Every one of those 36 gains a score field.
    before applying.
 3. Run `backfill:langbadges:apply`.
 4. Re-check the Flag cross-check tab. Its `no-assessment` population should
-   shrink, and `below-interpreter-bar` should grow as scores land on people who
-   previously carried an unscored flag. That growth is the point: those rows were
-   always true, and were invisible for want of a number.
+   shrink, and `below-interpreter-bar` should grow by roughly 12 as scores land
+   on people who previously carried an unscored flag. That growth is the point:
+   those rows were always true, and were invisible for want of a number.
+5. Mention to INTP that "+" now means two different things on two staff pages.
+   `formatSpanishScore` renders an imported half-step as "5-" or "3+" on the
+   review and compliance pages, while the roster's "ES+" means top of scale. Same
+   audience, same glyph, two meanings. Worth a sentence to them rather than a
+   code change, but a third surface should pick one convention.

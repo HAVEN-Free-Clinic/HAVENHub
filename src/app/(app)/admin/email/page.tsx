@@ -23,6 +23,8 @@ import {
   EmailStateError,
 } from "@/modules/admin/services/email";
 import { buildAuthorizeUrl, mailConnectionStatus, teamsScopesGranted } from "@/platform/email/oauth";
+import { emailRoutingGap } from "@/platform/email/routing-gap";
+import { RoutingGapAlert } from "../routing-gap-alert";
 import {
   SENDER_CATEGORIES,
   listSenderRules,
@@ -116,6 +118,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
     mailCred,
     senderRules,
     globalSender,
+    routingGap,
   ] = await Promise.all([
     listEmails({ status: validatedStatus, template: validatedTemplate, q, page }),
     listEmailTemplates(),
@@ -123,6 +126,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
     prisma.mailCredential.findUnique({ where: { id: "mailer" } }),
     listSenderRules(),
     getSetting<string>("email.sender"),
+    // Which of the addresses configured just below would change transport. This
+    // is the page those addresses are typed on, so it is where the consequence
+    // of typing one that Graph cannot carry belongs.
+    emailRoutingGap(),
   ]);
 
   // Keep an active filter selectable even if it currently has no rows (e.g. a
@@ -329,6 +336,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             on any address you enter. Use Send test to confirm.
           </p>
         </div>
+        <RoutingGapAlert gap={routingGap} where="email" />
         {SENDER_CATEGORIES.map((cat) => {
           const rule = categoryRuleByGroup.get(cat.group);
           return (

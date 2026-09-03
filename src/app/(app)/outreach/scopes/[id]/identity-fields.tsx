@@ -16,11 +16,13 @@ export function ScopeIdentityFields({
   initialFromEmail,
   initialFromName,
   domains,
+  graphAddresses,
   connectedMailbox,
 }: {
   initialFromEmail: string | null;
   initialFromName: string | null;
   domains: SendingDomainMap;
+  graphAddresses: string[];
   connectedMailbox: string | null;
 }) {
   const [fromEmail, setFromEmail] = useState(initialFromEmail ?? "");
@@ -55,6 +57,7 @@ export function ScopeIdentityFields({
       <SenderIdentityNotes
         address={fromEmail}
         domains={domains}
+        graphAddresses={graphAddresses}
         connectedMailbox={connectedMailbox}
         warnUnsignable={fromEmail.includes("@")}
       />

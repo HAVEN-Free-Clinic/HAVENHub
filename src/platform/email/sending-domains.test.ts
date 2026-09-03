@@ -7,10 +7,14 @@
  * unconditional pin this allowlist replaces.
  */
 import { describe, expect, it } from "vitest";
+import { decideSigningTransport } from "./address";
 import {
+  DEFAULT_GRAPH_SENDER_ADDRESSES,
   DEFAULT_SENDING_DOMAINS,
+  GRAPH_SENDER_ADDRESSES,
   SENDING_DOMAINS,
   domainOf,
+  parseGraphSenderAddresses,
   parseSendingDomains,
   signingTransportFor,
 } from "./sending-domains";
@@ -162,5 +166,136 @@ describe("signingTransportFor", () => {
 
   it("is case-insensitive about the domain", () => {
     expect(signingTransportFor("HFC.IT@Yale.Edu")).toBe("maileroo");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GRAPH_SENDER_ADDRESSES: the address-level rule
+// ---------------------------------------------------------------------------
+
+describe("parseGraphSenderAddresses", () => {
+  it("ships EMPTY, because which mailboxes an org owns is not a shipped constant", () => {
+    // Deliberate, and the reason the gap check in routing-gap.ts exists: an
+    // empty list routes every address by domain, which on a Maileroo deployment
+    // moves every configured sender to Maileroo. Safe, but decided by nobody
+    // until an admin sees the list.
+    expect(DEFAULT_GRAPH_SENDER_ADDRESSES).toEqual([]);
+    expect(GRAPH_SENDER_ADDRESSES.size).toBe(0);
+  });
+
+  it("treats unset, empty and whitespace-only as NOT CONFIGURED, using the default", () => {
+    // Load-bearing for the same two reasons as the domain table: an unset Vercel
+    // variable arrives as "", and vitest.setup.ts claims every external-service
+    // env name as "" so a local run cannot diverge from CI.
+    for (const spec of [undefined, "", "   "]) {
+      expect(parseGraphSenderAddresses(spec), String(spec)).toEqual(new Set());
+    }
+  });
+
+  it("reads a list, lowercasing and trimming each entry", () => {
+    const set = parseGraphSenderAddresses(" HFC.Admin@Yale.edu , hfc.recruitment@yale.edu ");
+    expect(set).toEqual(new Set(["hfc.admin@yale.edu", "hfc.recruitment@yale.edu"]));
+  });
+
+  it("reads a single address with no comma at all", () => {
+    expect(parseGraphSenderAddresses("hfc.admin@yale.edu")).toEqual(
+      new Set(["hfc.admin@yale.edu"])
+    );
+  });
+
+  it("tolerates a trailing comma, which config.ts also accepts", () => {
+    // The two halves must agree on this or the strict one refuses to boot on
+    // input this one reads correctly, which is what a trailing comma on the
+    // SENDING_DOMAINS lever once did to the whole app.
+    expect(parseGraphSenderAddresses("hfc.admin@yale.edu,")).toEqual(
+      new Set(["hfc.admin@yale.edu"])
+    );
+  });
+
+  it("REPLACES the default rather than merging into it", () => {
+    // Recorded now rather than inferred later: with an empty default the two
+    // behaviours agree, so nothing else would catch a drift to merge semantics.
+    const set = parseGraphSenderAddresses("only@example.com");
+    expect(set).toEqual(new Set(["only@example.com"]));
+  });
+
+  it("skips an entry written as a SENDING_DOMAINS pair, which EMAIL_RE alone accepts", () => {
+    // EMAIL_RE is deliberately permissive about the domain part, so it reads
+    // "x@example.com:graph" as an address whose domain is "example.com:graph".
+    // The mistake is invited by the variable sitting next to this one in
+    // .env.example. config.ts refuses to boot on it; this half must agree that
+    // it is not a usable entry, or the two disagree about the same input.
+    expect(parseGraphSenderAddresses("x@example.com:graph")).toEqual(new Set());
+    expect(parseGraphSenderAddresses("ok@example.com,x@example.com:graph")).toEqual(
+      new Set(["ok@example.com"])
+    );
+  });
+});
+
+describe("the address rule out-ranks the domain table", () => {
+  // The whole reason this rule exists, at both polarities on ONE domain.
+  // yale.edu is Maileroo-signed in the shipped table; a shared clinic mailbox on
+  // it must still go through Graph, and a personal one on it must not.
+  const graphAddresses = new Set(["hfc.admin@yale.edu"]);
+  const domains = SENDING_DOMAINS;
+
+  it("routes a listed address to Graph though its domain says Maileroo", () => {
+    expect(domains.get("yale.edu")).toBe("maileroo");
+    expect(decideSigningTransport("hfc.admin@yale.edu", { graphAddresses, domains })).toEqual({
+      transport: "graph",
+      rule: "address",
+    });
+  });
+
+  it("routes an UNLISTED address on that same domain to Maileroo", () => {
+    // Without this the test above passes against an implementation that sends
+    // all of yale.edu to Graph, which is the thing this change replaced.
+    expect(decideSigningTransport("alice@yale.edu", { graphAddresses, domains })).toEqual({
+      transport: "maileroo",
+      rule: "domain",
+    });
+  });
+
+  it("routes the connected mailbox to Graph with no list entry", () => {
+    expect(graphAddresses.has("hfc.it@yale.edu")).toBe(false);
+    expect(
+      decideSigningTransport("hfc.it@yale.edu", {
+        graphAddresses,
+        domains,
+        graphMailbox: "hfc.it@yale.edu",
+      })
+    ).toEqual({ transport: "graph", rule: "mailbox" });
+  });
+
+  it("routes that same address by domain when it is NOT the connected mailbox", () => {
+    expect(
+      decideSigningTransport("hfc.it@yale.edu", { graphAddresses, domains, graphMailbox: null })
+    ).toEqual({ transport: "maileroo", rule: "domain" });
+  });
+
+  it("compares the connected mailbox case- and whitespace-blind", () => {
+    expect(
+      decideSigningTransport("HFC.IT@Yale.Edu", {
+        graphAddresses,
+        domains,
+        graphMailbox: "  hfc.it@yale.edu ",
+      })?.rule
+    ).toBe("mailbox");
+  });
+
+  it("still answers null for an address no rule claims", () => {
+    // A pinned address does not make its whole domain signable, and an unlisted
+    // domain is still unlisted.
+    expect(decideSigningTransport("someone@example.com", { graphAddresses, domains })).toBeNull();
+  });
+
+  it("does not let a pinned address rescue its neighbours on an unlisted domain", () => {
+    const pinned = new Set(["ok@example.com"]);
+    expect(
+      decideSigningTransport("ok@example.com", { graphAddresses: pinned, domains })?.transport
+    ).toBe("graph");
+    expect(
+      decideSigningTransport("other@example.com", { graphAddresses: pinned, domains })
+    ).toBeNull();
   });
 });

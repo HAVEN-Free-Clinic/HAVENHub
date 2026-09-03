@@ -18,7 +18,10 @@ import {
 import { config } from "@/platform/config";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatForDateInput, parseZonedInput } from "@/platform/dates/format";
-import { getAccessToken as defaultGetAccessToken } from "@/platform/email/oauth";
+import {
+  connectedGraphMailbox,
+  getAccessToken as defaultGetAccessToken,
+} from "@/platform/email/oauth";
 import { signingTransportFor } from "@/platform/email/sending-domains";
 import { getSetting } from "@/platform/settings/service";
 
@@ -285,10 +288,13 @@ export async function sendSenderTest(
   // This used to be one answer per transport setting: maileroo pinned every send
   // to the global sender, so a rule's own address was never the one tested. That
   // is now only the OFF-LIST case; an address Maileroo can sign is tested as
-  // itself, and an address on a graph-signed row is tested through Graph. No row
-  // is graph-signed in the shipped default since 2026-09-02, so that last branch
-  // serves a state SENDING_DOMAINS can reach rather than one it is in.
-  const signer = signingTransportFor(input.fromEmail);
+  // itself, and a Graph-routed address is tested through Graph.
+  //
+  // The connected mailbox is passed for the same reason the drain passes it: it
+  // is Graph-routed with no list entry, and a test that sent it through Maileroo
+  // would be reporting on a send production does not make. That is this
+  // function's whole contract, so the two must not diverge here of all places.
+  const signer = signingTransportFor(input.fromEmail, (await connectedGraphMailbox()).account);
 
   // Build the transport that is actually selected. Falling through to LogTransport
   // for a live non-graph transport would make the test send silently "pass"

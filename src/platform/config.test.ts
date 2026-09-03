@@ -94,6 +94,79 @@ describe("loadConfig - SENDING_DOMAINS", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// GRAPH_SENDER_ADDRESSES: the address-level Graph list
+// ---------------------------------------------------------------------------
+
+describe("loadConfig - GRAPH_SENDER_ADDRESSES", () => {
+  it("is optional, and unset means no address-level pins", () => {
+    expect(loadConfig(base).GRAPH_SENDER_ADDRESSES).toBeUndefined();
+  });
+
+  it("treats an empty or whitespace-only value as not configured", () => {
+    // An unset Vercel variable arrives as "", and vitest.setup.ts claims this
+    // name as "" so a local run cannot diverge from CI. Reading either as
+    // "configured to nothing" would be a distinction with no way to express
+    // "not configured" at all.
+    expect(loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: "" }).GRAPH_SENDER_ADDRESSES)
+      .toBeUndefined();
+    expect(loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: "   " }).GRAPH_SENDER_ADDRESSES)
+      .toBeUndefined();
+  });
+
+  it("accepts a list of addresses, and a single one", () => {
+    const many = "haven.free.clinic@yale.edu,hfc.admin@yale.edu,hfc.recruitment@yale.edu";
+    expect(loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: many }).GRAPH_SENDER_ADDRESSES).toBe(many);
+    expect(
+      loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: "hfc.admin@yale.edu" })
+        .GRAPH_SENDER_ADDRESSES
+    ).toBe("hfc.admin@yale.edu");
+  });
+
+  it("accepts a trailing comma and surrounding whitespace, which the parser also reads", () => {
+    // The two halves must agree, or the strict one refuses to boot on input the
+    // parser reads correctly -- an app-wide cold-start failure caused by a typo
+    // on an emergency lever, which is exactly what happened to SENDING_DOMAINS.
+    expect(() =>
+      loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: "hfc.admin@yale.edu," })
+    ).not.toThrow();
+    expect(() =>
+      loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: " hfc.admin@yale.edu , ,x@y.edu " })
+    ).not.toThrow();
+  });
+
+  it("refuses a non-empty value that names no address at all", () => {
+    // The SENDING_DOMAINS regression, arrived at from the same direction: "," is
+    // not whitespace-only so it is not "not configured", and every segment is
+    // then skipped. Here the resulting empty set happens to be SAFE (it is what
+    // unset produces), so the refusal is not about danger -- it is that the
+    // operator set the variable, meant something by it, and got nothing.
+    for (const spec of [",", " , ", ",,"]) {
+      expect(() => loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: spec }), spec).toThrowError(
+        /GRAPH_SENDER_ADDRESSES/
+      );
+    }
+  });
+
+  it("refuses a malformed address rather than silently dropping that mailbox", () => {
+    // parseGraphSenderAddresses skips an entry it cannot read. A typo'd
+    // "hfc.admin@yale" would otherwise take that mailbox off the Graph list and
+    // move its mail to Maileroo with no error anywhere, which is the silent
+    // transport change this whole feature exists to make visible.
+    for (const spec of [
+      "hfc.admin@yale",
+      "hfc.admin@yale.edu,not-an-address",
+      "hfc.admin at yale.edu",
+      "yale.edu",
+      "hfc.admin@yale.edu:graph",
+    ]) {
+      expect(() => loadConfig({ ...base, GRAPH_SENDER_ADDRESSES: spec }), spec).toThrowError(
+        /GRAPH_SENDER_ADDRESSES/
+      );
+    }
+  });
+});
+
 describe("loadConfig", () => {
   it("accepts a valid development env without Azure vars", () => {
     const config = loadConfig(base);

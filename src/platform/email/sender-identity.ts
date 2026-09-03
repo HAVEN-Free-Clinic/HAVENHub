@@ -246,8 +246,13 @@ export function sendingAddressProblem(address: string | null | undefined): strin
   if (!EMAIL_RE.test(normalized)) return `"${normalized}" is not a valid email address.`;
   if (signingTransportFor(normalized)) return null;
   return (
+    // Both levers, since either can make an address usable now: SENDING_DOMAINS
+    // verifies a whole domain, GRAPH_SENDER_ADDRESSES names one mailbox. Naming
+    // only the first would tell an admin holding a perfectly good shared mailbox
+    // on an unlisted domain that their one option is to verify the domain.
     `"${normalized}" is not on a verified sending domain, so no transport can sign for it. ` +
-    `Use an address on a domain listed in SENDING_DOMAINS.`
+    `Use an address on a domain listed in SENDING_DOMAINS, or add this mailbox to ` +
+    `GRAPH_SENDER_ADDRESSES if Microsoft Graph holds it.`
   );
 }
 

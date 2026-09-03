@@ -17,7 +17,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
-import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
+import { GRAPH_SENDER_ADDRESSES, SENDING_DOMAINS } from "@/platform/email/sending-domains";
 import { mailConnectionStatus } from "@/platform/email/oauth";
 import { describeAutoIssue } from "@/platform/email/sender-identity";
 import { AudienceBuilder } from "../../campaigns/[id]/audience-builder";
@@ -76,6 +76,10 @@ export default async function ScopeDetailPage({
   // the client-side identity notes. Resolved here because sending-domains.ts
   // reads `@/platform/config` at import and must not reach the browser.
   const domains: SendingDomainMap = Object.fromEntries(SENDING_DOMAINS);
+  // See identities/page.tsx: the address rule out-ranks the domain table, so the
+  // notes need both lists or they report the domain's verdict for an address
+  // that does not follow it.
+  const graphAddresses = [...GRAPH_SENDER_ADDRESSES];
   const mail = await mailConnectionStatus();
 
   async function saveAction(formData: FormData) {
@@ -181,6 +185,7 @@ export default async function ScopeDetailPage({
           initialFromEmail={scope.fromEmail}
           initialFromName={scope.fromName}
           domains={domains}
+          graphAddresses={graphAddresses}
           connectedMailbox={mail.account}
         />
         <AudienceBuilder

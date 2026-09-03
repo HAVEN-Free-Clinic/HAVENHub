@@ -24,6 +24,7 @@ import {
   SenderIdentityError,
 } from "@/platform/email/sender-identity";
 import { saveSenderRule } from "@/platform/email/sender-rules";
+import { setSetting } from "@/platform/settings/service";
 
 beforeEach(resetDb);
 
@@ -1731,10 +1732,15 @@ describe("campaign sending identity", () => {
 /**
  * The NAME a campaign run goes out under, next to the address.
  *
- * An admin-set display name wins; the sending person's name fills the gap. The
- * two admin layers are the scope's `fromName` and an issued identity's
- * `displayName`, and neither is overridden by whoever pressed Send: a role
- * address configured as "HAVEN Recruitment" keeps that institutional voice.
+ * THE ORDER: an admin-set name, then the person who CHOSE the identity, then
+ * `branding.orgName`, then nothing. The two admin layers are the scope's
+ * `fromName` and an issued identity's `displayName`, and neither is overridden
+ * by whoever pressed Send: a role address configured as "HAVEN Recruitment"
+ * keeps that institutional voice.
+ *
+ * The org floor is last on purpose and is NOT the campaign's creator. Nobody
+ * chose to send as themselves on a campaign that took the default identity, and
+ * a person's name on an address that is not theirs is a claim they did not make.
  *
  * WHICH PERSON is the part most easily got wrong, and it is asserted on its own
  * below. It is the one who CHOSE the identity (EmailCampaign.fromEmailSetById),
@@ -1886,11 +1892,13 @@ describe("the display name a campaign run sends under", () => {
     expect((await fromOf(byCron.runId)).names).toEqual(["Jack Carney"]);
   });
 
-  it("sends with no display name, and does not throw, when nobody chose the identity", async () => {
+  it("falls to the org name, and does not throw, when nobody chose the identity", async () => {
     // An unscoped-choice campaign: the sender picked nothing, so
     // fromEmailSetById is null and there is no person whose name this send would
-    // be crediting. The address still resolves from the scope, and the run must
-    // complete -- a missing name is cosmetic, a throw fails the run.
+    // be crediting. Every campaign in production is this one -- 7 of 7, none
+    // with an explicit identity and none with a chooser -- so this is the case
+    // the org floor exists for. The address still resolves from the scope, and
+    // the run must complete: a missing name is cosmetic, a throw fails the run.
     const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
     await activePerson("Sam Rivera", "sam@example.com");
     await compose(chooser.id, campaign.id);
@@ -1902,10 +1910,12 @@ describe("the display name a campaign run sends under", () => {
     const res = await sendCampaignNow(chooser.id, campaign.id, {});
     const { emails, names } = await fromOf(res.runId);
     expect(emails).toEqual(["peds@havenfreeclinic.org"]);
-    expect(names).toEqual([null]);
+    // NOT the chooser's name. Nobody chose, and "Jack Carney" on the clinic's
+    // peds address would be a claim no one made.
+    expect(names).toEqual(["HAVEN Free Clinic"]);
   });
 
-  it("sends with no display name, and does not throw, once the chooser is deleted", async () => {
+  it("falls to the org name, and does not throw, once the chooser is deleted", async () => {
     // fromEmailSetById is SetNull on delete, so a campaign can legitimately
     // outlive its chooser -- and a recurring one keeps running after they leave.
     // The address is pinned to the SCOPE identity so it survives the chooser
@@ -1929,7 +1939,48 @@ describe("the display name a campaign run sends under", () => {
     });
     const { emails, names } = await fromOf(res.runId);
     expect(emails).toEqual(["peds@havenfreeclinic.org"]);
+    expect(names).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("falls to the org name for a campaign with no identity at all", async () => {
+    // The other half of the floor, and the one that does NOT go through
+    // senderForRun: no scope identity and nothing issued, so the campaign
+    // resolves no identity, senderForRun returns null, and the enqueue falls
+    // through to the template sender rules. Both routes have to land on the same
+    // name or the same campaign would be named or bare depending on a detail its
+    // sender never sees.
+    const { chooser, campaign } = await named();
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id);
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual([null]);
+    expect(names).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("puts nothing on the wire when the org name is only whitespace", async () => {
+    // Step 4 of the order has to be real: no name, not a blank one. Asserted at
+    // the transport as well as on the row, because a blank name that survived to
+    // the wire is exactly what this is guarding against.
+    await setSetting("branding.orgName", "   ", null);
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id);
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["peds@havenfreeclinic.org"]);
     expect(names).toEqual([null]);
+
+    const delivered: Array<string | undefined> = [];
+    await sendModule.drainEmailQueue({
+      async send(msg) {
+        delivered.push(msg.fromName);
+      },
+    });
+    expect(delivered.length).toBeGreaterThan(0);
+    expect([...new Set(delivered)]).toEqual([undefined]);
   });
 
   it("snapshots the name at enqueue, so a later rename does not rewrite queued mail", async () => {

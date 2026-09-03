@@ -30,6 +30,7 @@ import {
   listSenderRules,
   saveSenderRule,
   clearSenderRule,
+  orgDisplayName,
   SenderRuleValidationError,
 } from "@/platform/email/sender-rules";
 import { getSetting } from "@/platform/settings/service";
@@ -232,7 +233,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
       redirect(`/admin/email?senderError=${encodeURIComponent("No global send-from address is configured yet. Set one before sending a test.")}`);
     }
     try {
-      await sendSenderTest(a.personId, { toEmail, fromEmail, fromName: fromName || null });
+      // A BLANK display name is not "no name" any more: every send with no name
+      // of its own falls through to the org floor, so a test sent bare would
+      // stop showing what recipients see.
+      await sendSenderTest(a.personId, {
+        toEmail,
+        fromEmail,
+        fromName: fromName || (await orgDisplayName()),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Test send failed.";
       redirect(`/admin/email?senderError=${encodeURIComponent(message)}`);

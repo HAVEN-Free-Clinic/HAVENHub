@@ -49,6 +49,7 @@ const { GRAPH_SIGNED_ADDRESS } = vi.hoisted(() => {
 
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { setSetting } from "@/platform/settings/service";
 import { signingTransportFor } from "./sending-domains";
 import {
   SenderIdentityError,
@@ -798,8 +799,8 @@ describe("the connected Graph mailbox", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * THE PRECEDENCE: an admin-set display name wins, and the sending PERSON's name
- * fills the gap.
+ * THE PRECEDENCE: an admin-set display name wins, the sending PERSON's name
+ * fills the gap, and `branding.orgName` is the floor under both.
  *
  * Both layers of the resolution order carry an admin-set name (a scope's
  * `fromName` and an issued identity's `displayName`) and both mean the same
@@ -807,11 +808,16 @@ describe("the connected Graph mailbox", () => {
  * whoever pressed Send does not get to overwrite it. Only where nobody made that
  * decision does the person show through.
  *
+ * The floor is the ORG, not the campaign's creator, and that is a deliberate
+ * rejection rather than an omission: nobody chose to send as themselves on a
+ * campaign that took the default identity, so a person's name on an address that
+ * is not theirs would be a claim they never made.
+ *
  * The name is COSMETIC. It plays no part in DKIM or SPF alignment (stated in
  * transport.ts, and the reason a display name survives even a send whose address
  * is pinned and demoted to Reply-To). That is why every missing case below has
- * to degrade to no name rather than throw: losing a name costs a line of polish,
- * and throwing costs the run.
+ * to degrade rather than throw: losing a name costs a line of polish, and
+ * throwing costs the run.
  */
 describe("the display name in the From", () => {
   it("prefers the admin-set name over the sending person's", async () => {
@@ -824,7 +830,7 @@ describe("the display name in the From", () => {
     expect(await senderDisplayName({ displayName: null }, chooser.id)).toBe("Jack Carney");
   });
 
-  it("degrades to no name rather than throwing when there is no person to name", async () => {
+  it("falls to the org name rather than throwing when there is no person to name", async () => {
     // Three ways the person can be missing, and all three are ordinary.
     //
     //   null   -- an unscoped campaign with no explicit identity has no chooser
@@ -834,9 +840,15 @@ describe("the display name in the From", () => {
     //   stale  -- an id that resolves to nobody. The one shape that would throw
     //             under findUniqueOrThrow, and the reason this reads with
     //             findUnique instead.
-    expect(await senderDisplayName({ displayName: null }, null)).toBeNull();
-    expect(await senderDisplayName({ displayName: null }, undefined)).toBeNull();
-    expect(await senderDisplayName({ displayName: null }, "cktheresnosuchperson")).toBeNull();
+    //
+    // None of them throws, and none of them now sends bare either: the org's own
+    // name is the floor. This is every campaign in production -- 7 of 7 have no
+    // chooser -- so it is the branch that actually runs.
+    expect(await senderDisplayName({ displayName: null }, null)).toBe("HAVEN Free Clinic");
+    expect(await senderDisplayName({ displayName: null }, undefined)).toBe("HAVEN Free Clinic");
+    expect(await senderDisplayName({ displayName: null }, "cktheresnosuchperson")).toBe(
+      "HAVEN Free Clinic",
+    );
 
     // An admin name still lands with no person anywhere: it never needed one.
     expect(await senderDisplayName({ displayName: "HAVEN Recruitment" }, null)).toBe(
@@ -844,15 +856,16 @@ describe("the display name in the From", () => {
     );
   });
 
-  it("treats a blank name on either side as no name", async () => {
-    // Both write seams trim already (issueSendingIdentity and updateScope each
-    // store null for a whitespace-only value), so this guards rows written
-    // before those existed, and a Person.name that is whitespace, which nothing
-    // trims anywhere.
+  it("treats a blank name at any level as no name at that level", async () => {
+    // Both identity write seams trim already (issueSendingIdentity and
+    // updateScope each store null for a whitespace-only value), so this guards
+    // rows written before those existed, and a Person.name that is whitespace,
+    // which nothing trims anywhere.
     const blank = await prisma.person.create({
       data: { name: "   ", contactEmail: "blank@havenfreeclinic.org", status: "ACTIVE" },
     });
-    expect(await senderDisplayName({ displayName: "   " }, blank.id)).toBeNull();
+    // Blank identity name AND blank person name: through both, down to the org.
+    expect(await senderDisplayName({ displayName: "   " }, blank.id)).toBe("HAVEN Free Clinic");
 
     const named = await person("Jack Carney", "jack@havenfreeclinic.org");
     // A whitespace-only admin name is not a decision, so the person shows
@@ -864,6 +877,19 @@ describe("the display name in the From", () => {
     );
   });
 
+  it("returns no name at all when even the org name is blank", async () => {
+    // The bottom of the order, and it has to be a real step: a From carrying an
+    // empty display name is worse than a plain address. z.string().min(1)
+    // accepts "   ", so an admin can reach this through the ordinary settings
+    // screen without meaning to.
+    await setSetting("branding.orgName", "   ", null);
+    const blank = await prisma.person.create({
+      data: { name: "  ", contactEmail: "blank@havenfreeclinic.org", status: "ACTIVE" },
+    });
+    expect(await senderDisplayName({ displayName: null }, null)).toBeNull();
+    expect(await senderDisplayName({ displayName: "  " }, blank.id)).toBeNull();
+  });
+
   it("still names the person when there is no identity at all", async () => {
     // The shape senderForRun never passes, because it returns before it gets
     // here. Pinned anyway: nothing about "which name" should depend on the
@@ -871,6 +897,14 @@ describe("the display name in the From", () => {
     const chooser = await person("Jack Carney", "jack@havenfreeclinic.org");
     expect(await senderDisplayName(null, chooser.id)).toBe("Jack Carney");
     expect(await senderDisplayName(undefined, chooser.id)).toBe("Jack Carney");
+  });
+
+  it("follows the org name through a rename", async () => {
+    // Read through the normal settings path, so an admin who renames the
+    // organisation gets it everywhere. Also what proves the assertions above are
+    // reading the setting rather than a constant that happens to match it.
+    await setSetting("branding.orgName", "New Haven Free Clinic", null);
+    expect(await senderDisplayName({ displayName: null }, null)).toBe("New Haven Free Clinic");
   });
 });
 

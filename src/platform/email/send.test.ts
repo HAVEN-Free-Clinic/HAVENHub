@@ -11,6 +11,7 @@ import { resetDb } from "@/platform/test/db";
 import { queueEmail, drainEmailQueue } from "./send";
 import { MailerooTransport, type EmailTransport } from "./transport";
 import { saveSenderRule } from "./sender-rules";
+import { setSetting } from "@/platform/settings/service";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -345,11 +346,14 @@ describe("queueEmail sender snapshot", () => {
     expect(row.fromName).toBe("HAVEN Recruitment");
   });
 
-  it("leaves fromEmail null when no rule matches", async () => {
+  it("leaves fromEmail null when no rule matches, and names the message from the org", async () => {
     await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
     const row = await prisma.emailLog.findFirstOrThrow();
+    // The ADDRESS is untouched by the org-name floor: no rule chose one, so the
+    // transport's own default still carries the message and nothing about
+    // routing or signing moved.
     expect(row.fromEmail).toBeNull();
-    expect(row.fromName).toBeNull();
+    expect(row.fromName).toBe("HAVEN Free Clinic");
   });
 
   it("drain forwards the snapshotted from to the transport", async () => {
@@ -363,6 +367,45 @@ describe("queueEmail sender snapshot", () => {
     const transport = okTransport();
     await drainEmailQueue(transport);
     expect(transport.froms).toEqual(["recruit@yale.edu"]);
+    // The rule carries no name of its own, so the org floor is what reaches the
+    // wire. It used to be undefined, which is the bare From this exists to end.
+    expect(transport.fromNames).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("snapshots the org name at enqueue, so a later rename does not rewrite queued mail", async () => {
+    // The same property the address and the person's name already have. The
+    // drain re-reads the row verbatim minutes or hours later, so a name resolved
+    // at delivery time would let a rename retroactively rewrite the From of mail
+    // already accepted.
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+    expect((await prisma.emailLog.findFirstOrThrow()).fromName).toBe("HAVEN Free Clinic");
+
+    await setSetting("branding.orgName", "New Haven Free Clinic", null);
+
+    const transport = okTransport();
+    await drainEmailQueue(transport);
+    expect(transport.fromNames).toEqual(["HAVEN Free Clinic"]);
+
+    // And the rename DID take, so the assertion above is about the snapshot
+    // rather than about renames never reaching the From at all.
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "b@example.com" });
+    const later = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "b@example.com" } });
+    expect(later.fromName).toBe("New Haven Free Clinic");
+  });
+
+  it("puts nothing on the wire when the org name is only whitespace", async () => {
+    // Step 4 of the order has to be real: falling through to NO name, not to a
+    // blank one. A From carrying an empty display name renders as a stray pair
+    // of quotes in most clients, which reads as a bug rather than a plain
+    // address.
+    await setSetting("branding.orgName", "   ", null);
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "a@example.com" });
+    const row = await prisma.emailLog.findFirstOrThrow();
+    expect(row.fromEmail).toBeNull();
+    expect(row.fromName).toBeNull();
+
+    const transport = okTransport();
+    await drainEmailQueue(transport);
     expect(transport.fromNames).toEqual([undefined]);
   });
 });

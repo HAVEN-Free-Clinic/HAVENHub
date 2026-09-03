@@ -148,6 +148,7 @@ import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { signingTransportFor, type SigningTransport } from "./sending-domains";
 import { connectedGraphMailbox } from "./oauth";
+import { orgDisplayName } from "./sender-rules";
 import { EMAIL_RE } from "./address";
 
 /** A refusal: an address nobody can sign, or one this person may not use. */
@@ -1324,6 +1325,9 @@ export async function resolveCampaignSender(
 /**
  * The display name one send goes out under, beside the address.
  *
+ * THE ORDER: an admin-set name, then the sending PERSON's name, then the
+ * ORGANISATION's, then nothing.
+ *
  * AN ADMIN-SET NAME WINS; THE SENDING PERSON'S NAME FILLS THE GAP. Both layers
  * of the resolution order carry an admin-set name -- a scope's `fromName` and an
  * issued identity's `displayName`, both already folded into
@@ -1345,9 +1349,16 @@ export async function resolveCampaignSender(
  * with no explicit identity has no chooser to begin with, and
  * `fromEmailSetById` is SetNull on delete, so a departed chooser arrives here as
  * null. Read with findUnique rather than findUniqueOrThrow for the same reason:
- * an id that no longer resolves must degrade to no name. The name is COSMETIC
- * and plays no part in DKIM or SPF alignment (see transport.ts), so losing it
- * costs a line of polish while throwing would fail the whole run.
+ * an id that no longer resolves must degrade rather than throw. The name is
+ * COSMETIC and plays no part in DKIM or SPF alignment (see transport.ts), so
+ * losing it costs a line of polish while throwing would fail the whole run.
+ *
+ * AND UNDER BOTH, THE ORGANISATION'S OWN NAME. Nobody-chose is the ordinary
+ * case, not the exotic one: every campaign in production takes the default
+ * identity, so the person layer fires on none of them and they would all still
+ * go out bare. orgDisplayName is the floor, and it records why the campaign's
+ * CREATOR is deliberately not one -- do not add that fallback here either.
+ * Blank all the way down still means no name, never a blank one.
  *
  * RESOLVED AT ENQUEUE, and snapshotted onto EmailLog.fromName there, exactly
  * like the address. The drain re-reads that row verbatim minutes or hours later,
@@ -1360,12 +1371,15 @@ export async function senderDisplayName(
 ): Promise<string | null> {
   const configured = identity?.displayName?.trim();
   if (configured) return configured;
-  if (!personId) return null;
-  const person = await prisma.person.findUnique({
-    where: { id: personId },
-    select: { name: true },
-  });
-  return person?.name.trim() || null;
+  if (personId) {
+    const person = await prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true },
+    });
+    const chooser = person?.name.trim();
+    if (chooser) return chooser;
+  }
+  return orgDisplayName();
 }
 
 /**

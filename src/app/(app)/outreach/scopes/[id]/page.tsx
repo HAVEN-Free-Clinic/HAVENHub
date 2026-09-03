@@ -60,6 +60,7 @@ export default async function ScopeDetailPage({
     id: p.id,
     name: p.name,
     identityNote: notes.get(p.id)?.note ?? "",
+    identitySeverity: notes.get(p.id)?.severity ?? "info",
     issuableAddress: notes.get(p.id)?.issuableAddress ?? null,
   }));
 

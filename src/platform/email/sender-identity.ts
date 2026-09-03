@@ -789,9 +789,21 @@ export type AutoIssuePreview = {
   /** The sentence to print beside the control. */
   note: string;
   /**
-   * The address a grant would issue, or null when it would issue nothing. The
-   * screen submits this back as grantScope's `approvedAddress`, so it is what
-   * the admin is approving rather than merely being shown.
+   * How loudly to print it. STRUCTURED, not sniffed out of the text.
+   *
+   * The grant form used to pick its critical styling with
+   * `note.startsWith("WARNING:")`, which tied a styling decision to a prose
+   * string nothing pinned: a copy edit would silently downgrade the impostor
+   * note to muted with no test failing. Severity is decided here, where the
+   * facts are, and the form branches on it.
+   */
+  severity: "info" | "warning";
+  /**
+   * The address a grant would issue, or null when it would issue nothing --
+   * including when this person ALREADY holds it directly, where there is nothing
+   * to approve and the grant is just a grant. The screen submits this back as
+   * grantScope's `approvedAddress`, so it is what the admin is approving rather
+   * than merely being shown.
    */
   issuableAddress: string | null;
 };
@@ -810,10 +822,12 @@ export type AutoIssuePreview = {
 const OWNERSHIP_CAUTION =
   "This address comes from their own profile, which they can edit themselves, so confirm it really belongs to them before granting.";
 
-/** Live holders of each queried address, as names, for the warnings above. */
-async function activeHoldersByAddress(
-  addresses: string[],
-): Promise<Map<string, { revoked: boolean; holders: string[] }>> {
+/** One grant on a queried address, keeping enough to tell whose it is. */
+type KnownGrant = { personId: string | null; roleId: string | null; label: string };
+type KnownAddress = { revoked: boolean; grants: KnownGrant[] };
+
+/** Live holders of each queried address, for the warnings above. */
+async function knownAddresses(addresses: string[]): Promise<Map<string, KnownAddress>> {
   const known = addresses.length
     ? await prisma.sendingIdentity.findMany({
         where: { address: { in: addresses } },
@@ -821,27 +835,84 @@ async function activeHoldersByAddress(
           address: true,
           revokedAt: true,
           // One extra include on a query already being made. Without the names
-          // the warning is "somebody else holds this", which is not actionable.
+          // the warning is "somebody else holds this", which is not actionable;
+          // without the ids it cannot tell "somebody else" from "you".
           grants: {
-            select: { person: { select: { name: true } }, role: { select: { name: true } } },
+            select: {
+              personId: true,
+              roleId: true,
+              person: { select: { name: true } },
+              role: { select: { name: true } },
+            },
           },
         },
       })
     : [];
 
-  const map = new Map<string, { revoked: boolean; holders: string[] }>();
+  const map = new Map<string, KnownAddress>();
   for (const row of known) {
     map.set(row.address, {
       revoked: row.revokedAt !== null,
-      holders: row.grants.map((g) =>
-        g.person ? g.person.name : g.role ? `everyone with the ${g.role.name} role` : "someone",
-      ),
+      grants: row.grants.map((g) => ({
+        personId: g.personId,
+        roleId: g.roleId,
+        label: g.person
+          ? g.person.name
+          : g.role
+            ? `everyone with the ${g.role.name} role`
+            : "someone",
+      })),
     });
   }
   return map;
 }
 
-/** "held by A and B", or null when nobody holds it. */
+/**
+ * Split an address's holders into "this person" and "everybody else".
+ *
+ * WHY THE SPLIT EXISTS. The warning it feeds is "someone else already holds
+ * this", and an unfiltered holder list makes that sentence name the very person
+ * being previewed: a sender who already holds their own address saw the full
+ * impostor warning, in the critical style, citing themselves as the existing
+ * holder. That is not an exotic state -- the one-click gap fixer on
+ * /outreach/identities produces it for every sender it helps -- so it would have
+ * been the COMMON case, and a warning that fires on the common case stops being
+ * a warning. Same failure the gap list's own "leaves caution null when nobody
+ * else holds the address" test already guards against.
+ *
+ * BOTH ROUTES COUNT AS THEIRS: a direct grant, and a grant to a role they hold.
+ * roleIdsForPerson is called only when the address actually carries a role
+ * grant, which on this screen's roster is almost never, so the full-roster
+ * preview stays one query in the ordinary case.
+ */
+async function holderSplit(
+  entry: KnownAddress | undefined,
+  personId: string,
+): Promise<{ others: string[]; theirsDirectly: boolean }> {
+  if (!entry || entry.grants.length === 0) return { others: [], theirsDirectly: false };
+
+  const theirsDirectly = entry.grants.some((g) => g.personId === personId);
+  const roleGrants = entry.grants.filter((g) => g.roleId !== null);
+  const theirRoleIds = roleGrants.length ? new Set(await roleIdsForPerson(personId)) : new Set();
+
+  const others = entry.grants
+    .filter((g) => {
+      // Currently unobservable, and kept anyway. Every caller short-circuits on
+      // theirsDirectly before reading `others`, so a mutation that deletes this
+      // line kills no test -- the ROLE line below is the one with teeth. It
+      // stays because `others` has to mean what its name says on its own terms:
+      // the next caller to want the list without the early return should not
+      // have to discover that it silently includes the person they asked about.
+      if (g.personId === personId) return false;
+      if (g.roleId !== null && theirRoleIds.has(g.roleId)) return false;
+      return true;
+    })
+    .map((g) => g.label);
+
+  return { others, theirsDirectly };
+}
+
+/** "A", "A and B", "A, B and C", or null when the list is empty. */
 function holderPhrase(holders: string[]): string | null {
   if (holders.length === 0) return null;
   if (holders.length === 1) return holders[0];
@@ -858,13 +929,14 @@ export async function describeAutoIssue(
         .filter((a): a is string => a !== null),
     ),
   ];
-  const known = await activeHoldersByAddress(addresses);
+  const known = await knownAddresses(addresses);
 
   const notes = new Map<string, AutoIssuePreview>();
   for (const p of people) {
     const address = normalizeSendingAddress(p.contactEmail);
     if (!address) {
       notes.set(p.id, {
+        severity: "info",
         issuableAddress: null,
         note: "No contact email on file, so no sending identity is issued. The scope grant still goes through.",
       });
@@ -873,6 +945,7 @@ export async function describeAutoIssue(
     const existing = known.get(address);
     if (existing?.revoked) {
       notes.set(p.id, {
+        severity: "info",
         issuableAddress: null,
         note: `${address} was revoked by an admin, so this grant will NOT re-issue it. Issue it again below if that revocation was a mistake.`,
       });
@@ -881,20 +954,37 @@ export async function describeAutoIssue(
     const problem = sendingAddressProblem(address);
     if (problem) {
       notes.set(p.id, {
+        severity: "info",
         issuableAddress: null,
         note: `${problem} No sending identity is issued. The scope grant still goes through.`,
       });
       continue;
     }
 
-    // Offered even when the address is already issued: the grant then adds this
-    // person as another holder of it, which is a real change and the one most
-    // worth approving deliberately.
-    const heldBy = existing ? holderPhrase(existing.holders) : null;
+    const { others, theirsDirectly } = await holderSplit(existing, p.id);
+
+    // ALREADY THEIRS. Nothing to approve and nothing to issue, so the button
+    // stays a plain "Grant" and no approvedAddress is submitted. This is the
+    // state the one-click gap fixer leaves every sender in, so it is the branch
+    // most rows on a real roster land in.
+    if (theirsDirectly) {
+      notes.set(p.id, {
+        severity: "info",
+        issuableAddress: null,
+        note: `${address} is already issued to them, and stays issued. This grant only adds the scope.`,
+      });
+      continue;
+    }
+
+    // Issuable. Offered even when SOMEBODY ELSE already holds the address: the
+    // grant then adds this person as another holder, which is a real change and
+    // the one most worth approving deliberately.
+    const heldBy = holderPhrase(others);
     notes.set(p.id, {
+      severity: heldBy ? "warning" : "info",
       issuableAddress: address,
       note: heldBy
-        ? `WARNING: ${address} is ALREADY a sending identity, held by ${heldBy}. Granting adds this person as another holder of it. ${OWNERSHIP_CAUTION}`
+        ? `${address} is ALREADY a sending identity, held by ${heldBy}. Granting adds this person as another holder of it. ${OWNERSHIP_CAUTION}`
         : `Also issues ${address} as a sending identity, so they can send campaigns from it. ${OWNERSHIP_CAUTION}`,
     });
   }
@@ -982,10 +1072,16 @@ export async function sendersWithoutIdentity(): Promise<SenderMissingIdentity[]>
     .map((m) => m.address as string);
   if (issuable.length === 0) return missing;
 
-  const known = await activeHoldersByAddress([...new Set(issuable)]);
+  const known = await knownAddresses([...new Set(issuable)]);
   for (const row of missing) {
     if (row.blocker !== null || row.address === null) continue;
-    const heldBy = holderPhrase(known.get(row.address)?.holders ?? []);
+    // Filtered through the same holderSplit the grant form uses, so "someone
+    // else holds this" has one definition. It is a no-op HERE by construction --
+    // every row in this list resolved to zero identities, so neither route can
+    // reach them -- but going through the shared helper is what stops the two
+    // screens drifting apart the next time one of them changes.
+    const { others } = await holderSplit(known.get(row.address), row.personId);
+    const heldBy = holderPhrase(others);
     if (heldBy) {
       row.caution =
         `${row.address} is ALREADY a sending identity, held by ${heldBy}. ` +

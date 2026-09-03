@@ -735,3 +735,104 @@ describe("warning when the address already belongs to someone", () => {
     expect(gap[0].caution).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The self-holder case: the warning must not fire on the COMMON state.
+// ---------------------------------------------------------------------------
+
+describe("a sender who already holds their own address", () => {
+  /**
+   * This is the state the one-click gap fixer leaves EVERY sender it helps in,
+   * so it is the common row on a real roster, not an exotic one. An unfiltered
+   * holder list made the impostor warning name the very person being previewed
+   * -- "alice@... is ALREADY a sending identity, held by Alice" -- in the
+   * critical style, and offered to issue an address that was already theirs. A
+   * warning that fires on the common case stops being a warning, which is the
+   * same failure "leaves caution null when nobody else holds the address"
+   * already guards on the other surface.
+   */
+  it("is not warned about themselves, and is not offered their own address again", async () => {
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "alice@havenfreeclinic.org");
+    await issueSendingIdentity(admin.id, {
+      personId: alice.id,
+      address: "alice@havenfreeclinic.org",
+    });
+
+    const preview = (await describeAutoIssue([alice])).get(alice.id);
+
+    expect(preview?.severity).toBe("info");
+    expect(preview?.note).not.toContain("Alice");
+    expect(preview?.note).not.toMatch(/another holder/i);
+    expect(preview?.note).toMatch(/already issued to them/i);
+    // Nothing to approve: the grant is just a grant.
+    expect(preview?.issuableAddress).toBeNull();
+  });
+
+  it("is not warned about a role grant that reaches them either", async () => {
+    // The second route to "it is already theirs". Without expanding roles the
+    // filter would catch the direct grant and miss this one, and the person
+    // would be warned that "everyone with the Directors role" holds an address
+    // they hold through that very role.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "shared@havenfreeclinic.org");
+    const role = await roleGranting("outreach.send", [alice]);
+    await issueSendingIdentity(admin.id, {
+      roleId: role.id,
+      address: "shared@havenfreeclinic.org",
+    });
+
+    const preview = (await describeAutoIssue([alice])).get(alice.id);
+
+    expect(preview?.severity).toBe("info");
+    expect(preview?.note).not.toContain(role.name);
+    // Still issuable: a direct grant survives losing the role, so adding one is
+    // a real change rather than a no-op.
+    expect(preview?.issuableAddress).toBe("shared@havenfreeclinic.org");
+  });
+
+  it("still warns when somebody ELSE holds it as well", async () => {
+    // The filter must remove only the previewed person, not the whole warning.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const director = await person("Real Director", "director@havenfreeclinic.org");
+    const alice = await person("Alice", "shared@havenfreeclinic.org");
+    const role = await roleGranting("outreach.send", [alice]);
+    await issueSendingIdentity(admin.id, {
+      roleId: role.id,
+      address: "shared@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(admin.id, {
+      personId: director.id,
+      address: "shared@havenfreeclinic.org",
+    });
+
+    const preview = (await describeAutoIssue([alice])).get(alice.id);
+
+    expect(preview?.severity).toBe("warning");
+    expect(preview?.note).toContain("Real Director");
+    // ...and still not about the role they hold themselves.
+    expect(preview?.note).not.toContain(role.name);
+  });
+
+  it("reports severity structurally, so styling does not depend on the wording", async () => {
+    // The grant form picks its critical style from `severity`, never from the
+    // note text. Pinning the flag rather than a prefix is what stops a copy edit
+    // silently downgrading the impostor note to muted with every test green.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const director = await person("Real Director", "director@havenfreeclinic.org");
+    await issueSendingIdentity(admin.id, {
+      personId: director.id,
+      address: "directors@havenfreeclinic.org",
+    });
+    const impostor = await person("Impostor", "directors@havenfreeclinic.org");
+    const clean = await person("Clean", "clean@havenfreeclinic.org");
+
+    const preview = await describeAutoIssue([impostor, clean]);
+
+    expect(preview.get(impostor.id)?.severity).toBe("warning");
+    expect(preview.get(clean.id)?.severity).toBe("info");
+    // Every non-issuable branch is info, so "warning" means exactly one thing.
+    const none = await person("No Address", null);
+    expect((await describeAutoIssue([none])).get(none.id)?.severity).toBe("info");
+  });
+});

@@ -17,6 +17,8 @@ type Option = { id: string; name: string };
  */
 export type GrantPersonOption = Option & {
   identityNote: string;
+  /** How loudly to print the note. Computed server-side; see AutoIssuePreview. */
+  identitySeverity: "info" | "warning";
   /**
    * The address this grant would also issue, or null when it would issue
    * nothing (none on file, unsignable, already revoked, already issued).
@@ -100,7 +102,11 @@ export function GrantForm({
       {selectedPerson && (
         <p
           className={
-            selectedPerson.identityNote.startsWith("WARNING:")
+            // Branches on the SEVERITY the server computed, never on the text.
+            // This used to test note.startsWith("WARNING:"), which tied the
+            // styling to a prose string nothing pinned: a copy edit would have
+            // downgraded the impostor note to muted with every test still green.
+            selectedPerson.identitySeverity === "warning"
               ? "text-sm font-medium text-critical-foreground"
               : "text-sm text-muted-foreground"
           }

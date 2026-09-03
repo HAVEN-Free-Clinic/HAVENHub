@@ -42,6 +42,7 @@ const { MAILEROO_FROM, GRAPH_FROM, UNSIGNABLE_FROM, PINNED_SENDER } = vi.hoisted
   };
 });
 
+import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { _resetSettingsCache } from "@/platform/settings/service";
@@ -525,6 +526,36 @@ describe("sendSenderTest", () => {
       _resetSettingsCache();
     });
 
+    /**
+     * Set the Graph OAuth credentials for one test and restore them afterwards.
+     *
+     * Needed now that the Graph branch of the sender test is built through
+     * resolveGraphSigner, the same factory the drain uses. vitest.setup.ts
+     * claims every GRAPH_OAUTH_* name as "" so a local run cannot diverge from
+     * CI, which is exactly the unconfigured state that factory refuses.
+     */
+    async function withGraphOAuth<T>(present: boolean, fn: () => Promise<T>): Promise<T> {
+      const keys = [
+        "GRAPH_OAUTH_TENANT_ID",
+        "GRAPH_OAUTH_CLIENT_ID",
+        "GRAPH_OAUTH_CLIENT_SECRET",
+      ] as const;
+      const mutable = config as unknown as Record<string, string | undefined>;
+      const previous = keys.map((key) => mutable[key]);
+      for (const key of keys) mutable[key] = present ? "configured" : "";
+      try {
+        return await fn();
+      } finally {
+        keys.forEach((key, i) => {
+          mutable[key] = previous[i];
+        });
+      }
+    }
+
+    /** The singleton row that means "an admin has connected a Graph mailbox". */
+    const connectMailbox = (account: string) =>
+      prisma.mailCredential.create({ data: { id: "mailer", refreshToken: "rt", account } });
+
     it("tests a Maileroo-signable address AS ITSELF", async () => {
       const fetchMock = vi.fn(async () => mailerooOk());
       await sendSenderTest(
@@ -560,12 +591,50 @@ describe("sendSenderTest", () => {
       expect((audit.after as { sentAs: string }).sentAs).toBe(PINNED_SENDER);
     });
 
-    it("tests a Graph-signable address through Graph, because that is where the drain sends it", async () => {
+    it("tests the CONNECTED MAILBOX through Graph, since that is where the drain sends it", async () => {
+      // The connected mailbox is Graph-routed with no list entry, so dropping
+      // the mailbox argument here would send this test through Maileroo and
+      // report on a send production does not make -- which is the one thing
+      // this function exists to avoid. Its domain is Maileroo-signed and the
+      // fixture pins no addresses at all, so nothing else can explain a Graph
+      // result.
+      await connectMailbox(MAILEROO_FROM);
       const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      await withGraphOAuth(true, () =>
+        sendSenderTest(
+          ACTOR,
+          { toEmail: "me@yale.edu", fromEmail: MAILEROO_FROM },
+          { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+        )
+      );
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("graph.microsoft.com");
+      expect(String(url)).toContain(encodeURIComponent(MAILEROO_FROM));
+    });
+
+    it("tests that same address through MAILEROO when no mailbox is connected", async () => {
+      // The other polarity, and what makes the case above mean something: with
+      // no credential row the address falls back to its domain, which is
+      // Maileroo-signed, so it must NOT reach Graph.
+      const fetchMock = vi.fn(async () => mailerooOk());
       await sendSenderTest(
         ACTOR,
-        { toEmail: "me@yale.edu", fromEmail: GRAPH_FROM },
-        { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+        { toEmail: "me@yale.edu", fromEmail: MAILEROO_FROM },
+        { fetchImpl: fetchMock as typeof fetch }
+      );
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("smtp.maileroo.com");
+    });
+
+    it("tests a Graph-signable address through Graph, because that is where the drain sends it", async () => {
+      await connectMailbox("hfc.it@yale.edu");
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      await withGraphOAuth(true, () =>
+        sendSenderTest(
+          ACTOR,
+          { toEmail: "me@yale.edu", fromEmail: GRAPH_FROM },
+          { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+        )
       );
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       // Graph's own endpoint, and the requested address as the sending mailbox:
@@ -576,6 +645,45 @@ describe("sendSenderTest", () => {
       // lands an operator in.
       expect(String(url)).toContain("graph.microsoft.com");
       expect(String(url)).toContain(encodeURIComponent(GRAPH_FROM));
+    });
+
+    // ---- The Graph preconditions, which the drain refuses on ---------------
+    //
+    // This branch used to build a bare GraphTransport, so an unconfigured
+    // deployment got an opaque Entra 400 or "Mail account is not connected" --
+    // neither of which points at the routing decision that put the address on
+    // Graph. Both states are newly reachable without anyone editing
+    // SENDING_DOMAINS, because GRAPH_SENDER_ADDRESSES routes by address.
+    it("refuses routing-first when Graph has no OAuth credentials, instead of an Entra 400", async () => {
+      await connectMailbox("hfc.it@yale.edu");
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      const err = await withGraphOAuth(false, () =>
+        sendSenderTest(
+          ACTOR,
+          { toEmail: "me@yale.edu", fromEmail: GRAPH_FROM },
+          { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+        ).catch((e) => e)
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain("Stop routing this From to Graph");
+      expect((err as Error).message).toContain("GRAPH_OAUTH_TENANT_ID");
+      // Refused before any request went out, so no admin reads a network error.
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses routing-first when no Graph mailbox is connected", async () => {
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      const err = await withGraphOAuth(true, () =>
+        sendSenderTest(
+          ACTOR,
+          { toEmail: "me@yale.edu", fromEmail: GRAPH_FROM },
+          { getAccessToken: () => Promise.resolve("tok"), fetchImpl: fetchMock as typeof fetch }
+        ).catch((e) => e)
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain("connect a mailbox in Admin > Email");
+      expect((err as Error).message).not.toMatch(/Mail account is not connected/);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 

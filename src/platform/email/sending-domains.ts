@@ -226,6 +226,12 @@ export function parseGraphSenderAddresses(spec: string | undefined): Set<string>
     // branch is unreachable in a booted app; it is here so the two halves do not
     // disagree about what a usable entry is.
     if (!EMAIL_RE.test(address) || address.includes(":")) continue;
+    // A DUPLICATE is absorbed, here and in any casing: this is a set, and one
+    // mailbox listed twice is one mailbox. Stated rather than left to be
+    // inferred, because parseSendingDomains documents its own last-wins rule for
+    // a repeated key and a reader comparing the two should not have to work out
+    // that this one has no "wins" to decide -- membership has no second verdict
+    // for a later entry to override.
     set.add(address);
   }
   return set.size > 0 ? set : withDefaultAddresses(set);

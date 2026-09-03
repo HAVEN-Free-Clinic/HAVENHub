@@ -75,7 +75,7 @@ import {
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
-import { domainOf, GRAPH_SENDER_ADDRESSES } from "./sending-domains";
+import { domainOf, GRAPH_SENDER_ADDRESSES, signingTransportFor } from "./sending-domains";
 import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
@@ -973,6 +973,17 @@ describe("SigningDomainRouter", () => {
     expect(graphStub.sent).toHaveLength(0);
   });
 
+  it("Graph-routes only the mailbox ITSELF, not its neighbours on that domain", async () => {
+    // The router half of the exact-match claim. MAILEROO_FROM shares
+    // CONNECTED_MAILBOX's domain and must still reach Maileroo; a rule widened
+    // to compare domains would silently put every sibling address on Graph.
+    const { router, mailerooStub, graphStub } = build(CONNECTED_MAILBOX);
+    expect(domainOf(MAILEROO_FROM)).toBe(domainOf(CONNECTED_MAILBOX));
+    await router.send({ ...msg, from: MAILEROO_FROM });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
   it("sends a message with no From to the fallback", async () => {
     const { router, graphStub, fallback } = build();
     await router.send(msg);
@@ -1229,6 +1240,34 @@ describe("resolveEmailTransport", () => {
       });
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(String(url)).toContain("smtp.maileroo.com");
+    });
+
+    // THE FACTORY'S OWN WIRING, which the router tests above cannot reach: they
+    // inject graphMailbox through the constructor, so every one of them would
+    // still pass if resolveEmailTransport stopped reading the credential and
+    // passed null. That single line is the entire implicit-mailbox rule in the
+    // real drain, and this is the only test that exercises it.
+    it("passes the CONNECTED MAILBOX to the router, so the drain Graph-routes it", async () => {
+      await prisma.mailCredential.create({
+        data: { id: "mailer", refreshToken: "rt", account: CONNECTED_MAILBOX },
+      });
+      // Neither of the other two rules can account for the result: the fixture
+      // address list does not name it, and its domain is Maileroo-signed.
+      expect(GRAPH_SENDER_ADDRESSES.has(CONNECTED_MAILBOX)).toBe(false);
+      expect(signingTransportFor(CONNECTED_MAILBOX)).toBe("maileroo");
+
+      const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", () =>
+        withGraphOAuth(true, async () => {
+          const t = await resolveEmailTransport();
+          await t.send({ ...msg, from: CONNECTED_MAILBOX }).catch(() => undefined);
+        })
+      );
+      // Only the Graph transport asks Entra for a delegated token, so reaching
+      // login.microsoftonline proves the message was not handed to Maileroo.
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("login.microsoftonline.com");
     });
 
     it("sends a Graph-signable From to Graph, not Maileroo", async () => {

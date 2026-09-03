@@ -843,8 +843,20 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
  * can apply immediately and it must survive the admin Failed card's 60-character
  * truncation. They name both levers, since either can put a From here and this
  * function is resolved once for all of them rather than per message.
+ *
+ * EXPORTED so the admin sender test builds its Graph transport the same way. That
+ * test's entire contract is to mirror what the drain would do with the same From,
+ * and it used to construct a bare GraphTransport with neither precondition --
+ * which handed an admin exactly the opaque Entra 400 or "Mail account is not
+ * connected" this function was written to replace. That state is newly reachable
+ * on an ordinary deployment: before GRAPH_SENDER_ADDRESSES, nothing routed to
+ * Graph unless an operator had edited SENDING_DOMAINS.
  */
-async function resolveGraphSigner(sender: string, mailboxConnected: boolean): Promise<EmailTransport> {
+export async function resolveGraphSigner(
+  sender: string,
+  mailboxConnected: boolean,
+  opts?: { getAccessToken?: () => Promise<string>; fetchImpl?: typeof fetch },
+): Promise<EmailTransport> {
   const missing = [
     !config.GRAPH_OAUTH_TENANT_ID && "GRAPH_OAUTH_TENANT_ID",
     !config.GRAPH_OAUTH_CLIENT_ID && "GRAPH_OAUTH_CLIENT_ID",
@@ -865,7 +877,11 @@ async function resolveGraphSigner(sender: string, mailboxConnected: boolean): Pr
         "nothing else needs Graph here, and mail on every other address is unaffected."
     );
   }
-  return new GraphTransport({ getAccessToken, sender });
+  return new GraphTransport({
+    getAccessToken: opts?.getAccessToken ?? getAccessToken,
+    sender,
+    fetchImpl: opts?.fetchImpl,
+  });
 }
 
 /**

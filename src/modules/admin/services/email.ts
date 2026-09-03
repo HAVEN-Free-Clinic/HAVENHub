@@ -13,6 +13,7 @@ import {
   GraphTransport,
   LogTransport,
   MailerooTransport,
+  resolveGraphSigner,
   type EmailTransport,
 } from "@/platform/email/transport";
 import { config } from "@/platform/config";
@@ -294,7 +295,8 @@ export async function sendSenderTest(
   // is Graph-routed with no list entry, and a test that sent it through Maileroo
   // would be reporting on a send production does not make. That is this
   // function's whole contract, so the two must not diverge here of all places.
-  const signer = signingTransportFor(input.fromEmail, (await connectedGraphMailbox()).account);
+  const mailbox = await connectedGraphMailbox();
+  const signer = signingTransportFor(input.fromEmail, mailbox.account);
 
   // Build the transport that is actually selected. Falling through to LogTransport
   // for a live non-graph transport would make the test send silently "pass"
@@ -316,9 +318,28 @@ export async function sendSenderTest(
       sender: effectiveFrom,
       fetchImpl: opts?.fetchImpl,
     });
+  } else if (transportKind === "maileroo") {
+    // Maileroo mode with a Graph-routed From: the address itself is tested,
+    // which is exactly the Send-As check.
+    //
+    // Built through resolveGraphSigner, the SAME factory the drain uses for this
+    // branch, so its two preconditions apply here too. A bare GraphTransport
+    // reported a missing GRAPH_OAUTH_* as an opaque Entra 400 and an unconnected
+    // mailbox as "Mail account is not connected", neither of which points at the
+    // routing decision that put the address on Graph. Both are newly reachable
+    // on an ordinary deployment, because GRAPH_SENDER_ADDRESSES routes to Graph
+    // without anyone having edited SENDING_DOMAINS first.
+    effectiveFrom = input.fromEmail;
+    transport = await resolveGraphSigner(effectiveFrom, mailbox.connected, {
+      getAccessToken: opts?.getAccessToken,
+      fetchImpl: opts?.fetchImpl,
+    });
   } else {
-    // Graph mode, or maileroo mode with a Graph-signed From. Either way the
-    // address itself is what is tested, which is exactly the Send-As check.
+    // Graph mode. A bare GraphTransport, deliberately, because that is exactly
+    // what resolveEmailTransport's graph branch returns -- mirroring the drain
+    // is this function's whole contract, and the graph branch has its
+    // preconditions checked at write time by the email.transport setting's
+    // validate hook rather than per message.
     effectiveFrom = input.fromEmail;
     transport = new GraphTransport({
       getAccessToken: opts?.getAccessToken ?? defaultGetAccessToken,

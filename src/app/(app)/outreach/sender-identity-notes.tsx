@@ -43,7 +43,7 @@
  */
 
 import { Alert } from "@/platform/ui/alert";
-import { decideSigningTransport, domainOf, EMAIL_RE } from "@/platform/email/address";
+import { decideSigningTransport, EMAIL_RE } from "@/platform/email/address";
 
 export type SendingDomainMap = Record<string, "maileroo" | "graph">;
 
@@ -69,7 +69,6 @@ export function SenderIdentityNotes({
 }) {
   const normalized = address?.trim().toLowerCase() ?? "";
   if (!normalized) return null;
-  const domain = domainOf(normalized);
   // The router's decision, not a domain lookup. The connected mailbox is passed
   // because Graph can always send as it, which is exactly the case the Send-As
   // warning below then suppresses.
@@ -99,9 +98,10 @@ export function SenderIdentityNotes({
     if (!warnUnsignable) return null;
     return (
       <Alert tone="error">
-        No transport can sign mail for <strong>{domain ?? normalized}</strong>, so this address
-        cannot be used. Choose an address on one of the verified sending domains:{" "}
-        {Object.keys(domains).sort().join(", ")}.
+        No transport can sign mail for <strong>{normalized}</strong>, so this address cannot be
+        used. Choose an address on one of the verified sending domains (
+        {Object.keys(domains).sort().join(", ")}), or ask an admin to add this mailbox to{" "}
+        <code>GRAPH_SENDER_ADDRESSES</code> if Microsoft Graph holds it.
       </Alert>
     );
   }

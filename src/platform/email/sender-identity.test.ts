@@ -49,6 +49,7 @@ const { GRAPH_SIGNED_ADDRESS } = vi.hoisted(() => {
 
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { signingTransportFor } from "./sending-domains";
 import {
   SenderIdentityError,
   availableSenderIdentities,
@@ -704,5 +705,88 @@ describe("resolution order", () => {
       await resolveSenderIdentity(null, scopeIdentity("peds@havenfreeclinic.org"), null),
     ).toMatchObject({ address: "peds@havenfreeclinic.org", source: "scope" });
     expect(await resolveSenderIdentity(null, null, null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The connected Graph mailbox, which is Graph-routed with no allowlist entry
+// ---------------------------------------------------------------------------
+
+/**
+ * CONFIGURE TIME AND SEND TIME MUST GIVE THE SAME ANSWER.
+ *
+ * The mailbox Graph is connected as can always be sent as, so routing treats it
+ * as Graph-routed without any list entry. Every check in this module has to
+ * agree, because they are rendered side by side: the Transport column comes from
+ * listIssuedIdentities and the warning panel under it computes its own answer
+ * from the same array. While these seams omitted the mailbox they disagreed out
+ * loud -- the column said "maileroo" while the panel said "sends through
+ * Microsoft Graph" for one address.
+ *
+ * The fixture uses a SUBDOMAIN deliberately, because that is the clinic's real
+ * state (hfc.admin@yu.yale.edu) and it is the case where the two answers differ
+ * most: a subdomain publishes its own SPF and DKIM records so it does NOT
+ * inherit its parent's allowlist row. Nothing but the mailbox rule can make it
+ * usable, which is what makes each assertion below falsifiable.
+ */
+describe("the connected Graph mailbox", () => {
+  const MAILBOX = "hfc.admin@yu.yale.edu";
+
+  /** The singleton credential row that means "an admin connected a mailbox". */
+  const connect = (account: string) =>
+    prisma.mailCredential.create({ data: { id: "mailer", refreshToken: "rt", account } });
+
+  it("is on a subdomain that inherits nothing, so only the mailbox rule can carry it", () => {
+    // Guards the fixture itself. If yu.yale.edu ever became allowlisted, every
+    // assertion below would pass for the wrong reason and silently stop testing
+    // the mailbox rule at all.
+    expect(signingTransportFor(MAILBOX)).toBeNull();
+    expect(signingTransportFor(MAILBOX, MAILBOX)).toBe("graph");
+  });
+
+  it("can be ISSUED as an identity, which the write-time check used to refuse", async () => {
+    await connect(MAILBOX);
+    const admin = await person("Admin", "admin@yale.edu");
+    const view = await issueSendingIdentity(null, { personId: admin.id, address: MAILBOX });
+    expect(view.address).toBe(MAILBOX);
+  });
+
+  it("is refused when no mailbox is connected, since then nothing can sign it", async () => {
+    // The other polarity, and what makes the case above mean something: without
+    // it, a check that accepted every address would pass.
+    const admin = await person("Admin", "admin@yale.edu");
+    await expect(
+      issueSendingIdentity(null, { personId: admin.id, address: MAILBOX })
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+  });
+
+  it("prints GRAPH in the Transport column, the same answer the notes beside it give", async () => {
+    // The contradiction this fix removes, asserted where it was visible.
+    await connect(MAILBOX);
+    const admin = await person("Admin", "admin@yale.edu");
+    await issueSendingIdentity(null, { personId: admin.id, address: MAILBOX });
+    const [row] = await listIssuedIdentities();
+    expect(row.transport).toBe("graph");
+  });
+
+  it("is offered as a sending identity rather than silently dropped", async () => {
+    await connect(MAILBOX);
+    const admin = await person("Admin", "admin@yale.edu");
+    await issueSendingIdentity(null, { personId: admin.id, address: MAILBOX });
+    const options = await availableSenderIdentities(admin.id, null);
+    expect(options.map((o) => o.address)).toContain(MAILBOX);
+    expect(options.find((o) => o.address === MAILBOX)?.transport).toBe("graph");
+  });
+
+  it("drops out of the offered list once the mailbox is disconnected", async () => {
+    // Same row in the database, different answer, because the only thing making
+    // it signable was the connection. A test that only checked the offered case
+    // would pass against a resolver that offered everything.
+    await connect(MAILBOX);
+    const admin = await person("Admin", "admin@yale.edu");
+    await issueSendingIdentity(null, { personId: admin.id, address: MAILBOX });
+    await prisma.mailCredential.delete({ where: { id: "mailer" } });
+    const options = await availableSenderIdentities(admin.id, null);
+    expect(options.map((o) => o.address)).not.toContain(MAILBOX);
   });
 });

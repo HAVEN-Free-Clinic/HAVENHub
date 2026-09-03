@@ -183,10 +183,18 @@ describe("parseGraphSenderAddresses", () => {
     expect(GRAPH_SENDER_ADDRESSES.size).toBe(0);
   });
 
-  it("treats unset, empty and whitespace-only as NOT CONFIGURED, using the default", () => {
-    // Load-bearing for the same two reasons as the domain table: an unset Vercel
-    // variable arrives as "", and vitest.setup.ts claims every external-service
-    // env name as "" so a local run cannot diverge from CI.
+  it("reads unset, empty and whitespace-only as an empty list", () => {
+    // An unset Vercel variable arrives as "", and vitest.setup.ts claims every
+    // external-service env name as "" so a local run cannot diverge from CI.
+    //
+    // This asserts the RESULT and nothing more, and says so rather than
+    // implying more. It cannot distinguish "not configured" from "configured to
+    // nothing", because with an empty shipped default the two produce the same
+    // set: stripping both default fallbacks from parseGraphSenderAddresses
+    // leaves this green. The distinction is real and IS enforced, one layer up
+    // at config.ts's `addresses === 0` refusal, whose own test does die when it
+    // is removed -- so the claim is made where it bites instead of being
+    // restated here where it cannot.
     for (const spec of [undefined, "", "   "]) {
       expect(parseGraphSenderAddresses(spec), String(spec)).toEqual(new Set());
     }
@@ -281,6 +289,24 @@ describe("the address rule out-ranks the domain table", () => {
         graphMailbox: "  hfc.it@yale.edu ",
       })?.rule
     ).toBe("mailbox");
+  });
+
+  it("claims ONE address, not the whole DOMAIN the connected mailbox sits on", () => {
+    // The mailbox rule is an exact-address match, and this is the test that says
+    // so. Widening it to compare domains would be an easy and plausible edit --
+    // and on a Maileroo deployment it would move every sibling address on the
+    // mailbox's domain onto Graph, inheriting Exchange Online's ~30 msg/min
+    // ceiling, which is invisible until a roster-wide campaign takes hours.
+    //
+    // alice@yale.edu shares the mailbox's domain, is not on the address list,
+    // and must still route by DOMAIN.
+    expect(
+      decideSigningTransport("alice@yale.edu", {
+        graphAddresses,
+        domains,
+        graphMailbox: "hfc.it@yale.edu",
+      })
+    ).toEqual({ transport: "maileroo", rule: "domain" });
   });
 
   it("still answers null for an address no rule claims", () => {

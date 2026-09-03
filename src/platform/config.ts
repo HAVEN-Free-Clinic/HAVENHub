@@ -1,4 +1,9 @@
 import { z } from "zod";
+// Safe to import back: email/address.ts has NO imports of its own, precisely so
+// it can be shared with the browser, so there is no cycle here. The
+// SENDING_DOMAINS check below duplicates its regex instead, and has to: it lives
+// in email/sending-domains.ts, which reads THIS module.
+import { EMAIL_RE } from "@/platform/email/address";
 
 /**
  * The largest upload a Server Action can actually receive, in MB.
@@ -67,6 +72,33 @@ const schema = z
     // as "". A domain listed twice takes its LAST verdict, which neither this
     // check nor the parser flags.
     SENDING_DOMAINS: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().optional()
+    ),
+    // The mailboxes that send through Microsoft Graph no matter what
+    // SENDING_DOMAINS says about their domain, as a comma-separated list of
+    // addresses. Optional; unset means "no address-level pins", which is exactly
+    // the behaviour that existed before this variable.
+    //
+    // It exists because domain is not a fine enough key for the real rule. Graph
+    // sends via /users/{from}/sendMail, so a From must be a mailbox INSIDE the
+    // Microsoft tenant: a shared clinic mailbox is in Exchange Online and works,
+    // a personal Yale mailbox is hosted on-premise and answers
+    // 404 MailboxNotEnabledForRESTAPI. Both are @yale.edu, so no row of
+    // SENDING_DOMAINS can separate them.
+    //
+    // No shipped default, and deliberately none: which mailboxes an org owns is
+    // org-specific, and this product's org name, branding and departments are all
+    // configurable. The clinic's own three are documented in .env.example and set
+    // per deployment. See GRAPH_SENDER_ADDRESSES in email/sending-domains.ts for
+    // what the empty default means for routing, and routing-gap.ts for the check
+    // that surfaces it before someone switches transport.
+    //
+    // Empty or whitespace-only means "not configured", NOT "configured to
+    // nothing": an unset Vercel variable and vitest.setup.ts's env claim both
+    // arrive as "". A value that is non-empty but names no address refuses to
+    // boot below.
+    GRAPH_SENDER_ADDRESSES: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
       z.string().optional()
     ),
@@ -438,6 +470,70 @@ const schema = z
           `"${env.SENDING_DOMAINS}" names no <domain>:<transport> pairs at all. An empty ` +
           `allowlist would silently pin every send to the email.sender setting. Leave the ` +
           `variable unset to use the shipped default table.`,
+      });
+    }
+  })
+  .superRefine((env, ctx) => {
+    // GRAPH_SENDER_ADDRESSES gets the same treatment as SENDING_DOMAINS above,
+    // and for reasons learned there rather than guessed at here.
+    //
+    // A MALFORMED ENTRY REFUSES TO BOOT. parseGraphSenderAddresses skips an entry
+    // it cannot read, so a typo'd "hfc.admin@yale" would quietly drop that
+    // mailbox off the Graph list and send its mail through Maileroo instead --
+    // a transport change with no error anywhere, which is the exact failure this
+    // whole feature exists to make visible.
+    //
+    // The address pattern is EMAIL_RE, IMPORTED rather than restated. The
+    // SENDING_DOMAINS check a few lines up duplicates its regex because the
+    // module that owns it reads this config and importing it back would be
+    // circular; email/address.ts has no imports at all, so that argument does not
+    // apply and the two halves cannot drift.
+    if (!env.GRAPH_SENDER_ADDRESSES) return;
+    let addresses = 0;
+    for (const entry of env.GRAPH_SENDER_ADDRESSES.split(",")) {
+      // An empty segment is a trailing comma, not a malformed address. This
+      // config is loaded at import by most of the app, so refusing one would turn
+      // a trailing comma into an app-wide cold-start failure. See the count below
+      // for when EVERY segment is empty.
+      if (entry.trim() === "") continue;
+      // A COLON is rejected on top of EMAIL_RE, and only here. EMAIL_RE is
+      // deliberately permissive about the domain part -- it is the shared
+      // write-time pattern, not an RFC 5322 parser -- so it happily accepts
+      // "hfc.admin@yale.edu:graph", reading ":graph" as part of the domain.
+      // That is a mistake this variable actively invites, because the value
+      // directly above it in .env.example IS a "<thing>:<transport>" list, and
+      // its consequence is silent: the entry parses, matches no real From, and
+      // the mailbox it was meant to pin quietly stays on the other transport.
+      // Tightening EMAIL_RE itself would change every address the app accepts
+      // anywhere, to fix a confusion that exists only between these two
+      // neighbouring variables.
+      if (EMAIL_RE.test(entry.trim()) && !entry.includes(":")) {
+        addresses += 1;
+        continue;
+      }
+      ctx.addIssue({
+        code: "custom",
+        path: ["GRAPH_SENDER_ADDRESSES"],
+        message: entry.includes(":")
+          ? `"${entry.trim()}" looks like a SENDING_DOMAINS pair. This variable takes bare email addresses, one per mailbox.`
+          : `"${entry.trim()}" is not an email address`,
+      });
+    }
+    // A non-empty value naming NO address -- "," or ",," -- refuses, even though
+    // the resulting empty set is the same one an UNSET variable produces and is
+    // perfectly safe. The two inputs are not the same statement: unset means
+    // "this deployment pins nothing", while "," means an operator set the
+    // variable, meant something by it, and got nothing. Accepting it silently
+    // would hide that they did not get what they typed, which is the regression
+    // the SENDING_DOMAINS check was extended to catch -- there a comma-only value
+    // booted with an empty allowlist and pinned every send.
+    if (addresses === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["GRAPH_SENDER_ADDRESSES"],
+        message:
+          `"${env.GRAPH_SENDER_ADDRESSES}" names no email addresses at all. Leave the variable ` +
+          `unset if this deployment routes no address to Graph by address.`,
       });
     }
   })

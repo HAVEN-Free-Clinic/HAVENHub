@@ -19,6 +19,7 @@ import {
   normalizeSendingAddress,
   sendingAddressProblem,
 } from "../sender-identity";
+import { connectedGraphMailbox } from "../oauth";
 
 export type AudienceScopeView = {
   id: string;
@@ -83,18 +84,23 @@ type IdentityInput = { fromEmail?: string | null; fromName?: string | null };
  * run is claimed and the recipients are enqueued. The check is the same
  * `sendingAddressProblem` the issued-identity path uses -- one function, not two
  * drifting copies -- reported as this module's error type so the scope page's
- * existing ?error= handling picks it up unchanged.
+ * existing ?error= handling picks it up unchanged. The connected mailbox is
+ * threaded in for the same reason it is everywhere else: without it this refuses
+ * the one address Graph can always send as.
  *
  * Returns {} when the caller supplied neither field, so a form that does not
  * carry them (the create form) cannot blank an identity an admin already set.
  * Clearing is an explicit empty string, which normalizes to null.
  */
-function identityData(input: IdentityInput): { fromEmail?: string | null; fromName?: string | null } {
+function identityData(
+  input: IdentityInput,
+  graphMailbox: string | null,
+): { fromEmail?: string | null; fromName?: string | null } {
   const data: { fromEmail?: string | null; fromName?: string | null } = {};
   if (input.fromEmail !== undefined) {
     const address = normalizeSendingAddress(input.fromEmail);
     if (address) {
-      const reason = sendingAddressProblem(address);
+      const reason = sendingAddressProblem(address, graphMailbox);
       if (reason) throw new ScopeValidationError(reason);
     }
     data.fromEmail = address;
@@ -120,13 +126,14 @@ export async function createScope(
   input: { name: string; description?: string; audience: Audience } & IdentityInput,
 ): Promise<AudienceScopeView> {
   validate(input);
+  const { account: graphMailbox } = await connectedGraphMailbox();
   const row = await prisma.audienceScope.create({
     data: {
       name: input.name.trim(),
       description: input.description?.trim() || null,
       audienceJson: input.audience,
       createdById: actorId,
-      ...identityData(input),
+      ...identityData(input, graphMailbox),
     },
   });
   await recordAudit({
@@ -145,13 +152,14 @@ export async function updateScope(
   input: { name: string; description?: string; audience: Audience } & IdentityInput,
 ): Promise<AudienceScopeView> {
   validate(input);
+  const { account: graphMailbox } = await connectedGraphMailbox();
   const before = await prisma.audienceScope.findUniqueOrThrow({ where: { id } });
   const row = await prisma.audienceScope.update({
     where: { id },
     data: {
       name: input.name.trim(),
       audienceJson: input.audience,
-      ...identityData(input),
+      ...identityData(input, graphMailbox),
       // Only touch description when the caller actually supplied the field.
       // The scope detail page's save form never submits one today, so an
       // unconditional write here would silently erase any description ever

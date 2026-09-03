@@ -17,6 +17,8 @@ import {
   SettingValidationError,
   type ResolvedSetting,
 } from "@/platform/settings/service";
+import { emailRoutingGap } from "@/platform/email/routing-gap";
+import { RoutingGapAlert } from "../routing-gap-alert";
 import { BRANDING_ASSETS, type BrandingAssetName } from "@/platform/branding/asset-types";
 import { saveBrandingAsset, removeBrandingAsset, BrandingAssetError } from "@/platform/branding/assets";
 import { BrandingImageField } from "./branding-image-field";
@@ -125,6 +127,19 @@ export default async function SettingsPage() {
     categories.map(async (category) => ({ category, settings: await getCategory(category) }))
   );
 
+  // THE ONE SETTING ON THIS PAGE WITH AN INVISIBLE CONSEQUENCE. Flipping
+  // email.transport to "maileroo" moves every configured send-from address that
+  // Graph does not carry onto Maileroo, silently -- see routing-gap.ts. This is
+  // the screen that flip happens on, so this is where the list has to appear.
+  //
+  // Rendered inline against a known key rather than through a new generic
+  // "notice" hook on SettingDef. The registry stays a declaration of settings,
+  // one special case is cheaper to read than a mechanism serving one caller, and
+  // this page already special-cases the branding image inputs the same way. It
+  // degrades to null on a database problem, which is what keeps the settings
+  // form rendering during an outage as getCategory already does.
+  const routingGap = await emailRoutingGap();
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -146,6 +161,9 @@ export default async function SettingsPage() {
                   />
                 ) : (
                   <>
+                    {s.key === "email.transport" && (
+                      <RoutingGapAlert gap={routingGap} where="settings" />
+                    )}
                     <form action={updateAction} className="space-y-2">
                       <input type="hidden" name="__key" value={s.key} />
                       <Field label={s.label} hint={s.help}>

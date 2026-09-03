@@ -38,7 +38,7 @@ import {
   sendersWithoutIdentity,
   SenderIdentityError,
 } from "@/platform/email/sender-identity";
-import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
+import { GRAPH_SENDER_ADDRESSES, SENDING_DOMAINS } from "@/platform/email/sending-domains";
 import { mailConnectionStatus } from "@/platform/email/oauth";
 import { sendSenderTest } from "@/modules/admin/services/email";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -91,6 +91,10 @@ export default async function SendingIdentitiesPage({
   // here because sending-domains.ts reads `@/platform/config` at import and must
   // not be bundled into the browser.
   const domains: SendingDomainMap = Object.fromEntries(SENDING_DOMAINS);
+  // The address rule, same reasoning: resolved on the server, handed over as
+  // plain data. An address can out-rank its domain, so the notes need both or
+  // they answer with the domain's verdict for an address that does not follow it.
+  const graphAddresses = [...GRAPH_SENDER_ADDRESSES];
 
   // Whoever can run the full sender test (any From, any recipient) already holds
   // the email-admin permission. This page offers only the narrower self-test.
@@ -337,6 +341,7 @@ export default async function SendingIdentitiesPage({
           people={people}
           roles={roles}
           domains={domains}
+          graphAddresses={graphAddresses}
           connectedMailbox={mail.account}
         />
       </Card>
@@ -474,6 +479,7 @@ export default async function SendingIdentitiesPage({
               key={address}
               address={address}
               domains={domains}
+              graphAddresses={graphAddresses}
               connectedMailbox={mail.account}
             />
           ),

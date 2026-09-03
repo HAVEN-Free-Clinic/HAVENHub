@@ -59,6 +59,11 @@ for (const key of [
   // the shipped default table, never whatever a developer has pointed their own
   // deploy at.
   "SENDING_DOMAINS",
+  // The address-level Graph list, claimed for the same reason and with more at
+  // stake: a developer whose .env names the clinic's shared mailboxes would
+  // otherwise route those addresses to Graph in every routing test, and the
+  // suite would pass locally on facts CI does not have.
+  "GRAPH_SENDER_ADDRESSES",
   // Airtable import sources.
   "AIRTABLE_PAT",
   "AIRTABLE_MIRROR_ENABLED",

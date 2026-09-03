@@ -316,6 +316,47 @@ export async function mailConnectionStatus(): Promise<{
 }
 
 /**
+ * The singleton MailCredential, as the two facts ROUTING needs from it: whether
+ * an admin has connected a Graph mailbox at all, and which address that is.
+ *
+ * Separate from mailConnectionStatus above, which probes the token to answer the
+ * admin panel's "is this connection healthy". Routing must not probe: it runs
+ * once per drain tick and a network round trip to Entra to decide which
+ * transport carries a message would be a cost with no answer attached, since a
+ * dead token is GraphTransport's problem to report per message.
+ *
+ * One read for both facts. They were two questions until the connected mailbox
+ * became Graph-routed implicitly (it is the one address Graph can always send
+ * as, on any deployment), and asking them separately would double a per-drain
+ * query for no gain.
+ */
+export async function connectedGraphMailbox(): Promise<{
+  connected: boolean;
+  account: string | null;
+}> {
+  try {
+    const row = await prisma.mailCredential.findUnique({
+      where: { id: "mailer" },
+      select: { account: true },
+    });
+    return { connected: row !== null, account: row?.account ?? null };
+  } catch {
+    // A brief database problem must NOT be read as "not connected": that would
+    // refuse every Graph-routed send for the whole tick on the strength of one
+    // failed read. Assume connected and let GraphTransport produce the real
+    // per-message error, which is the direction every other degraded read in the
+    // send path already takes.
+    //
+    // The ACCOUNT degrades the other way, to null, because there is nothing safe
+    // to invent: the implicit mailbox rule then simply does not fire, and the
+    // mailbox's own mail routes by GRAPH_SENDER_ADDRESSES and SENDING_DOMAINS
+    // like every other address. Guessing an address here would route mail to
+    // Graph on the strength of a failed read.
+    return { connected: true, account: null };
+  }
+}
+
+/**
  * True when the stored credential scope string already includes every Teams
  * scope the app needs. Used by the admin UI to prompt for a reconnect after the
  * scopes grew.

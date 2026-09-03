@@ -32,12 +32,14 @@ export function IssueIdentityForm({
   people,
   roles,
   domains,
+  graphAddresses,
   connectedMailbox,
 }: {
   action: (formData: FormData) => Promise<void>;
   people: Option[];
   roles: Option[];
   domains: SendingDomainMap;
+  graphAddresses: string[];
   connectedMailbox: string | null;
 }) {
   const [address, setAddress] = useState("");
@@ -107,6 +109,7 @@ export function IssueIdentityForm({
       <SenderIdentityNotes
         address={address}
         domains={domains}
+        graphAddresses={graphAddresses}
         connectedMailbox={connectedMailbox}
         // Quiet until the address at least looks like one, so the panel does not
         // shout at every keystroke of a half-typed local part.

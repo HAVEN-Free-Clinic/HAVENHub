@@ -41,14 +41,28 @@ import {
  * vitest.setup.ts re-claims SENDING_DOMAINS as "" before every test file, so
  * this cannot leak into a file that expects the shipped default.
  */
-const { MAILEROO_DOMAIN, GRAPH_DOMAIN, UNLISTED_DOMAIN } = vi.hoisted(() => {
+const { MAILEROO_DOMAIN, GRAPH_DOMAIN, UNLISTED_DOMAIN, GRAPH_PINNED_FROM } = vi.hoisted(() => {
   const domains = {
     MAILEROO_DOMAIN: "maileroo-signed.example",
     GRAPH_DOMAIN: "graph-signed.example",
     /** Deliberately absent from the spec below: the off-allowlist case. */
     UNLISTED_DOMAIN: "unlisted.example",
+    /**
+     * THE ADDRESS-LEVEL CASE, and it has to sit on the MAILEROO-signed domain to
+     * be worth anything. The rule this fixture exists to exercise is that an
+     * address can out-rank its own domain: put this on graph-signed.example and
+     * the test passes against an implementation with no address rule at all,
+     * because the domain would have carried it to Graph anyway.
+     *
+     * Its neighbour on that domain is MAILEROO_FROM below, unlisted, which is
+     * the other polarity: same domain, different transport, which is the whole
+     * reason a domain key was not enough for the real deployment
+     * (hfc.admin@yale.edu vs a personal yale.edu mailbox).
+     */
+    GRAPH_PINNED_FROM: "pinned@maileroo-signed.example",
   };
   process.env.SENDING_DOMAINS = `${domains.MAILEROO_DOMAIN}:maileroo,${domains.GRAPH_DOMAIN}:graph`;
+  process.env.GRAPH_SENDER_ADDRESSES = domains.GRAPH_PINNED_FROM;
   return domains;
 });
 
@@ -61,6 +75,7 @@ import {
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
+import { domainOf, GRAPH_SENDER_ADDRESSES, signingTransportFor } from "./sending-domains";
 import { config } from "@/platform/config";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
@@ -89,6 +104,12 @@ const UNLISTED_FROM = `someone@${UNLISTED_DOMAIN}`;
  * would fail DMARC, so the fixture's pin is on one too.
  */
 const PINNED_SENDER = `noreply@${MAILEROO_DOMAIN}`;
+/**
+ * A mailbox on the Maileroo-signed domain that is NOT in the fixture's Graph
+ * address list. Graph-routed only when it is handed to the router as the
+ * connected mailbox, which is the "no list entry needed" rule.
+ */
+const CONNECTED_MAILBOX = `mailbox@${MAILEROO_DOMAIN}`;
 
 const fakeGetAccessToken = () => Promise.resolve("test-token");
 
@@ -355,6 +376,76 @@ describe("GraphTransport", () => {
   it("does not mistake a 401 for a Send-As problem", async () => {
     const err = await denying(DENIED_403, 401).send(msg).catch((e) => e);
     expect(err.message).not.toMatch(/Send-As/);
+  });
+
+  // ---- The 404, which is a DIFFERENT failure with a different remedy -------
+  //
+  // The owner hit this testing their own Yale address. Raw it is:
+  //
+  //   404 {"error":{"code":"MailboxNotEnabledForRESTAPI","message":"The mailbox
+  //   is either inactive, soft-deleted, or is hosted on-premise."}}
+  //
+  // Three unrelated causes, no address, no remedy, and the true one (on-premise)
+  // reads as the least likely of the three. Address-level routing makes this MORE
+  // likely, not less: naming a mailbox in GRAPH_SENDER_ADDRESSES asserts Graph can
+  // act on it, and this is exactly what a wrong assertion looks like.
+  const NOT_IN_TENANT_404 = JSON.stringify({
+    error: {
+      code: "MailboxNotEnabledForRESTAPI",
+      message: "The mailbox is either inactive, soft-deleted, or is hosted on-premise.",
+    },
+  });
+
+  it("restates a not-in-Exchange-Online 404, naming the address and the real cause", async () => {
+    const err = await denying(NOT_IN_TENANT_404, 404)
+      .send({ ...msg, from: "alice@yale.edu" })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    // Permanent: no amount of retrying moves a mailbox into the tenant.
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+    expect(err.message).toContain("alice@yale.edu");
+    expect(err.message).toMatch(/not in Exchange Online/i);
+    // Both levers that could have put it on Graph, since this layer cannot tell
+    // which one matched.
+    expect(err.message).toContain("GRAPH_SENDER_ADDRESSES");
+    expect(err.message).toContain("SENDING_DOMAINS");
+    // The raw Graph code is kept, demoted behind the remedy.
+    expect(err.message).toContain("MailboxNotEnabledForRESTAPI");
+  });
+
+  it("puts the 404 remedy in the first 60 characters the admin card shows", async () => {
+    const shown = failedCardText(
+      await denying(NOT_IN_TENANT_404, 404)
+        .send({ ...msg, from: "alice@yale.edu" })
+        .catch((e) => e)
+    );
+    // Remedy first, like every other diagnosis here: the card truncates at 60
+    // and log.error does not fire until all 8 attempts are spent.
+    expect(shown).toContain("alice@yale.edu");
+    expect(shown).toMatch(/Maileroo/);
+  });
+
+  it("does not give the 404 diagnosis to a 403, which needs the Send-As one", async () => {
+    // The other polarity, and the one that keeps the two diagnoses distinct: a
+    // single test on the 404 alone would pass against an implementation that
+    // answered "route it to Maileroo" for every Graph failure, including the
+    // Send-As refusal a grant actually fixes.
+    const err = await denying().send({ ...msg, from: "recruit@yale.edu" }).catch((e) => e);
+    expect(err.message).toMatch(/Send-As/);
+    expect(err.message).not.toMatch(/not in Exchange Online/i);
+  });
+
+  it("leaves an unrelated 404 alone rather than guessing the mailbox is off-tenant", async () => {
+    const body = JSON.stringify({ error: { code: "ResourceNotFound", message: "Not found." } });
+    const err = await denying(body, 404).send(msg).catch((e) => e);
+    expect(err.message).toContain("Graph sendMail failed: 404");
+    expect(err.message).not.toMatch(/not in Exchange Online/i);
+  });
+
+  it("does not mistake a 400 carrying that code for the 404 case", async () => {
+    const err = await denying(NOT_IN_TENANT_404, 400).send(msg).catch((e) => e);
+    expect(err.message).toContain("Graph sendMail failed: 400");
+    expect(err.message).not.toMatch(/not in Exchange Online/i);
   });
 });
 
@@ -796,13 +887,14 @@ describe("SigningDomainRouter", () => {
     return { sent, send: async (m: EmailMessage) => void sent.push(m) };
   };
 
-  const build = () => {
+  const build = (graphMailbox?: string | null) => {
     const mailerooStub = spyTransport();
     const graphStub = spyTransport();
     const fallback = spyTransport();
     const router = new SigningDomainRouter({
       fallback,
       signers: { maileroo: mailerooStub, graph: graphStub },
+      graphMailbox,
     });
     return { router, mailerooStub, graphStub, fallback };
   };
@@ -825,6 +917,71 @@ describe("SigningDomainRouter", () => {
     expect(mailerooStub.sent).toHaveLength(1);
     expect(graphStub.sent).toHaveLength(0);
     expect(fallback.sent).toHaveLength(0);
+  });
+
+  // ---- ADDRESS BEFORE DOMAIN ---------------------------------------------
+  //
+  // THE PAIR THAT MATTERS, and it is a pair on purpose. Both of these addresses
+  // sit on maileroo-signed.example. If only the first were asserted it would
+  // pass against a router that sent everything to Graph; if only the second, one
+  // that ignored the address list entirely. Together they are the claim: on ONE
+  // domain, two addresses, two transports -- which is the thing a domain-keyed
+  // router could not express and the reason this rule exists
+  // (hfc.admin@yale.edu is a tenant mailbox Graph can send as, alice@yale.edu is
+  // an on-premise one it cannot).
+  it("routes a GRAPH_SENDER_ADDRESSES address to Graph even though its domain is Maileroo-signed", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build();
+    await router.send({ ...msg, from: GRAPH_PINNED_FROM });
+    expect(graphStub.sent).toHaveLength(1);
+    expect(mailerooStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  it("routes an UNLISTED address on that same Maileroo-signed domain to Maileroo", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build();
+    // Same domain as GRAPH_PINNED_FROM above, deliberately.
+    expect(domainOf(MAILEROO_FROM)).toBe(domainOf(GRAPH_PINNED_FROM));
+    await router.send({ ...msg, from: MAILEROO_FROM });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  it("matches an address case- and whitespace-blind, since a sender rule is typed by hand", async () => {
+    const { router, graphStub } = build();
+    await router.send({ ...msg, from: `  ${GRAPH_PINNED_FROM.toUpperCase()}  ` });
+    expect(graphStub.sent).toHaveLength(1);
+  });
+
+  // ---- The connected mailbox, with no list entry --------------------------
+  it("routes the connected Graph mailbox to Graph without a list entry", async () => {
+    const { router, mailerooStub, graphStub } = build(CONNECTED_MAILBOX);
+    // It really is absent from the fixture's address list: the pass below is the
+    // mailbox rule firing, not the address rule.
+    expect(GRAPH_SENDER_ADDRESSES.has(CONNECTED_MAILBOX)).toBe(false);
+    await router.send({ ...msg, from: CONNECTED_MAILBOX });
+    expect(graphStub.sent).toHaveLength(1);
+    expect(mailerooStub.sent).toHaveLength(0);
+  });
+
+  it("sends that same address to Maileroo when it is NOT the connected mailbox", async () => {
+    // The other polarity. Without it the test above passes against a router that
+    // hard-codes this address, or one that sends the whole domain to Graph.
+    const { router, mailerooStub, graphStub } = build(null);
+    await router.send({ ...msg, from: CONNECTED_MAILBOX });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
+  it("Graph-routes only the mailbox ITSELF, not its neighbours on that domain", async () => {
+    // The router half of the exact-match claim. MAILEROO_FROM shares
+    // CONNECTED_MAILBOX's domain and must still reach Maileroo; a rule widened
+    // to compare domains would silently put every sibling address on Graph.
+    const { router, mailerooStub, graphStub } = build(CONNECTED_MAILBOX);
+    expect(domainOf(MAILEROO_FROM)).toBe(domainOf(CONNECTED_MAILBOX));
+    await router.send({ ...msg, from: MAILEROO_FROM });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
   });
 
   it("sends a message with no From to the fallback", async () => {
@@ -888,6 +1045,40 @@ describe("SigningDomainRouter", () => {
     expect(failedCardText(err)).toContain("Grant Send-As");
   });
 
+  // The note has to name the lever that ACTUALLY routed the message. Before the
+  // address rule it said "SENDING_DOMAINS lists <domain> ..." unconditionally,
+  // which for an address-routed message sends the operator to a variable that
+  // says nothing about their address.
+  it("names GRAPH_SENDER_ADDRESSES, not SENDING_DOMAINS, when the ADDRESS did the routing", async () => {
+    const boom = new Error(`Route ${GRAPH_PINNED_FROM} to Maileroo instead ...`);
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw new Error("wrong transport"); } },
+      signers: { graph: { send: async () => { throw boom; } } },
+    });
+    const err = await router.send({ ...msg, from: GRAPH_PINNED_FROM }).catch((e) => e);
+    expect(err).toBe(boom);
+    expect(err.message).toContain(`GRAPH_SENDER_ADDRESSES names ${GRAPH_PINNED_FROM}`);
+    expect(err.message).toContain(`Take ${GRAPH_PINNED_FROM} out of GRAPH_SENDER_ADDRESSES`);
+    // And NOT the domain lever, which would be the wrong thing to go and edit:
+    // maileroo-signed.example is on SENDING_DOMAINS as maileroo, so removing it
+    // would not move this message off Graph.
+    expect(err.message).not.toContain("SENDING_DOMAINS lists");
+  });
+
+  it("says it was the connected mailbox when that is what did the routing", async () => {
+    const boom = new Error("graph exploded");
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw new Error("wrong transport"); } },
+      signers: { graph: { send: async () => { throw boom; } } },
+      graphMailbox: CONNECTED_MAILBOX,
+    });
+    const err = await router.send({ ...msg, from: CONNECTED_MAILBOX }).catch((e) => e);
+    expect(err.message).toContain("IS the mailbox Graph is connected as");
+    // Neither env lever is named, because editing either would change nothing.
+    expect(err.message).not.toContain("GRAPH_SENDER_ADDRESSES names");
+    expect(err.message).not.toContain("SENDING_DOMAINS lists");
+  });
+
   it("adds no note when the message went to the fallback, since nothing surprising happened", async () => {
     const boom = new Error("plain failure");
     const router = new SigningDomainRouter({
@@ -934,6 +1125,23 @@ describe("resolveEmailTransport", () => {
     _resetSettingsCache();
     const t = await resolveEmailTransport();
     expect(t).toBeInstanceOf(GraphTransport);
+  });
+
+  // WHAT MUST NOT CHANGE. Under "graph" everything goes through Graph and no
+  // routing happens at all -- that is production's current state, and it is why
+  // the whole allowlist has been inert and why flipping the setting is the
+  // hazard routing-gap.ts exists for. The address rule must not have quietly
+  // introduced routing on this branch: a bare GraphTransport, not a router.
+  it("does NOT route by address under graph, whatever GRAPH_SENDER_ADDRESSES says", async () => {
+    await prisma.setting.create({ data: { key: "email.transport", value: "graph" } });
+    await prisma.setting.create({ data: { key: "email.sender", value: PINNED_SENDER } });
+    _resetSettingsCache();
+    const t = await resolveEmailTransport();
+    expect(t).toBeInstanceOf(GraphTransport);
+    expect(t).not.toBeInstanceOf(SigningDomainRouter);
+    // The fixture list is non-empty, so this is a real assertion rather than a
+    // vacuous one: under maileroo these same addresses DO route.
+    expect(GRAPH_SENDER_ADDRESSES.size).toBeGreaterThan(0);
   });
 
   it("reads the current transport at drain time, ignoring a stale 'log' left in the cache (#76)", async () => {
@@ -1034,6 +1242,34 @@ describe("resolveEmailTransport", () => {
       expect(String(url)).toContain("smtp.maileroo.com");
     });
 
+    // THE FACTORY'S OWN WIRING, which the router tests above cannot reach: they
+    // inject graphMailbox through the constructor, so every one of them would
+    // still pass if resolveEmailTransport stopped reading the credential and
+    // passed null. That single line is the entire implicit-mailbox rule in the
+    // real drain, and this is the only test that exercises it.
+    it("passes the CONNECTED MAILBOX to the router, so the drain Graph-routes it", async () => {
+      await prisma.mailCredential.create({
+        data: { id: "mailer", refreshToken: "rt", account: CONNECTED_MAILBOX },
+      });
+      // Neither of the other two rules can account for the result: the fixture
+      // address list does not name it, and its domain is Maileroo-signed.
+      expect(GRAPH_SENDER_ADDRESSES.has(CONNECTED_MAILBOX)).toBe(false);
+      expect(signingTransportFor(CONNECTED_MAILBOX)).toBe("maileroo");
+
+      const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", () =>
+        withGraphOAuth(true, async () => {
+          const t = await resolveEmailTransport();
+          await t.send({ ...msg, from: CONNECTED_MAILBOX }).catch(() => undefined);
+        })
+      );
+      // Only the Graph transport asks Entra for a delegated token, so reaching
+      // login.microsoftonline proves the message was not handed to Maileroo.
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("login.microsoftonline.com");
+    });
+
     it("sends a Graph-signable From to Graph, not Maileroo", async () => {
       await connectGraphMailbox();
       const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
@@ -1070,12 +1306,21 @@ describe("resolveEmailTransport", () => {
       );
       expect(err).toBeInstanceOf(Error);
       expect(err).not.toBeInstanceOf(TransientEmailError);
-      // The first 60 characters must say this is a routing decision with a lever,
-      // not that the mailbox is broken.
-      expect(failedCardText(err)).toContain("SENDING_DOMAINS");
-      // And it names the row that put the message here, so the operator knows
-      // which domain to take off rather than which mailbox to go and repair.
-      expect(err.message).toContain(GRAPH_DOMAIN);
+      // The first 60 characters must say this is a ROUTING decision with a
+      // remedy, not that the mailbox is broken. It no longer names the lever
+      // there, and cannot: two rules can put a From on Graph now, and this
+      // signer is resolved once for all of them. Both are named in the body, and
+      // the ROUTER appends the one that actually matched (see the annotation
+      // tests above), which is strictly more than the old wording said.
+      expect(failedCardText(err)).toContain("Stop routing this From to Graph");
+      expect(failedCardText(err)).not.toMatch(/not connected/i);
+      // Both levers in the body, since the signer cannot tell which applied.
+      expect(err.message).toContain("SENDING_DOMAINS");
+      expect(err.message).toContain("GRAPH_SENDER_ADDRESSES");
+      // And the router names the row that put this message here specifically, so
+      // the operator knows which domain to take off rather than which mailbox to
+      // go and repair.
+      expect(err.message).toContain(`lists ${GRAPH_DOMAIN} as graph-signed`);
     });
 
     it("refuses per message, naming the missing Graph credentials", async () => {
@@ -1088,7 +1333,10 @@ describe("resolveEmailTransport", () => {
       );
       expect(err).not.toBeInstanceOf(TransientEmailError);
       expect(err.message).toContain("GRAPH_OAUTH_CLIENT_ID");
-      expect(failedCardText(err)).toContain("SENDING_DOMAINS");
+      // Routing-first in the 60 characters the card shows; see the sibling test
+      // above for why the lever itself no longer fits there.
+      expect(failedCardText(err)).toContain("Stop routing this From to Graph");
+      expect(err.message).toContain("SENDING_DOMAINS");
     });
 
     // The project-wide rule is that reads DEGRADE rather than throw, which is why

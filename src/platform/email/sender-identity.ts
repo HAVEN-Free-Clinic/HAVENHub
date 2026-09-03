@@ -147,6 +147,7 @@ import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { signingTransportFor, type SigningTransport } from "./sending-domains";
+import { connectedGraphMailbox } from "./oauth";
 import { EMAIL_RE } from "./address";
 
 /** A refusal: an address nobody can sign, or one this person may not use. */
@@ -236,27 +237,50 @@ export function normalizeSendingAddress(raw: string | null | undefined): string 
  *   module names a domain, so re-enabling Maileroo's yale.edu entry stays the
  *   one-line change sending-domains.ts documents.
  *
+ * `graphMailbox` IS REQUIRED, not optional, and that is the point of it. The
+ * connected mailbox is Graph-routed with no list entry, so a check that omits it
+ * answers a different question from the one the drain asks. While it was
+ * optional this file quietly kept the old answer at four seams and the
+ * identities screen contradicted itself: the Transport column (from
+ * `toIssuedView`) printed "maileroo" for the connected mailbox while
+ * SenderIdentityNotes, rendered from the same array ninety lines below, said it
+ * sends through Microsoft Graph. Worse on the clinic's real state, where the
+ * mailbox sits on a SUBDOMAIN that deliberately does not inherit its parent's
+ * verdict: the notes called it usable while this function refused it outright.
+ *
+ * Required, so tsc names any new caller that has not decided. Pass null only
+ * when there genuinely is no connected mailbox; `connectedGraphMailbox()` is how
+ * every caller in this module gets it.
+ *
  * Exposed as a reason rather than only as a throw so that the scope editor --
  * which reports its refusals as ScopeValidationError, not as this module's error
  * type -- can reuse exactly this check instead of writing a second one.
  */
-export function sendingAddressProblem(address: string | null | undefined): string | null {
+export function sendingAddressProblem(
+  address: string | null | undefined,
+  graphMailbox: string | null,
+): string | null {
   const normalized = normalizeSendingAddress(address);
   if (!normalized) return "Enter an email address.";
   if (!EMAIL_RE.test(normalized)) return `"${normalized}" is not a valid email address.`;
-  if (signingTransportFor(normalized)) return null;
+  if (signingTransportFor(normalized, graphMailbox)) return null;
   return (
+    // Both levers, since either can make an address usable now: SENDING_DOMAINS
+    // verifies a whole domain, GRAPH_SENDER_ADDRESSES names one mailbox. Naming
+    // only the first would tell an admin holding a perfectly good shared mailbox
+    // on an unlisted domain that their one option is to verify the domain.
     `"${normalized}" is not on a verified sending domain, so no transport can sign for it. ` +
-    `Use an address on a domain listed in SENDING_DOMAINS.`
+    `Use an address on a domain listed in SENDING_DOMAINS, or add this mailbox to ` +
+    `GRAPH_SENDER_ADDRESSES if Microsoft Graph holds it.`
   );
 }
 
 /** The transport that can sign for a usable address, or a refusal. */
-export function assertSignable(address: string): SigningTransport {
-  const reason = sendingAddressProblem(address);
+export function assertSignable(address: string, graphMailbox: string | null): SigningTransport {
+  const reason = sendingAddressProblem(address, graphMailbox);
   if (reason) throw new SenderIdentityError(reason);
   // Non-null: sendingAddressProblem returned null precisely because this did not.
-  return signingTransportFor(address) as SigningTransport;
+  return signingTransportFor(address, graphMailbox) as SigningTransport;
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +350,7 @@ export async function issueSendingIdentity(
 ): Promise<IssuedIdentityView> {
   const address = normalizeSendingAddress(input.address);
   if (!address) throw new SenderIdentityError("Enter an email address.");
-  assertSignable(address);
+  assertSignable(address, (await connectedGraphMailbox()).account);
   const displayName = input.displayName?.trim() ? input.displayName.trim() : null;
   const target: SendingIdentityTarget =
     "personId" in input ? { personId: input.personId } : { roleId: input.roleId };
@@ -522,14 +546,22 @@ const ISSUED_INCLUDE = {
   },
 } as const satisfies Prisma.SendingIdentityInclude;
 
-function toIssuedView(row: IssuedRow): IssuedIdentityView {
+/**
+ * `graphMailbox` is threaded in rather than read here because this runs per ROW
+ * while the credential is one row for the whole list. It is required for the
+ * same reason sendingAddressProblem's is: the Transport column this fills is
+ * rendered beside SenderIdentityNotes, which does consult the mailbox, and the
+ * two printing different transports for one address is what happened when it
+ * did not.
+ */
+function toIssuedView(row: IssuedRow, graphMailbox: string | null): IssuedIdentityView {
   return {
     id: row.id,
     address: row.address,
     displayName: row.displayName,
     // Read live rather than snapshotted, so an admin can SEE that a previously
     // fine identity stopped being signable when the allowlist narrowed.
-    transport: signingTransportFor(row.address),
+    transport: signingTransportFor(row.address, graphMailbox),
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
     grants: row.grants.map((g) => ({
@@ -552,7 +584,7 @@ async function loadIssuedIdentity(id: string): Promise<IssuedIdentityView> {
     where: { id },
     include: ISSUED_INCLUDE,
   });
-  return toIssuedView(row);
+  return toIssuedView(row, (await connectedGraphMailbox()).account);
 }
 
 /**
@@ -563,11 +595,15 @@ async function loadIssuedIdentity(id: string): Promise<IssuedIdentityView> {
  * on a screen whose whole job is to explain who holds what.
  */
 export async function listIssuedIdentities(): Promise<IssuedIdentityView[]> {
-  const rows = await prisma.sendingIdentity.findMany({
-    include: ISSUED_INCLUDE,
-    orderBy: { address: "asc" },
-  });
-  return rows.map(toIssuedView);
+  const [rows, mailbox] = await Promise.all([
+    prisma.sendingIdentity.findMany({
+      include: ISSUED_INCLUDE,
+      orderBy: { address: "asc" },
+    }),
+    // Once for the whole list, not once per row.
+    connectedGraphMailbox(),
+  ]);
+  return rows.map((row) => toIssuedView(row, mailbox.account));
 }
 
 // ---------------------------------------------------------------------------
@@ -661,7 +697,7 @@ async function checkOwnAddress(
     };
   }
 
-  const problem = sendingAddressProblem(address);
+  const problem = sendingAddressProblem(address, (await connectedGraphMailbox()).account);
   if (problem) return { ok: false, reason: problem };
 
   const existing = await prisma.sendingIdentity.findUnique({
@@ -930,6 +966,10 @@ export async function describeAutoIssue(
     ),
   ];
   const known = await knownAddresses(addresses);
+  // Once for the whole roster, not once per person. Every signability answer in
+  // this loop has to be the one the send path would give, and the connected
+  // mailbox is part of that answer.
+  const { account: graphMailbox } = await connectedGraphMailbox();
 
   const notes = new Map<string, AutoIssuePreview>();
   for (const p of people) {
@@ -951,7 +991,7 @@ export async function describeAutoIssue(
       });
       continue;
     }
-    const problem = sendingAddressProblem(address);
+    const problem = sendingAddressProblem(address, graphMailbox);
     if (problem) {
       notes.set(p.id, {
         severity: "info",
@@ -1119,6 +1159,12 @@ export async function availableSenderIdentities(
 ): Promise<SenderIdentityOption[]> {
   const options: SenderIdentityOption[] = [];
   const seen = new Set<string>();
+  // The connected mailbox, once for the whole resolve. Without it this function
+  // dropped the one address Graph can ALWAYS send as, which on the clinic's real
+  // state (a mailbox on a subdomain, which does not inherit its parent's
+  // allowlist row) meant the compose menu refused an address the send path would
+  // have carried perfectly well.
+  const { account: graphMailbox } = await connectedGraphMailbox();
 
   const add = (
     address: string | null,
@@ -1130,9 +1176,9 @@ export async function availableSenderIdentities(
     // written before this check existed, or one whose domain has since left the
     // allowlist, contributes nothing rather than contributing something that
     // would fail at send or be silently rewritten by the pinned fallback.
-    if (sendingAddressProblem(address)) return;
+    if (sendingAddressProblem(address, graphMailbox)) return;
     // Non-null: sendingAddressProblem just cleared it.
-    const transport = signingTransportFor(address) as SigningTransport;
+    const transport = signingTransportFor(address, graphMailbox) as SigningTransport;
     seen.add(address);
     options.push({ address, displayName, source, transport });
   };

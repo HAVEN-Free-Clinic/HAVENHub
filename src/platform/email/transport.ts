@@ -1,8 +1,13 @@
-import { getAccessToken } from "./oauth";
+import { connectedGraphMailbox, getAccessToken } from "./oauth";
 import { inlineEmailHtml } from "./render/inline";
-import { domainOf, signingTransportFor, type SigningTransport } from "./sending-domains";
+import {
+  domainOf,
+  signingDecisionFor,
+  signingTransportFor,
+  type SigningDecision,
+  type SigningTransport,
+} from "./sending-domains";
 import { config } from "@/platform/config";
-import { prisma } from "@/platform/db";
 import { getSettingUncached } from "@/platform/settings/service";
 import { log } from "@/platform/logging";
 
@@ -102,6 +107,53 @@ function describeGraphSendAsRejection(
     `Graph refused the send: the delegated token is valid, the Send-As right on that address ` +
     `is what is missing. Permanent: retrying cannot grant a mailbox permission. ` +
     `Graph said: 403 ${text}`
+  );
+}
+
+/**
+ * Restate Graph's "that mailbox is not in Exchange Online" 404, or return null.
+ *
+ * This is the failure the owner actually hit, testing their own Yale address:
+ *
+ *   404 {"error":{"code":"MailboxNotEnabledForRESTAPI","message":"The mailbox is
+ *   either inactive, soft-deleted, or is hosted on-premise."}}
+ *
+ * Raw, it falls through as that JSON, which names three unrelated causes, no
+ * address, and no remedy -- and the true cause is usually the third one, which
+ * reads as the least likely of the three. It is not an outage and not a
+ * permission: Graph sends via `/users/{from}/sendMail`, so the From has to be a
+ * mailbox the Graph API can act on, and an on-premise Exchange mailbox is not
+ * one. Nothing about the app can change that. Maileroo can send as it.
+ *
+ * ADDRESS-LEVEL ROUTING MAKES THIS MORE LIKELY, not less, which is why it is
+ * diagnosed here rather than left to the raw text: putting a mailbox in
+ * GRAPH_SENDER_ADDRESSES is an assertion that Graph can act on it, and this 404
+ * is exactly what a wrong assertion looks like. It is the single most probable
+ * mistake an operator makes with that variable.
+ *
+ * REMEDY FIRST, like the Send-As diagnosis above and for the same reason: the
+ * admin Failed card truncates EmailLog.lastError to 60 characters, and log.error
+ * does not fire until all 8 attempts are spent. Both levers that could have put
+ * the message on Graph are named after that, because the operator needs to know
+ * which one to edit and this layer cannot tell which matched.
+ *
+ * Narrow on purpose, matching describeGraphSendAsRejection: only a 404 whose body
+ * names this specific code is restated. Another 404 (a bad request path, a
+ * deleted resource) keeps its raw text rather than a confident wrong diagnosis.
+ */
+function describeGraphMailboxRejection(
+  status: number,
+  sender: string,
+  text: string
+): string | null {
+  if (status !== 404) return null;
+  if (!/MailboxNotEnabledForRESTAPI/i.test(text)) return null;
+  return (
+    `Route ${sender} to Maileroo instead: Graph cannot send as it. That mailbox is not in ` +
+    `Exchange Online -- it is on-premise, inactive, or soft-deleted -- so ` +
+    `/users/${sender}/sendMail has nothing to act on. Take it out of GRAPH_SENDER_ADDRESSES, ` +
+    `or off SENDING_DOMAINS if a whole domain routes here. Permanent: retrying cannot move a ` +
+    `mailbox into the tenant. Graph said: 404 ${text}`
   );
 }
 
@@ -241,10 +293,14 @@ export class GraphTransport implements EmailTransport {
           `Graph sendMail transient failure: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
         );
       }
-      // A Send-As refusal is the one 4xx with a specific, actionable cause, and
-      // it is the failure mode that routing a whole domain here creates.
-      const sendAs = describeGraphSendAsRejection(res.status, sender, text);
-      throw new Error(sendAs ?? `Graph sendMail failed: ${res.status} ${text}`);
+      // The two 4xx failures with a specific, actionable cause, and each is the
+      // failure mode of one of the two ways a message reaches Graph: a Send-As
+      // refusal for an address the connected mailbox has no grant on, and a
+      // not-in-Exchange-Online 404 for an address Graph cannot act on at all.
+      const diagnosed =
+        describeGraphSendAsRejection(res.status, sender, text) ??
+        describeGraphMailboxRejection(res.status, sender, text);
+      throw new Error(diagnosed ?? `Graph sendMail failed: ${res.status} ${text}`);
     }
   }
 }
@@ -570,34 +626,41 @@ export class MailerooTransport implements EmailTransport {
 export class SigningDomainRouter implements EmailTransport {
   private readonly fallback: EmailTransport;
   private readonly signers: Partial<Record<SigningTransport, EmailTransport>>;
+  private readonly graphMailbox: string | null;
 
   constructor(opts: {
-    /** Used for a From on no listed domain, and for a message with no From. */
+    /** Used for a From no rule claims, and for a message with no From. */
     fallback: EmailTransport;
     /** The transport to use for each signing capability that is available here. */
     signers: Partial<Record<SigningTransport, EmailTransport>>;
+    /**
+     * The mailbox Graph is connected as, Graph-routed with no list entry.
+     * Optional: a deployment with no Graph mailbox has nothing to name here.
+     */
+    graphMailbox?: string | null;
   }) {
     this.fallback = opts.fallback;
     this.signers = opts.signers;
+    this.graphMailbox = opts.graphMailbox ?? null;
   }
 
   async send(message: EmailMessage): Promise<void> {
-    const signer = signingTransportFor(message.from);
+    const decision = signingDecisionFor(message.from, this.graphMailbox);
     // A capability with no transport wired for it falls back rather than
-    // failing: the allowlist describes what the DOMAINS support, and a given
-    // deployment may not have every transport configured.
-    const chosen = (signer && this.signers[signer]) ?? this.fallback;
+    // failing: the rules describe what the ADDRESSES and DOMAINS support, and a
+    // given deployment may not have every transport configured.
+    const chosen = (decision && this.signers[decision.transport]) ?? this.fallback;
     // Nothing was rerouted when the fallback handled it, including the common
     // case where the maileroo signer IS the fallback, so there is nothing to
     // explain and the error passes through untouched.
-    if (!signer || chosen === this.fallback) {
+    if (!decision || chosen === this.fallback) {
       await chosen.send(message);
       return;
     }
     try {
       await chosen.send(message);
     } catch (err) {
-      throw annotateRoutedFailure(err, message.from, signer);
+      throw annotateRoutedFailure(err, message.from, decision);
     }
   }
 }
@@ -614,18 +677,38 @@ export class SigningDomainRouter implements EmailTransport {
  *
  * Transient failures are left alone. They are going to be retried, so routing
  * advice on them is noise on a row that is not stuck.
+ *
+ * THE NOTE NAMES THE RULE THAT MATCHED, not a rule that might have. It used to
+ * say "SENDING_DOMAINS lists <domain> as <signer>-signed" unconditionally, which
+ * became a lie the moment an ADDRESS could route a message: an operator reading
+ * it would go edit SENDING_DOMAINS, find nothing about their address there, and
+ * be no closer. Sending someone to the wrong lever is the same failure Graph's
+ * own "check credentials" commits, and this note exists to correct that kind of
+ * thing rather than commit it.
  */
 function annotateRoutedFailure(
   err: unknown,
   from: string | undefined,
-  signer: SigningTransport
+  decision: SigningDecision
 ): unknown {
   if (!(err instanceof Error) || err instanceof TransientEmailError) return err;
-  const domain = domainOf(from) ?? "its domain";
+  const { transport, rule } = decision;
+  const because =
+    rule === "address"
+      ? `GRAPH_SENDER_ADDRESSES names ${from}`
+      : rule === "mailbox"
+        ? `${from} IS the mailbox Graph is connected as`
+        : `SENDING_DOMAINS lists ${domainOf(from) ?? "its domain"} as ${transport}-signed`;
+  const undo =
+    rule === "address"
+      ? `Take ${from} out of GRAPH_SENDER_ADDRESSES`
+      : rule === "mailbox"
+        ? `Send as a different address, or disconnect the mailbox in Admin > Email`
+        : `Take ${domainOf(from) ?? "that domain"} off SENDING_DOMAINS`;
   err.message =
-    `${err.message} [Routing: SENDING_DOMAINS lists ${domain} as ${signer}-signed, which is why ` +
-    `${from} was sent through ${signer} rather than the default transport. Take ${domain} off ` +
-    `SENDING_DOMAINS to send it through the default transport instead.]`;
+    `${err.message} [Routing: ${because}, which is why ${from} was sent through ${transport} ` +
+    `rather than the default transport. ${undo} to send it through the default transport ` +
+    `instead.]`;
   return err;
 }
 
@@ -661,17 +744,21 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
       return new LogTransport();
     }
     const maileroo = new MailerooTransport({ apiKey, sender });
-    // Route by From domain. A message whose From is on a GRAPH-signed row of the
-    // allowlist goes out through Graph AS ITSELF rather than being pinned to
-    // `sender` with the address demoted to Reply-To. Everything else, including a
-    // message with no From at all, stays on Maileroo. No row is graph-signed by
-    // default since 2026-09-02, so the graph signer below is wired for a state
-    // SENDING_DOMAINS can reach rather than one it is in.
+    const mailbox = await connectedGraphMailbox();
+    // Route by From ADDRESS, then by From domain. A message whose From is named
+    // in GRAPH_SENDER_ADDRESSES, or IS the connected mailbox, or sits on a
+    // GRAPH-signed row of the domain allowlist, goes out through Graph AS ITSELF
+    // rather than being pinned to `sender` with the address demoted to Reply-To.
+    // Everything else, including a message with no From at all, stays on
+    // Maileroo. No row is graph-signed by default since 2026-09-02, so before the
+    // address rule the graph signer was wired for a state SENDING_DOMAINS could
+    // reach rather than one it was in; a configured GRAPH_SENDER_ADDRESSES now
+    // puts it in that state for real.
     //
     // GraphTransport's `sender` is only its default for a message that carries no
     // From, and the router never hands it one: a message reaches the graph signer
-    // precisely because its own From named a graph-signed domain. It is passed to
-    // honor the constructor's contract, not because this path reads it.
+    // precisely because its own From is Graph-routed. It is passed to honor the
+    // constructor's contract, not because this path reads it.
     //
     // Deliberately one-directional: the graph branch below does NOT gain a
     // Maileroo signer for havenfreeclinic.org. email.transport is an explicit
@@ -681,7 +768,8 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // this routing exists to serve.
     return new SigningDomainRouter({
       fallback: maileroo,
-      signers: { maileroo, graph: await resolveGraphSigner(sender) },
+      signers: { maileroo, graph: await resolveGraphSigner(sender, mailbox.connected) },
+      graphMailbox: mailbox.account,
     });
   }
   if (transport === "graph") {
@@ -751,11 +839,24 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
  * EMAIL-1). And it refuses ONLY the Graph-routed messages: a deployment with no
  * Graph mailbox still sends all of its Maileroo-signed mail.
  *
- * Both messages lead with the SENDING_DOMAINS lever, because that is the fix an
- * operator can apply immediately and it must survive the admin Failed card's
- * 60-character truncation.
+ * Both messages lead with the ROUTING lever, because that is the fix an operator
+ * can apply immediately and it must survive the admin Failed card's 60-character
+ * truncation. They name both levers, since either can put a From here and this
+ * function is resolved once for all of them rather than per message.
+ *
+ * EXPORTED so the admin sender test builds its Graph transport the same way. That
+ * test's entire contract is to mirror what the drain would do with the same From,
+ * and it used to construct a bare GraphTransport with neither precondition --
+ * which handed an admin exactly the opaque Entra 400 or "Mail account is not
+ * connected" this function was written to replace. That state is newly reachable
+ * on an ordinary deployment: before GRAPH_SENDER_ADDRESSES, nothing routed to
+ * Graph unless an operator had edited SENDING_DOMAINS.
  */
-async function resolveGraphSigner(sender: string): Promise<EmailTransport> {
+export async function resolveGraphSigner(
+  sender: string,
+  mailboxConnected: boolean,
+  opts?: { getAccessToken?: () => Promise<string>; fetchImpl?: typeof fetch },
+): Promise<EmailTransport> {
   const missing = [
     !config.GRAPH_OAUTH_TENANT_ID && "GRAPH_OAUTH_TENANT_ID",
     !config.GRAPH_OAUTH_CLIENT_ID && "GRAPH_OAUTH_CLIENT_ID",
@@ -763,38 +864,24 @@ async function resolveGraphSigner(sender: string): Promise<EmailTransport> {
   ].filter((name): name is string => Boolean(name));
   if (missing.length > 0) {
     return new UnconfiguredTransport(
-      `Take this domain off SENDING_DOMAINS, or set ${missing.join(" and ")}. ` +
-        `SENDING_DOMAINS routes this From to Graph, but Graph has no OAuth credentials ` +
-        `configured, so it can never sign for it.`
+      `Stop routing this From to Graph, or set ${missing.join(" and ")}. ` +
+        `GRAPH_SENDER_ADDRESSES or SENDING_DOMAINS routes it to Graph, but Graph has no OAuth ` +
+        `credentials configured, so it can never sign for it.`
     );
   }
-  if (!(await graphMailboxConnected())) {
+  if (!mailboxConnected) {
     return new UnconfiguredTransport(
-      "Take this domain off SENDING_DOMAINS, or connect a mailbox in Admin > Email. " +
-        "SENDING_DOMAINS routes this From to Graph, and no Graph mailbox is connected on this " +
-        "deployment. This is a routing consequence, not a broken mailbox: nothing else needs " +
-        "Graph here, and mail on every other domain is unaffected."
+      "Stop routing this From to Graph, or connect a mailbox in Admin > Email. " +
+        "GRAPH_SENDER_ADDRESSES or SENDING_DOMAINS routes it to Graph, and no Graph mailbox is " +
+        "connected on this deployment. This is a routing consequence, not a broken mailbox: " +
+        "nothing else needs Graph here, and mail on every other address is unaffected."
     );
   }
-  return new GraphTransport({ getAccessToken, sender });
-}
-
-/** Whether an admin has connected a Graph mailbox (the singleton MailCredential). */
-async function graphMailboxConnected(): Promise<boolean> {
-  try {
-    const row = await prisma.mailCredential.findUnique({
-      where: { id: "mailer" },
-      select: { id: true },
-    });
-    return row !== null;
-  } catch {
-    // A brief database problem must NOT be read as "not connected": that would
-    // refuse every Graph-routed send for the whole tick on the strength of one
-    // failed read. Assume connected and let GraphTransport produce the real
-    // per-message error, which is the same direction the settings reads above
-    // degrade in.
-    return true;
-  }
+  return new GraphTransport({
+    getAccessToken: opts?.getAccessToken ?? getAccessToken,
+    sender,
+    fetchImpl: opts?.fetchImpl,
+  });
 }
 
 /**

@@ -12,6 +12,14 @@ export const MY_INTERVIEWS_NAV_ITEM: ModuleNavItem = {
 };
 
 /**
+ * The Events tab's href, named here so the registry entry and the layout's
+ * dynamic gate cannot drift apart. Its gate is "may record attendance on any
+ * scope" (see canRecordAttendance), which mixes a permission with a director's
+ * review scope and so cannot be expressed in the registry.
+ */
+export const EVENTS_HREF = "/recruitment/events";
+
+/**
  * Assemble the recruitment module's nav tabs for a viewer. `staffNav` is the
  * already permission-filtered staff nav (empty for non-staff). Anyone on an
  * interview panel additionally gets the "My interviews" tab, appended after the

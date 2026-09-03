@@ -108,11 +108,22 @@ describe("module registry", () => {
     );
   });
 
-  it("uses dynamicGate nowhere else, so the global nav stays as complete as it safely can", () => {
+  it("uses dynamicGate only where a gate genuinely is not a permission string", () => {
+    // The global nav is deliberately under-inclusive for these and only these:
+    // every other tab must stay resolvable from permissions alone, or the
+    // dropdown quietly stops offering links it could safely offer.
+    //
+    // Recruitment's Events tab joins the schedule set because its gate is
+    // canRecordAttendance -- recruitment.record_attendance OR manage_cycles OR
+    // review_all OR a department director's review scope. The scope half is
+    // data-driven (manageableDepartmentIds), so no permission string, and no
+    // array of them, expresses it.
     const gated = MODULES.flatMap((m) =>
       m.nav.filter((n) => n.dynamicGate).map((n) => `${m.id}:${n.href}`),
     );
-    expect(gated.every((h) => h.startsWith("schedule:"))).toBe(true);
+    expect(gated.filter((h) => !h.startsWith("schedule:"))).toEqual([
+      "recruitment:/recruitment/events",
+    ]);
   });
 
   it("offers a support view-only auditor the All requests tab but not the Epic tools tab", () => {

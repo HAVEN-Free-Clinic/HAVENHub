@@ -257,6 +257,12 @@ model Person {
   trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
   subcommitteeAssignments        Application[]              @relation("applicationSubcommitteeAssigner")
   boardAttendance                BoardMeetingAttendance[]   @relation("boardAttendancePerson")
+  /// Event attendance rows for this person (training, info sessions, other).
+  eventAttendances               EventAttendance[]          @relation("eventAttendancePerson")
+  /// Event attendance rows this person recorded on someone else's behalf.
+  eventAttendancesRecorded       EventAttendance[]          @relation("eventAttendanceRecordedBy")
+  /// Attendance events this person created.
+  attendanceEventsCreated        AttendanceEvent[]          @relation("attendanceEventCreatedBy")
   boardAttendanceRecorded        BoardMeetingAttendance[]   @relation("boardAttendanceRecorder")
   applicationsRouted             Application[]              @relation("applicationRoutedBy")
   applicationsReturned           Application[]              @relation("applicationReturnedBy")
@@ -363,6 +369,7 @@ model Term {
   scheduleDays          ScheduleDay[]
   clinicDays            ClinicDay[]
   boardMeetings         BoardMeeting[]
+  attendanceEvents      AttendanceEvent[]
   schedulePublications  SchedulePublication[]
   recruitmentCycles     RecruitmentCycle[]
   trainings             Training[]
@@ -2331,6 +2338,7 @@ model RecruitmentCycle {
   cycleEmails  RecruitmentCycleEmail[]
   contract     RecruitmentCycleContract?
   invites      RecruitmentInvite[]
+  events       AttendanceEvent[]
 
   @@index([status, track])
 }
@@ -2672,6 +2680,126 @@ model QuizAttempt {
   training Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
 
   @@index([trainingId, takenAt])
+}
+
+/// What kind of gathering an AttendanceEvent is. TRAINING is the one kind that
+/// bridges into Training (see recordEventCheckIn): checking someone in at a
+/// training session completes their training for the cycle's track. The others
+/// only record who was there -- INFO_SESSION exists so applicant attendance can
+/// be reconciled against the sheet rather than self-attested on the application.
+enum AttendanceEventKind {
+  TRAINING
+  INFO_SESSION
+  OTHER
+}
+
+/// How an attendance row got written. STAFF is a staffer checking in someone the
+/// hub already knows; WALK_UP is someone with no Person row at all, captured by
+/// name and email so they can be linked later (see linkAttendee). Deliberately
+/// NOT reusing schedule's CheckInMethod: that enum's SELF_GEO/SELF_REMOTE split
+/// encodes the clinic geofence, which no event check-in performs.
+enum EventCheckInMethod {
+  STAFF
+  WALK_UP
+}
+
+/// A gathering attendance is taken at: a training session, a recruitment info
+/// session, or anything else worth a sign-in sheet.
+///
+/// Term-scoped rather than global because attendance is only ever asked about
+/// within a term ("was this person at training this term?"), and cycle-scoped
+/// when the event belongs to a recruitment cycle -- which is what lets a
+/// TRAINING event resolve the track its check-ins complete training for.
+model AttendanceEvent {
+  id          String              @id @default(cuid())
+  termId      String
+  /// Set for TRAINING and INFO_SESSION events, which belong to a recruitment
+  /// cycle; null for OTHER. A TRAINING event REQUIRES it (the cycle carries the
+  /// track and the quiz settings), enforced in the service, not the schema:
+  /// Prisma cannot express "required when kind = TRAINING".
+  cycleId     String?
+  kind        AttendanceEventKind
+  title       String
+  /// Event start instant, NOT a noon-UTC calendar date: a kiosk shows "6:00 PM"
+  /// and the check-in window is relative to a real moment. Contrast
+  /// ClinicAttendance.clinicDate and RecruitmentCycle.inPersonTrainingDate,
+  /// which are both date-anchored.
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  /// Restrict: term deletion is blocked while attendance history references it.
+  term        Term              @relation(fields: [termId], references: [id], onDelete: Restrict)
+  /// SetNull: an event survives its cycle being deleted, keeping the attendance
+  /// record. A TRAINING event that loses its cycle can no longer complete
+  /// training (the service refuses), which is correct: there is no track left.
+  cycle       RecruitmentCycle? @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  /// SetNull: the event survives its creator being deleted.
+  createdBy   Person?           @relation("attendanceEventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  attendances EventAttendance[]
+
+  @@index([termId, startsAt])
+  @@index([cycleId])
+}
+
+/// One person's attendance at one event.
+///
+/// `personId` is NULLABLE on purpose: an info session is mostly attended by
+/// prospective applicants who have no Person row, and refusing to record them is
+/// what made the attendance sheet unusable as a source of truth. Those rows
+/// carry attendeeName/attendeeEmail instead and are linked to a Person later.
+///
+/// The two unique constraints coexist because Postgres treats NULLs as distinct
+/// in a unique index: linked rows dedupe on personId (attendeeEmail is null),
+/// walk-ups dedupe on attendeeEmail (personId is null). That is what makes
+/// check-in idempotent for both, so a double-tap or two staffers working the
+/// same door cannot write two rows or send two nudge emails.
+model EventAttendance {
+  id                String             @id @default(cuid())
+  eventId           String
+  personId          String?
+  /// Walk-ups only (null whenever personId is set).
+  attendeeName      String?
+  /// Walk-ups only, lowercased. This is the link key: when a Person with this
+  /// address turns up, the row is linked and any training completion it implies
+  /// is backfilled.
+  attendeeEmail     String?
+  method            EventCheckInMethod
+  /// True arrival instant.
+  checkedInAt       DateTime           @default(now())
+  recordedById      String?
+  note              String?
+  /// Onboarding task keys outstanding at the moment of check-in (plus the
+  /// synthetic "contract" key when the attendee has no active membership).
+  /// A SNAPSHOT, kept so the nudge email and any later dispute can say what was
+  /// actually missing when they walked in; live state is recomputed for nudges.
+  blockersAtCheckIn String[]           @default([])
+  nudgeLastSentAt   DateTime?
+  nudgeCount        Int                @default(0)
+  /// Set once every blocker has cleared, which stops the nudge stream. Null for
+  /// a row that never had blockers (nothing to resolve) as well as one still
+  /// outstanding, so it is never read on its own -- only alongside nudgeCount.
+  resolvedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  /// Cascade: attendance rows die with the event they belong to.
+  event      AttendanceEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// Cascade: attendance belongs to the person and dies with them, matching
+  /// ClinicAttendance.
+  person     Person?         @relation("eventAttendancePerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// SetNull: the record survives the recorder being deleted.
+  recordedBy Person?         @relation("eventAttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, personId])
+  @@unique([eventId, attendeeEmail])
+  @@index([eventId])
+  @@index([personId])
+  @@index([attendeeEmail])
 }
 
 model Interview {

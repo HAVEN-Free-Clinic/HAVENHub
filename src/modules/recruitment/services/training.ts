@@ -174,26 +174,15 @@ export async function completeTraining(
   });
 }
 
-/** Record live-session attendance for a member (by personId) in the term and track.
- *  Director-scoped (the member must be in a department the actor manages) or
- *  review_all. Completes via ATTENDANCE. */
-export async function recordAttendance(personId: string, termId: string, track: Track, actorId: string): Promise<void> {
-  const cycle = await getTrainingCycleForTerm(termId, track);
-  if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
-
-  const memberships = await prisma.termMembership.findMany({
-    where: { personId, termId, kind: track, status: "ACTIVE" },
-    include: { department: { select: { code: true } } },
-  });
-  if (memberships.length === 0) throw new TrainingStateError("Not an active member of this track this term.");
-
-  const scope = await reviewScope(actorId);
-  const inScope = scope.all || memberships.some((m) => scope.departmentCodes.includes(m.department.code));
-  if (!inScope) throw new RecruitmentAuthError("You can't record training for that member.");
-
-  await completeTraining(prisma, { personId, termId, cycleId: cycle.id, track, via: "ATTENDANCE", actorId });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.training_attendance", entityType: "Training", entityId: `${personId}:${termId}:${track}`, after: { personId, termId, track } });
-}
+/* Live-session attendance used to be recorded here, by `recordAttendance`, which
+ * required the person to hold an ACTIVE TermMembership of the cycle's track. That
+ * requirement is exactly what made two real situations unrecordable -- an info
+ * session full of prospective applicants, and training attended by someone whose
+ * onboarding contract had not been submitted yet -- so attendance moved to
+ * ./attendance-events.ts, where it is recorded against an event and the training
+ * completion is a consequence of it. The roster's per-row button now routes
+ * through recordEventCheckIn, and completeTraining above is the shared write both
+ * that path and the quiz path still use. */
 
 export type TrainingIntake = {
   additionalShiftAvailability?: string | null;

@@ -38,6 +38,7 @@ import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { log, errorAttrs } from "@/platform/logging";
 import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
+import { outstandingItems } from "@/platform/compliance/outstanding-items";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
@@ -73,32 +74,17 @@ const ONBOARDING_REMINDER_GRACE_DAYS = 2;
 const DIGEST_STALLED_FLAG_DAYS = 21;
 
 /**
- * Human-readable, self-serviceable outstanding items, keyed by onboarding task key.
- * `hipaa` is deliberately absent: it has its own stream.
- */
-const REMINDER_ITEM_LABELS: Record<string, string> = {
-  profile: "Confirm your contact details in your profile",
-  ehs: "Complete your required EHS training",
-  training: "Finish this term's volunteer training",
-  directorTraining: "Finish this term's director training",
-  learning: "Complete your assigned learning courses",
-};
-
-/**
  * Turn a member's missing task keys into display sentences for the onboarding email.
  * `hipaa` is dropped (its own stream covers it) and the EHS row is expanded with the
  * specific outstanding course names, which is the detail the bundled email used to
  * carry.
+ *
+ * The wording lives in platform/compliance/outstanding-items.ts because the event
+ * check-in nudge sends the same sentences (see attendance-nudges.ts); it used to be
+ * a private table here.
  */
 function onboardingItems(missing: readonly string[], ehsMissing: string[]): string[] {
-  const out: string[] = [];
-  for (const key of missing) {
-    if (key === "hipaa") continue;
-    const label = REMINDER_ITEM_LABELS[key];
-    if (!label) continue;
-    out.push(key === "ehs" && ehsMissing.length > 0 ? `${label}: ${ehsMissing.join(", ")}` : label);
-  }
-  return out;
+  return outstandingItems(missing, { ehsMissing, skip: ["hipaa"] });
 }
 
 // ---------------------------------------------------------------------------

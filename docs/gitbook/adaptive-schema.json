@@ -136,6 +136,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the recruitment.manage_cycles permission in HAVEN Hub."
             },
+            "record_attendance": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the recruitment.record_attendance permission in HAVEN Hub."
+            },
             "review_all": {
               "type": "boolean",
               "description": "Whether the visitor holds the recruitment.review_all permission in HAVEN Hub."

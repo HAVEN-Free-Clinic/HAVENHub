@@ -58,6 +58,8 @@ import {
   resolveSenderIdentity,
   revokeSendingIdentity,
   revokeSendingIdentityGrant,
+  senderDisplayName,
+  senderTestFrom,
 } from "./sender-identity";
 
 beforeEach(resetDb);
@@ -788,5 +790,137 @@ describe("the connected Graph mailbox", () => {
     await prisma.mailCredential.delete({ where: { id: "mailer" } });
     const options = await availableSenderIdentities(admin.id, null);
     expect(options.map((o) => o.address)).not.toContain(MAILBOX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The display name in the From
+// ---------------------------------------------------------------------------
+
+/**
+ * THE PRECEDENCE: an admin-set display name wins, and the sending PERSON's name
+ * fills the gap.
+ *
+ * Both layers of the resolution order carry an admin-set name (a scope's
+ * `fromName` and an issued identity's `displayName`) and both mean the same
+ * thing: somebody decided this address speaks in an institutional voice, and
+ * whoever pressed Send does not get to overwrite it. Only where nobody made that
+ * decision does the person show through.
+ *
+ * The name is COSMETIC. It plays no part in DKIM or SPF alignment (stated in
+ * transport.ts, and the reason a display name survives even a send whose address
+ * is pinned and demoted to Reply-To). That is why every missing case below has
+ * to degrade to no name rather than throw: losing a name costs a line of polish,
+ * and throwing costs the run.
+ */
+describe("the display name in the From", () => {
+  it("prefers the admin-set name over the sending person's", async () => {
+    const chooser = await person("Jack Carney", "jack@havenfreeclinic.org");
+    expect(await senderDisplayName({ displayName: "HAVEN Recruitment" }, chooser.id)).toBe(
+      "HAVEN Recruitment",
+    );
+    // And it is genuinely a preference, not an accident of the person being
+    // absent: the same person, with no admin name, shows through.
+    expect(await senderDisplayName({ displayName: null }, chooser.id)).toBe("Jack Carney");
+  });
+
+  it("degrades to no name rather than throwing when there is no person to name", async () => {
+    // Three ways the person can be missing, and all three are ordinary.
+    //
+    //   null   -- an unscoped campaign with no explicit identity has no chooser
+    //             at all, so nobody made the choice this name would credit.
+    //   absent -- fromEmailSetById is SetNull on delete, so a departed chooser
+    //             arrives here as null through the same route.
+    //   stale  -- an id that resolves to nobody. The one shape that would throw
+    //             under findUniqueOrThrow, and the reason this reads with
+    //             findUnique instead.
+    expect(await senderDisplayName({ displayName: null }, null)).toBeNull();
+    expect(await senderDisplayName({ displayName: null }, undefined)).toBeNull();
+    expect(await senderDisplayName({ displayName: null }, "cktheresnosuchperson")).toBeNull();
+
+    // An admin name still lands with no person anywhere: it never needed one.
+    expect(await senderDisplayName({ displayName: "HAVEN Recruitment" }, null)).toBe(
+      "HAVEN Recruitment",
+    );
+  });
+
+  it("treats a blank name on either side as no name", async () => {
+    // Both write seams trim already (issueSendingIdentity and updateScope each
+    // store null for a whitespace-only value), so this guards rows written
+    // before those existed, and a Person.name that is whitespace, which nothing
+    // trims anywhere.
+    const blank = await prisma.person.create({
+      data: { name: "   ", contactEmail: "blank@havenfreeclinic.org", status: "ACTIVE" },
+    });
+    expect(await senderDisplayName({ displayName: "   " }, blank.id)).toBeNull();
+
+    const named = await person("Jack Carney", "jack@havenfreeclinic.org");
+    // A whitespace-only admin name is not a decision, so the person shows
+    // through rather than the From carrying a blank name.
+    expect(await senderDisplayName({ displayName: "   " }, named.id)).toBe("Jack Carney");
+    // And a real name is trimmed rather than carried with its padding.
+    expect(await senderDisplayName({ displayName: "  HAVEN Recruitment  " }, null)).toBe(
+      "HAVEN Recruitment",
+    );
+  });
+
+  it("still names the person when there is no identity at all", async () => {
+    // The shape senderForRun never passes, because it returns before it gets
+    // here. Pinned anyway: nothing about "which name" should depend on the
+    // caller having already decided there is an address.
+    const chooser = await person("Jack Carney", "jack@havenfreeclinic.org");
+    expect(await senderDisplayName(null, chooser.id)).toBe("Jack Carney");
+    expect(await senderDisplayName(undefined, chooser.id)).toBe("Jack Carney");
+  });
+});
+
+/**
+ * The sender TEST's From, which has to be the From a real send would carry.
+ *
+ * sendSenderTest exists to mirror what the drain does with the same address, so
+ * a test message arriving under a different name would stop showing what
+ * recipients actually see: the one check that confirms an address is usable
+ * would be reporting on a message production never sends.
+ *
+ * The revocation filter belongs to the same function on purpose. It is the one
+ * read of an identity on the /outreach/identities screen that must not skip
+ * `revokedAt: null`, and it used to sit inline in a server action where no test
+ * could reach it.
+ */
+describe("the From a sender test goes out as", () => {
+  it("carries the identity's admin-set name, and the actor's when it has none", async () => {
+    const admin = await person("Jack Carney", "jack@havenfreeclinic.org");
+    const named = await issueSendingIdentity(null, {
+      personId: admin.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Recruitment",
+    });
+    const unnamed = await issueSendingIdentity(null, {
+      personId: admin.id,
+      address: "peds@havenfreeclinic.org",
+    });
+
+    expect(await senderTestFrom(named.id, admin.id)).toEqual({
+      fromEmail: "recruitment@havenfreeclinic.org",
+      fromName: "HAVEN Recruitment",
+    });
+    expect(await senderTestFrom(unnamed.id, admin.id)).toEqual({
+      fromEmail: "peds@havenfreeclinic.org",
+      fromName: "Jack Carney",
+    });
+  });
+
+  it("refuses a revoked identity, and one that does not exist", async () => {
+    // The button renders only on an active row, so resolving a revoked address
+    // here would leave the server not enforcing what the screen implies.
+    const admin = await person("Jack Carney", "jack@havenfreeclinic.org");
+    const issued = await issueSendingIdentity(null, {
+      personId: admin.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await revokeSendingIdentity(null, issued.id);
+
+    expect(await senderTestFrom(issued.id, admin.id)).toBeNull();
+    expect(await senderTestFrom("cktheresnosuchidentity", admin.id)).toBeNull();
   });
 });

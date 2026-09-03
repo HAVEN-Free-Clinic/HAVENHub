@@ -35,6 +35,7 @@ import {
   listIssuedIdentities,
   revokeSendingIdentity,
   revokeSendingIdentityGrant,
+  senderTestFrom,
   sendersWithoutIdentity,
   SenderIdentityError,
 } from "@/platform/email/sender-identity";
@@ -197,21 +198,23 @@ export default async function SendingIdentitiesPage({
    * anything outreach itself grants. Sending to yourself answers the only
    * question being asked ("will Graph accept this From") and reaches nobody new.
    *
-   * The FROM is resolved from an id, and the row is re-read here with
-   * `revokedAt: null` rather than trusted from the form. The button renders only
-   * on an active row, so reading a raw address out of the FormData would leave
-   * the server not enforcing what the UI implies -- and it would be the one read
-   * of an identity on this page that skips the revocation filter, which is
-   * exactly the shape the whole revocation risk is about.
+   * THE WHOLE FROM, name included, comes from senderTestFrom, so the test
+   * message carries the display name a real send from this address would carry:
+   * the identity's admin-set name, or the admin running the test. A test that
+   * arrived under a different name would stop showing what recipients actually
+   * see. That function also owns the `revokedAt: null` re-read -- the FROM is
+   * resolved from an id rather than trusted from the form, because the button
+   * renders only on an active row and reading a raw address out of the FormData
+   * would leave the server not enforcing what the UI implies.
    */
   async function testAction(formData: FormData) {
     "use server";
     const admin = await requirePermission("outreach.manage_scopes");
-    const identity = await prisma.sendingIdentity.findFirst({
-      where: { id: ((formData.get("id") as string | null) ?? "").trim(), revokedAt: null },
-      select: { address: true },
-    });
-    if (!identity) back("That sending identity is no longer active.");
+    const from = await senderTestFrom(
+      (formData.get("id") as string | null) ?? "",
+      admin.personId,
+    );
+    if (!from) back("That sending identity is no longer active.");
     const row = await prisma.person.findUnique({
       where: { id: admin.personId },
       select: { contactEmail: true },
@@ -220,14 +223,11 @@ export default async function SendingIdentitiesPage({
       back("You have no contact email on file, so there is nowhere to send the test.");
     }
     try {
-      await sendSenderTest(admin.personId, {
-        toEmail: row.contactEmail,
-        fromEmail: identity.address,
-      });
+      await sendSenderTest(admin.personId, { toEmail: row.contactEmail, ...from });
     } catch (e) {
       back(e instanceof Error ? e.message : "The test send failed.");
     }
-    redirect(`${PATH}?sent=${encodeURIComponent(identity.address)}`);
+    redirect(`${PATH}?sent=${encodeURIComponent(from.fromEmail)}`);
   }
 
   return (

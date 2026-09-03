@@ -1320,3 +1320,84 @@ export async function resolveCampaignSender(
   if (match) return { identity: match, honoredChoice: true };
   return { identity: options[0] ?? null, honoredChoice: false };
 }
+
+/**
+ * The display name one send goes out under, beside the address.
+ *
+ * AN ADMIN-SET NAME WINS; THE SENDING PERSON'S NAME FILLS THE GAP. Both layers
+ * of the resolution order carry an admin-set name -- a scope's `fromName` and an
+ * issued identity's `displayName`, both already folded into
+ * SenderIdentityOption.displayName by the time they reach here -- and both mean
+ * the same thing: somebody decided this address speaks in an institutional
+ * voice. `recruitment@havenfreeclinic.org` configured as "HAVEN Recruitment"
+ * keeps that voice whoever pressed Send. Only where nobody made that decision
+ * does the person show through, which is what turns a bare
+ * `j.carney@yale.edu` into `Jack Carney <j.carney@yale.edu>`.
+ *
+ * WHICH PERSON is the caller's decision and it is not the obvious one. For a
+ * campaign it is the person who CHOSE the identity
+ * (EmailCampaign.fromEmailSetById), not the actor dispatching the run: a
+ * recurring campaign is dispatched by cron with no actor at all, weeks after
+ * composition, so crediting the dispatcher would credit nobody exactly when it
+ * matters. See senderForRun.
+ *
+ * `personId` IS ALLOWED TO NAME NOBODY, and that is not an error. A campaign
+ * with no explicit identity has no chooser to begin with, and
+ * `fromEmailSetById` is SetNull on delete, so a departed chooser arrives here as
+ * null. Read with findUnique rather than findUniqueOrThrow for the same reason:
+ * an id that no longer resolves must degrade to no name. The name is COSMETIC
+ * and plays no part in DKIM or SPF alignment (see transport.ts), so losing it
+ * costs a line of polish while throwing would fail the whole run.
+ *
+ * RESOLVED AT ENQUEUE, and snapshotted onto EmailLog.fromName there, exactly
+ * like the address. The drain re-reads that row verbatim minutes or hours later,
+ * so resolving at delivery time would let a rename retroactively rewrite the
+ * From of mail already accepted.
+ */
+export async function senderDisplayName(
+  identity: { displayName: string | null } | null | undefined,
+  personId: string | null | undefined,
+): Promise<string | null> {
+  const configured = identity?.displayName?.trim();
+  if (configured) return configured;
+  if (!personId) return null;
+  const person = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { name: true },
+  });
+  return person?.name.trim() || null;
+}
+
+/**
+ * The From one SENDER TEST goes out as: the address, and the name a real send
+ * from that address would carry.
+ *
+ * sendSenderTest exists to mirror what the drain does with the same From, so a
+ * test message arriving under a different name would stop showing what
+ * recipients actually see -- the one check that confirms an address is usable
+ * would be reporting on a message production never sends. The precedence is
+ * therefore senderDisplayName's, unchanged: the identity's admin-set name, then
+ * the admin running the test, who here IS the sending person.
+ *
+ * THE ADDRESS IS RESOLVED FROM AN ID, and the row is re-read with
+ * `revokedAt: null` rather than trusted from the caller. The button on
+ * /outreach/identities renders only on an active row, so resolving a revoked one
+ * would leave the server not enforcing what the screen implies -- and it would
+ * be the one read of an identity on that page that skips the revocation filter,
+ * which is exactly the shape the whole revocation risk is about. Null means
+ * there is nothing to test.
+ */
+export async function senderTestFrom(
+  identityId: string,
+  actorPersonId: string,
+): Promise<{ fromEmail: string; fromName: string | null } | null> {
+  const identity = await prisma.sendingIdentity.findFirst({
+    where: { id: identityId.trim(), revokedAt: null },
+    select: { address: true, displayName: true },
+  });
+  if (!identity) return null;
+  return {
+    fromEmail: identity.address,
+    fromName: await senderDisplayName(identity, actorPersonId),
+  };
+}

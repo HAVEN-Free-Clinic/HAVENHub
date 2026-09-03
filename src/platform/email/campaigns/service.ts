@@ -24,6 +24,7 @@ import {
   normalizeSendingAddress,
   resolveCampaignSender,
   resolveSenderIdentity,
+  senderDisplayName,
 } from "@/platform/email/sender-identity";
 import type { SenderIdentityOption } from "@/platform/email/sender-identity";
 import { log } from "@/platform/logging";
@@ -603,6 +604,15 @@ export async function senderIdentitiesForCampaign(
  * (to the scope identity, then to the global default) rather than failing the
  * run, and the swap is logged here because this is the layer that knows which
  * campaign it was.
+ *
+ * THE DISPLAY NAME beside the address follows the same shape: an admin-set name
+ * on the resolved identity wins, and the person who CHOSE that identity fills
+ * the gap, so a bare address becomes "Jack Carney <j.carney@yale.edu>". The
+ * chooser is `fromEmailSetById` and deliberately NOT `opts.actorId`, for the
+ * reason stated just above: the cron path has no actor, so reading one would
+ * leave every recurring send nameless. A campaign with no chooser at all,
+ * or whose chooser has been deleted (SetNull), degrades to no name rather than
+ * throwing -- see senderDisplayName.
  */
 async function senderForRun(campaign: {
   id: string;
@@ -620,7 +630,10 @@ async function senderForRun(campaign: {
     });
   }
   if (!identity) return null;
-  return { fromEmail: identity.address, fromName: identity.displayName };
+  return {
+    fromEmail: identity.address,
+    fromName: await senderDisplayName(identity, campaign.fromEmailSetById),
+  };
 }
 
 /**

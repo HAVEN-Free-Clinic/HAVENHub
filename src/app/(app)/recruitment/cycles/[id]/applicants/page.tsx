@@ -19,6 +19,11 @@ import { speedScoreAction, loadReviewApplicationAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
 import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
+import { DepartmentFilter } from "@/modules/recruitment/components/department-filter";
+import {
+  departmentFilterOptions,
+  filterApplicantsByDepartment,
+} from "@/modules/recruitment/engine/applicant-department";
 import {
   nextSortDirection,
   parseApplicantSort,
@@ -35,12 +40,14 @@ const DECISION_STATUSES = new Set<RosterDecisionStatus>(["ACCEPTED", "WAITLIST",
  *  navigating. Page 1 and the unsorted default are left implicit. */
 function rosterQuery(parts: {
   decision: string | null;
+  department: string | null;
   sort: string | null;
   dir: string | null;
   page: number | null;
 }): string {
   const q = new URLSearchParams();
   if (parts.decision) q.set("decision", parts.decision);
+  if (parts.department) q.set("department", parts.department);
   if (parts.sort && parts.dir) {
     q.set("sort", parts.sort);
     q.set("dir", parts.dir);
@@ -50,9 +57,9 @@ function rosterQuery(parts: {
   return s ? `?${s}` : "";
 }
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string; sort?: string; dir?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string; department?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, decision: decisionParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { page: pageParam, decision: decisionParam, department: departmentParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -105,9 +112,17 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const decisionFilter = decisionParam && DECISION_STATUSES.has(decisionParam as RosterDecisionStatus)
     ? (decisionParam as RosterDecisionStatus)
     : null;
-  const filtered = decisionFilter
+  // Options come off the unfiltered roster so the Department menu holds still
+  // while the Decision filter moves, and so a hand-edited ?department= that no
+  // row answers for falls back to no filter rather than an empty table.
+  const departmentOptions = departmentFilterOptions(apps);
+  const departmentFilter = departmentParam && departmentOptions.includes(departmentParam)
+    ? departmentParam
+    : null;
+  const byDecision = decisionFilter
     ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
     : apps;
+  const filtered = filterApplicantsByDepartment(byDecision, departmentFilter);
   const sort = parseApplicantSort(sortParam, dirParam);
   // Sort after filtering and before slicing, so page boundaries stay correct.
   const sorted = sort ? sortApplicants(filtered, sort) : filtered;
@@ -118,6 +133,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     // Omitting page returns to page 1, matching how DecisionFilter drops it.
     `/recruitment/cycles/${id}/applicants${rosterQuery({
       decision: decisionFilter,
+      department: departmentFilter,
       sort: key,
       dir: nextSortDirection(sort, key),
       page: null,
@@ -145,7 +161,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         </div>
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <DecisionFilter />
+        <div className="flex flex-wrap items-end gap-3">
+          <DecisionFilter />
+          <DepartmentFilter options={departmentOptions} />
+        </div>
         <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
           {filtered.length.toLocaleString()} {filtered.length === 1 ? "applicant" : "applicants"}
         </span>
@@ -214,7 +233,21 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                 <TD>
                   <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
                 </TD>
-                <TD className="text-foreground-soft">{a.departmentChoices.join(", ")}</TD>
+                <TD className="text-foreground-soft">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {a.departmentChoices.join(", ")}
+                    {/* Once routed, the routed department -- not the ranked ones
+                        -- is what this row answers for, and routing off the
+                        ranked choices is legal. Without this the Department
+                        filter looks broken: a row routed to PCAR that ranked
+                        SCTP shows up under PCAR with "SCTP" in this cell. */}
+                    {a.routedDepartmentCode && (
+                      <Badge tone="brand" title={`Routed to ${a.routedDepartmentCode}`}>
+                        Routed: {a.routedDepartmentCode}
+                      </Badge>
+                    )}
+                  </span>
+                </TD>
                 <TD>
                   <Badge tone={d.tone}>{d.label}</Badge>
                 </TD>
@@ -225,7 +258,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             <TR>
               <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
                 {apps.length > 0
-                  ? "No applicants match this filter."
+                  ? "No applicants match these filters."
                   : unrouted > 0
                     ? `No applicants in your review scope yet. ${unrouted} submitted ${unrouted === 1 ? "application is" : "applications are"} waiting to be routed to a department, and will appear here once ${unrouted === 1 ? "it reaches" : "they reach"} yours.`
                     : "No applicants in your review scope."}
@@ -240,6 +273,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         hrefFor={(p) =>
           `/recruitment/cycles/${id}/applicants${rosterQuery({
             decision: decisionFilter,
+            department: departmentFilter,
             sort: sort?.key ?? null,
             dir: sort?.dir ?? null,
             page: p,

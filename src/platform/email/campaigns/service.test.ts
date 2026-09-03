@@ -4,7 +4,7 @@ import { resetDb } from "@/platform/test/db";
 import {
   createDraft, updateCampaign, previewAudience, sendCampaignNow,
   scheduleCampaign, cancelCampaign, executeRun, listCampaigns, countAudienceNodes,
-  searchAudiencePeople, editManualLists, MAX_PASTED_EMAILS,
+  searchAudiencePeople, editManualLists, testSend, MAX_PASTED_EMAILS,
   CampaignValidationError, CampaignConfirmationError,
 } from "./service";
 import type { AudiencePreview } from "./service";
@@ -20,9 +20,11 @@ import { senderIdentitiesForCampaign } from "./service";
 import {
   issueSendingIdentity,
   revokeSendingIdentity,
+  senderTestFrom,
   SenderIdentityError,
 } from "@/platform/email/sender-identity";
 import { saveSenderRule } from "@/platform/email/sender-rules";
+import { setSetting } from "@/platform/settings/service";
 
 beforeEach(resetDb);
 
@@ -1724,5 +1726,340 @@ describe("campaign sending identity", () => {
     const logs = await prisma.emailLog.findMany({ where: { campaignRunId: res.runId } });
     expect(logs.length).toBeGreaterThan(0);
     expect([...new Set(logs.map((l) => l.fromEmail))]).toEqual([null]);
+  });
+});
+
+/**
+ * The NAME a campaign run goes out under, next to the address.
+ *
+ * THE ORDER: an admin-set name, then the person who CHOSE the identity, then
+ * `branding.orgName`, then nothing. The two admin layers are the scope's
+ * `fromName` and an issued identity's `displayName`, and neither is overridden
+ * by whoever pressed Send: a role address configured as "HAVEN Recruitment"
+ * keeps that institutional voice.
+ *
+ * The org floor is last on purpose and is NOT the campaign's creator. Nobody
+ * chose to send as themselves on a campaign that took the default identity, and
+ * a person's name on an address that is not theirs is a claim they did not make.
+ *
+ * WHICH PERSON is the part most easily got wrong, and it is asserted on its own
+ * below. It is the one who CHOSE the identity (EmailCampaign.fromEmailSetById),
+ * not the actor dispatching the run: a recurring campaign is dispatched by cron
+ * with no actor at all, weeks after composition, and crediting the dispatcher
+ * would mean crediting nobody exactly when it matters.
+ *
+ * sender-identity.test.ts pins the precedence in isolation. These cases exist
+ * because the interesting failures are at the joins: which person the run reads,
+ * what a departed one degrades to, and that the name is frozen onto the queued
+ * row rather than read back later.
+ */
+describe("the display name a campaign run sends under", () => {
+  const SUBJECT = "Hello";
+  const BODY = "<p>Hi</p>";
+
+  let seq = 0;
+  /**
+   * A scoped campaign whose sender is named, so "the person's name" is a value
+   * a test can actually see rather than an empty string that would match null.
+   */
+  async function named(opts: { scopeFromEmail?: string | null; scopeFromName?: string } = {}) {
+    // One chooser per call, all with the SAME name: two of these coexist in a
+    // single case, and contactEmail is unique while name is not.
+    seq += 1;
+    const chooser = await prisma.person.create({
+      data: { name: "Jack Carney", contactEmail: `jack${seq}@example.com`, status: "ACTIVE" },
+    });
+    const scope = await createScope(null, {
+      name: `Peds ${seq}`,
+      audience: ALL_ACTIVE,
+      ...(opts.scopeFromEmail ? { fromEmail: opts.scopeFromEmail } : {}),
+      ...(opts.scopeFromName ? { fromName: opts.scopeFromName } : {}),
+    });
+    await grantScope(null, scope.id, { personId: chooser.id });
+    const campaign = await createDraft(chooser.id, "Newsletter", { scopeId: scope.id });
+    return { chooser, scope, campaign };
+  }
+
+  /** Compose and pin, exactly as the compose form's save does. */
+  async function compose(chooserId: string | null, campaignId: string, fromEmail?: string) {
+    await updateCampaign(chooserId, campaignId, {
+      subject: SUBJECT,
+      body: BODY,
+      audience: ALL_ACTIVE,
+      ...(fromEmail === undefined ? {} : { fromEmail }),
+    });
+  }
+
+  async function fromOf(runId: string) {
+    const logs = await prisma.emailLog.findMany({ where: { campaignRunId: runId } });
+    expect(logs.length).toBeGreaterThan(0);
+    return {
+      emails: [...new Set(logs.map((l) => l.fromEmail))],
+      names: [...new Set(logs.map((l) => l.fromName))],
+    };
+  }
+
+  it("prefers an identity's admin-set name over the name of the person who chose it", async () => {
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await issueSendingIdentity(null, {
+      personId: chooser.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Recruitment",
+    });
+    await compose(chooser.id, campaign.id, "recruitment@havenfreeclinic.org");
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["recruitment@havenfreeclinic.org"]);
+    // The institutional voice an admin configured, not the human who sent it.
+    expect(names).toEqual(["HAVEN Recruitment"]);
+  });
+
+  it("names the person who chose the identity when it carries no admin name", async () => {
+    // Same fixture as above with ONE difference: the identity has no
+    // displayName. If this and the case above ever agree, the precedence is not
+    // being applied.
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await issueSendingIdentity(null, {
+      personId: chooser.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await compose(chooser.id, campaign.id, "recruitment@havenfreeclinic.org");
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["recruitment@havenfreeclinic.org"]);
+    expect(names).toEqual(["Jack Carney"]);
+  });
+
+  it("applies the same precedence to a SCOPE identity's admin-set name", async () => {
+    // A scope's fromName is an admin's choice on the delegation boundary
+    // itself, so it outranks the sender for the same reason an issued
+    // displayName does.
+    const withName = await named({
+      scopeFromEmail: "peds@havenfreeclinic.org",
+      scopeFromName: "HAVEN Pediatrics",
+    });
+    // Pinned explicitly, so there IS a chooser to lose to. Picking nothing would
+    // leave fromEmailSetById null and the case would pass with no precedence at
+    // all.
+    await compose(withName.chooser.id, withName.campaign.id, "peds@havenfreeclinic.org");
+    const namedRun = await sendCampaignNow(withName.chooser.id, withName.campaign.id, {});
+    expect((await fromOf(namedRun.runId)).names).toEqual(["HAVEN Pediatrics"]);
+
+    // The same scope address with no fromName set: the chooser shows through.
+    const withoutName = await named({ scopeFromEmail: "exec@havenfreeclinic.org" });
+    await compose(withoutName.chooser.id, withoutName.campaign.id, "exec@havenfreeclinic.org");
+    const bareRun = await sendCampaignNow(withoutName.chooser.id, withoutName.campaign.id, {});
+    const bare = await fromOf(bareRun.runId);
+    expect(bare.emails).toEqual(["exec@havenfreeclinic.org"]);
+    expect(bare.names).toEqual(["Jack Carney"]);
+  });
+
+  it("credits the person who CHOSE the identity, not the actor dispatching the run", async () => {
+    // The case the doc comment above senderForRun already warns about, now with
+    // a name attached to it. A recurring campaign is dispatched by cron with no
+    // actor, weeks after composition; a different colleague can also press Send
+    // on a shared scope. Reading the dispatcher would put the wrong human on
+    // every recurring send, and NOBODY on a cron one.
+    const { chooser, scope, campaign } = await named({
+      scopeFromEmail: "peds@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(null, {
+      personId: chooser.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await compose(chooser.id, campaign.id, "recruitment@havenfreeclinic.org");
+
+    const colleague = await prisma.person.create({
+      data: { name: "Dana Ops", contactEmail: "dana@example.com", status: "ACTIVE" },
+    });
+    await grantScope(null, scope.id, { personId: colleague.id });
+
+    // Dispatched by the colleague. The From names the chooser.
+    const byColleague = await sendCampaignNow(colleague.id, campaign.id, {});
+    expect((await fromOf(byColleague.runId)).names).toEqual(["Jack Carney"]);
+
+    // And dispatched with NO actor at all, which is the cron shape. Reading the
+    // actor here would produce no name; reading the chooser produces theirs.
+    const cronCampaign = await createDraft(chooser.id, "Recurring", { scopeId: scope.id });
+    await compose(chooser.id, cronCampaign.id, "recruitment@havenfreeclinic.org");
+    const byCron = await executeRun(cronCampaign.id, {
+      actorId: null,
+      claimWhere: { status: "DRAFT" },
+      statusUpdate: { status: "SENT" },
+    });
+    expect((await fromOf(byCron.runId)).names).toEqual(["Jack Carney"]);
+  });
+
+  it("falls to the org name, and does not throw, when nobody chose the identity", async () => {
+    // An unscoped-choice campaign: the sender picked nothing, so
+    // fromEmailSetById is null and there is no person whose name this send would
+    // be crediting. Every campaign in production is this one -- 7 of 7, none
+    // with an explicit identity and none with a chooser -- so this is the case
+    // the org floor exists for. The address still resolves from the scope, and
+    // the run must complete: a missing name is cosmetic, a throw fails the run.
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id);
+    expect(
+      (await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } }))
+        .fromEmailSetById,
+    ).toBeNull();
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["peds@havenfreeclinic.org"]);
+    // NOT the chooser's name. Nobody chose, and "Jack Carney" on the clinic's
+    // peds address would be a claim no one made.
+    expect(names).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("falls to the org name, and does not throw, once the chooser is deleted", async () => {
+    // fromEmailSetById is SetNull on delete, so a campaign can legitimately
+    // outlive its chooser -- and a recurring one keeps running after they leave.
+    // The address is pinned to the SCOPE identity so it survives the chooser
+    // going away (the issued route would not), which isolates this case to the
+    // name.
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id, "peds@havenfreeclinic.org");
+    expect(
+      (await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaign.id } }))
+        .fromEmailSetById,
+    ).toBe(chooser.id);
+
+    await prisma.person.delete({ where: { id: chooser.id } });
+
+    // Dispatched with no actor, as cron would. Must not throw.
+    const res = await executeRun(campaign.id, {
+      actorId: null,
+      claimWhere: { status: "DRAFT" },
+      statusUpdate: { status: "SENT" },
+    });
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["peds@havenfreeclinic.org"]);
+    expect(names).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("falls to the org name for a campaign with no identity at all", async () => {
+    // The other half of the floor, and the one that does NOT go through
+    // senderForRun: no scope identity and nothing issued, so the campaign
+    // resolves no identity, senderForRun returns null, and the enqueue falls
+    // through to the template sender rules. Both routes have to land on the same
+    // name or the same campaign would be named or bare depending on a detail its
+    // sender never sees.
+    const { chooser, campaign } = await named();
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id);
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual([null]);
+    expect(names).toEqual(["HAVEN Free Clinic"]);
+  });
+
+  it("puts nothing on the wire when the org name is only whitespace", async () => {
+    // Step 4 of the order has to be real: no name, not a blank one. Asserted at
+    // the transport as well as on the row, because a blank name that survived to
+    // the wire is exactly what this is guarding against.
+    await setSetting("branding.orgName", "   ", null);
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    await activePerson("Sam Rivera", "sam@example.com");
+    await compose(chooser.id, campaign.id);
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const { emails, names } = await fromOf(res.runId);
+    expect(emails).toEqual(["peds@havenfreeclinic.org"]);
+    expect(names).toEqual([null]);
+
+    const delivered: Array<string | undefined> = [];
+    await sendModule.drainEmailQueue({
+      async send(msg) {
+        delivered.push(msg.fromName);
+      },
+    });
+    expect(delivered.length).toBeGreaterThan(0);
+    expect([...new Set(delivered)]).toEqual([undefined]);
+  });
+
+  it("snapshots the name at enqueue, so a later rename does not rewrite queued mail", async () => {
+    // The same principle the address already rests on. EmailLog is the record of
+    // what was sent, and the drain re-reads the row verbatim minutes or hours
+    // later, so a name resolved at delivery time would let a rename retroactively
+    // change mail already accepted.
+    const { chooser, scope, campaign } = await named({
+      scopeFromEmail: "peds@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(null, {
+      personId: chooser.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await compose(chooser.id, campaign.id, "recruitment@havenfreeclinic.org");
+    const first = await sendCampaignNow(chooser.id, campaign.id, {});
+    expect((await fromOf(first.runId)).names).toEqual(["Jack Carney"]);
+
+    await prisma.person.update({
+      where: { id: chooser.id },
+      data: { name: "J. R. Carney" },
+    });
+
+    // Already queued: unchanged.
+    expect((await fromOf(first.runId)).names).toEqual(["Jack Carney"]);
+
+    // And unchanged all the way to the wire. The row is what the drain reads,
+    // minutes or hours later, so this is the assertion that separates "the name
+    // was snapshotted" from "the name is resolved at delivery time" -- the
+    // latter would put the new name on mail accepted under the old one, and
+    // would look identical in every other case here.
+    const delivered: Array<string | undefined> = [];
+    await sendModule.drainEmailQueue({
+      async send(msg) {
+        delivered.push(msg.fromName);
+      },
+    });
+    expect(delivered.length).toBeGreaterThan(0);
+    expect([...new Set(delivered)]).toEqual(["Jack Carney"]);
+
+    // The rename DID take, so the assertions above are about the snapshot rather
+    // than about renames never reaching the From at all. A new run by the same
+    // chooser carries the new name.
+    const later = await createDraft(chooser.id, "Next", { scopeId: scope.id });
+    await compose(chooser.id, later.id, "recruitment@havenfreeclinic.org");
+    const second = await sendCampaignNow(chooser.id, later.id, {});
+    expect((await fromOf(second.runId)).names).toEqual(["J. R. Carney"]);
+  });
+
+  it("gives the sender test and the campaign test send the same From as a real run", async () => {
+    // sendSenderTest is the one check that confirms an address is usable, and it
+    // is worth nothing as a preview if the message it sends carries a different
+    // From than the run it stands in for. senderTestFrom is the seam that
+    // resolves it; the campaign's own test send reaches the same answer through
+    // senderForRun.
+    const { chooser, campaign } = await named({ scopeFromEmail: "peds@havenfreeclinic.org" });
+    const issued = await issueSendingIdentity(null, {
+      personId: chooser.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await compose(chooser.id, campaign.id, "recruitment@havenfreeclinic.org");
+
+    await testSend(chooser.id, campaign.id, "check@example.com");
+    const preview = await prisma.emailLog.findFirstOrThrow({
+      where: { template: "campaign:test" },
+    });
+    const senderTest = await senderTestFrom(issued.id, chooser.id);
+
+    const res = await sendCampaignNow(chooser.id, campaign.id, {});
+    const real = await prisma.emailLog.findFirstOrThrow({ where: { campaignRunId: res.runId } });
+
+    expect({ fromEmail: real.fromEmail, fromName: real.fromName }).toEqual({
+      fromEmail: "recruitment@havenfreeclinic.org",
+      fromName: "Jack Carney",
+    });
+    expect({ fromEmail: preview.fromEmail, fromName: preview.fromName }).toEqual({
+      fromEmail: real.fromEmail,
+      fromName: real.fromName,
+    });
+    expect(senderTest).toEqual({ fromEmail: real.fromEmail, fromName: real.fromName });
   });
 });

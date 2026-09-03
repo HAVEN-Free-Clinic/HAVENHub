@@ -8,7 +8,12 @@ import {
   TemplateValidationError,
   type TemplateForEdit,
 } from "@/modules/admin/services/email-templates";
-import { saveSenderRule, clearSenderRule, SenderRuleValidationError } from "@/platform/email/sender-rules";
+import {
+  saveSenderRule,
+  clearSenderRule,
+  orgDisplayName,
+  SenderRuleValidationError,
+} from "@/platform/email/sender-rules";
 import { sendSenderTest } from "@/modules/admin/services/email";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -103,7 +108,14 @@ export default async function EditTemplatePage({ params }: Props) {
       );
     }
     try {
-      await sendSenderTest(a.personId, { toEmail, fromEmail, fromName: fromName || null });
+      // A BLANK display name is not "no name" any more: a rule that carries none
+      // falls through to the org floor, so a test sent with no name would stop
+      // showing what recipients see, which is the one thing this button is for.
+      await sendSenderTest(a.personId, {
+        toEmail,
+        fromEmail,
+        fromName: fromName || (await orgDisplayName()),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Test send failed.";
       redirect(`/admin/email/templates/${key}?error=${encodeURIComponent(message)}`);

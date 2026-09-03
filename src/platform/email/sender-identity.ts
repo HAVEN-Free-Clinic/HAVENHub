@@ -148,6 +148,7 @@ import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { signingTransportFor, type SigningTransport } from "./sending-domains";
 import { connectedGraphMailbox } from "./oauth";
+import { orgDisplayName } from "./sender-rules";
 import { EMAIL_RE } from "./address";
 
 /** A refusal: an address nobody can sign, or one this person may not use. */
@@ -1319,4 +1320,98 @@ export async function resolveCampaignSender(
   const match = options.find((o) => o.address === wanted);
   if (match) return { identity: match, honoredChoice: true };
   return { identity: options[0] ?? null, honoredChoice: false };
+}
+
+/**
+ * The display name one send goes out under, beside the address.
+ *
+ * THE ORDER: an admin-set name, then the sending PERSON's name, then the
+ * ORGANISATION's, then nothing.
+ *
+ * AN ADMIN-SET NAME WINS; THE SENDING PERSON'S NAME FILLS THE GAP. Both layers
+ * of the resolution order carry an admin-set name -- a scope's `fromName` and an
+ * issued identity's `displayName`, both already folded into
+ * SenderIdentityOption.displayName by the time they reach here -- and both mean
+ * the same thing: somebody decided this address speaks in an institutional
+ * voice. `recruitment@havenfreeclinic.org` configured as "HAVEN Recruitment"
+ * keeps that voice whoever pressed Send. Only where nobody made that decision
+ * does the person show through, which is what turns a bare
+ * `j.carney@yale.edu` into `Jack Carney <j.carney@yale.edu>`.
+ *
+ * WHICH PERSON is the caller's decision and it is not the obvious one. For a
+ * campaign it is the person who CHOSE the identity
+ * (EmailCampaign.fromEmailSetById), not the actor dispatching the run: a
+ * recurring campaign is dispatched by cron with no actor at all, weeks after
+ * composition, so crediting the dispatcher would credit nobody exactly when it
+ * matters. See senderForRun.
+ *
+ * `personId` IS ALLOWED TO NAME NOBODY, and that is not an error. A campaign
+ * with no explicit identity has no chooser to begin with, and
+ * `fromEmailSetById` is SetNull on delete, so a departed chooser arrives here as
+ * null. Read with findUnique rather than findUniqueOrThrow for the same reason:
+ * an id that no longer resolves must degrade rather than throw. The name is
+ * COSMETIC and plays no part in DKIM or SPF alignment (see transport.ts), so
+ * losing it costs a line of polish while throwing would fail the whole run.
+ *
+ * AND UNDER BOTH, THE ORGANISATION'S OWN NAME. Nobody-chose is the ordinary
+ * case, not the exotic one: every campaign in production takes the default
+ * identity, so the person layer fires on none of them and they would all still
+ * go out bare. orgDisplayName is the floor, and it records why the campaign's
+ * CREATOR is deliberately not one -- do not add that fallback here either.
+ * Blank all the way down still means no name, never a blank one.
+ *
+ * RESOLVED AT ENQUEUE, and snapshotted onto EmailLog.fromName there, exactly
+ * like the address. The drain re-reads that row verbatim minutes or hours later,
+ * so resolving at delivery time would let a rename retroactively rewrite the
+ * From of mail already accepted.
+ */
+export async function senderDisplayName(
+  identity: { displayName: string | null } | null | undefined,
+  personId: string | null | undefined,
+): Promise<string | null> {
+  const configured = identity?.displayName?.trim();
+  if (configured) return configured;
+  if (personId) {
+    const person = await prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true },
+    });
+    const chooser = person?.name.trim();
+    if (chooser) return chooser;
+  }
+  return orgDisplayName();
+}
+
+/**
+ * The From one SENDER TEST goes out as: the address, and the name a real send
+ * from that address would carry.
+ *
+ * sendSenderTest exists to mirror what the drain does with the same From, so a
+ * test message arriving under a different name would stop showing what
+ * recipients actually see -- the one check that confirms an address is usable
+ * would be reporting on a message production never sends. The precedence is
+ * therefore senderDisplayName's, unchanged: the identity's admin-set name, then
+ * the admin running the test, who here IS the sending person.
+ *
+ * THE ADDRESS IS RESOLVED FROM AN ID, and the row is re-read with
+ * `revokedAt: null` rather than trusted from the caller. The button on
+ * /outreach/identities renders only on an active row, so resolving a revoked one
+ * would leave the server not enforcing what the screen implies -- and it would
+ * be the one read of an identity on that page that skips the revocation filter,
+ * which is exactly the shape the whole revocation risk is about. Null means
+ * there is nothing to test.
+ */
+export async function senderTestFrom(
+  identityId: string,
+  actorPersonId: string,
+): Promise<{ fromEmail: string; fromName: string | null } | null> {
+  const identity = await prisma.sendingIdentity.findFirst({
+    where: { id: identityId.trim(), revokedAt: null },
+    select: { address: true, displayName: true },
+  });
+  if (!identity) return null;
+  return {
+    fromEmail: identity.address,
+    fromName: await senderDisplayName(identity, actorPersonId),
+  };
 }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { runAttendingReminders, renderScheduleTable } from "./attending-reminders";
+import { FACULTY_RELATIONS_ROLE } from "@/platform/rbac/system-roles";
 
 const NOW = new Date();
 
@@ -46,6 +47,29 @@ async function attending(scheduleName: string, email: string | null, isActive = 
 
 async function sentCount() {
   return prisma.emailLog.count({ where: { template: "attending-reminder" } });
+}
+
+/** A person holding the Faculty Relations role, the way an admin grants it. */
+async function facultyRelationsDirector(
+  name: string,
+  contactEmail: string | null,
+  status: "ACTIVE" | "OFFBOARDED" = "ACTIVE",
+) {
+  const person = await prisma.person.create({ data: { name, contactEmail, status } });
+  const role = await prisma.role.upsert({
+    where: { name: FACULTY_RELATIONS_ROLE },
+    update: {},
+    create: { name: FACULTY_RELATIONS_ROLE, isSystem: true },
+  });
+  await prisma.roleAssignment.create({ data: { roleId: role.id, personId: person.id } });
+  return person;
+}
+
+/** The Faculty Relations copy of the week's letter, if one was queued. */
+async function copyTo(email: string) {
+  return prisma.emailLog.findFirst({
+    where: { toEmail: email, template: "attending-reminder", subject: { startsWith: "Copy: " } },
+  });
 }
 
 describe("renderScheduleTable", () => {
@@ -288,5 +312,166 @@ describe("runAttendingReminders", () => {
     await prisma.clinicDay.create({ data: { termId: term.id, clinicDate: target } });
 
     expect((await runAttendingReminders(NOW)).remindersSent).toBe(0);
+  });
+});
+
+describe("the Faculty Relations copy", () => {
+  /** The standard case: one covered slot, one director holding the role. */
+  async function clinicWithOneAttending() {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const { morning } = await slots();
+    const peggy = await attending("Peggy Bia", "peggy@yale.edu");
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: target,
+        attendings: { create: [{ slotId: morning.id, attendingId: peggy.id }] },
+      },
+    });
+    return { term, target };
+  }
+
+  it("copies the director on the letter, once, with the body the attendings got", async () => {
+    await clinicWithOneAttending();
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+
+    const result = await runAttendingReminders(NOW);
+
+    expect(result.remindersSent).toBe(1);
+    expect(result.copiesSent).toBe(1);
+
+    const copy = await copyTo("haley@yale.edu");
+    expect(copy).not.toBeNull();
+    // The same letter, not a summary of it: the schedule block is what makes the
+    // copy worth having.
+    const sent = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: "peggy@yale.edu" } });
+    expect(copy!.html).toBe(sent.html);
+    // Marked, so it does not read as a shift the director is on.
+    expect(copy!.subject).toBe(`Copy: ${sent.subject}`);
+  });
+
+  // One copy of the week's letter, not one per covering attending. This is the
+  // whole reason it is a copy rather than a Cc header.
+  it("sends one copy however many attendings were reminded", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const { morning, midday } = await slots();
+    const peggy = await attending("Peggy Bia", "peggy@yale.edu");
+    const frank = await attending("Frank Bia", "frank@yale.edu");
+    const peng = await attending("Jack Peng", "peng@yale.edu");
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: target,
+        attendings: {
+          create: [
+            { slotId: morning.id, attendingId: peggy.id, order: 0 },
+            { slotId: morning.id, attendingId: frank.id, order: 1 },
+            { slotId: midday.id, attendingId: peng.id },
+          ],
+        },
+      },
+    });
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+
+    const result = await runAttendingReminders(NOW);
+
+    expect(result.remindersSent).toBe(3);
+    expect(result.copiesSent).toBe(1);
+    expect(
+      await prisma.emailLog.count({ where: { toEmail: "haley@yale.edu" } }),
+    ).toBe(1);
+  });
+
+  it("copies every person holding the role", async () => {
+    await clinicWithOneAttending();
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+    await facultyRelationsDirector("Sam Rivera", "sam@yale.edu");
+
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(2);
+    expect(await copyTo("haley@yale.edu")).not.toBeNull();
+    expect(await copyTo("sam@yale.edu")).not.toBeNull();
+  });
+
+  it("is idempotent within the week, like the reminders themselves", async () => {
+    await clinicWithOneAttending();
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(1);
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(0);
+    expect(await prisma.emailLog.count({ where: { toEmail: "haley@yale.edu" } })).toBe(1);
+  });
+
+  // A director who is also on the attending roster already has the letter.
+  it("does not copy a director who was reminded as an attending", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const { morning } = await slots();
+    const peggy = await attending("Peggy Bia", "haley@yale.edu");
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: target,
+        attendings: { create: [{ slotId: morning.id, attendingId: peggy.id }] },
+      },
+    });
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+
+    const result = await runAttendingReminders(NOW);
+
+    expect(result.remindersSent).toBe(1);
+    expect(result.copiesSent).toBe(0);
+    expect(await prisma.emailLog.count({ where: { toEmail: "haley@yale.edu" } })).toBe(1);
+  });
+
+  // Nothing went out, so there is nothing to copy. A "copy" of a letter no
+  // attending received would say a clinic was staffed when it was not.
+  it("sends no copy when no attending could be reminded", async () => {
+    const target = futureClinicDate(5);
+    const term = await createTerm([target]);
+    const { morning } = await slots();
+    const unreachable = await attending("Peggy Bia", null);
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: target,
+        attendings: { create: [{ slotId: morning.id, attendingId: unreachable.id }] },
+      },
+    });
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu");
+
+    const result = await runAttendingReminders(NOW);
+
+    expect(result.skippedNoEmail).toBe(1);
+    expect(result.copiesSent).toBe(0);
+  });
+
+  it("skips a director with no contact address on file", async () => {
+    await clinicWithOneAttending();
+    await facultyRelationsDirector("Haley Zhang", null);
+
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(0);
+  });
+
+  // The role follows the person, and an offboarded person no longer holds it.
+  it("skips an offboarded director", async () => {
+    await clinicWithOneAttending();
+    await facultyRelationsDirector("Haley Zhang", "haley@yale.edu", "OFFBOARDED");
+
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(0);
+  });
+
+  // Every other role is somebody else's. Only Faculty Relations is copied.
+  it("copies nobody when the role is unassigned", async () => {
+    await clinicWithOneAttending();
+    const other = await prisma.person.create({
+      data: { name: "Alex Admin", contactEmail: "alex@yale.edu" },
+    });
+    const role = await prisma.role.create({ data: { name: "Platform Admin", isSystem: true } });
+    await prisma.roleAssignment.create({ data: { roleId: role.id, personId: other.id } });
+
+    expect((await runAttendingReminders(NOW)).copiesSent).toBe(0);
+    expect(await prisma.emailLog.count({ where: { toEmail: "alex@yale.edu" } })).toBe(0);
   });
 });

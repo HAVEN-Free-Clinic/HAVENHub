@@ -10,6 +10,12 @@
  */
 export type SystemRole = { name: string; description: string; grants: string[] };
 
+/**
+ * The role Faculty Relations holds. Named here rather than spelled out at each
+ * use site so the roster, the reminder copy, and the seed cannot drift apart.
+ */
+export const FACULTY_RELATIONS_ROLE = "Faculty Relations Manager";
+
 export const SYSTEM_ROLES: SystemRole[] = [
   {
     name: "Platform Admin",
@@ -57,7 +63,7 @@ export const SYSTEM_ROLES: SystemRole[] = [
     grants: ["volunteers.view", "volunteers.view_compliance", "volunteers.manage_compliance"],
   },
   {
-    name: "Faculty Relations Manager",
+    name: FACULTY_RELATIONS_ROLE,
     description: "Maintains the attending roster, the attending schedule, and attending credentialing",
     // Attendings are faculty, not clinic members: they hold no TermMembership
     // and belong to no department, so this cannot be a department-scoped

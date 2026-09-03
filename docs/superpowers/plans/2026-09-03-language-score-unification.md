@@ -31,7 +31,7 @@
 - Modify: `package.json` (two script entries, after the existing `backfill:languages:*` pair around line 38)
 
 **Interfaces:**
-- Consumes: `SPANISH` and `LanguageValidationError` from `./catalog`; `termRankOf` from `./assessment-terms`; `prisma` from `@/platform/db`.
+- Consumes: `SPANISH` and `SPANISH_SPEAKER_MIN_SCORE` from `./catalog`; `prisma` from `@/platform/db`. (`termRankOf` from `./assessment-terms` is used by the TEST only, not the module.)
 - Produces:
   - `SPANISH_SPEAKER_MIN_SCORE = 3` exported from `./catalog`. Task 3 does **not** use this; it uses its own constant.
   - `backfillLanguageBadges(opts: { dryRun: boolean }): Promise<BadgeBackfillReport>` from `./badge-backfill`.
@@ -788,15 +788,26 @@ Append to `src/modules/schedule/components/capability-badges.test.tsx`, inside t
     expect(host.textContent).not.toContain("ES+");
   });
 
-  // The below-bar mark already shows the exact number, so a "+" on top of it
-  // would be noise. It also cannot co-occur in practice unless a department
-  // sets its bar to 5.
-  it("prefers the below-bar shortfall over the plus tier", () => {
+  // A below-bar speaker shows the exact number and never the plus. The two
+  // cannot collide for any sane bar: being below bar forces score < bar <= 5,
+  // so a below-bar speaker is never a 5. The !flagged guard in the component
+  // covers only the degenerate case of a department setting its bar above 5,
+  // which minInterpreterScore (an unconstrained Int?) permits.
+  it("shows the number, not the plus, for a speaker below the bar", () => {
+    const host = render(
+      { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },
+      { minInterpreterScore: 4 },
+    );
+    expect(host.textContent).toContain("ES 3");
+    expect(host.textContent).not.toContain("ES+");
+  });
+
+  it("still shows the plus when the department bar is exactly the top score", () => {
     const host = render(
       { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 5 },
       { minInterpreterScore: 5 },
     );
-    expect(host.textContent).not.toContain("ES+");
+    expect(host.textContent).toContain("ES+");
   });
 
   it("leaves a non-Spanish language unmarked at any score", () => {

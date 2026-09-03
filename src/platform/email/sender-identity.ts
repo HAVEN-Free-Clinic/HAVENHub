@@ -53,17 +53,36 @@
  * Until then, an address the clinic signs as itself comes from an issued row or
  * an admin-set scope identity, and from nowhere else.
  *
- * THE COST, accepted deliberately, and wider than "delegated senders lose a
- * convenience": nobody can send as anything but an admin-issued address or their
- * campaign's scope identity. That binds an outreach.send_unrestricted holder
- * too, not only a scoped one. The two permissions are separate in
+ * THE CONVENIENCE IS BACK, BY A DIFFERENT MECHANISM, AND THE PARAGRAPHS ABOVE
+ * STILL STAND WORD FOR WORD. issueOwnAddress lets an ADMIN approve a person's
+ * current contactEmail once, which SNAPSHOTS it into an ordinary SendingIdentity
+ * row; from then on it is layer 2 like any other issued address and this module
+ * never looks at the profile field again. That is the entire difference:
+ *
+ *   the removed layer read contactEmail at RESOLVE time, so the sender chose
+ *   their own From by editing their own profile, at any moment, unilaterally;
+ *
+ *   the snapshot is read at ISSUE time by somebody holding
+ *   outreach.manage_scopes, and editing the profile afterwards changes nothing
+ *   at all -- not the issued address, not the menu, not the authorization check.
+ *
+ * So the thing that must never come back is a resolve-time read of that field,
+ * and it has not. What an admin approves is a specific string on a specific day.
+ * The residual risk is correspondingly narrow and is the admin's to see rather
+ * than the sender's to exploit: whoever grants must be looking at the address
+ * they are approving, which is why the grant and identities screens both PRINT
+ * it beside the button rather than issuing something invisible.
+ *
+ * THE COST OF THE ORIGINAL REMOVAL, and what has since been done about it:
+ * nobody can send as anything but an admin-issued address or their campaign's
+ * scope identity. That binds an outreach.send_unrestricted holder too, not only
+ * a scoped one -- the two permissions are separate in
  * platform/modules/registry.ts, so a person who may send to anyone but does not
- * hold outreach.manage_scopes gets ZERO From options and no page on which to
- * grant themselves one: their campaigns go out from whatever the campaign sender
- * rules resolve to until somebody with manage_scopes issues them an address.
- * That is the intended shape (issuing is an admin act, and self-issue is exactly
- * what would make the check circular), but it is a real operational dependency
- * rather than a papercut for scoped senders alone.
+ * hold outreach.manage_scopes had ZERO From options and no page on which to
+ * grant themselves one. Issuing stays an admin act (self-issue is exactly what
+ * would make the check circular), but the gap is no longer invisible:
+ * sendersWithoutIdentity lists every holder of a sending permission who has no
+ * active identity, on the identities page, one click from a fix.
  *
  * A STALE COMMENT, deliberately not corrected in place: migration
  * 20260902140000_sending_identity's header still describes the removed layer as
@@ -103,6 +122,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
+import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { signingTransportFor, type SigningTransport } from "./sending-domains";
 import { EMAIL_RE } from "./address";
 
@@ -435,6 +455,333 @@ export async function listIssuedIdentities(): Promise<IssuedIdentityView[]> {
     orderBy: { address: "asc" },
   });
   return rows.map(toIssuedView);
+}
+
+// ---------------------------------------------------------------------------
+// Issuing a person their OWN address, as an admin act
+// ---------------------------------------------------------------------------
+
+/**
+ * The outcome of offering a person their own profile address as an identity.
+ *
+ * A REASON rather than a throw for every expected refusal, because the two
+ * callers want opposite things from one. The scope-grant hook discards it: the
+ * identity is a bonus and an email problem must not fail a permission grant. The
+ * identities page shows it, so an admin whose click did nothing learns whether
+ * the person has no address, an unsignable one, or one that was deliberately
+ * taken away. A throw would force the first caller to swallow what the second
+ * one needs.
+ */
+export type OwnAddressResult =
+  | { issued: true; identity: IssuedIdentityView }
+  | { issued: false; reason: string };
+
+/** What stops this person's own address becoming an identity, or the address. */
+type OwnAddressCheck = { ok: true; address: string } | { ok: false; reason: string };
+
+/**
+ * Read the person's CURRENT profile address and say whether it may be issued.
+ *
+ * The three refusals, in the order they are cheap to answer:
+ *
+ *   NO ADDRESS. Nothing to issue. Not an error anywhere.
+ *   UNSIGNABLE. Same `sendingAddressProblem` every other write seam applies, so
+ *     personal Gmail (the common case) never becomes an identity that would fail
+ *     after the sender hit Send.
+ *   ALREADY RETIRED, and this is the one that matters. An admin revoked that
+ *     address; the flag is the record of a refusal. A later scope grant is a
+ *     decision about an AUDIENCE and is not a reversal of it, so this path never
+ *     clears revokedAt -- unlike issueSendingIdentity, where clearing it is
+ *     correct precisely because the admin has just typed that exact address and
+ *     chosen a holder for it. Re-issuing a retired address stays an explicit,
+ *     deliberate act on the identities form and is not something a grant does
+ *     for you.
+ */
+async function checkOwnAddress(
+  personId: string,
+  approvedAddress?: string,
+): Promise<OwnAddressCheck> {
+  const row = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { contactEmail: true },
+  });
+  const address = normalizeSendingAddress(row?.contactEmail);
+  if (!address) {
+    return { ok: false, reason: "No contact email on file, so there is no address to issue." };
+  }
+
+  // THE ADDRESS THE ADMIN APPROVED MUST STILL BE THE ADDRESS ON FILE.
+  //
+  // Without this the printed address is decoration. Everything that makes this
+  // mechanism safe rests on a human having READ the specific string before
+  // approving it, and contactEmail is self-service: the person can edit it
+  // between the screen rendering "Also issues sender@..." and the admin
+  // clicking. That window is short, but the prize is an unclaimed clinic role
+  // address on a Maileroo-signed domain, which is exactly the escalation review
+  // round 1 closed. Comparing normalized values makes the approval name a
+  // specific string rather than "whatever is in the field when the click lands".
+  //
+  // A mismatch REFUSES rather than issuing the new value: the admin has not
+  // seen it. They reload, read the new address, and decide again.
+  if (approvedAddress !== undefined && approvedAddress !== address) {
+    return {
+      ok: false,
+      reason:
+        `Their contact address is now "${address}", not the "${approvedAddress}" this page ` +
+        `showed. Nothing was issued. Reload and check the new address before approving it.`,
+    };
+  }
+
+  const problem = sendingAddressProblem(address);
+  if (problem) return { ok: false, reason: problem };
+
+  const existing = await prisma.sendingIdentity.findUnique({
+    where: { address },
+    select: { revokedAt: true },
+  });
+  if (existing?.revokedAt) {
+    return {
+      ok: false,
+      reason:
+        `"${address}" was revoked by an admin, so it is not re-issued automatically. ` +
+        `Issue it explicitly above if that revocation was a mistake.`,
+    };
+  }
+  return { ok: true, address };
+}
+
+/**
+ * Issue a person the address currently on their profile, if an admin may.
+ *
+ * THIS IS THE MECHANISM THAT GIVES BACK THE CONVENIENCE TASK 2 REMOVED, and the
+ * one line worth understanding about it is that the address is READ ONCE, HERE,
+ * and SNAPSHOTTED into a SendingIdentity row. Every later read goes through that
+ * row, so editing the profile afterwards changes nothing about what the person
+ * may send as. The removed layer read contactEmail at RESOLVE time, which is why
+ * it reduced to "whatever I just typed"; nothing in this module resolves against
+ * that field, and nothing may start. See the module note.
+ *
+ * What makes the snapshot legitimate is that an ADMIN takes it, having SEEN the
+ * exact address: this is called from a person-targeted scope grant and from an
+ * explicit click on the identities page, both gated on outreach.manage_scopes,
+ * and both attribute the row to the admin rather than to the sender.
+ *
+ * `approvedAddress` IS REQUIRED, AND IT IS THE WHOLE SECURITY ARGUMENT. It is
+ * the string the caller displayed, checked against the person's current
+ * contactEmail before anything is written (see checkOwnAddress). Two things fall
+ * out of making it mandatory rather than optional, and both matter:
+ *
+ *   Nothing can auto-issue an address a human never read. A caller that has not
+ *   shown the address to anybody has nothing to pass, so it cannot reach this
+ *   function at all -- rather than reaching it and quietly conferring whatever
+ *   is in the field. The failure mode of forgetting is a compile error.
+ *
+ *   It is still NEVER a way to name an arbitrary address. The parameter can only
+ *   MATCH or REFUSE; it is never written. The set of issuable addresses is
+ *   exactly {their current contactEmail}, which is what "no inference, no
+ *   widening" means here.
+ *
+ * IDEMPOTENT in every direction a real click reaches:
+ *   - the address already exists (a shared mailbox, or a previous grant): the
+ *     row is reused and a grant is added beside the others;
+ *   - this person already holds it, directly: the duplicate-grant P2002 is
+ *     caught and reported as success, because success is what it describes;
+ *   - the address was retired: refused, see checkOwnAddress.
+ *
+ * The upsert's empty `update` is what makes the create race-safe without giving
+ * anything away: if a concurrent write minted the row between the check above
+ * and here, this touches nothing -- in particular it does not clear revokedAt,
+ * which is the difference between this and issueSendingIdentity. The result is
+ * re-checked for revocation afterwards for the same reason.
+ */
+export async function issueOwnAddress(
+  actorPersonId: string | null,
+  personId: string,
+  /** The address the admin was shown and approved. Matched, never written. */
+  approvedAddress: string,
+): Promise<OwnAddressResult> {
+  const approved = normalizeSendingAddress(approvedAddress);
+  if (!approved) return { issued: false, reason: "No address was approved." };
+  const check = await checkOwnAddress(personId, approved);
+  if (!check.ok) return { issued: false, reason: check.reason };
+  const { address } = check;
+
+  const row = await prisma.sendingIdentity.upsert({
+    where: { address },
+    create: { address, createdById: actorPersonId },
+    update: {},
+  });
+  // Only reachable when a concurrent revoke landed between the check and the
+  // upsert. Refused rather than granted: a retired address stays retired.
+  if (row.revokedAt) {
+    return {
+      issued: false,
+      reason: `"${address}" was revoked by an admin, so it is not re-issued automatically.`,
+    };
+  }
+
+  try {
+    await prisma.sendingIdentityGrant.create({
+      data: { identityId: row.id, personId, grantedById: actorPersonId },
+    });
+  } catch (err) {
+    // They already hold it. That is the outcome asked for, so it is a success,
+    // not a second failure mode on the same click.
+    if (!isUniqueConstraintError(err)) throw err;
+    return { issued: true, identity: await loadIssuedIdentity(row.id) };
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "sending_identity.issue_own",
+    entityType: "SendingIdentity",
+    entityId: row.id,
+    after: { address: row.address, personId },
+  });
+
+  return { issued: true, identity: await loadIssuedIdentity(row.id) };
+}
+
+/**
+ * One sentence per person saying what granting them a scope does to their
+ * sending identity, for the grant form to print beside the button.
+ *
+ * THE POINT IS THE ADDRESS ITSELF, spelled out before the click. What
+ * issueOwnAddress snapshots comes from a self-service profile field, so the only
+ * thing standing between an approval and "whatever that person last typed" is an
+ * admin having read this string. An auto-issue the granting admin never saw
+ * would be the old hole with an extra step, so the screens print it and this is
+ * the function they print.
+ *
+ * Batched into ONE identity query rather than a per-person lookup: the roster on
+ * that form is every ACTIVE person, and the form re-renders on every save.
+ */
+export type AutoIssuePreview = {
+  /** The sentence to print beside the control. */
+  note: string;
+  /**
+   * The address a grant would issue, or null when it would issue nothing. The
+   * screen submits this back as grantScope's `approvedAddress`, so it is what
+   * the admin is approving rather than merely being shown.
+   */
+  issuableAddress: string | null;
+};
+
+export async function describeAutoIssue(
+  people: Array<{ id: string; contactEmail: string | null }>,
+): Promise<Map<string, AutoIssuePreview>> {
+  const addresses = [
+    ...new Set(
+      people
+        .map((p) => normalizeSendingAddress(p.contactEmail))
+        .filter((a): a is string => a !== null),
+    ),
+  ];
+  const known = addresses.length
+    ? await prisma.sendingIdentity.findMany({
+        where: { address: { in: addresses } },
+        select: { address: true, revokedAt: true },
+      })
+    : [];
+  const revoked = new Set(known.filter((r) => r.revokedAt !== null).map((r) => r.address));
+  const active = new Set(known.filter((r) => r.revokedAt === null).map((r) => r.address));
+
+  const notes = new Map<string, AutoIssuePreview>();
+  for (const p of people) {
+    const address = normalizeSendingAddress(p.contactEmail);
+    if (!address) {
+      notes.set(p.id, {
+        issuableAddress: null,
+        note: "No contact email on file, so no sending identity is issued. The scope grant still goes through.",
+      });
+      continue;
+    }
+    if (revoked.has(address)) {
+      notes.set(p.id, {
+        issuableAddress: null,
+        note: `${address} was revoked by an admin, so this grant will NOT re-issue it. Issue it again below if that revocation was a mistake.`,
+      });
+      continue;
+    }
+    const problem = sendingAddressProblem(address);
+    if (problem) {
+      notes.set(p.id, {
+        issuableAddress: null,
+        note: `${problem} No sending identity is issued. The scope grant still goes through.`,
+      });
+      continue;
+    }
+    notes.set(p.id, {
+      // Offered even when the address is already issued: the grant then adds
+      // this person as a holder of it, which is a real change and one they
+      // should still be approving deliberately.
+      issuableAddress: address,
+      note: active.has(address)
+        ? `${address} is already a sending identity. Granting also lets THIS person send as it.`
+        : `Also issues ${address} as a sending identity, so they can send campaigns from it. This address comes from their own profile, which they can edit themselves, so check it really belongs to them before granting.`,
+    });
+  }
+  return notes;
+}
+
+/** A person who may send campaigns but has no address to send them from. */
+export type SenderMissingIdentity = {
+  personId: string;
+  name: string;
+  /** Their current profile address, normalized, or null when they have none. */
+  address: string | null;
+  /** Why the one-click issue cannot help them, or null when it can. */
+  blocker: string | null;
+};
+
+/**
+ * The permissions that make somebody a SENDER, and therefore someone who needs a
+ * From address. Deliberately not outreach.manage_scopes: an admin who issues
+ * identities is not thereby a sender, and listing them would turn the gap list
+ * into a roster nobody reads.
+ */
+const SENDING_PERMISSIONS = ["outreach.send", "outreach.send_unrestricted"];
+
+/**
+ * Senders holding no active identity, so the gap is VISIBLE and one click wide.
+ *
+ * Auto-issue on a person-targeted scope grant structurally misses two real
+ * populations, and both of them are the review's actual complaint rather than an
+ * edge case:
+ *
+ *   outreach.send_unrestricted holders need no scope grant at all, so no
+ *   person-targeted outreach event ever happens for them. Before this list they
+ *   had zero From options and no page on which to fix it.
+ *
+ *   A sender whose scope arrived through a ROLE grant, for the same reason a
+ *   role grant issues nothing: the grant named the role, not them.
+ *
+ * "Has an identity" is asked through availableSenderIdentities with a null
+ * scope, which is the SAME function the compose menu and the authorization check
+ * use. Asking it any other way (reading the grants table directly, say) would be
+ * a second definition of "may send as", and the first thing it would get wrong
+ * is role expansion -- which is exactly the population this list exists for.
+ *
+ * One pair of queries per candidate. The candidate set is the clinic's outreach
+ * senders, which is a handful of people, and correctness here is worth more than
+ * a hand-rolled join that could disagree with the resolver.
+ */
+export async function sendersWithoutIdentity(): Promise<SenderMissingIdentity[]> {
+  const senders = await peopleWithAnyPermission(SENDING_PERMISSIONS);
+
+  const missing: SenderMissingIdentity[] = [];
+  for (const sender of senders) {
+    const options = await availableSenderIdentities(sender.id, null);
+    if (options.length > 0) continue;
+    const check = await checkOwnAddress(sender.id);
+    missing.push({
+      personId: sender.id,
+      name: sender.name,
+      address: normalizeSendingAddress(sender.contactEmail),
+      blocker: check.ok ? null : check.reason,
+    });
+  }
+  return missing;
 }
 
 // ---------------------------------------------------------------------------

@@ -30,10 +30,12 @@ import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import {
+  issueOwnAddress,
   issueSendingIdentity,
   listIssuedIdentities,
   revokeSendingIdentity,
   revokeSendingIdentityGrant,
+  sendersWithoutIdentity,
   SenderIdentityError,
 } from "@/platform/email/sender-identity";
 import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
@@ -64,8 +66,12 @@ export default async function SendingIdentitiesPage({
   const actor = await requirePermission("outreach.manage_scopes");
   const { error, sent } = await searchParams;
 
-  const [identities, people, roles, mail, me] = await Promise.all([
+  const [identities, gap, people, roles, mail, me] = await Promise.all([
     listIssuedIdentities(),
+    // Senders holding no address at all. Listed before the issue form on
+    // purpose: the gap is the thing an admin arriving here most likely needs to
+    // act on, and making it visible is worth as much as the one-click fix.
+    sendersWithoutIdentity(),
     prisma.person.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true },
@@ -111,6 +117,39 @@ export default async function SendingIdentitiesPage({
       if (e instanceof SenderIdentityError) back(e.message);
       throw e;
     }
+    back();
+  }
+
+  /**
+   * Issue one sender the address already on their profile.
+   *
+   * The narrow half of the issue form above, and deliberately narrower. The
+   * address on the wire is an APPROVAL, not an input: issueOwnAddress matches it
+   * against the person's current contactEmail and refuses on any mismatch, so
+   * the only address this button can ever issue is the one printed on the row
+   * the admin clicked. A tampered value refuses; a profile edited since the page
+   * rendered refuses. It cannot name a third address.
+   *
+   * issueOwnAddress also refuses the cases the row already labels (no address,
+   * unsignable, revoked) rather than trusting the page to have hidden the
+   * button, since the page is not the enforcement point.
+   */
+  async function issueOwnAction(formData: FormData) {
+    "use server";
+    const admin = await requirePermission("outreach.manage_scopes");
+    const personId = ((formData.get("personId") as string | null) ?? "").trim();
+    const approved = ((formData.get("approvedAddress") as string | null) ?? "").trim();
+    if (!personId) back("Choose somebody to issue an address to.");
+    let result;
+    try {
+      result = await issueOwnAddress(admin.personId, personId, approved);
+    } catch (e) {
+      if (e instanceof SenderIdentityError) back(e.message);
+      throw e;
+    }
+    // A refusal is shown, never swallowed: a button that silently did nothing is
+    // the failure this whole section exists to end.
+    if (!result.issued) back(result.reason);
     back();
   }
 
@@ -209,6 +248,74 @@ export default async function SendingIdentitiesPage({
           to your contact address. If it does not arrive, that address is not usable and the
           campaign would have failed the same way.
         </Alert>
+      )}
+
+      {/* THE GAP, first. A person who may send campaigns but holds no identity
+          sends from whatever the campaign sender rules resolve to, which is
+          nobody's decision in particular. Two populations reach this list and
+          neither is reachable by the auto-issue on a person-targeted scope
+          grant: outreach.send_unrestricted holders, who need no scope grant at
+          all, and senders whose scope arrived through a role. Both were
+          previously invisible -- there was no screen on which the gap existed. */}
+      {gap.length > 0 && (
+        <Card className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Senders with no address</h2>
+            <p className="text-sm text-muted-foreground">
+              These people can send campaigns but hold no sending identity, so they can only use a
+              scope identity if their campaign has one. Issuing their own address here snapshots it:
+              if they edit their profile afterwards, what they may send as does not change.
+            </p>
+          </div>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Person</TH>
+                <TH>Their address</TH>
+                <TH>{""}</TH>
+              </TR>
+            </THead>
+            <tbody>
+              {gap.map((sender) => (
+                <TR key={sender.personId}>
+                  <TD className="text-foreground-soft">{sender.name}</TD>
+                  <TD className="text-foreground-soft">
+                    {sender.address ?? (
+                      <span className="text-xs text-subtle-foreground">None on file</span>
+                    )}
+                    {sender.blocker && (
+                      // Why the button is not offered. Without this the row
+                      // reads as an unexplained omission, which is how the
+                      // original gap stayed invisible in the first place.
+                      <span className="block text-xs text-subtle-foreground">{sender.blocker}</span>
+                    )}
+                  </TD>
+                  <TD>
+                    {sender.blocker === null && (
+                      <div className="flex justify-end">
+                        <form action={issueOwnAction}>
+                          <input type="hidden" name="personId" value={sender.personId} />
+                          {/* The address as SHOWN. Matched server-side against
+                              their current profile value, never written from
+                              here: the button approves this exact string and
+                              can issue no other. */}
+                          <input
+                            type="hidden"
+                            name="approvedAddress"
+                            value={sender.address ?? ""}
+                          />
+                          <Button type="submit" variant="outline">
+                            Issue {sender.address}
+                          </Button>
+                        </form>
+                      </div>
+                    )}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
       )}
 
       <Card className="space-y-4">

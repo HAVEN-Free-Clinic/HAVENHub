@@ -19,8 +19,9 @@ import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { SENDING_DOMAINS } from "@/platform/email/sending-domains";
 import { mailConnectionStatus } from "@/platform/email/oauth";
+import { describeAutoIssue } from "@/platform/email/sender-identity";
 import { AudienceBuilder } from "../../campaigns/[id]/audience-builder";
-import { GrantForm } from "./grant-form";
+import { GrantForm, type GrantPersonOption } from "./grant-form";
 import { ScopeIdentityFields } from "./identity-fields";
 import type { SendingDomainMap } from "../../sender-identity-notes";
 
@@ -41,12 +42,26 @@ export default async function ScopeDetailPage({
     where: { scopeId: id },
     include: { person: { select: { name: true } }, role: { select: { name: true } } },
   });
-  const people = await prisma.person.findMany({
+  const roster = await prisma.person.findMany({
     where: { status: "ACTIVE" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, contactEmail: true },
     orderBy: { name: "asc" },
   });
   const roles = await prisma.role.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
+
+  // What granting to each person would ALSO do: issue their own current address
+  // as a sending identity. Resolved on the server (sendingAddressProblem reaches
+  // @/platform/config, and "already issued / already revoked" is a DB fact) and
+  // shipped to the form as a plain sentence per person. Printing it is what makes
+  // the auto-issue an approval the admin gave rather than a side effect they
+  // never saw: see the note in sender-identity.ts.
+  const notes = await describeAutoIssue(roster);
+  const people: GrantPersonOption[] = roster.map((p) => ({
+    id: p.id,
+    name: p.name,
+    identityNote: notes.get(p.id)?.note ?? "",
+    issuableAddress: notes.get(p.id)?.issuableAddress ?? null,
+  }));
 
   const {
     departments: audienceDepartments,
@@ -113,9 +128,20 @@ export default async function ScopeDetailPage({
     const actor = await requirePermission("outreach.manage_scopes");
     const personId = ((formData.get("personId") as string | null) ?? "").trim();
     const roleId = ((formData.get("roleId") as string | null) ?? "").trim();
+    // The address the form PRINTED beside the button, when there was one to
+    // print. Passed through so the grant also approves it as a sending identity;
+    // its absence means "grant the scope only". grantScope never writes this
+    // value -- it matches it against the person's current contactEmail and
+    // refuses on a mismatch, so a profile edited since this page rendered issues
+    // nothing rather than issuing something the admin never read.
+    const approved = ((formData.get("approvedAddress") as string | null) ?? "").trim();
     try {
-      if (personId) await grantScope(actor.personId, id, { personId });
-      else if (roleId) await grantScope(actor.personId, id, { roleId });
+      if (personId) {
+        await grantScope(actor.personId, id, { personId }, approved || undefined);
+      } else if (roleId) {
+        // No address: a role has none. See grantScope.
+        await grantScope(actor.personId, id, { roleId });
+      }
     } catch (e) {
       if (e instanceof ScopeValidationError) {
         redirect(`/outreach/scopes/${id}?error=${encodeURIComponent(e.message)}`);

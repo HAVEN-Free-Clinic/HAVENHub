@@ -10,10 +10,15 @@
 import { Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { isAudience, EMPTY_AUDIENCE } from "./types";
 import type { Audience } from "./types";
-import { normalizeSendingAddress, sendingAddressProblem } from "../sender-identity";
+import {
+  issueOwnAddress,
+  normalizeSendingAddress,
+  sendingAddressProblem,
+} from "../sender-identity";
 
 export type AudienceScopeView = {
   id: string;
@@ -189,6 +194,16 @@ export async function grantScope(
   actorId: string | null,
   scopeId: string,
   target: { personId: string } | { roleId: string },
+  /**
+   * The person's own address, as the granting screen DISPLAYED it, when the
+   * admin is also approving it as a sending identity.
+   *
+   * OPTIONAL, AND ITS ABSENCE MEANS "GRANT ONLY". That default is the security
+   * posture, not an oversight: a caller who has not shown anybody an address
+   * cannot approve one, so granting a scope confers no From address unless the
+   * approval was explicit. See the auto-issue block at the end of this function.
+   */
+  approvedAddress?: string,
 ): Promise<void> {
   // The shipped UI builds its person/role options from the full ACTIVE roster
   // with no exclusion of who already holds a grant, and a stale detail page
@@ -212,6 +227,56 @@ export async function grantScope(
     entityId: scopeId,
     after: target,
   });
+
+  // A person-targeted grant ALSO hands that person their own address as a
+  // sending identity, attributed to the granting admin -- when, and only when,
+  // that admin approved the specific address.
+  //
+  // WHY THIS HOOK, which is not the obvious one. The obvious one is "an admin
+  // grants outreach.send", but that permission is carried by ROLES (see
+  // platform/modules/registry.ts), so granting it is not a per-person event and
+  // there is nothing per-person to hang an address on. A person-targeted scope
+  // grant is the one real per-person outreach event in the system.
+  //
+  // A ROLE-TARGETED GRANT ISSUES NOTHING, because a role has no address to
+  // issue. That asymmetry is genuine rather than an oversight, and it is stated
+  // in the grant UI so it is not left to be discovered. The two populations it
+  // misses (role-routed scopes, and send_unrestricted holders who need no scope
+  // at all) are covered by the gap list on the identities page.
+  //
+  // WHY THE APPROVAL IS EXPLICIT, and why a bare grantScope confers no address.
+  // contactEmail is self-service unverified free text, and the allowlist is
+  // DOMAIN-level, so it cannot tell sender@ from directors@ (see the module note
+  // in sender-identity.ts). An unconditional issue-on-grant would therefore hand
+  // a scoped sender any UNCLAIMED clinic role address they had put in their own
+  // profile before asking for a scope -- which is review round 1's Critical
+  // arriving by a slightly longer road. Requiring the address the screen
+  // displayed means a human read that exact string, so the approval is real
+  // rather than implied by a click about something else. It also closes the
+  // window between the page rendering and the click, during which the person can
+  // edit the field: a mismatch refuses.
+  //
+  // What this deliberately does NOT do is make the address a caller-supplied
+  // input. issueOwnAddress only ever MATCHES it against their current
+  // contactEmail; the set of issuable addresses stays exactly one.
+  if ("personId" in target && approvedAddress !== undefined) {
+    // NEVER allowed to fail the grant. The identity is a bonus; the grant is a
+    // permission decision the admin has already made and the row is already
+    // written. Coupling the two would mean an email problem -- no contactEmail,
+    // an address on no allowlisted domain, a profile edited mid-click --
+    // reporting itself as a failed permission grant, which is both the wrong
+    // failure and a lie about what happened. issueOwnAddress returns a reason
+    // rather than throwing for every expected refusal, so this catch is for the
+    // unexpected only.
+    try {
+      await issueOwnAddress(actorId, target.personId, approvedAddress);
+    } catch (error) {
+      log.error(
+        "[outreach] scope granted, but auto-issuing the sender's own address failed",
+        errorAttrs(error, { scopeId, personId: target.personId }),
+      );
+    }
+  }
 }
 
 export async function revokeScope(actorId: string | null, grantId: string): Promise<void> {

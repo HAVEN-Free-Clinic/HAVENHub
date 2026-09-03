@@ -77,16 +77,36 @@ export function GrantForm({
             ))}
           </Select>
         </Field>
-        <Button type="submit" disabled={!personId && !roleId}>Grant</Button>
+        {/* THE APPROVAL IS IN THE LABEL, not only in the prose below it.
+            The sentence explaining what will be issued sits downstream of the
+            control, in the page's lowest-emphasis style, and an admin who
+            reads only the button they are about to press should still be
+            told they are approving an address. Naming it here makes "Grant"
+            and "Grant and issue X" two visibly different acts. */}
+        <Button type="submit" disabled={!personId && !roleId}>
+          {selectedPerson?.issuableAddress
+            ? `Grant and issue ${selectedPerson.issuableAddress}`
+            : "Grant"}
+        </Button>
       </div>
 
       {/* A person grant does a SECOND thing, and the admin has to be looking at
           the address they are approving before they click. That is what makes
           this an approval rather than an invisible side effect: the address
           comes from a self-service profile field, so the whole safety of the
-          mechanism rests on a human having seen this exact string once. */}
+          mechanism rests on a human having seen this exact string once.
+          Emphasised when it is a WARNING (the address is already somebody
+          else's live identity), which is the case that most needs reading. */}
       {selectedPerson && (
-        <p className="text-sm text-muted-foreground">{selectedPerson.identityNote}</p>
+        <p
+          className={
+            selectedPerson.identityNote.startsWith("WARNING:")
+              ? "text-sm font-medium text-critical-foreground"
+              : "text-sm text-muted-foreground"
+          }
+        >
+          {selectedPerson.identityNote}
+        </p>
       )}
       {/* The approval itself. Present only when there is genuinely something to
           approve, so a grant that issues nothing sends nothing to match. */}

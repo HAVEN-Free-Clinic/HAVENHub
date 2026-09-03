@@ -43,6 +43,7 @@ import {
   issueSendingIdentity,
   listIssuedIdentities,
   revokeSendingIdentity,
+  SenderIdentityError,
   sendersWithoutIdentity,
 } from "./sender-identity";
 
@@ -529,5 +530,208 @@ describe("the one-click path on the identities page", () => {
     expect(nobody.id).toBeTruthy();
 
     expect(await sendersWithoutIdentity()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retirement and re-issue: the transaction boundary, and who comes back.
+// ---------------------------------------------------------------------------
+
+describe("retiring and re-issuing an address", () => {
+  it("leaves a FAILED re-issue with the address still retired, and no audit row", async () => {
+    // THE CRITICAL. issueSendingIdentity did two writes outside a transaction:
+    // the upsert cleared revokedAt, then the grant create threw and recordAudit
+    // never ran. The admin saw a refusal and concluded nothing had happened,
+    // while the retired address was live again for every stale holder with a
+    // blank trail.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "alice@havenfreeclinic.org");
+    const address = "recruitment@havenfreeclinic.org";
+    const issued = await issueSendingIdentity(admin.id, { personId: alice.id, address });
+    await revokeSendingIdentity(admin.id, issued.id);
+    const auditBefore = await prisma.auditLog.count();
+
+    // The failing shape a stale page submits: a role that has since been
+    // deleted. The upsert would clear revokedAt; the grant create then fails on
+    // the foreign key, which is the same two-write sequence and the same abort
+    // point as the duplicate-holder case.
+    await expect(
+      issueSendingIdentity(admin.id, { roleId: "role-that-was-deleted", address }),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+
+    // The whole point: the refusal means what it says.
+    const row = await prisma.sendingIdentity.findUniqueOrThrow({ where: { address } });
+    expect(row.revokedAt).not.toBeNull();
+    expect(await issuedAddresses(alice.id)).toEqual([]);
+    // And nothing was logged, because nothing happened. A committed un-retire
+    // with no audit row is the state this test exists to make impossible.
+    expect(await prisma.auditLog.count()).toBe(auditBefore);
+  });
+
+  it("does not hand the address back to every previous holder", async () => {
+    // Alice and Bob held it, an admin retired it, and an admin later re-mints it
+    // for Carol alone. Carol is a decision about Carol; it says nothing about
+    // Alice and Bob, and an admin saying no once must not be undone by an
+    // unrelated action.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "alice@havenfreeclinic.org");
+    const bob = await person("Bob", "bob@havenfreeclinic.org");
+    const carol = await person("Carol", "carol@havenfreeclinic.org");
+    const address = "shared@havenfreeclinic.org";
+
+    const issued = await issueSendingIdentity(admin.id, { personId: alice.id, address });
+    await issueSendingIdentity(admin.id, { personId: bob.id, address });
+    expect(await issuedAddresses(alice.id)).toEqual([address]);
+    expect(await issuedAddresses(bob.id)).toEqual([address]);
+
+    await revokeSendingIdentity(admin.id, issued.id);
+    await issueSendingIdentity(admin.id, { personId: carol.id, address });
+
+    expect(await issuedAddresses(carol.id)).toEqual([address]);
+    expect(await issuedAddresses(alice.id)).toEqual([]);
+    expect(await issuedAddresses(bob.id)).toEqual([]);
+    // One holder on the row, not three: asserting the resolver alone would pass
+    // against an implementation that kept the grants and filtered them elsewhere.
+    const [view] = await listIssuedIdentities();
+    expect(view.grants.map((g) => g.personId)).toEqual([carol.id]);
+  });
+
+  it("keeps the cleared holders in the audit trail rather than losing them", async () => {
+    // The teardown is only acceptable because the history survives somewhere.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "alice@havenfreeclinic.org");
+    const carol = await person("Carol", "carol@havenfreeclinic.org");
+    const address = "shared@havenfreeclinic.org";
+
+    const issued = await issueSendingIdentity(admin.id, { personId: alice.id, address });
+    await revokeSendingIdentity(admin.id, issued.id);
+    await issueSendingIdentity(admin.id, { personId: carol.id, address });
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "sending_identity.issue", entityId: issued.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(JSON.stringify(entry.before)).toContain(alice.id);
+  });
+
+  it("leaves a LIVE address's other holders alone when a second is added", async () => {
+    // The other direction of the same rule. Clearing grants must happen ONLY on
+    // the un-retire path: adding Bob to a live shared mailbox obviously must not
+    // remove Alice.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const alice = await person("Alice", "alice@havenfreeclinic.org");
+    const bob = await person("Bob", "bob@havenfreeclinic.org");
+    const address = "shared@havenfreeclinic.org";
+
+    await issueSendingIdentity(admin.id, { personId: alice.id, address });
+    await issueSendingIdentity(admin.id, { personId: bob.id, address });
+
+    expect(await issuedAddresses(alice.id)).toEqual([address]);
+    expect(await issuedAddresses(bob.id)).toEqual([address]);
+  });
+
+  it("refuses to issue an address to somebody who is not active", async () => {
+    // Both shipped callers filter to ACTIVE, so reaching this needs a
+    // hand-crafted POST -- which is the reason it is checked in the service.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const gone = await person("Departed", "departed@havenfreeclinic.org");
+    await prisma.person.update({ where: { id: gone.id }, data: { status: "OFFBOARDED" } });
+
+    const result = await issueOwnAddress(admin.id, gone.id, "departed@havenfreeclinic.org");
+
+    expect(result.issued).toBe(false);
+    expect(result.issued === false && result.reason).toMatch(/not active/i);
+    expect(await listIssuedIdentities()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The impostor shape: their profile address is already somebody else's identity.
+// ---------------------------------------------------------------------------
+
+describe("warning when the address already belongs to someone", () => {
+  /**
+   * The attack, and the reason the copy matters more here than anywhere else on
+   * these screens: an admin issues directors@ to the real director; a member
+   * sets their OWN contactEmail to that same string; the grant screen then adds
+   * the impostor as a second holder of a real clinic identity. Nothing in code
+   * can tell the two apart -- only proof of mailbox control could -- so the one
+   * defence available is that the admin is told, by name, who already holds it.
+   * Before this the already-issued branch drew the BLANDEST note on the page
+   * while the not-yet-issued branch carried the ownership caution, which put the
+   * mildest copy on the strongest attack.
+   */
+  it("names the current holder on the grant screen, and still cautions", async () => {
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const director = await person("Real Director", "director@havenfreeclinic.org");
+    await issueSendingIdentity(admin.id, {
+      personId: director.id,
+      address: "directors@havenfreeclinic.org",
+    });
+    const impostor = await person("Impostor", "directors@havenfreeclinic.org");
+
+    const preview = await describeAutoIssue([impostor]);
+    const note = preview.get(impostor.id)?.note ?? "";
+
+    expect(note).toContain("Real Director");
+    expect(note).toMatch(/already/i);
+    // The ownership caution is on BOTH branches now, not just the fresh one.
+    expect(note).toMatch(/confirm it really belongs to them/i);
+    // Still issuable: adding a second holder to a shared mailbox is legitimate,
+    // so this warns rather than refusing.
+    expect(preview.get(impostor.id)?.issuableAddress).toBe("directors@havenfreeclinic.org");
+  });
+
+  it("carries the ownership caution on the NOT-yet-issued branch too", async () => {
+    // Same one string, so the two branches cannot drift apart again.
+    const fresh = await person("Fresh", "fresh@havenfreeclinic.org");
+    const preview = await describeAutoIssue([fresh]);
+    expect(preview.get(fresh.id)?.note).toMatch(/confirm it really belongs to them/i);
+  });
+
+  it("names a ROLE holder as a role, not as a person", async () => {
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const role = await roleGranting("outreach.send");
+    await issueSendingIdentity(admin.id, {
+      roleId: role.id,
+      address: "directors@havenfreeclinic.org",
+    });
+    const impostor = await person("Impostor", "directors@havenfreeclinic.org");
+
+    const note = (await describeAutoIssue([impostor])).get(impostor.id)?.note ?? "";
+    expect(note).toContain(`everyone with the ${role.name} role`);
+  });
+
+  it("gives the one-click gap list the same signal", async () => {
+    // The gap list had the identical hole: sendersWithoutIdentity asked only
+    // about format, signability and revocation, never "does this already belong
+    // to someone else", so it rendered a bare Issue directors@... button.
+    const admin = await person("Admin", "admin@havenfreeclinic.org");
+    const director = await person("Real Director", "director@havenfreeclinic.org");
+    await issueSendingIdentity(admin.id, {
+      personId: director.id,
+      address: "directors@havenfreeclinic.org",
+    });
+    const impostor = await person("Impostor", "directors@havenfreeclinic.org");
+    await roleGranting("outreach.send", [impostor]);
+
+    const gap = await sendersWithoutIdentity();
+    const row = gap.find((g) => g.personId === impostor.id);
+
+    // Not a blocker: the click stays available, because a shared mailbox
+    // reaching a second person is a real thing an admin does.
+    expect(row?.blocker).toBeNull();
+    expect(row?.caution).toContain("Real Director");
+    expect(row?.caution).toMatch(/confirm it really belongs to them/i);
+  });
+
+  it("leaves caution null when nobody else holds the address", async () => {
+    // Otherwise the warning is on every row and stops being a warning.
+    const ordinary = await person("Ordinary Sender", "ordinary@havenfreeclinic.org");
+    await roleGranting("outreach.send", [ordinary]);
+
+    const gap = await sendersWithoutIdentity();
+    expect(gap.map((g) => g.personId)).toEqual([ordinary.id]);
+    expect(gap[0].caution).toBeNull();
   });
 });

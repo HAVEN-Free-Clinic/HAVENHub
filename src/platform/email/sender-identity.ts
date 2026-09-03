@@ -84,11 +84,25 @@
  * sendersWithoutIdentity lists every holder of a sending permission who has no
  * active identity, on the identities page, one click from a fix.
  *
- * A STALE COMMENT, deliberately not corrected in place: migration
- * 20260902140000_sending_identity's header still describes the removed layer as
- * current, because Prisma checksums applied migrations and a comment-only edit
- * to an applied one breaks `migrate deploy` and `migrate status`. This module is
- * the authority on the order; that header is not.
+ * A STALE COMMENT, left alone on purpose but NOT for the reason first given
+ * here: migration 20260902140000_sending_identity's header still describes the
+ * removed layer as current. The original note claimed a comment-only edit to an
+ * applied migration "breaks `migrate deploy` and `migrate status`". It does not.
+ * Measured on Prisma 6.19.3 against a template that had the pre-edit file
+ * applied: both commands report clean and exit 0 while the recorded checksum and
+ * the file's checksum differ. The error string that claim borrowed belongs to
+ * `migrate dev`, which is a different command.
+ *
+ * The real residual is narrow, and it is worth knowing before editing any
+ * applied migration: `npm run db:migrate` IS `prisma migrate dev`, so a
+ * developer whose local database already applied the pre-edit file gets prompted
+ * to reset. `npm run test:prepare` and the Vercel build both use
+ * `migrate deploy` and are unaffected. 20260902160000's header was edited on
+ * exactly this basis and nothing broke.
+ *
+ * So that header stays stale by choice (churning an applied migration for prose
+ * has a cost and no benefit), not by necessity. This module is the authority on
+ * the order; that header is not.
  *
  * EVERY LAYER IS VALIDATED WHEN IT IS WRITTEN, and filtered again when it is
  * read. Rejecting at write is the point: an identity nothing can sign is a
@@ -111,15 +125,24 @@
  *
  * A ROLE GRANT IS EXPANDED LIVE, NEVER SNAPSHOTTED. availableSenderIdentities
  * calls roleIdsForPerson -- the SAME helper scopesForPerson uses, not a second
- * expansion -- on every call, and nothing stores the answer. So losing a role
- * loses the identity on the very next resolve, with no save and no refresh in
+ * expansion -- and nothing persists the answer. So losing a role loses the
+ * identity on the next REQUEST that resolves, with no save and no refresh in
  * between, and because resolveCampaignSender goes through this one function, the
  * enqueue-time re-resolve re-expands roles for free. Role loss between Save and
  * Send is the same class of event as a revocation between Save and Send, and it
  * gets the same treatment because it travels the same code path.
+ *
+ * "Live" means per request, not per call: roleIdsForPerson is React-cache()d, so
+ * one request reuses one answer, and the cron drain is a single request of up to
+ * five minutes. That window is stated in full at the query itself, along with
+ * why it is not worth closing.
  */
 import { Prisma } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import {
+  prisma,
+  isUniqueConstraintError,
+  isForeignKeyConstraintError,
+} from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { roleIdsForPerson } from "@/platform/rbac/engine";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
@@ -182,12 +205,14 @@ export type ScopeIdentity = { fromEmail: string | null; fromName: string | null 
 /**
  * Lowercase and trim, or null for anything that is not usable as an address.
  *
- * Lowercasing is what makes the (personId, address) unique constraint behave
+ * Lowercasing is what makes SendingIdentity's UNIQUE(address) behave
  * case-insensitively without a raw-SQL expression index, which a later
- * `prisma migrate diff` would propose DROPping. It is also what makes an
- * authorization comparison case-blind in the safe direction: a differently-cased
- * request matches a held address, and no casing turns an unheld one into a held
- * one.
+ * `prisma migrate diff` would propose DROPping. (It used to say the unique was
+ * on (personId, address); 20260902160000 replaced that pair with a global unique
+ * on the address alone when it split holders into SendingIdentityGrant.) It is
+ * also what makes an authorization comparison case-blind in the safe direction:
+ * a differently-cased request matches a held address, and no casing turns an
+ * unheld one into a held one.
  */
 export function normalizeSendingAddress(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim().toLowerCase();
@@ -256,8 +281,44 @@ export function assertSignable(address: string): SigningTransport {
  * RE-ISSUING A RETIRED ADDRESS UN-RETIRES IT, deliberately: the admin has just
  * named that exact address and chosen a holder for it, which is the same
  * explicit act that issued it in the first place. What it does NOT do is
- * resurrect the OLD holders -- their grants had to be deleted for the retirement
- * to mean anything, and they are not recreated here.
+ * resurrect the OLD holders -- see UN-RETIRE IS A TEARDOWN below.
+ *
+ * UN-RETIRE IS A TEARDOWN, AND STARTS FROM NO HOLDERS. Retirement keeps the
+ * grant rows (revokeSendingIdentity explains why: they are the record of who
+ * used to hold the address, and the screen shows them). Clearing revokedAt
+ * without touching them therefore used to hand the address back to EVERY
+ * historical holder at once, so issuing a retired address to one new person
+ * silently restored all the old ones. That breaks the one rule this whole
+ * feature is built on -- an admin saying no once must not be undone by an
+ * unrelated action -- because the admin re-minting an address for Carol is not
+ * saying anything at all about Alice and Bob.
+ *
+ * So the grants are deleted here, INSIDE the same transaction that clears the
+ * flag, and the caller's target is then the only holder. Coming back from
+ * retirement costs the admin one explicit re-grant per person, which is the
+ * point: each one is a decision, and the audit log carries both halves (the
+ * `sending_identity.revoke` row, and this call's `before.clearedGrants`).
+ *
+ * Both directions of that rule are load-bearing, and the two doc comments now
+ * agree with the code and with each other:
+ *   - retire  -> grants SURVIVE, so the screen can say who used to hold it;
+ *   - unretire -> grants are CLEARED, so nobody returns without being re-named.
+ *
+ * ONE TRANSACTION, AND THIS IS THE CRITICAL PART. The un-retire and the grant
+ * create used to be two separate writes. When the create failed -- P2002 for a
+ * holder the row already lists, which is the most natural click available since
+ * the screen still shows a retired address's holders -- the un-retire had
+ * already committed, recordAudit sat below the throw, and the admin saw a
+ * refusal. Net effect: the retired address was live again for every stale
+ * holder, with zero audit rows. Wrapping both writes plus the audit row makes
+ * the refusal mean what it says.
+ *
+ * Note on catching inside a transaction: every catch below RETHROWS. That is
+ * what keeps it safe. Postgres aborts the whole transaction the instant a
+ * statement fails, so catching one and then continuing to issue more statements
+ * on the same connection fails with "current transaction is aborted" (or worse,
+ * silently converts the COMMIT to a ROLLBACK). Translating an error and
+ * rethrowing is fine; recovering from one in place is not.
  */
 export async function issueSendingIdentity(
   actorPersonId: string | null,
@@ -270,54 +331,97 @@ export async function issueSendingIdentity(
   const target: SendingIdentityTarget =
     "personId" in input ? { personId: input.personId } : { roleId: input.roleId };
 
-  const row = await prisma.sendingIdentity.upsert({
-    where: { address },
-    create: { address, displayName, createdById: actorPersonId },
-    update: {
-      // ONLY when one was actually supplied. The display name is a property of
-      // the ADDRESS now, and this form is how a SECOND holder gets added, so an
-      // unconditional write means adding a role to an existing address silently
-      // erases the name recipients have been seeing -- with the blank optional
-      // field on the form reading as "erase it" rather than "I did not set one".
-      // Caught by driving the page, not by tsc, eslint, or any test that existed
-      // at the time. Same distinction identityData draws for a scope's identity
-      // columns. Clearing a display name is not something this screen offered
-      // before the split either.
-      ...(displayName ? { displayName } : {}),
-      revokedAt: null,
-      revokedById: null,
-    },
-  });
-
-  // The shipped UI builds its person and role options from the full roster with
-  // no exclusion of who already holds a grant, and a stale page (or a genuine
-  // double click) can also race two identical submits, so this unique-constraint
-  // violation (SendingIdentityGrant_unique_grant) is one click away in normal
-  // use rather than an edge case. Translate it into this module's typed error,
-  // exactly as grantScope does, instead of letting a raw P2002 reach the generic
-  // error boundary.
-  try {
-    await prisma.sendingIdentityGrant.create({
-      data: { identityId: row.id, ...target, grantedById: actorPersonId },
+  const identityId = await prisma.$transaction(async (tx) => {
+    // Read BEFORE the upsert clears the flag: afterwards there is no way to tell
+    // an un-retire from an ordinary second holder being added.
+    const before = await tx.sendingIdentity.findUnique({
+      where: { address },
+      select: { revokedAt: true },
     });
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      throw new SenderIdentityError(
-        `That person or role can already send as "${address}".`,
-      );
-    }
-    throw err;
-  }
+    const wasRetired = before?.revokedAt != null;
 
-  await recordAudit({
-    actorPersonId,
-    action: "sending_identity.issue",
-    entityType: "SendingIdentity",
-    entityId: row.id,
-    after: { address: row.address, displayName: row.displayName, ...target },
+    const row = await tx.sendingIdentity.upsert({
+      where: { address },
+      create: { address, displayName, createdById: actorPersonId },
+      update: {
+        // ONLY when one was actually supplied. The display name is a property of
+        // the ADDRESS now, and this form is how a SECOND holder gets added, so an
+        // unconditional write means adding a role to an existing address silently
+        // erases the name recipients have been seeing -- with the blank optional
+        // field on the form reading as "erase it" rather than "I did not set one".
+        // Caught by driving the page, not by tsc, eslint, or any test that existed
+        // at the time. Same distinction identityData draws for a scope's identity
+        // columns. Clearing a display name is not something this screen offered
+        // before the split either.
+        ...(displayName ? { displayName } : {}),
+        revokedAt: null,
+        revokedById: null,
+      },
+    });
+
+    // The teardown. Only on the un-retire path: adding a second holder to a LIVE
+    // address must obviously leave the first one alone.
+    let clearedGrants: Array<{ personId: string | null; roleId: string | null }> = [];
+    if (wasRetired) {
+      clearedGrants = await tx.sendingIdentityGrant.findMany({
+        where: { identityId: row.id },
+        select: { personId: true, roleId: true },
+      });
+      await tx.sendingIdentityGrant.deleteMany({ where: { identityId: row.id } });
+    }
+
+    // The shipped UI builds its person and role options from the full roster with
+    // no exclusion of who already holds a grant, and a stale detail page (or a
+    // genuine double click) can also race two identical submits, so this
+    // unique-constraint violation (SendingIdentityGrant_unique_grant) is one
+    // click away in normal use rather than an edge case. Translate it into this
+    // module's typed error, exactly as grantScope does, instead of letting a raw
+    // P2002 reach the generic error boundary.
+    //
+    // Unreachable on the un-retire path now, because the deleteMany above just
+    // emptied the table for this identity. It stays for the live-address case.
+    try {
+      await tx.sendingIdentityGrant.create({
+        data: { identityId: row.id, ...target, grantedById: actorPersonId },
+      });
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        throw new SenderIdentityError(
+          `That person or role can already send as "${address}".`,
+        );
+      }
+      // A stale page naming a person or role that has since been deleted. Same
+      // treatment for the same reason: a typed refusal the page can render,
+      // rather than a raw P2003 at the generic error boundary. Before the
+      // transaction this one also left the address un-retired behind it.
+      if (isForeignKeyConstraintError(err)) {
+        throw new SenderIdentityError(
+          "That person or role no longer exists. Reload and choose another.",
+        );
+      }
+      throw err;
+    }
+
+    // Recorded on the TRANSACTION client, so the trail cannot go missing while
+    // the write it describes survives -- which is exactly what went wrong.
+    await recordAudit(
+      {
+        actorPersonId,
+        action: "sending_identity.issue",
+        entityType: "SendingIdentity",
+        entityId: row.id,
+        // Only on an un-retire, where it is the whole history of the address:
+        // who held it before the retirement, and that they no longer do.
+        ...(wasRetired ? { before: { revoked: true, clearedGrants } } : {}),
+        after: { address: row.address, displayName: row.displayName, ...target },
+      },
+      tx,
+    );
+
+    return row.id;
   });
 
-  return loadIssuedIdentity(row.id);
+  return loadIssuedIdentity(identityId);
 }
 
 /**
@@ -327,8 +431,17 @@ export async function issueSendingIdentity(
  * EVERY route to the address. It does that by flipping one flag on the row every
  * route passes through, rather than by deleting grants: a delete would be
  * undone by the next grant anyone adds, and would leave no record that the
- * address was ever retired. The grants are deliberately left in place, so the
- * admin screen can still say who used to hold it.
+ * address was ever retired.
+ *
+ * THE GRANTS SURVIVE, and the screen shows them as history ("Previously held
+ * by"). They confer nothing while the flag is set -- every read filters on
+ * revokedAt at the identity, which is the whole reason the flag lives there --
+ * so keeping them costs no authority and buys the record of who used to hold it.
+ *
+ * They do NOT come back. issueSendingIdentity deletes them when it clears the
+ * flag, so re-minting the address for one person cannot quietly restore the
+ * others. That pairing is the contract: retire keeps them, un-retire clears
+ * them, and neither doc comment is true without the other.
  */
 export async function revokeSendingIdentity(
   actorPersonId: string | null,
@@ -503,9 +616,25 @@ async function checkOwnAddress(
 ): Promise<OwnAddressCheck> {
   const row = await prisma.person.findUnique({
     where: { id: personId },
-    select: { contactEmail: true },
+    select: { contactEmail: true, status: true },
   });
-  const address = normalizeSendingAddress(row?.contactEmail);
+  if (!row) return { ok: false, reason: "That person no longer exists." };
+
+  // ONLY AN ACTIVE PERSON. Both shipped callers already filter to ACTIVE (the
+  // grant form's roster, and peopleWithAnyPermission behind the gap list), so
+  // reaching this needs a hand-crafted POST -- which is precisely why it is
+  // checked here. This module's stated posture is that the page is not the
+  // enforcement point, and offboarding is supposed to take away the right to
+  // speak as the clinic, not leave it one request away. Same direction as
+  // offboard convergence: OFFBOARDED means the claims stop.
+  if (row.status !== "ACTIVE") {
+    return {
+      ok: false,
+      reason: "That person is not active, so no address can be issued to them.",
+    };
+  }
+
+  const address = normalizeSendingAddress(row.contactEmail);
   if (!address) {
     return { ok: false, reason: "No contact email on file, so there is no address to issue." };
   }
@@ -667,6 +796,58 @@ export type AutoIssuePreview = {
   issuableAddress: string | null;
 };
 
+/**
+ * THE ONE OWNERSHIP CAUTION, written once and shown on EVERY issuable branch.
+ *
+ * It used to appear only when the address was new, which put the mildest copy on
+ * the strongest attack. The dangerous case is the opposite one: the address is
+ * ALREADY a live clinic identity held by somebody real, a member has typed that
+ * same string into their own profile, and the grant quietly makes them a second
+ * holder of it. Both branches now carry this, and the already-held branch also
+ * names who holds it, because "already held by Real Director" is the sentence
+ * that actually stops the click.
+ */
+const OWNERSHIP_CAUTION =
+  "This address comes from their own profile, which they can edit themselves, so confirm it really belongs to them before granting.";
+
+/** Live holders of each queried address, as names, for the warnings above. */
+async function activeHoldersByAddress(
+  addresses: string[],
+): Promise<Map<string, { revoked: boolean; holders: string[] }>> {
+  const known = addresses.length
+    ? await prisma.sendingIdentity.findMany({
+        where: { address: { in: addresses } },
+        select: {
+          address: true,
+          revokedAt: true,
+          // One extra include on a query already being made. Without the names
+          // the warning is "somebody else holds this", which is not actionable.
+          grants: {
+            select: { person: { select: { name: true } }, role: { select: { name: true } } },
+          },
+        },
+      })
+    : [];
+
+  const map = new Map<string, { revoked: boolean; holders: string[] }>();
+  for (const row of known) {
+    map.set(row.address, {
+      revoked: row.revokedAt !== null,
+      holders: row.grants.map((g) =>
+        g.person ? g.person.name : g.role ? `everyone with the ${g.role.name} role` : "someone",
+      ),
+    });
+  }
+  return map;
+}
+
+/** "held by A and B", or null when nobody holds it. */
+function holderPhrase(holders: string[]): string | null {
+  if (holders.length === 0) return null;
+  if (holders.length === 1) return holders[0];
+  return `${holders.slice(0, -1).join(", ")} and ${holders[holders.length - 1]}`;
+}
+
 export async function describeAutoIssue(
   people: Array<{ id: string; contactEmail: string | null }>,
 ): Promise<Map<string, AutoIssuePreview>> {
@@ -677,14 +858,7 @@ export async function describeAutoIssue(
         .filter((a): a is string => a !== null),
     ),
   ];
-  const known = addresses.length
-    ? await prisma.sendingIdentity.findMany({
-        where: { address: { in: addresses } },
-        select: { address: true, revokedAt: true },
-      })
-    : [];
-  const revoked = new Set(known.filter((r) => r.revokedAt !== null).map((r) => r.address));
-  const active = new Set(known.filter((r) => r.revokedAt === null).map((r) => r.address));
+  const known = await activeHoldersByAddress(addresses);
 
   const notes = new Map<string, AutoIssuePreview>();
   for (const p of people) {
@@ -696,7 +870,8 @@ export async function describeAutoIssue(
       });
       continue;
     }
-    if (revoked.has(address)) {
+    const existing = known.get(address);
+    if (existing?.revoked) {
       notes.set(p.id, {
         issuableAddress: null,
         note: `${address} was revoked by an admin, so this grant will NOT re-issue it. Issue it again below if that revocation was a mistake.`,
@@ -711,14 +886,16 @@ export async function describeAutoIssue(
       });
       continue;
     }
+
+    // Offered even when the address is already issued: the grant then adds this
+    // person as another holder of it, which is a real change and the one most
+    // worth approving deliberately.
+    const heldBy = existing ? holderPhrase(existing.holders) : null;
     notes.set(p.id, {
-      // Offered even when the address is already issued: the grant then adds
-      // this person as a holder of it, which is a real change and one they
-      // should still be approving deliberately.
       issuableAddress: address,
-      note: active.has(address)
-        ? `${address} is already a sending identity. Granting also lets THIS person send as it.`
-        : `Also issues ${address} as a sending identity, so they can send campaigns from it. This address comes from their own profile, which they can edit themselves, so check it really belongs to them before granting.`,
+      note: heldBy
+        ? `WARNING: ${address} is ALREADY a sending identity, held by ${heldBy}. Granting adds this person as another holder of it. ${OWNERSHIP_CAUTION}`
+        : `Also issues ${address} as a sending identity, so they can send campaigns from it. ${OWNERSHIP_CAUTION}`,
     });
   }
   return notes;
@@ -732,6 +909,18 @@ export type SenderMissingIdentity = {
   address: string | null;
   /** Why the one-click issue cannot help them, or null when it can. */
   blocker: string | null;
+  /**
+   * A reason to look harder before clicking, when the click IS available.
+   *
+   * Distinct from `blocker` on purpose: a blocker means the button cannot work
+   * and is not rendered, this means it would work and might be exactly wrong.
+   * Today it is the impostor shape -- their profile address is already a live
+   * clinic identity somebody else holds -- which without this rendered as a bare
+   * "Issue directors@..." button, the mildest possible copy on the strongest
+   * attack. Adding a second holder to a shared mailbox is also a legitimate act,
+   * so this warns and names the holders rather than refusing.
+   */
+  caution: string | null;
 };
 
 /**
@@ -779,7 +968,29 @@ export async function sendersWithoutIdentity(): Promise<SenderMissingIdentity[]>
       name: sender.name,
       address: normalizeSendingAddress(sender.contactEmail),
       blocker: check.ok ? null : check.reason,
+      caution: null,
     });
+  }
+
+  // The already-someone-else's signal, same shape the grant form carries. Asked
+  // once for the whole list rather than per row: the gap list is short, but this
+  // keeps it one query regardless. checkOwnAddress deliberately does NOT treat
+  // this as a blocker -- a shared mailbox reaching a second person is the
+  // feature -- so it rides alongside as a caution.
+  const issuable = missing
+    .filter((m) => m.blocker === null && m.address !== null)
+    .map((m) => m.address as string);
+  if (issuable.length === 0) return missing;
+
+  const known = await activeHoldersByAddress([...new Set(issuable)]);
+  for (const row of missing) {
+    if (row.blocker !== null || row.address === null) continue;
+    const heldBy = holderPhrase(known.get(row.address)?.holders ?? []);
+    if (heldBy) {
+      row.caution =
+        `${row.address} is ALREADY a sending identity, held by ${heldBy}. ` +
+        `Issuing it here adds ${row.name} as another holder. ${OWNERSHIP_CAUTION}`;
+    }
   }
   return missing;
 }
@@ -831,6 +1042,22 @@ export async function availableSenderIdentities(
   };
 
   // 1. The scope identity. Strongest: an admin set it on the delegation boundary.
+  //
+  // KNOWN AND DELIBERATE, RECORDED HERE BECAUSE IT SURPRISES PEOPLE: this layer
+  // never consults SendingIdentity at all, so "Revoke address" on
+  // /outreach/identities does NOT stop a scope whose fromEmail is that same
+  // address from sending as it. The two layers are independent admin-controlled
+  // channels -- retiring an ISSUED address retires the issued route, and the
+  // scope's own identity is retired by clearing it on the scope -- and an admin
+  // who sets both has made two decisions, not one.
+  //
+  // The defence is that both ends are admin-only, so nothing here escalates: a
+  // delegated sender cannot reach an address this way that an admin did not put
+  // on their scope. But an admin clicking "Revoke address" plausibly reads it as
+  // "nobody sends as this any more", and for a scope identity it is not. Left as
+  // is (pre-existing since Task 2, and collapsing the layers would make one
+  // screen silently edit another); flagged so the next person to wonder finds
+  // the answer next to the code rather than by experiment.
   add(normalizeSendingAddress(scope?.fromEmail), scope?.fromName ?? null, "scope");
 
   // 2. Addresses issued to this person -- DIRECTLY, or to a role they hold --
@@ -847,8 +1074,25 @@ export async function availableSenderIdentities(
   //
   //   roleIdsForPerson is the SAME helper scopesForPerson uses (rbac/engine),
   //   not a second expansion, so "which roles does this person hold" has one
-  //   definition. It reads live DB state, so a role removed between two calls
+  //   definition. It reads live DB state, so a role removed between two REQUESTS
   //   is absent from the second with nothing to invalidate.
+  //
+  //   BETWEEN two requests, not two calls, and the difference is bigger than it
+  //   sounds. roleIdsForPerson is wrapped in React cache(), which memoizes per
+  //   REQUEST, so every call for one person inside one request returns the same
+  //   answer. The longest such request is not a page render: /api/cron/email
+  //   declares maxDuration = 300 and dispatchDueCampaigns loops every due
+  //   campaign inside it, so somebody who is fromEmailSetById on several
+  //   campaigns has their role set computed once and reused for the whole drain
+  //   -- up to five minutes, not the sub-second window a page render suggests.
+  //
+  //   Left exactly as it is, deliberately. Reading roles uncached here would
+  //   create the second expansion path this design exists to forbid, and
+  //   scopesForPerson carries the identical property, so the two would have to
+  //   diverge together or not at all. The exposure is bounded and acceptable: a
+  //   role removed mid-drain is honored on the NEXT drain, and everything the
+  //   stale set can still reach is an address an admin issued to a role that
+  //   person held when the request began.
   if (personId) {
     const roleIds = await roleIdsForPerson(personId);
     const issued = await prisma.sendingIdentity.findMany({

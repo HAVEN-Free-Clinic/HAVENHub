@@ -289,6 +289,18 @@ export default async function SendingIdentitiesPage({
                       // original gap stayed invisible in the first place.
                       <span className="block text-xs text-subtle-foreground">{sender.blocker}</span>
                     )}
+                    {sender.caution && (
+                      // The opposite case: the button WOULD work, and that is
+                      // the problem. Their profile address is already a live
+                      // clinic identity somebody else holds, so one click makes
+                      // them a second holder of it. Rendered in the critical
+                      // role rather than the muted one because this row is the
+                      // impostor shape, and it used to draw the mildest copy on
+                      // the page.
+                      <span className="block text-xs font-medium text-critical-foreground">
+                        {sender.caution}
+                      </span>
+                    )}
                   </TD>
                   <TD>
                     {sender.blocker === null && (
@@ -375,6 +387,21 @@ export default async function SendingIdentitiesPage({
                       <span className="text-xs text-subtle-foreground">Nobody</span>
                     ) : (
                       <ul className="space-y-1">
+                        {identity.revokedAt !== null && (
+                          // HISTORY, not authority. A retired address keeps its
+                          // grants so this column can say who used to hold it,
+                          // and they confer nothing while the row is retired.
+                          // Re-issuing the address DELETES them (see
+                          // issueSendingIdentity), so this list does not come
+                          // back with it -- which is also why there is no
+                          // per-holder Remove button below on a retired row:
+                          // there is nothing to prune, because re-issuing prunes
+                          // all of it.
+                          <li className="text-xs text-subtle-foreground">
+                            Previously held by, for the record. Re-issuing this address does not
+                            restore them.
+                          </li>
+                        )}
                         {identity.grants.map((grant) => (
                           <li key={grant.id} className="flex items-center gap-2">
                             <span className="text-sm">

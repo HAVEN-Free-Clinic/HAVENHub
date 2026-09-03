@@ -189,6 +189,19 @@ re-enter), but it does mean a later self-reported claim from those 8 will not
 raise them for review. Re-assessment goes through the history tab, as it does for
 anyone else assessed "no".
 
+**Those 8 people will see the change on their own `/my-info` page**, where
+`languages-panel.tsx` renders "Spanish / Not confirmed" plus the row's note. That
+is accurate (INTP did assess them) and it is the state the panel exists to make
+visible: its docstring says hiding it "would leave someone believing a claim they
+made on their application had made them a language provider when it had not." But
+it is a new negative statement to 8 real people, and unlike a live assessment
+through `recordLanguageAssessment` it sends no notification, by design, because a
+backfill of this size must not mail hundreds of people. Tell the interpreting
+directors before the apply run so nobody is surprised by a question about it.
+
+The note the backfill writes is member-facing for the same reason: "Recorded from
+your <term> assessment with the interpreting department."
+
 Deleting the split reaches 36 of the 51 queued claims: 15 are INTP members who
 are scored today, and all 36 of the rest are Spanish claims that currently get a
 bare yes/no. Every one of those 36 gains a score field.

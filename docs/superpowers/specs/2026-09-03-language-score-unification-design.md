@@ -149,6 +149,50 @@ The accessible name follows the text. `ES+` reads "Verified: Spanish, assessed 5
 structure is unchanged, so the audit-14 fix that made the badge meaning reachable
 without a mouse stays intact.
 
+## Measured impact
+
+Read-only aggregates against the production Neon branch (`floral-dawn-97522801`)
+on 2026-09-03. 745 people, 374 of them ACTIVE. Active term is Summer 2026.
+
+**Today, exactly one person clinic-wide carries a verified Spanish badge**, and
+their `PersonLanguage.score` is null. 51 claims sit unassessed in the queue.
+
+Backfill, over the 69 ACTIVE people who have a linked scored record:
+
+| Latest score | People | Outcome |
+| --- | --- | --- |
+| 5 | 40 | badge |
+| 4 | 9 | badge |
+| 3 | 12 | badge |
+| 2 | 8 | settled as not-verified, score recorded |
+| 1 | 0 | none |
+
+So **61 badges granted where there is currently 1**, and 27 of the 51 queued
+claims are resolved outright, leaving about 24 that genuinely need a human.
+
+Two measurements that change the plan:
+
+- **Every linked record carries a score.** `linked = linked_scored` in all
+  fifteen years. The scoreless-row rule is correct to keep as a guard, but it
+  affects nobody today.
+- **1423 of 1567 records are unlinked, and matching is exhausted.** Not one of
+  them matches any `Person` by email, by name, or by email local-part against
+  `netId`. Linkage concentrates in 2024-2026 (29/45, 57/98, 17/67) and is
+  essentially zero before 2019, which is the expected shape: the list starts in
+  2012 and Hub only knows people who are still around. They are alumni, not a
+  backlog. Nothing is gained by linking before the apply run.
+
+Of the 8 people scored 1-2, none currently has a Spanish `PersonLanguage` row, so
+the backfill creates one for them recording the "no". That is deliberate (it is a
+real assessment result, and it keeps them out of a queue they would otherwise
+re-enter), but it does mean a later self-reported claim from those 8 will not
+raise them for review. Re-assessment goes through the history tab, as it does for
+anyone else assessed "no".
+
+Deleting the split reaches 36 of the 51 queued claims: 15 are INTP members who
+are scored today, and all 36 of the rest are Spanish claims that currently get a
+bare yes/no. Every one of those 36 gains a score field.
+
 ## Testing
 
 - `src/platform/languages/index.test.ts`: delete the four `isIntp` cases; assert
@@ -167,10 +211,10 @@ without a mouse stays intact.
 
 1. Merge with the split removed. The queue immediately shows a score field for
    everyone, and nothing regresses because no badge changes on its own.
-2. Run `backfill:langbadges:dry` against production and read the counts with
-   INTP before applying. The unlinked count in particular is theirs to work
-   through in the history tab, and linking more records before the apply run
-   means more people get badged.
+2. Run `backfill:langbadges:dry` against production and check the counts against
+   the table above with INTP. It should badge 61 and settle 8. A material
+   difference means the data moved since 2026-09-03 and is worth understanding
+   before applying.
 3. Run `backfill:langbadges:apply`.
 4. Re-check the Flag cross-check tab. Its `no-assessment` population should
    shrink, and `below-interpreter-bar` should grow as scores land on people who

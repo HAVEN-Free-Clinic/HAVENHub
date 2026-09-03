@@ -1,5 +1,44 @@
 -- Sender identity, Phase 3 Task 3: make an issued address assignable BY ROLE.
 --
+-- rolling-deploy: every destructive statement here targets structure that
+-- 20260902140000_sending_identity created EARLIER THE SAME DAY, on the same
+-- unmerged branch, for a feature that has never been deployed. In production
+-- SendingIdentity does not exist yet: both migrations land in the SAME
+-- `prisma migrate deploy` at the start of the SAME build, so the serving
+-- release's client has no SendingIdentity model at all and cannot read, write,
+-- or upsert against any of it. There is no window in which old code meets this
+-- schema, because there is no old code that knows the table. The dropped column
+-- (SendingIdentity."personId"), the dropped indexes and constraints, and the
+-- renames of issuedAt/issuedById are therefore unobservable to the deployment
+-- that is still serving. Concretely, per shape:
+--
+--   drop-table  -- "_si_survivor" is a TEMPORARY table this file creates and
+--                  drops within its own transaction. It is not application
+--                  schema and no client has ever seen it.
+--   drop-column -- SendingIdentity."personId", added hours earlier by
+--                  20260902140000 and never deployed.
+--   drop-index / drop-constraint -- SendingIdentity_personId_address_key,
+--                  SendingIdentity_personId_idx, and the two FKs, all from the
+--                  same undeployed migration. No shipped upsert targets them.
+--   rename      -- issuedAt -> createdAt, issuedById -> createdById, on that
+--                  same undeployed table.
+--
+-- Locking is likewise a non-event: the table is new, empty in production, and
+-- the ACCESS EXCLUSIVE locks are held for microseconds over zero rows.
+--
+-- WHY A JUSTIFICATION AND NOT AN EXPAND/CONTRACT SEQUENCE. Expand/contract
+-- exists to keep a column readable by the serving release across one deploy.
+-- Here the serving release cannot name the table, so splitting this into two
+-- releases would add a release that changes nothing observable. What makes that
+-- claim checkable rather than an assertion is the pairing: 20260902140000 is
+-- unmerged and unapplied in production, and it ships in the same deploy as this
+-- file. If this migration is ever cherry-picked AHEAD of that one, or if
+-- 20260902140000 reaches production alone first, this reasoning expires and the
+-- change needs re-planning.
+--
+-- The dev databases and the shared test template DO carry 20260902140000, which
+-- is why the backfill below is real work rather than a formality.
+--
 -- SendingIdentity carried `personId` directly and was unique on
 -- (personId, address), so one shared mailbox issued to four people was four
 -- rows. This splits the address from its holders exactly the way

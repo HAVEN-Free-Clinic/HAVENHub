@@ -258,9 +258,24 @@ bare yes/no. Every one of those 36 gains a score field.
 1. Merge with the split removed. The queue immediately shows a score field for
    everyone, and nothing regresses because no badge changes on its own.
 2. Run `backfill:langbadges:dry` against production and check the counts against
-   the table above with INTP. It should badge 61 and settle 8. A material
-   difference means the data moved since 2026-09-03 and is worth understanding
-   before applying.
+   the table above with INTP. Verified against production on 2026-09-03, the dry
+   run reports exactly:
+
+   ```
+   BADGED       (scored 3-5, now verified):          60
+   SETTLED      (scored 1-2, assessed not verified):  8
+   SCORE FILLED (reviewer had ruled, no number):      1
+   UNCHANGED    (already assessed and scored):        0
+   NO SCORE     (records exist, none scored):         0
+   Unlinked assessment records (not actionable):   1423
+   ```
+
+   60 rather than 61 because the one person already carrying a verified badge
+   takes the score-filled path instead, which is the decision table working as
+   written. 61 people hold a badge afterwards either way. `NO SCORE: 0` confirms
+   that every linked record carries a number, so the scoreless rule guards
+   nobody today. A material difference from these figures means the data moved
+   and is worth understanding before applying.
 3. Run `backfill:langbadges:apply`.
 4. Re-check the Flag cross-check tab. Its `no-assessment` population should
    shrink, and `below-interpreter-bar` should grow by roughly 12 as scores land

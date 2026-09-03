@@ -60,15 +60,16 @@ export type LanguageReviewRow = {
   language: string;
   languageLabel: string;
   score: number | null;
-  isIntp: boolean;
 };
 
+/**
+ * One queue for everyone. This used to split on active-term INTP membership
+ * into a scored assessment queue and an unscored "general verification" one,
+ * which meant a Spanish speaker outside interpreting never got a number at all.
+ * Departments differ on what they will staff (Department.minInterpreterScore),
+ * and that call needs a score for every speaker, not only for interpreters.
+ */
 export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
-  // INTP membership is read from the ACTIVE term only. Selecting every
-  // membership ever held marked someone INTP forever, so a volunteer who did one
-  // term in interpreting three years ago sorted into the assessment queue rather
-  // than the general verification queue for good.
-  const activeTerm = await getActiveTerm();
   const rows = await prisma.personLanguage.findMany({
     where: languageReviewWhere(),
     orderBy: [{ person: { name: "asc" } }, { language: "asc" }],
@@ -77,19 +78,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
       personId: true,
       language: true,
       score: true,
-      person: {
-        select: {
-          name: true,
-          netId: true,
-          contactEmail: true,
-          memberships: {
-            // No active term means nobody holds an active membership, so the
-            // unmatchable id leaves every row in the general queue.
-            where: { termId: activeTerm?.id ?? "__no-active-term__", status: "ACTIVE" },
-            select: { department: { select: { code: true } } },
-          },
-        },
-      },
+      person: { select: { name: true, netId: true, contactEmail: true } },
     },
   });
   return rows.map((r) => ({
@@ -101,12 +90,8 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     language: r.language,
     languageLabel: languageLabel(r.language),
     score: r.score,
-    isIntp: r.person.memberships.some((m) => m.department.code === INTP_DEPARTMENT_CODE),
   }));
 }
-
-/** The interpreting department's code, which splits the queue into its two halves. */
-const INTP_DEPARTMENT_CODE = "INTP";
 
 /**
  * Record an assessment. Always stamps the assessor and timestamp, so a "no" is

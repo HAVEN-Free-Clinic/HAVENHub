@@ -122,86 +122,7 @@ describe("review queue", () => {
   });
 });
 
-describe("the INTP / general queue split", () => {
-  async function activeTerm() {
-    return prisma.term.create({
-      data: {
-        code: "FA26",
-        name: "Fall 2026",
-        status: "ACTIVE",
-        startDate: new Date("2026-09-01"),
-        endDate: new Date("2026-12-31"),
-      },
-    });
-  }
-
-  async function intpDept() {
-    return prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
-  }
-
-  it("marks a current INTP member for the assessment queue", async () => {
-    const term = await activeTerm();
-    const dept = await intpDept();
-    const p = await person("Interpreter");
-    await prisma.termMembership.create({
-      data: { personId: p.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
-    });
-    await claimLanguage(p.id, "es");
-
-    const [row] = await listLanguageReviewQueue();
-    expect(row.isIntp).toBe(true);
-  });
-
-  // Selecting every membership ever held marked someone INTP for good, so a
-  // volunteer who did one term in interpreting years ago never returned to the
-  // general queue.
-  it("does not mark someone INTP on the strength of a past term", async () => {
-    const past = await prisma.term.create({
-      data: {
-        code: "SP15",
-        name: "Spring 2015",
-        status: "ARCHIVED",
-        startDate: new Date("2015-01-01"),
-        endDate: new Date("2015-05-31"),
-      },
-    });
-    const term = await activeTerm();
-    const dept = await intpDept();
-    const other = await prisma.department.create({ data: { code: "PATS", name: "Patient Advocacy" } });
-    const p = await person("Former Interpreter");
-    await prisma.termMembership.create({
-      data: { personId: p.id, termId: past.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
-    });
-    await prisma.termMembership.create({
-      data: { personId: p.id, termId: term.id, departmentId: other.id, kind: "VOLUNTEER", status: "ACTIVE" },
-    });
-    await claimLanguage(p.id, "es");
-
-    const [row] = await listLanguageReviewQueue();
-    expect(row.isIntp).toBe(false);
-  });
-
-  it("does not mark someone INTP on a membership that is no longer ACTIVE", async () => {
-    const term = await activeTerm();
-    const dept = await intpDept();
-    const p = await person("Left Interpreting");
-    await prisma.termMembership.create({
-      data: { personId: p.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "REMOVED" },
-    });
-    await claimLanguage(p.id, "es");
-
-    const [row] = await listLanguageReviewQueue();
-    expect(row.isIntp).toBe(false);
-  });
-
-  it("puts everyone in the general queue when no term is active", async () => {
-    const p = await person("No Active Term");
-    await claimLanguage(p.id, "es");
-
-    const [row] = await listLanguageReviewQueue();
-    expect(row.isIntp).toBe(false);
-  });
-
+describe("the language review queue", () => {
   it("surfaces the current score on the queue row", async () => {
     await actor();
     const p = await person("Already Scored");
@@ -219,6 +140,21 @@ describe("the INTP / general queue split", () => {
 
     const [row] = await listLanguageReviewQueue();
     expect(row.score).toBe(3);
+  });
+
+  // The queue used to split on active-term INTP membership: interpreting members
+  // were scored and everyone else got a bare yes/no. That is exactly why a
+  // department willing to staff a conversational speaker had no number to
+  // compare against its own bar.
+  it("returns one flat queue regardless of interpreting membership", async () => {
+    const outsider = await person("Outside Interpreting");
+    await claimLanguage(outsider.id, "es");
+
+    const rows = await listLanguageReviewQueue();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty("isIntp");
+    expect(rows[0].score).toBeNull();
   });
 });
 

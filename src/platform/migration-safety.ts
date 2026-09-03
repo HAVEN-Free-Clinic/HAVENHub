@@ -118,13 +118,33 @@ export function hasRollingDeployAck(sql: string): boolean {
 /**
  * Migrations at or before this timestamp are exempt.
  *
- * Not a way to duck the rule: every migration in the tree at the time this guard
- * landed had already been applied to production, and Prisma stores a CHECKSUM of
- * each migration.sql in _prisma_migrations. Editing an applied file to add an
- * acknowledgement line makes `migrate deploy` refuse to run at all
- * ("migration ... was modified after it was applied"), which would wedge every
- * future deploy -- exactly the outcome docs/DEPLOY.md's P3009 section is about.
- * So history is read-only and the rule starts here.
+ * NOT for the reason originally given here. That reason was that Prisma stores a
+ * CHECKSUM of each migration.sql, so editing an applied file to add an
+ * acknowledgement line would make `migrate deploy` "refuse to run at all
+ * (migration ... was modified after it was applied)" and wedge every future
+ * deploy. THAT IS FALSE, and it was worth measuring rather than believing: on
+ * Prisma 6.19.3, against a database with the pre-edit file already applied, both
+ * `migrate deploy` and `migrate status` report clean and exit 0 while the
+ * recorded and computed checksums differ. The quoted error belongs to
+ * `migrate dev`. 20260902160000's header was edited on that basis and nothing
+ * broke.
+ *
+ * The real reasons to keep the cutoff, both weaker than the one it replaces but
+ * still reasons:
+ *
+ *   Editing an applied migration is not free. `npm run db:migrate` IS
+ *   `prisma migrate dev`, so every developer whose local database applied the
+ *   old file gets prompted to reset. Doing that to ~130 files at once to
+ *   retrofit prose nobody will read is a bad trade.
+ *
+ *   The acknowledgement is meant to be a PLAN its author wrote at the time. A
+ *   line added months later by somebody reconstructing intent from the diff is a
+ *   worse artifact than an honest exemption, and it would make the gate look
+ *   better-covered than it is.
+ *
+ * Either way the cutoff must not move forward: its whole justification is that
+ * those files already shipped. A later cutoff would just exempt new work, which
+ * is what the test below pins.
  */
 export const GRANDFATHERED_THROUGH = "20260815000000";
 

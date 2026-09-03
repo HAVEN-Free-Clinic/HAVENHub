@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { recordAudit } from "@/platform/audit";
 import { SPANISH, SPANISH_SPEAKER_MIN_SCORE } from "./catalog";
 
 export type BadgeBackfillOutcome =
@@ -53,9 +54,15 @@ export async function backfillLanguageBadges(
     where: { personId: null },
   });
 
-  // Every record belonging to an ACTIVE person, newest first. Ordered exactly
-  // as latestSpanishAssessment orders, so the backfill and the profile badge
-  // can never disagree about which assessment is the current one.
+  // Every record belonging to an ACTIVE person, newest first -- the same
+  // ordering latestSpanishAssessment uses. But this function then deliberately
+  // skips any record with no score (see the `latest` pass below), while
+  // latestSpanishAssessment takes the single newest record regardless of
+  // whether it carries one. So the two CAN name different terms: when the
+  // most recent assessment recorded no number, this backfill reaches past it
+  // to the newest SCORED term instead. That is intentional -- a later
+  // scoreless row records that an assessment happened, not that an earlier
+  // score was withdrawn.
   const records = await prisma.spanishAssessmentRecord.findMany({
     where: { person: { status: "ACTIVE" } },
     orderBy: [{ termRank: "desc" }, { createdAt: "desc" }],
@@ -80,7 +87,7 @@ export async function backfillLanguageBadges(
 
   const existing = await prisma.personLanguage.findMany({
     where: { personId: { in: [...seen.keys()] }, language: SPANISH },
-    select: { personId: true, verifiedAt: true, score: true },
+    select: { personId: true, verifiedAt: true, verified: true, score: true },
   });
   const byPerson = new Map(existing.map((r) => [r.personId, r]));
 
@@ -119,6 +126,15 @@ export async function backfillLanguageBadges(
           where: { personId_language: { personId, language: SPANISH } },
           data: { score: record.score },
         });
+        // No actor: the backfill has none, which is exactly why verifiedById
+        // is left null above.
+        await recordAudit({
+          action: "person.language_backfill",
+          entityType: "Person",
+          entityId: personId,
+          before: { language: SPANISH, verified: current.verified, score: current.score },
+          after: { language: SPANISH, verified: current.verified, score: record.score, term: record.term },
+        });
       }
       continue;
     }
@@ -141,6 +157,14 @@ export async function backfillLanguageBadges(
         // verifiedById stays null: no person made this call, and inventing an
         // actor would misattribute it to whoever ran the script.
         update: { verified, verifiedAt: new Date(), score: record.score, note },
+      });
+      // No actor, for the same reason verifiedById is left null above.
+      await recordAudit({
+        action: "person.language_backfill",
+        entityType: "Person",
+        entityId: personId,
+        before: { language: SPANISH, verified: current?.verified ?? null, score: current?.score ?? null },
+        after: { language: SPANISH, verified, score: record.score, term: record.term },
       });
     }
   }

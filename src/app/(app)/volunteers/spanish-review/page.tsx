@@ -120,9 +120,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     const personId = String(formData.get("personId") ?? "");
     const language = String(formData.get("language") ?? "");
     const verified = formData.get("verified") === "true";
-    // Present only on the Spanish rows of the INTP queue. Absent means "this
-    // form never asked", which recordLanguageAssessment reads as leave-alone;
-    // an explicit empty selection means N/A and clears it.
+    // The score field is present only on Spanish rows; other languages carry
+    // no score. Absent means "this form never asked", which
+    // recordLanguageAssessment reads as leave-alone; an explicit empty
+    // selection means N/A and clears it.
     const hasScoreField = formData.has("score");
     const score = hasScoreField ? normalizeScore(formData.get("score")) : undefined;
 

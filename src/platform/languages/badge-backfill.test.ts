@@ -40,6 +40,22 @@ describe("backfillLanguageBadges", () => {
     expect(row?.score).toBe(5);
   });
 
+  // The note this backfill writes is rendered verbatim to the volunteer on
+  // their own /my-info page. The 1-5 score is INTERNAL and must never reach
+  // the person it describes, so pin that no digit ever lands in the note.
+  // Term deliberately carries no year here: the note also names the term, and
+  // a year would put a digit in the note for a reason unrelated to the one
+  // this test exists to catch.
+  it("never lets the internal score leak into the member-facing note", async () => {
+    const p = await person("Note Check");
+    await record(p.id, "Assessment Term", 5);
+
+    await backfillLanguageBadges({ dryRun: false });
+
+    const row = await esRow(p.id);
+    expect(row?.note).not.toMatch(/\d/);
+  });
+
   it("badges a 3, the conversational floor", async () => {
     const p = await person("Conversational");
     await record(p.id, "Fall 2024", 3);
@@ -204,6 +220,37 @@ describe("backfillLanguageBadges", () => {
 
     expect(report.counts.badged).toBe(1);
     expect(await esRow(p.id)).toBeNull();
+  });
+
+  // The only other writer of PersonLanguage.verified (recordLanguageAssessment)
+  // audits every write. This backfill flips the same field for dozens of
+  // people and must leave the same kind of trail, under its own action name
+  // so a "who badged this person" search can tell a human review from this
+  // one-time run.
+  it("audits a badged person, with no actor", async () => {
+    const p = await person("Audited Badge");
+    await record(p.id, "Fall 2024", 5);
+
+    await backfillLanguageBadges({ dryRun: false });
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "person.language_backfill", entityId: p.id },
+    });
+    expect(entry.actorPersonId).toBeNull();
+    expect((entry.after as Record<string, unknown>).verified).toBe(true);
+    expect((entry.after as Record<string, unknown>).score).toBe(5);
+    expect((entry.after as Record<string, unknown>).term).toBe("Fall 2024");
+  });
+
+  it("writes no audit rows on a dry run", async () => {
+    const p = await person("Dry Run Audit");
+    await record(p.id, "Fall 2024", 5);
+
+    await backfillLanguageBadges({ dryRun: true });
+
+    expect(
+      await prisma.auditLog.count({ where: { action: "person.language_backfill" } }),
+    ).toBe(0);
   });
 
   // Re-running after reviewers have worked the queue must be a no-op on

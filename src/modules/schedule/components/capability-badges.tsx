@@ -71,7 +71,13 @@ export function CapabilityBadges({
         // rather than looking identical to one who clears it.
         const flagged = code === SPANISH && spanishBelowBar;
         // The shortfall wins over the tier: it already shows the exact number,
-        // so a "+" on top of it would be noise.
+        // so a "+" on top of it would be noise. The `!flagged` guard is also
+        // what keeps that from ever double-marking a row: through the app,
+        // `flagged` and `top` are already mutually exclusive, because being
+        // below bar forces score < bar <= 5. The guard only matters for a bar
+        // written directly to Postgres by hand, bypassing the admin service
+        // (validateInterpreterBar) that keeps every bar set through the app
+        // in 1-5.
         const top = !flagged && code === SPANISH && score === SPANISH_TOP_SCORE;
         const label = flagged
           ? `Verified: ${languageLabel(code)}, assessed ${score} (below this department's bar of ${bar})`

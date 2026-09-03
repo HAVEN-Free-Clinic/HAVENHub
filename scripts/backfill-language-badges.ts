@@ -7,7 +7,17 @@
  *   npm run backfill:langbadges:apply
  *
  * ACTIVE people only, and only from a record that carries a 1-5 score. Never
- * reverses an assessment a reviewer already recorded in Hub. Safe to re-run.
+ * reverses a reviewer's verified verdict -- the "score-filled" path is the
+ * only one that touches a row a reviewer already ruled on, and it never
+ * writes `verified`. One caveat: that path cannot tell "a reviewer never
+ * wrote a number" from "a reviewer deliberately chose the blank N/A option
+ * and cleared it," so a re-run refills a deliberately cleared score. Nobody
+ * ends up mis-badged either way -- only the number comes back.
+ *
+ * Writes are per person and sequential, so a crash leaves a clean prefix
+ * written and re-running resumes safely: the counts just shift from `badged`
+ * to `unchanged` for whoever was already done, while the total stays the
+ * same. Safe to re-run.
  */
 import { backfillLanguageBadges } from "@/platform/languages/badge-backfill";
 

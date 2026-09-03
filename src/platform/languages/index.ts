@@ -56,7 +56,6 @@ export type LanguageReviewRow = {
   personId: string;
   name: string;
   netId: string | null;
-  contactEmail: string | null;
   language: string;
   languageLabel: string;
   score: number | null;
@@ -78,7 +77,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
       personId: true,
       language: true,
       score: true,
-      person: { select: { name: true, netId: true, contactEmail: true } },
+      person: { select: { name: true, netId: true } },
     },
   });
   return rows.map((r) => ({
@@ -86,7 +85,6 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     personId: r.personId,
     name: r.person.name,
     netId: r.person.netId,
-    contactEmail: r.person.contactEmail,
     language: r.language,
     languageLabel: languageLabel(r.language),
     score: r.score,

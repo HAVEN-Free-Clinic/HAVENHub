@@ -167,8 +167,10 @@ describe("CapabilityBadges Spanish proficiency bar", () => {
   // A below-bar speaker shows the exact number and never the plus. The two
   // cannot collide for any sane bar: being below bar forces score < bar <= 5,
   // so a below-bar speaker is never a 5. The !flagged guard in the component
-  // covers only the degenerate case of a department setting its bar above 5,
-  // which minInterpreterScore (an unconstrained Int?) permits.
+  // is unreachable through the app: validateInterpreterBar (departments.ts)
+  // rejects anything outside 1-5 on both the create and update paths, the
+  // only writers of minInterpreterScore. It only covers a bar written
+  // directly to Postgres by hand, bypassing that service.
   it("shows the number, not the plus, for a speaker below the bar", () => {
     const host = render(
       { verifiedLanguages: ["es"], licensedRN: false, spanishScore: 3 },

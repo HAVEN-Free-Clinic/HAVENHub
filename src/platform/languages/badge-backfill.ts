@@ -127,7 +127,7 @@ export async function backfillLanguageBadges(
     rows.push({ ...base, outcome: verified ? "badged" : "settled" });
     counts[verified ? "badged" : "settled"] += 1;
     if (!opts.dryRun) {
-      const note = `Backfilled from the ${record.term} assessment list.`;
+      const note = `Recorded from your ${record.term} assessment with the interpreting department.`;
       await prisma.personLanguage.upsert({
         where: { personId_language: { personId, language: SPANISH } },
         create: {

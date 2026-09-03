@@ -66,6 +66,44 @@ describe("backfillLanguageBadges", () => {
     expect(row?.score).toBe(2);
   });
 
+  // The self-reported claim intake creates (verified: false, verifiedAt: null)
+  // is the live path for most affected people: the update branch of the
+  // upsert, not the create branch. It must badge them, and it must not
+  // clobber the fact that they claimed the language themselves.
+  it("badges a person who already has a self-reported unverified claim", async () => {
+    const p = await person("Self Reported High");
+    await record(p.id, "Fall 2024", 5);
+    await prisma.personLanguage.create({
+      data: { personId: p.id, language: "es", selfReported: true, verified: false, verifiedAt: null },
+    });
+
+    const report = await backfillLanguageBadges({ dryRun: false });
+
+    expect(report.counts.badged).toBe(1);
+    const row = await esRow(p.id);
+    expect(row?.verified).toBe(true);
+    expect(row?.verifiedAt).not.toBeNull();
+    expect(row?.score).toBe(5);
+    expect(row?.selfReported).toBe(true);
+  });
+
+  it("settles a person who already has a self-reported unverified claim", async () => {
+    const p = await person("Self Reported Low");
+    await record(p.id, "Fall 2024", 2);
+    await prisma.personLanguage.create({
+      data: { personId: p.id, language: "es", selfReported: true, verified: false, verifiedAt: null },
+    });
+
+    const report = await backfillLanguageBadges({ dryRun: false });
+
+    expect(report.counts.settled).toBe(1);
+    const row = await esRow(p.id);
+    expect(row?.verified).toBe(false);
+    expect(row?.verifiedAt).not.toBeNull();
+    expect(row?.score).toBe(2);
+    expect(row?.selfReported).toBe(true);
+  });
+
   it("skips a person whose only record carries no score", async () => {
     const p = await person("Assessed No Number");
     await record(p.id, "Fall 2015", null);

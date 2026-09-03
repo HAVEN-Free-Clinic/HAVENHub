@@ -53,8 +53,13 @@ test("event attendance: create an info session and check in a walk-up", async ({
   // click also asserts the client-side readiness check let it through.
   await page.getByRole("button", { name: "Check in" }).click();
 
-  // The kiosk never navigates: the outcome appears in its running log.
-  await expect(page.getByText("Walk Up Tester")).toBeVisible({ timeout: 15000 });
+  // The kiosk never navigates: the outcome appears in its result line, and the
+  // server's checked-in list refreshes underneath it. Scoped to the list to
+  // avoid matching both (the ambiguity that caught the duplicate-render bug).
+  await expect(page.getByRole("listitem").filter({ hasText: "Walk Up Tester" })).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(page.getByText("checked in, onboarding outstanding")).toBeVisible();
 
   // --- The attendance is on the event, unlinked ---
   await page.goto(`/recruitment/events/${eventId}`);

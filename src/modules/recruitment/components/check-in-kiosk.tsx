@@ -21,9 +21,17 @@ import type {
  * size (name and email only). The server is still the authority on every
  * check-in it accepts.
  *
- * The running log is local state, appended per outcome, so the screen never
- * navigates. That is deliberate: a redirect per person would throw away the
- * search box, the log, and the operator's place in the queue.
+ * The screen never navigates: a redirect per person would throw away the search
+ * box and the operator's place in the queue. What it shows instead is the
+ * server's own list of who is checked in, plus a one-line result for the last
+ * tap.
+ *
+ * The result line is deliberately NOT a running local log. A server action
+ * re-renders the page's server components, so `checkedInNames` already refreshes
+ * to include whoever was just tapped; keeping a parallel local list of the same
+ * people rendered each of them twice (caught by e2e/event-attendance.spec.ts).
+ * The server list is also the one that survives the reload a staffer working a
+ * door will eventually do.
  */
 export function CheckInKiosk({
   candidates,
@@ -41,9 +49,11 @@ export function CheckInKiosk({
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [log, setLog] = useState<{ name: string; detail: string | null; tone: "success" | "warning" }[]>(
-    [],
-  );
+  const [lastResult, setLastResult] = useState<{
+    name: string;
+    detail: string | null;
+    tone: "success" | "warning";
+  } | null>(null);
   // Locally checked-in ids, merged with the server's list so a row a staffer
   // just tapped immediately reads as done without a refetch.
   const [justCheckedIn, setJustCheckedIn] = useState<Set<string>>(new Set());
@@ -73,18 +83,15 @@ export function CheckInKiosk({
         setJustCheckedIn((prev) => new Set(prev).add(target.personId));
       }
       const detail = result.alreadyCheckedIn
-        ? "Already checked in"
+        ? "was already checked in"
         : result.blockers.length > 0
-          ? `Onboarding outstanding${result.nudgeQueued ? " - reminder emailed" : ""}`
-          : null;
-      setLog((prev) => [
-        {
-          name: result.name || fallbackName,
-          detail,
-          tone: result.blockers.length > 0 || result.alreadyCheckedIn ? "warning" : "success",
-        },
-        ...prev,
-      ]);
+          ? `checked in, onboarding outstanding${result.nudgeQueued ? " (reminder emailed)" : ""}`
+          : "checked in";
+      setLastResult({
+        name: result.name || fallbackName,
+        detail,
+        tone: result.blockers.length > 0 || result.alreadyCheckedIn ? "warning" : "success",
+      });
       setQuery("");
       setWalkUpOpen(false);
       // Back to the search box so the next person can be typed without reaching
@@ -100,6 +107,17 @@ export function CheckInKiosk({
           {error}
         </Alert>
       )}
+
+      {/* aria-live so the outcome is announced: the screen does not navigate, so
+          there is no page change for a screen reader to pick up. */}
+      <p aria-live="polite" className="min-h-5 text-sm">
+        {lastResult && (
+          <>
+            <span className="font-medium text-foreground">{lastResult.name}</span>{" "}
+            <Badge tone={lastResult.tone}>{lastResult.detail}</Badge>
+          </>
+        )}
+      </p>
 
       <div className="space-y-3">
         <Input
@@ -169,21 +187,15 @@ export function CheckInKiosk({
 
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground">
-          Checked in ({checkedInNames.length + log.filter((l) => l.detail !== "Already checked in").length})
+          Checked in ({checkedInNames.length})
         </h2>
         <ul className="mt-2 space-y-1 text-sm">
-          {log.map((entry, i) => (
-            <li key={`${entry.name}-${i}`} className="flex items-center gap-2">
-              <span className="font-medium text-foreground">{entry.name}</span>
-              {entry.detail && <Badge tone={entry.tone}>{entry.detail}</Badge>}
-            </li>
-          ))}
-          {checkedInNames.map((name) => (
-            <li key={`existing-${name}`} className="text-foreground-soft">
+          {checkedInNames.map((name, i) => (
+            <li key={`${name}-${i}`} className="text-foreground-soft">
               {name}
             </li>
           ))}
-          {log.length === 0 && checkedInNames.length === 0 && (
+          {checkedInNames.length === 0 && (
             <li className="text-subtle-foreground">Nobody yet.</li>
           )}
         </ul>

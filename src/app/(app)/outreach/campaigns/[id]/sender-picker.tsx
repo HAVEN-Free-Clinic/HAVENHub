@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
-import { SenderIdentityNotes, type SendingDomainMap } from "../../sender-identity-notes";
 
 export type SenderOption = {
   address: string;
@@ -43,19 +42,29 @@ const SOURCE_LABEL: Record<SenderOption["source"], string> = {
  * behaviour, not a specific address it cannot know.
  *
  * A stored choice that is no longer in the list is still shown, with the reason:
- * an issued address revoked after the campaign was composed would otherwise
- * vanish from the form and silently re-save as the default.
+ * an issued address revoked after the campaign was composed -- or one reached
+ * through a role the sender has since lost -- would otherwise vanish from the
+ * form and silently re-save as the default.
+ *
+ * NO SenderIdentityNotes HERE, and deliberately not by oversight: it renders on
+ * the three ADMIN surfaces (issue-form, identities/page, scopes identity-fields)
+ * and was removed from this one. Those notes carry the Graph throughput ceiling
+ * and the Send-As requirement, and both are facts that change an ADMIN's
+ * decision when issuing an address or setting one on a scope. Neither changes a
+ * SENDER's decision, because a sender can only pick from what an admin already
+ * approved, so on this screen they are two warning panels about a choice that
+ * has already been made for them. Do not add them back.
+ *
+ * The empty-state sentence below is NOT one of those notes and stays: it is one
+ * line of plain text telling a sender what to do when they have no options at
+ * all, and this is the only surface on which a sender meets that state.
  */
 export function SenderPicker({
   options,
   initial,
-  domains,
-  connectedMailbox,
 }: {
   options: SenderOption[];
   initial: string | null;
-  domains: SendingDomainMap;
-  connectedMailbox: string | null;
 }) {
   const stale = initial !== null && !options.some((o) => o.address === initial);
   const [value, setValue] = useState(stale ? "" : (initial ?? ""));
@@ -101,12 +110,6 @@ export function SenderPicker({
           Recipients see it as {selected.displayName} &lt;{selected.address}&gt;.
         </p>
       )}
-
-      <SenderIdentityNotes
-        address={selected?.address ?? fallback?.address ?? null}
-        domains={domains}
-        connectedMailbox={connectedMailbox}
-      />
     </div>
   );
 }

@@ -152,6 +152,64 @@ describe("db-level schema guards", () => {
       prisma.audienceScopeGrant.create({ data: { scopeId: scope.id, personId: person.id } }),
     ).rejects.toThrow();
   });
+
+  // The same pair of raw-SQL guards on SendingIdentityGrant (migration
+  // 20260902160000). Worth stating why they are not merely symmetry with the
+  // scope ones: this table decides who may speak AS THE CLINIC. A grant with
+  // neither target reaches nobody, but makes the address look held on the admin
+  // screen, so a revoke that should have been performed never is. A grant with
+  // both is two claims in one row, and revoking one of them deletes the other.
+  async function identity(address = "recruitment@havenfreeclinic.org") {
+    return prisma.sendingIdentity.create({ data: { address } });
+  }
+
+  it("rejects a sending identity grant with neither target set", async () => {
+    const row = await identity();
+    await expect(
+      prisma.sendingIdentityGrant.create({ data: { identityId: row.id } }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a sending identity grant with both targets set", async () => {
+    const { role, person } = await fixture();
+    const row = await identity();
+    await expect(
+      prisma.sendingIdentityGrant.create({
+        data: { identityId: row.id, personId: person.id, roleId: role.id },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a duplicate sending identity grant to the same person", async () => {
+    const { person } = await fixture();
+    const row = await identity();
+    await prisma.sendingIdentityGrant.create({ data: { identityId: row.id, personId: person.id } });
+    await expect(
+      prisma.sendingIdentityGrant.create({ data: { identityId: row.id, personId: person.id } }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a duplicate sending identity grant to the same role", async () => {
+    // The role half specifically. A COALESCE unique index written against the
+    // person column alone would pass the case above and fail here, and the
+    // NULL-is-distinct default would pass BOTH while guarding neither.
+    const { role } = await fixture();
+    const row = await identity();
+    await prisma.sendingIdentityGrant.create({ data: { identityId: row.id, roleId: role.id } });
+    await expect(
+      prisma.sendingIdentityGrant.create({ data: { identityId: row.id, roleId: role.id } }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a second sending identity for the same address", async () => {
+    // The uniqueness that MOVED in 20260902160000. It used to be
+    // (personId, address); the address is now the row, and the "several people
+    // may hold one shared mailbox" property it used to carry is the grant
+    // table's job. If this regressed to a non-unique column, one mailbox would
+    // become two identity rows, and revoking one would leave the other live.
+    await identity();
+    await expect(identity()).rejects.toThrow();
+  });
 });
 
 /**

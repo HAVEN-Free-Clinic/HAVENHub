@@ -17,17 +17,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SenderPicker, type SenderOption } from "./sender-picker";
-import type { SendingDomainMap } from "../../sender-identity-notes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-// The shipped table, as page.tsx hands it down. Named here rather than imported
-// so a client-side test never pulls in sending-domains.ts, which resolves from
-// @/platform/config at import.
-const DOMAINS: SendingDomainMap = {
-  "havenfreeclinic.org": "maileroo",
-  "yale.edu": "graph",
-};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -37,14 +28,7 @@ function render(options: SenderOption[], initial: string | null = null) {
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root.render(
-      <SenderPicker
-        options={options}
-        initial={initial}
-        domains={DOMAINS}
-        connectedMailbox="hfc.it@yale.edu"
-      />,
-    );
+    root.render(<SenderPicker options={options} initial={initial} />);
   });
 }
 
@@ -133,5 +117,68 @@ describe("SenderPicker with identities available", () => {
     render([SCOPE, ISSUED], ISSUED.address);
     expect(select().value).toBe(ISSUED.address);
     expect(container.textContent).not.toContain("no longer available to you");
+  });
+});
+
+/**
+ * NO SenderIdentityNotes, which is the owner's second request.
+ *
+ * A Graph-routed address is what USED to produce two stacked warning panels
+ * here: the throughput ceiling, and (whenever the address is not the connected
+ * mailbox) the Send-As requirement. Both are facts an ADMIN needs while issuing
+ * an address or setting one on a scope, where the notes still render. Neither is
+ * actionable for a sender, who can only pick from what an admin already
+ * approved, so on this screen they were two warnings about a decision already
+ * made for them.
+ *
+ * WHAT THIS CAN AND CANNOT CATCH, stated because the fixture below reads like it
+ * carries more weight than it does. The picker takes no allowlist at all, and
+ * SenderIdentityNotes cannot render without one, so no address makes these
+ * panels appear from here. This guards the WORDS and the alert count against a
+ * reintroduction, which is the shape a regression would take: someone threads a
+ * domains map in and renders the notes again. It is not a transport assertion,
+ * and the fixture's domain is not load-bearing. It was yale.edu because that was
+ * the Graph-routed domain when this was written; that stopped being true on
+ * 2026-09-02 and nothing here noticed, which is the point.
+ *
+ * Asserted BOTH ways on purpose. The text assertions say which words must not
+ * come back; the role-count assertion catches a reintroduction that reworded
+ * them, which the text ones alone would miss.
+ */
+describe("SenderPicker does not warn the sender about the transport", () => {
+  const ISSUED_ELSEWHERE: SenderOption = {
+    address: "dean@yale.edu",
+    displayName: null,
+    source: "issued",
+  };
+
+  it("renders no transport warning, whatever the identity would route to", () => {
+    render([ISSUED_ELSEWHERE]);
+    expect(optionTexts()[0]).toContain("dean@yale.edu");
+    expect(container.textContent).not.toContain("Paces out over hours");
+    expect(container.textContent).not.toContain("Send-As");
+    expect(container.textContent).not.toContain("Microsoft Graph");
+    // Every Alert renders role="alert" (error) or role="status" (everything
+    // else), so this counts warning boxes without depending on their wording.
+    expect(container.querySelectorAll('[role="alert"],[role="status"]')).toHaveLength(0);
+  });
+
+  it("still renders the stale-choice warning, and only that one", () => {
+    // The picker keeps exactly one Alert, and it is about authorization rather
+    // than transport: a choice the sender may no longer use. Removing the notes
+    // must not have taken it with them.
+    render([ISSUED_ELSEWHERE], "revoked@havenfreeclinic.org");
+    const alerts = container.querySelectorAll('[role="alert"],[role="status"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain("no longer available to you");
+  });
+
+  it("keeps the empty-state guidance, which is not one of those notes", () => {
+    // One line of plain text, no Alert, and the only surface on which a sender
+    // meets the no-identities state. It names the two routes to getting one.
+    render([]);
+    expect(container.textContent).toContain("audience scope");
+    expect(container.textContent).toContain("issue one to you");
+    expect(container.querySelectorAll('[role="alert"],[role="status"]')).toHaveLength(0);
   });
 });

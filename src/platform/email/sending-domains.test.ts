@@ -17,16 +17,17 @@ import {
 
 describe("the default allowlist", () => {
   it("maps each domain to the transport that can actually sign for it", () => {
-    // Not the same transport for both: havenfreeclinic.org has
-    // include:_spf.maileroo.com, yale.edu does not and its Maileroo entry is
-    // disabled, so Graph is the only signer for it today.
+    // Both are Maileroo since 2026-09-02, when Maileroo verified yale.edu. The
+    // map still has to exist rather than collapsing to "Maileroo signs
+    // everything": a domain absent from it falls back to the pinned sender, and
+    // "yale.edu:graph" is the documented reversal if Maileroo disables it again.
     expect(DEFAULT_SENDING_DOMAINS["havenfreeclinic.org"]).toBe("maileroo");
-    expect(DEFAULT_SENDING_DOMAINS["yale.edu"]).toBe("graph");
+    expect(DEFAULT_SENDING_DOMAINS["yale.edu"]).toBe("maileroo");
   });
 
   it("is what the module resolves to when no override is configured", () => {
     expect(SENDING_DOMAINS.get("havenfreeclinic.org")).toBe("maileroo");
-    expect(SENDING_DOMAINS.get("yale.edu")).toBe("graph");
+    expect(SENDING_DOMAINS.get("yale.edu")).toBe("maileroo");
   });
 });
 
@@ -39,7 +40,7 @@ describe("parseSendingDomains", () => {
     for (const spec of [undefined, "", "   "]) {
       const map = parseSendingDomains(spec);
       expect(map.get("havenfreeclinic.org")).toBe("maileroo");
-      expect(map.get("yale.edu")).toBe("graph");
+      expect(map.get("yale.edu")).toBe("maileroo");
     }
   });
 
@@ -52,9 +53,12 @@ describe("parseSendingDomains", () => {
     expect(map.get("yale.edu")).toBeUndefined();
   });
 
-  it("can move yale.edu to Maileroo without a code edit, the day it is re-enabled", () => {
-    const map = parseSendingDomains("havenfreeclinic.org:maileroo,yale.edu:maileroo");
-    expect(map.get("yale.edu")).toBe("maileroo");
+  it("can move yale.edu back to Graph without a code edit, if Maileroo disables it again", () => {
+    // The reversal, now that the default is Maileroo. This is the lever an
+    // operator reaches for the day a send starts returning "The domain
+    // 'yale.edu' is currently disabled", and it must not need a pull request.
+    const map = parseSendingDomains("havenfreeclinic.org:maileroo,yale.edu:graph");
+    expect(map.get("yale.edu")).toBe("graph");
     expect(map.get("havenfreeclinic.org")).toBe("maileroo");
   });
 
@@ -87,7 +91,7 @@ describe("parseSendingDomains", () => {
     for (const spec of [",", " , ", ",,", "nocolon", "yale.edu:smtp"]) {
       const map = parseSendingDomains(spec);
       expect(map.get("havenfreeclinic.org"), spec).toBe("maileroo");
-      expect(map.get("yale.edu"), spec).toBe("graph");
+      expect(map.get("yale.edu"), spec).toBe("maileroo");
     }
   });
 
@@ -130,8 +134,13 @@ describe("signingTransportFor", () => {
     expect(signingTransportFor("recruitment@havenfreeclinic.org")).toBe("maileroo");
   });
 
-  it("answers graph for a Graph-signable From", () => {
-    expect(signingTransportFor("hfc.it@yale.edu")).toBe("graph");
+  it("answers maileroo for yale.edu too, since Maileroo verified it", () => {
+    // signingTransportFor reads the module-level map, and no domain routes to
+    // Graph in the shipped default any more. That the map CAN carry "graph" is
+    // covered by the parseSendingDomains cases above, including the reversal
+    // lever; what is left to pin here is that the lookup passes the value
+    // through rather than hardcoding a transport per domain.
+    expect(signingTransportFor("hfc.it@yale.edu")).toBe("maileroo");
   });
 
   it("answers null for a domain that is not on the allowlist", () => {
@@ -152,6 +161,6 @@ describe("signingTransportFor", () => {
   });
 
   it("is case-insensitive about the domain", () => {
-    expect(signingTransportFor("HFC.IT@Yale.Edu")).toBe("graph");
+    expect(signingTransportFor("HFC.IT@Yale.Edu")).toBe("maileroo");
   });
 });

@@ -8,6 +8,14 @@ states explicitly, so this does not stack on the open Phase 2 PRs (#707, #710).
 
 ## The state of the two domains, verified 2026-09-02
 
+> **SUPERSEDED LATER THE SAME DAY, and left standing on purpose.** Maileroo
+> verified `yale.edu` on 2026-09-02, after this table was written. The shipped
+> allowlist row moved from `graph` to `maileroo`, which is the one-line change
+> the design below was built to absorb, and nothing else moved. Read the table
+> and the Graph column as the state this design was built against, not as the
+> state today. `src/platform/email/sending-domains.ts` is the live answer, and
+> `SENDING_DOMAINS=yale.edu:graph` is the reversal if Maileroo disables it again.
+
 Not assumed. Checked in DNS today, and consistent with a live Maileroo send
 probed on 2026-08-21.
 

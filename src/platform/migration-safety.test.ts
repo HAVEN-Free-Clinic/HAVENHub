@@ -129,9 +129,15 @@ describe("prisma/migrations", () => {
 
   it("grandfathers only what already shipped", () => {
     // The cutoff must never move forward: its whole justification is that those
-    // files are already applied in production and Prisma checksums them, so they
-    // cannot be edited to add an acknowledgement. A later cutoff would just be
-    // exempting new work.
+    // files already shipped, so a later cutoff would just be exempting new work.
+    //
+    // NOT because they "cannot be edited". That was the reason stated here and
+    // in migration-safety.ts, and it was false: a comment-only edit to an
+    // applied migration leaves `migrate deploy` and `migrate status` reporting
+    // clean on Prisma 6.19.3, checksum drift and all. The real reasons are in
+    // the GRANDFATHERED_THROUGH doc comment. Kept in step deliberately -- the
+    // point of correcting it there was that a stated justification has to be
+    // true, which is not served by leaving the same false sentence here.
     expect(GRANDFATHERED_THROUGH).toBe("20260815000000");
     expect(isGrandfathered("20260812232000_person_languages")).toBe(true);
     expect(isGrandfathered("20260816120000_email_log_listing_index")).toBe(false);

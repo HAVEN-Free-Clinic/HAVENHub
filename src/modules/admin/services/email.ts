@@ -285,7 +285,9 @@ export async function sendSenderTest(
   // This used to be one answer per transport setting: maileroo pinned every send
   // to the global sender, so a rule's own address was never the one tested. That
   // is now only the OFF-LIST case; an address Maileroo can sign is tested as
-  // itself, and a Graph-signed address (yale.edu today) is tested through Graph.
+  // itself, and an address on a graph-signed row is tested through Graph. No row
+  // is graph-signed in the shipped default since 2026-09-02, so that last branch
+  // serves a state SENDING_DOMAINS can reach rather than one it is in.
   const signer = signingTransportFor(input.fromEmail);
 
   // Build the transport that is actually selected. Falling through to LogTransport

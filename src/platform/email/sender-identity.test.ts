@@ -12,7 +12,41 @@
  * would pass against an implementation that had no per-person authorization at
  * all. Each of these has to be refused by the ownership check specifically.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * THE ALLOWLIST THIS FILE VALIDATES AGAINST, stated here rather than borrowed.
+ *
+ * Almost every test below only needs a domain to BE on the allowlist, and the
+ * two real ones are what the fixtures have always used. They stay, and stay
+ * Maileroo-signed, which is what production says today.
+ *
+ * The third row is the point. One test asserts that issueSendingIdentity records
+ * whatever transport the allowlist gives an address, and that only means
+ * something if the allowlist can give two different answers. It used to get its
+ * second answer from yale.edu, which was Graph-signed until Maileroo verified it
+ * on 2026-09-02. With the shipped table now answering "maileroo" for everything,
+ * a test written against it could no longer tell "reads the allowlist" from
+ * "returns maileroo". So the Graph polarity comes from a domain declared here,
+ * for that purpose, on the RFC 2606 reserved `.example` TLD so it can never
+ * quietly start meaning something about a real sending domain.
+ *
+ * Set through SENDING_DOMAINS, the same override an operator pulls, so the real
+ * chain underneath still runs: config.ts's format check, parseSendingDomains,
+ * and the module-level map signingTransportFor reads. vitest.setup.ts re-claims
+ * the variable before every test file, so this cannot leak into one that expects
+ * the shipped default.
+ */
+const { GRAPH_SIGNED_ADDRESS } = vi.hoisted(() => {
+  const GRAPH_SIGNED_DOMAIN = "graph-signed.example";
+  process.env.SENDING_DOMAINS = [
+    "havenfreeclinic.org:maileroo",
+    "yale.edu:maileroo",
+    `${GRAPH_SIGNED_DOMAIN}:graph`,
+  ].join(",");
+  return { GRAPH_SIGNED_ADDRESS: `dean@${GRAPH_SIGNED_DOMAIN}` };
+});
+
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -22,6 +56,7 @@ import {
   listIssuedIdentities,
   resolveSenderIdentity,
   revokeSendingIdentity,
+  revokeSendingIdentityGrant,
 } from "./sender-identity";
 
 beforeEach(resetDb);
@@ -33,6 +68,25 @@ function scopeIdentity(fromEmail: string | null, fromName: string | null = null)
 
 async function person(name: string, contactEmail: string | null) {
   return prisma.person.create({ data: { name, contactEmail, status: "ACTIVE" } });
+}
+
+/**
+ * A role, with people assigned to it person-target and term-global.
+ *
+ * termId: null on purpose, matching scopes.test.ts: these cases are about the
+ * identity a role confers, not about term scoping, and a term-scoped assignment
+ * would need an ACTIVE term fixture that has nothing to do with what is being
+ * asserted. roleIdsForPerson resolves a global person-targeted assignment with
+ * no term at all, which is what makes that possible.
+ */
+async function role(name: string, members: Array<{ id: string }>) {
+  const created = await prisma.role.create({ data: { name } });
+  for (const m of members) {
+    await prisma.roleAssignment.create({
+      data: { roleId: created.id, personId: m.id, termId: null },
+    });
+  }
+  return created;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,8 +103,8 @@ describe("authorization: a scoped sender cannot send as an arbitrary address", (
     //   POST /outreach/campaigns/<their campaign>
     //   name=Newsletter&subject=...&body=...&fromEmail=dean%40yale.edu
     //
-    // dean@yale.edu is on yale.edu, which SENDING_DOMAINS carries (Graph-signed),
-    // so the allowlist check passes and only the ownership check can stop it.
+    // dean@yale.edu is on yale.edu, which SENDING_DOMAINS carries, so the
+    // allowlist check passes and only the ownership check can stop it.
     const sender = await person("Scoped Sender", "sender@yale.edu");
     await issueSendingIdentity(null, {
       personId: sender.id,
@@ -223,9 +277,9 @@ describe("authorization: revocation", () => {
   });
 
   it("re-issues in place rather than creating a second row", async () => {
-    // The uniqueness constraint is (personId, address), so a revoke-then-reissue
-    // has to clear revokedAt on the row that is already there. A second insert
-    // would violate the constraint outright.
+    // The uniqueness constraint is the ADDRESS since Task 3, so a
+    // revoke-then-reissue has to clear revokedAt on the row that is already
+    // there. A second insert would violate the constraint outright.
     const sender = await person("Scoped Sender", "sender@yale.edu");
     const first = await issueSendingIdentity(null, {
       personId: sender.id,
@@ -233,8 +287,12 @@ describe("authorization: revocation", () => {
     });
     await revokeSendingIdentity(null, first.id);
 
+    // A DIFFERENT holder, to pin the other half of the restore rule: re-issuing
+    // un-retires the address (an admin just named it), but does not resurrect
+    // the holders whose grants were removed while it was retired.
+    const other = await person("Other", "other@yale.edu");
     const again = await issueSendingIdentity(null, {
-      personId: sender.id,
+      personId: other.id,
       address: "recruitment@havenfreeclinic.org",
       displayName: "Back Again",
     });
@@ -244,16 +302,17 @@ describe("authorization: revocation", () => {
     expect(await prisma.sendingIdentity.count()).toBe(1);
 
     expect(
-      (await resolveSenderIdentity(sender.id, null, "recruitment@havenfreeclinic.org"))?.source,
+      (await resolveSenderIdentity(other.id, null, "recruitment@havenfreeclinic.org"))?.source,
     ).toBe("issued");
   });
 
-  it("revoking one person's copy of a shared address leaves the other's alone", async () => {
-    // Why uniqueness is on the PAIR and not on the address: a shared mailbox is
-    // issuable to several people, and each holds it independently.
+  it("removing one holder's grant leaves the shared address live for the other", async () => {
+    // Two revocations, and this is the narrow one. A shared mailbox is one row
+    // now, held by many grants, so taking it away from one person is a delete of
+    // THEIR grant -- and must not touch anybody else's route to it.
     const alice = await person("Alice", "alice@yale.edu");
     const bob = await person("Bob", "bob@yale.edu");
-    const hers = await issueSendingIdentity(null, {
+    const identity = await issueSendingIdentity(null, {
       personId: alice.id,
       address: "recruitment@havenfreeclinic.org",
     });
@@ -261,8 +320,12 @@ describe("authorization: revocation", () => {
       personId: bob.id,
       address: "recruitment@havenfreeclinic.org",
     });
+    expect(identity.grants).toHaveLength(1);
 
-    await revokeSendingIdentity(null, hers.id);
+    const hers = await prisma.sendingIdentityGrant.findFirstOrThrow({
+      where: { identityId: identity.id, personId: alice.id },
+    });
+    await revokeSendingIdentityGrant(null, hers.id);
 
     await expect(
       resolveSenderIdentity(alice.id, null, "recruitment@havenfreeclinic.org"),
@@ -270,6 +333,197 @@ describe("authorization: revocation", () => {
     expect(
       (await resolveSenderIdentity(bob.id, null, "recruitment@havenfreeclinic.org"))?.address,
     ).toBe("recruitment@havenfreeclinic.org");
+    // And the address itself is untouched: this revocation is not the retiring
+    // kind, so nothing about it is marked.
+    const row = await prisma.sendingIdentity.findUniqueOrThrow({ where: { id: identity.id } });
+    expect(row.revokedAt).toBeNull();
+  });
+
+  it("retiring the address kills EVERY route to it, direct and role alike", async () => {
+    // The wide revocation, and the reason revokedAt lives on the identity rather
+    // than on the grants. Three routes to one address: Alice holds it directly,
+    // Bob holds it through a role, and Carol holds it through a SECOND role.
+    // One flip has to close all three at once -- and the grants stay in the
+    // table, so an implementation that filtered presence-of-grant rather than
+    // the flag would still find every one of them.
+    const alice = await person("Alice", "alice@yale.edu");
+    const bob = await person("Bob", "bob@yale.edu");
+    const carol = await person("Carol", "carol@yale.edu");
+    const editors = await role("Editors", [bob]);
+    const chairs = await role("Chairs", [carol]);
+
+    const identity = await issueSendingIdentity(null, {
+      personId: alice.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(null, {
+      roleId: chairs.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+
+    for (const p of [alice, bob, carol]) {
+      expect(
+        (await resolveSenderIdentity(p.id, null, "recruitment@havenfreeclinic.org"))?.source,
+      ).toBe("issued");
+    }
+
+    await revokeSendingIdentity(null, identity.id);
+
+    // All three grants are STILL THERE. That is the point: a presence-only
+    // lookup -- the exact bug ServiceCredential shipped -- would still find one
+    // for each of them and count it as valid.
+    expect(await prisma.sendingIdentityGrant.count({ where: { identityId: identity.id } })).toBe(3);
+    const row = await prisma.sendingIdentity.findUniqueOrThrow({ where: { id: identity.id } });
+    expect(row.revokedAt).not.toBeNull();
+
+    for (const p of [alice, bob, carol]) {
+      await expect(
+        resolveSenderIdentity(p.id, null, "recruitment@havenfreeclinic.org"),
+      ).rejects.toBeInstanceOf(SenderIdentityError);
+      expect(await availableSenderIdentities(p.id, null)).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Role grants. The Task 3 request: identities assignable by role, like scopes.
+// ---------------------------------------------------------------------------
+
+describe("authorization: role grants", () => {
+  it("resolves for a person holding the role, and for nobody else", async () => {
+    const holder = await person("Holder", "holder@yale.edu");
+    const outsider = await person("Outsider", "outsider@yale.edu");
+    const editors = await role("Editors", [holder]);
+
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Recruitment",
+    });
+
+    expect(await availableSenderIdentities(holder.id, null)).toMatchObject([
+      { address: "recruitment@havenfreeclinic.org", displayName: "HAVEN Recruitment", source: "issued" },
+    ]);
+    // The outsider is a real, ACTIVE person with no assignment to that role. An
+    // implementation that expanded roles too broadly -- "any role that exists",
+    // or one that ignored the assignment target -- would hand them the clinic's
+    // recruitment address.
+    expect(await availableSenderIdentities(outsider.id, null)).toEqual([]);
+    await expect(
+      resolveSenderIdentity(outsider.id, null, "recruitment@havenfreeclinic.org"),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+  });
+
+  it("takes the identity away the moment the role is removed, with no save in between", async () => {
+    // No refresh, no re-save, no invalidation step: the two calls below are the
+    // same call, either side of a DELETE on the assignment. availableSenderIdentities
+    // expands roles live through roleIdsForPerson, so there is nothing to go
+    // stale -- which is the property that makes a role grant safe to offer at all.
+    const holder = await person("Holder", "holder@yale.edu");
+    const editors = await role("Editors", [holder]);
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+
+    expect(
+      (await resolveSenderIdentity(holder.id, null, "recruitment@havenfreeclinic.org"))?.address,
+    ).toBe("recruitment@havenfreeclinic.org");
+
+    await prisma.roleAssignment.deleteMany({ where: { roleId: editors.id, personId: holder.id } });
+
+    expect(await availableSenderIdentities(holder.id, null)).toEqual([]);
+    await expect(
+      resolveSenderIdentity(holder.id, null, "recruitment@havenfreeclinic.org"),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
+    // The grant itself is untouched: it is the ROLE that stopped reaching them.
+    // Anyone else in the role still has it, which is the whole point of granting
+    // to a role rather than to a list of people.
+    const stillThere = await person("Successor", "successor@yale.edu");
+    await prisma.roleAssignment.create({ data: { roleId: editors.id, personId: stillThere.id } });
+    expect(
+      (await resolveSenderIdentity(stillThere.id, null, "recruitment@havenfreeclinic.org"))?.address,
+    ).toBe("recruitment@havenfreeclinic.org");
+  });
+
+  it("offers one address once when both a direct grant and a role reach it", async () => {
+    const holder = await person("Holder", "holder@yale.edu");
+    const editors = await role("Editors", [holder]);
+    await issueSendingIdentity(null, {
+      personId: holder.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+
+    // One identity row, two grants, one option. A join that fanned out per grant
+    // would offer the same address twice, and the picker would show a duplicate.
+    expect(await prisma.sendingIdentity.count()).toBe(1);
+    expect(await prisma.sendingIdentityGrant.count()).toBe(2);
+    expect(await availableSenderIdentities(holder.id, null)).toHaveLength(1);
+
+    // And losing the role does NOT take it away, because the direct grant still
+    // reaches them. The routes are independent.
+    await prisma.roleAssignment.deleteMany({ where: { roleId: editors.id, personId: holder.id } });
+    expect(await availableSenderIdentities(holder.id, null)).toHaveLength(1);
+  });
+
+  it("adding a second holder does not erase the address's display name", async () => {
+    // Found by driving the page, not by any test that existed at the time. The
+    // display name is a property of the ADDRESS now, and this same form is how a
+    // second holder gets added, so an unconditional write made "add the Director
+    // role to recruitment@" silently blank the From that recipients had been
+    // seeing -- the blank optional field reading as "erase it".
+    const holder = await person("Holder", "holder@yale.edu");
+    const editors = await role("Editors", []);
+    await issueSendingIdentity(null, {
+      personId: holder.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Recruitment",
+    });
+
+    const after = await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+      // No displayName, exactly as the form submits it when the admin leaves the
+      // optional field alone.
+    });
+    expect(after.displayName).toBe("HAVEN Recruitment");
+    // And it is what a send would actually go out as, not merely what the admin
+    // screen shows.
+    expect(
+      (await resolveSenderIdentity(holder.id, null, "recruitment@havenfreeclinic.org"))?.displayName,
+    ).toBe("HAVEN Recruitment");
+
+    // Supplying a new one still replaces it: this is a guard against an ABSENT
+    // value, not a refusal to ever change the name.
+    const third = await person("Third", "third@yale.edu");
+    const renamed = await issueSendingIdentity(null, {
+      personId: third.id,
+      address: "recruitment@havenfreeclinic.org",
+      displayName: "HAVEN Outreach",
+    });
+    expect(renamed.displayName).toBe("HAVEN Outreach");
+  });
+
+  it("refuses to grant the same address to the same role twice", async () => {
+    const editors = await role("Editors", []);
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
+    await expect(
+      issueSendingIdentity(null, {
+        roleId: editors.id,
+        address: "recruitment@havenfreeclinic.org",
+      }),
+    ).rejects.toBeInstanceOf(SenderIdentityError);
   });
 });
 
@@ -311,33 +565,48 @@ describe("write-time validation", () => {
     expect(await prisma.sendingIdentity.count()).toBe(0);
   });
 
-  it("accepts an address on either allowlisted domain and records the transport", async () => {
-    // Both polarities of the allowlist, and both signing transports, because the
-    // two domains are signable by DIFFERENT ones.
+  it("records the transport the allowlist gives the address, at both polarities", async () => {
+    // The claim is that the recorded transport is READ from the allowlist, not
+    // decided here. Only two different answers can show that: an implementation
+    // that hardcoded "maileroo" would pass the first of these on its own, and the
+    // whole map could collapse to one transport without either half noticing.
+    // Both domains below are declared at the top of this file for that reason.
     const sender = await person("Scoped Sender", "sender@yale.edu");
     const clinic = await issueSendingIdentity(null, {
       personId: sender.id,
       address: "recruitment@havenfreeclinic.org",
     });
     expect(clinic.transport).toBe("maileroo");
-    const yale = await issueSendingIdentity(null, {
+    const routedToGraph = await issueSendingIdentity(null, {
       personId: sender.id,
-      address: "hfc.it@yale.edu",
+      address: GRAPH_SIGNED_ADDRESS,
     });
-    expect(yale.transport).toBe("graph");
+    expect(routedToGraph.transport).toBe("graph");
   });
 
   it("lists issued identities including revoked ones, so an admin can see the history", async () => {
     const sender = await person("Scoped Sender", "sender@yale.edu");
+    const editors = await role("Editors", []);
     const issued = await issueSendingIdentity(null, {
       personId: sender.id,
       address: "recruitment@havenfreeclinic.org",
     });
+    await issueSendingIdentity(null, {
+      roleId: editors.id,
+      address: "recruitment@havenfreeclinic.org",
+    });
     await revokeSendingIdentity(null, issued.id);
+
     const rows = await listIssuedIdentities();
     expect(rows).toHaveLength(1);
     expect(rows[0].revokedAt).not.toBeNull();
-    expect(rows[0].personName).toBe("Scoped Sender");
+    // Both holders, each labelled with WHICH kind it is. A role grant flattened
+    // into "the people it currently reaches" would be the wrong record: the
+    // durable fact is the role, and who holds it changes without this table.
+    expect(rows[0].grants.map((g) => [g.kind, g.targetName])).toEqual([
+      ["person", "Scoped Sender"],
+      ["role", "Editors"],
+    ]);
   });
 });
 
@@ -415,7 +684,10 @@ describe("resolution order", () => {
     // allowlist check or survive an allowlist narrowing.
     const sender = await person("Scoped Sender", "sender@gmail.com");
     await prisma.sendingIdentity.create({
-      data: { personId: sender.id, address: "legacy@example.net" },
+      data: {
+        address: "legacy@example.net",
+        grants: { create: { personId: sender.id } },
+      },
     });
     const options = await availableSenderIdentities(sender.id, scopeIdentity("old@example.net"));
     expect(options).toEqual([]);

@@ -130,6 +130,12 @@ export const CLINIC_WIDE_INTERPRETER_MIN_SCORE = 4;
  */
 export const SPANISH_SPEAKER_MIN_SCORE = 3;
 
+/**
+ * The top of the scale, rendered as a "+" on the roster badge so a director
+ * scanning a shift can pick out a native speaker without reading numbers.
+ */
+export const SPANISH_TOP_SCORE = 5;
+
 /** The bar in force for a department: its own, or the clinic-wide one. */
 export function interpreterBarFor(
   department: { minInterpreterScore: number | null } | null | undefined,

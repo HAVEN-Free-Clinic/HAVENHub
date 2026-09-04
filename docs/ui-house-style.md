@@ -99,6 +99,16 @@ If the flagged element genuinely is not an empty state (delete-confirmation
 prose, a label), add an `eslint-disable-next-line local/no-adhoc-empty-state`
 with a one-line reason, the same way §4 handles raw controls.
 
+**Scope limit:** the rule only inspects `<p>`, which covered all 78 original
+sites. An empty state that must be a table cell instead uses a column-spanning
+`<TD className="py-10 text-center text-subtle-foreground">` (see
+`recruitment/events/[id]/page.tsx`) and is not lint-covered. Keep those on the
+same tokens by hand.
+
+**Copy convention:** the `title` is a bare sentence with **no trailing period**;
+punctuation belongs to the `description` under it. An e2e selector that matches
+this copy should therefore not include the period.
+
 ---
 
 ## 2. Design tokens

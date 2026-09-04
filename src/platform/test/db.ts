@@ -1,9 +1,18 @@
 import { prisma } from "@/platform/db";
+import { assertLocalTestDatabase } from "@/platform/test/db-target";
 import { _resetSettingsCache } from "@/platform/settings/service";
 import { _resetSenderRulesCache } from "@/platform/email/sender-rules";
 
 /** Truncate all platform tables between tests. Test database only. */
 export async function resetDb() {
+  // "Test database only" is now enforced, not just documented. On 2026-09-04 a
+  // vitest run started without vitest.setup.ts left DATABASE_URL pointing at
+  // .env's production Neon URL, and this function truncated it. See db-target.ts
+  // for the full chain. Checked on every call rather than once at import: the
+  // env var is what Prisma resolved the connection from, and a test is free to
+  // change it.
+  assertLocalTestDatabase();
+
   // CASCADE handles FK ordering. (RESTART IDENTITY would be a no-op: all PKs are cuid text.)
   // The Historical* tables are named explicitly even though CASCADE would reach
   // them through their optional Person FK: that reach is an accident of the

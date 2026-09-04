@@ -5,6 +5,7 @@ import { isBrowserExtensionEvent } from "@/platform/posthog/browser-extension";
 import { isRecoverableHydrationEvent } from "@/platform/posthog/react-hydration";
 import { isScriptErrorEvent } from "@/platform/posthog/script-error";
 import { isAuthSessionPollEvent } from "@/platform/posthog/auth-session-poll";
+import { isNativeControlDeadClickEvent } from "@/platform/posthog/native-control-dead-click";
 import { scrubProperties } from "@/platform/posthog/scrub-url";
 
 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
@@ -32,13 +33,21 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   // opaque exception that IS the only evidence of a user-facing failure stays --
   // see the /my-info oversized-upload error, which is deliberately not filtered
   // here and is fixed at the source instead.
+  //
+  // The last predicate is not an exception filter: it drops `$dead_click` events
+  // on native `<select>`, `<textarea>`, and text-entry `<input>` controls, which
+  // the recorder mislabels as dead because opening a dropdown or focusing a field
+  // mutates no DOM. It is the same "nothing is actually broken" bar applied to
+  // the dead-click signal, and it keeps toggle, label, and button dead clicks --
+  // the ones that carry real friction.
   before_send: (event) =>
     isNextControlFlowEvent(event) ||
     isServerRenderEchoEvent(event) ||
     isBrowserExtensionEvent(event) ||
     isRecoverableHydrationEvent(event) ||
     isScriptErrorEvent(event) ||
-    isAuthSessionPollEvent(event)
+    isAuthSessionPollEvent(event) ||
+    isNativeControlDeadClickEvent(event)
       ? null
       : event,
   debug: process.env.NODE_ENV === "development",

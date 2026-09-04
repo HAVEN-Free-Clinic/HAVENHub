@@ -25,6 +25,7 @@ import { MultiCombobox } from "@/platform/ui/multi-combobox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHIVED: "default" } as const;
 
@@ -190,7 +191,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         {cycle.status === "ARCHIVED" || !canManage ? (
           <div className="flex flex-wrap gap-2">
             {cycle.departments.length === 0 ? (
-              <p className="text-sm text-subtle-foreground">No departments.</p>
+              <EmptyState inline>No departments.</EmptyState>
             ) : (
               cycle.departments.map((c) => (
                 <span key={c} className="rounded-lg border border-border px-2 py-1 text-sm text-foreground">{c}</span>
@@ -200,7 +201,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         ) : (
           <form action={setCycleDepartmentsAction.bind(null, id)} className="space-y-3">
             {deptSelectOptions.length === 0 ? (
-              <p className="text-sm text-subtle-foreground">No departments configured.</p>
+              <EmptyState inline>No departments configured.</EmptyState>
             ) : (
               <MultiCombobox
                 name="departments"

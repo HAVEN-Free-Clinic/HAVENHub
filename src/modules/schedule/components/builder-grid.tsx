@@ -21,6 +21,7 @@ import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
+import { EmptyState } from "@/platform/ui/empty-state";
 import {
   ROLE_GLYPH,
   ROLE_LABEL,
@@ -429,7 +430,7 @@ export function BuilderGrid({
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-subtle-foreground">No members in this department.</p>
+      <EmptyState inline>No members in this department.</EmptyState>
     );
   }
 

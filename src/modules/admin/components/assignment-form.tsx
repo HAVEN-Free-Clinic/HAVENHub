@@ -36,6 +36,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { buildTermOptions } from "@/platform/terms/term-options";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,7 +232,7 @@ export async function AssignmentForm({
 
       {/* Assignments table */}
       {assignments.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No assignments yet.</p>
+        <EmptyState inline>No assignments yet.</EmptyState>
       ) : (
         <Table>
           <THead>

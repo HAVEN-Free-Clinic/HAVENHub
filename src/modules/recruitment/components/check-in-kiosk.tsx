@@ -6,6 +6,7 @@ import { Input } from "@/platform/ui/input";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { EmptyState } from "@/platform/ui/empty-state";
 import type {
   CheckInCandidate,
   CheckInResult,
@@ -130,10 +131,10 @@ export function CheckInKiosk({
         />
 
         {query.trim().length > 0 && results.length === 0 && (
-          <p className="text-sm text-subtle-foreground">
+          <EmptyState inline>
             Nobody in the hub matches that.
             {allowWalkUps && " Use “Add someone not in the hub” below."}
-          </p>
+          </EmptyState>
         )}
 
         <ul className="divide-y divide-border">

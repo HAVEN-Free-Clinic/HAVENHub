@@ -67,6 +67,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Labels
@@ -396,7 +397,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
         </p>
 
         {messages.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">No messages yet.</p>
+          <EmptyState inline className="mt-4">No messages yet.</EmptyState>
         ) : (
           <ul className="mt-4 space-y-4">
             {messages.map((m) => (

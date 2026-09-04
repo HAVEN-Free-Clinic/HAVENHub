@@ -32,6 +32,7 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -375,7 +376,7 @@ export async function RosterPanel({
               </h3>
 
               {isEmpty ? (
-                <p className="text-sm text-subtle-foreground">No members yet.</p>
+                <EmptyState inline>No members yet.</EmptyState>
               ) : (
                 <div className="space-y-4">
                   {/* Directors list */}
@@ -439,7 +440,7 @@ export async function RosterPanel({
         <Card>
           <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Copy roster from another term</h3>
           {sourceTerms.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No other terms available to copy from.</p>
+            <EmptyState inline>No other terms available to copy from.</EmptyState>
           ) : (
             <form action={copyRosterAction} className="space-y-4">
               <div className="flex flex-wrap gap-6">

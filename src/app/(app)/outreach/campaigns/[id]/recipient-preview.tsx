@@ -346,6 +346,7 @@ export function RecipientPreview({
         </div>
 
         {results !== null && results.length === 0 && (
+          // eslint-disable-next-line local/no-adhoc-empty-state -- deliberate text-xs in this dense preview panel; EmptyState is text-sm and this repo has no tailwind-merge, so the size override would be unreliable.
           <p className="text-xs text-muted-foreground">
             Nobody in this campaign&apos;s audience scope matches that.
           </p>

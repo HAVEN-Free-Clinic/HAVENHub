@@ -154,7 +154,9 @@ test("email page renders heading, stat cards, and table or empty state", async (
   await expect(page.getByText("Failed", { exact: true })).toBeVisible();
   await expect(page.getByText("Sent today", { exact: true })).toBeVisible();
   // Either the table (at least one row) or the empty-state message must be present.
-  const tableOrEmpty = page.locator('table, p:has-text("No emails found.")');
+  // No trailing period: the empty state is an <EmptyState> whose title is a bare
+  // sentence and whose punctuation lives in the description below it.
+  const tableOrEmpty = page.locator('table, p:has-text("No emails found")');
   await expect(tableOrEmpty.first()).toBeVisible();
   // Mailer connection panel always renders the section label; the button reads
   // "Connect mailbox" when not connected, "Reconnect" when already connected.

@@ -59,6 +59,7 @@ import {
 import { getMemberProfileBasics } from "@/modules/volunteers/services/member-profile";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { CalendarDate } from "@/platform/dates/display";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
@@ -311,7 +312,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
               />
             </div>
           ) : (
-            <p className="text-sm text-foreground-soft">No certificate on file.</p>
+            <EmptyState inline>No certificate on file.</EmptyState>
           )}
         </section>
 
@@ -328,7 +329,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
         <section>
           <SectionHeader className="mb-4">Learning</SectionHeader>
           {courses.length === 0 ? (
-            <p className="text-sm text-foreground-soft">No courses assigned.</p>
+            <EmptyState inline>No courses assigned.</EmptyState>
           ) : (
             <ul className="divide-y divide-border-subtle rounded-lg border border-border">
               {courses.map((c) => (

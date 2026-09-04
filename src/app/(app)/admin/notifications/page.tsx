@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { SearchX } from "lucide-react";
 import { requirePermission } from "@/platform/auth/session";
 import {
   listTeamsMessages,
@@ -32,6 +33,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
 import { DateTime } from "@/platform/dates/display";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -244,7 +246,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
       {/* Table */}
       {rows.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No Teams messages found.</p>
+        <EmptyState
+          icon={SearchX}
+          title="No Teams messages found"
+          description="No message matches these filters. Widen the date range or clear a filter above."
+        />
       ) : (
         <>
           <p className="text-sm text-muted-foreground">

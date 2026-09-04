@@ -9,6 +9,7 @@ import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export default async function ScopesPage() {
   await requirePermission("outreach.manage_scopes");
@@ -47,9 +48,10 @@ export default async function ScopesPage() {
       </form>
 
       {scopes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No scopes yet. A sender with no granted scope can email nobody.
-        </p>
+        <EmptyState
+          title="No scopes yet"
+          description="A sender with no granted scope can email nobody."
+        />
       ) : (
         <ul className={`${cardClasses({ pad: false })} divide-y`}>
           {scopes.map((s) => (

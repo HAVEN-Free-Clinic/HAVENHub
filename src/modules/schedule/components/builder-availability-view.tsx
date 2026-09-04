@@ -9,6 +9,7 @@ import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView } from "@/modules/schedule/services/builder";
 import { IntakeNotes } from "./intake-notes";
 import { sortClinicDates } from "./clinic-date-order";
+import { EmptyState } from "@/platform/ui/empty-state";
 import {
   BUILDER_AVAILABILITY_PILL_CLASS,
   builderReadOnlyPillClass,
@@ -47,7 +48,7 @@ export function BuilderAvailabilityView({
   return (
     <div className="flex flex-col gap-4">
       {members.length === 0 && (
-        <p className="text-sm text-subtle-foreground">No members in this department.</p>
+        <EmptyState inline>No members in this department.</EmptyState>
       )}
       {/* Directors first, then volunteers, alphabetical within each group. */}
       {[...members].sort(compareBuilderMembers).map((member) => {

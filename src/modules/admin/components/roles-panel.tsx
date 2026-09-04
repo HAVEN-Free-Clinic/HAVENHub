@@ -36,6 +36,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,7 +167,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
       {/* One card per role */}
       {roles.length === 0 && (
-        <p className="text-sm text-muted-foreground">No roles yet. Create one above.</p>
+        <EmptyState inline>No roles yet. Create one above.</EmptyState>
       )}
       {roles.map((role) => {
         const grantedSet = new Set(role.grants.map((g) => g.permission));

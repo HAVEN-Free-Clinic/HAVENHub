@@ -30,6 +30,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -363,7 +364,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
             </form>
           ) : existingInterviews.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No eligible department to interview for in your scope.</p>
+            <EmptyState inline className="mt-3">No eligible department to interview for in your scope.</EmptyState>
           ) : null}
         </Card>
       ) : (

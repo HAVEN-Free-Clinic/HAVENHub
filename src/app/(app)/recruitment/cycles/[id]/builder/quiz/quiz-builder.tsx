@@ -11,6 +11,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export type QuizQuestion = { id: string; label: string; options: Choice[]; correctValue: string | null };
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
@@ -87,7 +88,7 @@ export function QuizBuilder({
                 </div>
               </Card>
             ))}
-            {section.questions.length === 0 && <p className="text-sm text-subtle-foreground">No questions yet.</p>}
+            {section.questions.length === 0 && <EmptyState inline>No questions yet.</EmptyState>}
             <Button type="button" variant="outline" size="sm" disabled={!editable} onClick={() => addQuestion(section.id)}>
               <Plus className="h-4 w-4" aria-hidden /> Add question
             </Button>

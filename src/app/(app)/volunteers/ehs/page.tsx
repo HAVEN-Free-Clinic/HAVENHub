@@ -19,6 +19,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { getEhsDashboard } from "@/platform/ehs/services/status";
 import { toggleEhsCompletionAction, toggleAddedToEhsAction } from "./actions";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const PAGE_SIZE = 25;
 
@@ -59,7 +60,7 @@ export default async function EhsDashboardPage({
         )}
 
         {trainings.length === 0 ? (
-          <p className="text-sm text-subtle-foreground">No active EHS trainings configured.</p>
+          <EmptyState inline>No active EHS trainings configured.</EmptyState>
         ) : (
           <>
           <Table>

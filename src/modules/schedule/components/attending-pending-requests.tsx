@@ -18,6 +18,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { formatDateOnly, isoDateKey } from "@/platform/dates";
 import type { AttendingRequestRow } from "@/modules/schedule/services/attending-portal";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 /** "Aug 28" -- see the note on the twin constant in pending-requests.tsx. */
 const SETTLED_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
@@ -46,7 +47,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
       </div>
 
       {pendingRows.length === 0 && (
-        <p className="text-sm text-subtle-foreground">No pending attending requests.</p>
+        <EmptyState inline>No pending attending requests.</EmptyState>
       )}
 
       {pendingRows.map((r) => {

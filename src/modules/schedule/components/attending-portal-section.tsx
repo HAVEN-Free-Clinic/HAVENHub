@@ -29,6 +29,7 @@ import { AVAILABILITY_PILL_CLASS } from "./availability-pill";
 import { displayDate } from "../engine/display";
 import { groupByMonth } from "./clinic-date-order";
 import type { MyAttendingSchedule, AttendingSwapPartner } from "../services/attending-portal";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export type AttendingPortalSectionProps = {
   schedule: MyAttendingSchedule;
@@ -158,10 +159,10 @@ export function AttendingPortalSection({
                 ) : (
                   // The column IS the qualification (see eligibleAttendingSwapPartners),
                   // so name it: "no partners" without the reason reads as a bug.
-                  <p className="text-sm text-subtle-foreground">
+                  <EmptyState inline>
                     Nobody else is scheduled on another date in the {shift.slot.label} column, so there is
                     no one to swap with. Request a drop instead and Faculty Relations will find cover.
-                  </p>
+                  </EmptyState>
                 )}
               </div>
             </details>
@@ -182,7 +183,7 @@ export function AttendingPortalSection({
       </div>
 
       {!term ? (
-        <p className="text-sm text-subtle-foreground">No active term.</p>
+        <EmptyState inline>No active term.</EmptyState>
       ) : (
         <>
           <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -222,7 +223,7 @@ export function AttendingPortalSection({
                   </div>
                 )}
                 {upcoming.length === 0 && (
-                  <p className="text-sm text-subtle-foreground">No upcoming dates left this term.</p>
+                  <EmptyState inline>No upcoming dates left this term.</EmptyState>
                 )}
                 {past.length > 0 && (
                   <details className="group" open={false}>

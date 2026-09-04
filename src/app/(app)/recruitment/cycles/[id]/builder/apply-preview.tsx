@@ -11,6 +11,7 @@ import { visibleFields } from "@/modules/recruitment/engine/field-visibility";
 import { visibleSections, applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { departmentChoiceOptions, resolveSectionTitle, type DepartmentNameRow } from "@/modules/recruitment/templates/department-options";
 import type { BuilderSection } from "./section-card";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 /**
  * A read-only-but-interactive preview of the applicant form, rendered from the
@@ -134,7 +135,7 @@ export function ApplyPreview({
           for live visibleWhen evaluation. */}
       <form className="mt-4 space-y-4" onSubmit={(e) => e.preventDefault()}>
         {shownSections.length === 0 ? (
-          <p className="text-sm text-subtle-foreground">No sections are shown for this applicant.</p>
+          <EmptyState inline>No sections are shown for this applicant.</EmptyState>
         ) : (
           shownSections.map((section) => {
             const fields = visibleFields(section.fields, answers);
@@ -142,7 +143,7 @@ export function ApplyPreview({
               <Card key={section.id} className="space-y-4">
                 <FormSection title={resolveSectionTitle(section, departmentNames)} description={section.description ? linkifyUrls(section.description) : undefined}>
                   {fields.length === 0 ? (
-                    <p className="text-sm text-subtle-foreground">No questions are shown here yet.</p>
+                    <EmptyState inline>No questions are shown here yet.</EmptyState>
                   ) : (
                     fields.map((f) => (
                       <FieldPreview

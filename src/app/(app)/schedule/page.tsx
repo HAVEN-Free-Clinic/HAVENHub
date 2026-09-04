@@ -50,6 +50,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Clock } from "lucide-react";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
@@ -384,7 +385,7 @@ export default async function MySchedulePage() {
         // and this branch is their NORMAL state -- not an error. Telling them
         // "No active term" under a schedule they can plainly see would be wrong,
         // so the volunteer block is simply absent for them.
-        attendingSchedule ? null : <p className="text-sm text-subtle-foreground">No active term.</p>
+        attendingSchedule ? null : <EmptyState inline>No active term.</EmptyState>
       ) : (
         termSections.map(({ t, swapPartnersByKey }) => {
           // Whether to show the shift list at all -- this is purely about
@@ -566,7 +567,7 @@ export default async function MySchedulePage() {
                           </div>
                         )}
                         {swapPartners.length === 0 && (
-                          <p className="text-sm text-subtle-foreground">No eligible swap partners for this shift.</p>
+                          <EmptyState inline>No eligible swap partners for this shift.</EmptyState>
                         )}
                       </div>
                     </details>

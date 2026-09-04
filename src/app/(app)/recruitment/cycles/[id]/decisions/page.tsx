@@ -12,6 +12,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { cardClasses } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 /** Reads the one query param the actions redirect back with. Both actions can
  *  land here with an ?error= (a permission or ordering refusal), and until this
@@ -78,7 +79,7 @@ export default async function DecisionsPage({
       <section>
         <SectionHeader>Conflicts to resolve</SectionHeader>
         {conflicts.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No conflicts.</p>
+          <EmptyState inline className="mt-2">No conflicts.</EmptyState>
         ) : (
           <ul className={`mt-3 divide-y divide-border-subtle ${cardClasses({ pad: false })}`}>
             {conflicts.map((c) => (

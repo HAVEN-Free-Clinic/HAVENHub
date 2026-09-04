@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { X } from "lucide-react";
 import type { PersonFieldView } from "@/platform/email/audience/person-fields";
 import { cx } from "@/platform/ui/cx";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type FieldGroup = { name: string; fields: PersonFieldView[] };
 
@@ -249,7 +250,7 @@ export function FieldPicker({
           />
           <div id={listId} role="listbox" aria-label="Fields" className="max-h-64 overflow-auto py-1">
             {flat.length === 0 && (
-              <p className="px-3 py-2 text-sm text-subtle-foreground">No matching fields</p>
+              <EmptyState inline className="px-3 py-2">No matching fields</EmptyState>
             )}
             {filtered.map((g, gi) => {
               const headingId = `${uid}-grp-${gi}`;

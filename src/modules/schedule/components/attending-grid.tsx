@@ -26,6 +26,7 @@ import { Badge } from "@/platform/ui/badge";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import type { AttendingScheduleRow, ClinicSlotView } from "@/modules/schedule/services/attendings";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Slot labels
@@ -262,7 +263,10 @@ export function AttendingGrid({
   const roster = options.filter((a) => a.isActive || scheduledIds.has(a.id));
 
   if (roster.length === 0) {
-    return <p className="text-sm text-subtle-foreground">No attendings on the roster yet.</p>;
+    return <EmptyState
+        title="No attendings on the roster yet"
+        description="Add attendings to this term to start building coverage."
+      />;
   }
 
   // Coverage indexed by attending, then date: the source data is per date, and

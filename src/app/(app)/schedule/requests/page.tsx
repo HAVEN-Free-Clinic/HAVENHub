@@ -41,6 +41,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export default async function ScheduleRequestsPage() {
   const session = await requirePersonSession();
@@ -181,7 +182,10 @@ export default async function ScheduleRequestsPage() {
         // a bug.
         deptIds.length === 0 ? null : (
           <Card>
-            <p className="text-sm text-muted-foreground">No shift requests right now.</p>
+            <EmptyState
+              title="No shift requests right now"
+              description="Swap and drop requests from your departments will appear here for approval."
+            />
           </Card>
         )
       ) : (

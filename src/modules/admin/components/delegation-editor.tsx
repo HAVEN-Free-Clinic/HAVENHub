@@ -2,6 +2,7 @@ import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type Candidate = { id: string; code: string; name: string };
 
@@ -31,7 +32,7 @@ export function DelegationEditor({
           and does not grant scheduling rights over these departments.
         </p>
         {candidates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No other active departments to delegate to.</p>
+          <EmptyState inline>No other active departments to delegate to.</EmptyState>
         ) : (
           <div className="grid gap-1 sm:grid-cols-2">
             {candidates.map((c) => (

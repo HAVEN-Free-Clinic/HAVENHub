@@ -13,6 +13,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { DateTime } from "@/platform/dates/display";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 function safeLayout(value: unknown): ContractLayout {
   if (value == null) return DEFAULT_CONTRACT_LAYOUT;
@@ -82,7 +83,7 @@ export default async function SignedContractPage({ params }: { params: Promise<{
             </div>
           ))}
           {review.responses.length === 0 && (
-            <p className="text-sm text-muted-foreground">No responses recorded.</p>
+            <EmptyState inline>No responses recorded.</EmptyState>
           )}
         </dl>
       </Card>

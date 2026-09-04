@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "./auth";
-import { prisma } from "@/platform/db";
+import { prisma, isDbUnreachableError } from "@/platform/db";
 import { getActivePerson, resolvePersonForLogin } from "./match-person";
 import { can, getEffectivePermissions } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -99,6 +99,31 @@ async function enforceOnboarding(personId: string): Promise<void> {
 }
 
 /**
+ * Retry `fn` a few times when it fails with a database-unreachable error
+ * (isDbUnreachableError), returning otherwise on the first attempt. The
+ * textbook case is a PgBouncer-pooled connection closed mid-query (Prisma
+ * P1017): the fault is transient, and the next attempt draws a fresh
+ * connection from the pool.
+ *
+ * The API routes hold a safe fallback and degrade to a 503 on these same
+ * codes; the auth path has none -- it must resolve the caller's Person -- so it
+ * retries instead. This matters because requirePersonSession runs in the (app)
+ * layout, and a layout throw escapes its own segment error boundary
+ * ((app)/error.tsx cannot catch it), so an unretried blip is a hard full-page
+ * error for a signed-in member rather than a degraded tile.
+ */
+async function withDbRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt < attempts && isDbUnreachableError(err)) continue;
+      throw err;
+    }
+  }
+}
+
+/**
  * For pages/actions that need a signed-in, matched, still-ACTIVE person.
  * Hits the DB on every call so offboarding revokes access immediately
  * even while the JWT is still valid. Redirects otherwise.
@@ -125,10 +150,12 @@ export async function requirePersonSession(): Promise<PersonSession> {
     // pure applicant browses /apply via getApplicantIdentity, not this path), and
     // matching is the same Yale-asserted resolver sign-in uses.
     if (session.applicantEmail) {
-      const resolved = await resolvePersonForLogin({
-        upn: session.applicantEmail,
-        email: session.applicantEmail,
-      });
+      const resolved = await withDbRetry(() =>
+        resolvePersonForLogin({
+          upn: session.applicantEmail,
+          email: session.applicantEmail,
+        }),
+      );
       personId = resolved?.id ?? null;
     }
     if (!personId) redirect("/welcome");

@@ -14,12 +14,13 @@ const redirect = vi.hoisted(() =>
     throw new Error(`NEXT_REDIRECT:${path}`);
   }),
 );
+const auth = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ redirect }));
 // No x-pathname: enforceOnboarding returns immediately, which is the real
 // behaviour for a server action and keeps the onboarding gate out of these cases.
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
-vi.mock("./auth", () => ({ auth: async () => ({ personId: "person-1" }) }));
+vi.mock("./auth", () => ({ auth }));
 vi.mock("./match-person", () => ({
   getActivePerson: async (id: string) => ({
     id,
@@ -44,11 +45,49 @@ vi.mock("@/modules/onboarding/services/onboarding", () => ({
   EXEMPT_PERMISSION: "admin.access",
 }));
 
-import { requireModuleAccess } from "./session";
+import { Prisma } from "@prisma/client";
+import { requireModuleAccess, requirePersonSession } from "./session";
+import { resolvePersonForLogin } from "./match-person";
 
 beforeEach(() => {
   perms.current = new Set<string>();
   vi.clearAllMocks();
+  auth.mockResolvedValue({ personId: "person-1" });
+});
+
+/** A PgBouncer-pooled connection closed mid-query: Prisma P1017. */
+const poolerClosed = () =>
+  new Prisma.PrismaClientKnownRequestError("Server has closed the connection", {
+    code: "P1017",
+    clientVersion: "5.0.0",
+  });
+
+describe("requirePersonSession DB resilience", () => {
+  // A JWT stamped before recruitment promoted the applicant to a Person carries
+  // personId null, so this session re-resolves the Person from applicantEmail.
+  beforeEach(() => {
+    auth.mockResolvedValue({ personId: null, applicantEmail: "jc999@yale.edu" });
+  });
+
+  it("retries a pooler-closed connection and resolves the session", async () => {
+    vi.mocked(resolvePersonForLogin)
+      .mockRejectedValueOnce(poolerClosed())
+      .mockResolvedValueOnce({ id: "person-1" } as never);
+    await expect(requirePersonSession()).resolves.toMatchObject({ personId: "person-1" });
+    expect(resolvePersonForLogin).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the retry budget and rethrows the DB error", async () => {
+    vi.mocked(resolvePersonForLogin).mockRejectedValue(poolerClosed());
+    await expect(requirePersonSession()).rejects.toThrow("Server has closed the connection");
+    expect(resolvePersonForLogin).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry a non-transient error", async () => {
+    vi.mocked(resolvePersonForLogin).mockRejectedValue(new Error("boom"));
+    await expect(requirePersonSession()).rejects.toThrow("boom");
+    expect(resolvePersonForLogin).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("requireModuleAccess", () => {

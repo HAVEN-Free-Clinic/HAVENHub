@@ -19,7 +19,8 @@ vi.mock("next/navigation", () => ({ redirect }));
 // No x-pathname: enforceOnboarding returns immediately, which is the real
 // behaviour for a server action and keeps the onboarding gate out of these cases.
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
-vi.mock("./auth", () => ({ auth: async () => ({ personId: "person-1" }) }));
+const auth = vi.hoisted(() => vi.fn());
+vi.mock("./auth", () => ({ auth }));
 vi.mock("./match-person", () => ({
   getActivePerson: async (id: string) => ({
     id,
@@ -44,11 +45,52 @@ vi.mock("@/modules/onboarding/services/onboarding", () => ({
   EXEMPT_PERMISSION: "admin.access",
 }));
 
-import { requireModuleAccess } from "./session";
+import { Prisma } from "@prisma/client";
+import { requireModuleAccess, requirePersonSession } from "./session";
+import { resolvePersonForLogin } from "./match-person";
 
 beforeEach(() => {
   perms.current = new Set<string>();
   vi.clearAllMocks();
+  auth.mockResolvedValue({ personId: "person-1" });
+});
+
+/** A PgBouncer-pooled connection closed mid-query: Prisma P1017, seen in prod. */
+const poolerClosed = () =>
+  new Prisma.PrismaClientKnownRequestError("Server has closed the connection", {
+    code: "P1017",
+    clientVersion: "x",
+  });
+
+describe("requirePersonSession survives a dropped connection", () => {
+  // A JWT stamped before recruitment promoted the applicant carries personId
+  // null, so the session re-resolves the Person from applicantEmail. That is
+  // the call the production P1017 came out of.
+  beforeEach(() => {
+    auth.mockResolvedValue({ personId: null, applicantEmail: "jc999@yale.edu" });
+  });
+
+  it("retries the re-resolution and returns the session", async () => {
+    vi.mocked(resolvePersonForLogin)
+      .mockRejectedValueOnce(poolerClosed())
+      .mockResolvedValueOnce({ id: "person-1" } as never);
+    await expect(requirePersonSession()).resolves.toMatchObject({ personId: "person-1" });
+    expect(resolvePersonForLogin).toHaveBeenCalledTimes(2);
+  });
+
+  it("rethrows once the budget is spent, rather than bouncing to /welcome", async () => {
+    // The distinction that matters: a spent budget must NOT look like "no such
+    // person". That would redirect a real member out of the hub over a blip.
+    vi.mocked(resolvePersonForLogin).mockRejectedValue(poolerClosed());
+    await expect(requirePersonSession()).rejects.toThrow("Server has closed the connection");
+    expect(redirect).not.toHaveBeenCalledWith("/welcome");
+  });
+
+  it("does not retry an error that is not a connectivity fault", async () => {
+    vi.mocked(resolvePersonForLogin).mockRejectedValue(new Error("boom"));
+    await expect(requirePersonSession()).rejects.toThrow("boom");
+    expect(resolvePersonForLogin).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("requireModuleAccess", () => {

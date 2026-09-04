@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { Person } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, withDbRetry } from "@/platform/db";
 import { PERSON_SCALARS } from "@/platform/person-scalars";
 import { firstNameOf, NAME_SUFFIXES } from "@/platform/person-name";
 
@@ -219,10 +219,23 @@ export async function findMemberRecordByClaim(
  */
 export const getActivePerson = cache(
   async (personId: string): Promise<Person | null> => {
-    const person = await prisma.person.findUnique({
-      where: { id: personId },
-      select: PERSON_SCALARS,
-    });
+    // Retried on a transient connection fault, for the same reason the
+    // resolvePersonForLogin call in requirePersonSession is: this runs inside
+    // the (app) layout, whose throw escapes its own segment error boundary. It
+    // matters more here than there, not less -- resolvePersonForLogin only runs
+    // for a null-personId session, while this is the single most exposed query
+    // in the app, on every authenticated request.
+    //
+    // The retry cannot change the answer. It rethrows once the budget is spent
+    // rather than returning null, which is the invariant that matters: null
+    // here means "not active, sign them out", so degrading a blip into null
+    // would revoke a live member's access over a dropped connection.
+    const person = await withDbRetry(() =>
+      prisma.person.findUnique({
+        where: { id: personId },
+        select: PERSON_SCALARS,
+      }),
+    );
     if (!person || person.status !== "ACTIVE") return null;
     return person;
   }

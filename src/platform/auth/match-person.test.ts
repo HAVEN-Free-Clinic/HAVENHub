@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -149,6 +150,38 @@ describe("getActivePerson", () => {
 
   it("returns null for a deleted/unknown id", async () => {
     expect(await getActivePerson("nonexistent")).toBeNull();
+  });
+
+  /** A PgBouncer-pooled connection closed mid-query: Prisma P1017. */
+  const poolerClosed = () =>
+    new Prisma.PrismaClientKnownRequestError("Server has closed the connection", {
+      code: "P1017",
+      clientVersion: "x",
+    });
+
+  it("retries a dropped connection rather than failing the render", async () => {
+    const spy = vi
+      .spyOn(prisma.person, "findUnique")
+      .mockRejectedValueOnce(poolerClosed())
+      .mockResolvedValueOnce({ id: "retry-1", status: "ACTIVE" } as never);
+    try {
+      expect((await getActivePerson("retry-1"))?.id).toBe("retry-1");
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("rethrows a spent budget instead of returning null", async () => {
+    // The invariant: null here means "not active, sign them out". A database
+    // that was briefly unreachable must never be reported as an inactive
+    // member, or a blip revokes a live session.
+    const spy = vi.spyOn(prisma.person, "findUnique").mockRejectedValue(poolerClosed());
+    try {
+      await expect(getActivePerson("retry-2")).rejects.toThrow("Server has closed the connection");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "./auth";
-import { prisma } from "@/platform/db";
+import { prisma, withDbRetry } from "@/platform/db";
 import { getActivePerson, resolvePersonForLogin } from "./match-person";
 import { can, getEffectivePermissions } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -124,11 +124,19 @@ export async function requirePersonSession(): Promise<PersonSession> {
     // (#65). Runs only for a null-personId session reaching a gated hub route (a
     // pure applicant browses /apply via getApplicantIdentity, not this path), and
     // matching is the same Yale-asserted resolver sign-in uses.
-    if (session.applicantEmail) {
-      const resolved = await resolvePersonForLogin({
-        upn: session.applicantEmail,
-        email: session.applicantEmail,
-      });
+    const applicantEmail = session.applicantEmail;
+    if (applicantEmail) {
+      // Retried rather than degraded. This runs inside the (app) layout, and a
+      // layout throw escapes its own segment error boundary -- (app)/error.tsx
+      // cannot catch a throw in its own layout -- so an unretried connection
+      // blip is a hard full-page error for a signed-in member rather than a
+      // degraded tile. Degrading is not available either: a null resolution
+      // here means "/welcome", i.e. bounced out of the hub, which is a worse
+      // answer than a slightly slower render. Observed once in production on
+      // 2026-09-04 as Prisma P1017 out of matchPersonByClaim.
+      const resolved = await withDbRetry(() =>
+        resolvePersonForLogin({ upn: applicantEmail, email: applicantEmail }),
+      );
       personId = resolved?.id ?? null;
     }
     if (!personId) redirect("/welcome");

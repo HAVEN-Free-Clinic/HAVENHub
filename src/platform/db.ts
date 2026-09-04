@@ -77,3 +77,41 @@ export async function runSerializable<T>(
     }
   }
 }
+
+/**
+ * Run `fn`, retrying a few times when it fails because the database was
+ * momentarily unreachable (`isDbUnreachableError`). Anything else propagates on
+ * the first attempt, and the last failure is rethrown once the budget is spent.
+ *
+ * This is the RETRY half of the rule `isDbUnreachableError` gates. The other
+ * half is degradation, and which one applies is decided by whether the caller
+ * holds a safe answer:
+ *
+ *   - A render-path read with a sensible default (`getSetting`) degrades to it.
+ *   - A polled API route degrades to 503, never to content.
+ *   - The auth session path has NO safe answer. It must resolve the caller's
+ *     Person, and "null" there means "log out", so degrading would sign a
+ *     member out over a blip. It retries instead.
+ *
+ * Unlike `runSerializable`, this waits between attempts, and the difference is
+ * deliberate. A serialization conflict is resolved the instant the competing
+ * transaction commits, so an immediate retry is the right move. A dropped
+ * connection is not: retrying into the same just-closed pooled connection with
+ * no pause is the least likely moment to succeed. The backoff is linear and
+ * short (50ms, then 100ms) because this sits in front of a page render -- the
+ * budget is bounded at 150ms of added latency, and only on a failing request.
+ */
+export async function withDbRetry<T>(
+  fn: () => Promise<T>,
+  { attempts = 3, delayMs = 50 }: { attempts?: number; delayMs?: number } = {},
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts || !isDbUnreachableError(err)) throw err;
+      // No wait before the first attempt: a healthy call pays nothing.
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+}

@@ -11,6 +11,7 @@ import { ContractField } from "@/app/onboard/[token]/contract-field";
 import { visibleOnboardingBlocks } from "@/modules/recruitment/contract/visibility";
 import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export type PreviewDepartment = {
   code: string;
@@ -130,7 +131,7 @@ export function OnboardingPreviewBody({
       <form className="mt-4" onSubmit={(e) => e.preventDefault()}>
         <Card className="space-y-6">
           {shown.length === 0 ? (
-            <p className="text-sm text-subtle-foreground">No blocks are shown for this context yet.</p>
+            <EmptyState inline>No blocks are shown for this context yet.</EmptyState>
           ) : (
             shown.map((b) => (
               <ContractField

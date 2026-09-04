@@ -31,6 +31,7 @@ import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type Props = {
   personId: string;
@@ -150,7 +151,7 @@ export async function PersonMembershipsPanel({
         <Card className="space-y-4">
           <h3 className="text-sm font-semibold text-foreground-soft">Active term ({activeTerm.code})</h3>
           {activeMembers.length === 0 ? (
-            <p className="text-sm text-subtle-foreground">No active-term assignments.</p>
+            <EmptyState inline>No active-term assignments.</EmptyState>
           ) : (
             <div className="space-y-2">
               {activeMembers.map((m) => (
@@ -212,7 +213,7 @@ export async function PersonMembershipsPanel({
           )}
         </Card>
       ) : (
-        <p className="text-sm text-subtle-foreground">No active term.</p>
+        <EmptyState inline>No active term.</EmptyState>
       )}
 
       {memberships.length > 0 && (

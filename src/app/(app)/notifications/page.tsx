@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { BellOff } from "lucide-react";
 import { requirePersonSession } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import {
@@ -13,6 +14,7 @@ import { DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type PageProps = { searchParams: Promise<{ page?: string }> };
 
@@ -58,7 +60,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       </form>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No notifications yet.</p>
+        <EmptyState
+          icon={BellOff}
+          title="No notifications yet"
+          description={`Anything ${appName} needs to tell you about shifts, approvals and requests shows up here.`}
+        />
       ) : (
         <ul className="divide-y divide-border-subtle rounded-xl border border-border">
           {rows.map((n) => (

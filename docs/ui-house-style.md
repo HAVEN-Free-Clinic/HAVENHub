@@ -62,6 +62,42 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `Badge` | `@/platform/ui/badge` | Categorical chip (status, role, tag). The chip body is neutral; tone (`brand`, `success`, `warning`, `critical`) appears as a small leading status dot. |
 | `Spinner` | `@/platform/ui/spinner` | Branded loading indicator. Decorative (aria-hidden). Color is inherited from `currentColor`. Sizes: `sm`, `md` (default), `lg`. |
 | `Skeleton` | `@/platform/ui/skeleton` | Shimmering placeholder block. Decorative (aria-hidden). Shape and size controlled via `className`. |
+| `EmptyState` | `@/platform/ui/empty-state` | The "there is nothing here" state. `inline` for a table cell or tight section; the default block for an empty page or card body. |
+
+### Empty states
+
+Every "nothing here yet" goes through `EmptyState`. Enforced by the
+`local/no-adhoc-empty-state` ESLint rule, which flags a bare `<p>` on a neutral
+foreground token whose text opens with No/Nothing/None/Nobody.
+
+```tsx
+// Empty page body or empty card body. Icon optional, and worth it only when
+// the state fills a page rather than a section.
+<EmptyState
+  icon={BellOff}
+  title="No notifications yet"
+  description="Anything the hub needs to tell you about shows up here."
+  action={<Button href="/schedule">View the schedule</Button>}
+/>
+
+// One-liner inside a table cell or a tight section.
+<EmptyState inline>None assigned</EmptyState>
+```
+
+Two rules worth knowing:
+
+- **Title and description carry different tokens on purpose.** `title` is
+  `text-foreground`, `description` is `text-subtle-foreground`. Before this
+  primitive the app had 78 empty states drawn in four different neutral tokens,
+  because they had flattened the two roles onto one line.
+- **A filtered list should say so.** When an empty list sits behind a filter
+  form, the description names the filter as the cause ("No message matches these
+  filters. Widen the date range or clear a filter above."). An empty state that
+  hides the fact that a filter is responsible reads as data loss.
+
+If the flagged element genuinely is not an empty state (delete-confirmation
+prose, a label), add an `eslint-disable-next-line local/no-adhoc-empty-state`
+with a one-line reason, the same way §4 handles raw controls.
 
 ---
 

@@ -96,6 +96,7 @@ import type { TechRequestDetail } from "../services/tech-request";
 import type { DepartmentWithMembers } from "../services/itcm";
 import { TERMINAL_STATUSES } from "../services/manage";
 import type { CommentRow } from "../services/comments";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const ALL_PRIORITIES = Object.keys(PRIORITY_LABELS) as TechRequestPriority[];
 
@@ -424,7 +425,7 @@ export async function TicketDetail({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No Epic requests attached yet.</p>
+              <EmptyState inline>No Epic requests attached yet.</EmptyState>
             )}
 
             {showEpicMutations && isOpen && attachEpicAction && (

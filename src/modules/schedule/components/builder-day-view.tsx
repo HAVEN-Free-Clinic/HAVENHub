@@ -13,6 +13,7 @@ import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { builderView, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Day view -- Assigned / Available to assign columns
@@ -237,7 +238,7 @@ export function BuilderDayView({
             Directors <span className="text-brand-fg">({assignedDirectors.length})</span>
           </SectionHeader>
           {assignedDirectors.length === 0 ? (
-            <p className="text-sm text-subtle-foreground italic">None assigned</p>
+            <EmptyState inline className="italic">None assigned</EmptyState>
           ) : (
             <div className="flex flex-col gap-2">
               {assignedDirectors.map((pid) => {
@@ -289,7 +290,7 @@ export function BuilderDayView({
             Volunteers <span className="text-success-foreground">({assignedVolunteers.length})</span>
           </SectionHeader>
           {assignedVolunteers.length === 0 ? (
-            <p className="text-sm text-subtle-foreground italic">None assigned</p>
+            <EmptyState inline className="italic">None assigned</EmptyState>
           ) : (
             <div className="flex flex-col gap-2">
               {assignedVolunteers.map((pid) => {
@@ -344,7 +345,7 @@ export function BuilderDayView({
             Shadows <span className="text-warning-foreground">({assignedShadows.length})</span>
           </SectionHeader>
           {assignedShadows.length === 0 ? (
-            <p className="text-sm text-subtle-foreground italic">None assigned</p>
+            <EmptyState inline className="italic">None assigned</EmptyState>
           ) : (
             <div className="flex flex-col gap-2">
               {assignedShadows.map((pid) => {
@@ -389,7 +390,7 @@ export function BuilderDayView({
                 Available &middot; said yes ({availableMembers.length})
               </p>
               {availableMembers.length === 0 ? (
-                <p className="text-sm text-subtle-foreground italic">No one is marked available for this date.</p>
+                <EmptyState inline className="italic">No one is marked available for this date.</EmptyState>
               ) : (
                 <div className="flex flex-col gap-2">
                   {availableMembers.map((m) => assignCard(m, true))}

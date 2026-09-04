@@ -52,6 +52,7 @@ import { TicketNumberField } from "./ticket-number-field";
 import { TermBatchTab } from "./term-batch-tab";
 import type { EpicRollup } from "@/modules/support/services/epic-rollup";
 import type { TermOption } from "@/platform/terms/term-options";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type Tab = "generate" | "term-batch" | "pending" | "tracker" | "history";
 
@@ -302,9 +303,10 @@ function TrackerTable({
 
   if (openTickets.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No open Epic requests. Generate a PDF to get started.
-      </p>
+      <EmptyState
+        title="No open Epic requests"
+        description="Generate a PDF to get started."
+      />
     );
   }
 
@@ -558,7 +560,12 @@ function HistoryTable({
     );
 
   if (closedTickets.length === 0) {
-    return <p className="text-sm text-muted-foreground">No completed Epic requests yet.</p>;
+    return (
+      <EmptyState
+        title="No completed Epic requests yet"
+        description="Requests move here once their ticket closes."
+      />
+    );
   }
 
   // Equality, not >=: the loader takes at most `historyLimit`, so a full page is
@@ -646,9 +653,10 @@ function PendingTab({
 }) {
   if (pending.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No pending Epic requests. Attach some from a support ticket, or promote a volunteer who needs Epic access.
-      </p>
+      <EmptyState
+        title="No pending Epic requests"
+        description="Attach some from a support ticket, or promote a volunteer who needs Epic access."
+      />
     );
   }
   return (
@@ -770,9 +778,10 @@ export function EpicRequestTabs({
             liveTermId={liveTermId}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No term is active yet. Activate a term, or create one in planning, to build a batch.
-          </p>
+          <EmptyState
+            title="No term is active yet"
+            description="Activate a term, or create one in planning, to build a batch."
+          />
         )
       ) : activeTab === "pending" ? (
         <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} />

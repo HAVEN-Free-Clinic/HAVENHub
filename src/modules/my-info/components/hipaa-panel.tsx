@@ -36,6 +36,7 @@ import { getSupportContact } from "@/platform/branding/support";
 import { getSetting } from "@/platform/settings/service";
 import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { SupportLink } from "@/platform/branding/support-link";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -188,7 +189,7 @@ export async function HipaaPanel({
             )}
           </div>
         ) : (
-          <p className="text-sm text-subtle-foreground">No certificate on file.</p>
+          <EmptyState inline>No certificate on file.</EmptyState>
         )}
       </div>
 

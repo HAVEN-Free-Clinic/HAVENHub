@@ -102,6 +102,7 @@ export default async function EditAttendingSpecialtyPage({ params }: PageProps) 
           </p>
         ) : (
           <form action={deleteAction} className="space-y-3">
+            {/* eslint-disable-next-line local/no-adhoc-empty-state -- delete-confirmation prose, not an empty state: it explains why deletion is safe. */}
             <p className="text-sm text-muted-foreground">
               Nothing references this specialty, so it can be removed for good. This cannot be undone.
             </p>

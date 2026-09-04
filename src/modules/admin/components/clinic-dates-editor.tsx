@@ -21,6 +21,7 @@ import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { formatCalendarDate } from "@/platform/dates";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 function formatClinicDate(d: Date): string {
   return formatCalendarDate(d, {
@@ -83,7 +84,7 @@ export function ClinicDatesEditor({
       {/* List of dates with per-date remove buttons */}
       <div className="space-y-1">
         {clinicDates.length === 0 && (
-          <p className="text-sm text-subtle-foreground">No clinic dates set.</p>
+          <EmptyState inline>No clinic dates set.</EmptyState>
         )}
         {clinicDates.map((d, idx) => {
           // Remaining dates after removing this one.

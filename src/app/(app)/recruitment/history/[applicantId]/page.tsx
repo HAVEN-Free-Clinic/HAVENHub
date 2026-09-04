@@ -13,6 +13,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type PageProps = {
   params: Promise<{ applicantId: string }>;
@@ -59,7 +60,7 @@ export default async function HistoricalApplicantDetailPage({ params }: PageProp
             this is the diagnostic surface for a wrong identity merge -- seeing
             two unrelated addresses side by side is how a human notices. */}
         {applicant.emails.length === 0 ? (
-          <p className="text-sm text-subtle-foreground">No emails on file.</p>
+          <EmptyState inline>No emails on file.</EmptyState>
         ) : (
           <ul className="space-y-1.5">
             {applicant.emails.map((e) => (

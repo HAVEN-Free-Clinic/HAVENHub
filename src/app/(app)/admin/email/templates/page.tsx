@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { MailX } from "lucide-react";
 import { requirePermission } from "@/platform/auth/session";
 import { listTemplateSummaries } from "@/modules/admin/services/email-templates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { cardClasses } from "@/platform/ui/card";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export default async function EmailTemplatesPage() {
   await requirePermission("admin.manage_email_templates");
@@ -16,7 +18,11 @@ export default async function EmailTemplatesPage() {
       />
 
       {rows.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No templates registered.</p>
+        <EmptyState
+          icon={MailX}
+          title="No templates registered"
+          description="Platform emails register their templates on boot. If this stays empty, no email-sending code has loaded yet."
+        />
       ) : (
         <ul className={`${cardClasses({ pad: false })} divide-y`}>
           {rows.map((r) => (

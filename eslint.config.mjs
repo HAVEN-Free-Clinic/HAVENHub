@@ -22,6 +22,47 @@ const noEmDash = {
   },
 };
 
+// Keep ad-hoc empty states from drifting back. Before the EmptyState primitive
+// the app had 78 of them drawn in four different neutral tokens, because the
+// pattern was doc-covered rather than lint-covered (exactly how the surfaces
+// convention drifted in cohesion Phase 2). A selector cannot see JSX text
+// content, so this walks the element instead of using no-restricted-syntax.
+const NEUTRAL_TOKENS = ["text-subtle-foreground", "text-muted-foreground", "text-foreground-soft"];
+const noAdhocEmptyState = {
+  meta: {
+    type: "problem",
+    docs: { description: "Use the EmptyState primitive instead of a hand-rolled empty-state paragraph." },
+    schema: [],
+  },
+  create(context) {
+    return {
+      JSXElement(node) {
+        if (node.openingElement.name?.name !== "p") return;
+
+        const className = node.openingElement.attributes.find(
+          (a) => a.type === "JSXAttribute" && a.name?.name === "className",
+        );
+        const classes = className?.value?.type === "Literal" ? String(className.value.value) : "";
+        if (!NEUTRAL_TOKENS.some((t) => classes.split(/\s+/).includes(t))) return;
+
+        const text = node.children
+          .filter((c) => c.type === "JSXText")
+          .map((c) => c.value)
+          .join("")
+          .trim();
+        // \b keeps this off labels like "Note from the old scheduler:".
+        if (!/^(No|Nothing|None|Nobody)\b/.test(text)) return;
+
+        context.report({
+          node,
+          message:
+            "Hand-rolled empty state. Use <EmptyState> from @/platform/ui/empty-state so the neutral token and spacing stay canonical: `inline` for a table cell or tight section, the default block for an empty page or card body. Add an eslint-disable-next-line local/no-adhoc-empty-state with a reason if this is genuinely not an empty state.",
+        });
+      },
+    };
+  },
+};
+
 const MODULE_IDS = [
   "schedule",
   "my-info",
@@ -124,8 +165,17 @@ const eslintConfig = [
   // AND strings because the rule scans raw source text, not the AST.
   {
     files: ["src/**/*.{ts,tsx}"],
-    plugins: { local: { rules: { "no-em-dash": noEmDash } } },
+    plugins: {
+      local: { rules: { "no-em-dash": noEmDash, "no-adhoc-empty-state": noAdhocEmptyState } },
+    },
     rules: { "local/no-em-dash": "error" },
+  },
+
+  // Empty states must go through the primitive. Scoped to app/modules the same
+  // way the raw-control rule is: src/platform/ui is where EmptyState lives.
+  {
+    files: ["src/app/**/*.tsx", "src/modules/**/*.tsx"],
+    rules: { "local/no-adhoc-empty-state": "error" },
   },
 
   // Resolved-path enforcement (catches relative-path evasion the specifier

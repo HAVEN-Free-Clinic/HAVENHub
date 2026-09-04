@@ -1,5 +1,6 @@
 import { describeUserAgent } from "@/platform/auth/user-agent";
 import { formatDateTime } from "@/platform/dates/format";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type LastLoginFields = {
   lastLoginAt: Date | null;
@@ -33,7 +34,7 @@ export function LastLoginPanel({
   if (!person.lastLoginAt) {
     // Absence has a real meaning here (never signed in, or not since this
     // shipped), and a blank row would read like a bug.
-    return <p className="text-sm text-muted-foreground">No sign-in recorded.</p>;
+    return <EmptyState inline>No sign-in recorded.</EmptyState>;
   }
 
   const browser = describeUserAgent(person.lastLoginUserAgent);

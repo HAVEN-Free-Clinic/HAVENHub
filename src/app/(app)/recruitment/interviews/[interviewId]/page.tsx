@@ -22,6 +22,7 @@ import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -124,7 +125,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-muted-foreground">No panelists yet.</p>
+              <EmptyState inline className="mt-3">No panelists yet.</EmptyState>
             )}
             <AddPanelistForm action={addPanelistAction.bind(null, interviewId)} candidates={candidates} />
             <p className="mt-2 text-xs text-subtle-foreground">Panel members can submit an evaluation from their My interviews page.</p>
@@ -176,7 +177,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-muted-foreground">No evaluations yet.</p>
+          <EmptyState inline className="mt-3">No evaluations yet.</EmptyState>
         )}
       </Card>
 

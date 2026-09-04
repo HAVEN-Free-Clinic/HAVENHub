@@ -30,6 +30,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -273,7 +274,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         {isDeactivate ? (
           <div className="space-y-1">
             {pendingDeactivations.length === 0 && (
-              <p className="text-sm text-muted-foreground">No people are awaiting Epic deactivation.</p>
+              <EmptyState inline>No people are awaiting Epic deactivation.</EmptyState>
             )}
             {pendingDeactivations.map((p) => (
               <PersonRow
@@ -326,7 +327,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                   </div>
                 )}
                 {d.directors.length === 0 && d.volunteers.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                  <EmptyState inline>No active members in this department.</EmptyState>
                 )}
               </div>
             ))}
@@ -390,7 +391,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                   </div>
                 )}
                 {allMembers.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No active members in this department.</p>
+                  <EmptyState inline>No active members in this department.</EmptyState>
                 )}
               </div>
             )}

@@ -13,6 +13,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export type BuilderSection = {
   id: string;
@@ -104,7 +105,7 @@ export function SectionCard({
             <FieldCard cycleId={cycleId} field={field} siblingFields={allFields} departments={departments} subcommittees={subcommittees} editable={editable} handle={fhandle} onChanged={onChanged} />
           </div>
         )} />
-        {section.fields.length === 0 && <p className="py-2 text-sm text-subtle-foreground">No fields yet.</p>}
+        {section.fields.length === 0 && <EmptyState inline className="py-2">No fields yet.</EmptyState>}
         <div className="pt-1"><TypePicker onPick={addField} disabled={!editable} /></div>
       </div>
     </section>

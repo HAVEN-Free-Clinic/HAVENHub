@@ -38,6 +38,7 @@ import type {
   RollupGroupKind,
 } from "@/modules/support/services/epic-rollup";
 import { runEpicGeneration } from "./epic-generate-client";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const GROUPS: RollupGroupKind[] = ["NEW", "MODIFY", "RENEW"];
 
@@ -202,10 +203,10 @@ export function TermBatchTab({
       )}
 
       {total === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <EmptyState inline>
           Nobody on the {rollup.term.code} roster needs an Epic request. Members appear here once
           their department requires Epic access and they hold an active membership in this term.
-        </p>
+        </EmptyState>
       ) : (
         GROUPS.map((group) => (
           <GroupCard
@@ -290,7 +291,7 @@ function GroupCard({
       <p className="text-xs text-subtle-foreground">{GROUP_BLURB[group]}</p>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nobody in this group.</p>
+        <EmptyState inline>Nobody in this group.</EmptyState>
       ) : (
         <ul className="space-y-1">
           {rows.map((row) => (

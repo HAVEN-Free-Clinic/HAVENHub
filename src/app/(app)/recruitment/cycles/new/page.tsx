@@ -11,6 +11,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export default async function NewCyclePage() {
   // Gate the form on the same permission createCycleAction enforces. Without this
@@ -61,9 +62,9 @@ export default async function NewCyclePage() {
             hintPosition="top"
           >
             {deptOptions.length === 0 ? (
-              <p className="text-sm text-subtle-foreground">
+              <EmptyState inline>
                 No active departments to choose from. Add departments in the admin area first.
-              </p>
+              </EmptyState>
             ) : (
               <MultiCombobox
                 name="departments"

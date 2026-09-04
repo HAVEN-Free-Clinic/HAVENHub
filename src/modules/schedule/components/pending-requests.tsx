@@ -16,6 +16,7 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { formatDateOnly, isoDateKey } from "@/platform/dates";
 import type { RequestRow } from "@/modules/schedule/services/requests";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 /**
  * "Aug 28". No year: the decided list is capped at the ten most recent
@@ -67,7 +68,7 @@ export function PendingRequests({
     return (
       <section className={`${cardClasses({ pad: false })} px-4 py-3`}>
         <SectionHeader as="h2" level="title" className="text-sm mb-2">Pending Requests</SectionHeader>
-        <p className="text-sm text-subtle-foreground">No requests.</p>
+        <EmptyState inline>No requests.</EmptyState>
       </section>
     );
   }
@@ -84,7 +85,7 @@ export function PendingRequests({
       </div>
 
       {pendingRows.length === 0 && (
-        <p className="text-sm text-subtle-foreground">No pending requests.</p>
+        <EmptyState inline>No pending requests.</EmptyState>
       )}
 
       {/* Pending rows with approve/deny actions */}

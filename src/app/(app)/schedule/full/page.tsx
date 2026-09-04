@@ -20,6 +20,7 @@ import { CapabilityBadges } from "@/modules/schedule/components/capability-badge
 import { formatCalendarDate } from "@/platform/dates";
 import { loadClearedSet } from "@/platform/clearance";
 import { PersonName } from "@/platform/ui/person-name";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type PageProps = {
   searchParams: Promise<{ date?: string; [key: string]: string | string[] | undefined }>;
@@ -198,7 +199,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
       </div>
 
       {!term ? (
-        <p className="text-sm text-subtle-foreground">No active term.</p>
+        <EmptyState inline>No active term.</EmptyState>
       ) : (
         <>
           {/* Date strip */}
@@ -322,7 +323,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     )}
 
                     {directors.length === 0 && volunteers.length === 0 && shadows.length === 0 && (
-                      <p className="text-sm text-subtle-foreground italic">Nothing scheduled</p>
+                      <EmptyState inline className="italic">Nothing scheduled</EmptyState>
                     )}
                   </div>
                 </section>

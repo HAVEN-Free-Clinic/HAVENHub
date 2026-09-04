@@ -17,6 +17,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { WithdrawnToast } from "./withdrawn-toast";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 type MembershipWithRelations = TermMembership & {
   department: Department;
@@ -42,7 +43,7 @@ export function MembershipsCard({
       <WithdrawnToast withdrawn={withdrawn} />
 
       {memberships.length === 0 ? (
-        <p className="text-sm text-subtle-foreground">No current-term assignments.</p>
+        <EmptyState inline>No current-term assignments.</EmptyState>
       ) : (
         <ul className="space-y-2">
           {memberships.map((m) => (

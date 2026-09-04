@@ -52,6 +52,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { DateOnly } from "@/platform/dates/display";
 import { SenderIdentityNotes, type SendingDomainMap } from "../sender-identity-notes";
 import { IssueIdentityForm } from "./issue-form";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 const PATH = "/outreach/identities";
 
@@ -349,10 +350,10 @@ export default async function SendingIdentitiesPage({
       <div className="space-y-4">
         <h2 className="text-base font-semibold text-foreground">Issued</h2>
         {identities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nothing issued yet. Senders can still use their campaign&apos;s scope identity, and
-            anyone without one sends from the clinic&apos;s configured address.
-          </p>
+          <EmptyState
+            title="Nothing issued yet"
+            description={"Senders can still use their campaign's scope identity, and anyone without one sends from the clinic's configured address."}
+          />
         ) : (
           <Table>
             <THead>

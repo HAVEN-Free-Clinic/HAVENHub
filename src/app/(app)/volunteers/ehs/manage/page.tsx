@@ -6,6 +6,7 @@ import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { listTrainings } from "@/platform/ehs/services/trainings";
 import { createTrainingAction } from "./actions";
+import { EmptyState } from "@/platform/ui/empty-state";
 
 export default async function ManageEhsPage() {
   await requirePermission("volunteers.manage_compliance");
@@ -25,7 +26,7 @@ export default async function ManageEhsPage() {
           </form>
         </Card>
         {trainings.length === 0 && (
-          <p className="text-sm text-muted-foreground">No EHS trainings yet. Create one above.</p>
+          <EmptyState inline>No EHS trainings yet. Create one above.</EmptyState>
         )}
         <ul className="space-y-2">
           {trainings.map((t) => (

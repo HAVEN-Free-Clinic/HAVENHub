@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPendingReporter, PendingDim } from "./list-pending";
 
 /** Server-compatible pagination bar. hrefFor receives a 1-based page number. */
 export function Pagination({
@@ -20,8 +21,10 @@ export function Pagination({
   const disabledBase =
     "inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-subtle-foreground cursor-default";
 
+  // Dimmed along with the rows, which is what stops a second click queueing
+  // another navigation on top of the first.
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
+    <PendingDim className="flex items-center justify-between gap-4 py-3">
       <span className="text-sm text-muted-foreground">
         Page {page} of {pageCount}
       </span>
@@ -29,6 +32,7 @@ export function Pagination({
         {hasPrev ? (
           <Link href={hrefFor(page - 1)} className={linkBase}>
             Prev
+            <LinkPendingReporter />
           </Link>
         ) : (
           <span className={disabledBase}>Prev</span>
@@ -36,11 +40,12 @@ export function Pagination({
         {hasNext ? (
           <Link href={hrefFor(page + 1)} className={linkBase}>
             Next
+            <LinkPendingReporter />
           </Link>
         ) : (
           <span className={disabledBase}>Next</span>
         )}
       </div>
-    </div>
+    </PendingDim>
   );
 }

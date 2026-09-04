@@ -17,6 +17,7 @@ import { config } from "@/platform/config";
 import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
 import { ToastProvider, ToastViewport } from "@/platform/ui/toast/toast";
+import { ListPendingProvider } from "@/platform/ui/list-pending";
 import { FlashReader } from "@/platform/ui/toast/flash-reader";
 import { hostFromUrl } from "@/modules/recruitment/services/portal-routing";
 import { RouterCrashRecovery } from "@/platform/posthog/router-crash-recovery";
@@ -119,7 +120,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             they are in one flow, not because an offset was computed to keep
             them apart. */}
         <ToastProvider>
-          <TopProgressBar>{children}</TopProgressBar>
+          {/* ListPendingProvider wraps children so the shared Pagination and
+              NavForm primitives can report a `?`-only navigation to whatever
+              list body is on screen. Mounted here for the same reason
+              ToastProvider is: list pages exist outside AppShell too, and the
+              provider holds nothing but a counter, so it costs nothing on the
+              routes that never report. */}
+          <ListPendingProvider>
+            <TopProgressBar>{children}</TopProgressBar>
+          </ListPendingProvider>
           <FlashReader isPortalHost={isPortalHost} />
           <ToastViewport>
             <InactivityTracker authenticated={!!session?.user} />

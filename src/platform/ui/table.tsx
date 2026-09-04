@@ -3,16 +3,34 @@ import Link from "next/link";
 import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { cardClasses } from "./card";
 import { cx } from "./cx";
+import { LinkPendingReporter, PendingDim } from "./list-pending";
 
-/** Scrollable container card wrapping the table element. */
+/**
+ * Scrollable container card wrapping the table element.
+ *
+ * The container is a PendingDim, so every table in the app fades and stops
+ * taking clicks while a `?`-only navigation (filter, page, term switch) is in
+ * flight. Those navigations do not remount a Suspense boundary, so loading.tsx
+ * never fires and the rows would otherwise sit looking current while the server
+ * re-queries.
+ *
+ * Dimming EVERY table on the page, not just the paginated one, is deliberate: a
+ * search-param change re-renders the whole server page, so all of its
+ * server-rendered content is equally stale.
+ *
+ * PendingDim is a client component and this stays a server one. That is not
+ * incidental: SortableTH takes an `hrefFor` FUNCTION prop from server pages, and
+ * functions cannot cross a server/client boundary, so table.tsx must never gain
+ * "use client". Rendering a client wrapper around server children is fine.
+ */
 export function Table({ className, ...rest }: ComponentProps<"table">) {
   return (
-    <div className={cx(cardClasses({ pad: false }), "overflow-x-auto")}>
+    <PendingDim className={cx(cardClasses({ pad: false }), "overflow-x-auto")}>
       <table
         {...rest}
         className={cx("w-full text-sm", className)}
       />
-    </div>
+    </PendingDim>
   );
 }
 
@@ -79,6 +97,7 @@ export function SortableTH<K extends string>({
       >
         {children}
         <Icon aria-hidden className={cx("h-3.5 w-3.5", !dir && "opacity-40")} />
+        <LinkPendingReporter />
       </Link>
     </th>
   );

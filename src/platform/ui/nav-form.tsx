@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import type { FormEvent, ReactNode } from "react";
+import { useTransition, type FormEvent, type ReactNode } from "react";
+import { useReportListPending } from "./list-pending";
 
 /**
  * A GET filter form that navigates client-side (soft nav) instead of doing a
@@ -29,6 +30,15 @@ export function NavForm({
   const pathname = usePathname();
   const target = action ?? pathname;
 
+  // The push runs inside a transition purely so its pending state is
+  // observable: a filter submit is a `?`-only navigation, so loading.tsx never
+  // fires and the list would otherwise sit looking current while the server
+  // re-queries. Reported up to ListPendingProvider, which PendingDim reads.
+  // useFormStatus cannot serve here: it only tracks a form whose `action` is a
+  // function, and this form preventDefault()s and pushes.
+  const [isNavigating, startNavigation] = useTransition();
+  useReportListPending(isNavigating);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const params = new URLSearchParams();
@@ -36,7 +46,7 @@ export function NavForm({
       if (typeof value === "string" && value.trim() !== "") params.set(key, value);
     }
     const qs = params.toString();
-    router.push(qs ? `${target}?${qs}` : target);
+    startNavigation(() => router.push(qs ? `${target}?${qs}` : target));
   }
 
   return (

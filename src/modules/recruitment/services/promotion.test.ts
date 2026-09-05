@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
-import { promoteContracts, parseAvailabilityDates } from "./promotion";
+import { promoteContracts } from "./promotion";
 import { languageReviewWhere } from "@/platform/languages";
 
 async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[] } = {}) {
@@ -432,26 +432,6 @@ it("leaves baselineAvailability empty when the application had no availability a
     where: { personId: person.id, termId: term.id, departmentId: srhd.id },
   });
   expect(membership.baselineAvailability).toEqual([]);
-});
-
-describe("parseAvailabilityDates (pure)", () => {
-  it("parses YYYY-MM-DD values to UTC-midnight dates", () => {
-    expect(parseAvailabilityDates(["2026-05-30", "2026-06-06"]).map((d) => d.toISOString()))
-      .toEqual(["2026-05-30T00:00:00.000Z", "2026-06-06T00:00:00.000Z"]);
-  });
-  it("accepts a single scalar string (one MULTI_SELECT checkbox)", () => {
-    expect(parseAvailabilityDates("2026-05-30").map((d) => d.toISOString())).toEqual(["2026-05-30T00:00:00.000Z"]);
-  });
-  it("dedupes and drops malformed / non-string / empty values", () => {
-    expect(parseAvailabilityDates(["2026-05-30", "2026-05-30", "not-a-date", "", "2026-13-99", 42, null]).map((d) => d.toISOString()))
-      .toEqual(["2026-05-30T00:00:00.000Z"]);
-  });
-  it("returns [] for missing/empty answers", () => {
-    expect(parseAvailabilityDates(undefined)).toEqual([]);
-    expect(parseAvailabilityDates(null)).toEqual([]);
-    expect(parseAvailabilityDates("")).toEqual([]);
-    expect(parseAvailabilityDates([])).toEqual([]);
-  });
 });
 
 it("carries dateOfBirth, dietaryRestrictions, and Epic access details onto the Person + EpicRequest", async () => {

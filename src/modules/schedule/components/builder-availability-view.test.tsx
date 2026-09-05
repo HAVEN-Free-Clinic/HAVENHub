@@ -17,6 +17,7 @@ const member: BuilderMember = {
   acknowledgePending: false,
   legacyNote: null,
   intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
+  provisional: null,
 };
 
 const noop = async () => {};

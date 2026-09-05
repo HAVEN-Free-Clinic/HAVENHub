@@ -4,39 +4,17 @@ import { recordAudit } from "@/platform/audit";
 import { claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
-import { isoDateKey } from "@/platform/dates";
+import {
+  AVAILABILITY_FIELD_KEY,
+  applicationAvailabilityDates,
+  parseAvailabilityDates,
+} from "@/platform/recruitment/incoming-roster";
 import { cancelOpenDeactivationRequestsTx } from "@/platform/people";
 import { isNetIdShaped } from "@/platform/auth/match-person";
 import { normalizeIdentityKey } from "./identity-keys";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
 import { linkAttendanceByEmail } from "./attendance-events";
-
-/**
- * Parse an applicant's "availability" answer -- an array of YYYY-MM-DD clinic-date
- * values from the application's MULTI_SELECT (see templates/field-groups.ts
- * availabilitySection and templates/clinic-dates.ts) -- into UTC-midnight Dates for
- * TermMembership.baselineAvailability. The scheduler resolves availability tiers
- * (director > self > baseline) and compares every date by UTC day key, so baseline
- * dates must be stored as UTC midnight to line up with the term's clinic dates.
- * Tolerant of a scalar string (a single MULTI_SELECT checkbox serializes to one),
- * missing/empty answers, duplicates, and malformed values.
- */
-export function parseAvailabilityDates(answer: unknown): Date[] {
-  const raw = Array.isArray(answer) ? answer : answer == null || answer === "" ? [] : [answer];
-  const out: Date[] = [];
-  const seen = new Set<string>();
-  for (const v of raw) {
-    if (typeof v !== "string") continue;
-    const key = v.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || seen.has(key)) continue;
-    const d = new Date(`${key}T00:00:00.000Z`);
-    if (Number.isNaN(d.getTime())) continue;
-    seen.add(key);
-    out.push(d);
-  }
-  return out;
-}
 
 /** Thrown when another promote claimed the contract first. Benign: counted as skipped. */
 class ContractAlreadyClaimedError extends Error {
@@ -86,15 +64,22 @@ export async function promoteContracts(
     // scheduler's baseline tier. Without this the member lands with empty
     // baselineAvailability and the schedule builder shows them available on zero
     // clinic dates despite having answered the application's availability question.
-    // Applications submitted before availability options were sourced from the
-    // clinic calendar can carry dates that are not clinic days at all. Filter by
-    // UTC day key: baseline dates are UTC midnight and clinic dates are noon-UTC,
-    // so only the day key lines up.
-    const clinicDateKeys = new Set(cycle.term.clinicDates.map(isoDateKey));
+    //
+    // Both helpers are the platform ones the SCHEDULE BUILDER also reads this
+    // answer through, to show a not-yet-promoted acceptance's availability. If
+    // the two parsed it differently, a person's available dates would shift the
+    // moment they were promoted and invalidate a schedule drafted around them.
+    //
+    // The reactivation guard below stays on the PRE-filter parse: it asks "did
+    // they answer the question at all", which an answer of nothing but stale
+    // non-clinic dates still did.
     const parsedAvailabilityDates = parseAvailabilityDates(
-      (application.answers as Record<string, unknown> | null | undefined)?.["availability"],
+      (application.answers as Record<string, unknown> | null | undefined)?.[AVAILABILITY_FIELD_KEY],
     );
-    const availabilityDates = parsedAvailabilityDates.filter((d) => clinicDateKeys.has(isoDateKey(d)));
+    const availabilityDates = applicationAvailabilityDates(
+      application.answers,
+      cycle.term.clinicDates,
+    );
 
     let wasReactivated = false;
     let cancelledDeactivations: string[] = [];

@@ -1,5 +1,10 @@
 import { isoDateKey, formatCalendarDate } from "@/platform/dates";
 import type { TemplateOption } from "./types";
+// The key is defined in platform, not here. It used to be a literal in this
+// file that promotion.ts had to be kept "in step" with by hand; the schedule
+// builder now reads the same answer as well, and a module may not import
+// another module, so the one definition lives on the side all three reach.
+import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 
 /**
  * The term's admin-curated clinic calendar (Term.clinicDates) as MULTI_SELECT
@@ -24,12 +29,6 @@ export function clinicDateOptions(clinicDates: Date[]): TemplateOption[] {
     }));
 }
 
-/**
- * The one application field whose options are owned by the term's clinic
- * calendar rather than by the form builder. This literal is also what
- * promotion.ts reads off Application.answers, so the two must stay in step.
- */
-export const AVAILABILITY_FIELD_KEY = "availability";
 
 type ResolvableField = { key: string; options: unknown };
 type ResolvableSection<F> = { fields: F[] };

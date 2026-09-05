@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { clinicDateOptions, resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "./clinic-dates";
+import { clinicDateOptions, resolveAvailabilityOptions } from "./clinic-dates";
+import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 
 /** Term.clinicDates entries are noon-UTC anchored (see prisma/schema.prisma). */
 const noonUtc = (iso: string) => new Date(`${iso}T12:00:00.000Z`);

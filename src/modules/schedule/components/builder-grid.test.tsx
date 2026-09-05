@@ -20,6 +20,7 @@ const member: BuilderMember = {
   acknowledgePending: false,
   legacyNote: null,
   intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
+  provisional: null,
 };
 
 const NO_TAGS = {
@@ -41,6 +42,26 @@ function assignment(
   };
 }
 
+/** An accepted applicant whose roster build has not run yet. */
+function incomingMember(overrides: {
+  id: string;
+  name: string;
+  placeable: boolean;
+  availability?: Date[];
+}): BuilderMember {
+  return {
+    ...member,
+    membershipId: null,
+    person: { ...member.person, id: overrides.id, name: overrides.name },
+    availability: { tier: "BASELINE", dates: overrides.availability ?? [] },
+    provisional: {
+      acceptanceId: "acc-1",
+      stage: "ACCEPTED",
+      placeable: overrides.placeable,
+    },
+  };
+}
+
 function renderGrid(
   clinicDates: Date[],
   closedDateKeys: string[] = [],
@@ -48,11 +69,12 @@ function renderGrid(
     assignmentsByDate?: Record<string, Record<string, BuilderAssignmentEntry>>;
     deptCode?: string;
     mode?: "assign" | "shadow";
+    members?: BuilderMember[];
   } = {},
 ) {
   return renderToStaticMarkup(
     <BuilderGrid
-      members={[member]}
+      members={opts.members ?? [member]}
       clinicDates={clinicDates}
       assignmentsByDate={opts.assignmentsByDate ?? {}}
       highlightDateKey={null}
@@ -337,5 +359,52 @@ describe("BuilderGrid", () => {
       expect(out).toContain(">V<");
       expect(out).toContain(">T<");
     });
+  });
+});
+
+describe("BuilderGrid incoming rows", () => {
+  const dates = [d(2026, 9, 5)];
+
+  it("offers a cell on an incoming member who has a Hub account", () => {
+    const out = renderGrid(dates, [], {
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+    });
+    expect(out).toContain("Rita Returner");
+    expect(out).toContain("Incoming");
+    // The row is assignable exactly like a member's: the shift is real and simply
+    // stays inert until roster build gives them the membership every outbound
+    // path filters on.
+    expect(out).toContain('name="personId" value="p-returner"');
+  });
+
+  // A first-time applicant has no Person until roster build, and a shift is keyed
+  // on one. The grid must not offer a "+" that setAssignment would then refuse.
+  it("renders an inert cell for an incoming applicant with no Hub account", () => {
+    const out = renderGrid(dates, [], {
+      members: [
+        incomingMember({ id: "acceptance:acc-1", name: "Nora Newcomer", placeable: false }),
+      ],
+    });
+    expect(out).toContain("Nora Newcomer");
+    expect(out).toContain("Incoming");
+    expect(out).not.toContain('value="acceptance:acc-1"');
+    expect(out).toContain("cannot be scheduled yet");
+  });
+
+  it("distinguishes an incoming row from a former member's", () => {
+    const out = renderGrid(dates, [], {
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+      assignmentsByDate: { "2026-09-05": { "p-gone": assignment("VOLUNTEER") } },
+    });
+    expect(out).toContain("Incoming");
+    expect(out).toContain("Former");
+  });
+
+  // The state must not be carried by the chip's colour alone.
+  it("names the incoming state in the cell's accessible label", () => {
+    const out = renderGrid(dates, [], {
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+    });
+    expect(out).toContain("incoming");
   });
 });

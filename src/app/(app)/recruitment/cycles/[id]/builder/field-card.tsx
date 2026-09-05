@@ -9,7 +9,7 @@ import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./ac
 import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
 import { DEFAULT_ACKNOWLEDGE_LABEL, isDisplayOnlyNotice, noticeAcknowledgeLabel, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
-import { AVAILABILITY_FIELD_KEY } from "@/modules/recruitment/templates/clinic-dates";
+import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 import type { SortableHandleProps } from "./sortable-list";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";

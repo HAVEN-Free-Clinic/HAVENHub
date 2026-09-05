@@ -70,10 +70,11 @@ it("honors the configured branding.brandColor in the cycle email layout", async 
   expect(html).not.toContain("#00356b");
 });
 
-it("exposes exactly the six cycle-scoped keys", () => {
+it("exposes exactly the cycle-scoped keys", () => {
   expect([...CYCLE_EMAIL_KEYS].sort()).toEqual([
     "recruitment.acceptance",
     "recruitment.application_received",
+    "recruitment.draft_reminder",
     "recruitment.interview_invite",
     "recruitment.onboarding",
     "recruitment.onboarding_confirmation",

@@ -2524,6 +2524,24 @@ model Application {
   /// does not un-tell them -- so a reopen-then-reject-again leaves them with the
   /// one rejection email they already have rather than sending a second.
   rejectionEmailedAt         DateTime?
+  /// Draft-reminder stream state (see services/draft-reminders.ts). Meaningful
+  /// only while status is DRAFT, but never cleared on submit: the counters are
+  /// the record of how many nudges an application took, which is the only way to
+  /// tell afterwards whether the stream is doing anything.
+  ///
+  /// Two counters, not one, because the cadence tightens toward closesAt. A
+  /// single budget would be spent by the routine weekly sends long before the
+  /// final days, so the applicant who most needs the deadline reminder is
+  /// exactly the one who would never get it. `draftReminderCount` caps the
+  /// routine stream, `draftFinalReminderCount` caps the closing-window one, and
+  /// they are checked independently.
+  draftReminderCount         Int               @default(0)
+  draftFinalReminderCount    Int               @default(0)
+  /// Shared by both streams, so the interval spacing is global: whichever stream
+  /// sent last, the next send still has to wait out its own interval. Without
+  /// one shared stamp, crossing into the closing window could put two emails in
+  /// the same applicant's inbox on the same day.
+  draftReminderLastSentAt    DateTime?
   submittedAt                DateTime?
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
@@ -2541,6 +2559,10 @@ model Application {
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
+  /// Backs the draft-reminder pass, which asks for DRAFT rows never reminded or
+  /// last reminded before a cutoff. Declared here as well as in the migration so
+  /// the two do not drift.
+  @@index([status, draftReminderLastSentAt])
 }
 
 model Acceptance {

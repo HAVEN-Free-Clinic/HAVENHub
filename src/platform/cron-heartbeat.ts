@@ -31,7 +31,7 @@ const FIRST_SEEN_PREFIX = "cron.firstSeen.";
 export const CRON_JOBS: { id: string; label: string; maxStaleMs: number }[] = [
   { id: "email", label: "Email delivery + campaign dispatch", maxStaleMs: 90 * 60 * 1000 }, // ~30m cadence
   { id: "reminders", label: "Compliance reminders + escalations", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
-  { id: "recruitment-drafts", label: "Abandoned draft sweep", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
+  { id: "recruitment-drafts", label: "Application draft reminders + cleanup", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "recruitment-review-digest", label: "Recruitment review digest", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "schedule-reminders", label: "Schedule reminders", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "shift-reminders", label: "Weekly shift reminders", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly

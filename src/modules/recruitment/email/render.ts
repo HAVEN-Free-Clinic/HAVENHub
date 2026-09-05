@@ -13,6 +13,7 @@ export const CYCLE_EMAIL_KEYS = [
   "recruitment.onboarding",
   "recruitment.onboarding_confirmation",
   "recruitment.application_received",
+  "recruitment.draft_reminder",
 ] as const;
 export type CycleEmailKey = (typeof CYCLE_EMAIL_KEYS)[number];
 

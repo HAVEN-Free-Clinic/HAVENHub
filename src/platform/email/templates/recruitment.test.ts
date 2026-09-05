@@ -13,12 +13,13 @@ const KEYS = [
   "recruitment.onboarding",
   "recruitment.onboarding_confirmation",
   "recruitment.application_received",
+  "recruitment.draft_reminder",
   "recruitment.portal_link",
   "recruitment.applicant_withdrew",
 ];
 
 describe("recruitment email descriptors", () => {
-  it("exports all ten keys", () => {
+  it("exports every recruitment key", () => {
     expect(recruitmentDescriptors.map((d) => d.key).sort()).toEqual([...KEYS].sort());
   });
 

@@ -1360,7 +1360,11 @@ describe("updateMyAvailability", () => {
     await prisma.termMembership.create({ data: { personId: vol.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
     const m = await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 
-    await updateMyAvailability(vol.id, { termId: next.id, dates: nextDates });
+    // Pinned, like every other successful-save case in this describe. This one
+    // was left on the wall clock and passed only while its own fixture date was
+    // still in the future; on 2026-09-05 it started failing everywhere, on a
+    // clean tree, with a lock error that pointed at innocent code.
+    await updateMyAvailability(vol.id, { termId: next.id, dates: nextDates, now: BEFORE_CLINICS });
     const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: m.id } });
     expect(updated.selfAvailabilityDates.map((d) => d.getTime())).toEqual(nextDates.map((d) => d.getTime()));
     // the live-term membership is untouched

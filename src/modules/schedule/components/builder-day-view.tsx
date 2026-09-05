@@ -8,6 +8,11 @@ import { Input } from "@/platform/ui/input";
 import { AlertTriangle } from "lucide-react";
 import { BuilderCell } from "./builder-cell";
 import { IntakeNotes } from "./intake-notes";
+import {
+  PROVISIONAL_BADGE_LABEL,
+  PROVISIONAL_STAGE_LABEL,
+  provisionalBlockedReason,
+} from "./provisional-labels";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
@@ -80,6 +85,25 @@ export function BuilderDayView({
   }
 
   /**
+   * The "Incoming" chip for an assignee who is accepted but not on the roster
+   * yet, or null for everyone else.
+   *
+   * Shown in the Assigned column as well as the pool, because "who is working
+   * this Saturday" is the question this column answers, and a draft shift on
+   * somebody still finishing onboarding is a different answer from a confirmed
+   * one. Without it the two are indistinguishable once assigned.
+   */
+  function incomingBadge(pid: string): ReactNode {
+    const incoming = memberByPersonId.get(pid)?.provisional;
+    if (!incoming) return null;
+    return (
+      <Badge tone="warning" title={PROVISIONAL_STAGE_LABEL[incoming.stage]}>
+        {PROVISIONAL_BADGE_LABEL}
+      </Badge>
+    );
+  }
+
+  /**
    * Wraps a rendered name in a link to that person's profile, when the viewer
    * may open it. "Who is this and why are they not cleared" is the question a
    * director has standing in front of the roster, and until now the only way to
@@ -143,6 +167,14 @@ export function BuilderDayView({
 
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
+    const incoming = member.provisional;
+    const blockedReason = incoming ? provisionalBlockedReason(incoming) : null;
+    // An incoming applicant with no Hub account has no person for a shift to
+    // point at, so the card names them and their availability but offers no
+    // buttons. Everyone else incoming is assignable exactly like a member: the
+    // shift is real, and simply stays inert until roster build gives them the
+    // membership every outbound path filters on.
+    const canAssign = editable && blockedReason === null;
     return (
       <Card
         key={member.person.id}
@@ -157,10 +189,19 @@ export function BuilderDayView({
           <Badge tone={isDirectorKind ? "brand" : "default"}>
             {isDirectorKind ? "Director" : "Volunteer"}
           </Badge>
+          {incoming && (
+            <>
+              <Badge tone="warning">{PROVISIONAL_BADGE_LABEL}</Badge>
+              <Badge tone="default">{PROVISIONAL_STAGE_LABEL[incoming.stage]}</Badge>
+            </>
+          )}
           {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>
-        {editable && (
+        {blockedReason && (
+          <p className="mb-2 text-xs text-subtle-foreground">{blockedReason}</p>
+        )}
+        {canAssign && (
           <div className="flex flex-wrap gap-2">
             {isDirectorKind && (
               <BuilderCell
@@ -254,6 +295,7 @@ export function BuilderDayView({
                     <div className="flex flex-wrap items-center gap-2">
                       {profileLink(pid, <span className="text-sm font-bold text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
+                      {incomingBadge(pid)}
                     </div>
                     {editable && tags && (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -303,6 +345,7 @@ export function BuilderDayView({
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       {profileLink(pid, <span className="font-medium text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
+                      {incomingBadge(pid)}
                       {personConflicts.length > 0 && (
                         <Badge tone="warning" title={personConflicts.join(", ")}>
                           Also in {personConflicts.join(", ")}
@@ -355,6 +398,7 @@ export function BuilderDayView({
                     <span className="flex flex-wrap items-center gap-2">
                       {profileLink(pid, <span className="text-sm font-medium text-foreground-soft">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
+                      {incomingBadge(pid)}
                     </span>
                     {editable && (
                       <form action={unassignAction} className="flex items-center gap-2">

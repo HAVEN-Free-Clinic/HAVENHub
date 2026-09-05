@@ -37,6 +37,8 @@ import {
   setClinicDayClosure,
   setSlotAttending,
   builderView,
+  compareBuilderMembers,
+  provisionalRowId,
   BuilderForbiddenError,
   BuilderValidationError,
 } from "./builder";
@@ -2613,5 +2615,340 @@ describe("builderView", () => {
     const view = await builderView(director.id, { departmentId: dept.id, termId: next.id, now: nextDates[0] });
     expect(view.clinicDates.map((d) => isoDateKey(d))).toEqual(nextDates.map((d) => isoDateKey(d)));
     expect(view.members.map((m) => m.person.id)).toContain(vol.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Incoming members (accepted, roster build not run yet)
+// ---------------------------------------------------------------------------
+
+/**
+ * An accepted applicant for `dept` in `term`.
+ *
+ * `personId` is the whole distinction that matters here: only an applicant who
+ * was signed in when they applied has one (a returning member renewing), and a
+ * shift is keyed on a person, so it is what separates someone a director can
+ * actually draft from someone they can only see coming.
+ */
+async function createAcceptedApplicant(opts: {
+  termId: string;
+  departmentCode: string;
+  name: string;
+  approvedById: string;
+  personId?: string;
+  availability?: string[];
+  track?: "VOLUNTEER" | "DIRECTOR";
+  contractStatus?: "PENDING" | "SUBMITTED" | "PROMOTED";
+}) {
+  const email = `${opts.name.replace(/\s+/g, ".").toLowerCase()}@yale.edu`;
+  const cycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: opts.track ?? "VOLUNTEER",
+      termId: opts.termId,
+      title: `Cycle ${opts.name}`,
+      publicSlug: `c-${Date.now()}-${Math.random()}`,
+      departments: [opts.departmentCode],
+      createdById: opts.approvedById,
+      status: "OPEN",
+    },
+  });
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId: cycle.id,
+      firstName: opts.name.split(" ")[0],
+      lastName: opts.name.split(" ")[1] ?? "",
+      email,
+      emailLower: email,
+      applicantPersonId: opts.personId ?? null,
+    },
+  });
+  const application = await prisma.application.create({
+    data: {
+      cycleId: cycle.id,
+      applicantId: applicant.id,
+      answers: opts.availability ? { availability: opts.availability } : {},
+      departmentChoices: [opts.departmentCode],
+    },
+  });
+  const acceptance = await prisma.acceptance.create({
+    data: {
+      applicationId: application.id,
+      departmentCode: opts.departmentCode,
+      approvedById: opts.approvedById,
+    },
+  });
+  if (opts.contractStatus) {
+    await prisma.onboardingContract.create({
+      data: {
+        acceptanceId: acceptance.id,
+        token: `t-${acceptance.id}`,
+        status: opts.contractStatus,
+        firstName: applicant.firstName,
+        lastName: applicant.lastName,
+        email,
+      },
+    });
+  }
+  return { cycle, applicant, application, acceptance };
+}
+
+describe("incoming members", () => {
+  /** Director managing SRHD in a PLANNING term, which is the fall-drafting case. */
+  async function planningFixture() {
+    const dates = sixSaturdaysFrom(utcNoon(2026, 9, 5));
+    const live = await createTerm(sixSaturdays(), "ACTIVE");
+    const next = await createTerm(dates, "PLANNING");
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Dana Director");
+    // manageableScheduleDepartmentIds is active-term-derived, so the directorship
+    // that grants access lives on the LIVE term.
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    return { dates, live, next, dept, director };
+  }
+
+  it("surfaces an accepted returner with the availability from their application", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+      availability: [isoDateKey(dates[0]), isoDateKey(dates[2])],
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      now: dates[0],
+    });
+
+    const row = view.members.find((m) => m.person.id === returner.id);
+    expect(row?.provisional).toEqual({
+      acceptanceId: expect.any(String),
+      stage: "ACCEPTED",
+      placeable: true,
+    });
+    expect(row?.membershipId).toBeNull();
+    // The tier the availability view labels "Application", which is the literal
+    // truth: the self and director tiers both live on a TermMembership they do
+    // not have yet.
+    expect(row?.availability.tier).toBe("BASELINE");
+    expect(row?.availability.dates.map((d) => isoDateKey(d))).toEqual([
+      isoDateKey(dates[0]),
+      isoDateKey(dates[2]),
+    ]);
+  });
+
+  it("shows a first-time accepted applicant as a row nothing can be assigned to", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const { acceptance } = await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Nora Newcomer",
+      approvedById: director.id,
+      availability: [isoDateKey(dates[1])],
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      now: dates[0],
+    });
+
+    const row = view.members.find((m) => m.person.name === "Nora Newcomer");
+    expect(row?.provisional?.placeable).toBe(false);
+    // No Person exists, so the row carries the synthetic acceptance-scoped id.
+    // It must not collide with anything a shift could be keyed on.
+    expect(row?.person.id).toBe(provisionalRowId(acceptance.id));
+  });
+
+  it("does not double-list someone who is already on the roster", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const both = await createPerson("Bea Both");
+    await createMembership(both.id, next.id, dept.id, "VOLUNTEER");
+    // An acceptance that never got promoted while the membership arrived another
+    // way (the Airtable roster import, a manual add).
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Bea Both",
+      approvedById: director.id,
+      personId: both.id,
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      now: dates[0],
+    });
+
+    const rows = view.members.filter((m) => m.person.id === both.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].provisional).toBeNull();
+  });
+
+  it("sorts confirmed members ahead of incoming ones", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    // Named so alphabetical order alone would interleave them.
+    const member = await createPerson("Zoe Member");
+    await createMembership(member.id, next.id, dept.id, "VOLUNTEER");
+    const incoming = await createPerson("Amy Incoming");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Amy Incoming",
+      approvedById: director.id,
+      personId: incoming.id,
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      now: dates[0],
+    });
+    const ordered = [...view.members].sort(compareBuilderMembers).map((m) => m.person.name);
+    expect(ordered).toEqual(["Zoe Member", "Amy Incoming"]);
+  });
+
+  it("assigns an incoming returner a real shift, and refuses a stranger", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+    });
+    const stranger = await createPerson("Sam Stranger");
+
+    await setAssignment(director.id, {
+      termId: next.id,
+      departmentId: dept.id,
+      dateKey: isoDateKey(dates[0]),
+      personId: returner.id,
+      role: "VOLUNTEER",
+    });
+    expect(
+      await prisma.shiftAssignment.count({
+        where: { termId: next.id, departmentId: dept.id, personId: returner.id },
+      }),
+    ).toBe(1);
+
+    // Nobody who is neither a member nor accepted gets on the board. This is the
+    // same guard that keeps an offboarded person off it.
+    await expect(
+      setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: stranger.id,
+        role: "VOLUNTEER",
+      }),
+    ).rejects.toThrow(BuilderValidationError);
+  });
+
+  it("refuses the DIRECTOR role to an acceptance off a volunteer-track cycle", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+      track: "VOLUNTEER",
+    });
+
+    await expect(
+      setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: returner.id,
+        role: "DIRECTOR",
+      }),
+    ).rejects.toThrow(BuilderValidationError);
+  });
+
+  it("stops offering the person once their acceptance is promoted", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+      contractStatus: "PROMOTED",
+    });
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      now: dates[0],
+    });
+    expect(view.members.find((m) => m.person.id === returner.id)).toBeUndefined();
+    await expect(
+      setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: returner.id,
+        role: "VOLUNTEER",
+      }),
+    ).rejects.toThrow(BuilderValidationError);
+  });
+
+  // The capacity panel exists to answer "is this Saturday staffed". During fall
+  // planning the answer has to include the class being staffed with, or the panel
+  // reads zero at exactly the moment it is being used.
+  it("counts an assigned incoming member toward the day's capacity", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+    });
+    await createShift(next.id, dept.id, returner.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      dateKey: isoDateKey(dates[0]),
+      now: dates[0],
+    });
+    expect(view.capacity.headcount).toBe(1);
+  });
+
+  // Clearance is what roster build and onboarding produce, so every incoming
+  // member is uncleared by definition. A fall draft would otherwise light the
+  // banner up with the whole incoming class and bury the one confirmed member
+  // who is genuinely missing a HIPAA certificate.
+  it("keeps incoming members out of the not-cleared banner and the cleared set", async () => {
+    const { dates, next, dept, director } = await planningFixture();
+    const returner = await createPerson("Rita Returner");
+    await createAcceptedApplicant({
+      termId: next.id,
+      departmentCode: dept.code,
+      name: "Rita Returner",
+      approvedById: director.id,
+      personId: returner.id,
+    });
+    await createShift(next.id, dept.id, returner.id, dates[0], "VOLUNTEER");
+
+    const view = await builderView(director.id, {
+      departmentId: dept.id,
+      termId: next.id,
+      dateKey: isoDateKey(dates[0]),
+      now: dates[0],
+    });
+    expect(JSON.stringify(view.banner)).not.toContain("Rita Returner");
+    expect(view.clearedPersonIds).not.toContain(returner.id);
   });
 });

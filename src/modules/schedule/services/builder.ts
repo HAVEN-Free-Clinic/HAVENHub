@@ -20,6 +20,11 @@ import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { mailingEmailForPerson } from "@/platform/auth/match-person";
 import { loadClearanceMap } from "@/platform/clearance";
+import {
+  findIncomingMember,
+  listIncomingMembers,
+} from "@/platform/recruitment/incoming-roster";
+import type { IncomingStage } from "@/platform/recruitment/incoming-roster";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
@@ -231,7 +236,22 @@ export async function setAssignment(
       throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
     }
 
-    // Validate membership.
+    // Validate membership. Two ways to hold a place on this board:
+    //
+    //   1. an ACTIVE TermMembership -- a confirmed member of the roster;
+    //   2. a live acceptance into this department for this term whose roster
+    //      build has not run yet -- an INCOMING member.
+    //
+    // (2) exists so a director can draft next term's schedule around the people
+    // who have already applied, been accepted, and given availability, instead of
+    // waiting for the whole class to finish onboarding. Such an assignment is
+    // inert until roster build: shift reminders, morning check-in invites, and the
+    // clinic-wide master schedule all filter on ACTIVE (person, department)
+    // membership, so nobody is told to turn up and nothing shows clinic-wide until
+    // the membership exists. Once it does, the draft simply starts counting.
+    //
+    // Anyone who is NEITHER is still rejected, which is what keeps an offboarded
+    // person (whose membership was flipped to REMOVED) off the board.
     const membership = await prisma.termMembership.findFirst({
       where: {
         termId: term.id,
@@ -240,14 +260,36 @@ export async function setAssignment(
         status: "ACTIVE",
       },
     });
-    if (!membership) {
-      throw new BuilderValidationError(
-        "Person does not have an active membership in this department for the current term."
-      );
+
+    let assignableKind: "DIRECTOR" | "VOLUNTEER";
+    if (membership) {
+      assignableKind = membership.kind === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER";
+    } else {
+      // Acceptances are keyed by department CODE, not id. Resolved here rather
+      // than up front so the confirmed-member path above costs nothing extra.
+      const dept = await prisma.department.findUnique({
+        where: { id: opts.departmentId },
+        select: { code: true },
+      });
+      const incoming = dept
+        ? await findIncomingMember({
+            personId: opts.personId,
+            termId: term.id,
+            departmentCode: dept.code,
+          })
+        : null;
+      if (!incoming) {
+        throw new BuilderValidationError(
+          "Person does not have an active membership in this department for the current term."
+        );
+      }
+      assignableKind = incoming.kind;
     }
 
-    // Director role requires director-kind membership.
-    if (opts.role === "DIRECTOR" && membership.kind !== "DIRECTOR") {
+    // Director role requires a director-kind place: a DIRECTOR membership, or an
+    // acceptance off a DIRECTOR-track cycle (which is the membership kind roster
+    // build will give them).
+    if (opts.role === "DIRECTOR" && assignableKind !== "DIRECTOR") {
       throw new BuilderValidationError(
         "DIRECTOR role may only be assigned to members with a DIRECTOR membership kind."
       );
@@ -1071,8 +1113,37 @@ export type BuilderMemberIntake = {
   feedback: string | null;
 };
 
+/**
+ * The pre-roster half of a builder row: someone accepted into this department for
+ * this term whose roster build has not happened yet.
+ *
+ * Present so a director can draft next term's schedule around the returners who
+ * have already applied, been accepted, and given availability, instead of waiting
+ * for the whole incoming class to finish onboarding. A draft shift on one of these
+ * people is a real ShiftAssignment, but an INERT one: shift reminders, morning
+ * check-in invites, and the clinic-wide master schedule all filter on ACTIVE
+ * (person, department) membership, so nothing reaches the person and nothing shows
+ * clinic-wide until roster build gives them that membership -- at which point the
+ * draft starts working on its own, with no re-entry.
+ */
+export type BuilderProvisional = {
+  acceptanceId: string;
+  /** ACCEPTED (no contract yet) -> ONBOARDING (contract open) -> SUBMITTED (awaiting roster build). */
+  stage: IncomingStage;
+  /**
+   * False when the applicant has no Person record yet, which is every first-time
+   * applicant: only someone signed in when they applied (in practice a returning
+   * member renewing or transferring) carries the link. A ShiftAssignment is keyed
+   * on a person, so there is nothing to assign to until roster build mints one.
+   * The row still renders, so the director can see who is coming and when they
+   * said they are free.
+   */
+  placeable: boolean;
+};
+
 export type BuilderMember = {
-  membershipId: string;
+  /** Null for a provisional row: there is no TermMembership to point at yet. */
+  membershipId: string | null;
   person: { id: string; name: string; verifiedLanguages: string[]; licensedRN: boolean };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
@@ -1080,17 +1151,47 @@ export type BuilderMember = {
   acknowledgePending: boolean;
   legacyNote: string | null;
   intake: BuilderMemberIntake;
+  /** Null for a confirmed roster member. See {@link BuilderProvisional}. */
+  provisional: BuilderProvisional | null;
 };
 
+/**
+ * Row id for a provisional entry whose applicant has no Person yet.
+ *
+ * The builder's rows, React keys, and assignment lookups are all keyed on
+ * `person.id`, and these rows have no person. A prefixed synthetic id keeps them
+ * in the same shape as every other row without inventing a Person: it matches no
+ * ShiftAssignment (so the row is always empty), and it survives an accidental
+ * round trip to the server safely, because every write resolves a person through
+ * the database and this id resolves to nobody.
+ */
+const PROVISIONAL_ROW_PREFIX = "acceptance:";
+
+export function provisionalRowId(acceptanceId: string): string {
+  return `${PROVISIONAL_ROW_PREFIX}${acceptanceId}`;
+}
+
 /** Just the fields {@link compareBuilderMembers} needs; any BuilderMember satisfies it. */
-type BuilderMemberOrder = Pick<BuilderMember, "kind"> & { person: { name: string } };
+type BuilderMemberOrder = Pick<BuilderMember, "kind"> & {
+  person: { name: string };
+  provisional?: BuilderProvisional | null;
+};
 
 /**
- * Ordering for the builder's member lists: directors first, then volunteers,
- * each group sorted alphabetically by name. Used by the Day view's
- * "Available to assign" pool and the grid view so both surfaces match.
+ * Ordering for the builder's member lists: confirmed roster members first, then
+ * the incoming (accepted, not yet built onto the roster) ones; within each group
+ * directors first, then volunteers, each sorted alphabetically by name. Used by
+ * the Day view's "Available to assign" pool, the grid view, and the availability
+ * view, so all three surfaces match.
+ *
+ * Incoming members sort last deliberately: the confirmed roster is the thing a
+ * director is scheduling, and interleaving people who might yet not arrive would
+ * bury it.
  */
 export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrder): number {
+  const aIncoming = a.provisional != null;
+  const bIncoming = b.provisional != null;
+  if (aIncoming !== bIncoming) return aIncoming ? 1 : -1;
   if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
   return a.person.name.localeCompare(b.person.name);
 }
@@ -1297,7 +1398,8 @@ export async function builderView(
   const selectedDateKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Load all assignments for the term in the selected department.
-  const [allAssignments, members, scheduleDay, pendingCount, closures] = await Promise.all([
+  const [allAssignments, members, scheduleDay, pendingCount, closures, incomingAll] =
+    await Promise.all([
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
       include: {
@@ -1324,13 +1426,47 @@ export async function builderView(
     // Whole term in one query rather than per date: the grid renders ~18
     // Saturdays at once and the date strip renders all of them again.
     closedClinicDates(term.id),
+    // People accepted into this department for this term whose roster build has
+    // not run yet. Loaded here rather than behind a flag because the answer is
+    // empty for a settled term: once everyone is promoted there is nothing to
+    // return, so the live term costs one query that finds nothing, and a term
+    // still being recruited for gets the incoming class it is being built around.
+    listIncomingMembers({
+      termId: term.id,
+      departmentCode: selectedDept.code,
+      clinicDates,
+    }),
   ]);
+
+  // An incoming member who is ALREADY on the roster is not incoming any more.
+  // listIncomingMembers drops a PROMOTED contract, which covers everyone roster
+  // build put here (it writes the membership and the PROMOTED status in one
+  // transaction). This second pass catches the rest: a returning member whose
+  // membership arrived down another path -- the Airtable roster import, a manual
+  // add -- while their acceptance sits unpromoted. Without it they would get two
+  // rows on the same board, one assignable and one not.
+  const rosterPersonIds = new Set(members.map((m) => m.person.id));
+  const incoming = incomingAll.filter(
+    (i) => i.personId === null || !rosterPersonIds.has(i.personId),
+  );
+  const incomingPersonIds = new Set(
+    incoming.map((i) => i.personId).filter((id): id is string => id !== null),
+  );
 
   // Verified language capabilities for everyone on this board, in one query.
   // Only VERIFIED languages reach the builder: a self-reported claim is an
   // intake signal and must not read as a capability a director can schedule on.
+  //
+  // Incoming members are in scope too: a returning Spanish interpreter's verified
+  // languages are exactly what a director is drafting around, and the claim was
+  // verified when they were last on the roster -- it does not lapse because their
+  // renewal has yet to be built.
   const languageMap = await verifiedLanguagesByPerson([
-    ...new Set([...allAssignments.map((a) => a.personId), ...members.map((m) => m.person.id)]),
+    ...new Set([
+      ...allAssignments.map((a) => a.personId),
+      ...members.map((m) => m.person.id),
+      ...incomingPersonIds,
+    ]),
   ]);
 
   // Build assignmentsByDate.
@@ -1398,8 +1534,48 @@ export async function builderView(
         additionalShiftAvailability: intakeRow?.additionalShiftAvailability ?? null,
         feedback: intakeRow?.feedback ?? null,
       },
+      provisional: null,
     };
   });
+
+  // Incoming members, appended as ordinary rows carrying `provisional`. They join
+  // the same list rather than a panel of their own so every surface the builder
+  // already has -- the grid, the Day view pool, the availability view -- shows
+  // them without each learning a second data shape.
+  //
+  // Their availability is the BASELINE tier and only that: the self-update and
+  // director-override tiers both live on TermMembership, which is precisely what
+  // they do not have yet, so the tier the availability view labels "Application"
+  // is the literal truth for them. Intake notes are empty for the same reason --
+  // the training quiz that fills them comes after roster build.
+  const incomingMembers: BuilderMember[] = incoming.map((i) => ({
+    membershipId: null,
+    person: {
+      id: i.personId ?? provisionalRowId(i.acceptanceId),
+      name: i.name,
+      verifiedLanguages: i.personId ? languageMap.get(i.personId) ?? [] : [],
+      licensedRN: i.licensedRN,
+    },
+    kind: i.kind,
+    availability: resolveAvailability({
+      baseline: i.availabilityDates,
+      selfDates: [],
+      selfUpdatedAt: null,
+      directorDates: [],
+      directorSetAt: null,
+    }),
+    overrideActive: false,
+    acknowledgePending: false,
+    legacyNote: null,
+    intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
+    provisional: {
+      acceptanceId: i.acceptanceId,
+      stage: i.stage,
+      placeable: i.personId !== null,
+    },
+  }));
+
+  const allBuilderMembers = [...builderMembers, ...incomingMembers];
 
   // Capacity for the selected date.
   const selectedAssignments = selectedDateKey ? allAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
@@ -1426,11 +1602,19 @@ export async function builderView(
   // Offboarding / removeMembership leave the ShiftAssignment row behind, so a
   // departed person would still inflate the day's capacity metrics (onShift,
   // spanish, triage/walkin/cc, shadow), pushing maxPatientCapacity up and hiding
-  // the "Patients to reschedule" warning. Count only current members of this
-  // department (the ACTIVE `members` set) toward capacity; the stranded
-  // assignment still renders in the grid so a director can reassign it.
-  const activeMemberIds = new Set(members.map((m) => m.person.id));
-  const capacityAssignments = selectedAssignments.filter((a) => activeMemberIds.has(a.personId));
+  // the "Patients to reschedule" warning. Count only people who hold a place in
+  // this department toward capacity; the stranded assignment still renders in the
+  // grid so a director can reassign it.
+  //
+  // Incoming members count. The exclusion above is aimed at people who have LEFT,
+  // and an incoming member is the opposite: a director drafting a term still being
+  // recruited for needs "is this Saturday staffed" to include the class they are
+  // staffing it with, or the panel reads zero exactly when it is being used.
+  const countableMemberIds = new Set([
+    ...members.map((m) => m.person.id),
+    ...incomingPersonIds,
+  ]);
+  const capacityAssignments = selectedAssignments.filter((a) => countableMemberIds.has(a.personId));
 
   const onShiftPeople = capacityAssignments.filter((a) => a.role === "VOLUNTEER" || a.role === "DIRECTOR");
   // Spanish specifically: the capacity model asks how many Spanish speakers are
@@ -1472,16 +1656,26 @@ export async function builderView(
   //
   // Note this deliberately passes `now`, the builder's reference time, so a
   // badge answers "cleared for the date being built" rather than "cleared today".
+  //
+  // Incoming members are deliberately OUT of scope, on both sides. Clearance is
+  // the set of things roster build and onboarding produce -- profile, HIPAA,
+  // training, learning, EHS -- so every incoming member is uncleared by
+  // definition, and a fall draft would light the banner up with the entire
+  // incoming class and bury the one confirmed member who is genuinely missing a
+  // HIPAA certificate. They earn a banner entry and a verified badge the moment
+  // they are built onto the roster, which is the moment either means anything.
   const clearanceScope = [
     ...new Set([...volunteerAssigneesOnDate.map((a) => a.personId), ...members.map((m) => m.person.id)]),
-  ];
+  ].filter((personId) => !incomingPersonIds.has(personId));
   const bannerClearance = await loadClearanceMap(clearanceScope, term.id, now);
 
-  const bannerVolunteers = volunteerAssigneesOnDate.map((a) => {
-    const person = memberById.get(a.personId)?.person ?? a.person;
-    const cleared = bannerClearance.get(a.personId)?.cleared ?? true;
-    return { id: person.id, name: person.name, cleared };
-  });
+  const bannerVolunteers = volunteerAssigneesOnDate
+    .filter((a) => !incomingPersonIds.has(a.personId))
+    .map((a) => {
+      const person = memberById.get(a.personId)?.person ?? a.person;
+      const cleared = bannerClearance.get(a.personId)?.cleared ?? true;
+      return { id: person.id, name: person.name, cleared };
+    });
 
   const banner = summarizeNotCleared([
     {
@@ -1547,7 +1741,7 @@ export async function builderView(
     selectedDate,
     selectedDateKey,
     currentClinicDateKey,
-    members: builderMembers,
+    members: allBuilderMembers,
     assignmentsByDate,
     capacity,
     hasCapacityConfig:

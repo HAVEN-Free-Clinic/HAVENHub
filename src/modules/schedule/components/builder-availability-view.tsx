@@ -14,6 +14,11 @@ import {
   BUILDER_AVAILABILITY_PILL_CLASS,
   builderReadOnlyPillClass,
 } from "./availability-pill";
+import {
+  PROVISIONAL_BADGE_LABEL,
+  PROVISIONAL_STAGE_LABEL,
+  provisionalBlockedReason,
+} from "./provisional-labels";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -68,19 +73,42 @@ export function BuilderAvailabilityView({
 
         const availKeys = new Set(member.availability.dates.map((d) => isoDateKey(d)));
 
+        // An incoming member has no TermMembership, and the override and
+        // acknowledge writes are both keyed on one -- so their dates are shown
+        // read-only however editable the term is. That is not a limitation worth
+        // engineering around: the override tier exists to let a director correct
+        // what a MEMBER told them, and there is nothing yet to correct. What they
+        // put on their application is the whole of what is known.
+        const readOnly = !editable || member.provisional !== null;
+        const blockedReason = member.provisional
+          ? provisionalBlockedReason(member.provisional)
+          : null;
+
         return (
-          <Card key={member.membershipId} pad={false} className="px-4 py-4">
+          <Card key={member.membershipId ?? member.person.id} pad={false} className="px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-sm font-bold text-foreground">{member.person.name}</span>
               <Badge tone="default">{member.kind === "DIRECTOR" ? "Director" : "Volunteer"}</Badge>
-              <Badge tone={tierTone}>{tierLabel}</Badge>
+              {member.provisional ? (
+                <>
+                  <Badge tone="warning">{PROVISIONAL_BADGE_LABEL}</Badge>
+                  <Badge tone="default">
+                    {PROVISIONAL_STAGE_LABEL[member.provisional.stage]}
+                  </Badge>
+                </>
+              ) : (
+                <Badge tone={tierTone}>{tierLabel}</Badge>
+              )}
               {member.acknowledgePending && <Badge tone="warning">Availability updated</Badge>}
             </div>
+            {blockedReason && (
+              <p className="mb-3 text-xs text-subtle-foreground">{blockedReason}</p>
+            )}
             {member.legacyNote && (
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}
             <IntakeNotes intake={member.intake} className="mb-3" />
-            {editable ? (
+            {!readOnly ? (
               <>
                 {/* Key on the server availability signature (tier + dates) so a
                     save/clear soft nav REMOUNTS the form and the uncontrolled
@@ -93,7 +121,7 @@ export function BuilderAvailabilityView({
                   action={saveOverrideAction}
                   className="mb-2"
                 >
-                  <input type="hidden" name="membershipId" value={member.membershipId} />
+                  <input type="hidden" name="membershipId" value={member.membershipId ?? ""} />
                   <div className="flex flex-wrap gap-2 mb-3">
                     {sortedClinicDates.map((d) => {
                       const key = isoDateKey(d);
@@ -117,13 +145,13 @@ export function BuilderAvailabilityView({
                 </form>
                 {member.overrideActive && (
                   <form action={clearOverrideAction} className="inline mr-2">
-                    <input type="hidden" name="membershipId" value={member.membershipId} />
+                    <input type="hidden" name="membershipId" value={member.membershipId ?? ""} />
                     <Button type="submit" variant="ghost" size="sm">Clear override</Button>
                   </form>
                 )}
                 {member.acknowledgePending && (
                   <form action={acknowledgeAction} className="inline">
-                    <input type="hidden" name="membershipId" value={member.membershipId} />
+                    <input type="hidden" name="membershipId" value={member.membershipId ?? ""} />
                     <ConfirmButton label="Acknowledge" confirmLabel="Mark availability as reviewed?" />
                   </form>
                 )}

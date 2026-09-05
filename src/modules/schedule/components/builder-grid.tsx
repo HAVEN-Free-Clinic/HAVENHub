@@ -21,6 +21,7 @@ import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/services/builder";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
+import { PROVISIONAL_BADGE_LABEL } from "./provisional-labels";
 import { EmptyState } from "@/platform/ui/empty-state";
 import {
   ROLE_GLYPH,
@@ -43,20 +44,40 @@ import {
 type AssignmentsByDate = Record<string, Record<string, BuilderAssignmentEntry>>;
 
 /**
- * One matrix row. Derived from the UNION of ACTIVE members and any person who
- * still carries a live assignment (a former member offboarded out of their
- * ACTIVE membership while a future ShiftAssignment outlives it). Non-member rows
- * take their identity from the assignment-carried person snapshot, have no
- * membership `kind`, and no resolved availability -- so their shifts are still
- * visible and clearable in the grid, matching the Day view (audit L3).
+ * One matrix row. Derived from the UNION of three sets:
+ *
+ *   - ACTIVE members of the department (`member`);
+ *   - people accepted into it for this term whose roster build has not run yet
+ *     (`incoming`), so a director can draft around the class they are about to
+ *     receive instead of waiting for everyone to finish onboarding;
+ *   - anyone who still carries a live assignment but is neither of the above
+ *     (`former`): offboarding drops the ACTIVE membership and leaves the
+ *     ShiftAssignment rows, and without a row here their shift would be invisible
+ *     in the grid and impossible to clear (audit L3).
+ *
+ * Former rows take their identity from the assignment-carried person snapshot and
+ * have no membership `kind` or resolved availability.
  */
 type GridRow = {
+  /**
+   * Row identity, and the personId every cell form posts. For an incoming
+   * applicant with no Person record this is the synthetic acceptance-scoped id
+   * from the service, which matches no assignment -- so the row is always empty,
+   * and `assignable` below keeps it that way.
+   */
   personId: string;
   name: string;
-  /** Membership kind, or null for a non-member assignee (former member). */
+  /** Membership kind, or null for a former-member assignee. */
   kind: "DIRECTOR" | "VOLUNTEER" | null;
-  isMember: boolean;
-  /** Resolved-available clinic dates; empty for non-members. */
+  status: "member" | "incoming" | "former";
+  /**
+   * Whether an EMPTY cell on this row offers to assign. False for a former member
+   * (only their leftover shifts are actionable) and for an incoming applicant with
+   * no Hub account yet, where there is no person for a shift to point at. Either
+   * way the grid must not render a "+" that setAssignment would then refuse.
+   */
+  assignable: boolean;
+  /** Resolved-available clinic dates; empty for former members. */
   availabilityDates: Date[];
 };
 
@@ -241,9 +262,11 @@ function GridCell({
     ? `${assignment.role.toLowerCase()} on ${displayD}`
     : `unassigned on ${displayD}`;
   // Encode availability in the accessible label so it is not conveyed by the
-  // muted background color alone.
+  // muted background color alone. Same for the incoming state, which the row
+  // header otherwise carries only as a colored chip.
   const availLabel = isAvailable ? "" : ", unavailable";
-  const ariaLabel = `${memberName}, ${stateLabel}${availLabel}`;
+  const incomingLabel = row.status === "incoming" ? ", incoming" : "";
+  const ariaLabel = `${memberName}, ${stateLabel}${availLabel}${incomingLabel}`;
 
   // Non-color cue for unavailable cells: a faint centered middot (decorative).
   const unavailableMarker = isAvailable ? null : (
@@ -255,15 +278,17 @@ function GridCell({
     </span>
   );
 
-  // A non-member (former member) is not an assignable ACTIVE member: only their
-  // existing shifts are actionable, so a filled cell still posts unassign (below)
-  // while an empty cell renders inert. Otherwise the grid would offer a "+" that
-  // setAssignment rejects on the membership check.
-  if (!row.isMember && !assignment) {
+  // A row nothing can be assigned to: a former member (only their existing shifts
+  // are actionable, so a filled cell still posts unassign below) or an incoming
+  // applicant with no Hub account. An empty cell renders inert, because otherwise
+  // the grid would offer a "+" that setAssignment rejects.
+  if (!row.assignable && !assignment) {
+    const why =
+      row.status === "former" ? "former member" : "cannot be scheduled yet";
     return (
       <td
         className={`relative border border-border px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-        aria-label={`${ariaLabel} (former member)`}
+        aria-label={`${ariaLabel} (${why})`}
       >
         <CellContent assignment={undefined} deptCode={deptCode} />
         {unavailableMarker}
@@ -288,7 +313,7 @@ function GridCell({
             }}
             label="+"
             variant="grid"
-            ariaLabel={`Assign ${memberName} as volunteer on ${displayD}${availLabel}`}
+            ariaLabel={`Assign ${memberName} as volunteer on ${displayD}${availLabel}${incomingLabel}`}
           />
           {unavailableMarker}
         </td>
@@ -307,7 +332,7 @@ function GridCell({
           }}
           label={roleGlyph(assignment.role) || "?"}
           variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}${availLabel}`}
+          ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}${availLabel}${incomingLabel}`}
           assignment={assignment}
         />
         {unavailableMarker}
@@ -331,7 +356,7 @@ function GridCell({
           }}
           label="+"
           variant="grid"
-          ariaLabel={`Assign ${memberName} as shadow on ${displayD}${availLabel}`}
+          ariaLabel={`Assign ${memberName} as shadow on ${displayD}${availLabel}${incomingLabel}`}
         />
         {unavailableMarker}
       </td>
@@ -352,7 +377,7 @@ function GridCell({
           }}
           label="S"
           variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}${availLabel}`}
+          ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}${availLabel}${incomingLabel}`}
           assignment={assignment}
         />
         {unavailableMarker}
@@ -388,45 +413,50 @@ export function BuilderGrid({
   assignAction,
   unassignAction,
 }: Props) {
-  // Row set = ACTIVE members UNION any person carrying a live assignment.
+  // Row set = the builder's member list (confirmed roster members AND incoming
+  // ones) UNION any person carrying a live assignment who is in neither.
   // Offboarding drops the ACTIVE membership but leaves ShiftAssignment rows, so a
   // former member with a future assignment must still get a row (mirroring the Day
   // view, audit L3) -- otherwise their shift is invisible here and can never be
   // cleared from the grid.
   const memberIds = new Set(members.map((m) => m.person.id));
 
-  // Members first, in the shared director-then-volunteer, alphabetical order.
+  // Confirmed members first, then incoming ones, each in the shared
+  // director-then-volunteer, alphabetical order (compareBuilderMembers).
   const memberRows: GridRow[] = [...members]
     .sort(compareBuilderMembers)
     .map((m) => ({
       personId: m.person.id,
       name: m.person.name,
       kind: m.kind,
-      isMember: true,
+      status: m.provisional ? ("incoming" as const) : ("member" as const),
+      // An incoming applicant with no Hub account has nothing to hang a shift on.
+      assignable: m.provisional === null || m.provisional.placeable,
       availabilityDates: m.availability.dates,
     }));
 
-  // Non-member assignees: any personId present in assignmentsByDate that is not an
-  // ACTIVE member, identified by the assignment-carried person snapshot. Deduped
-  // across dates; sorted by name and appended after the member rows.
-  const nonMemberRowByPerson = new Map<string, GridRow>();
+  // Former assignees: any personId present in assignmentsByDate that the member
+  // list does not cover, identified by the assignment-carried person snapshot.
+  // Deduped across dates; sorted by name and appended last.
+  const formerRowByPerson = new Map<string, GridRow>();
   for (const byPerson of Object.values(assignmentsByDate)) {
     for (const [pid, entry] of Object.entries(byPerson)) {
-      if (memberIds.has(pid) || nonMemberRowByPerson.has(pid)) continue;
-      nonMemberRowByPerson.set(pid, {
+      if (memberIds.has(pid) || formerRowByPerson.has(pid)) continue;
+      formerRowByPerson.set(pid, {
         personId: pid,
         name: entry.person.name,
         kind: null,
-        isMember: false,
+        status: "former",
+        assignable: false,
         availabilityDates: [],
       });
     }
   }
-  const nonMemberRows = [...nonMemberRowByPerson.values()].sort((a, b) =>
+  const formerRows = [...formerRowByPerson.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
 
-  const rows: GridRow[] = [...memberRows, ...nonMemberRows];
+  const rows: GridRow[] = [...memberRows, ...formerRows];
 
   if (rows.length === 0) {
     return (
@@ -505,11 +535,29 @@ export function BuilderGrid({
                       <span className="text-xs font-medium text-foreground">
                         {row.name}
                       </span>
-                      {row.isMember ? (
+                      {row.status === "member" && (
                         <Badge tone={isDirector ? "brand" : "default"}>
                           {isDirector ? "Dir" : "Vol"}
                         </Badge>
-                      ) : (
+                      )}
+                      {row.status === "incoming" && (
+                        // Accepted into this department but not built onto the
+                        // roster yet. The columns are ~52px, so the chip is the
+                        // short one and the detail (which stage, and why an
+                        // unlinked applicant cannot be scheduled) lives on the
+                        // Day and availability views, which have room for it.
+                        <Badge
+                          tone="warning"
+                          title={
+                            row.assignable
+                              ? "Accepted; not yet on the roster"
+                              : "Accepted; cannot be scheduled until they are added to the roster"
+                          }
+                        >
+                          {PROVISIONAL_BADGE_LABEL}
+                        </Badge>
+                      )}
+                      {row.status === "former" && (
                         // Former member (offboarded) who still holds a live
                         // assignment. Flagged so directors can clear the leftover
                         // shift; they are not an assignable active member.

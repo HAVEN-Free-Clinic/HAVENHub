@@ -18,7 +18,8 @@ import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../
 import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
-import { resolveAvailabilityOptions, AVAILABILITY_FIELD_KEY } from "../templates/clinic-dates";
+import { resolveAvailabilityOptions } from "../templates/clinic-dates";
+import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 

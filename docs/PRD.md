@@ -667,8 +667,10 @@ admin setting.
   - `/api/cron/reminders`: daily HIPAA reminder enqueue (delivered by the
     post-response enqueue flush, or by the email backstop tick; it never drains
     directly).
-  - `/api/cron/recruitment-drafts`: daily abandoned-draft sweep (scheduled
-    externally via cron-job.org at 04:00 UTC, scoped to closed cycles).
+  - `/api/cron/recruitment-drafts`: daily progress-aware unfinished-application
+    reminders plus the abandoned-draft sweep (scheduled externally via
+    cron-job.org at 04:00 UTC; reminders target open cycles and cleanup targets
+    closed cycles).
 - **Health:** a `/api/health` endpoint reports service health.
 - **Worktree and migration hygiene:** the repository uses git worktrees for
   parallel work; system-role and other seed-backed changes need a backfill

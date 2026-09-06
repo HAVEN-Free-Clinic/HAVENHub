@@ -6,6 +6,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "./submit-button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AudiencePreviewPanel } from "./audience-preview";
 import { useFormDirty } from "./use-form-dirty";
 
@@ -48,7 +49,6 @@ export function ReviewActions({
   // "Send now" arms on the first click and only sends on the second, so even a
   // small audience (25 or fewer, where no typed count is required) gets an
   // explicit confirmation before real email is dispatched.
-  const [armed, setArmed] = useState(false);
 
   function runPreview() {
     startPreview(async () => setPreview(await previewAction()));
@@ -80,26 +80,20 @@ export function ReviewActions({
               className="w-24"
             />
           </Field>
-          {armed ? (
-            <SubmitButton variant="danger" pendingLabel="Sending..." disabled={dirty}>
-              Confirm send
-            </SubmitButton>
-          ) : (
-            <Button
-              type="button"
-              variant="danger"
-              disabled={dirty}
-              onClick={() => setArmed(true)}
-            >
-              Send now
-            </Button>
-          )}
+          {/* One element across both states. This used to swap SubmitButton for
+              Button, two different component types at one position, so arming
+              unmounted the focused node and dropped a keyboard user to <body>
+              with no way to reach the confirm step (#12). */}
+          <ConfirmButton label="Send now" confirmLabel="Confirm send" disabled={dirty} />
         </form>
       </div>
 
-      {armed && !dirty && (
+      {/* Stated up front rather than only once armed: the warning is what should
+          make someone pause BEFORE the first click, and it was previously
+          revealed by the very click it was meant to caution. */}
+      {!dirty && (
         <Alert tone="warning">
-          Click Confirm send to dispatch this campaign to real recipients. This cannot be undone.
+          Sending dispatches this campaign to real recipients. This cannot be undone.
         </Alert>
       )}
 

@@ -168,7 +168,7 @@ export async function PersonMembershipsPanel({
                         <input type="hidden" name="toKind" value={m.kind === "DIRECTOR" ? "VOLUNTEER" : "DIRECTOR"} />
                         <ConfirmButton
                           label={m.kind === "DIRECTOR" ? "Make volunteer" : "Make director"}
-                          confirmLabel="Change this member's role? Confirm?"
+                          confirmLabel="Change this member's role?"
                         />
                       </form>
                       <form action={removeAction}>

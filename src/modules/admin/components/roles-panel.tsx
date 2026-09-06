@@ -195,7 +195,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               {!role.isSystem && (
                 <form action={deleteRoleAction}>
                   <input type="hidden" name="roleId" value={role.id} />
-                  <ConfirmButton label="Delete role" confirmLabel="Delete this role? Confirm?" />
+                  <ConfirmButton label="Delete role" confirmLabel="Delete this role?" />
                 </form>
               )}
             </div>
@@ -253,7 +253,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                   // access for an entire cohort at once, so require a deliberate
                   // second click -- matching the destructive-action pattern used
                   // everywhere else in admin.
-                  <ConfirmButton label="Save grants" confirmLabel="Change baseline role? Confirm?" size="sm" />
+                  <ConfirmButton label="Save grants" confirmLabel="Change the baseline role?" size="sm" />
                 ) : (
                   <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
                     Save grants

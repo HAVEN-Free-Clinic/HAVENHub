@@ -11,6 +11,16 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
   label: string;
   /** Label shown in the armed/confirm state. Defaults to "Confirm?". */
   confirmLabel?: string;
+  /**
+   * Non-form use: run this on the confirm click instead of submitting a form.
+   *
+   * Without it the confirm click submits the surrounding <form>, which is the
+   * common case. Pass it for a destructive action that is a plain client
+   * handler with no form behind it (clearing an unsaved draft, resetting an
+   * editor). The button then never becomes type="submit", so it cannot submit
+   * an unrelated ancestor form by accident.
+   */
+  onConfirm?: () => void;
 };
 
 /**
@@ -44,8 +54,16 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  * That is reachable by mouse, keyboard, and AT alike, and cannot expire under a user
  * who is simply reading slowly.
  *
- * Must be rendered inside a <form>; useFormStatus reads that form's state. Does NOT
- * use window.confirm, so it stays automation-friendly.
+ * Rendered inside a <form> by default; useFormStatus reads that form's state. For a
+ * destructive action with no form behind it, pass `onConfirm` instead and the confirm
+ * click calls that rather than submitting. Does NOT use window.confirm, so it stays
+ * automation-friendly.
+ *
+ * Reach for this for EVERY two-click destructive confirmation. Hand-rolling one has
+ * gone wrong the same two ways every time: swapping between two component types at
+ * one position (which is #12 again, focus to <body>), and adding a timed auto-disarm
+ * (which is the WCAG 2.2.1 time limit audit 14 removed). Both are invisible to the
+ * author and total for a keyboard or screen-reader user.
  */
 export function ConfirmButton({
   label,
@@ -53,6 +71,7 @@ export function ConfirmButton({
   className,
   onClick,
   onBlur,
+  onConfirm,
   disabled,
   ...rest
 }: ConfirmButtonProps) {
@@ -82,7 +101,9 @@ export function ConfirmButton({
   return (
     <Button
       {...rest}
-      type={armed ? "submit" : "button"}
+      // Stays "button" in the onConfirm case: there is no form to submit, and a
+      // stray type="submit" would post whatever ancestor form it found.
+      type={armed && !onConfirm ? "submit" : "button"}
       variant={armed ? "danger" : "outline"}
       className={className}
       disabled={pending || disabled}
@@ -90,8 +111,16 @@ export function ConfirmButton({
       onClick={(e) => {
         onClick?.(e);
         if (armed) {
-          // Confirm click: let the native form submit proceed.
-          confirming.current = true;
+          if (onConfirm) {
+            // No form, so nothing will flip `pending` and drive the disarm
+            // effect below. Disarm here instead, after the handler runs.
+            e.preventDefault();
+            onConfirm();
+            setArmed(false);
+          } else {
+            // Confirm click: let the native form submit proceed.
+            confirming.current = true;
+          }
         } else {
           e.preventDefault();
           setArmed(true);

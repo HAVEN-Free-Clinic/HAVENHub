@@ -278,7 +278,7 @@ export async function AssignmentForm({
                 <TD>
                   <form action={deleteAssignmentAction}>
                     <input type="hidden" name="assignmentId" value={a.id} />
-                    <ConfirmButton label="Remove" confirmLabel="Remove assignment? Confirm?" />
+                    <ConfirmButton label="Remove" confirmLabel="Remove this assignment?" />
                   </form>
                 </TD>
               </TR>

@@ -486,7 +486,7 @@ export async function RosterPanel({
                 <p className="text-xs text-subtle-foreground">Check All departments, or pick specific ones.</p>
               </fieldset>
 
-              <ConfirmButton label="Copy roster" confirmLabel="Copy roster from selected term? Confirm?" />
+              <ConfirmButton label="Copy roster" confirmLabel="Copy the roster from the selected term?" />
             </form>
           )}
         </Card>

@@ -46,12 +46,26 @@ function statusOf(row: InviteRow): { label: string; tone: "default" | "success" 
 
 export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelProps) {
   const [issued, setIssued] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Three states, not a boolean. This link is shown for exactly one render (see
+  // the file header), so reporting a copy that did not happen loses it for good.
+  // A rejected or unavailable clipboard has to say so and send the reader to the
+  // code block above, which is still on screen and selectable.
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   async function handleCreate(formData: FormData) {
     const url = await createAction(formData);
     setIssued(url);
-    setCopied(false);
+    setCopyState("idle");
+  }
+
+  async function copyIssued(url: string) {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(url);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
   }
 
   return (
@@ -73,14 +87,17 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => {
-                void navigator.clipboard.writeText(issued);
-                setCopied(true);
-              }}
+              onClick={() => void copyIssued(issued)}
             >
-              {copied ? "Copied" : "Copy"}
+              {copyState === "copied" ? "Copied" : "Copy"}
             </Button>
           </div>
+          {copyState === "error" && (
+            <p role="alert" className="mt-2 text-sm text-critical-foreground">
+              Could not copy to the clipboard. Select the link above and copy it manually before
+              leaving this page.
+            </p>
+          )}
         </Alert>
       )}
 

@@ -31,7 +31,9 @@ export function FormBuilder({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [reorderError, setReorderError] = useState<string | null>(null);
+  // Covers every action on the form as a whole. `addSection` used to drop the
+  // `{ ok: false, error }` it gets back, so a refused add looked like a no-op.
+  const [error, setError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const refresh = () => router.refresh();
   // The full cycle-wide field list, used as the pool of candidate "controlling"
@@ -40,17 +42,19 @@ export function FormBuilder({
   const allFields = sections.flatMap((s) => s.fields);
 
   function addSection() {
+    setError(null);
     startTransition(async () => {
       const r = await addSectionAction(cycleId, { title: "New section", appliesTo: "BOTH" as ApplicantScope, departmentCode: null });
       if (r.ok) refresh();
+      else setError(r.error);
     });
   }
 
   async function reorder(orderedSectionIds: string[]) {
-    setReorderError(null);
+    setError(null);
     const r = await reorderSectionsAction(cycleId, orderedSectionIds);
     if (r.ok) { router.refresh(); return true; }
-    setReorderError(r.error);
+    setError(r.error);
     return false;
   }
 
@@ -62,7 +66,7 @@ export function FormBuilder({
           immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}
-      {reorderError && <Alert tone="error">{reorderError}</Alert>}
+      {error && <Alert tone="error">{error}</Alert>}
 
       <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />

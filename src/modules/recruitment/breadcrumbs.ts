@@ -8,8 +8,12 @@ import type { Crumb } from "@/platform/ui/breadcrumb-trail";
  * and the registry only knows the module root. So recruitment pages supply
  * their own trail (cycle title + section + leaf) via `SetBreadcrumb`.
  *
- * The renderer drops the link on whichever crumb is last (the current page),
- * so it is fine for every crumb here to carry an `href`.
+ * The renderer drops the link on the last crumb when that crumb's href points at
+ * the page being viewed, so it is fine for every crumb here to carry an `href`:
+ * the current page's own crumb still renders as plain text, not a self-link.
+ * (It compares against the pathname rather than trusting position, because a
+ * registry-derived trail ends on a linked PARENT section that must stay
+ * clickable. See breadcrumbs.tsx.)
  */
 
 const HUB: Crumb = { label: "Hub", href: "/" };

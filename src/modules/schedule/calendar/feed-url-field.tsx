@@ -32,9 +32,16 @@ export function FeedUrlField({ value }: { value: string }) {
           variant="outline"
           size="sm"
           onClick={async () => {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 2000);
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 2000);
+            } catch {
+              // Clipboard denied or unavailable. Same call as email-list.tsx:
+              // the address is on screen in a select-on-focus field, so there
+              // is nothing to recover and nothing worth interrupting for. The
+              // label simply stays "Copy" rather than claiming a copy happened.
+            }
           }}
         >
           {copied ? "Copied" : "Copy"}

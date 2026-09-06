@@ -28,6 +28,10 @@ export function QuizBuilder({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [newSectionTitle, setNewSectionTitle] = useState("");
+  // Every action here returns `{ ok: false, error }` on refusal and every one of
+  // them used to discard it, so a rejected edit was indistinguishable from one
+  // that never fired.
+  const [error, setError] = useState<string | null>(null);
   const refresh = () => router.refresh();
 
   // Quiz field edits are never "structural" in the service layer (quiz sections
@@ -38,17 +42,28 @@ export function QuizBuilder({
 
   function addQuizSection() {
     const title = newSectionTitle.trim() || "Quiz";
-    startTransition(async () => { const r = await addSectionAction(cycleId, { title, appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" }); if (r.ok) { setNewSectionTitle(""); refresh(); } });
+    setError(null);
+    startTransition(async () => {
+      const r = await addSectionAction(cycleId, { title, appliesTo: "BOTH", departmentCode: null, purpose: "QUIZ" });
+      if (r.ok) { setNewSectionTitle(""); refresh(); }
+      else setError(r.error);
+    });
   }
   function addQuestion(sectionId: string) {
+    setError(null);
     startTransition(async () => {
       const r = await addFieldAction(cycleId, sectionId, { type: "SINGLE_SELECT" });
-      if (!r.ok) return;
-      refresh();
+      if (r.ok) refresh();
+      else setError(r.error);
     });
   }
   function saveQuestion(fieldId: string, patch: Parameters<typeof updateFieldAction>[2]) {
-    startTransition(async () => { const r = await updateFieldAction(cycleId, fieldId, patch); if (r.ok) refresh(); });
+    setError(null);
+    startTransition(async () => {
+      const r = await updateFieldAction(cycleId, fieldId, patch);
+      if (r.ok) refresh();
+      else setError(r.error);
+    });
   }
 
   return (
@@ -59,6 +74,7 @@ export function QuizBuilder({
           immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}
+      {error && <Alert tone="error">{error}</Alert>}
 
       <Card pad={false} className="overflow-hidden">
         <div className="h-2 bg-brand" aria-hidden />
@@ -82,7 +98,7 @@ export function QuizBuilder({
                   disabled={!editable}
                 />
                 <div className="mt-2 flex justify-end">
-                  <form action={async () => { const r = await deleteFieldAction(cycleId, q.id); if (r.ok) refresh(); }}>
+                  <form action={async () => { setError(null); const r = await deleteFieldAction(cycleId, q.id); if (r.ok) refresh(); else setError(r.error); }}>
                     <ConfirmButton label="Remove question" size="sm" disabled={!editable} />
                   </form>
                 </div>

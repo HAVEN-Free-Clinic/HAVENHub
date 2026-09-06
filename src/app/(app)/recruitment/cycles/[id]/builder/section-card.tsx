@@ -37,20 +37,33 @@ export function SectionCard({
   onChanged: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [reorderError, setReorderError] = useState<string | null>(null);
+  // One error channel for every action on this section. Each of these actions
+  // returns `{ ok: false, error }` on refusal, and each used to drop it, so a
+  // rejected save looked identical to a save that never fired.
+  const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function saveSection(patch: Parameters<typeof updateSectionAction>[2]) {
-    startTransition(async () => { const r = await updateSectionAction(cycleId, section.id, patch); if (r.ok) onChanged(); });
+    setError(null);
+    startTransition(async () => {
+      const r = await updateSectionAction(cycleId, section.id, patch);
+      if (r.ok) onChanged();
+      else setError(r.error);
+    });
   }
   function addField(type: FieldType) {
-    startTransition(async () => { const r = await addFieldAction(cycleId, section.id, { type }); if (r.ok) onChanged(); });
+    setError(null);
+    startTransition(async () => {
+      const r = await addFieldAction(cycleId, section.id, { type });
+      if (r.ok) onChanged();
+      else setError(r.error);
+    });
   }
   async function reorder(orderedFieldIds: string[]) {
-    setReorderError(null);
+    setError(null);
     const r = await reorderFieldsAction(cycleId, section.id, orderedFieldIds);
     if (r.ok) { onChanged(); return true; }
-    setReorderError(r.error);
+    setError(r.error);
     return false;
   }
 
@@ -72,10 +85,14 @@ export function SectionCard({
           {section.description && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)} aria-label="Section settings"><Settings2 className="h-4 w-4" aria-hidden /></Button>
-        <form action={async () => { const r = await deleteSectionAction(cycleId, section.id); if (r.ok) onChanged(); }}>
+        <form action={async () => { setError(null); const r = await deleteSectionAction(cycleId, section.id); if (r.ok) onChanged(); else setError(r.error); }}>
           <ConfirmButton label="Delete section" size="sm" disabled={!editable} />
         </form>
       </div>
+
+      {/* Sits directly under the header so it covers a refused settings save and a
+          refused delete, not only the reorder it started life on. */}
+      {error && <Alert tone="error" className="mt-3">{error}</Alert>}
 
       {showSettings && (
         <Card size="compact" className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -99,7 +116,6 @@ export function SectionCard({
       )}
 
       <div className="mt-3 space-y-2">
-        {reorderError && <Alert tone="error">{reorderError}</Alert>}
         <SortableList items={section.fields} onReorder={reorder} disabled={!editable} renderItem={(field, fhandle) => (
           <div className="py-1">
             <FieldCard cycleId={cycleId} field={field} siblingFields={allFields} departments={departments} subcommittees={subcommittees} editable={editable} handle={fhandle} onChanged={onChanged} />

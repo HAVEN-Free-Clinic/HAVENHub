@@ -39,11 +39,10 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button, buttonClasses } from "@/platform/ui/button";
 import { StatCard } from "@/platform/ui/stat-card";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -268,60 +267,35 @@ async function MasterComplianceBody(props: BodyProps) {
       </div>
 
       {/* Filter bar - GET form so filters are in the URL */}
-      <NavForm
+      <FilterBar
         action="/volunteers/master"
-        className="mt-6 flex flex-wrap items-end gap-3"
+        clearHref={q || departmentId || statusFilter ? "/volunteers/master" : undefined}
+        className="mt-6"
       >
-        <div className="flex-1 min-w-48">
-          <Field label="Search">
-            <Input
-              type="search"
-              name="q"
-              defaultValue={q ?? ""}
-              placeholder="Name, NetID, or email..."
-            />
-          </Field>
-        </div>
-
-        <div className="w-52">
-          <Field label="Department">
-            <Select name="departmentId" defaultValue={departmentId ?? ""}>
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code} - {d.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <div className="w-44">
-          <Field label="Status">
-            <Select name="status" defaultValue={statusFilter ?? ""}>
-              <option value="">All statuses</option>
-              {ALL_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {complianceStatusLabel(s, "staff").label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <Button type="submit" variant="primary" size="sm">
-          Filter
-        </Button>
-
-        {(q || departmentId || statusFilter) && (
-          <Link
-            href="/volunteers/master"
-            className={buttonClasses("outline", "sm")}
-          >
-            Clear
-          </Link>
-        )}
-      </NavForm>
+        <FilterField label="Search" width="grow">
+          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email..." />
+        </FilterField>
+        <FilterField label="Department" width="lg">
+          <Select name="departmentId" defaultValue={departmentId ?? ""}>
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.code} - {d.name}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Status">
+          <Select name="status" defaultValue={statusFilter ?? ""}>
+            <option value="">All statuses</option>
+            {ALL_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {complianceStatusLabel(s, "staff").label}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+      </FilterBar>
 
       {/* Results */}
       <div className="mt-4">

@@ -30,11 +30,10 @@ import { Card } from "@/platform/ui/card";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Badge } from "@/platform/ui/badge";
-import { Button, buttonClasses } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Alert } from "@/platform/ui/alert";
 import { EmailList } from "@/platform/ui/email-list";
 import { DirectoryExportButton } from "@/modules/volunteers/components/directory-export-button";
@@ -232,54 +231,41 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
       <Card>
         <SectionHeader>Roster</SectionHeader>
 
-        <NavForm
+        <FilterBar
           action="/volunteers/directory"
-          className="mt-3 flex flex-wrap items-end gap-3"
+          clearHref={hasFilters ? "/volunteers/directory" : undefined}
+          className="mt-3"
         >
-          <div className="min-w-48 flex-1">
-            <Field label="Search">
-              <Input
-                type="search"
-                name="q"
-                defaultValue={q ?? ""}
-                placeholder="Name, NetID, or email..."
-              />
-            </Field>
-          </div>
-          <div className="w-52">
-            <Field label="Department">
-              <Select name="departmentId" defaultValue={departmentId ?? ""}>
-                {/* "All departments" would overpromise for a scoped viewer,
-                    whose list holds only the ones they direct. */}
-                <option value="">
-                  {clinicWide ? "All departments" : "All your departments"}
+          <FilterField label="Search" width="grow">
+            <Input
+              type="search"
+              name="q"
+              defaultValue={q ?? ""}
+              placeholder="Name, NetID, or email..."
+            />
+          </FilterField>
+          <FilterField label="Department" width="lg">
+            <Select name="departmentId" defaultValue={departmentId ?? ""}>
+              {/* "All departments" would overpromise for a scoped viewer,
+                  whose list holds only the ones they direct. */}
+              <option value="">
+                {clinicWide ? "All departments" : "All your departments"}
+              </option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code} - {d.name}
                 </option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.code} - {d.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="w-40">
-            <Field label="Role">
-              <Select name="kind" defaultValue={kind ?? ""}>
-                <option value="">All roles</option>
-                <option value="DIRECTOR">Directors</option>
-                <option value="VOLUNTEER">Volunteers</option>
-              </Select>
-            </Field>
-          </div>
-          <Button type="submit" variant="primary" size="sm">
-            Filter
-          </Button>
-          {hasFilters && (
-            <Link href="/volunteers/directory" className={buttonClasses("outline", "sm")}>
-              Clear
-            </Link>
-          )}
-        </NavForm>
+              ))}
+            </Select>
+          </FilterField>
+          <FilterField label="Role" width="sm">
+            <Select name="kind" defaultValue={kind ?? ""}>
+              <option value="">All roles</option>
+              <option value="DIRECTOR">Directors</option>
+              <option value="VOLUNTEER">Volunteers</option>
+            </Select>
+          </FilterField>
+        </FilterBar>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4">
           <p className="text-sm text-muted-foreground">

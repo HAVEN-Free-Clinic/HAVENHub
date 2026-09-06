@@ -40,11 +40,11 @@ test("admin can view all statuses and description does not say 'active'", async 
   // querystring by NavForm and read back as first-load, snapping to Active. The ALL
   // sentinel survives, so all statuses are actually shown.
   await page.locator('select[name="status"]').selectOption("ALL");
-  // exact:true: the global command-palette trigger's accessible name is now
-  // "Search the hub" (distinct from this page's own filter-submit button), but
-  // pin exact anyway so a future rename of either control fails loudly here
-  // instead of silently matching the wrong one again.
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  // Every filter bar submits under one label now ("Filter"), so this no longer
+  // shares a name with the command-palette trigger at all. exact:true stays so a
+  // future rename of either control fails loudly here instead of silently
+  // matching the wrong one again.
+  await page.getByRole("button", { name: "Filter", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("status") === "ALL");
   // The description <p> must contain "people" but not "active" when all statuses show.
   // PageHeader renders the description as p.text-muted-foreground (not text-slate-500).

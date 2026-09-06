@@ -35,13 +35,14 @@ test("history browser finds a seeded applicant by email and opens their detail p
     // person's name, never an email standing in for a missing one.
     const firstRowLink = page.locator("table tbody tr").first().getByRole("link");
     await expect(firstRowLink).not.toHaveText(/@/);
-    await page.getByLabel("Search recruitment history").fill(email);
-    // exact: true is load-bearing. Accessible-name matching is substring by
-    // default, so a bare "Search" also matches the app shell's Cmd+K palette
-    // trigger, whose aria-label is "Search the hub". That is a strict mode
-    // violation, not a silent mis-click. Same trap and same fix as
-    // admin.spec.ts and command-palette.spec.ts already document.
-    await page.getByRole("button", { name: "Search", exact: true }).click();
+    // The bar's controls carry visible labels now (FilterBar/FilterField), so the
+    // accessible name is the label text. exact: true because a substring "Search"
+    // also matches the shell's Cmd+K trigger ("Search the hub").
+    await page.getByLabel("Search", { exact: true }).fill(email);
+    // Every filter bar submits under one label now ("Filter"), which also ends the
+    // old collision with the Cmd+K trigger's "Search the hub". exact: true stays so
+    // a future rename fails loudly here rather than matching something else.
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
     await page.waitForURL((url) => url.pathname === "/recruitment/history" && url.searchParams.get("q") === email);
 
     // Exact match: a substring match on the name could also hit an unrelated

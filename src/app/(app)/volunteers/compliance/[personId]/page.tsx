@@ -124,8 +124,8 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     .filter((t) => t.state !== "NOT_REQUIRED")
     .map((t) =>
       t.key === "hipaa"
-        ? certRequirement(status, "#hipaa-certificate")
-        : taskRequirement(t.label, t.state)
+        ? certRequirement(status, "staff", "#hipaa-certificate")
+        : taskRequirement(t.label, t.state, "staff")
     );
 
   // Both actions require manage_compliance regardless of who opened the page: a
@@ -177,7 +177,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     revalidatePath("/volunteers/ehs");
   }
 
-  const certReq = certRequirement(status);
+  const certReq = certRequirement(status, "staff");
   const expiresAt = newestCert?.completionDate ? certExpiresAt(newestCert.completionDate) : null;
   // A director has no master view to go back to; send them to the roster they do
   // have. Both are one click either way, and a link to a page that bounces is

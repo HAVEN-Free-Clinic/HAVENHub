@@ -56,6 +56,11 @@ import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
+import {
+  complianceStatusLabel,
+  onboardingTaskLabel,
+  ALL_COMPLIANCE_STATUSES as ALL_STATUSES,
+} from "@/platform/compliance/labels";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import Link from "next/link";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
@@ -71,39 +76,6 @@ type PageProps = {
   }>;
 };
 
-// ---------------------------------------------------------------------------
-// Status display helpers (shared with /volunteers)
-// ---------------------------------------------------------------------------
-
-const STATUS_LABEL: Record<ComplianceStatus, string> = {
-  COMPLIANT: "Compliant",
-  EXPIRING_SOON: "Expiring Soon",
-  EXPIRED: "Expired",
-  PENDING_VERIFICATION: "Needs verification",
-  UNKNOWN_DATE: "Date Unknown",
-  NO_CERTIFICATE: "No Certificate",
-};
-
-type Tone = "default" | "success" | "warning" | "critical";
-
-const STATUS_TONE: Record<ComplianceStatus, Tone> = {
-  COMPLIANT: "success",
-  EXPIRING_SOON: "warning",
-  EXPIRED: "critical",
-  PENDING_VERIFICATION: "warning",
-  UNKNOWN_DATE: "default",
-  NO_CERTIFICATE: "default",
-};
-
-const ALL_STATUSES: ComplianceStatus[] = [
-  "COMPLIANT",
-  "EXPIRING_SOON",
-  "EXPIRED",
-  "PENDING_VERIFICATION",
-  "UNKNOWN_DATE",
-  "NO_CERTIFICATE",
-];
-
 // Clearance task display (learning + EHS columns).
 function taskState(
   clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
@@ -111,20 +83,6 @@ function taskState(
 ): OnboardingTaskState | null {
   return clearance.tasks.find((t) => t.key === key)?.state ?? null;
 }
-
-const TASK_STATE_LABEL: Record<OnboardingTaskState, string> = {
-  COMPLETE: "Complete",
-  IN_PROGRESS: "In progress",
-  INCOMPLETE: "Incomplete",
-  NOT_REQUIRED: "Not required",
-};
-
-const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
-  COMPLETE: "success",
-  IN_PROGRESS: "warning",
-  INCOMPLETE: "critical",
-  NOT_REQUIRED: "default",
-};
 
 /** Above this, a roster load is worth a log line. Chosen off the measured
  *  distribution: healthy loads of this page land near 1.5s, the bad tail is
@@ -294,37 +252,13 @@ async function MasterComplianceBody(props: BodyProps) {
   return (
     <>
       {/* Summary stat cards */}
+      {/* One tile per status, labelled and toned from the shared vocabulary so a
+          tile, the badge in its row and the filter option below all agree. */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard
-          label="Compliant"
-          value={result.summary.COMPLIANT}
-          tone="success"
-        />
-        <StatCard
-          label="Expiring Soon"
-          value={result.summary.EXPIRING_SOON}
-          tone="warning"
-        />
-        <StatCard
-          label="Expired"
-          value={result.summary.EXPIRED}
-          tone="critical"
-        />
-        <StatCard
-          label="Date Unknown"
-          value={result.summary.UNKNOWN_DATE}
-          tone="default"
-        />
-        <StatCard
-          label="Needs verification"
-          value={result.summary.PENDING_VERIFICATION}
-          tone="warning"
-        />
-        <StatCard
-          label="No Certificate"
-          value={result.summary.NO_CERTIFICATE}
-          tone="default"
-        />
+        {ALL_STATUSES.map((s) => {
+          const { label, tone } = complianceStatusLabel(s, "staff");
+          return <StatCard key={s} label={label} value={result.summary[s]} tone={tone} />;
+        })}
       </div>
 
       {/* Clearance summary (full clearance, not just HIPAA) */}
@@ -368,7 +302,7 @@ async function MasterComplianceBody(props: BodyProps) {
               <option value="">All statuses</option>
               {ALL_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
+                  {complianceStatusLabel(s, "staff").label}
                 </option>
               ))}
             </Select>
@@ -447,8 +381,8 @@ async function MasterComplianceBody(props: BodyProps) {
                         {row.departments.join(", ")}
                       </TD>
                       <TD>
-                        <Badge tone={STATUS_TONE[row.status]}>
-                          {STATUS_LABEL[row.status]}
+                        <Badge tone={complianceStatusLabel(row.status, "staff").tone}>
+                          {complianceStatusLabel(row.status, "staff").label}
                         </Badge>
                       </TD>
                       <TD>
@@ -467,14 +401,14 @@ async function MasterComplianceBody(props: BodyProps) {
                       </TD>
                       <TD>
                         {learningState ? (
-                          <Badge tone={TASK_STATE_TONE[learningState]}>{TASK_STATE_LABEL[learningState]}</Badge>
+                          <Badge tone={onboardingTaskLabel(learningState, { audience: "staff" }).tone}>{onboardingTaskLabel(learningState, { audience: "staff" }).label}</Badge>
                         ) : (
                           <span className="text-subtle-foreground">-</span>
                         )}
                       </TD>
                       <TD>
                         {ehsState ? (
-                          <Badge tone={TASK_STATE_TONE[ehsState]}>{TASK_STATE_LABEL[ehsState]}</Badge>
+                          <Badge tone={onboardingTaskLabel(ehsState, { audience: "staff" }).tone}>{onboardingTaskLabel(ehsState, { audience: "staff" }).label}</Badge>
                         ) : (
                           <span className="text-subtle-foreground">-</span>
                         )}

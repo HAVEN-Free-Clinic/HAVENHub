@@ -11,12 +11,13 @@ import {
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-
-type Tone = "success" | "warning" | "critical" | "default";
-
-/** Mirrors OnboardingTaskState from the onboarding engine; redeclared locally to
- *  avoid a cross-module import (modules must go through platform). */
-type TaskState = "COMPLETE" | "IN_PROGRESS" | "INCOMPLETE" | "NOT_REQUIRED";
+import type { OnboardingTaskState } from "@/platform/compliance/task-state";
+import {
+  complianceStatusLabel,
+  onboardingTaskLabel,
+  type LabelAudience,
+  type StatusTone as Tone,
+} from "@/platform/compliance/labels";
 
 export type Requirement = {
   label: string;
@@ -54,35 +55,43 @@ function RowIcon({ tone, met }: { tone: Tone; met: boolean }) {
   return <Circle aria-hidden className={cls} />;
 }
 
-export function certRequirement(status: ComplianceStatus, href?: string): Requirement {
-  const base = { label: "HIPAA certificate", href } as const;
-  switch (status) {
-    case "COMPLIANT":
-      return { ...base, statusLabel: "Valid", met: true, tone: "success" };
-    case "EXPIRING_SOON":
-      return { ...base, statusLabel: "Expiring soon", met: true, tone: "warning" };
-    case "EXPIRED":
-      return { ...base, statusLabel: "Expired", met: false, tone: "critical" };
-    case "UNKNOWN_DATE":
-      return { ...base, statusLabel: "Needs completion date", met: false, tone: "warning" };
-    case "PENDING_VERIFICATION":
-      return { ...base, statusLabel: "Awaiting verification", met: false, tone: "warning" };
-    case "NO_CERTIFICATE":
-      return { ...base, statusLabel: "Not uploaded", met: false, tone: "default" };
-  }
+/**
+ * Whether a cert status counts toward clearance. Separate from the label: this
+ * is gating, the label is wording, and only the wording varies by audience.
+ */
+function certMet(status: ComplianceStatus): boolean {
+  return status === "COMPLIANT" || status === "EXPIRING_SOON";
 }
 
-export function taskRequirement(label: string, state: TaskState, href?: string): Requirement {
-  switch (state) {
-    case "COMPLETE":
-      return { label, href, statusLabel: "Complete", met: true, tone: "success" };
-    case "IN_PROGRESS":
-      return { label, href, statusLabel: "In progress", met: false, tone: "warning" };
-    case "INCOMPLETE":
-      return { label, href, statusLabel: "Not started", met: false, tone: "warning" };
-    case "NOT_REQUIRED":
-      return { label, href, statusLabel: "Not required", met: true, tone: "default" };
-  }
+/**
+ * `audience` is the READER, not the subject. /my-info is a member reading their
+ * own clearance; /volunteers/compliance/[personId] is a compliance manager
+ * reading someone else's, and takes "staff" so it matches the roster they
+ * clicked in from.
+ */
+export function certRequirement(
+  status: ComplianceStatus,
+  audience: LabelAudience,
+  href?: string,
+): Requirement {
+  const { label, tone } = complianceStatusLabel(status, audience);
+  return { label: "HIPAA certificate", href, statusLabel: label, met: certMet(status), tone };
+}
+
+export function taskRequirement(
+  label: string,
+  state: OnboardingTaskState,
+  audience: LabelAudience,
+  href?: string,
+): Requirement {
+  const display = onboardingTaskLabel(state, { audience, actionable: !!href });
+  return {
+    label,
+    href,
+    statusLabel: display.label,
+    met: state === "COMPLETE" || state === "NOT_REQUIRED",
+    tone: display.tone,
+  };
 }
 
 /**

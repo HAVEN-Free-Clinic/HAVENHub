@@ -43,7 +43,8 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
-import { complianceReminderContext, READABLE_STATUS } from "./templates/compliance";
+import { complianceReminderContext } from "./templates/compliance";
+import { complianceStatusLabel } from "@/platform/compliance/labels";
 import {
   onboardingReminderContext,
   clearanceDigestContext,
@@ -450,7 +451,7 @@ export async function runClearanceReminders(
     uncleared.set(person.id, {
       name: person.name,
       items: [
-        ...(hipaaUnsatisfied ? [`HIPAA certification: ${READABLE_STATUS[hipaaStatus]}`] : []),
+        ...(hipaaUnsatisfied ? [`HIPAA certification: ${complianceStatusLabel(hipaaStatus, "staff").label}`] : []),
         ...items,
       ],
       stalledSince: existing?.stalledSince ?? now,

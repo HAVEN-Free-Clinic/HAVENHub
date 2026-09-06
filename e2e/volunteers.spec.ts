@@ -51,11 +51,12 @@ test("Jack sees at least one status Badge on the ITCM compliance page", async ({
 
   // At least one status badge must be visible in the table.
   // The beforeEach seeds an ITCM member with a COMPLIANT cert, so a badge is guaranteed.
-  // Status labels: Compliant, Expiring Soon, Expired, Date Unknown, No Certificate
+  // Status labels come from complianceStatusLabel(status, "staff") in
+  // platform/compliance/labels.ts. Keep this set in step with that map.
   const statusBadge = page
     .locator("td span")
     .filter({
-      hasText: /^(Compliant|Expiring Soon|Expired|Date Unknown|No Certificate)$/,
+      hasText: /^(Compliant|Expiring soon|Expired|Date unknown|Needs verification|No certificate)$/,
     })
     .first();
   await expect(statusBadge).toBeVisible();
@@ -85,9 +86,9 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
 
   // Summary stat cards are rendered as plain <p> elements (no aria-label).
   // The beforeEach seeds a COMPLIANT ITCM member, so "Compliant" will always be present.
-  // "No Certificate" covers seed members with no cert, so it is also always present.
+  // "No certificate" covers seed members with no cert, so it is also always present.
   await expect(page.locator("p").filter({ hasText: /^Compliant$/ }).first()).toBeVisible();
-  await expect(page.locator("p").filter({ hasText: /^No Certificate$/ }).first()).toBeVisible();
+  await expect(page.locator("p").filter({ hasText: /^No certificate$/ }).first()).toBeVisible();
 });
 
 test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {

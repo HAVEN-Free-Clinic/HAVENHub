@@ -5,6 +5,7 @@ import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
 import type { OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
+import { onboardingTaskLabel } from "@/platform/compliance/labels";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import type { MyEhsItem } from "@/platform/ehs/services/my-ehs";
 import { ehsCompletionLabel } from "@/platform/ehs/completion-link";
@@ -35,15 +36,12 @@ function hueStyle(key: OnboardingTaskKey): CSSProperties {
   } as CSSProperties;
 }
 
+// The actionable split this component worked out (a task with no CTA at all is
+// not something the member can act on, so "Action needed" would misdirect them)
+// now lives in onboardingTaskLabel, which every member-facing surface shares.
 function StatusPill({ state, actionable }: { state: OnboardingTaskState; actionable: boolean }) {
-  if (state === "COMPLETE") return <Badge tone="success">Done</Badge>;
-  if (state === "NOT_REQUIRED") return <Badge tone="default">Not required</Badge>;
-  if (state === "IN_PROGRESS") return <Badge tone="brand">In progress</Badge>;
-  // A task with no CTA at all (neither an internal fix-it link nor an external
-  // one) is not something the member can act on, so "Action needed" would
-  // misdirect them. Show a neutral "Pending" instead of the warning-toned CTA.
-  if (!actionable) return <Badge tone="default">Pending</Badge>;
-  return <Badge tone="warning">Action needed</Badge>;
+  const { label, tone } = onboardingTaskLabel(state, { audience: "member", actionable });
+  return <Badge tone={tone}>{label}</Badge>;
 }
 
 function TaskRow({ task, ehsItems }: { task: OnboardingTask; ehsItems: MyEhsItem[] }) {

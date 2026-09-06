@@ -274,8 +274,8 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     .filter((t) => t.state !== "NOT_REQUIRED")
     .map((t) =>
       t.key === "hipaa"
-        ? certRequirement(status, requirementHref(t.key, t.href))
-        : taskRequirement(t.label, t.state, requirementHref(t.key, t.href))
+        ? certRequirement(status, "member", requirementHref(t.key, t.href))
+        : taskRequirement(t.label, t.state, "member", requirementHref(t.key, t.href))
     );
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;

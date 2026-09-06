@@ -1,6 +1,11 @@
 import { Skeleton } from "@/platform/ui/skeleton";
 import { cardClasses } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import {
+  complianceStatusLabel,
+  ALL_COMPLIANCE_STATUSES,
+} from "@/platform/compliance/labels";
+
 
 /** The roster's column headings, in render order. Kept beside the real table so
  *  the placeholder reserves the same column widths and the swap does not shift
@@ -19,14 +24,10 @@ const COLUMNS = [
   "",
 ];
 
-const SUMMARY_LABELS = [
-  "Compliant",
-  "Expiring Soon",
-  "Expired",
-  "Date Unknown",
-  "Needs verification",
-  "No Certificate",
-];
+/** Read from the shared vocabulary, not retyped: the skeleton carries the REAL
+ *  labels so the swap does not shift the layout, which only holds while the two
+ *  agree. They had already drifted in casing. Order matches the live grid. */
+const SUMMARY_LABELS = ALL_COMPLIANCE_STATUSES.map((s) => complianceStatusLabel(s, "staff").label);
 
 /** A stat card with its real label but a placeholder figure. Uses cardClasses
  *  and the same type scale as StatCard so the height matches to the pixel. */

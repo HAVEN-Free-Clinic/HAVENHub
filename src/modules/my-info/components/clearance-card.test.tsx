@@ -33,7 +33,7 @@ function rowHtml(html: string): string {
 describe("ClearanceCard rows", () => {
   it("wraps the whole row -- label and status badge -- in the link", () => {
     const row = rowHtml(
-      render([taskRequirement("EHS training", "IN_PROGRESS", "#ehs-training")]),
+      render([taskRequirement("EHS training", "IN_PROGRESS", "member", "#ehs-training")]),
     );
     const anchor = row.slice(row.indexOf("<a"), row.indexOf("</a>"));
     expect(anchor).toContain('href="#ehs-training"');
@@ -45,15 +45,15 @@ describe("ClearanceCard rows", () => {
   it("renders no link when there is nowhere to send the reader", () => {
     // A row with no destination is inert on purpose (a director reading someone
     // else's record); it must not render a bare anchor with no href.
-    const row = rowHtml(render([taskRequirement("Volunteer training", "INCOMPLETE")]));
+    const row = rowHtml(render([taskRequirement("Volunteer training", "INCOMPLETE", "staff")]));
     expect(row).not.toContain("<a");
     expect(row).toContain("Volunteer training");
-    expect(row).toContain("Not started");
+    expect(row).toContain("Incomplete");
   });
 
   it("links a met row too, so its click is not swallowed either", () => {
     // "Valid" still answers a real question -- members click it to see the cert.
-    const row = rowHtml(render([certRequirement("COMPLIANT", "#hipaa-certificate")]));
+    const row = rowHtml(render([certRequirement("COMPLIANT", "member", "#hipaa-certificate")]));
     expect(row).toContain('href="#hipaa-certificate"');
     expect(row).toContain("Valid");
   });
@@ -68,19 +68,44 @@ describe("ClearanceCard rows", () => {
       "NO_CERTIFICATE",
     ] as const;
     for (const status of statuses) {
-      expect(certRequirement(status, "#hipaa-certificate").href).toBe("#hipaa-certificate");
+      expect(certRequirement(status, "member", "#hipaa-certificate").href).toBe("#hipaa-certificate");
     }
   });
 
   it("carries the href through every task state", () => {
     const states = ["COMPLETE", "IN_PROGRESS", "INCOMPLETE", "NOT_REQUIRED"] as const;
     for (const state of states) {
-      expect(taskRequirement("EHS training", state, "#ehs-training").href).toBe("#ehs-training");
+      expect(taskRequirement("EHS training", state, "member", "#ehs-training").href).toBe("#ehs-training");
     }
   });
 
   it("leaves href undefined when the caller omits it", () => {
-    expect(certRequirement("EXPIRED").href).toBeUndefined();
-    expect(taskRequirement("Learning modules", "INCOMPLETE").href).toBeUndefined();
+    expect(certRequirement("EXPIRED", "member").href).toBeUndefined();
+    expect(taskRequirement("Learning modules", "INCOMPLETE", "member").href).toBeUndefined();
+  });
+
+  it("speaks to the reader, so one row reads differently to a member and a director", () => {
+    // Same underlying state, same component: only the audience differs.
+    const member = taskRequirement("Volunteer training", "INCOMPLETE", "member", "#training");
+    const staff = taskRequirement("Volunteer training", "INCOMPLETE", "staff", "#training");
+    expect(member.statusLabel).toBe("Action needed");
+    expect(staff.statusLabel).toBe("Incomplete");
+  });
+
+  it("softens an outstanding row a member cannot act on, since there is no CTA to find", () => {
+    expect(taskRequirement("EHS training", "INCOMPLETE", "member").statusLabel).toBe("Pending");
+    expect(taskRequirement("EHS training", "INCOMPLETE", "member", "#ehs").statusLabel).toBe(
+      "Action needed",
+    );
+  });
+
+  it("keeps met independent of audience, because gating is not wording", () => {
+    for (const audience of ["member", "staff"] as const) {
+      expect(certRequirement("COMPLIANT", audience).met).toBe(true);
+      expect(certRequirement("EXPIRING_SOON", audience).met).toBe(true);
+      expect(certRequirement("PENDING_VERIFICATION", audience).met).toBe(false);
+      expect(taskRequirement("x", "NOT_REQUIRED", audience).met).toBe(true);
+      expect(taskRequirement("x", "IN_PROGRESS", audience).met).toBe(false);
+    }
   });
 });

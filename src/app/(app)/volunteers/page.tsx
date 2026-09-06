@@ -15,8 +15,8 @@ import {
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
-import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { certExpiresAt } from "@/platform/compliance/rules";
+import { complianceStatusLabel, onboardingTaskLabel, type StatusTone } from "@/platform/compliance/labels";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { revalidatePath } from "next/cache";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
@@ -28,26 +28,6 @@ import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboardin
 // Status badge helper
 // ---------------------------------------------------------------------------
 
-const STATUS_LABEL: Record<ComplianceStatus, string> = {
-  COMPLIANT: "Compliant",
-  EXPIRING_SOON: "Expiring Soon",
-  EXPIRED: "Expired",
-  PENDING_VERIFICATION: "Needs verification",
-  UNKNOWN_DATE: "Date Unknown",
-  NO_CERTIFICATE: "No Certificate",
-};
-
-type Tone = "default" | "success" | "warning" | "critical";
-
-const STATUS_TONE: Record<ComplianceStatus, Tone> = {
-  COMPLIANT: "success",
-  EXPIRING_SOON: "warning",
-  EXPIRED: "critical",
-  PENDING_VERIFICATION: "warning",
-  UNKNOWN_DATE: "default",
-  NO_CERTIFICATE: "default",
-};
-
 // Clearance task display (EHS column).
 function taskState(
   clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
@@ -56,20 +36,6 @@ function taskState(
   return clearance.tasks.find((t) => t.key === key)?.state ?? null;
 }
 
-const TASK_STATE_LABEL: Record<OnboardingTaskState, string> = {
-  COMPLETE: "Complete",
-  IN_PROGRESS: "In progress",
-  INCOMPLETE: "Incomplete",
-  NOT_REQUIRED: "Not required",
-};
-
-const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
-  COMPLETE: "success",
-  IN_PROGRESS: "warning",
-  INCOMPLETE: "critical",
-  NOT_REQUIRED: "default",
-};
-
 // ---------------------------------------------------------------------------
 // Count chips helper
 // ---------------------------------------------------------------------------
@@ -77,7 +43,7 @@ const TASK_STATE_TONE: Record<OnboardingTaskState, Tone> = {
 type CountChipProps = {
   label: string;
   count: number;
-  tone: Tone;
+  tone: StatusTone;
 };
 
 function CountChip({ label, count, tone }: CountChipProps) {
@@ -251,8 +217,8 @@ export default async function VolunteersPage() {
                           </Badge>
                         </TD>
                         <TD>
-                          <Badge tone={STATUS_TONE[m.status]}>
-                            {STATUS_LABEL[m.status]}
+                          <Badge tone={complianceStatusLabel(m.status, "staff").tone}>
+                            {complianceStatusLabel(m.status, "staff").label}
                           </Badge>
                         </TD>
                         <TD>
@@ -270,7 +236,7 @@ export default async function VolunteersPage() {
                         </TD>
                         <TD>
                           {ehsState ? (
-                            <Badge tone={TASK_STATE_TONE[ehsState]}>{TASK_STATE_LABEL[ehsState]}</Badge>
+                            <Badge tone={onboardingTaskLabel(ehsState, { audience: "staff" }).tone}>{onboardingTaskLabel(ehsState, { audience: "staff" }).label}</Badge>
                           ) : (
                             <span className="text-subtle-foreground">-</span>
                           )}

@@ -1,11 +1,14 @@
 import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
 
-/** The onboarding requirements a member clears for the active term. */
-export type OnboardingTaskKey = "profile" | "hipaa" | "training" | "directorTraining" | "learning" | "ehs";
+/**
+ * Both types now live in platform so `my-info`, `volunteers` and
+ * `platform/email` can name them without a module importing a module. Re-exported
+ * here because this engine is where they are derived and where most callers
+ * already look for them.
+ */
+export type { OnboardingTaskKey, OnboardingTaskState } from "@/platform/compliance/task-state";
 
-/** Per-task resolution. NOT_REQUIRED means the task does not apply (e.g. no
- *  courses assigned) and is treated as satisfied for gating. */
-export type OnboardingTaskState = "COMPLETE" | "IN_PROGRESS" | "INCOMPLETE" | "NOT_REQUIRED";
+import type { OnboardingTaskState } from "@/platform/compliance/task-state";
 
 function present(v: string | null | undefined): boolean {
   return typeof v === "string" && v.trim().length > 0;

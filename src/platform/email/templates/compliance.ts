@@ -51,15 +51,6 @@ function fmtDate(d: Date | null): string {
 }
 
 /** Short human phrase per HIPAA status. Consumed by the director-facing digest. */
-export const READABLE_STATUS: Record<ComplianceStatus, string> = {
-  EXPIRING_SOON: "expiring soon",
-  EXPIRED: "expired",
-  NO_CERTIFICATE: "no certificate on file",
-  UNKNOWN_DATE: "completion date needed",
-  PENDING_VERIFICATION: "awaiting verification",
-  COMPLIANT: "compliant",
-};
-
 // ---------------------------------------------------------------------------
 // Context builders
 // ---------------------------------------------------------------------------

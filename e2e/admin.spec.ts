@@ -26,7 +26,8 @@ test("admin searches people and sees Jack Carney", async ({ page }) => {
   await page.fill('input[name="q"]', "Jack");
   // Must use a specific text selector: "Sign out" is also a submit button earlier
   // in the DOM, so a bare button[type="submit"] click hits the wrong target.
-  await page.locator('button[type="submit"]:has-text("Search")').click();
+  // The filter bar submits under "Filter" now (FilterBar), not "Search".
+  await page.locator('button[type="submit"]:has-text("Filter")').click();
   await page.waitForURL((url) => url.searchParams.has("q") && url.searchParams.get("q")!.includes("Jack"));
   await expect(page.getByRole("link", { name: "Jack Carney" })).toBeVisible();
 });

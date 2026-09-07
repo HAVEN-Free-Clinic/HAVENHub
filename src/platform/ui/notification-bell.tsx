@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bell } from "lucide-react";
+import { NotificationRow, notificationRowClasses } from "./notification-row";
 import { markReadAction, markAllReadAction } from "@/platform/notifications/inbox-actions";
 
 type Item = {
@@ -13,17 +14,9 @@ type Item = {
   link: string | null;
   readAt: string | null;
   createdAt: string;
+  /** Formatted server-side in the configured zone (see /api/notifications). */
+  createdAtLabel: string;
 };
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
 
 export function NotificationBell() {
   const router = useRouter();
@@ -152,16 +145,15 @@ export function NotificationBell() {
                   key={item.id}
                   type="button"
                   onClick={() => void openItem(item)}
-                  className="flex w-full flex-col items-start gap-0.5 border-b border-border-subtle px-4 py-2.5 text-left transition-colors hover:bg-muted"
+                  className={`${notificationRowClasses} border-b border-border-subtle`}
                 >
-                  <span className="flex w-full items-center gap-2">
-                    {!item.readAt && (
-                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-                    )}
-                    <span className="text-sm font-medium text-foreground">{item.title}</span>
-                  </span>
-                  <span className="line-clamp-2 text-xs text-muted-foreground">{item.body}</span>
-                  <span className="text-[11px] text-subtle-foreground">{timeAgo(item.createdAt)}</span>
+                  <NotificationRow
+                    title={item.title}
+                    body={item.body}
+                    time={item.createdAtLabel}
+                    iso={item.createdAt}
+                    unread={!item.readAt}
+                  />
                 </button>
               ))
             )}

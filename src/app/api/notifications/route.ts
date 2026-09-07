@@ -3,6 +3,8 @@ import { isDbUnreachableError } from "@/platform/db";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { log, errorAttrs } from "@/platform/logging";
 import { unreadCount, recentNotifications } from "@/platform/notifications/inbox";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates/format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,11 +34,19 @@ export async function GET(): Promise<Response> {
     if (!person) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const [count, recent] = await Promise.all([
+    const [count, recent, zone] = await Promise.all([
       unreadCount(person.id),
       recentNotifications(person.id, 10),
+      getDisplayTimeZone(),
     ]);
-    return Response.json({ unreadCount: count, recent });
+    // The bell is a client component and cannot render <DateTime>, which is an
+    // async server component. Format here instead, in the same configured zone
+    // the /notifications list uses, so one notification reads identically in
+    // both places rather than "3h ago" here and a timestamp one click later.
+    return Response.json({
+      unreadCount: count,
+      recent: recent.map((n) => ({ ...n, createdAtLabel: formatDateTime(n.createdAt, zone) })),
+    });
   } catch (err) {
     if (isDbUnreachableError(err)) {
       log.warn("[notifications] database unreachable reading inbox snapshot", errorAttrs(err));

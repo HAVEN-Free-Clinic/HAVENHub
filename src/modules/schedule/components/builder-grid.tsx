@@ -1,30 +1,44 @@
+"use client";
+
 /**
- * BuilderGrid -- server component rendering a member x clinic-date matrix.
+ * BuilderGrid -- the member x clinic-date matrix.
  *
- * Receives all data from the builder page; performs no data fetching itself.
- * Layout: horizontally scrollable table with a sticky first column (member name).
+ * A client component since the builder became interactive: a cell click writes
+ * through {@link useBuilderBoard} (optimistic locally, one small POST, no
+ * navigation) instead of submitting a form that redirected back to this same URL
+ * and re-ran the entire page load. Assignments come from the board rather than a
+ * prop, so a change made in the Day view -- or by another director, over the
+ * change stream -- lands here without a reload.
+ *
+ * Layout: a bounded scroll box with BOTH headers pinned -- the date row across
+ * the top and the member column down the left -- so the far end of an 18-week
+ * term still says which Saturday and which person a cell belongs to. The box
+ * scrolls, not the page, which is also why the scroll position now survives a
+ * click at all.
  *
  * Interaction model by mode:
- *   assign       -- empty cell posts assignAction(role=VOLUNTEER); filled cell posts unassignAction.
+ *   assign       -- empty cell assigns VOLUNTEER; filled cell unassigns.
  *                   Director-kind members also get VOLUNTEER in grid mode; use the Day view
  *                   for DIRECTOR role assignment (keeps grid actions uniform and simple).
- *   shadow       -- empty cell posts assignAction(role=SHADOW); filled SHADOW cell posts unassignAction.
+ *   shadow       -- empty cell assigns SHADOW; filled SHADOW cell unassigns.
  *                   Non-shadow filled cells are read-only in the grid (role changes via Day view).
  */
 
-import { BuilderCell } from "./builder-cell";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/platform/ui/badge";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
-import { compareBuilderMembers } from "@/modules/schedule/services/builder";
+import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
 import { PROVISIONAL_BADGE_LABEL } from "./provisional-labels";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { useBuilderBoard, type BoardApi } from "./builder-board";
 import {
   ROLE_GLYPH,
+  SHIFT_TAG_KEYS,
   ROLE_LABEL,
   TAG_LABEL,
   TAG_SHORT,
@@ -40,8 +54,6 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type AssignmentsByDate = Record<string, Record<string, BuilderAssignmentEntry>>;
 
 /**
  * One matrix row. Derived from the UNION of three sets:
@@ -60,7 +72,7 @@ type AssignmentsByDate = Record<string, Record<string, BuilderAssignmentEntry>>;
  */
 type GridRow = {
   /**
-   * Row identity, and the personId every cell form posts. For an incoming
+   * Row identity, and the personId every cell writes against. For an incoming
    * applicant with no Person record this is the synthetic acceptance-scoped id
    * from the service, which matches no assignment -- so the row is always empty,
    * and `assignable` below keeps it that way.
@@ -84,7 +96,6 @@ type GridRow = {
 type Props = {
   members: BuilderMember[];
   clinicDates: Date[];
-  assignmentsByDate: AssignmentsByDate;
   /** Clinic date to highlight as the "current week" wayfinding cue. */
   highlightDateKey: string | null;
   /**
@@ -93,11 +104,10 @@ type Props = {
    * Saturday the clinic proper is shut.
    */
   closedDateKeys?: readonly string[];
-  deptId: string;
   deptCode: string;
   mode: "assign" | "shadow";
-  assignAction: (fd: FormData) => Promise<void>;
-  unassignAction: (fd: FormData) => Promise<void>;
+  /** Test seam: a stub board in place of the surrounding provider's. */
+  board?: BoardApi;
 };
 
 // ---------------------------------------------------------------------------
@@ -116,6 +126,9 @@ function tagKeys(deptCode: string): ShiftTagKey[] {
   // any team can be the one covering the day's specialty clinic.
   return [...roles, "remote", "specialty"] as ShiftTagKey[];
 }
+
+// Shared cell chrome, so the eight branches below cannot drift apart.
+const CELL_BASE = "relative border-b border-r border-border text-center align-middle min-w-[52px]";
 
 // ---------------------------------------------------------------------------
 // CellContent -- pure display, no interactivity
@@ -163,6 +176,147 @@ function CellContent({
         </span>
       )}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cell buttons
+// ---------------------------------------------------------------------------
+
+/** Empty grid cell: a compact "+" that assigns. */
+function AssignCellButton({
+  onAssign,
+  ariaLabel,
+  busy,
+}: {
+  onAssign: () => void;
+  ariaLabel: string;
+  busy: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onAssign}
+      disabled={busy}
+      aria-label={ariaLabel}
+      aria-busy={busy}
+      // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
+      className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+    >
+      {busy ? "..." : "+"}
+    </button>
+  );
+}
+
+/**
+ * Filled grid cell with a two-click arm/confirm unassign.
+ *
+ * First click arms the cell (red, "Remove?"); a second click within the same
+ * focus removes. Mirrors the platform ConfirmButton, including its accessibility
+ * decision: arming is cleared by moving focus away, NOT by a timer. A timed
+ * disarm is a WCAG 2.2.1 time limit, and the three-second one this cell used to
+ * run expired before a screen reader had finished announcing the confirm step --
+ * which made removing a shift from the grid impossible by AT.
+ */
+function FilledCellButton({
+  label,
+  ariaLabel,
+  assignment,
+  busy,
+  onRemove,
+}: {
+  label: string;
+  ariaLabel: string;
+  assignment: BuilderAssignmentEntry;
+  busy: boolean;
+  onRemove: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const confirming = useRef(false);
+
+  // A cell that is removed disappears with its armed state; one whose write
+  // fails comes back, and must come back disarmed.
+  useEffect(() => {
+    if (!busy) confirming.current = false;
+  }, [busy]);
+
+  const activeTags = SHIFT_TAG_KEYS.filter((t) => assignment.tags[t]);
+  // The special shift owns the fill; the role keeps the ring and the glyph.
+  const fillTag = primaryTag(assignment.tags);
+
+  if (armed) {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => {
+          confirming.current = true;
+          setArmed(false);
+          onRemove();
+        }}
+        onBlur={() => {
+          if (confirming.current || busy) return;
+          setArmed(false);
+        }}
+        aria-label={`Confirm remove. ${ariaLabel}`}
+        // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
+        className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-critical-faint text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        title="Click again to remove"
+      >
+        <span aria-live="polite" className="text-xs font-semibold leading-none">
+          {busy ? "..." : "Remove?"}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      aria-busy={busy}
+      onClick={() => setArmed(true)}
+      aria-label={ariaLabel}
+      // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
+      className={cx(
+        "flex h-9 w-full min-w-[40px] touch-manipulation flex-col items-center justify-center rounded-lg border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        // Role ring + glyph, so a term of cells says at a glance which are
+        // volunteers and which are shadows.
+        roleRingClasses(assignment.role),
+        // The special shift takes the fill when there is one; otherwise the role
+        // keeps it. `bg-*` here would lose to the inline style anyway, so the
+        // two are mutually exclusive rather than layered.
+        fillTag ? "" : roleFillClass(assignment.role),
+        // Removal is still the action, so the hover state still says red. The
+        // inline fill below would outrank a hover background, so the hover cue
+        // is carried by the ring and the glyph, which are classes.
+        "hover:border-critical/40 hover:text-critical-foreground",
+      )}
+      style={fillTag ? tagCellStyle(fillTag) : undefined}
+      title={ariaLabel}
+    >
+      {busy ? (
+        <span className="text-xs">...</span>
+      ) : (
+        <>
+          <span className="text-xs font-semibold leading-none">{label}</span>
+          {activeTags.length > 0 && (
+            <span className="mt-0.5 inline-flex gap-0.5">
+              {activeTags.map((t) => (
+                <span
+                  key={t}
+                  style={tagChipStyle(t)}
+                  className="rounded-sm px-0.5 text-[10px] font-semibold leading-tight"
+                >
+                  {TAG_SHORT[t]}
+                </span>
+              ))}
+            </span>
+          )}
+        </>
+      )}
+    </button>
   );
 }
 
@@ -229,24 +383,20 @@ type GridCellProps = {
   row: GridRow;
   dateKey: string;
   assignment: BuilderAssignmentEntry | undefined;
-  deptId: string;
   deptCode: string;
   mode: "assign" | "shadow";
   isHighlightDate: boolean;
-  assignAction: (fd: FormData) => Promise<void>;
-  unassignAction: (fd: FormData) => Promise<void>;
+  board: BoardApi;
 };
 
 function GridCell({
   row,
   dateKey,
   assignment,
-  deptId,
   deptCode,
   mode,
   isHighlightDate,
-  assignAction,
-  unassignAction,
+  board,
 }: GridCellProps) {
   const isAvailable = row.availabilityDates.some(
     (d) => isoDateKey(d) === dateKey,
@@ -255,6 +405,7 @@ function GridCell({
   // Muted background when the person is not resolved-available on this date.
   const availBg = isAvailable ? "" : "bg-muted";
   const selectedHighlight = isHighlightDate ? "ring-1 ring-inset ring-brand/40" : "";
+  const cellClass = cx(CELL_BASE, availBg, selectedHighlight);
 
   const memberName = row.name;
   const displayD = displayDate(dateKey);
@@ -267,6 +418,7 @@ function GridCell({
   const availLabel = isAvailable ? "" : ", unavailable";
   const incomingLabel = row.status === "incoming" ? ", incoming" : "";
   const ariaLabel = `${memberName}, ${stateLabel}${availLabel}${incomingLabel}`;
+  const busy = board.isBusy(dateKey, row.personId);
 
   // Non-color cue for unavailable cells: a faint centered middot (decorative).
   const unavailableMarker = isAvailable ? null : (
@@ -278,141 +430,77 @@ function GridCell({
     </span>
   );
 
-  // A row nothing can be assigned to: a former member (only their existing shifts
-  // are actionable, so a filled cell still posts unassign below) or an incoming
-  // applicant with no Hub account. An empty cell renders inert, because otherwise
-  // the grid would offer a "+" that setAssignment rejects.
-  if (!row.assignable && !assignment) {
-    const why =
-      row.status === "former" ? "former member" : "cannot be scheduled yet";
+  // A cell nothing can be done to: an archived term (read-only), a row nothing
+  // can be assigned to -- a former member, whose existing shifts are still
+  // actionable below, or an incoming applicant with no Hub account -- or a
+  // non-shadow assignment while the grid is in shadow mode, where role changes
+  // belong to the Day view. All four render the same inert cell; only the
+  // explanation in the label differs.
+  const inertReason = !board.editable
+    ? "read-only"
+    : !row.assignable && !assignment
+      ? row.status === "former"
+        ? "former member"
+        : "cannot be scheduled yet"
+      : mode === "shadow" && assignment && assignment.role !== "SHADOW"
+        ? "role change via Day view"
+        : null;
+
+  if (inertReason) {
     return (
-      <td
-        className={`relative border border-border px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-        aria-label={`${ariaLabel} (${why})`}
-      >
-        <CellContent assignment={undefined} deptCode={deptCode} />
+      <td className={cx(cellClass, "px-2 py-1.5")} aria-label={`${ariaLabel} (${inertReason})`}>
+        <CellContent assignment={assignment} deptCode={deptCode} />
         {unavailableMarker}
       </td>
     );
   }
 
-  // Assign mode: empty -> VOLUNTEER; filled -> unassign.
-  if (mode === "assign") {
-    if (!assignment) {
-      return (
-        <td
-          className={`relative border border-border px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-        >
-          <BuilderCell
-            action={assignAction}
-            hidden={{
-              departmentId: deptId,
-              dateKey,
-              personId: row.personId,
-              role: "VOLUNTEER",
-            }}
-            label="+"
-            variant="grid"
-            ariaLabel={`Assign ${memberName} as volunteer on ${displayD}${availLabel}${incomingLabel}`}
-          />
-          {unavailableMarker}
-        </td>
-      );
-    }
-    return (
-      <td
-        className={`relative border border-border px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      >
-        <BuilderCell
-          action={unassignAction}
-          hidden={{
-            departmentId: deptId,
-            dateKey,
-            personId: row.personId,
-          }}
-          label={roleGlyph(assignment.role) || "?"}
-          variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}${availLabel}${incomingLabel}`}
-          assignment={assignment}
-        />
-        {unavailableMarker}
-      </td>
-    );
-  }
-
-  // Shadow mode: empty -> SHADOW; filled SHADOW -> unassign; other filled -> read-only.
+  // Empty cell: assign in the grid's current mode.
   if (!assignment) {
+    const role = mode === "shadow" ? "SHADOW" : "VOLUNTEER";
     return (
-      <td
-        className={`relative border border-border px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      >
-        <BuilderCell
-          action={assignAction}
-          hidden={{
-            departmentId: deptId,
-            dateKey,
-            personId: row.personId,
-            role: "SHADOW",
-          }}
-          label="+"
-          variant="grid"
-          ariaLabel={`Assign ${memberName} as shadow on ${displayD}${availLabel}${incomingLabel}`}
+      <td className={cx(cellClass, "px-1 py-1")}>
+        <AssignCellButton
+          onAssign={() => board.assign(dateKey, row.personId, role)}
+          busy={busy}
+          ariaLabel={`Assign ${memberName} as ${role.toLowerCase()} on ${displayD}${availLabel}${incomingLabel}`}
         />
         {unavailableMarker}
       </td>
     );
   }
 
-  if (assignment.role === "SHADOW") {
-    return (
-      <td
-        className={`relative border border-border px-1 py-1 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      >
-        <BuilderCell
-          action={unassignAction}
-          hidden={{
-            departmentId: deptId,
-            dateKey,
-            personId: row.personId,
-          }}
-          label="S"
-          variant="grid-filled"
-          ariaLabel={`Unassign ${memberName} (shadow) from ${displayD}${availLabel}${incomingLabel}`}
-          assignment={assignment}
-        />
-        {unavailableMarker}
-      </td>
-    );
-  }
-
-  // Non-shadow filled cell in shadow mode: read-only.
+  // Filled and actionable: unassign.
   return (
-    <td
-      className={`relative border border-border px-2 py-1.5 text-center align-middle min-w-[52px] ${availBg} ${selectedHighlight}`}
-      aria-label={`${ariaLabel} (role change via Day view)`}
-    >
-      <CellContent assignment={assignment} deptCode={deptCode} />
+    <td className={cx(cellClass, "px-1 py-1")}>
+      <FilledCellButton
+        label={mode === "shadow" ? "S" : roleGlyph(assignment.role) || "?"}
+        assignment={assignment}
+        busy={busy}
+        onRemove={() => board.unassign(dateKey, row.personId)}
+        ariaLabel={`Unassign ${memberName} (${assignment.role.toLowerCase()}) from ${displayD}${availLabel}${incomingLabel}`}
+      />
       {unavailableMarker}
     </td>
   );
 }
 
 // ---------------------------------------------------------------------------
-// BuilderGrid (exported server component)
+// BuilderGrid (exported)
 // ---------------------------------------------------------------------------
 
 export function BuilderGrid({
   members,
   clinicDates,
-  assignmentsByDate,
   highlightDateKey,
   closedDateKeys,
-  deptId,
   deptCode,
   mode,
-  assignAction,
-  unassignAction,
+  board: boardOverride,
 }: Props) {
+  const board = useBuilderBoard(boardOverride);
+  const assignmentsByDate = board.assignments;
+
   // Row set = the builder's member list (confirmed roster members AND incoming
   // ones) UNION any person carrying a live assignment who is in neither.
   // Offboarding drops the ACTIVE membership but leaves ShiftAssignment rows, so a
@@ -435,9 +523,9 @@ export function BuilderGrid({
       availabilityDates: m.availability.dates,
     }));
 
-  // Former assignees: any personId present in assignmentsByDate that the member
-  // list does not cover, identified by the assignment-carried person snapshot.
-  // Deduped across dates; sorted by name and appended last.
+  // Former assignees: any personId present in the board that the member list does
+  // not cover, identified by the assignment-carried person snapshot. Deduped
+  // across dates; sorted by name and appended last.
   const formerRowByPerson = new Map<string, GridRow>();
   for (const byPerson of Object.values(assignmentsByDate)) {
     for (const [pid, entry] of Object.entries(byPerson)) {
@@ -478,17 +566,28 @@ export function BuilderGrid({
       <GridLegend deptCode={deptCode} />
       <div
         className={cx(
-          "overflow-x-auto rounded-2xl border",
+          // The box scrolls in both axes, which is what lets the header row and
+          // the member column stick: `position: sticky` resolves against the
+          // nearest scrollport, and with the page as that scrollport a header
+          // pinned to the top of a table that never scrolls internally simply
+          // never engages. Bounding the height here is what makes the dates stay
+          // in view down an 18-week term.
+          "max-h-[70vh] overflow-auto rounded-2xl border",
           mode === "shadow" ? "border-warning bg-warning/5" : "border-border",
         )}
       >
-        <table className="border-collapse text-sm" aria-label="Schedule grid">
+        {/* border-separate, not the default collapse: collapsed borders are
+            painted by the TABLE, so they scroll out from under a sticky cell and
+            the pinned row loses its lines. Each cell therefore draws its own
+            right and bottom border, and the container draws the outer frame. */}
+        <table className="border-separate border-spacing-0 text-sm" aria-label="Schedule grid">
           <thead>
             <tr className="bg-muted">
-              {/* Sticky header for member column */}
+              {/* Pinned in both axes: this is the corner cell, so it has to
+                  outrank both the header row and the member column. */}
               <th
                 scope="col"
-                className="sticky left-0 z-10 bg-muted border border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[160px]"
+                className="sticky left-0 top-0 z-30 bg-muted border-b border-r border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[160px]"
               >
                 Member
               </th>
@@ -501,8 +600,10 @@ export function BuilderGrid({
                     key={dk}
                     scope="col"
                     className={cx(
-                      "border border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px]",
-                      isHighlight ? "bg-brand text-white" : "text-muted-foreground",
+                      "sticky top-0 z-20 border-b border-r border-border px-2 py-2 text-center text-xs font-medium whitespace-nowrap min-w-[52px]",
+                      // Opaque, always: the rows scroll underneath this cell and
+                      // any transparency would let them show through it.
+                      isHighlight ? "bg-brand text-white" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {displayDate(dk)}
@@ -529,8 +630,8 @@ export function BuilderGrid({
               const isDirector = row.kind === "DIRECTOR";
               return (
                 <tr key={row.personId} className="hover:bg-muted/60">
-                  {/* Sticky member name column */}
-                  <th scope="row" className="sticky left-0 z-10 bg-surface border border-border px-3 py-2 whitespace-nowrap text-left font-normal">
+                  {/* Pinned member name column */}
+                  <th scope="row" className="sticky left-0 z-10 bg-surface border-b border-r border-border px-3 py-2 whitespace-nowrap text-left font-normal">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-medium text-foreground">
                         {row.name}
@@ -574,12 +675,10 @@ export function BuilderGrid({
                         row={row}
                         dateKey={dk}
                         assignment={assignment}
-                        deptId={deptId}
                         deptCode={deptCode}
                         mode={mode}
                         isHighlightDate={dk === highlightDateKey}
-                        assignAction={assignAction}
-                        unassignAction={unassignAction}
+                        board={board}
                       />
                     );
                   })}

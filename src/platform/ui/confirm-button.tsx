@@ -21,6 +21,18 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
    * an unrelated ancestor form by accident.
    */
   onConfirm?: () => void;
+  /**
+   * In-flight flag for the `onConfirm` case, standing in for the useFormStatus
+   * reading that a form gives the default case.
+   *
+   * Needed because an onConfirm handler may be asynchronous -- the Schedule
+   * Builder's Remove buttons write over fetch -- and nothing else can tell this
+   * button that its action is still running. Without it the control returns to
+   * its live idle state the instant the handler is CALLED rather than when it
+   * settles, which is #78 again: a second click double-fires the destructive
+   * action. Ignored inside a form, where useFormStatus already knows.
+   */
+  busy?: boolean;
 };
 
 /**
@@ -72,11 +84,15 @@ export function ConfirmButton({
   onClick,
   onBlur,
   onConfirm,
+  busy,
   disabled,
   ...rest
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
-  const { pending } = useFormStatus();
+  const formStatus = useFormStatus();
+  // Outside a form useFormStatus reports pending: false forever, so in the
+  // onConfirm case the caller's own flag is the only thing that knows.
+  const pending = onConfirm ? (busy ?? false) : formStatus.pending;
   const wasPending = useRef(false);
   // Set synchronously by the confirm click, BEFORE React re-renders with
   // pending=true. Submitting disables the button, the browser blurs the disabled
@@ -112,11 +128,22 @@ export function ConfirmButton({
         onClick?.(e);
         if (armed) {
           if (onConfirm) {
-            // No form, so nothing will flip `pending` and drive the disarm
-            // effect below. Disarm here instead, after the handler runs.
             e.preventDefault();
+            // Same guard the form path uses: the button is about to be disabled,
+            // the browser will blur it, and that blur must not read as "user
+            // moved away, disarm" while the action is still running.
+            confirming.current = true;
             onConfirm();
-            setArmed(false);
+            if (busy === undefined) {
+              // A synchronous handler with no `busy` never moves `pending`, so
+              // the effect below would never fire and the control would sit
+              // armed after it had already acted. Disarm now instead.
+              confirming.current = false;
+              setArmed(false);
+            }
+            // With `busy` wired the effect owns the disarm, so the control stays
+            // armed-and-disabled for the whole action exactly as it does behind
+            // a form -- which is what #78 is about.
           } else {
             // Confirm click: let the native form submit proceed.
             confirming.current = true;

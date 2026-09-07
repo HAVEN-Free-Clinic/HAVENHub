@@ -4,6 +4,14 @@
  * Gate: requireModuleAccess("schedule").
  * Scope: per-department; actor must manage at least one department.
  *
+ * The two boards (grid, Day view) are CLIENT components wrapped in
+ * BuilderBoardProvider: assignments are written over /api/schedule/builder and
+ * pushed back by /api/schedule/builder/stream, so a click neither reloads this
+ * page nor scrolls it back to the top. Everything else here -- the date strip,
+ * the capacity and readiness panels, the request queue, publication -- is
+ * unchanged and still posts a server action, because those are occasional
+ * actions where a full re-render is the correct, cheap answer.
+ *
  * URL params:
  *   ?dept=<departmentId>   -- selected department
  *   ?date=<YYYY-MM-DD>     -- selected clinic date
@@ -29,9 +37,8 @@ import {
   // resolved BuilderView ("day" | "grid" | "availability") from
   // resolveBuilderView -- the service export keeps its real name.
   builderView as loadBuilderView,
+  boardRevision,
   canManageAnyScheduleDept,
-  setAssignment,
-  toggleTag,
   setAvailabilityOverride,
   acknowledgeAvailability,
   setPatientsBooked,
@@ -59,6 +66,11 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { buildTermOptions } from "@/platform/terms/term-options";
 import { prisma } from "@/platform/db";
 import { BuilderGrid } from "@/modules/schedule/components/builder-grid";
+import {
+  BuilderBoardProvider,
+  BuilderBoardStatus,
+  type BoardPerson,
+} from "@/modules/schedule/components/builder-board";
 import { BuilderDayView } from "@/modules/schedule/components/builder-day-view";
 import { BuilderAvailabilityView } from "@/modules/schedule/components/builder-availability-view";
 import { BuilderToolbar, resolveBuilderView } from "@/modules/schedule/components/builder-toolbar";
@@ -234,10 +246,44 @@ export default async function BuilderPage({ searchParams }: PageProps) {
       ...(data.rhd?.directors ?? []).map((d) => d.id),
     ]),
   ];
-  const [profileIds, managesAttendings] = await Promise.all([
+  const [profileIds, managesAttendings, initialRevision] = await Promise.all([
     viewableMemberIds(session.personId, boardPersonIds),
     canManageAttendings(session.personId),
+    // The stamp the client hands back when it opens the change stream, so a
+    // connection that finds nothing changed since this render sends nothing.
+    boardRevision(workingTerm.id, dept.id),
   ]);
+
+  // Identity for everyone the boards can assign, so a cell painted optimistically
+  // carries the same name and capability badges the server would have sent back.
+  // Assignees who are no longer members are included: a former member's leftover
+  // shift is still rendered, and still removable.
+  const boardPeople: Record<string, BoardPerson> = {};
+  for (const m of members) {
+    boardPeople[m.person.id] = {
+      name: m.person.name,
+      verifiedLanguages: m.person.verifiedLanguages,
+      licensedRN: m.person.licensedRN,
+    };
+  }
+  for (const byPerson of Object.values(assignmentsByDate)) {
+    for (const [pid, entry] of Object.entries(byPerson)) {
+      boardPeople[pid] ??= entry.person;
+    }
+  }
+
+  // One board for both views, so the grid and the Day view cannot be handed
+  // different terms, departments or starting assignments.
+  const boardProps = {
+    termId: workingTerm.id,
+    departmentId: dept.id,
+    editable,
+    initialAssignments: assignmentsByDate,
+    initialRevision,
+    people: boardPeople,
+    // An archived term cannot change, so there is nothing to watch for.
+    live: editable,
+  };
 
   function href(overrides: HrefParams): string {
     return buildHref("/schedule/builder", {
@@ -255,56 +301,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   // Server actions
   // ---------------------------------------------------------------------------
 
-  async function assignAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const departmentId = (formData.get("departmentId") as string) ?? "";
-    const dateKey = (formData.get("dateKey") as string) ?? "";
-    const personId = (formData.get("personId") as string) ?? "";
-    const role = (formData.get("role") as "VOLUNTEER" | "SHADOW" | "DIRECTOR") ?? "VOLUNTEER";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
-    await runAction({
-      work: () => setAssignment(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, role }),
-      domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
-      revalidate: "/schedule/builder",
-      successRedirect: base,
-    });
-  }
-
-  async function unassignAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const departmentId = (formData.get("departmentId") as string) ?? "";
-    const dateKey = (formData.get("dateKey") as string) ?? "";
-    const personId = (formData.get("personId") as string) ?? "";
-    const reason = ((formData.get("reason") as string) ?? "").trim() || undefined;
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
-    await runAction({
-      work: () => setAssignment(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, role: null, reason }),
-      domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
-      revalidate: "/schedule/builder",
-      successRedirect: base,
-    });
-  }
-
-  async function toggleTagAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const departmentId = (formData.get("departmentId") as string) ?? "";
-    const dateKey = (formData.get("dateKey") as string) ?? "";
-    const personId = (formData.get("personId") as string) ?? "";
-    const tag = (formData.get("tag") as "triage" | "walkin" | "cc" | "remote") ?? "triage";
-    const base = buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam });
-    await runAction({
-      work: () => toggleTag(actor.personId, { termId: workingTerm.id, departmentId, dateKey, personId, tag }),
-      domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (message) => buildHref("/schedule/builder", { dept: dept.id, date: selectedDateKey, view, mode, gmode, term: termParam, error: "validation", message }),
-      revalidate: "/schedule/builder",
-      successRedirect: base,
-    });
-  }
+  // assignAction / unassignAction / toggleTagAction used to live here, one
+  // server action per cell click, each ending in revalidatePath + redirect back
+  // to this URL. They are gone: the boards write through
+  // /api/schedule/builder instead (see BuilderBoardProvider), which is the whole
+  // reason a click no longer costs a page load or the scroll position. The
+  // authority did not move -- setAssignment and toggleTag still scope-check every
+  // write, and the route calls exactly those.
 
   async function saveOverrideAction(formData: FormData) {
     "use server";
@@ -478,18 +481,10 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     });
   }
 
-  /**
-   * Grid-view fallback for an archived (read-only) term. BuilderGrid renders
-   * every cell as a clickable form regardless of term status, so the archived
-   * banner alone would not stop a click from posting -- this swaps in a no-op
-   * in place of assignAction/unassignAction, keeping the grid itself visible
-   * (per spec) while making every cell inert. setAssignment would reject the
-   * write anyway (loadEditableTerm), so this is a UX nicety, not the
-   * enforcement boundary.
-   */
-  async function readOnlyGridAction(_formData: FormData) {
-    "use server";
-  }
+  // The archived-term no-op grid action is gone with the rest of them: the
+  // boards take `editable` from the provider and render every cell inert
+  // themselves. setAssignment would reject the write anyway (loadEditableTerm),
+  // so this was, and is, a UX nicety rather than the enforcement boundary.
 
   // Day view shows one date at a time; without this, only the brand-filled pill
   // among ~18 in the date strip says which date is being edited, and the Day-view
@@ -565,7 +560,12 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main content. The two assignment boards share one client-side board
+          (BuilderBoardProvider): the grid and the Day view render the same
+          assignments, a click in either has to move both, and a change another
+          director makes has to reach both. Keyed on the term and department so
+          switching either starts from that board's server render rather than
+          carrying the previous one's state across. */}
       <div>
         {mode === "availability" ? (
           <BuilderAvailabilityView
@@ -577,7 +577,9 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             acknowledgeAction={acknowledgeAction}
           />
         ) : view === "grid" ? (
-          <>
+          // refreshOnChange off: the Grid view renders nothing but the board, so
+          // there is no server-derived panel for a click to make stale.
+          <BuilderBoardProvider key={`${workingTerm.id}:${dept.id}`} {...boardProps} refreshOnChange={false}>
             <div className="mb-4 flex flex-col gap-3">
               {gmode === "shadow" && (
                 <Alert tone="warning">
@@ -612,21 +614,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 </nav>
               </div>
             </div>
+            <BuilderBoardStatus />
             <BuilderGrid
               members={members}
               clinicDates={clinicDates}
-              assignmentsByDate={assignmentsByDate}
               highlightDateKey={currentClinicDateKey}
               closedDateKeys={Object.keys(closedDates)}
-              deptId={dept.id}
               deptCode={dept.code}
               mode={gmode}
-              assignAction={editable ? assignAction : readOnlyGridAction}
-              unassignAction={editable ? unassignAction : readOnlyGridAction}
             />
-          </>
+          </BuilderBoardProvider>
         ) : (
-          <>
+          <BuilderBoardProvider key={`${workingTerm.id}:${dept.id}`} {...boardProps}>
             {selectedDisplay && <SectionHeader as="h2" level="title" className="mb-4">{selectedDisplay}</SectionHeader>}
             {/* A closed date stays fully editable -- departments still staff
                 triage on a Saturday the clinic proper is shut -- so this states
@@ -640,16 +639,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 weekly reminder tells whoever you assign that the clinic is shut.
               </Alert>
             )}
+            <BuilderBoardStatus />
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_280px]">
               <BuilderDayView
-                data={data}
+                members={members}
+                conflicts={data.conflicts}
+                banner={data.banner}
+                clearedPersonIds={data.clearedPersonIds}
                 dept={dept}
                 selectedDateKey={selectedDateKey}
-                editable={editable}
-                profilePersonIds={profileIds}
-                assignAction={assignAction}
-                unassignAction={unassignAction}
-                toggleTagAction={toggleTagAction}
+                // A Set does not survive the RSC boundary, and this view is a
+                // client component now.
+                profilePersonIds={[...profileIds]}
               />
 
               {/* Column 3: Sidebar */}
@@ -711,7 +712,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                 )}
               </div>
             </div>
-          </>
+          </BuilderBoardProvider>
         )}
       </div>
     </div>

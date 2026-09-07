@@ -68,12 +68,6 @@ const EXEMPT: Record<string, { count: number; reason: string }> = {
       "delegates to markAllReadAction, which calls requirePersonSession itself " +
       "(src/platform/notifications/inbox-actions.ts)",
   },
-  "src/app/(app)/schedule/builder/page.tsx": {
-    count: 1,
-    reason:
-      "readOnlyGridAction: an empty no-op swapped in for an archived term so the " +
-      "grid's cells post nothing at all",
-  },
 };
 
 type Closure = { file: string; line: number; guarded: boolean };

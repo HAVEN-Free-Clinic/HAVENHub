@@ -1,12 +1,29 @@
-import type { ReactNode } from "react";
+"use client";
+
+/**
+ * Day view -- Assigned / Available to assign, for one clinic date.
+ *
+ * A client component since the builder became interactive. Every assign, role
+ * change, tag toggle and removal writes through {@link useBuilderBoard}: applied
+ * to the board at once, POSTed, reconciled. It used to post a form per button and
+ * redirect back to this same URL, which re-ran the whole page load and scrolled
+ * the page back to the top -- from the bottom of a fifty-person pool, on every
+ * single click.
+ *
+ * Props are narrowed to exactly what this view reads rather than the whole
+ * builderView: everything here crosses the RSC boundary now, so the page pays for
+ * each field it hands over.
+ */
+
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
+import { Button } from "@/platform/ui/button";
 import { PersonName } from "@/platform/ui/person-name";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { AlertTriangle } from "lucide-react";
-import { BuilderCell } from "./builder-cell";
 import { IntakeNotes } from "./intake-notes";
 import {
   PROVISIONAL_BADGE_LABEL,
@@ -15,55 +32,115 @@ import {
 } from "./provisional-labels";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
-import { compareBuilderMembers } from "@/modules/schedule/services/builder";
-import type { builderView, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
+import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
+import type { BuilderMember, ShiftTag } from "@/modules/schedule/services/builder";
+import { useBuilderBoard, type BoardApi } from "./builder-board";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 
 // ---------------------------------------------------------------------------
-// Day view -- Assigned / Available to assign columns
+// Props
 // ---------------------------------------------------------------------------
 
 export type BuilderDayViewProps = {
-  data: Awaited<ReturnType<typeof builderView>>;
+  members: BuilderMember[];
+  /** Map: personId -> other-department names this person also works that day. */
+  conflicts: Record<string, string[]>;
+  /** Not-cleared volunteers scheduled on this date, for the clearance banner. */
+  banner: { notCleared: { id: string; name: string }[] }[];
+  /** Members fully cleared for this date, for the verified badge. */
+  clearedPersonIds: string[];
   dept: { id: string; code: string; name: string };
   selectedDateKey: string | null;
-  editable: boolean;
   /**
    * The people whose profile this viewer may open (see platform/member-profile).
    * Names in that set become links to their contact details and the reasons they
    * are or are not cleared; everyone else renders as plain text rather than as a
    * link that would bounce to /no-access.
    *
-   * A plain Set, not a string[]: this is a server component rendering inside
-   * another server component, so nothing crosses a serialization boundary.
+   * A plain array, not a Set: this component is a client component now, and a Set
+   * does not survive the RSC boundary.
    */
-  profilePersonIds: Set<string>;
-  assignAction: (fd: FormData) => Promise<void>;
-  unassignAction: (fd: FormData) => Promise<void>;
-  toggleTagAction: (fd: FormData) => Promise<void>;
+  profilePersonIds: string[];
+  /** Test seam: a stub board in place of the surrounding provider's. */
+  board?: BoardApi;
 };
 
+/** The tag toggles offered for a department, in a stable order. */
+function tagsForDept(deptCode: string): ShiftTag[] {
+  return [...rolesForDept(deptCode), "remote", "specialty"] as ShiftTag[];
+}
+
+function tagLabel(tag: ShiftTag): string {
+  return tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1);
+}
+
+// ---------------------------------------------------------------------------
+// Removal with an optional reason
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove a volunteer, optionally saying why. The reason is captured into the
+ * audit trail by setAssignment; it is held here rather than in the board because
+ * it belongs to one click, not to the schedule.
+ */
+function RemoveWithReason({
+  onRemove,
+  busy,
+}: {
+  onRemove: (reason: string) => void;
+  busy: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Input
+        name="reason"
+        aria-label="Removal reason"
+        placeholder="Reason (optional)"
+        className="flex-1 min-w-32"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <ConfirmButton
+        label="Remove"
+        confirmLabel="Remove this volunteer?"
+        busy={busy}
+        onConfirm={() => onRemove(reason.trim())}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Day view
+// ---------------------------------------------------------------------------
+
 export function BuilderDayView({
-  data,
+  members,
+  conflicts,
+  banner,
+  clearedPersonIds,
   dept,
   selectedDateKey,
-  editable,
   profilePersonIds,
-  assignAction,
-  unassignAction,
-  toggleTagAction,
+  board: boardOverride,
 }: BuilderDayViewProps) {
-  const { members, assignmentsByDate, conflicts } = data;
+  const board = useBuilderBoard(boardOverride);
+  const editable = board.editable;
+  const dateKey = selectedDateKey ?? "";
+
   // Every builder user already sees clearance here: the not-cleared banner names
   // volunteers outright. So the badge is shown to the whole builder audience
   // rather than gated on volunteers.view the way passive surfaces are -- gating
   // it would hide from a director exactly what the banner above already tells
   // them, on the one screen where clearance changes a decision.
-  const clearedIds = new Set(data.clearedPersonIds);
+  const clearedIds = new Set(clearedPersonIds);
+  const profileIds = new Set(profilePersonIds);
 
-  const assignmentsOnDate: Record<string, BuilderAssignmentEntry> =
-    selectedDateKey ? (assignmentsByDate[selectedDateKey] ?? {}) : {};
+  const assignmentsOnDate = selectedDateKey
+    ? (board.assignments[selectedDateKey] ?? {})
+    : {};
 
   const memberByPersonId = new Map(members.map((m) => [m.person.id, m]));
 
@@ -110,11 +187,36 @@ export function BuilderDayView({
    * answer it was to leave the builder and search the compliance list.
    */
   function profileLink(personId: string, label: ReactNode): ReactNode {
-    if (!profilePersonIds.has(personId)) return label;
+    if (!profileIds.has(personId)) return label;
     return (
       <Link href={`/volunteers/compliance/${personId}`} className="hover:underline">
         {label}
       </Link>
+    );
+  }
+
+  /** The tag toggle row shared by the director and volunteer cards. */
+  function tagToggles(pid: string): ReactNode {
+    const tags = assignmentsOnDate[pid]?.tags;
+    if (!tags) return null;
+    const busy = board.isBusy(dateKey, pid);
+    return (
+      <div className="mt-2 flex flex-wrap gap-1">
+        {tagsForDept(dept.code).map((tag) => (
+          <Button
+            key={tag}
+            type="button"
+            variant={tags[tag] ? "primary" : "outline"}
+            size="sm"
+            className="text-xs px-2 py-0.5"
+            aria-pressed={tags[tag]}
+            disabled={busy}
+            onClick={() => board.toggleTag(dateKey, pid, tag)}
+          >
+            {tagLabel(tag)}
+          </Button>
+        ))}
+      </div>
     );
   }
 
@@ -174,7 +276,8 @@ export function BuilderDayView({
     // buttons. Everyone else incoming is assignable exactly like a member: the
     // shift is real, and simply stays inert until roster build gives them the
     // membership every outbound path filters on.
-    const canAssign = editable && blockedReason === null;
+    const canAssign = editable && blockedReason === null && selectedDateKey !== null;
+    const busy = board.isBusy(dateKey, member.person.id);
     return (
       <Card
         key={member.person.id}
@@ -204,40 +307,34 @@ export function BuilderDayView({
         {canAssign && (
           <div className="flex flex-wrap gap-2">
             {isDirectorKind && (
-              <BuilderCell
-                action={assignAction}
-                hidden={{
-                  departmentId: dept.id,
-                  dateKey: selectedDateKey ?? "",
-                  personId: member.person.id,
-                  role: "DIRECTOR",
-                }}
-                label="Assign as director"
-                variant="assign"
-              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => board.assign(dateKey, member.person.id, "DIRECTOR")}
+              >
+                Assign as director
+              </Button>
             )}
-            <BuilderCell
-              action={assignAction}
-              hidden={{
-                departmentId: dept.id,
-                dateKey: selectedDateKey ?? "",
-                personId: member.person.id,
-                role: "VOLUNTEER",
-              }}
-              label="Assign as volunteer"
-              variant="assign"
-            />
-            <BuilderCell
-              action={assignAction}
-              hidden={{
-                departmentId: dept.id,
-                dateKey: selectedDateKey ?? "",
-                personId: member.person.id,
-                role: "SHADOW",
-              }}
-              label="Assign as shadow"
-              variant="assign"
-            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => board.assign(dateKey, member.person.id, "VOLUNTEER")}
+            >
+              Assign as volunteer
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => board.assign(dateKey, member.person.id, "SHADOW")}
+            >
+              Assign as shadow
+            </Button>
           </div>
         )}
         <IntakeNotes intake={member.intake} />
@@ -256,18 +353,21 @@ export function BuilderDayView({
           </Badge>
         </div>
 
-        {/* Clearance banner: volunteers scheduled here who are not fully cleared */}
-        {data.banner.length > 0 && (
+        {/* Clearance banner: volunteers scheduled here who are not fully cleared.
+            Server-computed, so it trails the board by one background refresh
+            after a change made here; the names on it are still the names it
+            named, never a stale claim about someone who has been removed. */}
+        {banner.length > 0 && (
           <Card size="compact" pad={false} role="status" className="mb-4 px-4 py-3 text-sm text-foreground-soft">
             <p className="font-semibold mb-1 flex items-center gap-1.5 text-foreground">
               <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
               Clearance issues on this date
             </p>
             <ul className="list-disc list-inside space-y-0.5">
-              {data.banner.flatMap((b) =>
-                b.notCleared.map((v) => (
-                  <li key={v.id}>{v.name}</li>
-                ))
+              {banner.flatMap((b) =>
+                b.notCleared
+                  .filter((v) => assignedPersonIds.has(v.id))
+                  .map((v) => <li key={v.id}>{v.name}</li>),
               )}
             </ul>
           </Card>
@@ -284,12 +384,6 @@ export function BuilderDayView({
             <div className="flex flex-col gap-2">
               {assignedDirectors.map((pid) => {
                 const { name, flagPerson } = assigneeInfo(pid);
-                // Directors carry the same per-assignment flags volunteers do:
-                // a director can hold the triage post or work the day remotely,
-                // and the full schedule surfaces those to the whole clinic. The
-                // toggles were previously volunteer-only, so the flags existed
-                // on the row but there was no way to set them for a director.
-                const tags = assignmentsOnDate[pid]?.tags;
                 return (
                   <Card key={pid} pad={false} className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -297,27 +391,20 @@ export function BuilderDayView({
                       {flagPerson && flagBadges(flagPerson)}
                       {incomingBadge(pid)}
                     </div>
-                    {editable && tags && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {([...rolesForDept(dept.code), "remote", "specialty"] as Array<"triage" | "walkin" | "cc" | "remote" | "specialty">).map((tag) => (
-                          <BuilderCell
-                            key={tag}
-                            action={toggleTagAction}
-                            hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
-                            label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
-                            pressed={tags[tag]}
-                            variant="tag"
-                          />
-                        ))}
-                      </div>
-                    )}
+                    {/* Directors carry the same per-assignment flags volunteers
+                        do: a director can hold the triage post or work the day
+                        remotely, and the full schedule surfaces those to the
+                        whole clinic. */}
+                    {editable && tagToggles(pid)}
                     {editable && (
-                      <form action={unassignAction} className="mt-2 flex items-center justify-end gap-2">
-                        <input type="hidden" name="departmentId" value={dept.id} />
-                        <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                        <input type="hidden" name="personId" value={pid} />
-                        <ConfirmButton label="Remove" confirmLabel="Remove this director?" />
-                      </form>
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <ConfirmButton
+                          label="Remove"
+                          confirmLabel="Remove this director?"
+                          busy={board.isBusy(dateKey, pid)}
+                          onConfirm={() => board.unassign(dateKey, pid)}
+                        />
+                      </div>
                     )}
                   </Card>
                 );
@@ -337,8 +424,6 @@ export function BuilderDayView({
             <div className="flex flex-col gap-2">
               {assignedVolunteers.map((pid) => {
                 const { name, flagPerson } = assigneeInfo(pid);
-                const assignment = assignmentsOnDate[pid]!;
-                const tags = assignment.tags;
                 const personConflicts = conflicts[pid] ?? [];
                 return (
                   <Card key={pid} pad={false} className="px-3 py-2">
@@ -352,28 +437,12 @@ export function BuilderDayView({
                         </Badge>
                       )}
                     </div>
+                    {editable && tagToggles(pid)}
                     {editable && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {([...rolesForDept(dept.code), "remote", "specialty"] as Array<"triage" | "walkin" | "cc" | "remote" | "specialty">).map((tag) => (
-                          <BuilderCell
-                            key={tag}
-                            action={toggleTagAction}
-                            hidden={{ departmentId: dept.id, dateKey: selectedDateKey ?? "", personId: pid, tag }}
-                            label={tag === "walkin" ? "Walk-in" : tag.charAt(0).toUpperCase() + tag.slice(1)}
-                            pressed={tags[tag]}
-                            variant="tag"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {editable && (
-                      <form action={unassignAction} className="mt-2 flex flex-wrap items-center gap-2">
-                        <input type="hidden" name="departmentId" value={dept.id} />
-                        <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                        <input type="hidden" name="personId" value={pid} />
-                        <Input name="reason" aria-label="Removal reason" placeholder="Reason (optional)" className="flex-1 min-w-32" />
-                        <ConfirmButton label="Remove" confirmLabel="Remove this volunteer?" />
-                      </form>
+                      <RemoveWithReason
+                        busy={board.isBusy(dateKey, pid)}
+                        onRemove={(reason) => board.unassign(dateKey, pid, reason || undefined)}
+                      />
                     )}
                   </Card>
                 );
@@ -401,12 +470,12 @@ export function BuilderDayView({
                       {incomingBadge(pid)}
                     </span>
                     {editable && (
-                      <form action={unassignAction} className="flex items-center gap-2">
-                        <input type="hidden" name="departmentId" value={dept.id} />
-                        <input type="hidden" name="dateKey" value={selectedDateKey ?? ""} />
-                        <input type="hidden" name="personId" value={pid} />
-                        <ConfirmButton label="Remove" confirmLabel="Remove this shadow?" />
-                      </form>
+                      <ConfirmButton
+                        label="Remove"
+                        confirmLabel="Remove this shadow?"
+                        busy={board.isBusy(dateKey, pid)}
+                        onConfirm={() => board.unassign(dateKey, pid)}
+                      />
                     )}
                   </Card>
                 );

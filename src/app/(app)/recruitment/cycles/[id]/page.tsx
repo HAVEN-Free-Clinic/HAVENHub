@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
@@ -26,6 +25,7 @@ import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHIVED: "default" } as const;
 
@@ -155,9 +155,9 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         {cycle.status === "OPEN" ? (
           <div className="mt-1 space-y-1">
             {liveByWindow ? (
-              <a className="inline-block text-sm font-medium text-brand-fg hover:text-brand-hover" href={applyUrl}>
+              <TextLink href={applyUrl} size="sm" className="inline-block font-medium">
                 {applyUrl}
-              </a>
+              </TextLink>
             ) : (
               <p className="text-sm text-muted-foreground">{applyUrl}</p>
             )}
@@ -296,17 +296,17 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               {gradedQuestionCount === 0 ? (
                 <p className="text-sm text-warning-foreground">
                   No quiz questions with an answer key yet. Nobody can pass this quiz until you add some.{" "}
-                  <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium text-brand-fg hover:text-brand-hover">
+                  <TextLink href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium">
                     Add quiz questions
-                  </Link>
+                  </TextLink>
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {gradedQuestionCount} of {totalQuestionCount} question{totalQuestionCount === 1 ? "" : "s"}{" "}
                   {totalQuestionCount === 1 ? "has" : "have"} an answer key.{" "}
-                  <Link href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium text-brand-fg hover:text-brand-hover">
+                  <TextLink href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium">
                     Edit quiz questions
-                  </Link>
+                  </TextLink>
                 </p>
               )}
               <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">

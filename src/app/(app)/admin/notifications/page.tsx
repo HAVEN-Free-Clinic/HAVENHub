@@ -6,7 +6,6 @@
  * FALLBACK, and LOGGED messages. Gates on admin.manage_sync.
  */
 
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { SearchX } from "lucide-react";
@@ -33,6 +32,7 @@ import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
 import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -156,12 +156,9 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       {/* Intro line */}
       <p className="text-sm text-muted-foreground">
         Choose Email, Teams, or Both per notification type in{" "}
-        <Link
-          href="/admin/settings"
-          className="font-medium underline underline-offset-2"
-        >
+        <TextLink href="/admin/settings" className="font-medium">
           Settings &gt; Notifications
-        </Link>
+        </TextLink>
         .
       </p>
 
@@ -170,12 +167,9 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         <Alert tone="warning">
           {counts.logged} message(s) were recorded in Log mode and NOT actually
           sent. Set Email transport to Microsoft Graph in{" "}
-          <Link
-            href="/admin/settings"
-            className="font-medium underline underline-offset-2"
-          >
+          <TextLink href="/admin/settings" className="font-medium">
             Settings &gt; Email
-          </Link>
+          </TextLink>
           , then retry them.
         </Alert>
       )}

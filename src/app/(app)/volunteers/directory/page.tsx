@@ -18,7 +18,6 @@
  * one action, and it is audited server-side.
  */
 
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -36,6 +35,7 @@ import { Badge } from "@/platform/ui/badge";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Alert } from "@/platform/ui/alert";
 import { EmailList } from "@/platform/ui/email-list";
+import { TextLink } from "@/platform/ui/text-link";
 import { DirectoryExportButton } from "@/modules/volunteers/components/directory-export-button";
 import {
   directorySummary,
@@ -196,12 +196,11 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               {breakdown.map((row) => (
                 <TR key={row.departmentId}>
                   <TD className="font-medium">
-                    <Link
+                    <TextLink
                       href={`/volunteers/directory?departmentId=${row.departmentId}`}
-                      className="text-brand-fg underline underline-offset-2 hover:opacity-75"
                     >
                       {row.code}
-                    </Link>
+                    </TextLink>
                     <span className="block text-xs font-normal text-subtle-foreground">
                       {row.name}
                     </span>
@@ -351,12 +350,9 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                         already presents a clinic-wide roster this way. */}
                     <TD className="font-medium">
                       {canOpenProfile ? (
-                        <Link
-                          href={`/volunteers/compliance/${p.id}`}
-                          className="text-brand-fg underline underline-offset-2 hover:opacity-75"
-                        >
+                        <TextLink href={`/volunteers/compliance/${p.id}`}>
                           {p.name}
-                        </Link>
+                        </TextLink>
                       ) : (
                         p.name
                       )}

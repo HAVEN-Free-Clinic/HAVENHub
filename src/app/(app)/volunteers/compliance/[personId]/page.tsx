@@ -18,7 +18,6 @@
 
 import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -26,6 +25,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { PersonPhoto } from "@/platform/ui/person-photo";
+import { TextLink } from "@/platform/ui/text-link";
 import { can } from "@/platform/rbac/engine";
 import { canViewMemberProfile } from "@/platform/member-profile";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -188,9 +188,9 @@ export default async function PersonCompliancePage({ params }: PageProps) {
   return (
     <div>
       <div className="mb-2">
-        <Link href={backHref} className="text-sm text-brand-fg hover:opacity-75">
+        <TextLink href={backHref} size="sm">
           {backLabel}
-        </Link>
+        </TextLink>
       </div>
       <PageHeader
         title={person.name}

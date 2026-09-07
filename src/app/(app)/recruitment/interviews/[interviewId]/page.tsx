@@ -23,6 +23,7 @@ import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
@@ -145,14 +146,9 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
               <dt className="text-xs text-subtle-foreground">Zoom link</dt>
               <dd>
                 {iv.zoomLink ? (
-                  <a
-                    className="break-all font-medium text-brand-fg hover:text-brand-hover"
-                    href={iv.zoomLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <TextLink href={iv.zoomLink} external className="break-all font-medium">
                     {iv.zoomLink}
-                  </a>
+                  </TextLink>
                 ) : (
                   <span className="text-muted-foreground">Not shared yet</span>
                 )}

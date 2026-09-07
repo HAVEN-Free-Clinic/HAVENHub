@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -7,6 +6,7 @@ import { sendLinksAction, promoteAction, withdrawAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
+import { TextLink } from "@/platform/ui/text-link";
 import { OnboardingTable } from "@/modules/recruitment/components/onboarding-table";
 
 export default async function OnboardingPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,9 +46,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
           Applicants accepted by more than one department are marked{" "}
           <span className="font-medium text-foreground-soft">Conflict</span> and can&apos;t be onboarded until you resolve
           them on the{" "}
-          <Link className="text-brand-fg hover:text-brand-hover" href={`/recruitment/cycles/${id}/decisions`}>
-            Decisions
-          </Link>{" "}
+          <TextLink href={`/recruitment/cycles/${id}/decisions`}>Decisions</TextLink>{" "}
           page.
         </p>
       )}

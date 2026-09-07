@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Wrench } from "lucide-react";
 import { auth } from "@/platform/auth/auth";
@@ -7,6 +6,7 @@ import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
+import { TextLink } from "@/platform/ui/text-link";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import {
@@ -98,15 +98,12 @@ export default async function MaintenancePage() {
               this page until you do.
             </p>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/" className="font-medium text-brand-fg underline underline-offset-2">
+              <TextLink href="/" className="font-medium">
                 Continue to the hub
-              </Link>
-              <Link
-                href="/admin/settings"
-                className="font-medium text-brand-fg underline underline-offset-2"
-              >
+              </TextLink>
+              <TextLink href="/admin/settings" className="font-medium">
                 Turn maintenance off
-              </Link>
+              </TextLink>
             </p>
           </div>
         )}

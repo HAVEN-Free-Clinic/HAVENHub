@@ -6,7 +6,6 @@
  * emails. Gates on admin.manage_sync.
  */
 
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
@@ -51,6 +50,7 @@ import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
 import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -284,20 +284,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
           canCampaigns || canTemplates ? (
             <div className="flex gap-4">
               {canCampaigns && (
-                <Link
-                  href="/outreach/campaigns"
-                  className="text-sm font-medium underline underline-offset-2"
-                >
+                <TextLink href="/outreach/campaigns" size="sm" className="font-medium">
                   Campaigns
-                </Link>
+                </TextLink>
               )}
               {canTemplates && (
-                <Link
-                  href="/admin/email/templates"
-                  className="text-sm font-medium underline underline-offset-2"
-                >
+                <TextLink href="/admin/email/templates" size="sm" className="font-medium">
                   Manage templates
-                </Link>
+                </TextLink>
               )}
             </div>
           ) : undefined

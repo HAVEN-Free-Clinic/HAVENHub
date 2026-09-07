@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { canManageAttendings } from "@/modules/schedule/services/attendings";
@@ -23,6 +22,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Input } from "@/platform/ui/input";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
 
 /**
  * Attending credentialing, the pipeline Faculty Relations runs before a new
@@ -146,12 +146,12 @@ export default async function CredentialingPage({ searchParams }: PageProps) {
                         <form action={saveAction} id={`cred-${row.attendingId}`}>
                           <input type="hidden" name="attendingId" value={row.attendingId} />
                         </form>
-                        <Link
+                        <TextLink
                           href={`/schedule/attendings/${row.attendingId}`}
-                          className="font-medium text-brand-fg hover:underline"
+                          className="font-medium"
                         >
                           {row.scheduleName}
-                        </Link>
+                        </TextLink>
                         <span className="block text-xs text-subtle-foreground">
                           {row.specialtyName ?? "No specialty"}
                         </span>

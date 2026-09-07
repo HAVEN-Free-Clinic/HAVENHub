@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
@@ -9,6 +8,7 @@ import { buildPageMetadata } from "@/platform/branding/metadata";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Alert } from "@/platform/ui/alert";
 import { buttonClasses } from "@/platform/ui/button";
+import { TextLink } from "@/platform/ui/text-link";
 import { RetryMessageForm } from "./retry-message-form";
 
 /**
@@ -124,9 +124,9 @@ export default async function TriageChatCreatedPage({
         </div>
       )}
 
-      <Link className="text-sm underline" href="/schedule/triage-chats">
+      <TextLink href="/schedule/triage-chats" size="sm">
         Back to triage chats
-      </Link>
+      </TextLink>
     </div>
   );
 }

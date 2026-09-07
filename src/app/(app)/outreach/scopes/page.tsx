@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { listScopes, createScope } from "@/platform/email/audience/scopes";
@@ -10,6 +9,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 export default async function ScopesPage() {
   await requirePermission("outreach.manage_scopes");
@@ -56,12 +56,13 @@ export default async function ScopesPage() {
         <ul className={`${cardClasses({ pad: false })} divide-y`}>
           {scopes.map((s) => (
             <li key={s.id} className="flex items-center justify-between px-5 py-3">
-              <Link
-                className="text-sm font-medium underline underline-offset-2"
+              <TextLink
+                size="sm"
+                className="font-medium"
                 href={`/outreach/scopes/${s.id}`}
               >
                 {s.name}
-              </Link>
+              </TextLink>
               <span className="text-xs text-subtle-foreground">
                 {s.audience.conditions.length} condition(s)
               </span>

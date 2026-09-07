@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -6,6 +5,7 @@ import { Button } from "@/platform/ui/button";
 import { NavForm } from "@/platform/ui/nav-form";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
+import { TextLink } from "@/platform/ui/text-link";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
@@ -30,9 +30,9 @@ export default async function LearningDashboardPage({
           No courses exist yet.{" "}
           {canManage ? (
             <>
-              <Link href="/learning/manage" className="font-medium text-brand-fg hover:underline">
+              <TextLink href="/learning/manage" className="font-medium">
                 Create a course
-              </Link>{" "}
+              </TextLink>{" "}
               to start tracking completion.
             </>
           ) : (

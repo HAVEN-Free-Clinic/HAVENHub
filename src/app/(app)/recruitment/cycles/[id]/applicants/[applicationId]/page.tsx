@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { isDisplayOnlyNotice, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
@@ -31,6 +30,7 @@ import { prisma } from "@/platform/db";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -240,9 +240,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
                       <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
                     ) : fileVal?.storedName ? (
-                      <a href={fileHref} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-fg hover:underline">
+                      <TextLink href={fileHref} external className="font-medium">
                         {display}
-                      </a>
+                      </TextLink>
                     ) : (
                       display
                     )}
@@ -345,9 +345,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             <ul className="mt-3 space-y-1 text-sm">
               {existingInterviews.map((iv) => (
                 <li key={iv.id}>
-                  <Link className="font-medium text-brand-fg hover:text-brand-hover" href={`/recruitment/interviews/${iv.id}`}>
+                  <TextLink className="font-medium" href={`/recruitment/interviews/${iv.id}`}>
                     Interview for {iv.departmentCode}
-                  </Link>
+                  </TextLink>
                 </li>
               ))}
             </ul>

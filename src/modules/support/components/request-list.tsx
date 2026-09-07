@@ -18,7 +18,6 @@
  * already) -- there is no Intercom API call anywhere in this component.
  */
 
-import Link from "next/link";
 import { Card } from "@/platform/ui/card";
 import { PersonName } from "@/platform/ui/person-name";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -26,6 +25,7 @@ import { DateOnly } from "@/platform/dates/display";
 import { intercomConversationUrl } from "@/platform/intercom/config";
 import { ContinueConversationButton } from "@/platform/intercom/messenger-actions";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
+import { TextLink } from "@/platform/ui/text-link";
 import { SupportStatusBadge } from "./status-badge";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestListRow } from "../services/tech-request";
@@ -116,12 +116,9 @@ export function RequestList({
           <TR key={row.id}>
             <TD className="text-muted-foreground tabular-nums">{row.number}</TD>
             <TD>
-              <Link
-                href={`${hrefBase}/${row.id}`}
-                className="font-medium text-brand-fg hover:underline"
-              >
+              <TextLink href={`${hrefBase}/${row.id}`} className="font-medium">
                 {row.subject}
-              </Link>
+              </TextLink>
             </TD>
             <TD className="text-muted-foreground">{CATEGORY_LABELS[row.category]}</TD>
             {showRequester && (

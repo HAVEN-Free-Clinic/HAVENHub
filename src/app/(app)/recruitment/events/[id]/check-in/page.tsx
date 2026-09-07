@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import {
@@ -11,6 +10,7 @@ import { formatDateTime } from "@/platform/dates";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Alert } from "@/platform/ui/alert";
+import { TextLink } from "@/platform/ui/text-link";
 import { CheckInKiosk } from "@/modules/recruitment/components/check-in-kiosk";
 import { checkInAction } from "../../actions";
 import { KIND_LABELS } from "../../kind-labels";
@@ -67,12 +67,13 @@ export default async function EventCheckInPage({ params }: { params: Promise<{ i
         allowWalkUps={authority.all}
       />
 
-      <Link
+      <TextLink
         href={`/recruitment/events/${id}`}
-        className="inline-block text-sm font-medium text-brand hover:underline"
+        size="sm"
+        className="inline-block font-medium"
       >
         Back to the attendance list
-      </Link>
+      </TextLink>
     </div>
   );
 }

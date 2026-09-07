@@ -38,6 +38,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
+import { TextLink } from "@/platform/ui/text-link";
 
 /**
  * Language review queue for the interpreting department.
@@ -412,12 +413,9 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                     <TR key={r.id}>
                       <TD className="font-medium">
                         {r.personId ? (
-                          <Link
-                            href={`/volunteers/compliance/${r.personId}`}
-                            className="text-brand-fg hover:underline"
-                          >
+                          <TextLink href={`/volunteers/compliance/${r.personId}`}>
                             {r.displayName ?? "Unnamed"}
-                          </Link>
+                          </TextLink>
                         ) : (
                           (r.displayName ?? <span className="text-subtle-foreground">-</span>)
                         )}
@@ -562,12 +560,9 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 {mismatches.map((m) => (
                   <TR key={m.personId}>
                     <TD className="font-medium">
-                      <Link
-                        href={`/volunteers/compliance/${m.personId}`}
-                        className="text-brand-fg hover:underline"
-                      >
+                      <TextLink href={`/volunteers/compliance/${m.personId}`}>
                         {m.name}
-                      </Link>
+                      </TextLink>
                     </TD>
                     <TD className="text-muted-foreground">
                       {m.netId ?? <span className="text-subtle-foreground">-</span>}
@@ -765,20 +760,20 @@ function Pagination({
       </p>
       <div className="flex gap-2">
         {page > 1 && (
-          <Link
+          <TextLink
             href={tabHref("history", { term, q: search, page: String(page - 1) })}
-            className="text-xs text-brand-fg hover:underline"
+            size="xs"
           >
             Previous
-          </Link>
+          </TextLink>
         )}
         {page < pageCount && (
-          <Link
+          <TextLink
             href={tabHref("history", { term, q: search, page: String(page + 1) })}
-            className="text-xs text-brand-fg hover:underline"
+            size="xs"
           >
             Next
-          </Link>
+          </TextLink>
         )}
       </div>
     </div>

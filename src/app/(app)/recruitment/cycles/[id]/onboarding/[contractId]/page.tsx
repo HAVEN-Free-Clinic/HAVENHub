@@ -14,6 +14,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 function safeLayout(value: unknown): ContractLayout {
   if (value == null) return DEFAULT_CONTRACT_LAYOUT;
@@ -66,14 +67,9 @@ export default async function SignedContractPage({ params }: { params: Promise<{
               <dt className="text-xs text-subtle-foreground">{f.label}</dt>
               <dd className="text-sm text-foreground">
                 {f.cert ? (
-                  <a
-                    href={`/api/recruitment/onboarding/${contract.id}/hipaa?inline=1`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-fg underline hover:text-brand-hover"
-                  >
+                  <TextLink href={`/api/recruitment/onboarding/${contract.id}/hipaa?inline=1`} external>
                     {f.value}
-                  </a>
+                  </TextLink>
                 ) : f.value != null ? (
                   f.value
                 ) : (

@@ -40,6 +40,7 @@ import { buttonClasses } from "@/platform/ui/button";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 /**
@@ -547,9 +548,9 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                       {a.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="default">Inactive</Badge>}
                     </TD>
                     <TD>
-                      <Link href={`/schedule/attendings/${a.id}`} className="text-brand-fg hover:underline text-sm">
+                      <TextLink href={`/schedule/attendings/${a.id}`} size="sm">
                         Edit
-                      </Link>
+                      </TextLink>
                     </TD>
                   </TR>
                 ))}

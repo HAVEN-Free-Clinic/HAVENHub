@@ -8,7 +8,6 @@
  */
 
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
@@ -152,9 +151,16 @@ export function PendingRequests({
                   placeholder="Reason (optional)"
                   className="flex-1 min-w-32 py-1 text-xs"
                 />
-                <Button type="submit" variant="danger" size="sm">
-                  Deny
-                </Button>
+                {/* Deny is the one-way half of this pair, so it confirms like
+                    Approve does. It used to be the only unconfirmed action on
+                    the card AND the only solid-danger one, so the routine
+                    action (approving a swap) was the quiet control and the
+                    irreversible one was the loud, single-click one. */}
+                <ConfirmButton
+                  label="Deny"
+                  confirmLabel="Deny this request?"
+                  size="sm"
+                />
               </form>
             </div>
           </Card>

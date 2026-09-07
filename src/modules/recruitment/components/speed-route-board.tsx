@@ -3,6 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
@@ -199,7 +200,6 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<null | "top" | "bottom">(null);
   // Rows the lead has finished with (routed, interviewing, decided) are hidden
   // from the tier tables by default: their action cell is already inert, so on a
   // worked-through board they were dozens of rows of nothing-to-do standing
@@ -248,7 +248,6 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   };
 
   function applyTop() {
-    setConfirm(null);
     setError(null);
     setNote(null);
     const entries = board.top
@@ -265,7 +264,6 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   }
 
   function applyBottom() {
-    setConfirm(null);
     setError(null);
     setNote(null);
     // Match `routable`/`applyTop`: never auto-reject an applicant a lead already
@@ -326,21 +324,21 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         showHandled={showHandled}
         action={
           topRoutable > 0 ? (
-            confirm === "top" ? (
-              <div className="flex items-center gap-2 text-sm">
-                <span>
-                  Route {topRoutable} to their selected department?
-                  {topMissingDept > 0 && <span className="text-subtle-foreground"> ({topMissingDept} still need a department)</span>}
-                </span>
-                <Button type="button" size="sm" variant="primary" disabled={busy} onClick={applyTop}>Confirm</Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Button type="button" size="sm" variant="primary" disabled={busy} onClick={() => setConfirm("top")}>Apply top tier ({topRoutable})</Button>
-                {topMissingDept > 0 && <span className="text-xs text-subtle-foreground">{topMissingDept} need a department first</span>}
-              </div>
-            )
+            /* Was an inline confirm bar that swapped its whole subtree, so
+               arming replaced the focused button and dropped a keyboard user
+               out of the control. ConfirmButton keeps one element; the count
+               and the caveat ride in the labels, and blur disarms in place of
+               the explicit Cancel. */
+            <div className="flex items-center gap-2">
+              <ConfirmButton
+                label={`Apply top tier (${topRoutable})`}
+                confirmLabel={`Route ${topRoutable} to their selected department?`}
+                size="sm"
+                disabled={busy}
+                onConfirm={applyTop}
+              />
+              {topMissingDept > 0 && <span className="text-xs text-subtle-foreground">{topMissingDept} need a department first</span>}
+            </div>
           ) : topMissingDept > 0 ? (
             <span className="text-xs text-subtle-foreground">{topMissingDept} top-tier applicant{topMissingDept === 1 ? "" : "s"} need a department before routing</span>
           ) : null
@@ -368,15 +366,13 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         showHandled={showHandled}
         action={
           bottomPending > 0 ? (
-            confirm === "bottom" ? (
-              <div className="flex items-center gap-2 text-sm">
-                <span>Reject {bottomPending} applicants?</span>
-                <Button type="button" size="sm" variant="danger" disabled={busy} onClick={applyBottom}>Confirm</Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button>
-              </div>
-            ) : (
-              <Button type="button" size="sm" variant="danger" disabled={busy} onClick={() => setConfirm("bottom")}>Apply bottom tier ({bottomPending})</Button>
-            )
+            <ConfirmButton
+              label={`Apply bottom tier (${bottomPending})`}
+              confirmLabel={`Reject ${bottomPending} applicant${bottomPending === 1 ? "" : "s"}?`}
+              size="sm"
+              disabled={busy}
+              onConfirm={applyBottom}
+            />
           ) : null
         }
       />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClasses } from "@/platform/ui/button";
 import { cx } from "@/platform/ui/cx";
@@ -65,27 +65,19 @@ function GridFilledButton({
   assignment?: BuilderAssignmentEntry;
   pending: boolean;
 }) {
+  // Stays a raw button rather than ConfirmButton: this is a grid cell whose
+  // height, width and fill are load-bearing for the builder grid, and Button's
+  // base padding/height would fight them (this repo has no tailwind-merge, so a
+  // className override of a conflicting base class is emission-order
+  // unreliable). It follows ConfirmButton's CONTRACT instead.
+  //
+  // That contract used to be broken here by a 3s auto-disarm, the same WCAG
+  // 2.2.1 time limit audit 14 removed from the primitive: three seconds is less
+  // than a screen reader needs to announce the armed state, so the cell had
+  // always disarmed itself before an AT user could reach the confirm step.
+  // Disarming on blur is event-driven, reachable by mouse, keyboard and AT
+  // alike, and cannot expire under someone who is simply reading slowly.
   const [armed, setArmed] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearTimer() {
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }
-
-  function arm() {
-    setArmed(true);
-    clearTimer();
-    timerRef.current = setTimeout(() => {
-      setArmed(false);
-      timerRef.current = null;
-    }, 3000);
-  }
-
-  // Clean up on unmount.
-  useEffect(() => () => clearTimer(), []);
 
   const activeTags = assignment
     ? SHIFT_TAG_KEYS.filter((t) => assignment.tags[t])
@@ -98,6 +90,7 @@ function GridFilledButton({
       <button
         type="submit"
         disabled={pending}
+        onBlur={() => setArmed(false)}
         aria-label={`Confirm remove. ${ariaLabel ?? label}`}
         // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
         className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-critical/30 bg-critical-faint text-critical transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -116,7 +109,7 @@ function GridFilledButton({
       disabled={pending}
       onClick={(e) => {
         e.preventDefault();
-        arm();
+        setArmed(true);
       }}
       aria-label={ariaLabel ?? label}
       // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button

@@ -260,7 +260,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
                 no-active-term state gracefully. Any still-pending shift requests for
                 this term are cancelled.
               </p>
-              <ConfirmButton label="Archive" confirmLabel="Archive this term? Confirm?" />
+              <ConfirmButton label="Archive" confirmLabel="Archive this term?" />
             </form>
           ) : term.status === "PLANNING" ? (
             <form action={activateAction}>

@@ -106,7 +106,7 @@ export default async function EditAttendingSpecialtyPage({ params }: PageProps) 
             <p className="text-sm text-muted-foreground">
               Nothing references this specialty, so it can be removed for good. This cannot be undone.
             </p>
-            <ConfirmButton label="Delete specialty" confirmLabel="Delete permanently? Confirm?" />
+            <ConfirmButton label="Delete specialty" confirmLabel="Delete this specialty permanently?" />
           </form>
         )}
       </section>

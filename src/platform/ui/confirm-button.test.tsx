@@ -152,3 +152,60 @@ describe("ConfirmButton self-heal", () => {
     expect(confirmButton().textContent).toContain("Confirm?");
   });
 });
+
+describe("ConfirmButton onConfirm (no surrounding form)", () => {
+  it("runs the handler on the second click, not the first", () => {
+    const onConfirm = vi.fn();
+    mount({ onConfirm });
+
+    act(() => confirmButton().click());
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(confirmButton().textContent).toContain("Confirm?");
+
+    act(() => confirmButton().click());
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("never becomes a submit button, so it cannot post an ancestor form", () => {
+    mount({ onConfirm: vi.fn() });
+    expect(confirmButton().type).toBe("button");
+    act(() => confirmButton().click());
+    // Armed, but still not a submit: the form around it must stay untouched.
+    expect(confirmButton().type).toBe("button");
+    act(() => confirmButton().click());
+    expect(submits).toBe(0);
+  });
+
+  it("disarms after confirming, so a third click does not fire again", () => {
+    const onConfirm = vi.fn();
+    mount({ onConfirm });
+    act(() => confirmButton().click());
+    act(() => confirmButton().click());
+    expect(confirmButton().textContent).toContain("Remove");
+
+    act(() => confirmButton().click());
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the same DOM node across arming, so focus survives", () => {
+    mount({ onConfirm: vi.fn() });
+    const before = confirmButton();
+    before.focus();
+    act(() => before.click());
+    expect(confirmButton()).toBe(before);
+    expect(document.activeElement).toBe(before);
+  });
+
+  it("disarms when focus leaves, with no timer involved", () => {
+    const onConfirm = vi.fn();
+    mount({ onConfirm });
+    confirmButton().focus();
+    act(() => confirmButton().click());
+    expect(confirmButton().textContent).toContain("Confirm?");
+
+    act(() => elsewhere().focus());
+
+    expect(confirmButton().textContent).toContain("Remove");
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+});

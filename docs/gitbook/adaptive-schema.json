@@ -221,6 +221,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.manage_compliance permission in HAVEN Hub."
             },
+            "manage_dual_roles": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.manage_dual_roles permission in HAVEN Hub."
+            },
             "manage_offboarding": {
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.manage_offboarding permission in HAVEN Hub."

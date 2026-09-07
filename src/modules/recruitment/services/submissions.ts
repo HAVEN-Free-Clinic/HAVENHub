@@ -22,6 +22,7 @@ import { resolveAvailabilityOptions } from "../templates/clinic-dates";
 import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
+import { DUAL_ROLE_FIELDS, isChecked } from "@/platform/dual-roles/catalog";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -419,6 +420,23 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     ];
   }
 
+  // Dual-role departments the applicant offered to also serve, hoisted to codes
+  // for the same reason languagesClaimed above is: promotion turns these into
+  // DualRoleInterest rows and should read a typed column, not an answers blob.
+  //
+  // Read off visibleFields, not the raw answers, so a checkbox the applicant
+  // ticked and then hid behind a condition does not survive as an offer they
+  // were never shown at submit. That also scopes it correctly with no extra
+  // rule: the section is NEW-only, so a same-department renewal has no such
+  // field and hoists nothing.
+  const dualRoleDepartments = [
+    ...new Set(
+      visibleFields
+        .filter((f) => f.key in DUAL_ROLE_FIELDS && isChecked(input.answers[f.key]))
+        .map((f) => DUAL_ROLE_FIELDS[f.key]),
+    ),
+  ].sort();
+
   const fileRefs = await persistFiles(cycle.id, filesToPersist);
   const draftFileRefs = Object.fromEntries(draftFileKeys.map((k) => [k, draftAnswers[k]]));
   const answersWithFiles = { ...draftFileRefs, ...parsed.data, ...fileRefs.answerPatch };
@@ -517,6 +535,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
         answers: answersWithFiles as never,
         applicantType: input.applicantType, departmentChoices: selectedDepartmentCodes, subcommitteeRanking,
         languagesClaimed,
+        dualRoleDepartments,
         renewalDepartment: input.applicantType === "RENEWAL" ? input.renewalDepartment! : null,
         transferFromDepartments,
         // Two ways an application skips committee scoring and lands straight in a

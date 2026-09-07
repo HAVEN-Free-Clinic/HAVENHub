@@ -170,6 +170,73 @@ it("records no languages when the applicant selects none", async () => {
   expect(app.languagesClaimed).toEqual([]);
 });
 
+// --- Dual-role options ---
+//
+// The other half of the same contract as the language question above: the
+// answers have to survive submit in a form promotion can turn into offers. The
+// keys are locked (platform/dual-roles), so they are added here with an explicit
+// key, exactly as the standard language question is seeded.
+
+async function addDualRoleFields(cycleId: string) {
+  const identity = await prisma.formSection.findFirstOrThrow({
+    where: { cycleId },
+    orderBy: { order: "asc" },
+  });
+  await addField(identity.id, {
+    label: "VADM dual option", type: "CHECKBOX", required: false, key: "vadm_dual_option",
+  });
+  await addField(identity.id, {
+    label: "INTP dual option", type: "CHECKBOX", required: false, key: "intp_dual_option",
+  });
+}
+
+it("hoists the checked dual-role options onto the application as department codes", async () => {
+  const { cycle } = await openVolunteerCycle();
+  await addDualRoleFields(cycle.id);
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "Dua", last_name: "Ling", email: "dua@yale.edu",
+      "1st_choice_department": "MDIC",
+      vadm_dual_option: "on",
+      intp_dual_option: "on",
+    },
+    files: {},
+  });
+
+  expect(app.dualRoleDepartments).toEqual(["INTP", "VADM"]);
+});
+
+it("records only the dual options actually checked", async () => {
+  const { cycle } = await openVolunteerCycle();
+  await addDualRoleFields(cycle.id);
+
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: {
+      first_name: "One", last_name: "Only", email: "one@yale.edu",
+      "1st_choice_department": "MDIC",
+      vadm_dual_option: "on",
+    },
+    files: {},
+  });
+
+  expect(app.dualRoleDepartments).toEqual(["VADM"]);
+});
+
+it("records no dual roles when the cycle does not ask the question", async () => {
+  // A cycle whose builder never added the fields must not silently produce
+  // offers: the hoist reads visibleFields, so an absent field hoists nothing.
+  await openVolunteerCycle();
+  const app = await submitApplication("apply-v", {
+    applicantType: "NEW",
+    answers: { first_name: "No", last_name: "Dual", email: "nd@yale.edu", "1st_choice_department": "MDIC" },
+    files: {},
+  });
+  expect(app.dualRoleDepartments).toEqual([]);
+});
+
 // --- Department.autoRouteApplicants ---
 //
 // Clinical teams verify credentials rather than having the committee judge fit,

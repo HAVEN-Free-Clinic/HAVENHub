@@ -38,6 +38,7 @@ describe("notification registry", () => {
         "shift-reminder-triage",
         "clinic-checkin-invite",
         "volunteers.language_assessed",
+        "volunteers.dual_role_requested",
         "volunteers.language_claimed",
         "volunteers.self_withdrawal",
       ].sort()

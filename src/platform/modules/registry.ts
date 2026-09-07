@@ -155,6 +155,12 @@ export const MODULES: ModuleManifest[] = [
       // addresses typed by hand. Resolved through permissionDepartmentIds, so
       // a directorship in one department never opens another.
       "volunteers.view_directory_own_dept",
+      // Department-scoped like the directory pair above, and held by the same
+      // Director baseline: a volunteer accepted elsewhere can offer to also
+      // serve VADM or INTP, and the receiving department decides. Resolved
+      // through permissionDepartmentIds, so a directorship in one department
+      // never shows another department's offers.
+      "volunteers.manage_dual_roles",
     ],
     status: "active",
     nav: [
@@ -189,6 +195,19 @@ export const MODULES: ModuleManifest[] = [
       // spanish names because renaming a route breaks bookmarks and renaming a
       // permission means re-granting it in production. Neither is user-visible.
       { label: "Language review", href: "/volunteers/spanish-review", permission: "volunteers.verify_spanish" },
+      // Every director holds volunteers.manage_dual_roles, but only the two
+      // departments that ask the dual-role question on the application can ever
+      // have a queue. Gating on the permission alone would put a tab in front of
+      // every director in the clinic that leads to an empty page for nearly all
+      // of them -- and widen a nav row that is already at its limit. The real
+      // gate is "directs a department someone can offer to", which no permission
+      // string expresses, so the layout resolves it.
+      {
+        label: "Dual roles",
+        href: "/volunteers/dual-roles",
+        permission: "volunteers.manage_dual_roles",
+        dynamicGate: true,
+      },
       { label: "Board meetings", href: "/volunteers/board-meetings", permission: "volunteers.manage_board_attendance" },
       { label: "Offboarding", href: "/volunteers/offboarding", permission: "volunteers.view" },
     ],

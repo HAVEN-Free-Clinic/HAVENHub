@@ -28,6 +28,46 @@ export function claimRowsToHtml(claims: PendingLanguageClaim[]): string {
   return claims.map((c) => `<li>${esc(c.name)} -- ${esc(c.language)}</li>`).join("");
 }
 
+export type PendingDualRoleOffer = { name: string; primaryDepartment: string };
+
+/**
+ * The offers as <li> rows for the {{{ offerRowsHtml }}} slot. Same constraint as
+ * claimRowsToHtml above -- no {{#each}} in the render engine, so the list is
+ * pre-rendered and every value escaped, the name because it is member-entered
+ * and the department because a department name is admin-editable free text.
+ */
+export function dualRoleRowsToHtml(offers: PendingDualRoleOffer[]): string {
+  return offers
+    .map((o) => `<li>${esc(o.name)} -- currently ${esc(o.primaryDepartment)}</li>`)
+    .join("");
+}
+
+export type DualRoleRequestedParams = {
+  /** Receiving director's first name. */
+  firstName: string;
+  /** The department being offered help, by name (e.g. "Vaccine Administration"). */
+  departmentName: string;
+  /** The offers waiting for this department, already sorted. */
+  offers: PendingDualRoleOffer[];
+  /** Absolute link to the dual-role queue. */
+  reviewLink: string;
+};
+
+/** Build the flat render-engine context for the volunteers.dual_role_requested template. */
+export function dualRoleRequestedContext(p: DualRoleRequestedParams): Record<string, unknown> {
+  const single = p.offers.length === 1;
+  return {
+    firstName: p.firstName,
+    departmentName: p.departmentName,
+    offerCount: p.offers.length,
+    isSingle: single,
+    singleName: single ? p.offers[0].name : "",
+    singlePrimaryDepartment: single ? p.offers[0].primaryDepartment : "",
+    offerRowsHtml: dualRoleRowsToHtml(p.offers),
+    reviewLink: p.reviewLink,
+  };
+}
+
 export type LanguageClaimedParams = {
   /** Reviewer's first name. */
   firstName: string;
@@ -189,6 +229,56 @@ export const volunteersDescriptors: TemplateDescriptor[] = [
 <ul>{{{ claimRowsHtml }}}</ul>{{/if}}
 
 <p><a href="{{ reviewLink }}">Open the language review queue</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    // Sent to a department's own directors when a volunteer accepted ELSEWHERE
+    // offers to also serve them (the VADM/INTP dual option on the application).
+    //
+    // Addressed per department, not per holder of one clinic-wide permission:
+    // the grant is department-scoped, so VADM's directors are told about VADM's
+    // offers and never see INTP's. The body says who and where they already
+    // volunteer, because that is what the receiving director weighs -- and
+    // deliberately does NOT say the offer is approved. Both departments still
+    // have to check something the form could not: a vaccination licence, a
+    // language assessment.
+    key: "volunteers.dual_role_requested",
+    name: "Volunteers: dual-role offer awaiting your decision",
+    category: "transactional",
+    group: "volunteers",
+    variables: [
+      { name: "firstName", label: "Director first name", sampleValue: "Alex" },
+      { name: "departmentName", label: "The department being offered help", sampleValue: "Vaccine Administration" },
+      { name: "offerCount", label: "How many offers are waiting", sampleValue: "3" },
+      { name: "isSingle", label: "True when exactly one offer is waiting", sampleValue: "false" },
+      { name: "singleName", label: "Volunteer name when there is exactly one", sampleValue: "Sam Rivera" },
+      {
+        name: "singlePrimaryDepartment",
+        label: "Where that volunteer already serves, when there is exactly one",
+        sampleValue: "Medical Intake",
+      },
+      {
+        name: "offerRowsHtml",
+        label: "The waiting offers as list rows",
+        sampleValue: "<li>Sam Rivera -- currently Medical Intake</li>",
+      },
+      {
+        name: "reviewLink",
+        label: "Link to the dual-role queue",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers/dual-roles",
+      },
+    ],
+    defaultSubject: "[HAVEN] Volunteers have offered to help {{ departmentName }}",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+{{#if isSingle}}<p><strong>{{ singleName }}</strong> ({{ singlePrimaryDepartment }}) has offered to also serve with {{ departmentName }} this term.</p>{{else}}<p>{{ offerCount }} volunteers have offered to also serve with {{ departmentName }} this term:</p>
+
+<ul>{{{ offerRowsHtml }}}</ul>{{/if}}
+
+<p>They are not on your roster yet. Check their eligibility, then add or decline each one.</p>
+
+<p><a href="{{ reviewLink }}">Open the dual-role queue</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

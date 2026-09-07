@@ -46,6 +46,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "volunteers.self_withdrawal", label: "Volunteers: member not returning this term (offboarding managers)", defaultChannel: "email" },
   { key: "volunteers.language_assessed", label: "Volunteers: language assessment result (member)", defaultChannel: "email" },
   { key: "volunteers.language_claimed", label: "Volunteers: language claim needs review (INTP directors)", defaultChannel: "email" },
+  { key: "volunteers.dual_role_requested", label: "Volunteers: dual-role offer needs a decision (receiving directors)", defaultChannel: "email" },
 ];
 
 /** The settings-registry key that stores a type's channel override. */

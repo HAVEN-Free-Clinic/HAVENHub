@@ -1,7 +1,12 @@
 "use server";
 import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
-import { resetTraining, TrainingStateError } from "@/modules/recruitment/services/training";
+import {
+  clearAbsenceExcuse,
+  recordAbsenceExcuse,
+  resetTraining,
+  TrainingStateError,
+} from "@/modules/recruitment/services/training";
 import {
   AttendanceEventError,
   ensureTrainingEventForCycle,
@@ -11,10 +16,18 @@ import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { prisma } from "@/platform/db";
 import type { Track } from "@prisma/client";
 
-function bounce(cycleId: string, params: { msg?: string; err?: string }) {
+/**
+ * Params are `saved` and `error` because those are the two names the flash-toast
+ * classifier claims (src/platform/ui/toast/flash.ts). The `msg`/`err` pair this
+ * used to send was claimed by nothing, so every one of these redirects landed
+ * silently: attendance was recorded and the roster just re-rendered. `error`
+ * carries its text through by convention; each `saved` value has a registry entry
+ * scoped to this page.
+ */
+function bounce(cycleId: string, params: { saved?: string; error?: string }) {
   const q = new URLSearchParams();
-  if (params.msg) q.set("msg", params.msg);
-  if (params.err) q.set("err", params.err);
+  if (params.saved) q.set("saved", params.saved);
+  if (params.error) q.set("error", params.error);
   return `/recruitment/cycles/${cycleId}/training?${q.toString()}`;
 }
 
@@ -43,11 +56,11 @@ export async function recordAttendanceAction(cycleId: string, personId: string) 
       err instanceof TrainingStateError ||
       err instanceof AttendanceEventError
     ) {
-      redirect(bounce(cycleId, { err: (err as Error).message }));
+      redirect(bounce(cycleId, { error: (err as Error).message }));
     }
     throw err;
   }
-  redirect(bounce(cycleId, { msg: "Attendance recorded." }));
+  redirect(bounce(cycleId, { saved: "attendance" }));
 }
 
 export async function resetTrainingAction(cycleId: string, personId: string) {
@@ -56,8 +69,41 @@ export async function resetTrainingAction(cycleId: string, personId: string) {
     const { termId, track } = await termAndTrackOfCycle(cycleId);
     await resetTraining(personId, termId, track, person.personId);
   } catch (err) {
-    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) redirect(bounce(cycleId, { err: (err as Error).message }));
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) redirect(bounce(cycleId, { error: (err as Error).message }));
     throw err;
   }
-  redirect(bounce(cycleId, { msg: "Training reset." }));
+  redirect(bounce(cycleId, { saved: "reset" }));
+}
+
+/**
+ * Write down an absence the person excused by email before the session.
+ *
+ * Reads the reason off the row's own form. Failure comes back as `error` rather
+ * than being swallowed: the reason is required, and a blank submit that quietly
+ * did nothing would look exactly like a saved excuse.
+ */
+export async function excuseAbsenceAction(cycleId: string, personId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  try {
+    await recordAbsenceExcuse(cycleId, personId, String(formData.get("reason") ?? ""), person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "excused" }));
+}
+
+export async function clearExcuseAction(cycleId: string, personId: string) {
+  const person = await requirePersonSession();
+  try {
+    await clearAbsenceExcuse(cycleId, personId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "excuse-cleared" }));
 }

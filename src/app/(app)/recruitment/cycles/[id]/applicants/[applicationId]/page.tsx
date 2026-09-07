@@ -9,7 +9,9 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction } from "../actions";
+import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
+import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
@@ -80,6 +82,11 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const serviceGap = app.applicant.applicantPersonId
     ? await serviceGapForCycle(app.applicant.applicantPersonId, app.cycle.termId)
     : null;
+
+  // Read for every viewer, not just leads: a director reading this page should
+  // see that the absence was accounted for, the same way they see the badge on
+  // the training roster.
+  const excuse = await getApplicantAbsenceExcuse(id, app.applicant.id);
 
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
@@ -444,6 +451,52 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             </>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+          )}
+        </Card>
+      )}
+
+      {/* Training absence. Rendered for a lead (who records these) and for anyone
+          else only once there is something to read, so the card does not add a
+          row of empty chrome to every reviewer's page. */}
+      {(managesCycles || excuse) && (
+        <Card>
+          <SectionHeader>Training absence</SectionHeader>
+          {excuse ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-foreground-soft">
+                <Badge tone="warning">Excused</Badge> from the in-person training session.
+              </p>
+              <p className="text-sm text-foreground">&ldquo;{excuse.reason}&rdquo;</p>
+              <p className="text-xs text-subtle-foreground">
+                Recorded {excuse.recordedByName ? `by ${excuse.recordedByName} ` : ""}
+                on <DateTime value={excuse.recordedAt} />. They still need the makeup quiz.
+              </p>
+              {excuse.unlinked && (
+                <p className="text-xs text-subtle-foreground">
+                  Held against their email address for now: they have no hub account yet. It
+                  joins the training roster automatically once they are promoted.
+                </p>
+              )}
+            </div>
+          ) : (
+            <EmptyState inline className="mt-3">
+              No absence excused. Record one here when an applicant emails ahead to say they
+              cannot make the session, so their absence is not read as a no-show.
+            </EmptyState>
+          )}
+          {managesCycles && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <ExcuseAbsenceButton
+                name={`${app.applicant.firstName} ${app.applicant.lastName}`}
+                currentReason={excuse?.reason ?? null}
+                action={excuseApplicantAbsenceAction.bind(null, id, applicationId, app.applicant.id)}
+              />
+              {excuse && (
+                <form action={clearApplicantExcuseAction.bind(null, id, applicationId, app.applicant.id)}>
+                  <ConfirmButton label="Clear excuse" size="sm" />
+                </form>
+              )}
+            </div>
           )}
         </Card>
       )}

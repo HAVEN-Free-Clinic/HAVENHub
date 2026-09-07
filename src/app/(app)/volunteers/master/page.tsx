@@ -36,14 +36,17 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import {
+  ComplianceHeaderCells,
+  ComplianceNameCell,
+  ComplianceCells,
+} from "@/modules/volunteers/components/compliance-cells";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { StatCard } from "@/platform/ui/stat-card";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
-import { TextLink } from "@/platform/ui/text-link";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -55,14 +58,10 @@ import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
-import { certExpiresAt } from "@/platform/compliance/rules";
 import {
   complianceStatusLabel,
-  onboardingTaskLabel,
   ALL_COMPLIANCE_STATUSES as ALL_STATUSES,
 } from "@/platform/compliance/labels";
-import { CalendarDate, DateOnly } from "@/platform/dates/display";
-import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 import { log } from "@/platform/logging";
 import { MasterComplianceSkeleton } from "./master-skeleton";
 
@@ -74,14 +73,6 @@ type PageProps = {
     page?: string;
   }>;
 };
-
-// Clearance task display (learning + EHS columns).
-function taskState(
-  clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
-  key: OnboardingTaskKey
-): OnboardingTaskState | null {
-  return clearance.tasks.find((t) => t.key === key)?.state ?? null;
-}
 
 /** Above this, a roster load is worth a log line. Chosen off the measured
  *  distribution: healthy loads of this page land near 1.5s, the bad tail is
@@ -312,98 +303,19 @@ async function MasterComplianceBody(props: BodyProps) {
                 <TR>
                   <TH>Name</TH>
                   <TH>Departments</TH>
-                  <TH>Status</TH>
-                  <TH>Training</TH>
-                  <TH>Learning</TH>
-                  <TH>EHS</TH>
-                  <TH>Cleared</TH>
-                  <TH>Completed</TH>
-                  <TH>Expires</TH>
-                  <TH>Verified</TH>
+                  <ComplianceHeaderCells />
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
               </THead>
               <tbody>
                 {result.rows.map((row) => {
-                  const expiresAt = row.cert?.completionDate
-                    ? certExpiresAt(row.cert.completionDate)
-                    : null;
-                  const learningState = taskState(row.clearance, "learning");
-                  const ehsState = taskState(row.clearance, "ehs");
-
                   return (
                     <TR key={row.person.id}>
-                      {/* NetID, email and phone sit under the name rather than
-                          in columns of their own: the table already runs eleven
-                          wide, and three more would push the clearance badges
-                          off screen on any laptop. The full identity is on the
-                          profile page the name links to. */}
-                      <TD className="font-medium">
-                        <TextLink href={`/volunteers/compliance/${row.person.id}`}>
-                          {row.person.name}
-                        </TextLink>
-                        <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
-                          {[row.person.netId, row.person.contactEmail, row.person.phone]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </TD>
+                      <ComplianceNameCell person={row.person} />
                       <TD className="text-foreground-soft text-sm">
                         {row.departments.join(", ")}
                       </TD>
-                      <TD>
-                        <Badge tone={complianceStatusLabel(row.status, "staff").tone}>
-                          {complianceStatusLabel(row.status, "staff").label}
-                        </Badge>
-                      </TD>
-                      <TD>
-                        {row.isVolunteer && row.clearance.tasks.some((t) => t.key === "training") ? (
-                          <Badge
-                            tone={row.trainingState === "COMPLETE" ? "success" : "default"}
-                          >
-                            {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
-                          </Badge>
-                        ) : (
-                          // No designated volunteer training this term -> not required,
-                          // so show "-" rather than a misleading "Pending" that
-                          // contradicts the Cleared badge.
-                          <span className="text-subtle-foreground">-</span>
-                        )}
-                      </TD>
-                      <TD>
-                        {learningState ? (
-                          <Badge tone={onboardingTaskLabel(learningState, { audience: "staff" }).tone}>{onboardingTaskLabel(learningState, { audience: "staff" }).label}</Badge>
-                        ) : (
-                          <span className="text-subtle-foreground">-</span>
-                        )}
-                      </TD>
-                      <TD>
-                        {ehsState ? (
-                          <Badge tone={onboardingTaskLabel(ehsState, { audience: "staff" }).tone}>{onboardingTaskLabel(ehsState, { audience: "staff" }).label}</Badge>
-                        ) : (
-                          <span className="text-subtle-foreground">-</span>
-                        )}
-                      </TD>
-                      <TD>
-                        <Badge tone={row.clearance.cleared ? "success" : "critical"}>
-                          {row.clearance.cleared ? "Cleared" : "Not cleared"}
-                        </Badge>
-                      </TD>
-                      <TD className="text-foreground-soft tabular-nums">
-                        <CalendarDate value={row.cert?.completionDate} />
-                      </TD>
-                      <TD className="text-foreground-soft tabular-nums">
-                        <CalendarDate value={expiresAt} />
-                      </TD>
-                      <TD className="text-foreground-soft text-xs">
-                        {row.cert?.verifiedAt ? (
-                          <span>
-                            {row.verifiedByName} <DateOnly value={row.cert.verifiedAt} />
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </TD>
+                      <ComplianceCells row={row} />
                       <TD>
                         <div className="flex items-center gap-2">
                           {row.cert && (

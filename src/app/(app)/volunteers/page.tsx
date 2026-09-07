@@ -4,8 +4,13 @@ import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
-import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import {
+  ComplianceHeaderCells,
+  ComplianceNameCell,
+  ComplianceCells,
+  asComplianceRow,
+} from "@/modules/volunteers/components/compliance-cells";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   departmentCompliance,
@@ -15,11 +20,8 @@ import {
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
-import { certExpiresAt } from "@/platform/compliance/rules";
-import { complianceStatusLabel, onboardingTaskLabel, type StatusTone } from "@/platform/compliance/labels";
-import { CalendarDate, DateOnly } from "@/platform/dates/display";
+import type { StatusTone } from "@/platform/compliance/labels";
 import { revalidatePath } from "next/cache";
-import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
@@ -27,14 +29,6 @@ import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboardin
 // ---------------------------------------------------------------------------
 // Status badge helper
 // ---------------------------------------------------------------------------
-
-// Clearance task display (EHS column).
-function taskState(
-  clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
-  key: OnboardingTaskKey
-): OnboardingTaskState | null {
-  return clearance.tasks.find((t) => t.key === key)?.state ?? null;
-}
 
 // ---------------------------------------------------------------------------
 // Count chips helper
@@ -172,93 +166,26 @@ export default async function VolunteersPage() {
                   <TR>
                     <TH>Name</TH>
                     <TH>Role</TH>
-                    <TH>Status</TH>
-                    <TH>Training</TH>
-                    <TH>EHS</TH>
-                    <TH>Cleared</TH>
-                    <TH>Completed</TH>
-                    <TH>Expires</TH>
-                    <TH>Verified</TH>
+                    <ComplianceHeaderCells />
                     <TH><span className="sr-only">Actions</span></TH>
                   </TR>
                 </THead>
                 <tbody>
-                  {members.map((m) => {
-                    const expiresAt = m.cert?.completionDate
-                      ? certExpiresAt(m.cert.completionDate)
-                      : null;
-                    const ehsState = taskState(m.clearance, "ehs");
-
-                    return (
-                      <TR key={m.person.id}>
-                        {/* Name links through to the member profile: contact
-                            details plus the reasons they are or are not cleared.
-                            Every row here is by construction in a department the
-                            viewer manages, which is exactly the profile page's
-                            own scope, so no link on this table can bounce.
-                            NetID and email sit underneath rather than in columns
-                            of their own: this table already runs ten wide, and
-                            "how do I reach this person" is the question that
-                            follows "are they cleared". */}
-                        <TD className="font-medium">
-                          <TextLink href={`/volunteers/compliance/${m.person.id}`}>
-                            {m.person.name}
-                          </TextLink>
-                          <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
-                            {[m.person.netId, m.person.contactEmail].filter(Boolean).join(" · ")}
-                          </span>
-                        </TD>
-                        <TD>
-                          <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
-                            {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}
-                          </Badge>
-                        </TD>
-                        <TD>
-                          <Badge tone={complianceStatusLabel(m.status, "staff").tone}>
-                            {complianceStatusLabel(m.status, "staff").label}
-                          </Badge>
-                        </TD>
-                        <TD>
-                          {m.kind === "VOLUNTEER" && m.clearance.tasks.some((t) => t.key === "training") ? (
-                            <Badge
-                              tone={m.trainingState === "COMPLETE" ? "success" : "default"}
-                            >
-                              {m.trainingState === "COMPLETE" ? "Complete" : "Pending"}
-                            </Badge>
-                          ) : (
-                            // No designated volunteer training this term -> not required,
-                            // so show "-" rather than a misleading "Pending".
-                            <span className="text-subtle-foreground">-</span>
-                          )}
-                        </TD>
-                        <TD>
-                          {ehsState ? (
-                            <Badge tone={onboardingTaskLabel(ehsState, { audience: "staff" }).tone}>{onboardingTaskLabel(ehsState, { audience: "staff" }).label}</Badge>
-                          ) : (
-                            <span className="text-subtle-foreground">-</span>
-                          )}
-                        </TD>
-                        <TD>
-                          <Badge tone={m.clearance.cleared ? "success" : "critical"}>
-                            {m.clearance.cleared ? "Cleared" : "Not cleared"}
-                          </Badge>
-                        </TD>
-                        <TD className="text-foreground-soft tabular-nums">
-                          <CalendarDate value={m.cert?.completionDate} />
-                        </TD>
-                        <TD className="text-foreground-soft tabular-nums">
-                          <CalendarDate value={expiresAt} />
-                        </TD>
-                        <TD className="text-foreground-soft text-xs">
-                          {m.cert?.verifiedAt ? (
-                            <span>
-                              {m.verifiedByName} <DateOnly value={m.cert.verifiedAt} />
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </TD>
-                        <TD>
+                  {members.map((m) => (
+                    <TR key={m.person.id}>
+                      {/* Name links through to the member profile: contact
+                          details plus the reasons they are or are not cleared.
+                          Every row here is by construction in a department the
+                          viewer manages, which is exactly the profile page's
+                          own scope, so no link on this table can bounce. */}
+                      <ComplianceNameCell person={m.person} />
+                      <TD>
+                        <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
+                          {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}
+                        </Badge>
+                      </TD>
+                      <ComplianceCells row={asComplianceRow(m)} />
+                      <TD>
                           <div className="flex items-center gap-2">
                             {m.cert && (
                               <CertificateViewer
@@ -274,11 +201,10 @@ export default async function VolunteersPage() {
                                 onVerify={verifyAction.bind(null, m.cert.id)}
                               />
                             )}
-                          </div>
-                        </TD>
-                      </TR>
-                    );
-                  })}
+                        </div>
+                      </TD>
+                    </TR>
+                  ))}
                 </tbody>
               </Table>
             </section>

@@ -19,6 +19,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { TextLink } from "@/platform/ui/text-link";
 import { createEventAction } from "./actions";
 import { KIND_LABELS, kindTone } from "./kind-labels";
 
@@ -101,12 +102,13 @@ export default async function EventsPage() {
                 )}
               </TD>
               <TD className="text-right">
-                <Link
+                <TextLink
                   href={`/recruitment/events/${event.id}/check-in`}
-                  className="text-sm font-medium text-brand hover:underline"
+                  size="sm"
+                  className="font-medium"
                 >
                   Check in
-                </Link>
+                </TextLink>
               </TD>
             </TR>
           ))}

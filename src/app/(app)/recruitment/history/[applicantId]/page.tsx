@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
@@ -14,6 +13,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 type PageProps = {
   params: Promise<{ applicantId: string }>;
@@ -77,12 +77,13 @@ export default async function HistoricalApplicantDetailPage({ params }: PageProp
         <Card className="space-y-2">
           <SectionHeader>Linked person</SectionHeader>
           {canViewPerson ? (
-            <Link
+            <TextLink
               href={`/admin/people/${applicant.person.id}`}
-              className="text-sm font-medium text-brand-fg hover:text-brand-hover"
+              size="sm"
+              className="font-medium"
             >
               {applicant.person.name}
-            </Link>
+            </TextLink>
           ) : (
             <p className="text-sm text-foreground">{applicant.person.name}</p>
           )}

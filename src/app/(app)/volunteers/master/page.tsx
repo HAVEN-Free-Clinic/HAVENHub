@@ -43,6 +43,7 @@ import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { StatCard } from "@/platform/ui/stat-card";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
+import { TextLink } from "@/platform/ui/text-link";
 import {
   masterCompliance,
   setCompletionDateAsManager,
@@ -61,7 +62,6 @@ import {
   ALL_COMPLIANCE_STATUSES as ALL_STATUSES,
 } from "@/platform/compliance/labels";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
-import Link from "next/link";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/modules/onboarding/engine/status";
 import { log } from "@/platform/logging";
 import { MasterComplianceSkeleton } from "./master-skeleton";
@@ -339,12 +339,9 @@ async function MasterComplianceBody(props: BodyProps) {
                           off screen on any laptop. The full identity is on the
                           profile page the name links to. */}
                       <TD className="font-medium">
-                        <Link
-                          href={`/volunteers/compliance/${row.person.id}`}
-                          className="text-brand-fg underline underline-offset-2 hover:opacity-75"
-                        >
+                        <TextLink href={`/volunteers/compliance/${row.person.id}`}>
                           {row.person.name}
-                        </Link>
+                        </TextLink>
                         <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
                           {[row.person.netId, row.person.contactEmail, row.person.phone]
                             .filter(Boolean)

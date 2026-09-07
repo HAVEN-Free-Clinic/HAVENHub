@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -13,6 +12,7 @@ import { Alert } from "@/platform/ui/alert";
 import { cardClasses } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 /** Reads the one query param the actions redirect back with. Both actions can
  *  land here with an ?error= (a permission or ordering refusal), and until this
@@ -84,12 +84,12 @@ export default async function DecisionsPage({
           <ul className={`mt-3 divide-y divide-border-subtle ${cardClasses({ pad: false })}`}>
             {conflicts.map((c) => (
               <li key={c.applicationId} className="px-4 py-2.5 text-sm text-foreground-soft">
-                <Link
-                  className="font-medium text-brand-fg hover:text-brand-hover"
+                <TextLink
+                  className="font-medium"
                   href={`/recruitment/cycles/${id}/applicants/${c.applicationId}`}
                 >
                   {c.applicantName}
-                </Link>{" "}
+                </TextLink>{" "}
                 accepted by {c.departments.join(" + ")}
               </li>
             ))}

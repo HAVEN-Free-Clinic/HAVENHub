@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TextLink } from "@/platform/ui/text-link";
 
 export type Span =
   | { kind: "text"; text: string }
@@ -180,9 +181,9 @@ function renderSpans(spans: Span[]): ReactNode[] {
     if (s.kind === "bold") return <strong key={i} className="font-semibold text-foreground">{s.text}</strong>;
     if (s.kind === "link") {
       return (
-        <a key={i} href={s.href} target="_blank" rel="noreferrer noopener" className="text-brand underline underline-offset-2">
+        <TextLink key={i} href={s.href} external>
           {s.text}
-        </a>
+        </TextLink>
       );
     }
     return <span key={i}>{s.text}</span>;

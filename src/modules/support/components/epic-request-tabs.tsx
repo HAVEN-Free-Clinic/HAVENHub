@@ -19,7 +19,6 @@
  * the active tab survives a page refresh and is shareable.
  */
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
@@ -33,6 +32,7 @@ import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { TabRow, type TabItem } from "@/platform/ui/tab-row";
+import { TextLink } from "@/platform/ui/text-link";
 import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
 import type { EpicRequestStatus } from "@prisma/client";
 import { FormActions } from "@/platform/ui/form";
@@ -429,12 +429,9 @@ function TrackerTable({
                     )}
 
                     {r.techRequest ? (
-                      <Link
-                        href={`/support/${r.techRequest.id}`}
-                        className="text-xs text-brand-fg underline underline-offset-2"
-                      >
+                      <TextLink href={`/support/${r.techRequest.id}`} size="xs">
                         Support #{r.techRequest.number}
-                      </Link>
+                      </TextLink>
                     ) : (
                       // Only while the request is still live. Offering "link to a
                       // support ticket" beside a COMPLETED request invited a
@@ -677,9 +674,9 @@ function PendingTab({
               <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
               <span className="font-medium">{r.person.name}</span>
               {r.techRequest ? (
-                <Link href={`/support/${r.techRequest.id}`} className="text-xs text-brand-fg underline underline-offset-2">
+                <TextLink href={`/support/${r.techRequest.id}`} size="xs">
                   #{r.techRequest.number}
-                </Link>
+                </TextLink>
               ) : (
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}

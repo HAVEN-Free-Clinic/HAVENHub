@@ -14,11 +14,11 @@
  * decides any pending strike request (Task 15's other half).
  */
 
-import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listReviewQueue, CONCERN_TYPES } from "@/modules/incidents/services/report";
 import type { IncidentReportStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Input } from "@/platform/ui/input";
@@ -201,12 +201,9 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                 {rows.map(({ report, reporterName, subjectNames, strikePendingCount }) => (
                   <TR key={report.id}>
                     <TD>
-                      <Link
-                        href={`/incidents/${report.id}`}
-                        className="font-medium text-brand-fg hover:underline"
-                      >
+                      <TextLink href={`/incidents/${report.id}`} className="font-medium">
                         #{report.number}
-                      </Link>
+                      </TextLink>
                     </TD>
                     <TD className="text-sm text-foreground-soft">{reporterName}</TD>
                     <TD className="text-sm text-foreground-soft">

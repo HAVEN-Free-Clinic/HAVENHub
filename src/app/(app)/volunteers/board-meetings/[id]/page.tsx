@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import {
@@ -17,6 +16,7 @@ import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
 import { formatCalendarDate } from "@/platform/dates";
 import type { BoardAttendanceStatus } from "@prisma/client";
 
@@ -78,9 +78,9 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
         description={`${formatCalendarDate(meeting.meetingDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${meeting.term.name}`}
       />
 
-      <Link href={backHref} className="text-brand-fg hover:underline text-sm">
+      <TextLink href={backHref} size="sm">
         Back to meetings
-      </Link>
+      </TextLink>
 
       {sp.error && <Alert tone="error">{sp.error}</Alert>}
 

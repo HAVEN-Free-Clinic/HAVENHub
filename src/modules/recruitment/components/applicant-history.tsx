@@ -1,8 +1,8 @@
-import Link from "next/link";
 import type { HistoricalOutcome, Track } from "@prisma/client";
 import type { ApplicantHistory as ApplicantHistoryData, HistoryEntry } from "@/modules/recruitment/services/history";
 import { stageLabel } from "@/platform/airtable/import/history/stages";
 import { Card } from "@/platform/ui/card";
+import { TextLink } from "@/platform/ui/text-link";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { DateTime } from "@/platform/dates/display";
@@ -103,9 +103,9 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
     <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3">
       <div className="min-w-0">
         {entry.href ? (
-          <Link href={entry.href} className="text-sm font-medium text-brand-fg hover:text-brand-hover">
+          <TextLink href={entry.href} size="sm" className="font-medium">
             {entry.cycleLabel}
-          </Link>
+          </TextLink>
         ) : (
           <span className="text-sm font-medium text-foreground">{entry.cycleLabel}</span>
         )}

@@ -14,6 +14,7 @@ import { Card } from "@/platform/ui/card";
 // action in this codebase.
 import { buttonClasses } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
+import { TextLink } from "@/platform/ui/text-link";
 import { formatCalendarDate } from "@/platform/dates";
 
 export async function generateMetadata() {
@@ -92,12 +93,9 @@ export default async function TriageChatsPage() {
               )}
 
               <div>
-                <Link
-                  className="text-sm underline"
-                  href={`/schedule/triage-chats/${preset.id}/edit`}
-                >
+                <TextLink href={`/schedule/triage-chats/${preset.id}/edit`} size="sm">
                   Edit preset
-                </Link>
+                </TextLink>
               </div>
             </div>
           </Card>

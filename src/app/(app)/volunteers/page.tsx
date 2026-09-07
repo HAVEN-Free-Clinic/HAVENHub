@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
+import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
@@ -201,12 +201,9 @@ export default async function VolunteersPage() {
                             "how do I reach this person" is the question that
                             follows "are they cleared". */}
                         <TD className="font-medium">
-                          <Link
-                            href={`/volunteers/compliance/${m.person.id}`}
-                            className="text-brand-fg underline underline-offset-2 hover:opacity-75"
-                          >
+                          <TextLink href={`/volunteers/compliance/${m.person.id}`}>
                             {m.person.name}
-                          </Link>
+                          </TextLink>
                           <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
                             {[m.person.netId, m.person.contactEmail].filter(Boolean).join(" · ")}
                           </span>

@@ -6,11 +6,11 @@
  * count is cheaper than full department lookups on 660+ rows).
  */
 
-import Link from "next/link";
 import type { Person } from "@prisma/client";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
 import { PersonPhoto } from "@/platform/ui/person-photo";
 
 /** Verified language codes, resolved by the page (see verifiedLanguagesByPerson). */
@@ -47,12 +47,9 @@ export function PeopleTable({ rows }: { rows: Row[] }) {
               <PersonPhoto person={person} size={32} />
             </TD>
             <TD>
-              <Link
-                href={`/admin/people/${person.id}`}
-                className="font-medium text-brand-fg hover:underline"
-              >
+              <TextLink href={`/admin/people/${person.id}`} className="font-medium">
                 {person.name}
-              </Link>
+              </TextLink>
             </TD>
             <TD className="text-muted-foreground">
               {person.netId ?? <span className="text-subtle-foreground">-</span>}

@@ -25,7 +25,6 @@
  * page at all, so they see neither.
  */
 
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -56,6 +55,7 @@ import type {
   StrikeDecision,
 } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { TextLink } from "@/platform/ui/text-link";
 import { PersonName } from "@/platform/ui/person-name";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
@@ -558,9 +558,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
             <p className="mt-4 text-sm text-foreground-soft">
               {report.subjects.filter((s) => s.strikeDecision === "APPROVED").length} strike(s) issued from this report.
               View them on the{" "}
-              <Link href="/incidents/strikes" className="text-brand-fg hover:underline">
-                strikes ledger
-              </Link>
+              <TextLink href="/incidents/strikes">strikes ledger</TextLink>
               .
             </p>
           )}

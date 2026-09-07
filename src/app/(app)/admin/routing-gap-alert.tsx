@@ -15,8 +15,8 @@
  * No "use client": both callers are Server Components and this renders no
  * interactivity, so the list of addresses never ships to the browser.
  */
-import Link from "next/link";
 import { Alert } from "@/platform/ui/alert";
+import { TextLink } from "@/platform/ui/text-link";
 import type { EmailRoutingGap } from "@/platform/email/routing-gap";
 
 export function RoutingGapAlert({
@@ -104,13 +104,9 @@ export function RoutingGapAlert({
       )}
       <p className="mt-2">
         {where === "settings" ? (
-          <Link href="/admin/email" className="underline underline-offset-2">
-            Review the send-from addresses
-          </Link>
+          <TextLink href="/admin/email">Review the send-from addresses</TextLink>
         ) : (
-          <Link href="/admin/settings" className="underline underline-offset-2">
-            Change the email transport in Settings
-          </Link>
+          <TextLink href="/admin/settings">Change the email transport in Settings</TextLink>
         )}
       </p>
     </Alert>

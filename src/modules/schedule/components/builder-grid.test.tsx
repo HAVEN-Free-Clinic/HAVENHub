@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BuilderGrid } from "./builder-grid";
+import type { BoardApi } from "./builder-board";
 import type {
   BuilderMember,
   BuilderAssignmentEntry,
@@ -62,6 +63,28 @@ function incomingMember(overrides: {
   };
 }
 
+/**
+ * A board with no live connection and no writes, so the grid can be rendered on
+ * its own. The grid is a pure function of a BoardApi; standing up the real
+ * provider would drag in a router, an EventSource and fetch to assert on markup.
+ */
+function stubBoard(
+  assignments: Record<string, Record<string, BuilderAssignmentEntry>>,
+  editable = true,
+): BoardApi {
+  return {
+    assignments,
+    editable,
+    isBusy: () => false,
+    assign: () => {},
+    unassign: () => {},
+    toggleTag: () => {},
+    error: null,
+    dismissError: () => {},
+    live: "live",
+  };
+}
+
 function renderGrid(
   clinicDates: Date[],
   closedDateKeys: string[] = [],
@@ -70,20 +93,18 @@ function renderGrid(
     deptCode?: string;
     mode?: "assign" | "shadow";
     members?: BuilderMember[];
+    editable?: boolean;
   } = {},
 ) {
   return renderToStaticMarkup(
     <BuilderGrid
       members={opts.members ?? [member]}
       clinicDates={clinicDates}
-      assignmentsByDate={opts.assignmentsByDate ?? {}}
       highlightDateKey={null}
       closedDateKeys={closedDateKeys}
-      deptId="d1"
       deptCode={opts.deptCode ?? "MED"}
       mode={opts.mode ?? "assign"}
-      assignAction={async () => {}}
-      unassignAction={async () => {}}
+      board={stubBoard(opts.assignmentsByDate ?? {}, opts.editable ?? true)}
     />,
   );
 }
@@ -129,12 +150,12 @@ describe("BuilderGrid", () => {
   it("renders body cells in the same chronological column order as the header", () => {
     const outOfOrder = [d(2026, 9, 12), d(2026, 9, 26), d(2026, 8, 7)];
     const out = renderGrid(outOfOrder);
-    // Each empty grid cell carries its column's date as a hidden "dateKey"
-    // input, so the cell order can be read off those attribute positions
-    // independent of the header row.
-    const augustCellIdx = out.indexOf('name="dateKey" value="2026-08-07"');
-    const sept12CellIdx = out.indexOf('name="dateKey" value="2026-09-12"');
-    const sept26CellIdx = out.indexOf('name="dateKey" value="2026-09-26"');
+    // Each empty grid cell names its own column in its accessible label
+    // ("Assign <member> as volunteer on <date>"), so the cell order can be read
+    // off those positions independent of the header row.
+    const augustCellIdx = out.indexOf("as volunteer on August 7th");
+    const sept12CellIdx = out.indexOf("as volunteer on September 12th");
+    const sept26CellIdx = out.indexOf("as volunteer on September 26th");
     expect(augustCellIdx).toBeGreaterThan(-1);
     expect(sept12CellIdx).toBeGreaterThan(-1);
     expect(sept26CellIdx).toBeGreaterThan(-1);
@@ -362,6 +383,44 @@ describe("BuilderGrid", () => {
   });
 });
 
+describe("BuilderGrid sticky headers", () => {
+  // The ask this rewrite exists for: reading the far end of an 18-week term is
+  // useless if the column no longer says which Saturday it is. Both headers pin
+  // inside a bounded scroll box -- the page cannot be the scrollport, because
+  // `position: sticky` resolves against the nearest scrolling ancestor and a
+  // table that never scrolls internally would never engage.
+  it("pins the date row and the member column inside a bounded scroll box", () => {
+    const out = renderGrid([d(2026, 8, 7), d(2026, 9, 12)]);
+
+    expect(out).toContain("max-h-[70vh] overflow-auto");
+    // The corner cell outranks both, or one of them paints over it.
+    expect(out).toContain("sticky left-0 top-0 z-30");
+    // Date headers: pinned to the top and opaque, so rows cannot show through.
+    expect(out).toContain("sticky top-0 z-20");
+    expect(out).toContain("bg-muted text-muted-foreground");
+    // Member names: pinned to the left.
+    expect(out).toContain("sticky left-0 z-10 bg-surface");
+    // Collapsed borders are painted by the table and scroll out from under a
+    // sticky cell, so the grid separates them and each cell draws its own.
+    expect(out).toContain("border-separate border-spacing-0");
+  });
+});
+
+describe("BuilderGrid read-only term", () => {
+  // An archived term used to render every cell as a live form and rely on a
+  // no-op action swapped in by the page. The board carries `editable` now, so
+  // the cells themselves refuse.
+  it("offers no cell actions when the board is not editable", () => {
+    const out = renderGrid([d(2026, 8, 7)], [], {
+      editable: false,
+      assignmentsByDate: { "2026-08-07": { p1: assignment("VOLUNTEER") } },
+    });
+
+    expect(out).not.toContain("<button");
+    expect(out).toContain("read-only");
+  });
+});
+
 describe("BuilderGrid incoming rows", () => {
   const dates = [d(2026, 9, 5)];
 
@@ -374,7 +433,7 @@ describe("BuilderGrid incoming rows", () => {
     // The row is assignable exactly like a member's: the shift is real and simply
     // stays inert until roster build gives them the membership every outbound
     // path filters on.
-    expect(out).toContain('name="personId" value="p-returner"');
+    expect(out).toContain("Assign Rita Returner as volunteer on September 5th");
   });
 
   // A first-time applicant has no Person until roster build, and a shift is keyed
@@ -387,7 +446,7 @@ describe("BuilderGrid incoming rows", () => {
     });
     expect(out).toContain("Nora Newcomer");
     expect(out).toContain("Incoming");
-    expect(out).not.toContain('value="acceptance:acc-1"');
+    expect(out).not.toContain("Assign Nora Newcomer");
     expect(out).toContain("cannot be scheduled yet");
   });
 

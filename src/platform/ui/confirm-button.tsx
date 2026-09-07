@@ -11,6 +11,21 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
   label: string;
   /** Label shown in the armed/confirm state. Defaults to "Confirm?". */
   confirmLabel?: string;
+  /**
+   * Called by the confirm click instead of submitting a form.
+   *
+   * For destructive actions that are a function call rather than a form post --
+   * the interactive Schedule Builder writes over fetch, so its Remove buttons
+   * have no form to submit. Everything else about the control is unchanged: same
+   * two-click arming, same one-element identity, same focus-driven disarm. When
+   * omitted the button submits its surrounding form, as it always has.
+   */
+  onConfirm?: () => void;
+  /**
+   * In-flight flag for the onConfirm form of the button, standing in for the
+   * useFormStatus reading a form would give it. Ignored inside a form.
+   */
+  busy?: boolean;
 };
 
 /**
@@ -44,8 +59,10 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  * That is reachable by mouse, keyboard, and AT alike, and cannot expire under a user
  * who is simply reading slowly.
  *
- * Must be rendered inside a <form>; useFormStatus reads that form's state. Does NOT
- * use window.confirm, so it stays automation-friendly.
+ * Must be rendered inside a <form>; useFormStatus reads that form's state. The one
+ * exception is the `onConfirm` form of the button, which calls a handler instead and
+ * takes its in-flight state from `busy`. Does NOT use window.confirm, so it stays
+ * automation-friendly.
  */
 export function ConfirmButton({
   label,
@@ -54,10 +71,15 @@ export function ConfirmButton({
   onClick,
   onBlur,
   disabled,
+  onConfirm,
+  busy,
   ...rest
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
-  const { pending } = useFormStatus();
+  const formStatus = useFormStatus();
+  // Outside a form useFormStatus reports pending: false forever, so the caller's
+  // own flag is what keeps the confirm state disabled while the action runs.
+  const pending = onConfirm ? (busy ?? false) : formStatus.pending;
   const wasPending = useRef(false);
   // Set synchronously by the confirm click, BEFORE React re-renders with
   // pending=true. Submitting disables the button, the browser blurs the disabled
@@ -82,7 +104,7 @@ export function ConfirmButton({
   return (
     <Button
       {...rest}
-      type={armed ? "submit" : "button"}
+      type={armed && !onConfirm ? "submit" : "button"}
       variant={armed ? "danger" : "outline"}
       className={className}
       disabled={pending || disabled}
@@ -90,8 +112,15 @@ export function ConfirmButton({
       onClick={(e) => {
         onClick?.(e);
         if (armed) {
-          // Confirm click: let the native form submit proceed.
+          // Confirm click: let the native form submit proceed, or call the
+          // handler when there is no form behind this button.
           confirming.current = true;
+          if (onConfirm) {
+            e.preventDefault();
+            setArmed(false);
+            confirming.current = false;
+            onConfirm();
+          }
         } else {
           e.preventDefault();
           setArmed(true);

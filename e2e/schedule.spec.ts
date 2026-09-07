@@ -20,6 +20,50 @@ async function selectDeptByCode(page: import("@playwright/test").Page, code: str
   return value;
 }
 
+/**
+ * The Schedule Builder holds an EventSource open for as long as it is on screen
+ * (/api/schedule/builder/stream). Playwright's `networkidle` waits for the
+ * absence of in-flight requests, and a stream that stays open by design is one
+ * forever -- so every `waitForLoadState("networkidle")` below would sit until it
+ * timed out. Blocking the stream leaves the rest of the builder exactly as a
+ * director uses it: writes still go over /api/schedule/builder, and the boards
+ * still update from their own responses.
+ *
+ * The live path is covered by "builder: a grid click saves in place" below,
+ * which unroutes this and waits on real assertions instead.
+ */
+const BUILDER_STREAM = "**/api/schedule/builder/stream*";
+
+test.beforeEach(async ({ page }) => {
+  await page.route(BUILDER_STREAM, (route) => route.abort());
+});
+
+/**
+ * Wait for a client navigation inside the Builder to actually land.
+ *
+ * The department picker is a NavForm and the date strip is a set of Links, so
+ * both navigate on the client. `waitForLoadState("networkidle")` cannot see
+ * that: the lifecycle state was already reached by the last real page load and a
+ * soft navigation never resets it, so the call returns at once and the test runs
+ * against the previous date. Waiting on the search param is the real signal.
+ */
+async function pickDate(page: import("@playwright/test").Page, index = 0) {
+  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
+  await expect(dateNav).toBeVisible();
+  const link = dateNav.getByRole("link").nth(index);
+  const href = await link.getAttribute("href");
+  const wanted = new URL(href!, "http://localhost").searchParams.get("date")!;
+  await link.click();
+  await page.waitForURL((url) => url.searchParams.get("date") === wanted);
+  return wanted;
+}
+
+/** Same, for the department picker's Go button. */
+async function goToDept(page: import("@playwright/test").Page, deptId: string) {
+  await page.getByRole("button", { name: "Go" }).click();
+  await page.waitForURL((url) => url.searchParams.get("dept") === deptId);
+}
+
 // ---------------------------------------------------------------------------
 // Module-level RHD attending fixture
 // Seeds one active attending before every test and cleans it up after.
@@ -177,18 +221,8 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   await expect(page.getByRole("heading", { name: "Schedule Builder" })).toBeVisible();
 
   // Select VADM department from the Department select.
-  await selectDeptByCode(page, "VADM");
-  await page.getByRole("button", { name: "Go" }).click();
-  await page.waitForLoadState("networkidle");
-
-  // The date tab strip should now be visible.
-  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
-  await expect(dateNav).toBeVisible();
-
-  // Click the first date pill to select a date.
-  const firstDateLink = dateNav.getByRole("link").first();
-  await firstDateLink.click();
-  await page.waitForLoadState("networkidle");
+  await goToDept(page, await selectDeptByCode(page, "VADM"));
+  await pickDate(page);
 
   // "Available to assign" column heading must be visible.
   const availableSection = page.locator("section").filter({ has: page.locator("h2", { hasText: "Available to assign" }) });
@@ -210,9 +244,8 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   const assignBtn = memberCard.getByRole("button", { name: /Assign as volunteer/ });
   await expect(assignBtn).toBeVisible();
 
-  // Click Assign as volunteer -- this is a regular submit (BuilderCell), not a ConfirmButton.
+  // A plain click now: the Day view writes in place rather than posting a form.
   await assignBtn.click();
-  await page.waitForLoadState("networkidle");
 
   // Assigned section: use exact-text heading to avoid matching "Available to assign".
   // The "Assigned" h2 is exactly "Assigned" (not "Available to assign").
@@ -237,8 +270,12 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   // After arming, the button text changes to the confirmLabel ("Remove this volunteer?").
   const confirmBtn = page.getByRole("button", { name: "Remove this volunteer?" }).first();
   await expect(confirmBtn).toBeVisible();
-  await confirmBtn.click();
-  await page.waitForLoadState("networkidle");
+  // force: the confirm click removes its own button in the same frame now that
+  // the Day view writes in place, and Playwright's pre-dispatch stability check
+  // then retries against an element that is already gone. Actionability is
+  // already established by the toBeVisible above; the assertion that follows is
+  // what proves the click landed.
+  await confirmBtn.click({ force: true });
 
   // The seeded member should be back in "Available to assign".
   const availableSectionAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Available to assign" }) });
@@ -273,9 +310,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
   // Select VADM.
-  await selectDeptByCode(page, "VADM");
-  await page.getByRole("button", { name: "Go" }).click();
-  await page.waitForLoadState("networkidle");
+  await goToDept(page, await selectDeptByCode(page, "VADM"));
 
   // Click the LAST date pill, not the first. The date strip renders every
   // clinic date of the seeded SU26 term unfiltered and in ascending order
@@ -285,10 +320,8 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   // request -> approve) needs a date that is not in the past. The term's
   // final clinic date, 2026-09-26, is the one date in this fixture guaranteed
   // to be furthest from "past" for as long as this seed is in use.
-  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
-  const targetDateLink = dateNav.getByRole("link").last();
-  await targetDateLink.click();
-  await page.waitForLoadState("networkidle");
+  const dateCount = await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").count();
+  await pickDate(page, dateCount - 1);
 
   // Capture the current URL (dept + the date just clicked) to restore later.
   const builderUrl = page.url();
@@ -315,7 +348,6 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
     // Button labels changed from "Assign" to role-specific "Assign as volunteer".
     const assignBtn = volunteerRow.getByRole("button", { name: /Assign as volunteer/ }).first();
     await assignBtn.click();
-    await page.waitForLoadState("networkidle");
   }
 
   // Confirm Dev Volunteer is in the Assigned section (scoped to the volunteer name span).
@@ -481,13 +513,8 @@ test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  await selectDeptByCode(page, "VADM");
-  await page.getByRole("button", { name: "Go" }).click();
-  await page.waitForLoadState("networkidle");
-
-  const dateNav = page.locator('nav[aria-label="Clinic dates"]');
-  await dateNav.getByRole("link").first().click();
-  await page.waitForLoadState("networkidle");
+  await goToDept(page, await selectDeptByCode(page, "VADM"));
+  await pickDate(page);
 
   const availableSection = page.locator("section").filter({
     has: page.locator("h2", { hasText: "Available to assign" }),
@@ -500,7 +527,6 @@ test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM
   expect(memberName).toBeTruthy();
 
   await shadowBtn.click();
-  await page.waitForLoadState("networkidle");
 
   const assignedSection = page.locator("section").filter({
     has: page.locator("h2").filter({ hasText: /^Assigned$/ }),
@@ -515,8 +541,15 @@ test("Builder day-view shadow assign: Jack assigns a member as a shadow via VADM
   // Use page-level locator for the confirm button to avoid React re-render scoping issues.
   const confirmBtn = page.getByRole("button", { name: "Remove this shadow?" }).first();
   await expect(confirmBtn).toBeVisible();
-  await confirmBtn.click();
-  await page.waitForLoadState("networkidle");
+  // force: the confirm click removes its own button in the same frame now that
+  // the Day view writes in place, and Playwright's pre-dispatch stability check
+  // then retries against an element that is already gone. Actionability is
+  // already established by the toBeVisible above; the assertion that follows is
+  // what proves the click landed.
+  await confirmBtn.click({ force: true });
+
+  // The shadow leaves the board at once, without a reload.
+  await expect(assignedSection.getByRole("heading", { name: "Shadows (0)" })).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -682,4 +715,94 @@ test("attendings: schedule one from the grid, then clear it", async ({ page }) =
       .getByRole("row").filter({ hasText: name })
       .getByRole("button", { name: new RegExp(`^Assign ${name} to `) }).first(),
   ).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Test 12: The grid writes in place
+// ---------------------------------------------------------------------------
+
+/**
+ * The builder used to post a form per cell and redirect back to its own URL, so
+ * every click re-ran the whole page load and threw the grid back to the start.
+ * This asserts the three things that changed: the cell flips without a
+ * navigation, the grid's scroll position survives it, and the change is real
+ * (it is still there after a reload).
+ *
+ * Runs with the change stream live -- unlike every other test in this file --
+ * so an EventSource that fails to open, or one that pushes a stale board over
+ * the click that just happened, shows up here.
+ */
+test("builder: a grid click saves in place, without reloading or losing scroll", async ({ page }) => {
+  await page.unroute(BUILDER_STREAM);
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/schedule/builder");
+  await page.waitForURL((url) => url.pathname === "/schedule/builder");
+
+  const vadmId = await selectDeptByCode(page, "VADM");
+  await page.getByRole("button", { name: "Go" }).click();
+  // No networkidle anywhere in this test: the change stream is open on purpose
+  // here, so there is never a quiet network.
+  await page.waitForURL((url) => url.searchParams.get("dept") === vadmId);
+
+  await page.getByRole("link", { name: "Grid", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("view") === "grid");
+
+  const grid = page.getByRole("table", { name: "Schedule grid" });
+  await expect(grid).toBeVisible();
+  // The stream is the only thing that turns this line green.
+  await expect(page.getByText(/^Live\./)).toBeVisible({ timeout: 20_000 });
+
+  // Drive the LAST clinic date, which is the one furthest from the start and so
+  // the one a scroll actually has to reach.
+  const assign = grid.getByRole("button", { name: /^Assign .* as volunteer on / }).last();
+  await expect(assign).toBeVisible();
+  const label = await assign.getAttribute("aria-label");
+  const who = /^Assign (.*?) as volunteer on (.*)$/.exec(label!)!;
+  // The name and the rendered date come out of the page, so they are escaped
+  // before going back in as a pattern.
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const name = esc(who[1]);
+  const when = esc(who[2]);
+
+  // Scroll the box to its far end, which is exactly the position the old
+  // redirect discarded on every click.
+  const box = grid.locator("xpath=ancestor::div[1]");
+  await box.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+  });
+  const scrolledTo = await box.evaluate((el: HTMLElement) => el.scrollLeft);
+  expect(scrolledTo).toBeGreaterThan(0);
+
+  const urlBefore = page.url();
+  await assign.click();
+
+  // The cell flips to its filled state with no navigation in between.
+  const filled = grid.getByRole("button", {
+    name: new RegExp(`^Unassign ${name} \\(volunteer\\) from ${when}`),
+  });
+  await expect(filled).toBeVisible({ timeout: 15_000 });
+  expect(page.url()).toBe(urlBefore);
+  expect(await box.evaluate((el: HTMLElement) => el.scrollLeft)).toBe(scrolledTo);
+
+  // It is a real write, not an optimistic paint: it survives a fresh load.
+  await page.reload();
+  await expect(page.getByRole("table", { name: "Schedule grid" }).getByRole("button", {
+    name: new RegExp(`^Unassign ${name} \\(volunteer\\)`),
+  }).first()).toBeVisible({ timeout: 15_000 });
+
+  // Clean up: two-click arm/confirm remove, back to an assignable cell.
+  const stillFilled = page.getByRole("table", { name: "Schedule grid" }).getByRole("button", {
+    name: new RegExp(`^Unassign ${name} \\(volunteer\\)`),
+  }).first();
+  await stillFilled.click(); // arms
+  await page
+    .getByRole("button", { name: /^Confirm remove\./ })
+    .first()
+    // force: see the note on the Day view's confirm clicks above.
+    .click({ force: true });
+  await expect(
+    page.getByRole("table", { name: "Schedule grid" }).getByRole("button", {
+      name: new RegExp(`^Assign ${name} as volunteer on `),
+    }).first(),
+  ).toBeVisible({ timeout: 15_000 });
 });

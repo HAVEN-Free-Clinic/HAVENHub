@@ -1171,30 +1171,14 @@ export function provisionalRowId(acceptanceId: string): string {
   return `${PROVISIONAL_ROW_PREFIX}${acceptanceId}`;
 }
 
-/** Just the fields {@link compareBuilderMembers} needs; any BuilderMember satisfies it. */
-type BuilderMemberOrder = Pick<BuilderMember, "kind"> & {
-  person: { name: string };
-  provisional?: BuilderProvisional | null;
-};
-
 /**
- * Ordering for the builder's member lists: confirmed roster members first, then
- * the incoming (accepted, not yet built onto the roster) ones; within each group
- * directors first, then volunteers, each sorted alphabetically by name. Used by
- * the Day view's "Available to assign" pool, the grid view, and the availability
- * view, so all three surfaces match.
- *
- * Incoming members sort last deliberately: the confirmed roster is the thing a
- * director is scheduling, and interleaving people who might yet not arrive would
- * bury it.
+ * Re-exported from engine/member-order so the grid and Day view -- client
+ * components since the builder became interactive -- can sort without importing
+ * this Prisma-backed module into the browser bundle. Server-side callers keep
+ * importing it from here.
  */
-export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrder): number {
-  const aIncoming = a.provisional != null;
-  const bIncoming = b.provisional != null;
-  if (aIncoming !== bIncoming) return aIncoming ? 1 : -1;
-  if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
-  return a.person.name.localeCompare(b.person.name);
-}
+export { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
+export type { BuilderMemberOrder } from "@/modules/schedule/engine/member-order";
 
 export type BuilderAssignmentEntry = {
   role: "VOLUNTEER" | "SHADOW" | "DIRECTOR";
@@ -1208,6 +1192,126 @@ export type BuilderAssignmentEntry = {
    */
   person: { name: string; verifiedLanguages: string[]; licensedRN: boolean };
 };
+
+// ---------------------------------------------------------------------------
+// Live board reads (interactive builder + change stream)
+// ---------------------------------------------------------------------------
+
+/** The nested map the grid and Day view render: dateKey -> personId -> entry. */
+export type BuilderAssignments = Record<string, Record<string, BuilderAssignmentEntry>>;
+
+/** Shape of one loaded ShiftAssignment row, as both callers below select it. */
+type AssignmentRow = {
+  personId: string;
+  clinicDate: Date;
+  role: string;
+  triage: boolean;
+  walkin: boolean;
+  cc: boolean;
+  remote: boolean;
+  specialty: boolean;
+  person: { name: string; licensedRN: boolean };
+};
+
+/**
+ * Rows -> the nested map, with each assignee's verified languages folded in.
+ *
+ * Shared by builderView and assignmentsFor so the board a page renders and the
+ * board the change stream pushes are built by the same code. Two copies of this
+ * mapping is exactly how a live update would come to disagree with the first
+ * paint.
+ */
+function buildAssignmentsByDate(
+  rows: AssignmentRow[],
+  languageMap: Map<string, string[]>,
+): BuilderAssignments {
+  const byDate: BuilderAssignments = {};
+  for (const a of rows) {
+    const dk = isoDateKey(a.clinicDate);
+    if (!byDate[dk]) byDate[dk] = {};
+    byDate[dk][a.personId] = {
+      role: a.role as "VOLUNTEER" | "SHADOW" | "DIRECTOR",
+      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
+      person: {
+        name: a.person.name,
+        verifiedLanguages: languageMap.get(a.personId) ?? [],
+        licensedRN: a.person.licensedRN,
+      },
+    };
+  }
+  return byDate;
+}
+
+/**
+ * Every assignment in one (term, department), as the board map.
+ *
+ * The narrow read behind an interactive click and behind the change stream:
+ * builderView costs a dozen queries (availability resolution, clearance,
+ * conflicts, intake, incoming class) because it paints a whole page. Moving one
+ * shift needs none of that -- only the cells.
+ *
+ * Read-only, and NOT scope-checked here: both callers gate first (the mutation
+ * route through setAssignment/toggleTag's own scopeCheck, the stream through
+ * assertBoardReadable below).
+ */
+export async function assignmentsFor(
+  termId: string,
+  departmentId: string,
+): Promise<BuilderAssignments> {
+  const rows = await prisma.shiftAssignment.findMany({
+    where: { termId, departmentId },
+    select: {
+      personId: true,
+      clinicDate: true,
+      role: true,
+      triage: true,
+      walkin: true,
+      cc: true,
+      remote: true,
+      specialty: true,
+      person: { select: { name: true, licensedRN: true } },
+    },
+  });
+  const languageMap = await verifiedLanguagesByPerson([
+    ...new Set(rows.map((r) => r.personId)),
+  ]);
+  return buildAssignmentsByDate(rows, languageMap);
+}
+
+/**
+ * A cheap stamp that changes whenever this board's assignments change.
+ *
+ * `count` catches inserts and deletes; `updatedAt` catches edits in place (a
+ * role change, a tag toggle). A delete paired with an insert in the same tick
+ * leaves the count equal but always moves the maximum forward, since the new row
+ * is written after the old one existed.
+ *
+ * One indexed aggregate, so the stream can ask this every couple of seconds and
+ * only pay for {@link assignmentsFor} when the answer actually moved. It is the
+ * single seam where change detection lives: swapping in Postgres LISTEN/NOTIFY
+ * later means replacing this call, not the stream around it.
+ */
+export async function boardRevision(termId: string, departmentId: string): Promise<string> {
+  const agg = await prisma.shiftAssignment.aggregate({
+    where: { termId, departmentId },
+    _count: { _all: true },
+    _max: { updatedAt: true },
+  });
+  return `${agg._count._all}:${agg._max.updatedAt?.getTime() ?? 0}`;
+}
+
+/**
+ * Read gate for the change stream: the viewer must manage this department's
+ * schedule, the same authority the Builder page itself requires.
+ *
+ * Throws BuilderForbiddenError, which the route turns into a 403.
+ */
+export async function assertBoardReadable(
+  actorPersonId: string,
+  departmentId: string,
+): Promise<void> {
+  await scopeCheck(actorPersonId, departmentId);
+}
 
 export type BuilderRhd = {
   readiness: ClinicReadiness;
@@ -1470,20 +1574,7 @@ export async function builderView(
   ]);
 
   // Build assignmentsByDate.
-  const assignmentsByDate: Record<string, Record<string, BuilderAssignmentEntry>> = {};
-  for (const a of allAssignments) {
-    const dk = isoDateKey(a.clinicDate);
-    if (!assignmentsByDate[dk]) assignmentsByDate[dk] = {};
-    assignmentsByDate[dk][a.personId] = {
-      role: a.role as "VOLUNTEER" | "SHADOW" | "DIRECTOR",
-      tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
-      person: {
-        name: a.person.name,
-        verifiedLanguages: languageMap.get(a.personId) ?? [],
-        licensedRN: a.person.licensedRN,
-      },
-    };
-  }
+  const assignmentsByDate = buildAssignmentsByDate(allAssignments, languageMap);
 
   // Load each member's training intake (scheduling preferences from the training
   // quiz), keyed by personId:track. A member's track is their membership kind, so

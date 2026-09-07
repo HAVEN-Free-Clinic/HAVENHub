@@ -54,13 +54,11 @@ export function AttendingSpecialtyForm({ action, mode, specialty }: AttendingSpe
         </div>
 
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              name="runsSpecialtyClinic"
-              defaultChecked={specialty?.runsSpecialtyClinic ?? false}
-            />
-            Can run the rotating Specialty Clinic
-          </label>
+          <Checkbox
+            name="runsSpecialtyClinic"
+            defaultChecked={specialty?.runsSpecialtyClinic ?? false}
+            label="Can run the rotating Specialty Clinic"
+          />
           <p className="text-xs text-muted-foreground">
             Tick this for a specialty that takes over a clinic date as that day&apos;s Specialty Clinic
             (Dermatology, Neurology, Nephrology). Leave it clear for a specialty that only describes

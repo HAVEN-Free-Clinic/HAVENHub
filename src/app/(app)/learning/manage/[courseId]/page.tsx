@@ -77,9 +77,7 @@ export default async function EditCoursePage({
                   <option value="PER_TERM">Retake each term</option>
                 </Select>
               </Field>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="isActive" defaultChecked={course.isActive} /> Active
-              </label>
+              <Checkbox name="isActive" defaultChecked={course.isActive} label="Active" />
             </div>
             <FormActions>
               <SubmitButton>Save course</SubmitButton>
@@ -92,9 +90,11 @@ export default async function EditCoursePage({
           <form action={setAssignmentAction}>
             <input type="hidden" name="courseId" value={course.id} />
             <div className="space-y-4">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="assignToAll" defaultChecked={course.assignToAll} /> Assign to all departments
-              </label>
+              <Checkbox
+                name="assignToAll"
+                defaultChecked={course.assignToAll}
+                label="Assign to all departments"
+              />
               <Field label="Audience">
                 <Select name="audience" defaultValue={course.audience} className="max-w-xs">
                   <option value="EVERYONE">Everyone</option>
@@ -104,10 +104,18 @@ export default async function EditCoursePage({
               </Field>
               <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
                 {departments.map((d) => (
-                  <label key={d.id} className="flex items-center gap-2">
-                    <Checkbox name="departmentIds" value={d.id} defaultChecked={assignedDeptIds.has(d.id)} /> {d.name}
-                    {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
-                  </label>
+                  <Checkbox
+                    key={d.id}
+                    name="departmentIds"
+                    value={d.id}
+                    defaultChecked={assignedDeptIds.has(d.id)}
+                    label={
+                      <>
+                        {d.name}
+                        {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
+                      </>
+                    }
+                  />
                 ))}
               </div>
             </div>

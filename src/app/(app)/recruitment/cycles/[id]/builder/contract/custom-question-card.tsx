@@ -78,9 +78,11 @@ export function CustomQuestionCard({
             fieldOptions={fieldOptions}
           />
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox checked={block.required} onChange={(e) => onUpdate({ required: e.target.checked })} /> Required
-            </label>
+            <Checkbox
+              checked={block.required}
+              onChange={(e) => onUpdate({ required: e.target.checked })}
+              label="Required"
+            />
             <form action={() => onRemove()}>
               <ConfirmButton label="Remove question" size="sm" />
             </form>

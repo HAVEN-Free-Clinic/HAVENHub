@@ -161,14 +161,16 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
         {/* Toggles rather than labelled columns, so they sit outside FilterField
             and keep their own baseline against the control row. */}
         <div className="flex items-center gap-4 pb-2">
-          <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-            <Checkbox name="immediateRisk" defaultChecked={immediateRisk} />
-            Immediate risk only
-          </label>
-          <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-            <Checkbox name="strikePending" defaultChecked={strikePending} />
-            Pending strike only
-          </label>
+          <Checkbox
+            name="immediateRisk"
+            defaultChecked={immediateRisk}
+            label="Immediate risk only"
+          />
+          <Checkbox
+            name="strikePending"
+            defaultChecked={strikePending}
+            label="Pending strike only"
+          />
         </div>
       </FilterBar>
 

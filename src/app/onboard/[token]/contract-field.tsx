@@ -80,15 +80,13 @@ export function ContractField({
         {block.body.trim() && <Prose text={renderVars(block.body, ctx)} />}
         {kind === "checkbox" ? (
           <>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                name={`confirm__${block.id}`}
-                required
-                onChange={(e) => onAnswer(`confirm__${block.id}`, e.target.checked ? "on" : "")}
-                {...errorProps(`confirm__${block.id}`)}
-              />
-              <span>{renderVars(block.signatureLabel, ctx)}</span>
-            </label>
+            <Checkbox
+              name={`confirm__${block.id}`}
+              required
+              onChange={(e) => onAnswer(`confirm__${block.id}`, e.target.checked ? "on" : "")}
+              {...errorProps(`confirm__${block.id}`)}
+              label={renderVars(block.signatureLabel, ctx)}
+            />
             {err(`confirm__${block.id}`) && (
               <p id={errorId(`confirm__${block.id}`)} className="mt-1 text-xs text-critical-foreground">{err(`confirm__${block.id}`)}</p>
             )}
@@ -160,14 +158,12 @@ export function ContractField({
       return (
         <div className="space-y-3">
           <p className="text-sm font-medium text-foreground">{label}</p>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              name="hasEpic"
-              checked={hasEpic}
-              onChange={(e) => { setHasEpic(e.target.checked); onAnswer("hasEpic", e.target.checked ? "on" : ""); }}
-            />
-            <span>I already have a Yale Epic account.</span>
-          </label>
+          <Checkbox
+            name="hasEpic"
+            checked={hasEpic}
+            onChange={(e) => { setHasEpic(e.target.checked); onAnswer("hasEpic", e.target.checked ? "on" : ""); }}
+            label="I already have a Yale Epic account."
+          />
           {hasEpic ? (
             <div className="space-y-2 border-l-2 border-border pl-3">
               <div>
@@ -176,9 +172,7 @@ export function ContractField({
                 </Field>
                 {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical-foreground">{err("existingEpicId")}</p>}
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="worksWithYnhh" /><span>I currently work with Yale New Haven Hospital.</span>
-              </label>
+              <Checkbox name="worksWithYnhh" label="I currently work with Yale New Haven Hospital." />
             </div>
           ) : (
             <p className="text-sm text-foreground-soft">
@@ -214,13 +208,11 @@ export function ContractField({
       // stays legal for a custom/legacy layout snapshot; render it
       // unprefilled rather than reading a Prefill field that no longer exists.
       return (
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            name={block.systemKey === "spanish" ? "spanishSelfReported" : "licensedRN"}
-            defaultChecked={false}
-          />
-          <span>{label}</span>
-        </label>
+        <Checkbox
+          name={block.systemKey === "spanish" ? "spanishSelfReported" : "licensedRN"}
+          defaultChecked={false}
+          label={label}
+        />
       );
     case "select": {
       // yaleAffiliation / gradYear store stable machine keys ("other_yale"), so a

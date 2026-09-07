@@ -104,13 +104,11 @@ export function PersonForm({ action, person, children }: PersonFormProps) {
 
         <div className="space-y-4">
           <div className="flex flex-wrap gap-6">
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox
-                name="licensedRN"
-                defaultChecked={person?.licensedRN ?? false}
-              />
-              Licensed RN
-            </label>
+            <Checkbox
+              name="licensedRN"
+              defaultChecked={person?.licensedRN ?? false}
+              label="Licensed RN"
+            />
           </div>
           {/* Languages are no longer edited here. They live in PersonLanguage,
               one row per language, and are assessed through the interpreting
@@ -121,13 +119,11 @@ export function PersonForm({ action, person, children }: PersonFormProps) {
             Language capabilities are recorded and verified in Volunteers &gt; Language review.
           </p>
           <div className="flex flex-col gap-1">
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox
-                name="blockerGateExempt"
-                defaultChecked={person?.blockerGateExempt ?? false}
-              />
-              Skip the content blocker check
-            </label>
+            <Checkbox
+              name="blockerGateExempt"
+              defaultChecked={person?.blockerGateExempt ?? false}
+              label="Skip the content blocker check"
+            />
             <p className="text-xs text-subtle-foreground">
               This person can use the hub without turning off their content blocker.
               Support may not reach them, so use this for people on a managed device or

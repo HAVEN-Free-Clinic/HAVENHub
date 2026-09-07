@@ -22,14 +22,12 @@ export function AnonymityField() {
 
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          name="anonymous"
-          checked={anonymous}
-          onChange={(e) => setAnonymous(e.target.checked)}
-        />{" "}
-        Do not share my name with the person I am reporting.
-      </label>
+      <Checkbox
+        name="anonymous"
+        checked={anonymous}
+        onChange={(e) => setAnonymous(e.target.checked)}
+        label="Do not share my name with the person I am reporting."
+      />
 
       {anonymous && (
         <Field

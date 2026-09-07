@@ -101,10 +101,7 @@ export function ClinicDatesEditor({
                   Saturday is still staffable (departments run triage on one). */}
               <form action={closureAction} className="flex items-center gap-2">
                 <input type="hidden" name="dateKey" value={iso} />
-                <label className="flex items-center gap-1.5 text-sm text-foreground-soft">
-                  <Checkbox name="isClosed" defaultChecked={isClosed} disabled={!editable} />
-                  Closed
-                </label>
+                <Checkbox name="isClosed" defaultChecked={isClosed} disabled={!editable} label="Closed" />
                 <Input
                   type="text"
                   name="closedNote"

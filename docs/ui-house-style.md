@@ -25,7 +25,7 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `Field` | `@/platform/ui/input` | Wraps a control with an accessible label and optional hint. The label element wraps the child so no `id`/`htmlFor` pair is needed. |
 | `ReadonlyField` | `@/platform/ui/input` | Non-editable display row (computed values, IT-managed fields). Renders as styled plain text, not a disabled input. |
 | `Select` | `@/platform/ui/select` | Native `<select>` styled to match Input. |
-| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. |
+| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. Pass `label` (and optional `hint`) for a labelled row; it mirrors `Radio` exactly, so the two agree when they sit in one form. Unlabelled it returns a bare input, for a table cell or a row you compose yourself. `className` goes to the input, never the row. |
 | `Radio` | `@/platform/ui/radio` | Brand-tinted radio, rendered inside a `<label>` for click-area and accessibility. |
 | `RadioGroup` | `@/platform/ui/radio` | Container for a set of `Radio` options. Accepts an optional `legend` string. |
 

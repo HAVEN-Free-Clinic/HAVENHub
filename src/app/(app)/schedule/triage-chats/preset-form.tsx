@@ -78,16 +78,17 @@ export function PresetForm({ presetId, initial, departments }: PresetFormProps) 
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {departments.map((dept) => (
-            <label key={dept.id} className="flex items-center gap-2 text-sm">
-              <Checkbox
-                name="departmentIds"
-                value={dept.id}
-                defaultChecked={selected.has(dept.id)}
-              />
-              <span>
-                {dept.code} - {dept.name}
-              </span>
-            </label>
+            <Checkbox
+              key={dept.id}
+              name="departmentIds"
+              value={dept.id}
+              defaultChecked={selected.has(dept.id)}
+              label={
+                <span>
+                  {dept.code} - {dept.name}
+                </span>
+              }
+            />
           ))}
         </div>
       </fieldset>

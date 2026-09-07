@@ -371,6 +371,210 @@ export async function resetTraining(personId: string, termId: string, track: Tra
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "Training", entityId: `${personId}:${termId}:${track}` });
 }
 
+/** One excused absence from a cycle's in-person training session, as a reader
+ *  sees it on the roster or on an applicant's profile. */
+export type TrainingExcuse = {
+  reason: string;
+  recordedByName: string | null;
+  recordedAt: Date;
+  /** True when the row is still keyed on an email because the person has no hub
+   *  account yet. The applicant profile says so; it explains why an excuse
+   *  entered here is not on the training roster until they are promoted. */
+  unlinked: boolean;
+};
+
+/** Which row an excuse belongs to. A member on the training roster is keyed on
+ *  their Person; an applicant with no account is keyed on their lowercased email
+ *  until promotion gives them one. */
+type ExcuseIdentity = { personId: string; emailLower?: undefined } | { personId?: undefined; emailLower: string };
+
+async function requireExcuseLead(actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.manage_cycles"))) {
+    throw new RecruitmentAuthError("Only recruitment leads can excuse a training absence.");
+  }
+}
+
+function selectExcuse(row: {
+  reason: string;
+  recordedAt: Date;
+  personId: string | null;
+  recordedBy: { name: string } | null;
+}): TrainingExcuse {
+  return {
+    reason: row.reason,
+    recordedByName: row.recordedBy?.name ?? null,
+    recordedAt: row.recordedAt,
+    unlinked: row.personId === null,
+  };
+}
+
+/**
+ * The shared write behind both entry points.
+ *
+ * Upserts on whichever unique key the identity picks, so a second excuse for the
+ * same person edits the reason rather than stacking rows: there is only one
+ * answer to "why were they not there".
+ */
+async function writeExcuse(
+  cycleId: string,
+  identity: ExcuseIdentity,
+  reason: string,
+  actorId: string
+): Promise<void> {
+  // Required, not optional: an excuse with no reason reads the same as a bare
+  // absence, which is the thing this exists to fix.
+  const clean = reason.trim();
+  if (clean.length === 0) throw new TrainingStateError("Give the reason they gave you.");
+
+  const row = await prisma.trainingAbsenceExcuse.upsert({
+    where:
+      identity.personId !== undefined
+        ? { cycleId_personId: { cycleId, personId: identity.personId } }
+        : { cycleId_emailLower: { cycleId, emailLower: identity.emailLower } },
+    create: { cycleId, ...identity, reason: clean, recordedById: actorId },
+    // recordedAt moves with the edit: the record should say when we last heard
+    // this, and who took it down.
+    update: { reason: clean, recordedById: actorId, recordedAt: new Date() },
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.training_excuse",
+    entityType: "TrainingAbsenceExcuse",
+    entityId: row.id,
+    after: { cycleId, ...identity, reason: clean },
+  });
+}
+
+/**
+ * Excuse a member listed on the cycle's training roster.
+ *
+ * Excuses reach the clinic by email before the session, so this is a lead writing
+ * one down, not the member claiming it -- hence manage_cycles rather than the
+ * department-scoped reach that records attendance.
+ *
+ * Purely a record. It does not complete training, waive the makeup quiz, or move
+ * the makeup window: the person still owes the quiz on the normal schedule. What
+ * it buys is a roster that can tell someone who warned us apart from someone who
+ * simply never turned up.
+ */
+export async function recordAbsenceExcuse(
+  cycleId: string,
+  personId: string,
+  reason: string,
+  actorId: string
+): Promise<void> {
+  await requireExcuseLead(actorId);
+
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
+  if (!cycle) throw new TrainingStateError("Cycle not found.");
+  // This entry point is the roster's own button, so the roster's own membership
+  // rule is the right guard. Excusing someone not yet accepted goes through
+  // recordApplicantAbsenceExcuse instead, which validates against the cycle's
+  // applicants.
+  const onRoster = await prisma.termMembership.findFirst({
+    where: { personId, termId: cycle.termId, kind: cycle.track, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!onRoster) throw new TrainingStateError("Not an active member of this track this term.");
+
+  await writeExcuse(cycleId, { personId }, reason, actorId);
+}
+
+/**
+ * Excuse an applicant, who may not be accepted yet and may have no hub account
+ * at all.
+ *
+ * This is the surface that matters in practice: excuses arrive during the weeks
+ * around the session, well before promotion turns anyone into a member, and the
+ * roster does not list them yet.
+ *
+ * Stores a personId whenever one can be resolved -- the applicant's linked
+ * account, or a Person whose contact email matches -- so the excuse is on the
+ * roster immediately rather than waiting to be matched. Only a genuinely unknown
+ * applicant falls back to the email key.
+ */
+export async function recordApplicantAbsenceExcuse(
+  cycleId: string,
+  applicantId: string,
+  reason: string,
+  actorId: string
+): Promise<void> {
+  await requireExcuseLead(actorId);
+  const identity = await resolveApplicantIdentity(cycleId, applicantId);
+  await writeExcuse(cycleId, identity, reason, actorId);
+}
+
+/** The applicant's excuse, or null. Reads by whichever key they were stored
+ *  under, so a lead sees the same excuse whether it was entered here or on the
+ *  roster after they were promoted. */
+export async function getApplicantAbsenceExcuse(
+  cycleId: string,
+  applicantId: string
+): Promise<TrainingExcuse | null> {
+  const identity = await resolveApplicantIdentity(cycleId, applicantId);
+  const row = await prisma.trainingAbsenceExcuse.findFirst({
+    where: { cycleId, ...identity },
+    include: { recordedBy: { select: { name: true } } },
+  });
+  return row ? selectExcuse(row) : null;
+}
+
+/**
+ * An applicant's excuse identity: their Person if one can be found, their
+ * lowercased email otherwise.
+ *
+ * Applicant.applicantPersonId is only set for signed-in renewals and promotion
+ * never backfills it, so the email match is not a fallback for odd cases -- it is
+ * how most promoted applicants are found.
+ */
+async function resolveApplicantIdentity(cycleId: string, applicantId: string): Promise<ExcuseIdentity> {
+  const applicant = await prisma.applicant.findUnique({
+    where: { id: applicantId },
+    select: { cycleId: true, applicantPersonId: true, emailLower: true },
+  });
+  if (!applicant) throw new TrainingStateError("Applicant not found.");
+  // Guards against an applicant id from another cycle being posted at this one,
+  // which would file the excuse against the wrong training session.
+  if (applicant.cycleId !== cycleId) throw new TrainingStateError("That applicant is not in this cycle.");
+
+  if (applicant.applicantPersonId) return { personId: applicant.applicantPersonId };
+  const match = await prisma.person.findFirst({
+    where: { contactEmail: { equals: applicant.emailLower, mode: "insensitive" } },
+    select: { id: true },
+  });
+  return match ? { personId: match.id } : { emailLower: applicant.emailLower };
+}
+
+/** Withdraw a roster member's excuse. Idempotent: clearing one that is already
+ *  gone is the state the caller asked for, not an error, so a double submit or a
+ *  stale page is harmless. */
+export async function clearAbsenceExcuse(cycleId: string, personId: string, actorId: string): Promise<void> {
+  await requireExcuseLead(actorId);
+  await deleteExcuse(cycleId, { personId }, actorId);
+}
+
+/** Withdraw an applicant's excuse, by whichever key it was stored under. */
+export async function clearApplicantAbsenceExcuse(
+  cycleId: string,
+  applicantId: string,
+  actorId: string
+): Promise<void> {
+  await requireExcuseLead(actorId);
+  await deleteExcuse(cycleId, await resolveApplicantIdentity(cycleId, applicantId), actorId);
+}
+
+async function deleteExcuse(cycleId: string, identity: ExcuseIdentity, actorId: string): Promise<void> {
+  const { count } = await prisma.trainingAbsenceExcuse.deleteMany({ where: { cycleId, ...identity } });
+  if (count === 0) return;
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.training_excuse_cleared",
+    entityType: "TrainingAbsenceExcuse",
+    entityId: `${cycleId}:${identity.personId ?? identity.emailLower}`,
+    before: { cycleId, ...identity },
+  });
+}
+
 export type TrainingRosterRow = {
   personId: string;
   name: string;
@@ -379,6 +583,10 @@ export type TrainingRosterRow = {
   trainingState: TrainingState;
   locked: boolean;
   overallClearance: OverallClearance;
+  /** Set when a lead recorded an absence excused ahead of the session. Kept even
+   *  after training completes: "COMPLETE, excused" is the true story of someone
+   *  who missed the session with warning and finished by makeup quiz. */
+  excuse: TrainingExcuse | null;
 };
 
 /** The designated cycle's training roster: in-scope active memberships of the cycle's track
@@ -400,14 +608,37 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     },
     include: {
       department: { select: { code: true } },
-      person: { select: { id: true, name: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
+      person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
     },
   });
 
   const personIds = memberships.map((m) => m.person.id);
-  const training = new Map(
-    (await prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } })).map((t) => [t.personId, t])
-  );
+  // An excuse written against an applicant before they had an account is keyed
+  // on their email, so the roster has to ask for it that way too: without this,
+  // an excuse recorded in October would vanish the moment promotion made them a
+  // member, which is exactly when the roster starts judging them.
+  const emailsLower = memberships
+    .map((m) => m.person.contactEmail?.toLowerCase())
+    .filter((e): e is string => Boolean(e));
+  const [trainingRows, excuseRows] = await Promise.all([
+    prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
+    prisma.trainingAbsenceExcuse.findMany({
+      where: { cycleId, OR: [{ personId: { in: personIds } }, { emailLower: { in: emailsLower } }] },
+      include: { recordedBy: { select: { name: true } } },
+    }),
+  ]);
+  const training = new Map(trainingRows.map((t) => [t.personId, t]));
+  const excusesByPerson = new Map<string, TrainingExcuse>();
+  const excusesByEmail = new Map<string, TrainingExcuse>();
+  for (const row of excuseRows) {
+    if (row.personId) excusesByPerson.set(row.personId, selectExcuse(row));
+    else if (row.emailLower) excusesByEmail.set(row.emailLower, selectExcuse(row));
+  }
+  // Person-keyed wins: if a lead excused someone on the roster and an older
+  // email-keyed row from their applicant days is still around, the one written
+  // about the member they are now is the current answer.
+  const excuseFor = (personId: string, email: string | null): TrainingExcuse | null =>
+    excusesByPerson.get(personId) ?? (email ? excusesByEmail.get(email.toLowerCase()) ?? null : null);
 
   return memberships.map((m) => {
     const cert = m.person.hipaaCertificates[0] ?? null;
@@ -418,6 +649,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
       certStatus, trainingState, locked: row?.locked ?? false,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
+      excuse: excuseFor(m.person.id, m.person.contactEmail),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }

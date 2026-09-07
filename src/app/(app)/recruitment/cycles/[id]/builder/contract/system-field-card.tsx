@@ -88,9 +88,7 @@ export function SystemFieldCard({
               <Lock className="h-3 w-3" aria-hidden /> Locked
             </Badge>
           ) : (
-            <label className="flex items-center gap-2 text-sm text-foreground-soft">
-              <Checkbox checked={enabled} onChange={(e) => onToggle(e.target.checked)} /> Shown
-            </label>
+            <Checkbox checked={enabled} onChange={(e) => onToggle(e.target.checked)} label="Shown" />
           )}
         </div>
       </div>

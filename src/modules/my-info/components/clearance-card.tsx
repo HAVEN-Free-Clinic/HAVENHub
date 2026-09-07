@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
+import { TextLink } from "@/platform/ui/text-link";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { OnboardingTaskState } from "@/platform/compliance/task-state";
 import {
@@ -184,13 +185,14 @@ export function ClearanceCard({
           back to the dashboard. */}
       {!cleared && finishHref && (
         <div className="border-t border-border-subtle px-5 py-3.5">
-          <Link
+          <TextLink
             href={finishHref}
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-fg hover:text-brand-hover"
+            size="sm"
+            className="inline-flex items-center gap-1.5 font-semibold"
           >
             Finish onboarding
             <ArrowRight aria-hidden className="h-4 w-4" />
-          </Link>
+          </TextLink>
         </div>
       )}
     </Card>

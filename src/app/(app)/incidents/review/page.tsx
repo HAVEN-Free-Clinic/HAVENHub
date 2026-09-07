@@ -14,18 +14,17 @@
  * decides any pending strike request (Task 15's other half).
  */
 
-import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { listReviewQueue, CONCERN_TYPES } from "@/modules/incidents/services/report";
 import type { IncidentReportStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
+import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Button, buttonClasses } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Pagination } from "@/platform/ui/pagination";
 import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames } from "@/app/(app)/incidents/subject-display";
@@ -125,68 +124,55 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
       />
 
       {/* Filter bar */}
-      <NavForm
+      <FilterBar
         action="/incidents/review"
-        className="mt-8 flex flex-wrap items-end gap-3"
+        clearHref={hasFilters ? "/incidents/review" : undefined}
+        className="mt-8"
       >
-        <div className="flex-1 min-w-44">
-          <Field label="Search">
-            <Input
-              type="search"
-              name="q"
-              defaultValue={q ?? ""}
-              placeholder="Subject, reporter, or report #..."
-            />
-          </Field>
-        </div>
+        <FilterField label="Search" width="grow">
+          <Input
+            type="search"
+            name="q"
+            defaultValue={q ?? ""}
+            placeholder="Subject, reporter, or report #..."
+          />
+        </FilterField>
+        <FilterField label="Status" width="md">
+          <Select name="status" defaultValue={status ?? ""}>
+            <option value="">All statuses</option>
+            {(Object.keys(STATUS_LABELS) as IncidentReportStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Concern type" width="lg">
+          <Select name="concernType" defaultValue={concernType ?? ""}>
+            <option value="">All concern types</option>
+            {CONCERN_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
 
-        <div className="w-48">
-          <Field label="Status">
-            <Select name="status" defaultValue={status ?? ""}>
-              <option value="">All statuses</option>
-              {(Object.keys(STATUS_LABELS) as IncidentReportStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <div className="w-56">
-          <Field label="Concern type">
-            <Select name="concernType" defaultValue={concernType ?? ""}>
-              <option value="">All concern types</option>
-              {CONCERN_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
+        {/* Toggles rather than labelled columns, so they sit outside FilterField
+            and keep their own baseline against the control row. */}
         <div className="flex items-center gap-4 pb-2">
-          <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-            <Checkbox name="immediateRisk" defaultChecked={immediateRisk} />
-            Immediate risk only
-          </label>
-          <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-            <Checkbox name="strikePending" defaultChecked={strikePending} />
-            Pending strike only
-          </label>
+          <Checkbox
+            name="immediateRisk"
+            defaultChecked={immediateRisk}
+            label="Immediate risk only"
+          />
+          <Checkbox
+            name="strikePending"
+            defaultChecked={strikePending}
+            label="Pending strike only"
+          />
         </div>
-
-        <Button type="submit" variant="primary" size="sm">
-          Filter
-        </Button>
-
-        {hasFilters && (
-          <Link href="/incidents/review" className={buttonClasses("outline", "sm")}>
-            Clear
-          </Link>
-        )}
-      </NavForm>
+      </FilterBar>
 
       {/* Queue table */}
       <section className="mt-6">
@@ -217,12 +203,9 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                 {rows.map(({ report, reporterName, subjectNames, strikePendingCount }) => (
                   <TR key={report.id}>
                     <TD>
-                      <Link
-                        href={`/incidents/${report.id}`}
-                        className="font-medium text-brand-fg hover:underline"
-                      >
+                      <TextLink href={`/incidents/${report.id}`} className="font-medium">
                         #{report.number}
-                      </Link>
+                      </TextLink>
                     </TD>
                     <TD className="text-sm text-foreground-soft">{reporterName}</TD>
                     <TD className="text-sm text-foreground-soft">

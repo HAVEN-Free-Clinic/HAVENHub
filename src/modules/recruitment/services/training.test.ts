@@ -8,6 +8,13 @@ import {
 } from "./training";
 import { completeTraining, resolveTrainingState } from "./training";
 import { getMyTraining, submitQuiz, resetTraining, listTrainingRoster } from "./training";
+import {
+  recordAbsenceExcuse,
+  clearAbsenceExcuse,
+  recordApplicantAbsenceExcuse,
+  clearApplicantAbsenceExcuse,
+  getApplicantAbsenceExcuse,
+} from "./training";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -455,4 +462,216 @@ it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", asy
   expect(ids).not.toContain(vol.id);
   const dirRow = rows.find((r) => r.personId === dir.id)!;
   expect(dirRow.trainingState).toBe("PENDING");
+});
+
+// ---------------------------------------------------------------------------
+// Absence excuses
+// ---------------------------------------------------------------------------
+
+it("records an excuse the roster shows, without completing training", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "  Has an exam that night  ", srr.id);
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse?.reason).toBe("Has an exam that night");
+  expect(row.excuse?.recordedByName).toBe("SRR");
+  // The whole of "record only": being excused is not being trained.
+  expect(row.trainingState).toBe("PENDING");
+});
+
+it("re-recording an excuse edits the reason instead of stacking rows", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await recordAbsenceExcuse(c1.id, vol.id, "Family emergency", srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count({ where: { cycleId: c1.id, personId: vol.id } })).toBe(1);
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse?.reason).toBe("Family emergency");
+});
+
+it("refuses a blank reason: an excuse with no reason is just an absence", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await expect(recordAbsenceExcuse(c1.id, vol.id, "   ", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("requires manage_cycles to excuse or to clear an excuse", async () => {
+  const { srr, plain, vol, c1 } = await seedMember();
+  await expect(recordAbsenceExcuse(c1.id, vol.id, "Exam", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await expect(clearAbsenceExcuse(c1.id, vol.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(1);
+});
+
+it("refuses someone who is not on the cycle's roster", async () => {
+  const { srr, dir, plain, c1 } = await seedMember();
+  // No membership at all.
+  await expect(recordAbsenceExcuse(c1.id, plain.id, "Exam", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  // A member of the term, but of the wrong track for this cycle.
+  await expect(recordAbsenceExcuse(c1.id, dir.id, "Exam", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("clearing an excuse removes it, and clearing twice is not an error", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await clearAbsenceExcuse(c1.id, vol.id, srr.id);
+  await clearAbsenceExcuse(c1.id, vol.id, srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse).toBeNull();
+});
+
+it("keeps the excuse on the roster after training completes by makeup quiz", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  const result = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
+  expect(result.passed).toBe(true);
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.trainingState).toBe("COMPLETE");
+  expect(row.excuse?.reason).toBe("Exam");
+});
+
+// ---------------------------------------------------------------------------
+// Excuses entered from an applicant's profile, before they are on any roster
+// ---------------------------------------------------------------------------
+
+/** An applicant of `cycleId`, optionally already linked to a hub account. */
+async function seedApplicant(cycleId: string, email: string, personId?: string) {
+  return prisma.applicant.create({
+    data: {
+      cycleId,
+      firstName: "App",
+      lastName: "Licant",
+      email,
+      emailLower: email.toLowerCase(),
+      ...(personId ? { applicantPersonId: personId } : {}),
+    },
+  });
+}
+
+it("excuses an applicant with no hub account, keyed on their email", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "Newbie@Yale.edu");
+
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam that night", srr.id);
+
+  const excuse = await getApplicantAbsenceExcuse(c1.id, applicant.id);
+  expect(excuse?.reason).toBe("Exam that night");
+  // The applicant profile says so, to explain why it is not on the roster yet.
+  expect(excuse?.unlinked).toBe(true);
+  const row = await prisma.trainingAbsenceExcuse.findFirstOrThrow();
+  expect(row.personId).toBeNull();
+  expect(row.emailLower).toBe("newbie@yale.edu");
+});
+
+// The sequence this whole shape exists for: excused in October as an applicant,
+// promoted in November, and the roster that judges them in December has to know.
+it("an email-keyed excuse reaches the training roster once that person exists", async () => {
+  const { term, srr, c1, dept } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "later@yale.edu");
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Away at a conference", srr.id);
+
+  // Promotion, in the only part that matters here: a Person with that address,
+  // on the cycle's roster.
+  const promoted = await prisma.person.create({
+    data: { name: "Later Arrival", status: "ACTIVE", contactEmail: "later@yale.edu" },
+  });
+  await prisma.termMembership.create({
+    data: { personId: promoted.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === promoted.id)!;
+  expect(row.excuse?.reason).toBe("Away at a conference");
+  expect(row.excuse?.unlinked).toBe(true);
+});
+
+it("stores a personId when the applicant is already linked to an account", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu", vol.id);
+
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam", srr.id);
+
+  const stored = await prisma.trainingAbsenceExcuse.findFirstOrThrow();
+  expect(stored.personId).toBe(vol.id);
+  expect(stored.emailLower).toBeNull();
+  // So it is on the roster straight away, not waiting to be matched.
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse?.reason).toBe("Exam");
+  expect(row.excuse?.unlinked).toBe(false);
+});
+
+// applicantPersonId is only set for signed-in renewals and promotion never
+// backfills it, so matching on the address is the common path, not a fallback.
+it("stores a personId when only the email matches an existing account", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@yale.edu" } });
+  const applicant = await seedApplicant(c1.id, "VOL@yale.edu");
+
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam", srr.id);
+
+  const stored = await prisma.trainingAbsenceExcuse.findFirstOrThrow();
+  expect(stored.personId).toBe(vol.id);
+});
+
+it("refuses an applicant belonging to a different cycle", async () => {
+  const { srr, c1, c2 } = await seedMember();
+  const applicant = await seedApplicant(c2.id, "elsewhere@yale.edu");
+  await expect(recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("requires manage_cycles to excuse an applicant", async () => {
+  const { plain, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "newbie@yale.edu");
+  await expect(recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("clears an applicant's excuse whichever key it was stored under", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  const unlinked = await seedApplicant(c1.id, "newbie@yale.edu");
+  const linked = await seedApplicant(c1.id, "vol@yale.edu", vol.id);
+  await recordApplicantAbsenceExcuse(c1.id, unlinked.id, "Exam", srr.id);
+  await recordApplicantAbsenceExcuse(c1.id, linked.id, "Exam", srr.id);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(2);
+
+  await clearApplicantAbsenceExcuse(c1.id, unlinked.id, srr.id);
+  await clearApplicantAbsenceExcuse(c1.id, linked.id, srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+  expect(await getApplicantAbsenceExcuse(c1.id, unlinked.id)).toBeNull();
+});
+
+// Both keys can coexist when an old applicant-era row outlives promotion and a
+// lead then excuses the member they became. The roster must not show the stale one.
+it("prefers the person-keyed excuse over an older email-keyed row", async () => {
+  const { term, srr, c1, dept } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "both@yale.edu");
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Old reason", srr.id);
+
+  const promoted = await prisma.person.create({
+    data: { name: "Both Keys", status: "ACTIVE", contactEmail: "both@yale.edu" },
+  });
+  await prisma.termMembership.create({
+    data: { personId: promoted.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  await recordAbsenceExcuse(c1.id, promoted.id, "Current reason", srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(2);
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === promoted.id)!;
+  expect(row.excuse?.reason).toBe("Current reason");
+});
+
+it("an excuse on one cycle does not leak onto another cycle's roster", async () => {
+  const { srr, vol, c1, c2 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await setTrainingCycle(c1.id, false, srr.id);
+  await addQuiz(c2.id);
+  await setTrainingCycle(c2.id, true, srr.id);
+
+  const row = (await listTrainingRoster(c2.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse).toBeNull();
 });

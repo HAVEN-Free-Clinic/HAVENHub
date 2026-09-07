@@ -483,10 +483,12 @@ function ConditionRow({
         usesCheckboxes ? (
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {options.map((o) => (
-              <label key={o.value} className="flex items-center gap-1.5 text-sm">
-                <Checkbox checked={selectedValues.includes(o.value)} onChange={() => toggleMultiValue(o.value)} />
-                {o.label}
-              </label>
+              <Checkbox
+                key={o.value}
+                checked={selectedValues.includes(o.value)}
+                onChange={() => toggleMultiValue(o.value)}
+                label={o.label}
+              />
             ))}
             {options.length === 0 && (
               <span className="text-xs text-subtle-foreground italic">No options available</span>

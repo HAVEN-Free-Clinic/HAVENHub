@@ -20,6 +20,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
+import { TextLink } from "@/platform/ui/text-link";
 import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames, aggregateStrikeLabel } from "@/app/(app)/incidents/subject-display";
 
@@ -92,9 +93,9 @@ export default async function MyReportsPage() {
               {rows.map(({ report, subjectNames, strikePendingCount, strikeIssuedCount }) => (
                 <TR key={report.id}>
                   <TD>
-                    <Link href={`/incidents/${report.id}`} className="font-medium text-brand-fg hover:underline">
+                    <TextLink href={`/incidents/${report.id}`} className="font-medium">
                       #{report.number}
-                    </Link>
+                    </TextLink>
                   </TD>
                   <TD className="max-w-xs text-sm text-foreground-soft">
                     {report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")}

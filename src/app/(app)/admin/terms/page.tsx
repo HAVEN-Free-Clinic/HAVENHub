@@ -6,6 +6,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { buttonClasses } from "@/platform/ui/button";
+import { TextLink } from "@/platform/ui/text-link";
 
 function formatUtcDate(d: Date): string {
   return formatCalendarDate(d, { month: "short", day: "numeric", year: "numeric" });
@@ -44,12 +45,12 @@ export default async function TermsListPage() {
           {terms.map((term) => (
             <TR key={term.id}>
               <TD>
-                <Link
+                <TextLink
                   href={`/admin/terms/${term.id}`}
-                  className="font-medium text-brand-fg hover:underline"
+                  className="font-medium"
                 >
                   {term.code}
-                </Link>
+                </TextLink>
               </TD>
               <TD>{term.name}</TD>
               <TD>{formatUtcDate(term.startDate)}</TD>

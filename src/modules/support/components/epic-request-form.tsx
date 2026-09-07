@@ -18,7 +18,6 @@
  */
 
 import { useState, useMemo } from "react";
-import Link from "next/link";
 import type { DepartmentWithMembers, EpicAuthorizer, MemberLite, PendingDeactivation } from "@/modules/support/services/itcm";
 import type { EpicRequestType as RequestType } from "@/modules/support/epic-request-types";
 import { runEpicGeneration } from "./epic-generate-client";
@@ -31,6 +30,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -438,12 +438,9 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         {trackingWarning && (
           <Alert tone="warning">
             {trackingWarning}{" "}
-            <Link
-              href="/support/epic?tab=tracker"
-              className="font-medium underline underline-offset-2"
-            >
+            <TextLink href="/support/epic?tab=tracker" className="font-medium">
               Open the Tracker
-            </Link>{" "}
+            </TextLink>{" "}
             to cancel or complete it. Your PDF{isBulk ? " and spreadsheet were" : " was"} still generated below.
           </Alert>
         )}

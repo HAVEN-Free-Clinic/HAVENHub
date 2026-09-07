@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useReducer, useRef, useState } from "react";
+import { Fragment, useReducer, useState } from "react";
 import { X } from "lucide-react";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Card } from "@/platform/ui/card";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -33,10 +34,6 @@ export function AvsTool({
   const [errors, setErrors] = useState<string[]>([]);
   const [invalidFields, setInvalidFields] = useState<StringFieldKey[]>([]);
   const [busy, setBusy] = useState(false);
-  // "Clear / New summary" arms on the first click and only wipes on the second,
-  // so an accidental click can't destroy a half-finished handout. Auto-disarms.
-  const [resetArmed, setResetArmed] = useState(false);
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setField = (key: StringFieldKey) => (e: { target: { value: string } }) => {
     dispatch({ type: "setField", key, value: e.target.value });
@@ -48,18 +45,15 @@ export function AvsTool({
     }
   };
 
+  // The arm/confirm step lives in ConfirmButton now. This used to hand-roll it
+  // with a 3s auto-disarm, which is the WCAG 2.2.1 time limit audit 14 deleted
+  // from the primitive: three seconds is less than a screen reader needs to
+  // announce the armed label, so the control disarmed itself before an AT user
+  // could ever reach the confirm step.
   function handleReset() {
-    if (!resetArmed) {
-      setResetArmed(true);
-      if (resetTimer.current) clearTimeout(resetTimer.current);
-      resetTimer.current = setTimeout(() => setResetArmed(false), 3000);
-      return;
-    }
-    if (resetTimer.current) clearTimeout(resetTimer.current);
     dispatch({ type: "reset" });
     setErrors([]);
     setInvalidFields([]);
-    setResetArmed(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -114,14 +108,12 @@ export function AvsTool({
         description="Fill in the visit details and download a patient handout. Nothing is saved."
         action={
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={resetArmed ? "danger" : "outline"}
-              onClick={handleReset}
+            <ConfirmButton
+              label="Clear / New summary"
+              confirmLabel="Clear everything?"
+              onConfirm={handleReset}
               disabled={busy}
-            >
-              {resetArmed ? "Clear everything?" : "Clear / New summary"}
-            </Button>
+            />
             <Button type="button" onClick={handleGenerate} disabled={busy}>
               {busy ? "Generating..." : "Generate PDF"}
             </Button>

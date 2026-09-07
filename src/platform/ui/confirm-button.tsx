@@ -12,18 +12,25 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
   /** Label shown in the armed/confirm state. Defaults to "Confirm?". */
   confirmLabel?: string;
   /**
-   * Called by the confirm click instead of submitting a form.
+   * Non-form use: run this on the confirm click instead of submitting a form.
    *
-   * For destructive actions that are a function call rather than a form post --
-   * the interactive Schedule Builder writes over fetch, so its Remove buttons
-   * have no form to submit. Everything else about the control is unchanged: same
-   * two-click arming, same one-element identity, same focus-driven disarm. When
-   * omitted the button submits its surrounding form, as it always has.
+   * Without it the confirm click submits the surrounding <form>, which is the
+   * common case. Pass it for a destructive action that is a plain client
+   * handler with no form behind it (clearing an unsaved draft, resetting an
+   * editor). The button then never becomes type="submit", so it cannot submit
+   * an unrelated ancestor form by accident.
    */
   onConfirm?: () => void;
   /**
-   * In-flight flag for the onConfirm form of the button, standing in for the
-   * useFormStatus reading a form would give it. Ignored inside a form.
+   * In-flight flag for the `onConfirm` case, standing in for the useFormStatus
+   * reading that a form gives the default case.
+   *
+   * Needed because an onConfirm handler may be asynchronous -- the Schedule
+   * Builder's Remove buttons write over fetch -- and nothing else can tell this
+   * button that its action is still running. Without it the control returns to
+   * its live idle state the instant the handler is CALLED rather than when it
+   * settles, which is #78 again: a second click double-fires the destructive
+   * action. Ignored inside a form, where useFormStatus already knows.
    */
   busy?: boolean;
 };
@@ -59,10 +66,16 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  * That is reachable by mouse, keyboard, and AT alike, and cannot expire under a user
  * who is simply reading slowly.
  *
- * Must be rendered inside a <form>; useFormStatus reads that form's state. The one
- * exception is the `onConfirm` form of the button, which calls a handler instead and
- * takes its in-flight state from `busy`. Does NOT use window.confirm, so it stays
+ * Rendered inside a <form> by default; useFormStatus reads that form's state. For a
+ * destructive action with no form behind it, pass `onConfirm` instead and the confirm
+ * click calls that rather than submitting. Does NOT use window.confirm, so it stays
  * automation-friendly.
+ *
+ * Reach for this for EVERY two-click destructive confirmation. Hand-rolling one has
+ * gone wrong the same two ways every time: swapping between two component types at
+ * one position (which is #12 again, focus to <body>), and adding a timed auto-disarm
+ * (which is the WCAG 2.2.1 time limit audit 14 removed). Both are invisible to the
+ * author and total for a keyboard or screen-reader user.
  */
 export function ConfirmButton({
   label,
@@ -70,15 +83,15 @@ export function ConfirmButton({
   className,
   onClick,
   onBlur,
-  disabled,
   onConfirm,
   busy,
+  disabled,
   ...rest
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(false);
   const formStatus = useFormStatus();
-  // Outside a form useFormStatus reports pending: false forever, so the caller's
-  // own flag is what keeps the confirm state disabled while the action runs.
+  // Outside a form useFormStatus reports pending: false forever, so in the
+  // onConfirm case the caller's own flag is the only thing that knows.
   const pending = onConfirm ? (busy ?? false) : formStatus.pending;
   const wasPending = useRef(false);
   // Set synchronously by the confirm click, BEFORE React re-renders with
@@ -104,6 +117,8 @@ export function ConfirmButton({
   return (
     <Button
       {...rest}
+      // Stays "button" in the onConfirm case: there is no form to submit, and a
+      // stray type="submit" would post whatever ancestor form it found.
       type={armed && !onConfirm ? "submit" : "button"}
       variant={armed ? "danger" : "outline"}
       className={className}
@@ -112,14 +127,26 @@ export function ConfirmButton({
       onClick={(e) => {
         onClick?.(e);
         if (armed) {
-          // Confirm click: let the native form submit proceed, or call the
-          // handler when there is no form behind this button.
-          confirming.current = true;
           if (onConfirm) {
             e.preventDefault();
-            setArmed(false);
-            confirming.current = false;
+            // Same guard the form path uses: the button is about to be disabled,
+            // the browser will blur it, and that blur must not read as "user
+            // moved away, disarm" while the action is still running.
+            confirming.current = true;
             onConfirm();
+            if (busy === undefined) {
+              // A synchronous handler with no `busy` never moves `pending`, so
+              // the effect below would never fire and the control would sit
+              // armed after it had already acted. Disarm now instead.
+              confirming.current = false;
+              setArmed(false);
+            }
+            // With `busy` wired the effect owns the disarm, so the control stays
+            // armed-and-disabled for the whole action exactly as it does behind
+            // a form -- which is what #78 is about.
+          } else {
+            // Confirm click: let the native form submit proceed.
+            confirming.current = true;
           }
         } else {
           e.preventDefault();

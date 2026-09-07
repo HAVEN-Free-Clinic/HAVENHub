@@ -125,20 +125,19 @@ function VisibleWhenEditor({
                 // tap and is keyboard/touch friendly.
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                   {opts.map((o) => (
-                    <label key={o.value} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        disabled={disabled}
-                        checked={selectedValues.includes(o.value)}
-                        onChange={(e) =>
-                          handleMultiValueChange(
-                            e.target.checked
-                              ? [...selectedValues, o.value]
-                              : selectedValues.filter((v) => v !== o.value),
-                          )
-                        }
-                      />
-                      {o.label}
-                    </label>
+                    <Checkbox
+                      key={o.value}
+                      disabled={disabled}
+                      checked={selectedValues.includes(o.value)}
+                      onChange={(e) =>
+                        handleMultiValueChange(
+                          e.target.checked
+                            ? [...selectedValues, o.value]
+                            : selectedValues.filter((v) => v !== o.value),
+                        )
+                      }
+                      label={o.label}
+                    />
                   ))}
                 </div>
               ) : (
@@ -311,13 +310,11 @@ export function FieldCard({
             <Field label="Accepted file types">
               <div className="flex flex-wrap gap-3">
                 {FILE_TYPE_CHOICES.map((c) => (
-                  <label key={c.value} className="flex items-center gap-2 text-sm">
-                    <Checkbox defaultChecked={accepted.includes(c.value)} disabled={!editable}
-                      onChange={(e) => {
-                        const next = e.target.checked ? [...accepted, c.value] : accepted.filter((a) => a !== c.value);
-                        save({ validation: { ...(field.validation ?? {}), acceptedTypes: next } });
-                      }} /> {c.label}
-                  </label>
+                  <Checkbox key={c.value} defaultChecked={accepted.includes(c.value)} disabled={!editable}
+                    onChange={(e) => {
+                      const next = e.target.checked ? [...accepted, c.value] : accepted.filter((a) => a !== c.value);
+                      save({ validation: { ...(field.validation ?? {}), acceptedTypes: next } });
+                    }} label={c.label} />
                 ))}
               </div>
             </Field>

@@ -18,6 +18,7 @@ import { SectionCard } from "./section-card";
 import { buildFieldOptions } from "./field-options";
 import { OnboardingPreview, type OnboardingPreviewContext } from "./onboarding-preview";
 import { Button } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 
@@ -65,7 +66,6 @@ export function ContractEditor({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   // Re-seed local edit state whenever the server sends a fresh layout (after a
@@ -130,12 +130,8 @@ export function ContractEditor({
     });
   }
 
+  // Arming is ConfirmButton's job now, so this runs only on a confirmed click.
   function reset() {
-    if (!confirmReset) {
-      setConfirmReset(true);
-      return;
-    }
-    setConfirmReset(false);
     setError(null);
     startTransition(async () => {
       const res =
@@ -239,16 +235,13 @@ export function ContractEditor({
           </span>
         )}
         {hasOverride && (
-          <Button
-            type="button"
-            variant={confirmReset ? "danger" : "ghost"}
+          <ConfirmButton
+            label="Reset to built-in default"
+            confirmLabel="Confirm reset to built-in default?"
             size="sm"
-            onClick={reset}
+            onConfirm={reset}
             disabled={pending || !editable}
-            onBlur={() => setConfirmReset(false)}
-          >
-            {confirmReset ? "Confirm reset to built-in default?" : "Reset to built-in default"}
-          </Button>
+          />
         )}
       </div>
 

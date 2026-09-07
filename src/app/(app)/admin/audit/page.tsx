@@ -5,8 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 
 type PageProps = {
   searchParams: Promise<{ action?: string; entityType?: string; page?: string }>;
@@ -44,21 +43,17 @@ export default async function AuditPage({ searchParams }: PageProps) {
       />
 
       {/* Filter bar (GET form) */}
-      <NavForm className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-48">
+      <FilterBar clearHref={action || entityType ? "/admin/audit" : undefined}>
+        <FilterField label="Action" width="grow">
           <Input
+            type="search"
             name="action"
             defaultValue={action ?? ""}
             placeholder="action contains..."
-            aria-label="Filter by action"
           />
-        </div>
-        <div className="w-44">
-          <Select
-            name="entityType"
-            defaultValue={entityType ?? ""}
-            aria-label="Filter by entity type"
-          >
+        </FilterField>
+        <FilterField label="Entity type">
+          <Select name="entityType" defaultValue={entityType ?? ""}>
             <option value="">All types</option>
             {entityTypes.map((t) => (
               <option key={t} value={t}>
@@ -66,11 +61,8 @@ export default async function AuditPage({ searchParams }: PageProps) {
               </option>
             ))}
           </Select>
-        </div>
-        <Button type="submit" variant="outline" size="sm">
-          Filter
-        </Button>
-      </NavForm>
+        </FilterField>
+      </FilterBar>
 
       <AuditTable rows={rows} />
 

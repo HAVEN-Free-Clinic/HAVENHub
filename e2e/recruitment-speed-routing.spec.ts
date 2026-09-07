@@ -119,14 +119,17 @@ test("speed route: score a spread, apply top + bottom, keyboard-route the middle
   await expect(page.getByText(/^Middle \(2\)$/)).toBeVisible();
   await expect(page.getByText(/^Bottom \(1\)$/)).toBeVisible();
 
-  // Apply the top tier (routes the top applicant to SRHD).
+  // Apply the top tier (routes the top applicant to SRHD). Both tiers now use
+  // ConfirmButton, so the confirm step is a SECOND click on the same element
+  // whose label changes, not a separate "Confirm" button beside it. Matching the
+  // armed label is what proves the arm actually happened.
   await page.getByRole("button", { name: /apply top tier/i }).click();
-  await page.getByRole("button", { name: /^Confirm$/ }).click();
+  await page.getByRole("button", { name: /^Route \d+ to their selected department\?$/ }).click();
   await expect(page.getByText(/Routed 1/)).toBeVisible();
 
   // Apply the bottom tier (rejects the bottom applicant).
   await page.getByRole("button", { name: /apply bottom tier/i }).click();
-  await page.getByRole("button", { name: /^Confirm$/ }).click();
+  await page.getByRole("button", { name: /^Reject \d+ applicants?\?$/ }).click();
   await expect(page.getByText(/Rejected 1/)).toBeVisible();
 
   // Route the middle: two applicants, route each to their first ranked dept via the

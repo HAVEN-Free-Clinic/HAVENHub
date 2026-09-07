@@ -17,7 +17,6 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
@@ -27,6 +26,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { Field, Input } from "@/platform/ui/input";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Select } from "@/platform/ui/select";
+import { TextLink } from "@/platform/ui/text-link";
 import { TermSwitcher } from "@/platform/ui/term-switcher";
 import type { TermOption } from "@/platform/terms/term-options";
 import { EPIC_KIND_LABELS } from "@/modules/support/labels";
@@ -196,9 +196,7 @@ export function TermBatchTab({
       {warning && (
         <Alert tone="warning">
           {warning}{" "}
-          <Link href="/support/epic?tab=tracker" className="underline underline-offset-2">
-            Open the Tracker
-          </Link>
+          <TextLink href="/support/epic?tab=tracker">Open the Tracker</TextLink>
         </Alert>
       )}
 

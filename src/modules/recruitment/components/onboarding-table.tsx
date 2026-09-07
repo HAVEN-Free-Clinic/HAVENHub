@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
@@ -222,12 +222,13 @@ export function OnboardingTable({
                   <Badge tone={s.tone}>{s.label}</Badge>
                   {r.onRoster && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
                   {r.contractId && (r.state === "SUBMITTED" || r.state === "PROMOTED") && (
-                    <Link
-                      className="ml-2 text-xs text-brand-fg hover:text-brand-hover"
+                    <TextLink
                       href={`/recruitment/cycles/${cycleId}/onboarding/${r.contractId}`}
+                      size="xs"
+                      className="ml-2"
                     >
                       View
-                    </Link>
+                    </TextLink>
                   )}
                   {/* Per-row withdraw, for dealing with one person without
                       disturbing the selection. It submits its own id under a

@@ -373,6 +373,8 @@ const APPLICANT_DETAIL_PATHNAME = "/recruitment/cycles/*/applicants/*";
 const APPLICANT_ROSTER_PATHNAME = "/recruitment/cycles/*/applicants";
 /** recruitment/interviews/[interviewId]/page.tsx's own route. */
 const INTERVIEW_DETAIL_PATHNAME = "/recruitment/interviews/*";
+/** recruitment/cycles/[id]/training/page.tsx's own route. */
+const TRAINING_ROSTER_PATHNAME = "/recruitment/cycles/*/training";
 
 /**
  * Explicit entries for flash shapes the `error`/`*Error` convention cannot express: a flag
@@ -491,6 +493,43 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [INTERVIEW_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Evaluation saved.",
+  },
+
+  // recruitment/cycles/[id]/training/actions.ts. Four outcomes on one page, so
+  // each takes a literal `saved` value rather than the generic flag: "Saved." is
+  // wrong for all of them. Scoped, with no unscoped sibling, so these values mean
+  // nothing anywhere else.
+  //
+  // The two excuse values are shared with the applicant detail page, which is the
+  // other place an absence is excused, with byte-identical text -- so one entry
+  // covers both, as saved=decision already does for applicants and interviews.
+  {
+    params: ["saved"],
+    matchValues: { saved: "attendance" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Attendance recorded.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "reset" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Training reset.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "excused" },
+    pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Absence excused.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "excuse-cleared" },
+    pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Excuse cleared.",
   },
 
   // ---------------------------------------------------------------------------

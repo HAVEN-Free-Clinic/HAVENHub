@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { MailX } from "lucide-react";
 import { requirePermission } from "@/platform/auth/session";
 import { listTemplateSummaries } from "@/modules/admin/services/email-templates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { cardClasses } from "@/platform/ui/card";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { TextLink } from "@/platform/ui/text-link";
 
 export default async function EmailTemplatesPage() {
   await requirePermission("admin.manage_email_templates");
@@ -28,12 +28,13 @@ export default async function EmailTemplatesPage() {
           {rows.map((r) => (
             <li key={r.key} className="flex items-center justify-between px-5 py-3">
               <span>
-                <Link
-                  className="text-sm font-medium underline underline-offset-2"
+                <TextLink
+                  size="sm"
+                  className="font-medium"
                   href={`/admin/email/templates/${encodeURIComponent(r.key)}`}
                 >
                   {r.name}
-                </Link>
+                </TextLink>
                 <span className="ml-2 text-xs text-subtle-foreground">{r.category}</span>
               </span>
               <span className="text-xs text-muted-foreground">

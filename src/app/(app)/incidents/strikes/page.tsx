@@ -26,9 +26,8 @@ import { Table, THead, TR, TH } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button, buttonClasses } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
@@ -55,7 +54,6 @@ import { notifyStrikeIssued } from "@/modules/incidents/services/strike-notifica
 import { forwardStrike, forwardsByAction, recentForwardEmails, IncidentForwardError } from "@/modules/incidents/services/forward";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import type { DisciplinaryAction } from "@prisma/client";
 import { StrikeRow } from "./strike-row";
 import { formatCalendarDate } from "@/platform/dates";
@@ -500,18 +498,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Checkboxes */}
               <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="notifyPeople" defaultChecked />
-                  Notify by email
-                </label>
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="confidential" />
-                  Confidential
-                </label>
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="patientInvolved" />
-                  Patient involved
-                </label>
+                <Checkbox name="notifyPeople" defaultChecked label="Notify by email" />
+                <Checkbox name="confidential" label="Confidential" />
+                <Checkbox name="patientInvolved" label="Patient involved" />
               </div>
             </div>
 
@@ -526,60 +515,35 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       )}
 
       {/* Filter bar */}
-      <NavForm
+      <FilterBar
         action="/incidents/strikes"
-        className="mt-10 flex flex-wrap items-end gap-3"
+        clearHref={qSearch || departmentId || categoryFilter ? "/incidents/strikes" : undefined}
+        className="mt-10"
       >
-        <div className="flex-1 min-w-44">
-          <Field label="Search">
-            <Input
-              type="search"
-              name="q"
-              defaultValue={qSearch ?? ""}
-              placeholder="Person name..."
-            />
-          </Field>
-        </div>
-
-        <div className="w-52">
-          <Field label="Department">
-            <Select name="departmentId" defaultValue={departmentId ?? ""}>
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code} - {d.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <div className="w-52">
-          <Field label="Category">
-            <Select name="category" defaultValue={categoryFilter ?? ""}>
-              <option value="">All categories</option>
-              {DISCIPLINARY_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <Button type="submit" variant="primary" size="sm">
-          Filter
-        </Button>
-
-        {(qSearch || departmentId || categoryFilter) && (
-          <Link
-            href="/incidents/strikes"
-            className={buttonClasses("outline", "sm")}
-          >
-            Clear
-          </Link>
-        )}
-      </NavForm>
+        <FilterField label="Search" width="grow">
+          <Input type="search" name="q" defaultValue={qSearch ?? ""} placeholder="Person name..." />
+        </FilterField>
+        <FilterField label="Department" width="lg">
+          <Select name="departmentId" defaultValue={departmentId ?? ""}>
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.code} - {d.name}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Category" width="lg">
+          <Select name="category" defaultValue={categoryFilter ?? ""}>
+            <option value="">All categories</option>
+            {DISCIPLINARY_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+      </FilterBar>
 
       {/* Records table */}
       <section className="mt-6">

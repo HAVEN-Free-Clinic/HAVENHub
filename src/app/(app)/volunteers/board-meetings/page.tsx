@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -22,6 +21,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FormActions } from "@/platform/ui/form";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TermSwitcher } from "@/platform/ui/term-switcher";
+import { TextLink } from "@/platform/ui/text-link";
 import { formatCalendarDate } from "@/platform/dates";
 
 const BASE = "/volunteers/board-meetings";
@@ -177,9 +177,9 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
                   <TD className="tabular-nums text-sm text-foreground-soft">{m.recordedCount}</TD>
                   <TD className="tabular-nums text-sm text-foreground-soft">{m.absentCount}</TD>
                   <TD>
-                    <Link href={`${BASE}/${m.id}`} className="text-brand-fg hover:underline text-sm">
+                    <TextLink href={`${BASE}/${m.id}`} size="sm">
                       {isLiveTerm ? "Take attendance" : "View attendance"}
-                    </Link>
+                    </TextLink>
                   </TD>
                 </TR>
               ))}

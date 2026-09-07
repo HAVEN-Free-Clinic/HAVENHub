@@ -255,6 +255,10 @@ model Person {
   committeeScores                CommitteeScore[]           @relation("committeeScoreScorer")
   trainings                      Training[]                 @relation("trainingPerson")
   trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
+  /// Training sessions this person was excused from, one per recruitment cycle.
+  trainingExcuses                TrainingAbsenceExcuse[]    @relation("trainingExcusePerson")
+  /// Training absence excuses this person recorded for someone else.
+  trainingExcusesRecorded        TrainingAbsenceExcuse[]    @relation("trainingExcuseRecorder")
   subcommitteeAssignments        Application[]              @relation("applicationSubcommitteeAssigner")
   boardAttendance                BoardMeetingAttendance[]   @relation("boardAttendancePerson")
   /// Event attendance rows for this person (training, info sessions, other).
@@ -2328,17 +2332,18 @@ model RecruitmentCycle {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
-  term         Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
-  createdBy    Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  sections     FormSection[]
-  fields       FormField[]
-  applicants   Applicant[]
-  applications Application[]
-  trainings    Training[]
-  cycleEmails  RecruitmentCycleEmail[]
-  contract     RecruitmentCycleContract?
-  invites      RecruitmentInvite[]
-  events       AttendanceEvent[]
+  term           Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
+  createdBy      Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  sections       FormSection[]
+  fields         FormField[]
+  applicants     Applicant[]
+  applications   Application[]
+  trainings      Training[]
+  cycleEmails    RecruitmentCycleEmail[]
+  contract       RecruitmentCycleContract?
+  invites        RecruitmentInvite[]
+  events         AttendanceEvent[]
+  absenceExcuses TrainingAbsenceExcuse[]
 
   @@index([status, track])
 }
@@ -2688,6 +2693,69 @@ model Training {
 
   @@unique([personId, termId, track])
   @@index([termId])
+}
+
+/// A training absence excused in advance, for one person in one recruitment cycle.
+///
+/// Excuses reach the clinic by email before the in-person session ("I have an
+/// exam that night"), and until now there was nowhere to put them: an absence is
+/// stored as the ABSENCE of an EventAttendance row, which cannot tell someone who
+/// warned us apart from someone who simply never turned up. That made every
+/// no-show look dilatory.
+///
+/// As with BoardMeetingAttendance, no row means "not recorded", NEVER "unexcused":
+/// a session nobody took attendance for must not read as everyone being at fault.
+///
+/// Keyed on the CYCLE, not on the AttendanceEvent, for two reasons. The excuse
+/// arrives before the session, and a cycle's TRAINING event is created lazily at
+/// the first check-in (ensureTrainingEventForCycle), so there is often no event to
+/// hang it on yet. And the training roster this surfaces on is itself keyed on the
+/// cycle.
+///
+/// Purely a record. It does not complete training, waive the makeup quiz, or move
+/// the makeup window: the person still owes the quiz on the normal schedule.
+///
+/// `personId` is NULLABLE for the same reason EventAttendance's is: excuses arrive
+/// from people the hub does not know yet. An applicant who has not been accepted
+/// has an Applicant row and usually no Person at all (applicantPersonId is only
+/// set for signed-in renewals, and promotion never backfills it), and refusing to
+/// record their excuse would leave the excuse where it started, in an inbox.
+/// Those rows carry `emailLower` instead, which is what later connects them: the
+/// training roster resolves an excuse by personId OR by a roster member's own
+/// contact email, so an excuse written in October is on the roster the moment
+/// promotion turns that applicant into a member.
+///
+/// EXACTLY ONE of personId and emailLower is set, enforced by a CHECK constraint
+/// in the migration. The two uniques coexist because Postgres treats NULLs as
+/// distinct: linked rows dedupe on personId, unlinked ones on emailLower.
+model TrainingAbsenceExcuse {
+  id           String   @id @default(cuid())
+  cycleId      String
+  personId     String?
+  /// Lowercased, and only ever set when personId is null. Matches Applicant's own
+  /// emailLower, which is unique per cycle, so it identifies an applicant exactly.
+  emailLower   String?
+  /// What the person told us, in the lead's words. Required: an excuse with no
+  /// reason is just an absence.
+  reason       String
+  recordedById String?
+  recordedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  /// Cascade: the excuse is scoped to this cycle's session and means nothing
+  /// without it. Training's Restrict already blocks deleting a cycle anyone has
+  /// trained in, so this only ever fires on a cycle with no training history.
+  cycle      RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// Cascade: the record is meaningless without the person, matching
+  /// BoardMeetingAttendance.
+  person     Person?          @relation("trainingExcusePerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// SetNull: who recorded it is part of the record, but its loss must not take
+  /// the excuse with it.
+  recordedBy Person?          @relation("trainingExcuseRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([cycleId, personId])
+  @@unique([cycleId, emailLower])
+  @@index([personId])
 }
 
 model QuizAttempt {

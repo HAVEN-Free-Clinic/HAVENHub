@@ -24,7 +24,6 @@
  *
  * See sender-identity.ts for the resolution order this screen feeds.
  */
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
@@ -49,6 +48,7 @@ import { Button } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
 import { DateOnly } from "@/platform/dates/display";
 import { SenderIdentityNotes, type SendingDomainMap } from "../sender-identity-notes";
 import { IssueIdentityForm } from "./issue-form";
@@ -489,9 +489,7 @@ export default async function SendingIdentitiesPage({
         {canRunFullTest && (
           <p className="text-sm text-muted-foreground">
             To test an address against a recipient other than yourself, use the sender test on{" "}
-            <Link className="underline underline-offset-2" href="/admin/email">
-              the email admin screen
-            </Link>
+            <TextLink href="/admin/email">the email admin screen</TextLink>
             .
           </p>
         )}

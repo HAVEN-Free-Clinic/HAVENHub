@@ -8,8 +8,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button, buttonClasses } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { buttonClasses } from "@/platform/ui/button";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 type PageProps = {
@@ -95,30 +95,23 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
       />
 
       {/* Search form (GET) */}
-      <NavForm className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-48">
+      <FilterBar clearHref={q || effectiveStatus !== "ACTIVE" ? "/admin/people" : undefined}>
+        <FilterField label="Search" width="grow">
           <Input
+            type="search"
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Search name, NetID, or email..."
-            aria-label="Search people"
+            placeholder="Name, NetID, or email..."
           />
-        </div>
-        <div className="w-44">
-          <Select
-            name="status"
-            defaultValue={effectiveStatus}
-            aria-label="Filter by status"
-          >
+        </FilterField>
+        <FilterField label="Status">
+          <Select name="status" defaultValue={effectiveStatus}>
             <option value="ACTIVE">Active</option>
             <option value="OFFBOARDED">Offboarded</option>
             <option value="ALL">All statuses</option>
           </Select>
-        </div>
-        <Button type="submit" variant="outline" size="sm">
-          Search
-        </Button>
-      </NavForm>
+        </FilterField>
+      </FilterBar>
 
       <PeopleTable rows={rowsWithCounts} />
 

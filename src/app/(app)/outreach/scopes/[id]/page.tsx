@@ -15,6 +15,7 @@ import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-options";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { GRAPH_SENDER_ADDRESSES, SENDING_DOMAINS } from "@/platform/email/sending-domains";
@@ -215,7 +216,11 @@ export default async function ScopeDetailPage({
                 </span>
                 <form action={revokeAction}>
                   <input type="hidden" name="grantId" value={g.id} />
-                  <Button type="submit" variant="outline">Revoke</Button>
+                  <ConfirmButton
+                    label="Revoke"
+                    confirmLabel="Revoke this grant?"
+                    size="sm"
+                  />
                 </form>
               </li>
             ))}
@@ -226,7 +231,10 @@ export default async function ScopeDetailPage({
 
       <div className="border-t border-border pt-6">
         <form action={deleteAction}>
-          <Button type="submit" variant="outline">Delete scope</Button>
+          {/* Both of these shipped as bare one-click submits while every
+              comparable act (delete a role, delete a specialty, revoke a
+              credential) confirms. Deleting a scope is not recoverable. */}
+          <ConfirmButton label="Delete scope" confirmLabel="Delete this audience scope?" />
         </form>
       </div>
     </div>

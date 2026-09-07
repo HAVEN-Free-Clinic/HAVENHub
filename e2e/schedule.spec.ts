@@ -64,6 +64,32 @@ async function goToDept(page: import("@playwright/test").Page, deptId: string) {
   await page.waitForURL((url) => url.searchParams.get("dept") === deptId);
 }
 
+/**
+ * Click something on a builder board and wait for the write to be DURABLE.
+ *
+ * The boards paint optimistically, so "the card moved to Assigned" is true
+ * before the server has stored anything. That is right for a person and wrong
+ * for a test that then signs in as somebody else: clearing cookies and
+ * navigating can cancel a POST that is still in flight, and the assertion that
+ * the shift exists will already have passed. Waiting on the response makes the
+ * next step's precondition real.
+ */
+async function writeAndWait(
+  page: import("@playwright/test").Page,
+  click: () => Promise<void>,
+) {
+  const [res] = await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/schedule/builder") &&
+        !r.url().includes("/stream") &&
+        r.request().method() === "POST",
+    ),
+    click(),
+  ]);
+  expect(res.ok()).toBe(true);
+}
+
 // ---------------------------------------------------------------------------
 // Module-level RHD attending fixture
 // Seeds one active attending before every test and cleans it up after.
@@ -347,7 +373,8 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
     await expect(volunteerRow).toBeVisible({ timeout: 10_000 });
     // Button labels changed from "Assign" to role-specific "Assign as volunteer".
     const assignBtn = volunteerRow.getByRole("button", { name: /Assign as volunteer/ }).first();
-    await assignBtn.click();
+    // Durably, not just on screen: the next step signs in as somebody else.
+    await writeAndWait(page, () => assignBtn.click());
   }
 
   // Confirm Dev Volunteer is in the Assigned section (scoped to the volunteer name span).

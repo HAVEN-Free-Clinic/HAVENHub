@@ -25,7 +25,7 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `Field` | `@/platform/ui/input` | Wraps a control with an accessible label and optional hint. The label element wraps the child so no `id`/`htmlFor` pair is needed. |
 | `ReadonlyField` | `@/platform/ui/input` | Non-editable display row (computed values, IT-managed fields). Renders as styled plain text, not a disabled input. |
 | `Select` | `@/platform/ui/select` | Native `<select>` styled to match Input. |
-| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. |
+| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. Pass `label` (and optional `hint`) for a labelled row; it mirrors `Radio` exactly, so the two agree when they sit in one form. Unlabelled it returns a bare input, for a table cell or a row you compose yourself. `className` goes to the input, never the row. |
 | `Radio` | `@/platform/ui/radio` | Brand-tinted radio, rendered inside a `<label>` for click-area and accessibility. |
 | `RadioGroup` | `@/platform/ui/radio` | Container for a set of `Radio` options. Accepts an optional `legend` string. |
 
@@ -52,7 +52,44 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 |---|---|---|
 | `PageHeader` | `@/platform/ui/page-header` | Top-of-page `<h1>` with optional description and action slot. |
 | `SectionHeader` | `@/platform/ui/section-header` | Subsection heading. `level="eyebrow"` (default) renders the small uppercase label; `level="title"` renders a larger non-uppercase heading. Use `as="h3"` inside an `h2` context. |
+| `TextLink` | `@/platform/ui/text-link` | An inline link in running text. Supplies colour, underline and the focus ring; sets NO font size, so pass `size` (`inherit` / `xs` / `sm`) rather than a class. `external` renders a plain `<a>` with `target="_blank"` and the safe `rel` pair. Not for a link-styled button, and not for a row-title link that opens a record. |
+| `FilterBar` | `@/platform/ui/filter-bar` | The filter row above a list. Wraps `NavForm`, owns the row layout, and renders the outline submit plus a `Clear` link. Props: `action`, `clearHref` (pass only when a filter is applied), `submitLabel` (defaults to "Filter"), `className` for outer spacing only. |
+| `FilterField` | `@/platform/ui/filter-bar` | One labelled control inside a `FilterBar`. Props: `label` and `width` (`grow` for the search box, then `sm` / `md` / `lg`). |
 | `TabRow` | `@/platform/ui/tab-row` | Horizontal tab bar. Two variants: `underline` (a bordered row of page-level tabs) and `segmented` (a pill-style row for a tab row nested under another tab row, so two identical underline rows never stack). `ModuleNav` and the `/support/epic` tabs both render through it. |
+
+### Filtering a list
+
+Every list filter row goes through `FilterBar`, so the eleven of them stop each
+picking their own labels, submit styling and widths:
+
+```tsx
+<FilterBar
+  action="/volunteers/master"
+  clearHref={hasFilters ? "/volunteers/master" : undefined}
+  className="mt-6"
+>
+  <FilterField label="Search" width="grow">
+    <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email..." />
+  </FilterField>
+  <FilterField label="Department" width="lg">
+    <Select name="departmentId" defaultValue={departmentId ?? ""}>...</Select>
+  </FilterField>
+</FilterBar>
+```
+
+Three rules the primitive encodes, each fixing a real split:
+
+- **Labels are visible**, never `aria-label` alone. Five pages labelled their
+  selects for screen readers only, which tells a sighted user nothing: "All
+  statuses" does not say which status the control filters.
+- **The submit is `outline`.** Filtering refines what is already on screen and is
+  not the page's primary action. Four pages rendered it brand-filled.
+- **`Clear` appears whenever a filter is applied**, and only then. A filtered list
+  with no route back to the unfiltered view reads as data loss.
+
+Do not put a `SubmitButton` in a filter bar. `NavForm` preventDefaults and pushes,
+so `useFormStatus` never fires inside it and a `pendingLabel` there can never
+render. The list dims through `ListPending`, which `NavForm` reports to.
 
 ### Feedback
 

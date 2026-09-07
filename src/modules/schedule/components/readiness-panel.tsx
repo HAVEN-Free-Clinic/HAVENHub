@@ -16,7 +16,6 @@
  * Server component: no "use client" directive.
  */
 
-import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
@@ -26,6 +25,7 @@ import type { BuilderRhd } from "@/modules/schedule/services/builder";
 import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rhd";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmailList } from "@/platform/ui/email-list";
+import { TextLink } from "@/platform/ui/text-link";
 
 // ---------------------------------------------------------------------------
 // Label maps
@@ -137,12 +137,9 @@ export function ReadinessPanel({
                 <span key={d.id}>
                   {i > 0 && ", "}
                   {profilePersonIds.has(d.id) ? (
-                    <Link
-                      href={`/volunteers/compliance/${d.id}`}
-                      className="text-brand-fg hover:underline"
-                    >
+                    <TextLink href={`/volunteers/compliance/${d.id}`}>
                       {d.name}
-                    </Link>
+                    </TextLink>
                   ) : (
                     d.name
                   )}
@@ -191,9 +188,9 @@ export function ReadinessPanel({
       )}
 
       {canManageAttendings && (
-        <Link href="/schedule/attendings" className="text-xs text-brand-fg hover:underline">
+        <TextLink href="/schedule/attendings" size="xs">
           Schedule attendings
-        </Link>
+        </TextLink>
       )}
 
       {/* Readiness readout */}

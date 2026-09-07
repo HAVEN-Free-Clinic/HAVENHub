@@ -8,6 +8,7 @@ import {
 } from "./training";
 import { completeTraining, resolveTrainingState } from "./training";
 import { getMyTraining, submitQuiz, resetTraining, listTrainingRoster } from "./training";
+import { recordAbsenceExcuse, clearAbsenceExcuse } from "./training";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -455,4 +456,85 @@ it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", asy
   expect(ids).not.toContain(vol.id);
   const dirRow = rows.find((r) => r.personId === dir.id)!;
   expect(dirRow.trainingState).toBe("PENDING");
+});
+
+// ---------------------------------------------------------------------------
+// Absence excuses
+// ---------------------------------------------------------------------------
+
+it("records an excuse the roster shows, without completing training", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "  Has an exam that night  ", srr.id);
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse?.reason).toBe("Has an exam that night");
+  expect(row.excuse?.recordedByName).toBe("SRR");
+  // The whole of "record only": being excused is not being trained.
+  expect(row.trainingState).toBe("PENDING");
+});
+
+it("re-recording an excuse edits the reason instead of stacking rows", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await recordAbsenceExcuse(c1.id, vol.id, "Family emergency", srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count({ where: { cycleId: c1.id, personId: vol.id } })).toBe(1);
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse?.reason).toBe("Family emergency");
+});
+
+it("refuses a blank reason: an excuse with no reason is just an absence", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await expect(recordAbsenceExcuse(c1.id, vol.id, "   ", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("requires manage_cycles to excuse or to clear an excuse", async () => {
+  const { srr, plain, vol, c1 } = await seedMember();
+  await expect(recordAbsenceExcuse(c1.id, vol.id, "Exam", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await expect(clearAbsenceExcuse(c1.id, vol.id, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(1);
+});
+
+it("refuses someone who is not on the cycle's roster", async () => {
+  const { srr, dir, plain, c1 } = await seedMember();
+  // No membership at all.
+  await expect(recordAbsenceExcuse(c1.id, plain.id, "Exam", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  // A member of the term, but of the wrong track for this cycle.
+  await expect(recordAbsenceExcuse(c1.id, dir.id, "Exam", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+});
+
+it("clearing an excuse removes it, and clearing twice is not an error", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await clearAbsenceExcuse(c1.id, vol.id, srr.id);
+  await clearAbsenceExcuse(c1.id, vol.id, srr.id);
+
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse).toBeNull();
+});
+
+it("keeps the excuse on the roster after training completes by makeup quiz", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  const result = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
+  expect(result.passed).toBe(true);
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.trainingState).toBe("COMPLETE");
+  expect(row.excuse?.reason).toBe("Exam");
+});
+
+it("an excuse on one cycle does not leak onto another cycle's roster", async () => {
+  const { srr, vol, c1, c2 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
+  await setTrainingCycle(c1.id, false, srr.id);
+  await addQuiz(c2.id);
+  await setTrainingCycle(c2.id, true, srr.id);
+
+  const row = (await listTrainingRoster(c2.id, srr.id)).find((r) => r.personId === vol.id)!;
+  expect(row.excuse).toBeNull();
 });

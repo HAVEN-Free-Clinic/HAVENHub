@@ -371,6 +371,87 @@ export async function resetTraining(personId: string, termId: string, track: Tra
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_reset", entityType: "Training", entityId: `${personId}:${termId}:${track}` });
 }
 
+/** One person's excused absence from a cycle's in-person training session. */
+export type TrainingExcuse = {
+  reason: string;
+  recordedByName: string | null;
+  recordedAt: Date;
+};
+
+/**
+ * Record (or re-record) a training absence excused in advance.
+ *
+ * Excuses reach the clinic by email before the session, so this is a lead writing
+ * one down, not the member claiming it -- hence manage_cycles rather than the
+ * department-scoped reach that records attendance.
+ *
+ * Purely a record. It does not complete training, waive the makeup quiz, or move
+ * the makeup window: the person still owes the quiz on the normal schedule. What
+ * it buys is a roster that can tell someone who warned us apart from someone who
+ * simply never turned up.
+ *
+ * Upserts on (cycleId, personId): a second excuse for the same person edits the
+ * reason rather than stacking rows, because there is only one answer to "why were
+ * they not there".
+ */
+export async function recordAbsenceExcuse(
+  cycleId: string,
+  personId: string,
+  reason: string,
+  actorId: string
+): Promise<void> {
+  if (!(await can(actorId, "recruitment.manage_cycles"))) {
+    throw new RecruitmentAuthError("Only recruitment leads can excuse a training absence.");
+  }
+  // Required, not optional: an excuse with no reason reads the same as a bare
+  // absence, which is the thing this exists to fix.
+  const clean = reason.trim();
+  if (clean.length === 0) throw new TrainingStateError("Give the reason they gave you.");
+
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
+  if (!cycle) throw new TrainingStateError("Cycle not found.");
+  // The roster is active memberships of the cycle's track, so excusing anyone
+  // else would write a row no page could ever show.
+  const onRoster = await prisma.termMembership.findFirst({
+    where: { personId, termId: cycle.termId, kind: cycle.track, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!onRoster) throw new TrainingStateError("Not an active member of this track this term.");
+
+  const row = await prisma.trainingAbsenceExcuse.upsert({
+    where: { cycleId_personId: { cycleId, personId } },
+    create: { cycleId, personId, reason: clean, recordedById: actorId },
+    // recordedAt moves with the edit: the record should say when we last heard
+    // this, and who took it down.
+    update: { reason: clean, recordedById: actorId, recordedAt: new Date() },
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.training_excuse",
+    entityType: "TrainingAbsenceExcuse",
+    entityId: row.id,
+    after: { cycleId, personId, reason: clean },
+  });
+}
+
+/** Withdraw an excuse. Idempotent: clearing one that is already gone is the
+ *  state the caller asked for, not an error, so a double submit or a stale page
+ *  is harmless. */
+export async function clearAbsenceExcuse(cycleId: string, personId: string, actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.manage_cycles"))) {
+    throw new RecruitmentAuthError("Only recruitment leads can excuse a training absence.");
+  }
+  const { count } = await prisma.trainingAbsenceExcuse.deleteMany({ where: { cycleId, personId } });
+  if (count === 0) return;
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.training_excuse_cleared",
+    entityType: "TrainingAbsenceExcuse",
+    entityId: `${cycleId}:${personId}`,
+    before: { cycleId, personId },
+  });
+}
+
 export type TrainingRosterRow = {
   personId: string;
   name: string;
@@ -379,6 +460,10 @@ export type TrainingRosterRow = {
   trainingState: TrainingState;
   locked: boolean;
   overallClearance: OverallClearance;
+  /** Set when a lead recorded an absence excused ahead of the session. Kept even
+   *  after training completes: "COMPLETE, excused" is the true story of someone
+   *  who missed the session with warning and finished by makeup quiz. */
+  excuse: TrainingExcuse | null;
 };
 
 /** The designated cycle's training roster: in-scope active memberships of the cycle's track
@@ -405,8 +490,16 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   });
 
   const personIds = memberships.map((m) => m.person.id);
-  const training = new Map(
-    (await prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } })).map((t) => [t.personId, t])
+  const [trainingRows, excuseRows] = await Promise.all([
+    prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
+    prisma.trainingAbsenceExcuse.findMany({
+      where: { cycleId, personId: { in: personIds } },
+      include: { recordedBy: { select: { name: true } } },
+    }),
+  ]);
+  const training = new Map(trainingRows.map((t) => [t.personId, t]));
+  const excuses = new Map<string, TrainingExcuse>(
+    excuseRows.map((e) => [e.personId, { reason: e.reason, recordedByName: e.recordedBy?.name ?? null, recordedAt: e.recordedAt }])
   );
 
   return memberships.map((m) => {
@@ -418,6 +511,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
       certStatus, trainingState, locked: row?.locked ?? false,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
+      excuse: excuses.get(m.person.id) ?? null,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }

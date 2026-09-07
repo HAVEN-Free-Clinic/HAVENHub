@@ -784,6 +784,33 @@ describe("classifyFlashParams", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // The training roster's four outcomes. Same literal-value shape, and the same
+  // ordering proof: a wrong order would read "Saved." for all four.
+  // ---------------------------------------------------------------------------
+
+  it.each([
+    ["attendance", "Attendance recorded."],
+    ["reset", "Training reset."],
+    ["excused", "Absence excused."],
+    ["excuse-cleared", "Excuse cleared."],
+  ])("claims saved=%s on the training roster", (value, message) => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: value }),
+      "/recruitment/cycles/abc123/training",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("does not claim the training roster's saved values anywhere else", () => {
+    // The four values are scoped with no unscoped sibling, so off this page they
+    // fall through to the plain `saved` group rather than announcing a training
+    // outcome on some unrelated screen.
+    const result = classifyFlashParams(paramsOf({ saved: "excused" }), NEUTRAL_PATHNAME);
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+  });
+
+  // ---------------------------------------------------------------------------
   // Task 6: more scoped siblings of the plain `saved` group. "saved" does not
   // mean one thing -- see the page inventory's finding 1.
   // ---------------------------------------------------------------------------

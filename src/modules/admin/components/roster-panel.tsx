@@ -456,14 +456,8 @@ export async function RosterPanel({
                 <div className="flex flex-col gap-1">
                   <p className="text-xs font-medium text-muted-foreground">Kinds to copy</p>
                   <div className="flex gap-4 pt-1">
-                    <label className="flex items-center gap-2 text-sm text-foreground-soft">
-                      <Checkbox name="kinds" value="DIRECTOR" defaultChecked />
-                      Directors
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-foreground-soft">
-                      <Checkbox name="kinds" value="VOLUNTEER" defaultChecked />
-                      Volunteers
-                    </label>
+                    <Checkbox name="kinds" value="DIRECTOR" defaultChecked label="Directors" />
+                    <Checkbox name="kinds" value="VOLUNTEER" defaultChecked label="Volunteers" />
                   </div>
                 </div>
               </div>
@@ -471,16 +465,10 @@ export async function RosterPanel({
               {/* Departments fieldset */}
               <fieldset className="space-y-2">
                 <legend className="text-xs font-medium text-muted-foreground">Departments</legend>
-                <label className="flex items-center gap-2 text-sm text-foreground-soft">
-                  <Checkbox name="allDepartments" />
-                  All departments
-                </label>
+                <Checkbox name="allDepartments" label="All departments" />
                 <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-4">
                   {allActiveDepts.map((dept) => (
-                    <label key={dept.id} className="flex items-center gap-1.5 text-sm text-foreground-soft">
-                      <Checkbox name="departmentIds" value={dept.id} />
-                      {dept.code}
-                    </label>
+                    <Checkbox key={dept.id} name="departmentIds" value={dept.id} label={dept.code} />
                   ))}
                 </div>
                 <p className="text-xs text-subtle-foreground">Check All departments, or pick specific ones.</p>

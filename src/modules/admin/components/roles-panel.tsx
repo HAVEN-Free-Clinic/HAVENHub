@@ -210,17 +210,13 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
                   <SectionHeader as="h4">{mod.title}</SectionHeader>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     {mod.permissions.map((perm) => (
-                      <label
+                      <Checkbox
                         key={perm}
-                        className="flex items-center gap-2 text-sm text-foreground-soft"
-                      >
-                        <Checkbox
-                          name="permissions"
-                          value={perm}
-                          defaultChecked={grantedSet.has(perm)}
-                        />
-                        <span className="font-mono text-xs">{perm}</span>
-                      </label>
+                        name="permissions"
+                        value={perm}
+                        defaultChecked={grantedSet.has(perm)}
+                        label={<span className="font-mono text-xs">{perm}</span>}
+                      />
                     ))}
                   </div>
                 </div>

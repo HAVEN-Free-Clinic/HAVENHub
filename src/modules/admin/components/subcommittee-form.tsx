@@ -25,10 +25,7 @@ export function SubcommitteeForm({ action, mode, subcommittee }: SubcommitteeFor
           </Field>
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} />
-          Active
-        </label>
+        <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} label="Active" />
 
         <FormActions>
           <Button type="submit" variant="primary">

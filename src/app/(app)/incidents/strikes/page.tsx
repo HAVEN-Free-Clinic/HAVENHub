@@ -498,18 +498,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
               {/* Checkboxes */}
               <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="notifyPeople" defaultChecked />
-                  Notify by email
-                </label>
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="confidential" />
-                  Confidential
-                </label>
-                <label className="flex items-center gap-2 text-sm text-foreground-soft cursor-pointer">
-                  <Checkbox name="patientInvolved" />
-                  Patient involved
-                </label>
+                <Checkbox name="notifyPeople" defaultChecked label="Notify by email" />
+                <Checkbox name="confidential" label="Confidential" />
+                <Checkbox name="patientInvolved" label="Patient involved" />
               </div>
             </div>
 

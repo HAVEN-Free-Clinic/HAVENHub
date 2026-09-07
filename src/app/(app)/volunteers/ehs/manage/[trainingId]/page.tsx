@@ -54,12 +54,12 @@ export default async function EditEhsTrainingPage({
                   placeholder="https://www.myworkday.com/yale/learning"
                 />
               </Field>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="isActive" defaultChecked={training.isActive} /> Active
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox name="requiredForAll" defaultChecked={training.requiredForAll} /> Required for all departments
-              </label>
+              <Checkbox name="isActive" defaultChecked={training.isActive} label="Active" />
+              <Checkbox
+                name="requiredForAll"
+                defaultChecked={training.requiredForAll}
+                label="Required for all departments"
+              />
             </div>
             <FormActions>
               <SubmitButton>Save training</SubmitButton>
@@ -77,10 +77,18 @@ export default async function EditEhsTrainingPage({
               </p>
               <div className="grid grid-cols-2 gap-1 text-sm">
                 {departments.map((d) => (
-                  <label key={d.id} className="flex items-center gap-2">
-                    <Checkbox name="departmentIds" value={d.id} defaultChecked={assigned.has(d.id)} /> {d.name}
-                    {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
-                  </label>
+                  <Checkbox
+                    key={d.id}
+                    name="departmentIds"
+                    value={d.id}
+                    defaultChecked={assigned.has(d.id)}
+                    label={
+                      <>
+                        {d.name}
+                        {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
+                      </>
+                    }
+                  />
                 ))}
               </div>
             </div>

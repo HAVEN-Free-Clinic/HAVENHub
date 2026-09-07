@@ -10,15 +10,21 @@ import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import { reopenWithdrawnApplication, WithdrawError } from "@/modules/recruitment/services/withdraw";
+import {
+  clearApplicantAbsenceExcuse,
+  recordApplicantAbsenceExcuse,
+  TrainingStateError,
+} from "@/modules/recruitment/services/training";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
 // scoring failures into the Department decision card, far from the button clicked.
-function bounce(cycleId: string, applicationId: string, opts?: { error?: string; routeError?: string; scoreError?: string; saved?: string }) {
+function bounce(cycleId: string, applicationId: string, opts?: { error?: string; routeError?: string; scoreError?: string; excuseError?: string; saved?: string }) {
   const base = `/recruitment/cycles/${cycleId}/applicants/${applicationId}`;
   if (opts?.error) return `${base}?error=${encodeURIComponent(opts.error)}`;
   if (opts?.routeError) return `${base}?routeError=${encodeURIComponent(opts.routeError)}`;
   if (opts?.scoreError) return `${base}?scoreError=${encodeURIComponent(opts.scoreError)}`;
+  if (opts?.excuseError) return `${base}?excuseError=${encodeURIComponent(opts.excuseError)}`;
   if (opts?.saved) return `${base}?saved=${encodeURIComponent(opts.saved)}`;
   return base;
 }
@@ -227,4 +233,43 @@ export async function rescindAcceptanceAction(cycleId: string, applicationId: st
     throw err;
   }
   redirect(bounce(cycleId, applicationId, { saved: "rescind" }));
+}
+
+/**
+ * Write down a training absence this applicant excused by email.
+ *
+ * Lives here rather than only on the training roster because that roster lists
+ * active memberships, and the people sending these emails have usually not been
+ * promoted yet -- some have no hub account at all. The service resolves them to a
+ * Person when it can and falls back to their email when it cannot.
+ */
+export async function excuseApplicantAbsenceAction(
+  cycleId: string,
+  applicationId: string,
+  applicantId: string,
+  formData: FormData,
+) {
+  const person = await requirePersonSession();
+  try {
+    await recordApplicantAbsenceExcuse(cycleId, applicantId, String(formData.get("reason") ?? ""), person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, applicationId, { excuseError: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "excused" }));
+}
+
+export async function clearApplicantExcuseAction(cycleId: string, applicationId: string, applicantId: string) {
+  const person = await requirePersonSession();
+  try {
+    await clearApplicantAbsenceExcuse(cycleId, applicantId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, applicationId, { excuseError: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "excuse-cleared" }));
 }

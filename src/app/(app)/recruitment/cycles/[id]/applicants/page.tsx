@@ -25,6 +25,13 @@ import {
   filterApplicantsByDepartment,
 } from "@/modules/recruitment/engine/applicant-department";
 import {
+  filterApplicantsByQuery,
+  normalizeApplicantQuery,
+} from "@/modules/recruitment/engine/applicant-search";
+import { NavForm } from "@/platform/ui/nav-form";
+import { Input } from "@/platform/ui/input";
+import { Button } from "@/platform/ui/button";
+import {
   nextSortDirection,
   parseApplicantSort,
   sortApplicants,
@@ -39,6 +46,7 @@ const DECISION_STATUSES = new Set<RosterDecisionStatus>(["ACCEPTED", "WAITLIST",
  *  (sort headers, pagination) carries the full state, so no param is dropped by
  *  navigating. Page 1 and the unsorted default are left implicit. */
 function rosterQuery(parts: {
+  query: string | null;
   decision: string | null;
   department: string | null;
   sort: string | null;
@@ -46,6 +54,7 @@ function rosterQuery(parts: {
   page: number | null;
 }): string {
   const q = new URLSearchParams();
+  if (parts.query) q.set("q", parts.query);
   if (parts.decision) q.set("decision", parts.decision);
   if (parts.department) q.set("department", parts.department);
   if (parts.sort && parts.dir) {
@@ -57,9 +66,9 @@ function rosterQuery(parts: {
   return s ? `?${s}` : "";
 }
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; decision?: string; department?: string; sort?: string; dir?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, decision: decisionParam, department: departmentParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -119,10 +128,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const departmentFilter = departmentParam && departmentOptions.includes(departmentParam)
     ? departmentParam
     : null;
+  const query = normalizeApplicantQuery(queryParam);
   const byDecision = decisionFilter
     ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
     : apps;
-  const filtered = filterApplicantsByDepartment(byDecision, departmentFilter);
+  // Search last in the chain, on the same rows the count and the pager read, so
+  // "3 applicants" is always the number of rows the search actually returned.
+  const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byDecision, departmentFilter), query);
   const sort = parseApplicantSort(sortParam, dirParam);
   // Sort after filtering and before slicing, so page boundaries stay correct.
   const sorted = sort ? sortApplicants(filtered, sort) : filtered;
@@ -132,6 +144,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const sortHref = (key: ApplicantSortKey) =>
     // Omitting page returns to page 1, matching how DecisionFilter drops it.
     `/recruitment/cycles/${id}/applicants${rosterQuery({
+      query,
       decision: decisionFilter,
       department: departmentFilter,
       sort: key,
@@ -162,6 +175,30 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
+          {/* The other filters are selects that navigate on change; a search box
+              cannot be, or it would push a navigation per keystroke. This is a
+              GET form, so Enter submits. The hidden inputs keep the decision and
+              department filters and the sort from being dropped by searching;
+              `page` is deliberately absent, since the old page number may not
+              exist in the narrowed result. */}
+          <NavForm className="flex items-end gap-2">
+            {decisionFilter && <input type="hidden" name="decision" value={decisionFilter} />}
+            {departmentFilter && <input type="hidden" name="department" value={departmentFilter} />}
+            {sort && <input type="hidden" name="sort" value={sort.key} />}
+            {sort && <input type="hidden" name="dir" value={sort.dir} />}
+            <div className="w-56">
+              <Input
+                name="q"
+                type="search"
+                defaultValue={query ?? ""}
+                placeholder="Name or email"
+                aria-label="Search applicants by name or email"
+              />
+            </div>
+            <Button type="submit" variant="outline" size="sm">
+              Search
+            </Button>
+          </NavForm>
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
         </div>
@@ -272,6 +309,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         pageCount={pageCount}
         hrefFor={(p) =>
           `/recruitment/cycles/${id}/applicants${rosterQuery({
+            query,
             decision: decisionFilter,
             department: departmentFilter,
             sort: sort?.key ?? null,

@@ -2714,10 +2714,27 @@ model Training {
 ///
 /// Purely a record. It does not complete training, waive the makeup quiz, or move
 /// the makeup window: the person still owes the quiz on the normal schedule.
+///
+/// `personId` is NULLABLE for the same reason EventAttendance's is: excuses arrive
+/// from people the hub does not know yet. An applicant who has not been accepted
+/// has an Applicant row and usually no Person at all (applicantPersonId is only
+/// set for signed-in renewals, and promotion never backfills it), and refusing to
+/// record their excuse would leave the excuse where it started, in an inbox.
+/// Those rows carry `emailLower` instead, which is what later connects them: the
+/// training roster resolves an excuse by personId OR by a roster member's own
+/// contact email, so an excuse written in October is on the roster the moment
+/// promotion turns that applicant into a member.
+///
+/// EXACTLY ONE of personId and emailLower is set, enforced by a CHECK constraint
+/// in the migration. The two uniques coexist because Postgres treats NULLs as
+/// distinct: linked rows dedupe on personId, unlinked ones on emailLower.
 model TrainingAbsenceExcuse {
   id           String   @id @default(cuid())
   cycleId      String
-  personId     String
+  personId     String?
+  /// Lowercased, and only ever set when personId is null. Matches Applicant's own
+  /// emailLower, which is unique per cycle, so it identifies an applicant exactly.
+  emailLower   String?
   /// What the person told us, in the lead's words. Required: an excuse with no
   /// reason is just an absence.
   reason       String
@@ -2731,12 +2748,13 @@ model TrainingAbsenceExcuse {
   cycle      RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   /// Cascade: the record is meaningless without the person, matching
   /// BoardMeetingAttendance.
-  person     Person           @relation("trainingExcusePerson", fields: [personId], references: [id], onDelete: Cascade)
+  person     Person?          @relation("trainingExcusePerson", fields: [personId], references: [id], onDelete: Cascade)
   /// SetNull: who recorded it is part of the record, but its loss must not take
   /// the excuse with it.
   recordedBy Person?          @relation("trainingExcuseRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, personId])
+  @@unique([cycleId, emailLower])
   @@index([personId])
 }
 

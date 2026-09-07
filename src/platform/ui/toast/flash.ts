@@ -499,6 +499,10 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   // each takes a literal `saved` value rather than the generic flag: "Saved." is
   // wrong for all of them. Scoped, with no unscoped sibling, so these values mean
   // nothing anywhere else.
+  //
+  // The two excuse values are shared with the applicant detail page, which is the
+  // other place an absence is excused, with byte-identical text -- so one entry
+  // covers both, as saved=decision already does for applicants and interviews.
   {
     params: ["saved"],
     matchValues: { saved: "attendance" },
@@ -516,14 +520,14 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   {
     params: ["saved"],
     matchValues: { saved: "excused" },
-    pathnames: [TRAINING_ROSTER_PATHNAME],
+    pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Absence excused.",
   },
   {
     params: ["saved"],
     matchValues: { saved: "excuse-cleared" },
-    pathnames: [TRAINING_ROSTER_PATHNAME],
+    pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Excuse cleared.",
   },

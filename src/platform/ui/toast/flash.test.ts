@@ -802,6 +802,29 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual(["saved"]);
   });
 
+  it.each([
+    ["excused", "Absence excused."],
+    ["excuse-cleared", "Excuse cleared."],
+  ])("claims saved=%s on the applicant detail page too", (value, message) => {
+    // An absence is excused from two places: the training roster, for a member,
+    // and the applicant profile, for someone not promoted yet.
+    const result = classifyFlashParams(
+      paramsOf({ saved: value }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message }]);
+  });
+
+  it("leaves the roster-only saved values alone on the applicant detail page", () => {
+    // attendance/reset are the roster's alone: recording attendance is not
+    // something the applicant profile does, so those values must fall through.
+    const result = classifyFlashParams(
+      paramsOf({ saved: "attendance" }),
+      "/recruitment/cycles/abc123/applicants/xyz789",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+  });
+
   it("does not claim the training roster's saved values anywhere else", () => {
     // The four values are scoped with no unscoped sibling, so off this page they
     // fall through to the plain `saved` group rather than announcing a training

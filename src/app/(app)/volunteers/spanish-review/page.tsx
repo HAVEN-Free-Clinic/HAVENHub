@@ -35,7 +35,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
 
@@ -366,26 +366,30 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
             </div>
           </details>
 
-          <NavForm action={BASE_PATH} className="flex flex-wrap gap-3">
+          <FilterBar
+            action={BASE_PATH}
+            clearHref={search || termFilter ? `${BASE_PATH}?tab=history` : undefined}
+          >
             <input type="hidden" name="tab" value="history" />
-            <Input
-              name="q"
-              placeholder="Search by name, email, or note..."
-              defaultValue={search}
-              className="min-w-48 flex-1"
-            />
-            <Select name="term" defaultValue={termFilter}>
-              <option value="">All terms</option>
-              {allTerms.map((term) => (
-                <option key={term} value={term}>
-                  {term}
-                </option>
-              ))}
-            </Select>
-            <SubmitButton variant="primary" pendingLabel="Searching...">
-              Search
-            </SubmitButton>
-          </NavForm>
+            <FilterField label="Search" width="grow">
+              <Input
+                type="search"
+                name="q"
+                placeholder="Name, email, or note..."
+                defaultValue={search}
+              />
+            </FilterField>
+            <FilterField label="Term" width="lg">
+              <Select name="term" defaultValue={termFilter}>
+                <option value="">All terms</option>
+                {allTerms.map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+              </Select>
+            </FilterField>
+          </FilterBar>
 
           {history.rows.length === 0 ? (
             <EmptyCard>No assessment records match that filter.</EmptyCard>

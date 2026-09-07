@@ -23,8 +23,7 @@ import type { TeamsMessageStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -202,13 +201,9 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       </div>
 
       {/* Filter bar (GET form) */}
-      <NavForm className="flex flex-wrap items-end gap-3">
-        <div className="w-36">
-          <Select
-            name="status"
-            defaultValue={validatedStatus ?? ""}
-            aria-label="Filter by status"
-          >
+      <FilterBar clearHref={validatedStatus || validatedType || q ? "/admin/notifications" : undefined}>
+        <FilterField label="Status" width="sm">
+          <Select name="status" defaultValue={validatedStatus ?? ""}>
             <option value="">All statuses</option>
             {VALID_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -216,13 +211,9 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
               </option>
             ))}
           </Select>
-        </div>
-        <div className="w-52">
-          <Select
-            name="type"
-            defaultValue={validatedType ?? ""}
-            aria-label="Filter by type"
-          >
+        </FilterField>
+        <FilterField label="Type" width="lg">
+          <Select name="type" defaultValue={validatedType ?? ""}>
             <option value="">All types</option>
             {NOTIFICATION_TYPES.map((t) => (
               <option key={t.key} value={t.key}>
@@ -230,19 +221,11 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
               </option>
             ))}
           </Select>
-        </div>
-        <div className="flex-1 min-w-44">
-          <Input
-            name="q"
-            defaultValue={q ?? ""}
-            placeholder="Recipient name..."
-            aria-label="Search by recipient name"
-          />
-        </div>
-        <Button type="submit" variant="outline" size="sm">
-          Filter
-        </Button>
-      </NavForm>
+        </FilterField>
+        <FilterField label="Recipient" width="grow">
+          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Recipient name..." />
+        </FilterField>
+      </FilterBar>
 
       {/* Table */}
       {rows.length === 0 ? (

@@ -10,9 +10,8 @@ import {
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { NavForm } from "@/platform/ui/nav-form";
+import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 /**
@@ -52,19 +51,16 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
         description={`${total.toLocaleString()} imported ${total === 1 ? "identity" : "identities"}${term ? ` matching "${term}"` : ""}`}
       />
 
-      <NavForm className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-48">
+      <FilterBar clearHref={q ? "/recruitment/history" : undefined}>
+        <FilterField label="Search" width="grow">
           <Input
+            type="search"
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Search name, NetID, or email..."
-            aria-label="Search recruitment history"
+            placeholder="Name, NetID, or email..."
           />
-        </div>
-        <Button type="submit" variant="outline" size="sm">
-          Search
-        </Button>
-      </NavForm>
+        </FilterField>
+      </FilterBar>
 
       {truncated && (
         <p className="text-sm text-subtle-foreground">

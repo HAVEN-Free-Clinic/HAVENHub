@@ -29,7 +29,8 @@ describe("buildShiftReminders", () => {
     expect(out[0].context.departmentName).toBe("Senior Primary Care");
     expect(out[0].context.clinicDateLabel).toBe("Saturday, July 11, 2026");
     expect(out[0].context.hipaaComplianceUrl).toBe(`${BASE}/my-info`);
-    expect(out[0].context.shiftSwapUrl).toBe(`${BASE}/schedule`);
+    // The swap link lands on the request form itself, open. See shift-reminders.ts.
+    expect(out[0].context.shiftSwapUrl).toBe(`${BASE}/schedule?request=1#request-a-change`);
     expect(out[0].context.masterScheduleUrl).toBe(`${BASE}/schedule/full`);
   });
 

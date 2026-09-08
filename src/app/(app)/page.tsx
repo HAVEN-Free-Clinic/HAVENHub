@@ -576,7 +576,7 @@ export default async function HubPage() {
                     href="/schedule"
                     className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
                   >
-                    Go to my schedule <ArrowRight aria-hidden className="h-4 w-4" />
+                    View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
                 </div>
               )}

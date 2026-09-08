@@ -82,8 +82,17 @@ function attendingRedirect(err: unknown): never {
   throw err;
 }
 
-export default async function MySchedulePage() {
+export default async function MySchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ request?: string }>;
+}) {
   const session = await requireModuleAccess("schedule");
+  // `?request=1` opens the next shift's change form. A param, not just the
+  // hash, because a hash never reaches the server and <details> cannot be
+  // opened by :target -- the link carries both, so the server opens the form
+  // and the browser scrolls to it.
+  const openRequestForm = (await searchParams).request === "1";
   // Evaluated per request (not at module load) so the "pending N days" gate
   // below stays accurate across warm server instances. `new Date()` (not
   // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
@@ -391,7 +400,7 @@ export default async function MySchedulePage() {
         // so the volunteer block is simply absent for them.
         attendingSchedule ? null : <EmptyState inline>No active term.</EmptyState>
       ) : (
-        termSections.map(({ t, swapPartnersByKey }) => {
+        termSections.map(({ t, swapPartnersByKey }, termIndex) => {
           // Whether to show the shift list at all -- this is purely about
           // whether shifts exist, not about live/next status. An empty list
           // still needs a message: which one depends on t.isLive below. A
@@ -427,7 +436,16 @@ export default async function MySchedulePage() {
             t.pendingRequests.has(`${isoDateKey(s.clinicDate)}|${s.department.id}`),
           );
 
-          function shiftCard(shift: (typeof t.shifts)[number], emphasised: boolean) {
+          // Only the first term section carries the anchor: ids must be unique,
+          // and the live term is first (see `primary` above), so its next shift
+          // is what "request a swap" means.
+          const anchorsRequestForm = termIndex === 0 && nextShifts.length > 0;
+
+          function shiftCard(
+            shift: (typeof t.shifts)[number],
+            emphasised: boolean,
+            openRequest = false,
+          ) {
             const dateKey = isoDateKey(shift.clinicDate);
             // >= today matches Task 2's guard: today is not past, so a
             // same-day shift still gets the full change form.
@@ -524,7 +542,7 @@ export default async function MySchedulePage() {
                   ) : isPast ? (
                     <p className="text-sm text-subtle-foreground">This shift has passed.</p>
                   ) : (
-                    <RequestChangeDisclosure>
+                    <RequestChangeDisclosure defaultOpen={openRequest}>
                         {/* Swap-only departments (Department.allowShiftDrop = false) show
                             no drop form: the seat has to go to a named person. The
                             server action refuses the drop too, so this is presentation,
@@ -622,11 +640,18 @@ export default async function MySchedulePage() {
                 ) : (
                   <div className="flex flex-col gap-6">
                     {nextShifts.length > 0 && (
-                      <div>
+                      <div
+                        id={anchorsRequestForm ? "request-a-change" : undefined}
+                        className={anchorsRequestForm ? "scroll-mt-8" : undefined}
+                      >
                         <SectionHeader as="h3" className="mb-2">
                           {nextShifts.length > 1 ? "Next shifts" : "Next shift"}
                         </SectionHeader>
-                        <div className="flex flex-col gap-3">{nextShifts.map((s) => shiftCard(s, true))}</div>
+                        <div className="flex flex-col gap-3">
+                          {nextShifts.map((s) =>
+                            shiftCard(s, true, anchorsRequestForm && openRequestForm),
+                          )}
+                        </div>
                       </div>
                     )}
                     {laterShifts.length > 0 && (

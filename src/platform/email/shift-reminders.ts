@@ -127,7 +127,10 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
   });
 
   const hipaaComplianceUrl = `${baseUrl}/my-info`;
-  const shiftSwapUrl = `${baseUrl}/schedule`;
+  // Lands on the request form itself, open, rather than the top of the shift
+  // list with the form folded shut inside a disclosure. "Shift swaps must be
+  // ... submitted here" is a promise the bare /schedule link did not keep.
+  const shiftSwapUrl = `${baseUrl}/schedule?request=1#request-a-change`;
   const masterScheduleUrl = `${baseUrl}/schedule/full`;
   // Epic problems now go through the Hub's own IT ticketing. This used to be a
   // hardcoded Airtable form, so those tickets never entered the system built to

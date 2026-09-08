@@ -193,3 +193,27 @@ test("sign out still works from the account menu", async ({ page }) => {
   await page.waitForURL((url) => url.pathname === "/login");
   await expect(page).toHaveURL(/\/login$/);
 });
+
+test("the phone menu offers the sub-pages of the module you are in", async ({ page }) => {
+  // The desktop row puts sub-pages behind a per-module chevron. The phone menu
+  // used to drop them entirely, which left the TabRow strip as the only route
+  // to them -- a strip whose scrollbar is hidden and which auto-scrolls to the
+  // active tab, so on a 13-tab cycle a director could see three and no sign of
+  // the rest.
+  await devSignIn(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/schedule");
+  await page.waitForURL((url) => url.pathname === "/schedule");
+
+  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  const menu = page.getByRole("navigation", { name: "Modules (menu)" });
+  await expect(menu).toBeVisible();
+
+  // The module you are in expands; its sub-pages are reachable without the strip.
+  const scheduleSubPages = menu.getByRole("group", { name: "Schedule sub-pages" });
+  await expect(scheduleSubPages).toBeVisible();
+  await expect(scheduleSubPages.getByRole("link", { name: "Full schedule" })).toBeVisible();
+
+  // A module you are NOT in stays collapsed, so the menu does not become a wall.
+  await expect(menu.getByRole("group", { name: "Admin sub-pages" })).toHaveCount(0);
+});

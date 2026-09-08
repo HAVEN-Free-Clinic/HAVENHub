@@ -123,7 +123,7 @@ export default async function CredentialingPage({ searchParams }: PageProps) {
             Nobody is mid-credentialing. Start someone from the not-started list below.
           </Card>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <Table>
               <THead>
                 <TR>
@@ -210,7 +210,7 @@ export default async function CredentialingPage({ searchParams }: PageProps) {
             Everyone on the roster has credentialing recorded.
           </Card>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <Table>
               <THead>
                 <TR>

@@ -182,7 +182,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           Filled roles this term. Someone in two departments is counted in both.
           Select a row to filter the roster below.
         </p>
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3">
           <Table>
             <THead>
               <TR>
@@ -321,7 +321,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           </p>
         )}
 
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3">
           <Table>
             <THead>
               <TR>
@@ -416,7 +416,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               body={{ scope: "attendings" }}
             />
           </div>
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-3">
             <Table>
               <THead>
                 <TR>

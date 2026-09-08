@@ -491,7 +491,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
             No attendings on the roster yet.
           </Card>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <Table>
               <THead>
                 <TR>

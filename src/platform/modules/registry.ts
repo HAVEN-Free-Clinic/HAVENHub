@@ -97,7 +97,7 @@ export const MODULES: ModuleManifest[] = [
   },
   {
     id: "my-info",
-    title: "My Info",
+    title: "My info",
     description: "Update your contact info and HIPAA compliance",
     icon: UserRoundPen,
     // No accessPermission: My Info is open to any signed-in matched person,

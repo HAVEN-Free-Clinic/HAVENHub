@@ -58,7 +58,7 @@ const PERSONAL_PAGES: NavModule = {
   title: "Personal",
   href: "/my-info",
   nav: [
-    { label: "My Info", href: "/my-info" },
+    { label: "My info", href: "/my-info" },
     { label: "Training", href: "/training" },
   ],
 };

@@ -346,7 +346,7 @@ export default async function MySchedulePage() {
     <div>
       <div className="mb-8">
         <PageHeader
-          title="My Schedule"
+          title="My schedule"
           description={
             primary
               ? `${primary.term.name}${

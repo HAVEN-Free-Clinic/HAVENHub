@@ -93,12 +93,12 @@ describe("campaign starters", () => {
   // not the only thing telling someone how to get there.
   it("welcome starter groups the capabilities into labelled sections that say where to click", () => {
     const body = getStarter("welcome")!.body;
-    for (const eyebrow of ["Stay in the loop", "My Info", "Scheduling", "Also in the Hub"]) {
+    for (const eyebrow of ["Stay in the loop", "My info", "Scheduling", "Also in the Hub"]) {
       expect(body).toContain(`text-transform:uppercase;color:#00356b;">${eyebrow}<`);
     }
     // "Stay in the loop" leads, ahead of the record-keeping and scheduling groups.
-    expect(body.indexOf(">Stay in the loop<")).toBeLessThan(body.indexOf(">My Info<"));
-    expect(body.indexOf(">My Info<")).toBeLessThan(body.indexOf(">Scheduling<"));
+    expect(body.indexOf(">Stay in the loop<")).toBeLessThan(body.indexOf(">My info<"));
+    expect(body.indexOf(">My info<")).toBeLessThan(body.indexOf(">Scheduling<"));
     expect(body.indexOf(">Scheduling<")).toBeLessThan(body.indexOf(">Also in the Hub<"));
     // Every group ends with its own "where to click" line naming the top navigation.
     expect(body.match(/top bar of every page|from the top navigation|in the top navigation/g)).toHaveLength(4);

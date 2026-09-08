@@ -167,7 +167,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     return (
       <div>
         <div className="mb-8">
-          <PageHeader title="Schedule Builder" description="No active term" />
+          <PageHeader title="Schedule builder" description="No active term" />
         </div>
         <p className="text-sm text-muted-foreground">There is no term to build a schedule for yet.</p>
       </div>
@@ -191,7 +191,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     return (
       <div>
         <div className="mb-8">
-          <PageHeader title="Schedule Builder" description="No departments" />
+          <PageHeader title="Schedule builder" description="No departments" />
         </div>
         <p className="text-sm text-muted-foreground">You do not direct any departments this term.</p>
       </div>
@@ -502,7 +502,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
     <div>
       <div className="mb-8">
         <PageHeader
-          title="Schedule Builder"
+          title="Schedule builder"
           description={`${dept.name} · ${workingTerm.name}${
             showPublishControl ? (deptPublished ? " · Published" : " · Not published") : ""
           }`}

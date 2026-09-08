@@ -85,7 +85,7 @@ export function MyInfoForm({ action, person, requireContact }: MyInfoFormProps) 
             />
           </Field>
 
-          <Field label="Yale Affiliation">
+          <Field label="Yale affiliation">
             <Select name="yaleAffiliation" defaultValue={currentAffiliation}>
               <option value="">Not set</option>
               {affiliationOptions.map((opt) => (
@@ -96,7 +96,7 @@ export function MyInfoForm({ action, person, requireContact }: MyInfoFormProps) 
             </Select>
           </Field>
 
-          <Field label="Grad Year">
+          <Field label="Grad year">
             <Input
               name="gradYear"
               defaultValue={person.gradYear ?? ""}

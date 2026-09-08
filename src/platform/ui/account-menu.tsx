@@ -78,7 +78,7 @@ export function AccountMenu({
           <div className="flex flex-col gap-0.5 py-1.5">
             <Link href="/my-info" onClick={() => setOpen(false)} className={itemClasses}>
               <UserRoundPen aria-hidden className="h-4 w-4" />
-              My Info
+              My info
             </Link>
             <Link href="/training" onClick={() => setOpen(false)} className={itemClasses}>
               <GraduationCap aria-hidden className="h-4 w-4" />

@@ -267,16 +267,32 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       // Application.decision PENDING forever. Testing only the first would
       // park every decided director applicant here permanently.
       decision: "PENDING",
-      interviews: { none: { decision: { not: "PENDING" } } },
+      // Scoped to the lane departments deliberately. Interview is per
+      // (applicationId, departmentCode): a director applicant ranked into a
+      // lane department AND a non-lane one can get the non-lane REJECT first,
+      // with the lane department's own interview still PENDING. An unscoped
+      // "none decided" here would drop the whole application the moment the
+      // non-lane sibling resolves, which is exactly the silent under-queue
+      // this feature exists to prevent.
+      interviews: { none: { departmentCode: { in: laneCodes }, decision: { not: "PENDING" } } },
+      // Deliberately UNSCOPED, unlike the interviews clause above: an
+      // Acceptance in any department settles the application, because the
+      // onboarding conflict guard refuses a second acceptance once one exists.
+      // A REJECT from one department does not carry the same finality, which
+      // is why interviews needs the lane scoping and this does not.
       acceptances: { none: {} },
       cycle: { status: { not: "ARCHIVED" } },
       OR: [
         { departmentChoices: { hasSome: laneCodes } },
         { dualRoleDepartments: { hasSome: laneCodes } },
         { routedDepartmentCode: { in: laneCodes } },
-        // A DIRECTOR-track renewal has no routedDepartmentCode: submissions.ts
-        // only sets that for the VOLUNTEER track. Without this clause a
-        // returning PATS director would never be queued.
+        // Inclusive OR, kept even though a live submitted RENEWAL already
+        // carries this code in departmentChoices too (submissions.ts sets
+        // departmentChoices to exactly [renewalDepartment] for a RENEWAL).
+        // Nothing in the schema enforces that the two columns stay in
+        // lockstep, so this clause is cheap insurance against a row where
+        // they diverge, not a guard against a failure mode known to happen
+        // under the current write path.
         { renewalDepartment: { in: laneCodes } },
       ],
     },
@@ -291,7 +307,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       applicant: { select: { id: true, firstName: true, lastName: true, netId: true, email: true } },
       languageAssessments: { select: { language: true } },
     },
-    orderBy: [{ applicant: { lastName: "asc" } }, { applicant: { firstName: "asc" } }],
+    orderBy: [{ applicant: { lastName: "asc" } }, { applicant: { firstName: "asc" } }, { id: "asc" }],
   });
   if (applications.length === 0) return [];
 

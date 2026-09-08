@@ -345,6 +345,27 @@ describe("listApplicantLanguageQueue", () => {
     expect(await listApplicantLanguageQueue()).toEqual([]);
   });
 
+  // Interview rows are per (applicationId, departmentCode): a director
+  // applicant ranked into both a lane department and a non-lane one can have
+  // the non-lane department decide first. That must not drop the application
+  // out of the queue while the lane department's own verdict is still open.
+  it("keeps an in-lane applicant queued when only a non-lane interview has been decided", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["PATS", "EDUC"],
+    });
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "EDUC",
+        decision: "REJECT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["es"]);
+  });
+
   it("ignores an accepted application", async () => {
     const ctx = await lane();
     const { application } = await apply(ctx, "ada@yale.edu");

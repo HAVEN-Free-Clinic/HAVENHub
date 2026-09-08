@@ -1,10 +1,10 @@
-import Link from "next/link";
 import type { Track } from "@prisma/client";
 import { requirePermission } from "@/platform/auth/session";
 import { getGlobalContractLayout } from "@/modules/recruitment/contract/template";
 import { PageHeader } from "@/platform/ui/page-header";
 import { ContractEditor } from "@/app/(app)/recruitment/cycles/[id]/builder/contract/contract-editor";
 import { loadOnboardingPreviewContext } from "@/app/(app)/recruitment/cycles/[id]/builder/contract/preview-context";
+import { TabRow } from "@/platform/ui/tab-row";
 
 const TRACKS: { value: Track; label: string }[] = [
   { value: "VOLUNTEER", label: "Volunteer" },
@@ -34,26 +34,23 @@ export default async function AdminContractPage({
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader title="Onboarding contract" description="Master template inherited by new cycles, per track" />
-      <div className="flex gap-2" role="tablist" aria-label="Contract track">
-        {TRACKS.map((t) => {
-          const active = t.value === track;
-          return (
-            <Link
-              key={t.value}
-              href={`/admin/contract?track=${t.value}`}
-              role="tab"
-              aria-selected={active}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                active
-                  ? "bg-brand/10 text-brand-fg"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
+      {/* These were the only role="tab"/role="tablist" nodes in the app, and
+          there is no role="tabpanel" anywhere -- so the ARIA promised arrow-key
+          movement between tabs and an in-place panel swap, and delivered
+          neither: they are plain links that navigate. role="tab" also
+          suppresses the link role, so a screen reader announced "tab, selected,
+          1 of 2" for something that is a link to another URL. TabRow marks the
+          current one with aria-current="page", which is what a row of links
+          actually is. */}
+      <TabRow
+        variant="segmented"
+        label="Contract track"
+        isActive={(item) => item.href.endsWith(`track=${track}`)}
+        items={TRACKS.map((t) => ({
+          label: t.label,
+          href: `/admin/contract?track=${t.value}`,
+        }))}
+      />
       <p className="text-sm text-muted-foreground">
         {hasOverride
           ? `Editing the custom ${track === "DIRECTOR" ? "director" : "volunteer"} master template. Reset to fall back to the built-in default.`

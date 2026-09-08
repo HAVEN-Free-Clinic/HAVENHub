@@ -13,6 +13,8 @@ import { getSetting } from "@/platform/settings/service";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates/format";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -58,6 +60,10 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
+      {/* Same reason as /training: a personal page whose first path segment
+          matches no module, so the registry-derived trail is "Hub" alone and
+          the bar drops it. */}
+      <SetBreadcrumb trail={hubTrail({ label: "Notifications" })} />
       <PageHeader title="Notifications" description={`Everything addressed to you in ${appName}.`} />
 
       <form action={markAllAction}>

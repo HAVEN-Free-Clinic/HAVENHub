@@ -24,10 +24,9 @@ import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
-import Link from "next/link";
+import { PersonSearchPanel } from "./person-search-panel";
 import { Card } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
+import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -279,81 +278,37 @@ export async function RosterPanel({
       {/* Add-member search + results: editing controls, admin.manage_roster only. */}
       {canManage && (
       <>
-      {/* Add-member search box (global, above cards) */}
-      <NavForm className="flex items-end gap-3">
-        {/* No other params are preserved; this form resets all query state. */}
-        <Field label="Search people to add">
-          <Input
-            type="search"
-            name="addq"
-            defaultValue={addq ?? ""}
-            placeholder="Name or netID..."
-            className="w-72"
-          />
-        </Field>
-        <Button type="submit" variant="outline" size="sm">
-          Search
-        </Button>
-        {addq && (
-          <Link
-            href={termDetailHref}
-            className="text-sm text-muted-foreground hover:text-foreground self-end pb-2"
-          >
-            Clear
-          </Link>
+      <PersonSearchPanel
+        paramName="addq"
+        label="Search people to add"
+        query={addq ?? undefined}
+        clearHref={termDetailHref}
+        results={searchResults}
+        resultsHint="select department and role, then Add"
+        renderRowForm={(person) => (
+          <form action={addAction} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="personId" value={person.id} />
+            <Field label="Department">
+              <Select name="departmentId" className="w-48">
+                {allActiveDepts.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.code} · {dept.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Role">
+              <Select name="kind" className="w-36">
+                <option value="VOLUNTEER">Volunteer</option>
+                <option value="DIRECTOR">Director</option>
+              </Select>
+            </Field>
+            <Button type="submit" variant="primary" size="sm" className="self-end">
+              Add
+            </Button>
+          </form>
         )}
-      </NavForm>
-
-      {/* Search results panel */}
-      {addq && addq.trim() && (
-        <Card pad={false}>
-          <div className="border-b border-border-subtle px-4 py-3">
-            <p className="text-sm font-medium text-foreground-soft">
-              {searchResults.length === 0
-                ? `No results for "${addq}"`
-                : `${searchResults.length} result(s) for "${addq}" · select department and role, then Add`}
-            </p>
-          </div>
-          {searchResults.length > 0 && (
-            <div className="divide-y divide-border-subtle">
-              {searchResults.map((person) => (
-                <div
-                  key={person.id}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3"
-                >
-                  <div className="min-w-[12rem]">
-                    <p className="text-sm font-medium text-foreground">{person.name}</p>
-                    {person.netId && (
-                      <p className="text-xs text-subtle-foreground">{person.netId}</p>
-                    )}
-                  </div>
-                  <form action={addAction} className="flex flex-wrap items-center gap-2">
-                    <input type="hidden" name="personId" value={person.id} />
-                    <Field label="Department">
-                      <Select name="departmentId" className="w-48">
-                        {allActiveDepts.map((dept) => (
-                          <option key={dept.id} value={dept.id}>
-                            {dept.code} · {dept.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Role">
-                      <Select name="kind" className="w-36">
-                        <option value="VOLUNTEER">Volunteer</option>
-                        <option value="DIRECTOR">Director</option>
-                      </Select>
-                    </Field>
-                    <Button type="submit" variant="primary" size="sm" className="self-end">
-                      Add
-                    </Button>
-                  </form>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
+      />
       </>
       )}
 

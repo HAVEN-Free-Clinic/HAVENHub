@@ -27,10 +27,9 @@ import {
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
-import { NavForm } from "@/platform/ui/nav-form";
-import Link from "next/link";
+import { PersonSearchPanel } from "./person-search-panel";
 import { Card } from "@/platform/ui/card";
-import { Input, Field } from "@/platform/ui/input";
+import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -291,77 +290,33 @@ export async function AssignmentForm({
       <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to person</h3>
 
-        {/* Person search box */}
-        <NavForm className="flex items-end gap-3">
-          <Field label="Search people">
-            <Input
-              type="search"
-              name="assignq"
-              defaultValue={assignq ?? ""}
-              placeholder="Name or netID..."
-              className="w-64"
-            />
-          </Field>
-          <Button type="submit" variant="outline" size="sm">
-            Search
-          </Button>
-          {assignq && (
-            <Link
-              href={pageHref}
-              className="self-end pb-2 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Clear
-            </Link>
+        <PersonSearchPanel
+          paramName="assignq"
+          label="Search people"
+          query={assignq ?? undefined}
+          clearHref={pageHref}
+          results={personResults}
+          renderRowForm={(person) => (
+            <form action={assignPersonAction} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="personId" value={person.id} />
+              <Field label="Role">
+                <Select name="roleId" className="w-44">
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Term">
+                <TermSelect terms={terms} />
+              </Field>
+              <Button type="submit" variant="primary" size="sm" className="self-end">
+                Assign
+              </Button>
+            </form>
           )}
-        </NavForm>
-
-        {/* Person search results */}
-        {assignq && assignq.trim() && (
-          <div className="overflow-hidden rounded-xl border border-border-subtle">
-            <div className="border-b border-border-subtle px-4 py-3">
-              <p className="text-sm font-medium text-foreground-soft">
-                {personResults.length === 0
-                  ? `No results for "${assignq}"`
-                  : `${personResults.length} result(s) for "${assignq}"`}
-              </p>
-            </div>
-            {personResults.length > 0 && (
-              <div className="divide-y divide-border-subtle">
-                {personResults.map((person) => (
-                  <div
-                    key={person.id}
-                    className="flex flex-wrap items-center gap-3 px-4 py-3"
-                  >
-                    <div className="min-w-[12rem]">
-                      <p className="text-sm font-medium text-foreground">{person.name}</p>
-                      {person.netId && (
-                        <p className="text-xs text-subtle-foreground">{person.netId}</p>
-                      )}
-                    </div>
-                    <form action={assignPersonAction} className="flex flex-wrap items-center gap-2">
-                      <input type="hidden" name="personId" value={person.id} />
-                      <Field label="Role">
-                        <Select name="roleId" className="w-44">
-                          {roles.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <Field label="Term">
-                        <TermSelect terms={terms} />
-                      </Field>
-                      <Button type="submit" variant="primary" size="sm" className="self-end">
-                        Assign
-                      </Button>
-                    </form>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        />
       </Card>
 
       {/* Create department assignment */}

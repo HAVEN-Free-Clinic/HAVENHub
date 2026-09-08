@@ -48,6 +48,14 @@ const MIGRATION_SQL_FILES = [
   // half of the directory pair, so a director gets the roster and the address
   // list for the departments they direct (see system-roles.ts).
   "prisma/migrations/20260902140000_director_directory_grant/migration.sql",
+  // volunteers.manage_dual_roles backfilled onto Director: a volunteer accepted
+  // into one department can offer to also serve VADM or INTP, and the receiving
+  // department's directors decide. Department-scoped through the same
+  // KIND-targeted attachment as the directory grant above (see system-roles.ts).
+  // Shipped separately from the schema half of the same feature
+  // (20260907120000_dual_role_enrollment) precisely so it stays a pure RoleGrant
+  // migration this test can replay against a roles-only database.
+  "prisma/migrations/20260907120100_dual_role_director_grant/migration.sql",
 ].map((p) => join(process.cwd(), p));
 
 // prisma.$executeRawUnsafe uses the extended protocol, which forbids multiple

@@ -38,6 +38,13 @@ export const SYSTEM_ROLES: SystemRole[] = [
     // to that set. Someone who directs Nursing and volunteers in Triage gets
     // Nursing. Clinic-wide stays with volunteers.view_directory, which this
     // deliberately is not.
+    // volunteers.manage_dual_roles: a volunteer accepted elsewhere can offer to
+    // also serve VADM or INTP, and the receiving department decides. Scoped the
+    // same way as view_directory_own_dept above -- the KIND-targeted attachment
+    // means permissionDepartmentIds resolves it to the departments the person
+    // DIRECTS, so VADM's director is offered VADM's queue and nobody else's.
+    // Every director carries it, but only the two departments that ask the
+    // question ever have rows.
     grants: [
       "schedule.view",
       "volunteers.view",
@@ -45,6 +52,7 @@ export const SYSTEM_ROLES: SystemRole[] = [
       "incidents.view_strikes",
       "schedule.manage_attendance",
       "volunteers.view_directory_own_dept",
+      "volunteers.manage_dual_roles",
     ],
   },
   {

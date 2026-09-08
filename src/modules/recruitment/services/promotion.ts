@@ -2,6 +2,8 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
+import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
+import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import {
@@ -36,6 +38,11 @@ export async function promoteContracts(
   // New language claims across every promoted contract, sent as ONE digest per
   // reviewer once the whole batch has committed.
   const pendingLanguageClaims: Array<{ personId: string; language: string }> = [];
+  // Dual-role offers created across this batch, told to the receiving
+  // departments as one digest each once everything has committed -- same
+  // reasoning as the language claims above, and the same failure to avoid: a
+  // message per offer turns a cohort promotion into an inbox flood.
+  const pendingDualRoles: Array<{ personId: string; departmentCode: string; primaryDepartmentCode: string }> = [];
 
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
@@ -255,6 +262,53 @@ export async function promoteContracts(
           });
         }
 
+        // Dual-role offers: the applicant ticked "I will also serve VADM/INTP"
+        // alongside the department they were accepted into.
+        //
+        // Recorded HERE rather than at submit because most applicants are never
+        // accepted, and a queue seeded at submit would be mostly people who
+        // never join. By this line the person exists and holds the membership
+        // this offer sits beside.
+        //
+        // Recorded rather than enrolled, because both departments gate on
+        // something the form cannot check: VADM on a licence to administer
+        // vaccines, INTP on the language assessment its own help text promises.
+        // Auto-enrolling would put unlicensed people on the vaccine roster and
+        // unassessed people on the interpreter roster. The receiving
+        // department's directors decide on /volunteers/dual-roles.
+        const activeDepartmentCodes = (
+          await tx.termMembership.findMany({
+            where: { personId: person.id, termId: cycle.termId, status: "ACTIVE" },
+            select: { department: { select: { code: true } } },
+          })
+        ).map((m) => m.department.code);
+        const newDualRoles: Array<{ personId: string; departmentCode: string; primaryDepartmentCode: string }> = [];
+        for (const departmentCode of dualRolesToRecord({
+          declared: application.dualRoleDepartments,
+          primaryDepartmentCode: dept.code,
+          activeDepartmentCodes,
+        })) {
+          const key = { personId: person.id, termId: cycle.termId, departmentCode };
+          const existingInterest = await tx.dualRoleInterest.findUnique({
+            where: { personId_termId_departmentCode: key },
+            select: { id: true },
+          });
+          // Upsert rather than a bare create even though the read above already
+          // found nothing: a unique violation inside a transaction poisons the
+          // whole connection in Postgres, so the losing side of any race would
+          // roll back a promotion that had otherwise succeeded. The update is
+          // empty on purpose -- a decision the director has already made must
+          // never be reset to PENDING by a re-promotion.
+          await tx.dualRoleInterest.upsert({
+            where: { personId_termId_departmentCode: key },
+            create: { ...key, applicationId: application.id },
+            update: {},
+          });
+          if (!existingInterest) {
+            newDualRoles.push({ personId: person.id, departmentCode, primaryDepartmentCode: dept.code });
+          }
+        }
+
         if (contract.hipaaStoredName) {
           // submitContract stored the bytes under "onboarding/<contractId>/<storedName>".
           // Point the cert at that exact key so the download route can resolve it;
@@ -287,10 +341,11 @@ export async function promoteContracts(
 
         // The status/promotedAt/promotedById half was written by the claim above.
         await tx.onboardingContract.update({ where: { id: contract.id }, data: { promotedPersonId: person.id } });
-        return { isNew, personId: person.id, newClaims };
+        return { isNew, personId: person.id, newClaims, newDualRoles };
       });
       if (result.isNew) created += 1; else reactivated += 1;
       pendingLanguageClaims.push(...result.newClaims);
+      pendingDualRoles.push(...result.newDualRoles);
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a
@@ -351,5 +406,6 @@ export async function promoteContracts(
   // After every transaction has committed. Best-effort inside: a delivery
   // failure must not read as a failed promotion.
   await notifyReviewersOfPendingClaims(pendingLanguageClaims, actorId);
+  await notifyDirectorsOfDualRoleOffers(pendingDualRoles, actorId);
   return { created, reactivated, skipped, failed };
 }

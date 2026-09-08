@@ -18,6 +18,22 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { isEffectiveActiveAdmin, assertActiveAdminRemainsTx } from "@/platform/rbac/last-admin";
 import { TermNotFoundError } from "./terms";
+// changeMembershipKind below applies the same offboard-convergence guard, so it
+// needs the class as a value, not only as a re-export.
+import { OffboardedPersonError } from "@/platform/memberships/add";
+
+/**
+ * addMembership and its two typed errors moved to platform when the dual-role
+ * queue under /volunteers needed to add someone to a second department: modules
+ * may not import each other, and a second copy of the offboard-convergence
+ * guard was the wrong way to get one. Re-exported here so every caller, panel,
+ * and test keeps importing them from the roster service.
+ */
+export {
+  addMembership,
+  MembershipForeignKeyError,
+  OffboardedPersonError,
+} from "@/platform/memberships/add";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -37,24 +53,10 @@ export class RosterCopyError extends Error {
   }
 }
 
-export class MembershipForeignKeyError extends Error {
-  constructor(public field: string) {
-    super(`Invalid reference: ${field}`);
-    this.name = "MembershipForeignKeyError";
-  }
-}
-
 export class DirectorHasShiftAssignmentsError extends Error {
   constructor(public membershipId: string) {
     super(`Membership ${membershipId} has director shift assignments; resolve them before changing role`);
     this.name = "DirectorHasShiftAssignmentsError";
-  }
-}
-
-export class OffboardedPersonError extends Error {
-  constructor(public personId: string) {
-    super("Reactivate this person before adding them to a roster.");
-    this.name = "OffboardedPersonError";
   }
 }
 
@@ -114,77 +116,6 @@ export async function termRoster(
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
-
-/**
- * Adds a membership to a term. Uses upsert on the compound key
- * (personId, termId, departmentId, kind) so that a previously REMOVED
- * membership is revived to ACTIVE instead of causing a unique violation.
- */
-export async function addMembership(
-  actorPersonId: string,
-  input: {
-    personId: string;
-    termId: string;
-    departmentId: string;
-    kind: "DIRECTOR" | "VOLUNTEER";
-  }
-): Promise<void> {
-  // Offboard convergence: Person.status OFFBOARDED implies zero ACTIVE
-  // memberships (setPersonStatusField holds the other direction by flipping all
-  // memberships to REMOVED). Without this check an admin on /admin/people/<id>
-  // could "Add assignment" to an offboarded person and put somebody who cannot
-  // log in back onto the term roster, the compliance and training rosters, the
-  // schedule builder's assignable list, and the Monday shift-reminder cron.
-  // The term RosterPanel's person picker already filters to ACTIVE; guarding in
-  // the service covers both entry points.
-  const target = await prisma.person.findUnique({
-    where: { id: input.personId },
-    select: { status: true },
-  });
-  if (target && target.status !== "ACTIVE") throw new OffboardedPersonError(input.personId);
-
-  let membership;
-  try {
-    membership = await prisma.termMembership.upsert({
-      where: {
-        personId_termId_departmentId_kind: {
-          personId: input.personId,
-          termId: input.termId,
-          departmentId: input.departmentId,
-          kind: input.kind,
-        },
-      },
-      update: { status: "ACTIVE" },
-      create: {
-        personId: input.personId,
-        termId: input.termId,
-        departmentId: input.departmentId,
-        kind: input.kind,
-        status: "ACTIVE",
-      },
-    });
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
-      throw new MembershipForeignKeyError(
-        typeof e.meta?.field_name === "string" ? e.meta.field_name : "unknown"
-      );
-    }
-    throw e;
-  }
-
-  await recordAudit({
-    actorPersonId,
-    action: "roster.add",
-    entityType: "TermMembership",
-    entityId: membership.id,
-    after: {
-      personId: input.personId,
-      termId: input.termId,
-      departmentId: input.departmentId,
-      kind: input.kind,
-    },
-  });
-}
 
 /**
  * Soft-deletes a membership by setting status to REMOVED. If the membership

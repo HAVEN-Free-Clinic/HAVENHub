@@ -121,7 +121,16 @@ describe("module registry", () => {
     const gated = MODULES.flatMap((m) =>
       m.nav.filter((n) => n.dynamicGate).map((n) => `${m.id}:${n.href}`),
     );
+    //
+    // Volunteers' Dual roles tab joins them for the same kind of reason: its
+    // gate is "directs a department that can RECEIVE a dual-role offer". Every
+    // director holds volunteers.manage_dual_roles, but only the departments that
+    // ask the dual-role question on the application can ever have a queue, so
+    // the permission alone would offer the tab to every director in the clinic
+    // and land nearly all of them on an empty page. Which departments those are
+    // is data (a Department row), not a permission.
     expect(gated.filter((h) => !h.startsWith("schedule:"))).toEqual([
+      "volunteers:/volunteers/dual-roles",
       "recruitment:/recruitment/events",
     ]);
   });

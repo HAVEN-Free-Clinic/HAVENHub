@@ -252,8 +252,9 @@ Note the direction of that containment: this list is the paths **used above**, n
 the schema. The schema is derived from the whole of `MODULES[].permissions`, so it also carries
 leaves no docs condition references yet — `volunteers.view_directory` (the people directory, added
 2026-09-01), `volunteers.view_directory_own_dept` (its department-scoped half, held by the
-Director baseline, added 2026-09-02) and `recruitment.record_attendance` (event check-in at a
-door, added 2026-09-03) are three, alongside longer-standing ones like
+Director baseline, added 2026-09-02), `recruitment.record_attendance` (event check-in at a
+door, added 2026-09-03) and `volunteers.manage_dual_roles` (the dual-role queue, also held by the
+Director baseline, added 2026-09-07) are four, alongside longer-standing ones like
 `volunteers.manage_offboarding` and `admin.manage_roster`. That is expected and is not drift.
 
 `volunteers.view_compliance` (added 2026-09-01) is the opposite case: it IS used, in the two

@@ -245,6 +245,10 @@ model Person {
   /// Invite links this person issued to admit an applicant past a closed deadline.
   recruitmentInvitesCreated      RecruitmentInvite[]        @relation("recruitmentInviteCreatedBy")
   recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
+  /// Dual-role offers this person made (VADM/INTP alongside their department).
+  dualRoleInterests              DualRoleInterest[]         @relation("dualRoleInterestPerson")
+  /// Dual-role offers this person accepted or declined as a receiving director.
+  dualRoleDecisions              DualRoleInterest[]         @relation("dualRoleInterestDecider")
   applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
   contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
   contractsPromotedTo            OnboardingContract[]       @relation("contractPromotedPerson")
@@ -362,6 +366,8 @@ model Term {
   clinicDates           DateTime[]
   memberships           TermMembership[]
   roleAssignments       RoleAssignment[]
+  /// Dual-role offers awaiting a receiving director's decision this term.
+  dualRoleInterests     DualRoleInterest[]
   /// Offboard flags raised for this term.
   offboardFlags         OffboardFlag[]
   shiftAssignments      ShiftAssignment[]
@@ -2488,6 +2494,13 @@ model Application {
   /// left in `answers` so promotion can turn them into PersonLanguage claims
   /// without re-parsing a JSON blob whose field key a cycle could have changed.
   languagesClaimed           String[]
+  /// Department CODES the applicant offered to serve in ALONGSIDE the one they
+  /// are accepted into (see platform/dual-roles). Hoisted at submit from the
+  /// dual-option checkboxes for exactly the reason languagesClaimed above is:
+  /// promotion turns these into DualRoleInterest rows, and it should read a
+  /// typed column rather than re-parse an answers blob whose field could have
+  /// been deleted and re-added under a derived key.
+  dualRoleDepartments        String[]          @default([])
   assignedSubcommitteeId     String?
   assignedSubcommitteeById   String?
   assignedSubcommitteeAt     DateTime?
@@ -2551,16 +2564,17 @@ model Application {
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
 
-  cycle                  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applicant              Applicant        @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  cycle                  RecruitmentCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applicant              Applicant          @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances            Acceptance[]
+  dualRoleInterests      DualRoleInterest[]
   interviews             Interview[]
   committeeScores        CommitteeScore[]
-  assignedSubcommittee   Subcommittee?    @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
-  assignedSubcommitteeBy Person?          @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
-  routedBy               Person?          @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
-  returnedBy             Person?          @relation("applicationReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
-  decidedBy              Person?          @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
+  assignedSubcommitteeBy Person?            @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
+  routedBy               Person?            @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  returnedBy             Person?            @relation("applicationReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+  decidedBy              Person?            @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -2586,6 +2600,59 @@ model Acceptance {
 
   @@unique([applicationId, departmentCode])
   @@index([applicationId])
+}
+
+/// Where a dual-role offer stands with the department that received it.
+///
+/// Its own vocabulary rather than a third MembershipStatus value: every roster,
+/// schedule, and compliance query reads MembershipStatus as ACTIVE-or-not, so a
+/// PENDING row there would surface as a real member in all of them. Someone
+/// waiting on a dual role is not a member of that department yet, and this enum
+/// is only ever read by the queue that decides.
+enum DualRoleStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+/// A volunteer's standing offer to serve in a second department (see
+/// platform/dual-roles for why this is not a second Acceptance).
+///
+/// Written at PROMOTION rather than at submit: most applicants are never
+/// accepted, and recording interest earlier would fill the receiving
+/// department's queue with people who never join. By promotion the person is
+/// real, has a Person row, and holds the membership this one sits beside.
+///
+/// ACCEPTED means a TermMembership was created through the normal roster path;
+/// this row is the record of the decision, never the membership itself.
+model DualRoleInterest {
+  id             String         @id @default(cuid())
+  applicationId  String
+  personId       String
+  termId         String
+  departmentCode String
+  status         DualRoleStatus @default(PENDING)
+  decidedById    String?
+  decidedAt      DateTime?
+  /// The receiving director's reason, above all on a decline ("no CT licence on
+  /// file"). Kept so a person who later asks why is not told to go and ask.
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  person      Person      @relation("dualRoleInterestPerson", fields: [personId], references: [id], onDelete: Cascade)
+  term        Term        @relation(fields: [termId], references: [id], onDelete: Cascade)
+  decidedBy   Person?     @relation("dualRoleInterestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  /// One standing offer per person per department per term. A re-promotion (a
+  /// reactivated member, a contract promoted after a withdrawal is undone)
+  /// upserts onto this key rather than stacking a second row, so a director is
+  /// never asked to decide twice and an earlier decline is not reset to PENDING.
+  @@unique([personId, termId, departmentCode])
+  /// Backs the queue, which asks for PENDING rows in a term for the departments
+  /// the viewing director actually directs.
+  @@index([termId, departmentCode, status])
 }
 
 model CommitteeScore {

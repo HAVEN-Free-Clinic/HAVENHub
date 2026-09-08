@@ -1,5 +1,6 @@
 import type { Ref } from "react";
 import Link from "next/link";
+import { ScrollFade } from "./scroll-fade";
 
 export type TabItem = { label: string; href: string; badge?: number };
 
@@ -65,6 +66,7 @@ export function TabRow({
 
   if (variant === "segmented") {
     return (
+      <ScrollFade>
       <nav
         ref={navRef}
         aria-label={label}
@@ -94,10 +96,12 @@ export function TabRow({
           );
         })}
       </nav>
+      </ScrollFade>
     );
   }
 
   return (
+    <ScrollFade>
     <nav
       ref={navRef}
       aria-label={label}
@@ -127,5 +131,6 @@ export function TabRow({
         );
       })}
     </nav>
+    </ScrollFade>
   );
 }

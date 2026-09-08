@@ -90,12 +90,12 @@ export function renderScheduleTable(coverage: ReminderCoverage): string {
  * would resolve those to nobody without saying so.
  */
 async function facultyRelationsRecipients(
-  term: { id: string } | null,
+  term: { id: string },
 ): Promise<Array<{ id: string; name: string; contactEmail: string }>> {
   const assignments = await prisma.roleAssignment.findMany({
     where: {
       role: { name: FACULTY_RELATIONS_ROLE },
-      OR: [{ termId: null }, ...(term ? [{ termId: term.id }] : [])],
+      OR: [{ termId: null }, { termId: term.id }],
     },
     select: { personId: true, departmentId: true, kind: true },
   });
@@ -110,7 +110,7 @@ async function facultyRelationsRecipients(
     if (a.kind) kinds.add(a.kind);
   }
 
-  if (term && (departmentIds.size > 0 || kinds.size > 0)) {
+  if (departmentIds.size > 0 || kinds.size > 0) {
     const members = await prisma.termMembership.findMany({
       where: {
         termId: term.id,

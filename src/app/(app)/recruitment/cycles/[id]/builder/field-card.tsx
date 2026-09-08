@@ -217,11 +217,37 @@ export function FieldCard({
         </div>
       </div>
 
-      {(saved || error) && (
-        <p className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${error ? "text-critical-foreground" : "text-subtle-foreground"}`}>
-          {error ? <><AlertCircle className="h-3 w-3" aria-hidden /> {error}</> : <><Check className="h-3 w-3" aria-hidden /> Saved</>}
-        </p>
-      )}
+      {/* Announced, and mounted UNCONDITIONALLY.
+
+          This card autosaves on blur and reported it only in colour: a role-less
+          <p> that appeared for 1500ms and vanished. A screen-reader user editing
+          a form field got no confirmation their edit had been kept, and 1500ms
+          is under the ~2s a polite region is typically given to be read anyway.
+
+          The region has to exist BEFORE its text does. A live region inserted
+          into the DOM at the same moment as its content is announced
+          unreliably, which is why this renders empty rather than being mounted
+          by `saved || error`. Same reasoning, and the same shape, as
+          signature-pad.tsx's capture announcement.
+
+          role is "alert" for a failure -- assertive, because a save that did
+          not happen must interrupt -- and "status" for the success. */}
+      <p
+        role={error ? "alert" : "status"}
+        className={`mt-1 flex items-center gap-1 break-words text-xs [overflow-wrap:anywhere] ${
+          error ? "text-critical-foreground" : "text-subtle-foreground"
+        } ${saved || error ? "" : "sr-only"}`}
+      >
+        {error ? (
+          <>
+            <AlertCircle className="h-3 w-3" aria-hidden /> {error}
+          </>
+        ) : saved ? (
+          <>
+            <Check className="h-3 w-3" aria-hidden /> Saved
+          </>
+        ) : null}
+      </p>
 
       {open && (
         <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">

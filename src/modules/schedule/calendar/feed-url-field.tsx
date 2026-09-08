@@ -46,6 +46,11 @@ export function FeedUrlField({ value }: { value: string }) {
         >
           {copied ? "Copied" : "Copy"}
         </Button>
+        {/* See email-list.tsx: the focused button's own label change is not
+            reliably re-announced, so a polite region carries it instead. */}
+        <span role="status" className="sr-only">
+          {copied ? "Copied to clipboard" : ""}
+        </span>
       </div>
     </div>
   );

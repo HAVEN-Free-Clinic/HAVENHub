@@ -77,6 +77,13 @@ export function EmailList({
             {copied ? "Copied" : "Copy"}
           </Button>
         )}
+        {/* The button's own label already swaps to "Copied", which changes the
+            accessible name of the still-focused button -- but a name change on
+            a focused element is not reliably re-announced. A polite region that
+            is always present, and fills in on success, is. */}
+        <span role="status" className="sr-only">
+          {copied ? "Copied to clipboard" : ""}
+        </span>
       </div>
       {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
       {emails.length === 0 ? (

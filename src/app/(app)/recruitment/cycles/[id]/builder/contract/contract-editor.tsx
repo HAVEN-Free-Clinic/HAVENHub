@@ -229,11 +229,19 @@ export function ContractEditor({
         <Button type="button" onClick={save} disabled={pending || !editable}>
           {pending ? "Saving…" : "Save contract"}
         </Button>
-        {saved && (
-          <span className="flex items-center gap-1 text-sm text-success-foreground">
-            <Check className="h-4 w-4" aria-hidden /> Saved
-          </span>
-        )}
+        {/* Rendered unconditionally so the live region exists before its text:
+            a region inserted at the same moment as its content is announced
+            unreliably. See field-card.tsx for the same reasoning. */}
+        <span
+          role="status"
+          className={`flex items-center gap-1 text-sm text-success-foreground ${saved ? "" : "sr-only"}`}
+        >
+          {saved ? (
+            <>
+              <Check className="h-4 w-4" aria-hidden /> Saved
+            </>
+          ) : null}
+        </span>
         {hasOverride && (
           <ConfirmButton
             label="Reset to built-in default"

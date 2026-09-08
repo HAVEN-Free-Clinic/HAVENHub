@@ -92,6 +92,13 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
             >
               {copyState === "copied" ? "Copied" : "Copy"}
             </Button>
+            {/* The failure path already had role="alert" (added when the
+                fire-and-forget write was fixed); the SUCCESS path was a bare
+                label swap on the focused button, which is not reliably
+                re-announced. This is its counterpart. */}
+            <span role="status" className="sr-only">
+              {copyState === "copied" ? "Copied to clipboard" : ""}
+            </span>
           </div>
           {copyState === "error" && (
             <p role="alert" className="mt-2 text-sm text-critical-foreground">

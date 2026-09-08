@@ -18,10 +18,9 @@ import { sendSenderTest } from "@/modules/admin/services/email";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { Card, cardClasses } from "@/platform/ui/card";
-import { FormActions } from "@/platform/ui/form";
+import { cardClasses } from "@/platform/ui/card";
 import { Input } from "@/platform/ui/input";
-import { TemplateEditor } from "./preview";
+import { TemplateEditorForm } from "@/modules/admin/components/template-editor-form";
 
 type Props = {
   params: Promise<{ key: string }>;
@@ -131,30 +130,18 @@ export default async function EditTemplatePage({ params }: Props) {
         description={t.hasOverride ? "Customized" : "Using default"}
       />
 
-      <form action={saveAction}>
-        <Card className="space-y-6">
-          <TemplateEditor
-            templateKey={t.key}
-            variables={t.variables}
-            initialSubject={t.subject}
-            initialBody={t.body}
-            isLayout={t.isLayout}
-            layoutSource={t.layoutSource}
-            brandColor={t.brandColor}
-          />
-          <FormActions>
-            <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
-          </FormActions>
-        </Card>
-      </form>
-
-      {t.hasOverride ? (
-        <form action={resetAction}>
-          <SubmitButton variant="outline" pendingLabel="Resetting…">
-            Reset to default
-          </SubmitButton>
-        </form>
-      ) : null}
+      <TemplateEditorForm
+        saveAction={saveAction}
+        resetAction={resetAction}
+        hasOverride={t.hasOverride}
+        templateKey={t.key}
+        variables={t.variables}
+        initialSubject={t.subject}
+        initialBody={t.body}
+        isLayout={t.isLayout}
+        layoutSource={t.layoutSource}
+        brandColor={t.brandColor}
+      />
 
       <form action={saveSenderAction} className={`${cardClasses()} space-y-3`}>
         <div>

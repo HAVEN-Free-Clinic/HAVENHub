@@ -4,6 +4,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
+import { resolvedScheduleNavHrefs } from "@/modules/schedule/nav";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { resolveSupportAppId } from "@/platform/intercom/config";
@@ -24,11 +25,26 @@ import { log, errorAttrs } from "@/platform/logging";
  */
 export default async function AppGroupLayout({ children }: { children: ReactNode }) {
   const person = await requirePersonSession();
-  const [activeTerm, scope, isPanelist, supportContact, blockerGateEnabled, messengerToken] =
+  const [
+    activeTerm,
+    scope,
+    isPanelist,
+    // Five schedule tabs gate on a data-driven capability, so the registry marks
+    // them dynamicGate and the global nav drops them. Resolving them here is
+    // what puts the Builder, Approvals, Attendings, Credentialing and Coverage
+    // back in the Schedule dropdown and in Cmd+K. It costs no extra database
+    // round trip: they all read the request-cached assignment context the nav
+    // already loads to decide which modules to show at all.
+    resolvedNavGates,
+    supportContact,
+    blockerGateEnabled,
+    messengerToken,
+  ] =
     await Promise.all([
       getActiveTerm(),
       reviewScope(person.personId),
       isInterviewPanelist(person.personId),
+      resolvedScheduleNavHrefs(person.personId),
       getSupportContact(),
       getSetting<boolean>("support.blockerGateEnabled"),
       // mintMessengerTokenForSession only converts a recognized DB-unreachable
@@ -141,6 +157,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
         personThemePreference={person.themePreference}
         extraModuleIds={extraModuleIds}
         extraNavItems={extraNavItems}
+        resolvedNavGates={resolvedNavGates}
       >
         {children}
       </AppShell>

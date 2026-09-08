@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ModuleNav } from "./module-nav";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/admin/people" }));
+// Mutable so a case can place the viewer on a different route. Defaults to the
+// route the characterization cases below were written against.
+let pathname = "/admin/people";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 const ITEMS = [
   { label: "Overview", href: "/admin" },
@@ -51,5 +54,63 @@ describe("ModuleNav accessibility addition (fails before the refactor, passes af
       out.indexOf('href="/admin/people"') + 200,
     );
     expect(peopleSegment).toContain('aria-current="page"');
+  });
+});
+
+
+describe("ModuleNav with a tab nested under another tab", () => {
+  // Three real pages sit under another tab's path and had no tab at all
+  // because of it: /admin/email/templates, /volunteers/ehs/manage and
+  // /schedule/attendings/credentialing. The registry carried a standing
+  // warning to keep hrefs flat; these are the cases that let it be lifted.
+  const NESTED = [
+    { label: "Overview", href: "/admin" },
+    { label: "Email", href: "/admin/email" },
+    { label: "Email templates", href: "/admin/email/templates" },
+  ];
+
+  function renderAt(at: string, items = NESTED) {
+    pathname = at;
+    try {
+      return renderToStaticMarkup(<ModuleNav items={items} />);
+    } finally {
+      pathname = "/admin/people";
+    }
+  }
+
+  // next/link emits aria-current before href, so match in that order.
+  function activeHrefs(out: string): string[] {
+    return [...out.matchAll(/aria-current="page"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
+  }
+
+  it("marks the deepest matching tab, and only it", () => {
+    const out = renderAt("/admin/email/templates");
+    expect(activeHrefs(out)).toEqual(["/admin/email/templates"]);
+    // The parent tab is NOT also current: two aria-current tabs is what sent
+    // scrollActiveTabIntoView (which takes the first match) to the wrong one.
+    expect(out.match(/border-b-2 border-brand/g)).toHaveLength(1);
+  });
+
+  it("still marks the parent tab on the parent's own page", () => {
+    expect(activeHrefs(renderAt("/admin/email"))).toEqual(["/admin/email"]);
+  });
+
+  it("marks the parent tab on a child route that has no tab of its own", () => {
+    // /admin/email/senders is not a tab, so Email stays the active section.
+    expect(activeHrefs(renderAt("/admin/email/senders"))).toEqual(["/admin/email"]);
+  });
+
+  it("does not let a tab claim a sibling route that merely shares its prefix", () => {
+    // startsWith alone matched "/schedule/attendings-archive" against
+    // "/schedule/attendings". The test is href + "/".
+    const items = [
+      { label: "Schedule", href: "/schedule" },
+      { label: "Attendings", href: "/schedule/attendings" },
+    ];
+    expect(activeHrefs(renderAt("/schedule/attendings-archive", items))).toEqual([]);
+  });
+
+  it("never prefix-matches the module root", () => {
+    expect(activeHrefs(renderAt("/admin/email"))).not.toContain("/admin");
   });
 });

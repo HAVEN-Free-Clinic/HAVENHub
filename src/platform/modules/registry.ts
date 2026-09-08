@@ -65,18 +65,22 @@ export const MODULES: ModuleManifest[] = [
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },
+      // The credentialing tracker for the roster above: same gate
+      // (canManageAttendings), so the same dynamicGate treatment. It had no tab,
+      // no dropdown entry and no Cmd+K hit, reachable only from a button on
+      // /schedule/attendings -- and it is where every new attending is tracked.
+      { label: "Credentialing", href: "/schedule/attendings/credentialing", dynamicGate: true },
       // Reference data for the roster above, so it lives beside it rather than in
       // Admin. Putting it under /admin would have made it unreachable by the one
       // role that owns attendings: Faculty Relations Manager holds
       // schedule.manage_attendings but not admin.access, so the Admin module's
       // accessPermission would have gated them out of their own configuration.
       //
-      // A SIBLING href, not /schedule/attendings/specialties. ModuleNav's active
-      // rule prefix-matches any href with more than one segment, so nesting a tab
-      // under another tab's path lights BOTH of them up at once (and sends
-      // scrollActiveTabIntoView to the wrong one, since it takes the first
-      // aria-current match). No other module nests, which is why the rule has held
-      // so far. Keep tab hrefs flat.
+      // A SIBLING href, not /schedule/attendings/specialties -- but now by
+      // meaning rather than by necessity. Specialties is reference data for the
+      // roster, not a page inside it. (Nesting itself is safe again: ModuleNav
+      // marks only the most specific matching tab, so Credentialing below can
+      // live under /schedule/attendings without lighting Attendings up too.)
       {
         label: "Specialties",
         href: "/schedule/specialties",
@@ -191,6 +195,14 @@ export const MODULES: ModuleManifest[] = [
         href: "/volunteers/ehs",
         permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
       },
+      // Maintaining the list of trainings, as opposed to reading who has done
+      // them. It had no tab, no dropdown entry and no Cmd+K hit: a compliance
+      // manager had to remember that the button lives on /volunteers/ehs.
+      {
+        label: "Manage trainings",
+        href: "/volunteers/ehs/manage",
+        permission: "volunteers.manage_compliance",
+      },
       // Label says Language; the href and permission keep their historical
       // spanish names because renaming a route breaks bookmarks and renaming a
       // permission means re-granting it in production. Neither is user-visible.
@@ -255,6 +267,10 @@ export const MODULES: ModuleManifest[] = [
     description: "People, terms, roles, audit log",
     icon: Settings,
     accessPermission: "admin.access",
+    // A role granted only the template permission must still open the module,
+    // or the two pages it exists to grant stay unreachable. Same shape as
+    // outreach's manage_scopes and recruitment's score.
+    additionalAccessPermissions: ["admin.manage_email_templates"],
     permissions: [
       "admin.access",
       "admin.manage_people",
@@ -282,6 +298,15 @@ export const MODULES: ModuleManifest[] = [
       { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
       { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
+      // admin.manage_email_templates granted these two pages and no route to
+      // them: the only way in was a text link on /admin/email, which is gated
+      // on a DIFFERENT permission (admin.manage_sync). A holder of the template
+      // permission alone was locked out of the pages it exists to grant.
+      {
+        label: "Email templates",
+        href: "/admin/email/templates",
+        permission: "admin.manage_email_templates",
+      },
       { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
     ],

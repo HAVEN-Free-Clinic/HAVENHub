@@ -102,6 +102,11 @@ describe("module registry", () => {
         "/schedule/builder",
         "/schedule/requests",
         "/schedule/attendings",
+        // Credentialing rides Attendings' gate exactly (canManageAttendings).
+        // It matters MORE than the others that it carries the marker: the
+        // schedule layout's own filter list is deliberately non-exhaustive, so
+        // an href it does not name falls through to every schedule.view holder.
+        "/schedule/attendings/credentialing",
         "/schedule/coverage",
         "/schedule/check-in",
       ].sort(),
@@ -153,27 +158,13 @@ describe("module registry", () => {
     expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");
   });
 
-  it("never nests one tab's href under another's, which would light up two tabs at once", () => {
-    // ModuleNav.isActive prefix-matches any href with MORE THAN ONE segment
-    // (the module root, e.g. "/admin", is exact-matched precisely so it does not
-    // claim every sub-page). So "/schedule/attendings" and a hypothetical
-    // "/schedule/attendings/specialties" would BOTH report active on the deeper
-    // page: two underlines, two aria-current="page" nodes, and
-    // scrollActiveTabIntoView scrolling to whichever comes first in the DOM
-    // rather than the real one. Tab rows are flat, so keep the hrefs flat too
-    // and give a sub-page a sibling path.
-    for (const mod of MODULES) {
-      const hrefs = mod.nav.map((n) => n.href);
-      for (const parent of hrefs) {
-        // Single-segment module roots are exempt from prefix matching.
-        if (parent.replace(/^\//, "").split("/").length < 2) continue;
-        for (const child of hrefs) {
-          expect(
-            child === parent || !child.startsWith(`${parent}/`),
-            `${mod.id} nav href "${child}" is nested under sibling tab "${parent}"`,
-          ).toBe(true);
-        }
-      }
-    }
-  });
+  // The guard that used to live here -- "never nest one tab's href under
+  // another's" -- is gone, along with the ModuleNav limitation that made it
+  // necessary. ModuleNav now marks only the MOST SPECIFIC matching tab, so a
+  // nested href lights up one tab rather than two. Three real pages were
+  // tabless purely because of the old rule (/admin/email/templates,
+  // /volunteers/ehs/manage, /schedule/attendings/credentialing) and now have
+  // tabs. What replaced the guard is the nesting cases in
+  // src/platform/ui/module-nav.test.tsx, which test the behaviour directly
+  // instead of banning the shape that used to break it.
 });

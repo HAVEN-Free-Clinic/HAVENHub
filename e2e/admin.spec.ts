@@ -47,11 +47,14 @@ test("admin can view all statuses and description does not say 'active'", async 
   // matching the wrong one again.
   await page.getByRole("button", { name: "Filter", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("status") === "ALL");
-  // The description <p> must contain "people" but not "active" when all statuses show.
-  // PageHeader renders the description as p.text-muted-foreground (not text-slate-500).
-  const description = page.locator("p.text-muted-foreground").filter({ hasText: /people/ }).first();
-  await expect(description).toBeVisible();
-  await expect(description).not.toContainText(/\bactive\b/i);
+  // The result count must say "people" and not "active people" once all statuses
+  // show. It lives on the filter row now, not in the PageHeader description --
+  // the description says what the page IS, and the count says what this filter
+  // matched. Matched on its text rather than its container, so moving the slot
+  // again does not break this flow.
+  const count = page.getByText(/^\d[\d,]* (active |offboarded )?people$/);
+  await expect(count).toBeVisible();
+  await expect(count).not.toContainText(/\bactive\b/i);
   // The dropdown reflects the chosen (surviving) All-statuses value.
   await expect(page.locator('select[name="status"]')).toHaveValue("ALL");
 });

@@ -10,11 +10,9 @@ import {
 import { CYCLE_EMAIL_KEYS, type CycleEmailKey } from "@/modules/recruitment/email/render";
 import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
-import { FormActions } from "@/platform/ui/form";
 // TemplateEditor lives in the admin route group. TypeScript resolves the path
 // correctly because [key] is a literal directory name on disk.
-import { TemplateEditor } from "@/app/(app)/admin/email/templates/[key]/preview";
+import { TemplateEditorForm } from "@/modules/admin/components/template-editor-form";
 
 type Props = {
   params: Promise<{ id: string; key: string }>;
@@ -65,25 +63,18 @@ export default async function EditCycleEmailPage({ params }: Props) {
         title={t.name}
         description={t.hasOverride ? "Customized for this cycle" : "Using the default"}
       />
-      <form action={saveAction}>
-        <TemplateEditor
-          templateKey={t.key}
-          variables={t.variables}
-          initialSubject={t.subject}
-          initialBody={t.body}
-          isLayout={false}
-          layoutSource={t.layoutSource}
-          brandColor={brandColor}
-        />
-        <FormActions className="mt-2">
-          <Button type="submit">Save</Button>
-        </FormActions>
-      </form>
-      {t.hasOverride ? (
-        <form action={resetAction}>
-          <Button type="submit" variant="outline">Reset to default</Button>
-        </form>
-      ) : null}
+      <TemplateEditorForm
+        saveAction={saveAction}
+        resetAction={resetAction}
+        hasOverride={t.hasOverride}
+        templateKey={t.key}
+        variables={t.variables}
+        initialSubject={t.subject}
+        initialBody={t.body}
+        isLayout={false}
+        layoutSource={t.layoutSource}
+        brandColor={brandColor}
+      />
     </div>
   );
 }

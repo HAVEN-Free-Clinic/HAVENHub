@@ -267,19 +267,24 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       // Application.decision PENDING forever. Testing only the first would
       // park every decided director applicant here permanently.
       decision: "PENDING",
-      // Scoped to the lane departments deliberately. Interview is per
-      // (applicationId, departmentCode): a director applicant ranked into a
-      // lane department AND a non-lane one can get the non-lane REJECT first,
-      // with the lane department's own interview still PENDING. An unscoped
-      // "none decided" here would drop the whole application the moment the
-      // non-lane sibling resolves, which is exactly the silent under-queue
-      // this feature exists to prevent.
-      interviews: { none: { departmentCode: { in: laneCodes }, decision: { not: "PENDING" } } },
-      // Deliberately UNSCOPED, unlike the interviews clause above: an
-      // Acceptance in any department settles the application, because the
-      // onboarding conflict guard refuses a second acceptance once one exists.
-      // A REJECT from one department does not carry the same finality, which
-      // is why interviews needs the lane scoping and this does not.
+      // Interview undecided-ness is NOT filtered here. Interview is per
+      // (applicationId, departmentCode), and a director applicant can rank
+      // into more than one lane department, so "decided" for the queue's
+      // purposes means EVERY lane department this application touches has a
+      // decided interview, not any single one. That is a set comparison
+      // against this application's own department fields, which SQL cannot
+      // express as a static clause here; see the post-filter below the query.
+      //
+      // Deliberately UNSCOPED, unlike interview-undecided-ness above: this query
+      // treats ANY Acceptance, in any department, as terminal. A second
+      // department CAN still create its own Acceptance later (decideInterview
+      // keys its write on (applicationId, departmentCode), not on
+      // applicationId), so a multi-department acceptance is possible; when it
+      // happens it is a conflict resolved elsewhere (see decisions.ts
+      // listConflicts), not something this query adjudicates. A REJECT does
+      // not carry that same terminal weight, which is why interview
+      // decidedness needs the per-department post-filter below and
+      // Acceptance does not.
       acceptances: { none: {} },
       cycle: { status: { not: "ARCHIVED" } },
       OR: [
@@ -306,15 +311,53 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       cycle: { select: { title: true } },
       applicant: { select: { id: true, firstName: true, lastName: true, netId: true, email: true } },
       languageAssessments: { select: { language: true } },
+      interviews: { select: { departmentCode: true, decision: true } },
     },
     orderBy: [{ applicant: { lastName: "asc" } }, { applicant: { firstName: "asc" } }, { id: "asc" }],
   });
-  if (applications.length === 0) return [];
 
-  const onFile = await priorLanguageVerdicts(applications.map((a) => a.applicant.id));
+  /**
+   * The lane departments THIS application actually touches, i.e. the same set
+   * the OR clause above tested membership against. Every application returned
+   * by the query has at least one.
+   */
+  function ownLaneDepartments(app: (typeof applications)[number]): Set<string> {
+    const own = new Set<string>();
+    for (const code of [
+      ...app.departmentChoices,
+      ...app.dualRoleDepartments,
+      ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+      ...(app.renewalDepartment ? [app.renewalDepartment] : []),
+    ]) {
+      if (laneCodes.includes(code)) own.add(code);
+    }
+    return own;
+  }
+
+  const applicationsInQueue = applications.filter((app) => {
+    const ownLane = ownLaneDepartments(app);
+    // Unreachable in practice, since the OR clause above guarantees membership,
+    // but "no lane department" must never read as "decided" -- keep it queued
+    // rather than divide by an empty set of departments.
+    if (ownLane.size === 0) return true;
+    const decidedLane = new Set(
+      app.interviews
+        .filter((iv) => iv.decision !== "PENDING" && laneCodes.includes(iv.departmentCode))
+        .map((iv) => iv.departmentCode),
+    );
+    // Drop only once EVERY lane department this application touches has
+    // decided, not once any one of them has. A department this application
+    // never got an Interview row for at all counts as undecided, the same as
+    // an explicit PENDING one, so the application stays queued by default.
+    const allLaneDecided = [...ownLane].every((code) => decidedLane.has(code));
+    return !allLaneDecided;
+  });
+  if (applicationsInQueue.length === 0) return [];
+
+  const onFile = await priorLanguageVerdicts(applicationsInQueue.map((a) => a.applicant.id));
 
   const rows: ApplicantQueueRow[] = [];
-  for (const app of applications) {
+  for (const app of applicationsInQueue) {
     // Redundant with assessedEver today: priorLanguageVerdicts' source 2 already
     // matches ApplicationLanguageAssessment by this same applicant identity, so
     // it already covers this application's own rows. Kept anyway because

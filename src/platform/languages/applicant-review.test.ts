@@ -366,6 +366,82 @@ describe("listApplicantLanguageQueue", () => {
     expect(rows.map((r) => r.language)).toEqual(["es"]);
   });
 
+  // A director applicant can rank into TWO lane departments. Excluding on
+  // "any lane interview decided" (rather than "every lane interview decided")
+  // drops the application while a second lane department's own verdict is
+  // still open, which is the same class of under-queue bug as the single
+  // non-lane-sibling case above, just with two lane siblings instead of one.
+  it("keeps a director application queued when only one of two lane departments has decided", async () => {
+    const ctx = await lane();
+    await prisma.department.create({
+      data: { code: "BHVD", name: "Behavioral Health", assessLanguageBeforeAcceptance: true },
+    });
+    const { application } = await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["PATS", "BHVD"],
+    });
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "PATS",
+        decision: "REJECT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["es"]);
+  });
+
+  // The other direction from the test above: once EVERY lane department the
+  // applicant is in has decided, the application must actually leave the
+  // queue, so the fix above is not just "never exclude anyone".
+  it("drops a director application once every one of its lane departments has decided", async () => {
+    const ctx = await lane();
+    await prisma.department.create({
+      data: { code: "BHVD", name: "Behavioral Health", assessLanguageBeforeAcceptance: true },
+    });
+    const { application } = await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["PATS", "BHVD"],
+    });
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "PATS",
+        decision: "REJECT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "BHVD",
+        decision: "REJECT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  // Lane membership through dualRoleDepartments only, mirroring the earlier
+  // dual-role test, but this time with the non-lane PRIMARY department's own
+  // interview decided. The dual-role offer's own department never had an
+  // interview at all, so it must stay queued.
+  it("keeps a dual-role lane offer queued when only the non-lane primary department has decided", async () => {
+    const ctx = await lane();
+    await prisma.department.create({
+      data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+    });
+    const { application } = await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"],
+    });
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "EDUC",
+        decision: "REJECT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["es"]);
+  });
+
   it("ignores an accepted application", async () => {
     const ctx = await lane();
     const { application } = await apply(ctx, "ada@yale.edu");

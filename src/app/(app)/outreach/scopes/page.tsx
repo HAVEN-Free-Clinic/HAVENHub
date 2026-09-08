@@ -3,13 +3,13 @@ import { requirePermission } from "@/platform/auth/session";
 import { listScopes, createScope } from "@/platform/email/audience/scopes";
 import { EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import { PageHeader } from "@/platform/ui/page-header";
-import { cardClasses } from "@/platform/ui/card";
 import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 
 export default async function ScopesPage() {
   await requirePermission("outreach.manage_scopes");
@@ -53,22 +53,28 @@ export default async function ScopesPage() {
           description="A sender with no granted scope can email nobody."
         />
       ) : (
-        <ul className={`${cardClasses({ pad: false })} divide-y`}>
-          {scopes.map((s) => (
-            <li key={s.id} className="flex items-center justify-between px-5 py-3">
-              <TextLink
-                size="sm"
-                className="font-medium"
-                href={`/outreach/scopes/${s.id}`}
-              >
-                {s.name}
-              </TextLink>
-              <span className="text-xs text-subtle-foreground">
-                {s.audience.conditions.length} condition(s)
-              </span>
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <TR>
+              <TH>Scope</TH>
+              <TH>Conditions</TH>
+            </TR>
+          </THead>
+          <tbody>
+            {scopes.map((s) => (
+              <TR key={s.id}>
+                <TD>
+                  <TextLink href={`/outreach/scopes/${s.id}`} className="font-medium">
+                    {s.name}
+                  </TextLink>
+                </TD>
+                <TD className="tabular-nums text-muted-foreground">
+                  {s.audience.conditions.length}
+                </TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
       )}
     </div>
   );

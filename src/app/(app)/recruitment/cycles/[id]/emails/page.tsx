@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { listCycleEmails } from "@/modules/recruitment/services/cycle-emails";
 import { PageHeader } from "@/platform/ui/page-header";
-import { buttonClasses } from "@/platform/ui/button";
-import { cardClasses } from "@/platform/ui/card";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Badge } from "@/platform/ui/badge";
+import { TextLink } from "@/platform/ui/text-link";
 
 export default async function CycleEmailsPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermission("recruitment.access");
@@ -20,24 +20,33 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
         title="Cycle emails"
         description={`Customize the emails sent for ${cycle.title}. Unset emails use the global default.`}
       />
-      <ul className="space-y-2">
-        {emails.map((e) => (
-          <li key={e.key} className={`flex items-center justify-between px-4 py-3 ${cardClasses({ size: "compact", pad: false })}`}>
-            <span>
-              <span className="block text-sm font-medium text-foreground">{e.name}</span>
-              <span className="block text-xs text-muted-foreground">
-                {e.hasOverride ? "Customized for this cycle" : "Using the default"}
-              </span>
-            </span>
-            <Link
-              href={`/recruitment/cycles/${cycle.id}/emails/${encodeURIComponent(e.key)}`}
-              className={buttonClasses("outline", "sm")}
-            >
-              Edit
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <Table>
+        <THead>
+          <TR>
+            <TH>Email</TH>
+            <TH>Status</TH>
+          </TR>
+        </THead>
+        <tbody>
+          {emails.map((e) => (
+            <TR key={e.key}>
+              <TD>
+                <TextLink
+                  href={`/recruitment/cycles/${cycle.id}/emails/${encodeURIComponent(e.key)}`}
+                  className="font-medium"
+                >
+                  {e.name}
+                </TextLink>
+              </TD>
+              <TD>
+                <Badge tone={e.hasOverride ? "brand" : "default"}>
+                  {e.hasOverride ? "Customized for this cycle" : "Using the default"}
+                </Badge>
+              </TD>
+            </TR>
+          ))}
+        </tbody>
+      </Table>
     </div>
   );
 }

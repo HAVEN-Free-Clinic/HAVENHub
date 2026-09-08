@@ -4,8 +4,9 @@ import { listCampaigns } from "@/platform/email/campaigns/service";
 import { isoDateKey } from "@/platform/dates";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
-import { cardClasses } from "@/platform/ui/card";
 import { Badge } from "@/platform/ui/badge";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
 
 /** Human labels for the raw EmailCampaignStatus enum surfaced in the list. */
 const STATUS_LABELS: Record<string, string> = {
@@ -56,24 +57,34 @@ export default async function EmailCampaignsPage() {
           </Link>
         </div>
       ) : (
-        <ul className={`${cardClasses({ pad: false })} divide-y`}>
-          {campaigns.map((c) => (
-            <li key={c.id} className="flex items-center justify-between px-5 py-3">
-              <span>
-                <Link
-                  className="text-sm font-medium underline underline-offset-2"
-                  href={`/outreach/campaigns/${c.id}`}
-                >
-                  {c.name}
-                </Link>
-                <span className="ml-2 text-xs text-subtle-foreground">{isoDateKey(c.createdAt)}</span>
-              </span>
-              <Badge tone={STATUS_TONES[c.status] ?? "default"}>
-                {STATUS_LABELS[c.status] ?? c.status}
-              </Badge>
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <TR>
+              <TH>Campaign</TH>
+              <TH>Created</TH>
+              <TH>Status</TH>
+            </TR>
+          </THead>
+          <tbody>
+            {campaigns.map((c) => (
+              <TR key={c.id}>
+                <TD>
+                  <TextLink href={`/outreach/campaigns/${c.id}`} className="font-medium">
+                    {c.name}
+                  </TextLink>
+                </TD>
+                <TD className="whitespace-nowrap text-muted-foreground">
+                  {isoDateKey(c.createdAt)}
+                </TD>
+                <TD>
+                  <Badge tone={STATUS_TONES[c.status] ?? "default"}>
+                    {STATUS_LABELS[c.status] ?? c.status}
+                  </Badge>
+                </TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
       )}
     </div>
   );

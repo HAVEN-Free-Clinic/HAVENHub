@@ -3,10 +3,13 @@ import { requirePermission, requirePersonSession } from "@/platform/auth/session
 import { can } from "@/platform/rbac/engine";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listTrainingRoster, TrainingStateError } from "@/modules/recruitment/services/training";
-import { canRecordAttendance } from "@/modules/recruitment/services/attendance-events";
+import { resolveAttendanceAuthority } from "@/modules/recruitment/services/attendance-events";
 import {
+  clearApplicantExcuseAction,
   clearExcuseAction,
   excuseAbsenceAction,
+  excuseApplicantAbsenceAction,
+  recordApplicantAttendanceAction,
   recordAttendanceAction,
   resetTrainingAction,
   startCheckInAction,
@@ -34,11 +37,14 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   // Excusing an absence is a lead's call, not a department director's: it is the
   // clinic deciding somebody is not at fault, and it is the leads who receive the
   // emails these excuses come out of. Directors still see the badge.
-  const [canExcuse, canCheckIn, zone] = await Promise.all([
+  const [canExcuse, attendanceAuthority, zone] = await Promise.all([
     can(viewer.personId, "recruitment.manage_cycles"),
-    canRecordAttendance(viewer.personId),
+    resolveAttendanceAuthority(viewer.personId),
     getDisplayTimeZone(),
   ]);
+  const canCheckIn = attendanceAuthority.all || attendanceAuthority.departmentCodes.length > 0;
+  // Clinic-wide only: an accepted applicant's attendance is an unlinked row.
+  const canRecordApplicants = attendanceAuthority.all;
 
   let rows;
   try {
@@ -59,7 +65,10 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    // 4xl, not 3xl: the roster carries a status badge under the name now, which
+    // widens that column and squeezed "Record attendance" onto two lines at the
+    // old width.
+    <div className="max-w-4xl space-y-6">
       <SetBreadcrumb trail={trail} />
       <PageHeader
         title="Training"
@@ -90,10 +99,33 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </THead>
         <tbody>
           {rows.map((r) => (
-            <TR key={`${r.personId}-${r.departmentCode}`}>
-              <TD className="font-medium text-foreground">{r.name}</TD>
+            <TR key={`${r.kind === "member" ? r.personId : r.acceptanceId}-${r.departmentCode}`}>
+              <TD className="font-medium text-foreground">
+                <div className="space-y-1">
+                  <div>{r.name}</div>
+                  {/* The row's whole point. Their attendance is recordable and
+                      starts counting the moment promotion gives them a
+                      membership, but every clearance column beside it is
+                      unknowable until then, and a lead reading NOT_CLEARED
+                      deserves to know which of the two stories they are seeing. */}
+                  {/* nowrap so the badge does not fold onto a second line and
+                      make every applicant row twice the height of a member's:
+                      the name column widens to fit it instead. */}
+                  {r.kind === "applicant" && (
+                    <Badge tone="warning" className="whitespace-nowrap">
+                      Accepted, not onboarded
+                    </Badge>
+                  )}
+                </div>
+              </TD>
               <TD className="text-foreground-soft">{r.departmentCode}</TD>
-              <TD className="text-foreground-soft">{r.certStatus}</TD>
+              {/* No Person means no HipaaCertificate can exist yet: promotion is
+                  what creates both, from whatever they uploaded with their
+                  contract. An em-dash, matching how the other tables here render
+                  a cell with genuinely nothing in it. */}
+              <TD className="text-foreground-soft">
+                {r.kind === "applicant" ? <>&mdash;</> : r.certStatus}
+              </TD>
               <TD className="text-foreground-soft">
                 <div className="space-y-1">
                   <div>
@@ -127,13 +159,29 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
               <TD className="text-foreground-soft">{r.overallClearance}</TD>
               <TD>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {r.trainingState !== "COMPLETE" && (
-                    <form action={recordAttendanceAction.bind(null, id, r.personId)}>
-                      <SubmitButton variant="outline" size="sm" pendingLabel="Recording…">
-                        Record attendance
-                      </SubmitButton>
-                    </form>
-                  )}
+                  {/* Recording an applicant writes an UNLINKED row, which is a
+                      clinic-wide assertion with no department behind it -- the
+                      same reason a scoped director may not add walk-ups at the
+                      door (see authorizeTarget). They still SEE the row, because
+                      reading it is departmental; they just cannot press this. */}
+                  {r.trainingState !== "COMPLETE" &&
+                    (r.kind === "member" ? (
+                      <form action={recordAttendanceAction.bind(null, id, r.personId)}>
+                        <SubmitButton variant="outline" size="sm" pendingLabel="Recording…">
+                          Record attendance
+                        </SubmitButton>
+                      </form>
+                    ) : (
+                      canRecordApplicants && (
+                        <form
+                          action={recordApplicantAttendanceAction.bind(null, id, r.acceptanceId)}
+                        >
+                          <SubmitButton variant="outline" size="sm" pendingLabel="Recording…">
+                            Record attendance
+                          </SubmitButton>
+                        </form>
+                      )
+                    ))}
                   {/* Offered even on a COMPLETE row: an excuse is a record, and a
                       lead may only get to writing one down after the person has
                       already caught up by makeup quiz. */}
@@ -141,15 +189,25 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                     <ExcuseAbsenceButton
                       name={r.name}
                       currentReason={r.excuse?.reason ?? null}
-                      action={excuseAbsenceAction.bind(null, id, r.personId)}
+                      action={
+                        r.kind === "member"
+                          ? excuseAbsenceAction.bind(null, id, r.personId)
+                          : excuseApplicantAbsenceAction.bind(null, id, r.applicantId)
+                      }
                     />
                   )}
                   {canExcuse && r.excuse && (
-                    <form action={clearExcuseAction.bind(null, id, r.personId)}>
+                    <form
+                      action={
+                        r.kind === "member"
+                          ? clearExcuseAction.bind(null, id, r.personId)
+                          : clearApplicantExcuseAction.bind(null, id, r.applicantId)
+                      }
+                    >
                       <ConfirmButton label="Clear excuse" size="sm" />
                     </form>
                   )}
-                  {r.locked && (
+                  {r.kind === "member" && r.locked && (
                     <form action={resetTrainingAction.bind(null, id, r.personId)}>
                       <ConfirmButton label="Reset" size="sm" />
                     </form>
@@ -161,7 +219,8 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           {rows.length === 0 && (
             <TR>
               <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
-                No active {cycle.track === "DIRECTOR" ? "directors" : "volunteers"} in scope.
+                No {cycle.track === "DIRECTOR" ? "directors" : "volunteers"} in scope, either
+                accepted into this cycle or on the term roster for it.
               </TD>
             </TR>
           )}

@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import {
   clearAbsenceExcuse,
+  clearApplicantAbsenceExcuse,
   recordAbsenceExcuse,
+  recordApplicantAbsenceExcuse,
   resetTraining,
   TrainingStateError,
 } from "@/modules/recruitment/services/training";
@@ -61,6 +63,76 @@ export async function recordAttendanceAction(cycleId: string, personId: string) 
     throw err;
   }
   redirect(bounce(cycleId, { saved: "attendance" }));
+}
+
+/**
+ * The same button on an accepted applicant's row.
+ *
+ * They have no Person, so recordAttendanceAction's `{kind: "person"}` target
+ * cannot name them; the acceptance is the handle. What gets written is the same
+ * linkable walk-up row the door writes, which promotion later claims and turns
+ * into a training completion.
+ */
+export async function recordApplicantAttendanceAction(cycleId: string, acceptanceId: string) {
+  const person = await requirePersonSession();
+  try {
+    const event = await ensureTrainingEventForCycle(cycleId, person.personId);
+    await recordEventCheckIn(event.id, { kind: "applicant", acceptanceId }, person.personId);
+  } catch (err) {
+    if (
+      err instanceof RecruitmentAuthError ||
+      err instanceof TrainingStateError ||
+      err instanceof AttendanceEventError
+    ) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "attendance" }));
+}
+
+/**
+ * Excuse an accepted applicant's absence.
+ *
+ * A separate entry point from excuseAbsenceAction because recordAbsenceExcuse
+ * guards on ACTIVE membership -- the roster's own rule, which these people do
+ * not satisfy and are not expected to. The applicant service files the excuse
+ * under whichever key it can resolve, so the same excuse follows them onto the
+ * roster at promotion instead of vanishing.
+ */
+export async function excuseApplicantAbsenceAction(
+  cycleId: string,
+  applicantId: string,
+  formData: FormData,
+) {
+  const person = await requirePersonSession();
+  try {
+    await recordApplicantAbsenceExcuse(
+      cycleId,
+      applicantId,
+      String(formData.get("reason") ?? ""),
+      person.personId,
+    );
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "excused" }));
+}
+
+export async function clearApplicantExcuseAction(cycleId: string, applicantId: string) {
+  const person = await requirePersonSession();
+  try {
+    await clearApplicantAbsenceExcuse(cycleId, applicantId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "excuse-cleared" }));
 }
 
 /**

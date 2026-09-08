@@ -105,7 +105,11 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // rows (seed data) or, with none in scope, the empty-state text. Assert that
   // at least one of the two is present (do not assert specific director rows).
   const bodyRows = page.locator("table tbody tr");
-  const emptyState = page.getByText("No active directors in scope.");
+  // Matched loosely on purpose. The full sentence names both halves of the
+  // roster (accepted into the cycle, or on the term roster) and is the kind of
+  // copy that gets reworded; this assertion only needs to know the empty state
+  // rendered at all, and the exact wording is asserted nowhere else.
+  const emptyState = page.getByText(/No directors in scope/);
   await expect
     .poll(async () => (await bodyRows.count()) + (await emptyState.count()))
     .toBeGreaterThan(0);

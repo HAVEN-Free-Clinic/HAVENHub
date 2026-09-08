@@ -15,6 +15,25 @@ import {
   clearApplicantAbsenceExcuse,
   getApplicantAbsenceExcuse,
 } from "./training";
+import type { TrainingRosterRow } from "./training";
+
+/**
+ * The roster row for a promoted member, narrowed.
+ *
+ * The roster carries two shapes now (see TrainingRosterRow) and only one of them
+ * has a personId, so the tests below say which they mean rather than reaching
+ * through the union.
+ */
+function memberRow(rows: TrainingRosterRow[], personId: string) {
+  const row = rows.find((r) => r.kind === "member" && r.personId === personId);
+  if (!row || row.kind !== "member") throw new Error(`no member row for ${personId}`);
+  return row;
+}
+
+/** Member personIds on the roster, in order. Applicant rows have none. */
+function memberIds(rows: TrainingRosterRow[]): string[] {
+  return rows.flatMap((r) => (r.kind === "member" ? [r.personId] : []));
+}
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -316,7 +335,7 @@ it("listTrainingRoster lists in-scope active volunteers with cert + training sta
   const { srr, vol, c1, dept } = await seedMember();
   await prisma.hipaaCertificate.create({ data: { personId: vol.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf", completionDate: new Date(), verifiedAt: new Date() } });
   const rows = await listTrainingRoster(c1.id, srr.id);
-  const row = rows.find((r) => r.personId === vol.id)!;
+  const row = memberRow(rows, vol.id);
   expect(row.departmentCode).toBe(dept.code);
   expect(row.trainingState).toBe("PENDING");
   expect(row.overallClearance).toBe("NOT_CLEARED"); // cert valid but training pending
@@ -457,10 +476,10 @@ it("listTrainingRoster for a DIRECTOR cycle lists directors not volunteers", asy
   await setTrainingCycle(dirCycle.id, true, srr.id);
 
   const rows = await listTrainingRoster(dirCycle.id, srr.id);
-  const ids = rows.map((r) => r.personId);
+  const ids = memberIds(rows);
   expect(ids).toContain(dir.id);
   expect(ids).not.toContain(vol.id);
-  const dirRow = rows.find((r) => r.personId === dir.id)!;
+  const dirRow = memberRow(rows, dir.id);
   expect(dirRow.trainingState).toBe("PENDING");
 });
 
@@ -472,7 +491,7 @@ it("records an excuse the roster shows, without completing training", async () =
   const { srr, vol, c1 } = await seedMember();
   await recordAbsenceExcuse(c1.id, vol.id, "  Has an exam that night  ", srr.id);
 
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.excuse?.reason).toBe("Has an exam that night");
   expect(row.excuse?.recordedByName).toBe("SRR");
   // The whole of "record only": being excused is not being trained.
@@ -485,7 +504,7 @@ it("re-recording an excuse edits the reason instead of stacking rows", async () 
   await recordAbsenceExcuse(c1.id, vol.id, "Family emergency", srr.id);
 
   expect(await prisma.trainingAbsenceExcuse.count({ where: { cycleId: c1.id, personId: vol.id } })).toBe(1);
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.excuse?.reason).toBe("Family emergency");
 });
 
@@ -519,7 +538,7 @@ it("clearing an excuse removes it, and clearing twice is not an error", async ()
   await clearAbsenceExcuse(c1.id, vol.id, srr.id);
 
   expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.excuse).toBeNull();
 });
 
@@ -529,7 +548,7 @@ it("keeps the excuse on the roster after training completes by makeup quiz", asy
   const result = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
   expect(result.passed).toBe(true);
 
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.trainingState).toBe("COMPLETE");
   expect(row.excuse?.reason).toBe("Exam");
 });
@@ -551,6 +570,115 @@ async function seedApplicant(cycleId: string, email: string, personId?: string) 
     },
   });
 }
+
+/** Accept an applicant into a department, with no contract and so no promotion. */
+async function acceptApplicant(applicantId: string, cycleId: string, approverId: string, deptCode = "SRHD") {
+  const application = await prisma.application.create({
+    data: { cycleId, applicantId, answers: {}, applicantType: "NEW", departmentChoices: [deptCode] },
+  });
+  return prisma.acceptance.create({
+    data: { applicationId: application.id, departmentCode: deptCode, approvedById: approverId },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The roster's second half: accepted, not yet onboarded
+// ---------------------------------------------------------------------------
+
+it("lists accepted applicants who have no account yet", async () => {
+  const { srr, c1, vol } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id);
+
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  const row = rows.find((r) => r.name === "App Licant");
+  expect(row).toBeDefined();
+  expect(row?.kind).toBe("applicant");
+  if (row?.kind !== "applicant") throw new Error("expected an applicant row");
+  expect(row.acceptanceId).toBe(acceptance.id);
+  expect(row.applicantId).toBe(applicant.id);
+  expect(row.departmentCode).toBe("SRHD");
+  expect(row.trainingState).toBe("PENDING");
+  // No Person means no certificate can exist for them yet, and the contract that
+  // would put them on the roster is the thing still outstanding.
+  expect(row.certStatus).toBe("NO_CERTIFICATE");
+  expect(row.overallClearance).toBe("NOT_CLEARED");
+  expect(row.locked).toBe(false);
+
+  // The membership half is untouched and the two interleave by name.
+  expect(memberRow(rows, vol.id).kind).toBe("member");
+});
+
+it("reads an accepted applicant's training state off their attendance row", async () => {
+  // completeTraining is keyed on personId, which they do not have, so the
+  // EventAttendance row IS the record until promotion converts it.
+  const { term, srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  await acceptApplicant(applicant.id, c1.id, srr.id);
+  const event = await prisma.attendanceEvent.create({
+    data: { termId: term.id, cycleId: c1.id, kind: "TRAINING", title: "T", startsAt: new Date() },
+  });
+  await prisma.eventAttendance.create({
+    data: { eventId: event.id, attendeeName: "App Licant", attendeeEmail: "ada@yale.edu", method: "WALK_UP" },
+  });
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.kind === "applicant");
+  expect(row?.trainingState).toBe("COMPLETE");
+  // Attending does not clear them: the contract is still outstanding.
+  expect(row?.overallClearance).toBe("NOT_CLEARED");
+});
+
+it("drops an accepted applicant from the roster once promotion gives them a membership", async () => {
+  const { srr, c1, vol } = await seedMember();
+  // Same human as the seeded member: accepted, and since promoted.
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id);
+  await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@yale.edu" } });
+  await prisma.onboardingContract.create({
+    data: {
+      acceptanceId: acceptance.id,
+      token: "tok-roster",
+      email: "vol@yale.edu",
+      firstName: "App",
+      lastName: "Licant",
+      promotedPersonId: vol.id,
+    },
+  });
+
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  expect(rows.filter((r) => r.kind === "applicant")).toHaveLength(0);
+  expect(memberRow(rows, vol.id)).toBeDefined();
+});
+
+it("shows an applicant excuse on the roster, under the email it was stored with", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  await acceptApplicant(applicant.id, c1.id, srr.id);
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Exam that night", srr.id);
+
+  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.kind === "applicant");
+  expect(row?.excuse?.reason).toBe("Exam that night");
+});
+
+it("scopes accepted applicants to a director's own departments", async () => {
+  const { term, srr, c1 } = await seedMember();
+  const other = await prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
+  // A director of INTP only: a review scope, no clinic-wide recruitment grant.
+  const director = await prisma.person.create({ data: { name: "IntpDir", status: "ACTIVE" } });
+  await prisma.termMembership.create({
+    data: { personId: director.id, termId: term.id, departmentId: other.id, kind: "DIRECTOR", status: "ACTIVE" },
+  });
+  const mine = await seedApplicant(c1.id, "mine@yale.edu");
+  await acceptApplicant(mine.id, c1.id, srr.id, "INTP");
+  const theirs = await prisma.applicant.create({
+    data: { cycleId: c1.id, firstName: "Not", lastName: "Mine", email: "theirs@yale.edu", emailLower: "theirs@yale.edu" },
+  });
+  await acceptApplicant(theirs.id, c1.id, srr.id, "SRHD");
+
+  const names = (await listTrainingRoster(c1.id, director.id)).map((r) => r.name);
+  expect(names).toContain("App Licant");
+  expect(names).not.toContain("Not Mine");
+});
 
 it("excuses an applicant with no hub account, keyed on their email", async () => {
   const { srr, c1 } = await seedMember();
@@ -583,7 +711,7 @@ it("an email-keyed excuse reaches the training roster once that person exists", 
     data: { personId: promoted.id, termId: term.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
   });
 
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === promoted.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), promoted.id);
   expect(row.excuse?.reason).toBe("Away at a conference");
   expect(row.excuse?.unlinked).toBe(true);
 });
@@ -598,7 +726,7 @@ it("stores a personId when the applicant is already linked to an account", async
   expect(stored.personId).toBe(vol.id);
   expect(stored.emailLower).toBeNull();
   // So it is on the roster straight away, not waiting to be matched.
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.excuse?.reason).toBe("Exam");
   expect(row.excuse?.unlinked).toBe(false);
 });
@@ -661,7 +789,7 @@ it("prefers the person-keyed excuse over an older email-keyed row", async () => 
   await recordAbsenceExcuse(c1.id, promoted.id, "Current reason", srr.id);
 
   expect(await prisma.trainingAbsenceExcuse.count()).toBe(2);
-  const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.personId === promoted.id)!;
+  const row = memberRow(await listTrainingRoster(c1.id, srr.id), promoted.id);
   expect(row.excuse?.reason).toBe("Current reason");
 });
 
@@ -672,6 +800,6 @@ it("an excuse on one cycle does not leak onto another cycle's roster", async () 
   await addQuiz(c2.id);
   await setTrainingCycle(c2.id, true, srr.id);
 
-  const row = (await listTrainingRoster(c2.id, srr.id)).find((r) => r.personId === vol.id)!;
+  const row = memberRow(await listTrainingRoster(c2.id, srr.id), vol.id);
   expect(row.excuse).toBeNull();
 });

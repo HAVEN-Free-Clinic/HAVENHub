@@ -575,8 +575,7 @@ async function deleteExcuse(cycleId: string, identity: ExcuseIdentity, actorId: 
   });
 }
 
-export type TrainingRosterRow = {
-  personId: string;
+type TrainingRosterFields = {
   name: string;
   departmentCode: string;
   certStatus: ReturnType<typeof complianceStatus>;
@@ -589,10 +588,50 @@ export type TrainingRosterRow = {
   excuse: TrainingExcuse | null;
 };
 
-/** The designated cycle's training roster: in-scope active memberships of the cycle's track
- *  in the cycle's term, each with cert status and training state. Director-scoped
- *  or review_all. Throws TrainingStateError if the cycle is not the designated
- *  training cycle for its term. */
+/**
+ * One person expected at this cycle's training, in one of two shapes.
+ *
+ * A discriminated union rather than a row with three nullable ids, because the
+ * two halves are acted on through different services -- a member by personId, an
+ * accepted applicant by an acceptance (to check in) or an applicant (to excuse)
+ * -- and a caller that forgets which it is holding should not typecheck.
+ */
+export type TrainingRosterRow =
+  | (TrainingRosterFields & { kind: "member"; personId: string })
+  | (TrainingRosterFields & {
+      kind: "applicant";
+      /** The check-in target: recordEventCheckIn takes an acceptance. */
+      acceptanceId: string;
+      /** The excuse key: recordApplicantAbsenceExcuse takes an applicant. */
+      applicantId: string;
+    });
+
+/**
+ * Everyone expected at this cycle's training session.
+ *
+ * TWO sources, because a `Person` does not exist until promotion.
+ *
+ * The roster half is in-scope ACTIVE memberships of the cycle's track. The other
+ * half is the cycle's ACCEPTANCES whose contract has not promoted: people the
+ * clinic has decided are volunteers, who owe a training session, and who have no
+ * account for a membership query to find. Listing only the first half made this
+ * page empty in the weeks it is most wanted -- acceptances go out, nobody has
+ * onboarded yet, and the table shows nothing at all -- and then made it quietly
+ * partial for the rest of the cycle. (The check-in door at /check-in has always
+ * read both; this brings the roster into line with it.)
+ *
+ * Deduped on lowercased email, so somebody who was promoted between the two
+ * queries does not appear as both.
+ *
+ * Director-scoped or review_all. A scoped viewer's applicant half is filtered on
+ * `Acceptance.departmentCode`, which is the same departmental fact their
+ * membership filter uses -- unlike the door, where an unlinked WRITE is a
+ * clinic-wide assertion with no department to check. Reading the row is
+ * departmental; the page gates the button separately.
+ *
+ * Throws TrainingStateError if the cycle is not the designated training cycle
+ * for its term.
+ */
 export async function listTrainingRoster(cycleId: string, viewerId: string): Promise<TrainingRosterRow[]> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new TrainingStateError("Cycle not found.");
@@ -601,32 +640,72 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   const term = await prisma.term.findUniqueOrThrow({ where: { id: cycle.termId } });
   const scope = await reviewScope(viewerId);
 
-  const memberships = await prisma.termMembership.findMany({
-    where: {
-      termId: cycle.termId, kind: cycle.track, status: "ACTIVE",
-      ...(scope.all ? {} : { department: { code: { in: scope.departmentCodes } } }),
-    },
-    include: {
-      department: { select: { code: true } },
-      person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
-    },
-  });
+  const [memberships, acceptances] = await Promise.all([
+    prisma.termMembership.findMany({
+      where: {
+        termId: cycle.termId, kind: cycle.track, status: "ACTIVE",
+        ...(scope.all ? {} : { department: { code: { in: scope.departmentCodes } } }),
+      },
+      include: {
+        department: { select: { code: true } },
+        person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
+      },
+    }),
+    prisma.acceptance.findMany({
+      where: {
+        application: { cycleId },
+        ...(scope.all ? {} : { departmentCode: { in: scope.departmentCodes } }),
+      },
+      select: {
+        id: true,
+        departmentCode: true,
+        // Promotion is what creates the Person, so this is the authoritative
+        // "already in the membership half above" link.
+        contract: { select: { promotedPersonId: true } },
+        application: {
+          select: { applicant: { select: { id: true, firstName: true, lastName: true, emailLower: true } } },
+        },
+      },
+    }),
+  ]);
 
   const personIds = memberships.map((m) => m.person.id);
+  const memberEmails = new Set(
+    memberships.flatMap((m) => (m.person.contactEmail ? [m.person.contactEmail.toLowerCase()] : [])),
+  );
+  const pending = acceptances.filter(
+    (a) =>
+      !a.contract?.promotedPersonId && !memberEmails.has(a.application.applicant.emailLower),
+  );
+  const pendingEmails = pending.map((a) => a.application.applicant.emailLower);
+
   // An excuse written against an applicant before they had an account is keyed
   // on their email, so the roster has to ask for it that way too: without this,
   // an excuse recorded in October would vanish the moment promotion made them a
-  // member, which is exactly when the roster starts judging them.
-  const emailsLower = memberships
-    .map((m) => m.person.contactEmail?.toLowerCase())
-    .filter((e): e is string => Boolean(e));
-  const [trainingRows, excuseRows] = await Promise.all([
+  // member, which is exactly when the roster starts judging them. The pending
+  // half is read through the same map, since an excuse for someone with no
+  // Person can only ever have been stored under their email.
+  const emailsLower = [...memberEmails, ...pendingEmails];
+  const [trainingRows, excuseRows, pendingAttendance] = await Promise.all([
     prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
     prisma.trainingAbsenceExcuse.findMany({
       where: { cycleId, OR: [{ personId: { in: personIds } }, { emailLower: { in: emailsLower } }] },
       include: { recordedBy: { select: { name: true } } },
     }),
+    // The pending half's training state cannot come from the Training table:
+    // completeTraining is keyed on personId, and these people have none. Their
+    // attendance row IS the record, and it is what promotion later converts into
+    // a Training row (see attendance-events' linkAttendanceByEmail).
+    pendingEmails.length === 0
+      ? Promise.resolve([])
+      : prisma.eventAttendance.findMany({
+          where: { event: { cycleId, kind: "TRAINING" }, attendeeEmail: { in: pendingEmails } },
+          select: { attendeeEmail: true },
+        }),
   ]);
+  const attended = new Set(
+    pendingAttendance.flatMap((a) => (a.attendeeEmail ? [a.attendeeEmail.toLowerCase()] : [])),
+  );
   const training = new Map(trainingRows.map((t) => [t.personId, t]));
   const excusesByPerson = new Map<string, TrainingExcuse>();
   const excusesByEmail = new Map<string, TrainingExcuse>();
@@ -640,16 +719,46 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   const excuseFor = (personId: string, email: string | null): TrainingExcuse | null =>
     excusesByPerson.get(personId) ?? (email ? excusesByEmail.get(email.toLowerCase()) ?? null : null);
 
-  return memberships.map((m) => {
+  const memberRows: TrainingRosterRow[] = memberships.map((m) => {
     const cert = m.person.hipaaCertificates[0] ?? null;
     const certStatus = complianceStatus(cert ? { completionDate: cert.completionDate, verifiedAt: cert.verifiedAt } : null, term.endDate);
     const row = training.get(m.person.id);
     const trainingState: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
     return {
+      kind: "member",
       personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
       certStatus, trainingState, locked: row?.locked ?? false,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
       excuse: excuseFor(m.person.id, m.person.contactEmail),
     };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  const pendingRows: TrainingRosterRow[] = pending.map((a) => {
+    const applicant = a.application.applicant;
+    const trainingState: TrainingState = attended.has(applicant.emailLower) ? "COMPLETE" : "PENDING";
+    return {
+      kind: "applicant",
+      acceptanceId: a.id,
+      applicantId: applicant.id,
+      name: `${applicant.firstName} ${applicant.lastName}`.trim(),
+      departmentCode: a.departmentCode,
+      // NO_CERTIFICATE is the honest answer, not a placeholder: HipaaCertificate
+      // rows hang off a Person, and promotion is what creates both the Person and
+      // the certificate from whatever they uploaded with their contract. Until
+      // then the clinic genuinely holds no certificate for them.
+      certStatus: complianceStatus(null, term.endDate),
+      trainingState,
+      // Locking is a quiz-attempt state on a Training row they cannot have.
+      locked: false,
+      // Never CLEARED whatever their attendance says: the contract that puts them
+      // on the roster is still outstanding, which is the thing this row exists to
+      // make visible.
+      overallClearance: "NOT_CLEARED",
+      excuse: excusesByEmail.get(applicant.emailLower) ?? null,
+    };
+  });
+
+  // Interleaved, not appended. A lead reading this in the run-up to a session is
+  // looking for a name, and two alphabetical lists is two places to look for it.
+  return [...memberRows, ...pendingRows].sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -37,6 +37,7 @@ import { getSetting } from "@/platform/settings/service";
 import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { SupportLink } from "@/platform/branding/support-link";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { complianceStatusLabel } from "@/platform/compliance/labels";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -62,28 +63,38 @@ type HipaaPanelProps = {
   statusCert: HipaaCertificate | null;
 };
 
+/**
+ * The certificate's status, in the member vocabulary every other member-facing
+ * surface uses.
+ *
+ * This carried its own six-branch wording, and /my-info renders it directly
+ * below the ClearanceCard driven by the SAME status -- so one page said two
+ * things about one certificate. The worst pair was UNKNOWN_DATE: the card read
+ * "Needs completion date" in amber and linked down here, where the copy says a
+ * compliance manager will set it and no action is needed. That contradiction is
+ * fixed in the shared map (see labels.ts); this reads from it.
+ *
+ * The expiry date is kept, as trailing detail rather than as a second wording.
+ * It is real information the roster row has no room for, and it sits beside the
+ * "Detected completion date" span that was already there -- a different date,
+ * which is why both are labelled.
+ */
 function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCertificate | null }) {
   if (status === "NO_CERTIFICATE") {
     return null; // handled below
   }
-  if (status === "UNKNOWN_DATE") {
-    return <Badge tone="default">Completion date pending</Badge>;
-  }
-  if (status === "PENDING_VERIFICATION") {
-    return <Badge tone="warning">Awaiting verification</Badge>;
-  }
-  if (!cert?.completionDate) return null;
-  const expiresAt = certExpiresAt(cert.completionDate);
-  if (status === "COMPLIANT") {
-    return <Badge tone="success">Compliant through {formatCalendarDate(expiresAt)}</Badge>;
-  }
-  if (status === "EXPIRING_SOON") {
-    return <Badge tone="warning">Expires {formatCalendarDate(expiresAt)}, renew soon</Badge>;
-  }
-  if (status === "EXPIRED") {
-    return <Badge tone="critical">Expired {formatCalendarDate(expiresAt)}</Badge>;
-  }
-  return null;
+  const { label, tone } = complianceStatusLabel(status, "member");
+  const expiresAt = cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
+  return (
+    <>
+      <Badge tone={tone}>{label}</Badge>
+      {expiresAt && (
+        <span className="text-xs text-subtle-foreground">
+          {status === "EXPIRED" ? "Expired" : "Expires"} {formatCalendarDate(expiresAt)}
+        </span>
+      )}
+    </>
+  );
 }
 
 export async function HipaaPanel({

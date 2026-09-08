@@ -38,6 +38,7 @@ import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } fr
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { firstNameOf } from "@/platform/person-name";
 import { buildPageMetadata } from "@/platform/branding/metadata";
+import { onboardingTaskLabel } from "@/platform/compliance/labels";
 
 // ---------------------------------------------------------------------------
 // Presentation helpers (pure)
@@ -106,11 +107,20 @@ function shiftTags(tags: { triage: boolean; walkin: boolean; cc: boolean; remote
 }
 
 /**
- * One "Your status" row from a semester-clearance task. Mirrors My Info's
- * Clearance card: same labels and satisfied/not-satisfied split. HIPAA keeps the
- * dashboard's richer expiry-aware sub (passed in); other tasks use short status
- * text. Links point at the real module page, not the /get-started gate, so they
- * are valid whether or not the person is already cleared.
+ * One "Your status" row from a semester-clearance task.
+ *
+ * Mirrors My Info's Clearance card, and now actually does: the docstring made
+ * that claim while the labels below were hand-rolled, so an INCOMPLETE task
+ * read "Not started" here and "Action needed" one click away. Both surfaces
+ * read `onboardingTaskLabel` now.
+ *
+ * Every row is a Link, so `actionable` is true -- which is the flag that turns
+ * "Action needed" into the quieter "Pending" for a task the member cannot act
+ * on themselves.
+ *
+ * HIPAA keeps the dashboard's richer expiry-aware sub (passed in); other tasks
+ * use the shared status word. Links point at the real module page, not the
+ * /get-started gate, so they are valid whether or not the person is cleared.
  */
 function clearanceRow(
   task: OnboardingTask,
@@ -125,11 +135,7 @@ function clearanceRow(
   const sub =
     task.key === "hipaa"
       ? hipaaSub
-      : task.state === "COMPLETE"
-        ? "Complete"
-        : task.state === "IN_PROGRESS"
-          ? "In progress"
-          : "Not started"; // INCOMPLETE
+      : onboardingTaskLabel(task.state, { audience: "member", actionable: true }).label;
   return { ok: task.state === "COMPLETE", title: task.label, sub, href };
 }
 

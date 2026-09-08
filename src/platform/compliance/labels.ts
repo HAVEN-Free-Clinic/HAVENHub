@@ -52,9 +52,14 @@ const COMPLIANCE_MEMBER: Record<ComplianceStatus, StatusLabel> = {
   COMPLIANT: { label: "Valid", tone: "success" },
   EXPIRING_SOON: { label: "Expiring soon", tone: "warning" },
   EXPIRED: { label: "Expired", tone: "critical" },
-  // Warning rather than the staff neutral: for the member this is the one cert
-  // state they can resolve by supplying a date, so it is not a quiet row.
-  UNKNOWN_DATE: { label: "Needs completion date", tone: "warning" },
+  // Neutral, and named for a wait rather than a task. The warning tone and the
+  // "Needs ..." wording were written on the belief that a member can resolve
+  // this by supplying a date. They cannot: the only entry point is
+  // setCompletionDateAsManager, which is staff-only. The HIPAA panel this row
+  // links to has always said so out loud -- "a compliance manager will set it.
+  // No action is needed from you." -- so the summary row was demanding an
+  // action the page it points at explicitly denies.
+  UNKNOWN_DATE: { label: "Completion date pending", tone: "default" },
   PENDING_VERIFICATION: { label: "Awaiting verification", tone: "warning" },
   NO_CERTIFICATE: { label: "Not uploaded", tone: "default" },
 };

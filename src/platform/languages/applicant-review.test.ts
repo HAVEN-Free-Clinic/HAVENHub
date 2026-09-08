@@ -537,6 +537,27 @@ describe("recordApplicationLanguageAssessment", () => {
     expect(rows[0]).toMatchObject({ verified: false, score: 2 });
   });
 
+  // Unlike recordLanguageAssessment, an omitted score here always means N/A,
+  // not "leave the stored value alone". The single application form always
+  // shows the score field for Spanish, so there is no "did not ask" case to
+  // preserve across a re-record.
+  it("re-recording with the score omitted clears it rather than preserving the prior value", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true, score: 4,
+    });
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true,
+    });
+
+    const row = await prisma.applicationLanguageAssessment.findUniqueOrThrow({
+      where: { applicationId_language: { applicationId: application.id, language: "es" } },
+    });
+    expect(row.score).toBeNull();
+  });
+
   it("rejects an unknown language", async () => {
     const ctx = await lane();
     const { application } = await apply(ctx, "ada@yale.edu");

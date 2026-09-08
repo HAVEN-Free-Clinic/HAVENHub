@@ -8,6 +8,7 @@ import {
 import { PageHeader } from "@/platform/ui/page-header";
 import { SubcommitteeForm } from "@/modules/admin/components/subcommittee-form";
 import { optionalInt } from "@/modules/admin/form-coerce";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -40,9 +41,11 @@ export default async function EditSubcommitteePage({ params }: PageProps) {
 
   return (
     <div className="space-y-8">
+      <SetBreadcrumbLeaf label={subcommittee.name} />
+      {/* The soft-remove note moved onto the Active checkbox itself, where the
+          control it describes is. */}
       <PageHeader
         title={subcommittee.name}
-        description="Toggle Active to deactivate (soft remove)."
         status={<ActiveBadge active={subcommittee.isActive} />}
       />
       <SubcommitteeForm action={updateAction} mode="edit" subcommittee={subcommittee} />

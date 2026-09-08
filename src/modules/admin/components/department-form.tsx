@@ -161,7 +161,12 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
           </p>
         </div>
 
-        <Checkbox name="isActive" defaultChecked={department?.isActive ?? true} label="Active" />
+        <Checkbox
+          name="isActive"
+          defaultChecked={department?.isActive ?? true}
+          label="Active"
+          hint="Clearing this is the soft remove: the department stops being offered, and its history stays."
+        />
 
         <FormActions>
           <SubmitButton variant="primary">

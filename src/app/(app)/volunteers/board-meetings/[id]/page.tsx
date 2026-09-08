@@ -16,9 +16,10 @@ import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { TextLink } from "@/platform/ui/text-link";
 import { formatCalendarDate } from "@/platform/dates";
 import type { BoardAttendanceStatus } from "@prisma/client";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -73,14 +74,20 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
 
   return (
     <div className="space-y-6">
+      {/* A hand-built trail rather than SetBreadcrumbLeaf: the escape link
+          carries the term, which the registry-derived crumb cannot know, so
+          backing out of a 2024 meeting still lands on the 2024 list. */}
+      <SetBreadcrumb
+        trail={hubTrail(
+          { label: "Volunteers", href: "/volunteers" },
+          { label: "Board meetings", href: backHref },
+          { label: meeting.title ?? "Board meeting" },
+        )}
+      />
       <PageHeader
         title={meeting.title ?? "Board meeting"}
         description={`${formatCalendarDate(meeting.meetingDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${meeting.term.name}`}
       />
-
-      <TextLink href={backHref} size="sm">
-        Back to meetings
-      </TextLink>
 
       {sp.error && <Alert tone="error">{sp.error}</Alert>}
 

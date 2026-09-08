@@ -25,7 +25,12 @@ export function SubcommitteeForm({ action, mode, subcommittee }: SubcommitteeFor
           </Field>
         </div>
 
-        <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} label="Active" />
+        <Checkbox
+          name="isActive"
+          defaultChecked={subcommittee?.isActive ?? true}
+          label="Active"
+          hint="Clearing this is the soft remove: the subcommittee stops being offered, and its history stays."
+        />
 
         <FormActions>
           <SubmitButton variant="primary">

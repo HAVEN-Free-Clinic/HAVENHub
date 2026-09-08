@@ -3,6 +3,22 @@ import type { ModuleManifest } from "@/platform/modules/types";
 /** A single breadcrumb. The current page's crumb omits `href`. */
 export type Crumb = { label: string; href?: string };
 
+/** Every trail starts here. */
+export const HUB_CRUMB: Crumb = { label: "Hub", href: "/" };
+
+/**
+ * Prepend the Hub crumb to a hand-built trail.
+ *
+ * Most detail pages want `SetBreadcrumbLeaf` instead: the registry already
+ * knows Hub > Module > Section, and only the record's name is missing. Reach
+ * for a hand-built trail only when the escape link itself carries something
+ * the registry cannot know -- a role (master compliance vs. compliance) or a
+ * query string (the term a board meeting belongs to).
+ */
+export function hubTrail(...tail: Crumb[]): Crumb[] {
+  return [HUB_CRUMB, ...tail];
+}
+
 /** Registry data the breadcrumb needs (serializable, no icon). */
 export type BreadcrumbModule = Pick<ModuleManifest, "id" | "title" | "nav">;
 
@@ -20,9 +36,9 @@ export function buildBreadcrumbs(
   leafLabel?: string,
 ): Crumb[] {
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/") return [{ label: "Hub" }];
+  if (path === "/") return [{ label: HUB_CRUMB.label }];
 
-  const hub: Crumb = { label: "Hub", href: "/" };
+  const hub = HUB_CRUMB;
   const segments = path.split("/").filter(Boolean);
   const mod = modules.find((m) => m.id === segments[0]);
   if (!mod) return [hub];

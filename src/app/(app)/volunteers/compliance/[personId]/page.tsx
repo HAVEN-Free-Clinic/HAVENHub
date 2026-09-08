@@ -25,7 +25,6 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { PersonPhoto } from "@/platform/ui/person-photo";
-import { TextLink } from "@/platform/ui/text-link";
 import { can } from "@/platform/rbac/engine";
 import { canViewMemberProfile } from "@/platform/member-profile";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -60,6 +59,8 @@ import { getMemberProfileBasics } from "@/modules/volunteers/services/member-pro
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { CalendarDate } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
@@ -182,16 +183,19 @@ export default async function PersonCompliancePage({ params }: PageProps) {
   // A director has no master view to go back to; send them to the roster they do
   // have. Both are one click either way, and a link to a page that bounces is
   // worse than a slightly less specific one.
-  const backHref = isManager ? "/volunteers/master" : "/volunteers";
-  const backLabel = isManager ? "Back to master compliance" : "Back to compliance";
 
   return (
     <div>
-      <div className="mb-2">
-        <TextLink href={backHref} size="sm">
-          {backLabel}
-        </TextLink>
-      </div>
+      {/* A hand-built trail rather than SetBreadcrumbLeaf: a manager came from
+          the master roster and a non-manager from the compliance page, and the
+          registry-derived crumb would send both to the latter. */}
+      <SetBreadcrumb
+        trail={hubTrail(
+          { label: "Volunteers", href: "/volunteers" },
+          ...(isManager ? [{ label: "Master compliance", href: "/volunteers/master" }] : []),
+          { label: person.name },
+        )}
+      />
       <PageHeader
         title={person.name}
         description={

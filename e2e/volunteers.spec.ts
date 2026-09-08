@@ -188,8 +188,14 @@ test("Jack opens a member's per-person compliance view and sees the clearance de
   await page.goto(`/volunteers/compliance/${member.person.id}`);
   await page.waitForURL((url) => url.pathname === `/volunteers/compliance/${member.person.id}`);
 
-  // The dedicated view (not /admin/people) links back to the master list.
-  await expect(page.getByRole("link", { name: "Back to master compliance" })).toBeVisible();
+  // The dedicated view (not /admin/people) still offers the way back to the
+  // master list, now as the breadcrumb rather than a bespoke link above the
+  // title. The trail is role-aware and applied after hydration, so this waits
+  // on the crumb rather than asserting synchronously.
+  const crumbs = page.locator('nav[aria-label="Breadcrumb"]');
+  await expect(crumbs.getByRole("link", { name: "Master compliance" })).toBeVisible();
+  // ...and the leaf names the member, so two open tabs are told apart.
+  await expect(crumbs.getByText(member.person.name)).toBeVisible();
   // And it is titled with the member's name.
   await expect(page.getByRole("heading", { name: member.person.name })).toBeVisible();
 });

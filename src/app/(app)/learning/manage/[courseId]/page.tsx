@@ -17,6 +17,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { supportsPresignedUpload } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 /**
  * Server Actions run on the route that invokes them, so this covers the SCORM
@@ -51,6 +52,7 @@ export default async function EditCoursePage({
 
   return (
     <>
+      <SetBreadcrumbLeaf label={course.title} />
       <PageHeader title={course.title} status={<ActiveBadge active={course.isActive} />} />
       <div className="mt-6 grid max-w-3xl gap-8">
         {course.isActive && isAssigned && !hasPackage && (

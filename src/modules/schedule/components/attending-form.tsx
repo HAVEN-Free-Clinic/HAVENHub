@@ -13,7 +13,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { FormActions } from "@/platform/ui/form";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import type {
   Capability,
   CapabilityValue,
@@ -22,6 +22,13 @@ import type {
 
 type AttendingFormProps = {
   action: (formData: FormData) => Promise<void>;
+  /**
+   * Which page this is. Not inferred from `attending`, because the two are not
+   * the same question: the [id] route could one day render a blank form, and a
+   * button that renamed itself based on whether a record happened to be passed
+   * is exactly the accident that put "Create term" on the term edit page.
+   */
+  mode: "create" | "edit";
   attending?: Attending;
   specialties: SpecialtyView[];
   selectedSpecialtyId: string | null;
@@ -39,6 +46,7 @@ type AttendingFormProps = {
 
 export function AttendingForm({
   action,
+  mode,
   attending,
   specialties,
   selectedSpecialtyId,
@@ -113,7 +121,9 @@ export function AttendingForm({
         )}
 
         <FormActions>
-          <Button type="submit" variant="primary">Save</Button>
+          <SubmitButton pendingLabel={mode === "create" ? "Creating…" : "Saving…"}>
+            {mode === "create" ? "Create attending" : "Save changes"}
+          </SubmitButton>
         </FormActions>
       </Card>
     </form>

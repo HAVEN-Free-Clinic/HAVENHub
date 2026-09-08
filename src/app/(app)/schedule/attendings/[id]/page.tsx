@@ -166,6 +166,7 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
 
       <AttendingForm
         action={updateAction}
+        mode="edit"
         attending={attending}
         specialties={specialties}
         selectedSpecialtyId={attending.specialtyId}

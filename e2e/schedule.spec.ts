@@ -670,7 +670,7 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.waitForURL((url) => url.pathname === "/schedule/attendings/new");
   await page.fill('input[name="scheduleName"]', name);
   await page.fill('input[name="fullName"]', `Dr. ${name}`);
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Create attending" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
   // It becomes assignable on every column of the selected clinic date. The Day
@@ -710,7 +710,7 @@ test("attendings: schedule one from the grid, then clear it", async ({ page }) =
   await page.goto("/schedule/attendings/new");
   await page.fill('input[name="scheduleName"]', name);
   await page.fill('input[name="fullName"]', `Dr. ${name}`);
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Create attending" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
   const grid = page.getByRole("table", { name: "Attending schedule grid" });

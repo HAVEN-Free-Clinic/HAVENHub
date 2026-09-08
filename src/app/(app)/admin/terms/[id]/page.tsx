@@ -290,7 +290,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       {canManageTerms && (
         <section>
           <SectionHeader className="mb-4">Details</SectionHeader>
-          <TermForm action={updateAction} term={term} />
+          <TermForm mode="edit" action={updateAction} term={term} />
         </section>
       )}
 

@@ -1,9 +1,9 @@
 import type { Subcommittee } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { SubmitButton } from "@/platform/ui/submit-button";
 
 type SubcommitteeFormProps = {
   action: (formData: FormData) => Promise<void>;
@@ -28,9 +28,9 @@ export function SubcommitteeForm({ action, mode, subcommittee }: SubcommitteeFor
         <Checkbox name="isActive" defaultChecked={subcommittee?.isActive ?? true} label="Active" />
 
         <FormActions>
-          <Button type="submit" variant="primary">
+          <SubmitButton variant="primary">
             {mode === "create" ? "Create subcommittee" : "Save changes"}
-          </Button>
+          </SubmitButton>
         </FormActions>
       </Card>
     </form>

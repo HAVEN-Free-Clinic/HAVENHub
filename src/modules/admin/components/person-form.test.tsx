@@ -37,20 +37,31 @@ function checkboxTag(markup: string, name: string): string {
 describe("PersonForm", () => {
   it("renders the blocker-gate checkbox checked when the person is exempt", () => {
     const markup = renderToStaticMarkup(
-      <PersonForm action={noopAction} person={{ ...BASE_PERSON, blockerGateExempt: true }} />
+      <PersonForm mode="edit" action={noopAction} person={{ ...BASE_PERSON, blockerGateExempt: true }} />
     );
     expect(checkboxTag(markup, "blockerGateExempt")).toContain("checked");
   });
 
   it("renders the blocker-gate checkbox unchecked when the person is not exempt", () => {
     const markup = renderToStaticMarkup(
-      <PersonForm action={noopAction} person={{ ...BASE_PERSON, blockerGateExempt: false }} />
+      <PersonForm mode="edit" action={noopAction} person={{ ...BASE_PERSON, blockerGateExempt: false }} />
     );
     expect(checkboxTag(markup, "blockerGateExempt")).not.toContain("checked");
   });
 
   it("renders the blocker-gate checkbox unchecked in create mode, with no person at all", () => {
-    const markup = renderToStaticMarkup(<PersonForm action={noopAction} />);
+    const markup = renderToStaticMarkup(<PersonForm mode="create" action={noopAction} />);
     expect(checkboxTag(markup, "blockerGateExempt")).not.toContain("checked");
+  });
+
+  it("names the record it creates, and says Save changes when editing", () => {
+    // person-form said "Save" for both, and term-form said "Create term" even
+    // on the edit page it was wired into.
+    expect(renderToStaticMarkup(<PersonForm mode="create" action={noopAction} />)).toContain(
+      "Create person"
+    );
+    expect(
+      renderToStaticMarkup(<PersonForm mode="edit" action={noopAction} person={BASE_PERSON} />)
+    ).toContain("Save changes");
   });
 });

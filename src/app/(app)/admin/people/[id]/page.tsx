@@ -261,7 +261,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
       {/* Edit form */}
       <section>
         <SectionHeader className="mb-4">Details</SectionHeader>
-        <PersonForm
+        <PersonForm mode="edit"
           action={updateAction}
           person={person}
         />

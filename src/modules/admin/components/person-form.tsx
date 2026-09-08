@@ -7,16 +7,19 @@
 import type { Person } from "@prisma/client";
 import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { Select } from "@/platform/ui/select";
 import { affiliationOptionsWith } from "@/platform/affiliation";
 
 type PersonFormProps = {
   /** The server action to bind to the form's action prop. */
   action: (formData: FormData) => Promise<void>;
+  /** Which verb the submit takes, and nothing else. Same shape as the other
+   *  record forms in this module. */
+  mode: "create" | "edit";
   /** Existing person values (for edit mode). Omit for create mode. */
   person?: Pick<
     Person,
@@ -34,7 +37,7 @@ type PersonFormProps = {
   children?: ReactNode;
 };
 
-export function PersonForm({ action, person, children }: PersonFormProps) {
+export function PersonForm({ action, mode, person, children }: PersonFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
@@ -133,9 +136,9 @@ export function PersonForm({ action, person, children }: PersonFormProps) {
         </div>
 
         <FormActions>
-          <Button type="submit" variant="primary">
-            Save
-          </Button>
+          <SubmitButton variant="primary">
+            {mode === "create" ? "Create person" : "Save changes"}
+          </SubmitButton>
           {children}
         </FormActions>
       </Card>

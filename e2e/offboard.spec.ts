@@ -25,7 +25,7 @@ test("offboard: the two-click confirm button ends an active person's status", as
   await page.goto("/admin/people/new");
   await page.fill('input[name="name"]', `E2E Offboard ${stamp}`);
   await page.fill('input[name="contactEmail"]', `e2e.offboard.${stamp}@yale.edu`);
-  await page.click('button:has-text("Save")');
+  await page.click('button:has-text("Create person")');
   // createAction redirects to /admin/people/<id>?saved=1
   await page.waitForURL((url) => /\/admin\/people\/[^/]+$/.test(url.pathname));
 

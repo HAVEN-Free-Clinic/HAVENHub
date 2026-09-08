@@ -299,6 +299,12 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
 
   const rows: ApplicantQueueRow[] = [];
   for (const app of applications) {
+    // Redundant with assessedEver today: priorLanguageVerdicts' source 2 already
+    // matches ApplicationLanguageAssessment by this same applicant identity, so
+    // it already covers this application's own rows. Kept anyway because
+    // priorLanguageVerdicts' name reads as "verdicts from PRIOR applications" --
+    // a future rescoping of it under that reading must not silently reopen a
+    // language this very application already has a verdict on.
     const assessedHere = new Set(app.languageAssessments.map((a) => a.language));
     const assessedEver = onFile.get(app.applicant.id) ?? new Map<string, LanguageVerdict>();
     const wanted = [SPANISH, ...app.languagesClaimed];

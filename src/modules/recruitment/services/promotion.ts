@@ -1,3 +1,4 @@
+import type { Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -363,9 +364,10 @@ export async function promoteContracts(
           newClaims,
           newDualRoles,
           // written: false means the guard above deliberately left PersonLanguage
-          // alone because a standing verdict was already newer. That entry must
-          // never reach the Spanish history mirror below, or it would overwrite
-          // the newer verdict's history row with the stale one just skipped.
+          // alone because a standing verdict was already newer or the same.
+          // That entry must never reach the Spanish history mirror below, or
+          // it would overwrite the newer-or-equal verdict's history row with
+          // the stale one just skipped.
           carriedSpanish: carried
             .filter((c) => c.language === SPANISH && c.written)
             .map((c) => ({ personId: person.id, verified: c.verified, score: c.score })),
@@ -441,14 +443,21 @@ export async function promoteContracts(
   // and PersonLanguage above is already the authoritative current score for
   // every entry that reaches this loop. carriedSpanish is pre-filtered to
   // WRITTEN carries only (see carryForwardApplicationAssessments): a skipped
-  // carry left a newer standing verdict in PersonLanguage untouched, and
-  // mirroring it here would overwrite that newer verdict's history row with
+  // carry left a newer-or-equal standing verdict in PersonLanguage untouched,
+  // and mirroring it here would overwrite that verdict's history row with
   // the stale one just skipped. Guarded on carriedSpanish.length first, so
   // the overwhelming majority of promotions (nothing carried) skip the
-  // getActiveTerm() read entirely, and so nothing after commit can turn a
-  // fully successful batch into a thrown error.
+  // getActiveTerm() read entirely. That read is wrapped below too, same as
+  // the mirror write itself: nothing in this tail may throw out of
+  // promoteContracts after every transaction has committed, matching the two
+  // notify calls above, which already swallow internally.
   if (carriedSpanish.length > 0) {
-    const activeTerm = await getActiveTerm();
+    let activeTerm: Term | null = null;
+    try {
+      activeTerm = await getActiveTerm();
+    } catch (err) {
+      log.error("[promotion] failed to read the active term for the Spanish assessment mirror", errorAttrs(err));
+    }
     if (activeTerm) {
       for (const c of carriedSpanish) {
         try {

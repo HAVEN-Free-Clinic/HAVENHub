@@ -503,9 +503,9 @@ export async function recordApplicationLanguageAssessment(
  *     it can skip re-claiming a language already on record as assessed.
  *   - the Spanish history mirror wants WRITTEN entries ONLY. `written: false`
  *     means a standing PersonLanguage verdict was already newer than this
- *     application's, so the write below was skipped to protect it; mirroring
- *     that (skipped, stale) entry into history anyway would overwrite a
- *     newer verdict's history row with an older one.
+ *     application's, or exactly as new, so the write below was skipped to
+ *     protect it; mirroring that (skipped, stale) entry into history anyway
+ *     would overwrite a newer-or-equal verdict's history row with an older one.
  */
 export async function carryForwardApplicationAssessments(
   personId: string,
@@ -537,8 +537,9 @@ export async function carryForwardApplicationAssessments(
     // Still pushed to `carried` either way, with `written` recording which
     // branch ran: the claim-loop digest consumer wants every carried
     // language (see the docstring above), but a skipped entry must never
-    // reach the Spanish history mirror, or it would overwrite a newer
-    // standing verdict's history row with the stale one just skipped.
+    // reach the Spanish history mirror, or it would overwrite a
+    // newer-or-equal standing verdict's history row with the stale one just
+    // skipped.
     const standing = standingVerdictAt.get(a.language);
     const written = !(standing && standing >= a.verifiedAt);
     carried.push({ language: a.language, verified: a.verified, score: a.score, written });

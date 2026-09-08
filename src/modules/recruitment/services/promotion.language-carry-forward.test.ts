@@ -222,5 +222,14 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
     });
     expect(row).toMatchObject({ verified: true, score: 4, verifiedById: ctx.assessor.id });
     expect(row.verifiedAt).toEqual(applicationVerifiedAt);
+    // Pins the positive direction of the written flag: a carry that DOES get
+    // written to PersonLanguage must also reach the Spanish history mirror,
+    // or this same filter, inverted, would pass every test in this file
+    // while silently disabling the mirror altogether.
+    const history = await prisma.spanishAssessmentRecord.findUniqueOrThrow({
+      where: { personId_term: { personId: existing.id, term: ctx.term.name } },
+    });
+    expect(history.score).toBe(4);
+    expect(history.verified).toBe(true);
   });
 });

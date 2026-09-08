@@ -160,6 +160,66 @@ export async function listAssignments(): Promise<
   });
 }
 
+/** Active-term member counts behind one assignment target. */
+export type ReachCounts = { directors: number; volunteers: number };
+
+/**
+ * Who a non-person assignment target actually reaches, in the ACTIVE term.
+ *
+ * The /admin/roles forms name their targets "department" and "kind", which
+ * reads like leadership but is not: loadAssignmentContext matches a
+ * department-targeted row against `departmentId IN (my departments)` with no
+ * regard for membership kind, so assigning a role to a department hands it to
+ * every ACTIVE member of that department, volunteers included.
+ *
+ * That is a legitimate thing to want (a department whose volunteers really do
+ * hold a permission), so this is deliberately NOT a block. It is the number the
+ * admin needs in front of them at the moment they choose a target, plus a
+ * standing readout on the assignments table so an over-broad row already in the
+ * database is visible instead of silent. Production shipped a Director role
+ * targeted at a 27-member department this way, and the first symptom was 24
+ * volunteers being emailed to approve their own shift requests.
+ *
+ * `cohort` counts DISTINCT people, not memberships: someone who directs two
+ * departments is one person a kind-targeted role reaches, not two.
+ *
+ * Returns empty counts when there is no ACTIVE term -- the same condition under
+ * which the engine resolves no department- or kind-targeted assignment at all.
+ */
+export async function assignmentReach(): Promise<{
+  byDepartmentId: Record<string, ReachCounts>;
+  cohort: ReachCounts;
+}> {
+  const empty = { directors: 0, volunteers: 0 };
+  const activeTerm = await getActiveTerm();
+  if (!activeTerm) return { byDepartmentId: {}, cohort: { ...empty } };
+
+  const memberships = await prisma.termMembership.findMany({
+    where: { termId: activeTerm.id, status: "ACTIVE" },
+    select: { personId: true, departmentId: true, kind: true },
+  });
+
+  const byDepartmentId: Record<string, ReachCounts> = {};
+  const cohortDirectors = new Set<string>();
+  const cohortVolunteers = new Set<string>();
+
+  for (const m of memberships) {
+    const counts = (byDepartmentId[m.departmentId] ??= { ...empty });
+    if (m.kind === "DIRECTOR") {
+      counts.directors += 1;
+      cohortDirectors.add(m.personId);
+    } else {
+      counts.volunteers += 1;
+      cohortVolunteers.add(m.personId);
+    }
+  }
+
+  return {
+    byDepartmentId,
+    cohort: { directors: cohortDirectors.size, volunteers: cohortVolunteers.size },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------

@@ -116,7 +116,7 @@ function TierCard({ title, rows, kind, action, h, showHandled }: { title: string
       ) : (
         <Table>
           <THead>
-            <tr><TH>Name</TH><TH>Committee avg</TH><TH>Ranked</TH><TH>Stage</TH><TH>Action</TH></tr>
+            <tr><TH>Name</TH><TH>Committee avg</TH><TH>Ranked</TH><TH>Stage</TH><TH><span className="sr-only">Actions</span></TH></tr>
           </THead>
           <tbody>{shown.map((r) => <RouteRow key={r.applicationId} r={r} kind={kind} h={h} />)}</tbody>
         </Table>
@@ -147,7 +147,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
       </p>
       <Table>
         <THead>
-          <tr><TH>Name</TH><TH>Committee avg</TH><TH>Returned by</TH><TH>Reason</TH><TH>Action</TH></tr>
+          <tr><TH>Name</TH><TH>Committee avg</TH><TH>Returned by</TH><TH>Reason</TH><TH><span className="sr-only">Actions</span></TH></tr>
         </THead>
         <tbody>
           {rows.map((r) => (

@@ -37,6 +37,7 @@ export function FilterBar({
   action,
   clearHref,
   submitLabel = "Filter",
+  resultCount,
   className,
   children,
 }: {
@@ -50,6 +51,18 @@ export function FilterBar({
   clearHref?: string;
   /** Defaults to "Filter". Override only where the verb is genuinely different. */
   submitLabel?: string;
+  /**
+   * How many rows the current filter matched, rendered on the row's trailing
+   * edge. Pass it rather than printing the count yourself: it moved to a
+   * different part of the screen on every page -- the PageHeader description on
+   * /admin/people, a `<p>` above the table on /volunteers/master and the two
+   * incidents queues, inside the filter row on /support/all and the applicants
+   * roster -- so the number a manager is watching jumped as they moved between
+   * lists. Here it sits next to the controls that changed it.
+   *
+   * Always formatted with a thousands separator; two queues were missing one.
+   */
+  resultCount?: { total: number; noun: string; pluralNoun?: string };
   /** Outer spacing only. The row's own flex classes are not overridable. */
   className?: string;
   children: ReactNode;
@@ -68,6 +81,17 @@ export function FilterBar({
         <Link href={clearHref} className={buttonClasses("ghost", "sm")}>
           Clear
         </Link>
+      )}
+      {resultCount && (
+        // ml-auto, so the count sits on the trailing edge however many controls
+        // precede it. pb-2 lines its baseline up with the labelled fields
+        // beside it rather than with the buttons.
+        <span className="ml-auto pb-2 text-sm whitespace-nowrap text-muted-foreground">
+          {resultCount.total.toLocaleString()}{" "}
+          {resultCount.total === 1
+            ? resultCount.noun
+            : (resultCount.pluralNoun ?? `${resultCount.noun}s`)}
+        </span>
       )}
     </NavForm>
   );

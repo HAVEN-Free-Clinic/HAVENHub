@@ -5,6 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { buttonClasses } from "@/platform/ui/button";
+import { TextLink } from "@/platform/ui/text-link";
 
 export default async function AttendingSpecialtiesListPage() {
   await requirePermission("schedule.manage_attendings");
@@ -29,13 +30,16 @@ export default async function AttendingSpecialtiesListPage() {
             <TH>Specialty clinic</TH>
             <TH>Attendings</TH>
             <TH>Clinic days</TH>
-            <TH></TH>
           </TR>
         </THead>
         <tbody>
           {specialties.map((s) => (
             <TR key={s.id}>
-              <TD className="font-medium">{s.code}</TD>
+              <TD>
+                <TextLink href={`/schedule/specialties/${s.id}`} className="font-medium">
+                  {s.code}
+                </TextLink>
+              </TD>
               <TD>{s.name}</TD>
               <TD>
                 {s.runsSpecialtyClinic ? (
@@ -46,19 +50,11 @@ export default async function AttendingSpecialtiesListPage() {
               </TD>
               <TD>{s._count.attendings}</TD>
               <TD>{s._count.clinicDays}</TD>
-              <TD>
-                <Link
-                  href={`/schedule/specialties/${s.id}`}
-                  className={buttonClasses("outline", "sm")}
-                >
-                  Edit
-                </Link>
-              </TD>
             </TR>
           ))}
           {specialties.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-sm text-subtle-foreground">
+              <TD colSpan={5} className="py-10 text-center text-sm text-subtle-foreground">
                 No specialties yet.
               </TD>
             </TR>

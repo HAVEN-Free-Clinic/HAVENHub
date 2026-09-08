@@ -510,6 +510,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       <FilterBar
         action="/incidents/strikes"
         clearHref={filtered ? "/incidents/strikes" : undefined}
+        resultCount={{ total, noun: "action" }}
         className="mt-10"
       >
         <FilterField label="Search" width="grow">
@@ -547,9 +548,6 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           <>
             {/* The empty state renders INSIDE the table below, so a filter that
                 matches nothing leaves the columns it filtered on visible. */}
-            <p className="mb-3 text-sm text-muted-foreground">
-              {total.toLocaleString()} action{total === 1 ? "" : "s"}
-            </p>
 
             <Table>
               <THead>

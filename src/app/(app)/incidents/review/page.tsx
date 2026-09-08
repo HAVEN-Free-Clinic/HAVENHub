@@ -128,6 +128,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
       <FilterBar
         action="/incidents/review"
         clearHref={hasFilters ? "/incidents/review" : undefined}
+        resultCount={{ total, noun: "report" }}
         className="mt-8"
       >
         <FilterField label="Search" width="grow">
@@ -182,9 +183,6 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
             Replacing the whole table -- which is what this did -- takes the
             headers away at exactly the moment they explain what happened. */}
         <>
-            <p className="mb-3 text-sm text-muted-foreground">
-              {total.toLocaleString()} report{total === 1 ? "" : "s"}
-            </p>
 
             <Table>
               <THead>

@@ -5,6 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { buttonClasses } from "@/platform/ui/button";
+import { TextLink } from "@/platform/ui/text-link";
 
 export default async function DepartmentsListPage() {
   await requirePermission("admin.manage_departments");
@@ -29,13 +30,16 @@ export default async function DepartmentsListPage() {
             <TH>Status</TH>
             <TH>Manages</TH>
             <TH>Members</TH>
-            <TH></TH>
           </TR>
         </THead>
         <tbody>
           {departments.map((d) => (
             <TR key={d.id} className={d.isActive ? "" : "opacity-60"}>
-              <TD className="font-medium">{d.code}</TD>
+              <TD>
+                <TextLink href={`/admin/departments/${d.id}`} className="font-medium">
+                  {d.code}
+                </TextLink>
+              </TD>
               <TD>{d.name}</TD>
               <TD>
                 {d.isActive ? (
@@ -46,16 +50,11 @@ export default async function DepartmentsListPage() {
               </TD>
               <TD>{d.managesDelegations.length}</TD>
               <TD>{d._count.memberships}</TD>
-              <TD>
-                <Link href={`/admin/departments/${d.id}`} className={buttonClasses("outline", "sm")}>
-                  Edit
-                </Link>
-              </TD>
             </TR>
           ))}
           {departments.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-sm text-subtle-foreground">
+              <TD colSpan={5} className="py-10 text-center text-sm text-subtle-foreground">
                 No departments yet.
               </TD>
             </TR>

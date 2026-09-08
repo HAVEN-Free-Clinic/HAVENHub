@@ -266,6 +266,7 @@ async function MasterComplianceBody(props: BodyProps) {
       <FilterBar
         action="/volunteers/master"
         clearHref={filtered ? "/volunteers/master" : undefined}
+        resultCount={{ total: result.total, noun: "member" }}
         className="mt-6"
       >
         <FilterField label="Search" width="grow">
@@ -295,11 +296,6 @@ async function MasterComplianceBody(props: BodyProps) {
 
       {/* Results */}
       <div className="mt-4">
-        {result.total > 0 && (
-          <p className="mb-3 text-sm text-muted-foreground">
-            {result.total.toLocaleString()} member{result.total === 1 ? "" : "s"}
-          </p>
-        )}
 
         <>
             <Table>

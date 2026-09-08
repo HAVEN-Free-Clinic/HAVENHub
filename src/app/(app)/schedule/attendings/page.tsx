@@ -66,17 +66,20 @@ const BASE = "/schedule/attendings";
  * directly to Client Components" on every render of this page. Only the href
  * STRING crosses into the actions below.
  */
-function withMessage(href: string, message: string): string {
+function withError(href: string, message: string): string {
   const sep = href.includes("?") ? "&" : "?";
-  return `${href}${sep}message=${encodeURIComponent(message)}`;
+  return `${href}${sep}error=${encodeURIComponent(message)}`;
 }
 
 /**
  * The same, for an outcome that is NOT a failure.
  *
- * `message` renders in an error-toned Alert, which is right for the domain
- * errors that reach it. A rollout summary ("42 enabled, 3 skipped") is a report,
- * not a problem, and showing it in red would read as one.
+ * The pair used to be `message` (rendered error-toned) and `notice` (success).
+ * `message` is now `error`, the app-wide convention FlashReader already claims,
+ * because the SAME name meant the opposite thing one route down:
+ * /schedule/attendings/[id] redirects `?message=Hub access enabled.` as a
+ * success. One param cannot carry both tones, so the failures took the name
+ * that already means failure everywhere else.
  */
 function withNotice(href: string, notice: string): string {
   const sep = href.includes("?") ? "&" : "?";
@@ -85,8 +88,6 @@ function withNotice(href: string, notice: string): string {
 
 type PageProps = {
   searchParams: Promise<{
-    message?: string;
-    notice?: string;
     view?: string;
     date?: string;
     target?: string;
@@ -199,7 +200,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           // writer besides that panel.
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => withMessage(selfHref, m),
+      errorRedirect: (m) => withError(selfHref, m),
       revalidate: BASE,
       successRedirect: selfHref,
     });
@@ -219,7 +220,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           assigned: true,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => withMessage(selfHref, m),
+      errorRedirect: (m) => withError(selfHref, m),
       revalidate: BASE,
       successRedirect: selfHref,
     });
@@ -239,7 +240,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           assigned: false,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => withMessage(selfHref, m),
+      errorRedirect: (m) => withError(selfHref, m),
       revalidate: BASE,
       successRedirect: selfHref,
     });
@@ -262,7 +263,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           onCallAttendingId: ((formData.get("attendingId") as string) ?? "").trim() || null,
         }),
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => withMessage(selfHref, m),
+      errorRedirect: (m) => withError(selfHref, m),
       revalidate: BASE,
       successRedirect: selfHref,
     });
@@ -283,7 +284,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
     // Not runAction: its successRedirect is a fixed string built before the work
     // runs, and the useful part of this action's outcome is the per-run tally.
     if (!(await canManageAttendings(actor.personId))) {
-      redirect(withMessage(selfHref, "You do not manage the attending schedule."));
+      redirect(withError(selfHref, "You do not manage the attending schedule."));
     }
     const r = await enableHubAccessForActiveRoster(actor.personId);
     const parts = [`${r.enabled} enabled`];
@@ -319,9 +320,11 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
         }
       },
       domainErrors: [BuilderValidationError, BuilderForbiddenError],
-      errorRedirect: (m) => withMessage(selfHref, m),
+      errorRedirect: (m) => withError(selfHref, m),
       revalidate: BASE,
-      successRedirect: withMessage(selfHref, "Reminders sent."),
+      // withNotice, not the failure channel: "Reminders sent." is a success,
+      // and it was being rendered in an error-toned Alert.
+      successRedirect: withNotice(selfHref, "Reminders sent."),
     });
   }
 
@@ -364,8 +367,10 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
         description={`The clinic's attending roster and who is covering each date · ${workingTerm.name}`}
       />
 
-      {sp.message && <Alert tone="error">{sp.message}</Alert>}
-      {sp.notice && <Alert tone="success">{sp.notice}</Alert>}
+      {/* No inline Alert for either: FlashReader claims `error` by convention
+          and `notice` by registry entry, toasts them, and strips them from the
+          URL -- so an inline branch here reported the same thing twice and then
+          lost its value on the router.replace. */}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

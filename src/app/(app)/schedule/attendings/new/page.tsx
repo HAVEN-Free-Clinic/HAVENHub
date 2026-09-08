@@ -10,7 +10,6 @@ import {
   AttendingForbiddenError,
 } from "@/modules/schedule/services/attendings";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
-import { Alert } from "@/platform/ui/alert";
 import { PageHeader } from "@/platform/ui/page-header";
 
 type PageProps = {
@@ -65,7 +64,9 @@ export default async function NewAttendingPage({ searchParams }: PageProps) {
       {/* createAction redirects here with ?error= on a domain failure. Without
           this a duplicate schedule name bounced the user back to a blank form
           with no indication of what went wrong. */}
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
       <AttendingForm
         action={createAction}
         mode="create"

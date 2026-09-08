@@ -30,7 +30,6 @@ import {
 } from "@/platform/languages/spanish-assessments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -264,8 +263,9 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         description="Members who reported speaking a language, and applicants to departments that confirm Spanish before accepting regardless of what they claimed, both awaiting an interpreting-department verdict. Verifying a member counts them as a provider for that language in scheduling."
       />
 
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
-      {sp.ok && <Alert tone="success">{sp.ok}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
 
       <nav className="flex gap-1 border-b border-border">
         <TabLink tab="queue" activeTab={activeTab} count={queueRows.length}>

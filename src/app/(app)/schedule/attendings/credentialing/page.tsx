@@ -14,7 +14,6 @@ import {
 } from "@/modules/schedule/services/attendings";
 import { runAction } from "@/platform/actions";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -33,9 +32,6 @@ import { TextLink } from "@/platform/ui/text-link";
  * documented process sits above the table so the tracker is not just a row of
  * boxes whose meaning lives in someone's head.
  */
-type PageProps = {
-  searchParams: Promise<{ message?: string }>;
-};
 
 /** The checkbox columns, in the order the process runs. */
 const STAGES = [
@@ -52,9 +48,8 @@ const STAGES = [
   { field: "approved", label: "Approved" },
 ] as const;
 
-export default async function CredentialingPage({ searchParams }: PageProps) {
+export default async function CredentialingPage() {
   const session = await requireModuleAccess("schedule");
-  const { message } = await searchParams;
 
   if (!(await canManageAttendings(session.personId))) redirect("/no-access");
 
@@ -74,7 +69,7 @@ export default async function CredentialingPage({ searchParams }: PageProps) {
           notes: String(formData.get("notes") ?? ""),
         }),
       domainErrors: [AttendingValidationError, AttendingForbiddenError],
-      errorRedirect: (m) => `/schedule/attendings/credentialing?message=${encodeURIComponent(m)}`,
+      errorRedirect: (m) => `/schedule/attendings/credentialing?error=${encodeURIComponent(m)}`,
       revalidate: "/schedule/attendings/credentialing",
       successRedirect: "/schedule/attendings/credentialing",
     });
@@ -93,7 +88,6 @@ export default async function CredentialingPage({ searchParams }: PageProps) {
         description="Onboarding new attendings, from the first email through to approval."
       />
 
-      {message && <Alert tone="error">{message}</Alert>}
 
       <section className="space-y-3">
         <SectionHeader level="title">The process</SectionHeader>

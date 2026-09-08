@@ -42,7 +42,6 @@ export default async function DecisionsPage({
     rejectionSummary(id),
   ]);
 
-  const error = first(query.error);
   const released = first(query.sent);
   const rejected = first(query.rejected);
 
@@ -57,7 +56,9 @@ export default async function DecisionsPage({
       />
       <PageHeader title="Decisions" description={cycle.title} />
 
-      {error && <Alert tone="error">{error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
       {released && (
         <Alert tone="success">
           Sent {released} acceptance {released === "1" ? "email" : "emails"}.

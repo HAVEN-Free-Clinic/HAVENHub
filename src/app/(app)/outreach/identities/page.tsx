@@ -66,7 +66,7 @@ export default async function SendingIdentitiesPage({
   searchParams: Promise<{ error?: string; sent?: string }>;
 }) {
   const actor = await requirePermission("outreach.manage_scopes");
-  const { error, sent } = await searchParams;
+  const { sent } = await searchParams;
 
   const [identities, gap, people, roles, mail, me] = await Promise.all([
     listIssuedIdentities(),
@@ -244,7 +244,9 @@ export default async function SendingIdentitiesPage({
           value by the time the page re-renders. Verified in a browser. Left in
           place so a refusal is still visible if that param ever stops being
           claimed, which is the failure this page must not have. */}
-      {error && <Alert tone="error">{error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
       {sent && (
         <Alert tone="success">
           {/* {" "} after the interpolation on purpose: JSX drops the leading

@@ -17,7 +17,6 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input, Field } from "@/platform/ui/input";
-import { Alert } from "@/platform/ui/alert";
 import { GRAPH_SENDER_ADDRESSES, SENDING_DOMAINS } from "@/platform/email/sending-domains";
 import { mailConnectionStatus } from "@/platform/email/oauth";
 import { describeAutoIssue } from "@/platform/email/sender-identity";
@@ -29,14 +28,11 @@ import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export default async function ScopeDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
 }) {
   await requirePermission("outreach.manage_scopes");
   const { id } = await params;
-  const { error } = await searchParams;
   const scope = await getScope(id);
   if (!scope) notFound();
 
@@ -176,7 +172,9 @@ export default async function ScopeDetailPage({
     <div className="space-y-8">
       <SetBreadcrumbLeaf label={scope.name} />
       <PageHeader title={scope.name} description="Who campaigns sent under this scope may reach." />
-      {error && <Alert tone="warning">{error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
 
       <form action={saveAction} className="space-y-6">
         <div className="max-w-sm">

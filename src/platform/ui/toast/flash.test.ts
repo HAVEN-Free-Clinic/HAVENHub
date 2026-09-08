@@ -1104,3 +1104,83 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual([]);
   });
 });
+
+describe("params that used to be pinned to the URL forever", () => {
+  // Three params were registered nowhere, so FlashReader never claimed them and
+  // never stripped them. Their inline Alert survived refresh, back-navigation
+  // and a shared link -- while the param NEXT TO THEM on the same page was a
+  // four-second toast. Same page, same kind of action, opposite lifetimes.
+
+  it("claims `rejected`, so both decision buttons now behave the same way", () => {
+    // Release decisions redirects ?sent=&skipped= (registered, toasts, strips).
+    // Send rejections redirected ?rejected= and stuck.
+    const result = classifyFlashParams(
+      paramsOf({ rejected: "12" }),
+      "/recruitment/cycles/abc123/decisions",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Sent 12 not-selected emails." }]);
+    expect(result.stripParams).toEqual(["rejected"]);
+  });
+
+  it("says 'email' not 'emails' for one", () => {
+    const result = classifyFlashParams(
+      paramsOf({ rejected: "1" }),
+      "/recruitment/cycles/abc123/decisions",
+    );
+    expect(result.toasts[0].message).toBe("Sent 1 not-selected email.");
+  });
+
+  it("claims `ok` on the language review, whose neighbouring `error` was already claimed", () => {
+    const result = classifyFlashParams(
+      paramsOf({ ok: "Assessment saved." }),
+      "/volunteers/spanish-review",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Assessment saved." }]);
+    expect(result.stripParams).toEqual(["ok"]);
+  });
+
+  it("claims `notice` on the attendings roster", () => {
+    const result = classifyFlashParams(
+      paramsOf({ notice: "Reminders sent." }),
+      "/schedule/attendings",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Reminders sent." }]);
+  });
+
+  it("treats `message` as a success only BELOW the attendings index", () => {
+    // The index and /credentialing used `message` for FAILURES and now redirect
+    // with `error`; /schedule/attendings/[id] uses it for "Hub access enabled."
+    // Scoping the entry to the subtree is what keeps one name from carrying
+    // both tones.
+    const child = classifyFlashParams(
+      paramsOf({ message: "Hub access enabled. They have been emailed." }),
+      "/schedule/attendings/att_1",
+    );
+    expect(child.toasts).toEqual([
+      { tone: "success", message: "Hub access enabled. They have been emailed." },
+    ]);
+
+    const index = classifyFlashParams(paramsOf({ message: "anything" }), "/schedule/attendings");
+    expect(index.toasts).toEqual([]);
+  });
+
+  it("still routes the attendings index's failures through the error convention", () => {
+    const result = classifyFlashParams(
+      paramsOf({ error: "You do not manage the attending schedule." }),
+      "/schedule/attendings",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "error", message: "You do not manage the attending schedule." },
+    ]);
+    expect(result.stripParams).toEqual(["error"]);
+  });
+
+  it("leaves /schedule's own two `message` values alone", () => {
+    // Those are matchValues-scoped to /schedule exactly; the new subtree entry
+    // must not shadow them.
+    const result = classifyFlashParams(paramsOf({ message: "reminded" }), "/schedule");
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Reminder sent to your department directors." },
+    ]);
+  });
+});

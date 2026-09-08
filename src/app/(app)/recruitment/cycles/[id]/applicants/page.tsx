@@ -15,7 +15,9 @@ import { formatScoreSummary, scoreAverage } from "@/modules/recruitment/engine/s
 import { applicationStage, applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
-import { speedScoreAction, loadReviewApplicationAction } from "./actions";
+import { ScoringAssignmentLauncher } from "@/modules/recruitment/components/scoring-assignment-launcher";
+import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
+import { speedScoreAction, loadReviewApplicationAction, loadScoringPanelAction, setCycleScoringAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
 import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
@@ -76,15 +78,22 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const apps = await listApplicantsForReview(id, person.personId);
   // Only meaningful when the scoped list came back empty; see awaitingRoutingCount.
   const unrouted = apps.length === 0 ? await awaitingRoutingCount(id, person.personId) : 0;
-  const [scope, canScorePerm, canOpenOverview] = await Promise.all([
+  const [scope, canScorePerm, canOpenOverview, queueScope] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.score"),
     // This page admits committee scorers and scoped reviewers who lack
     // recruitment.access, but the cycle overview enforces it, so the breadcrumb
     // must not offer them a link that bounces to /no-access.
     can(person.personId, "recruitment.access"),
+    // Which applications, if any, were divided out to this viewer. `pooled` is
+    // false on a cycle that never set a scorer pool, and the queue below then
+    // behaves exactly as it did before assignments existed.
+    scorerQueueScope(id, person.personId),
   ]);
   const canScore = scope.all || canScorePerm;
+  // Null on a cycle with no scorer pool. The column default would otherwise
+  // read as a target nobody set and mark every under-two row short.
+  const coverageTarget = queueScope.pooled ? cycle.scoresPerApplication : null;
   // Who is coming back after sitting terms out. Batched for the whole roster
   // (see serviceGapsForCycle) rather than per row: the Type column says
   // "Renewal" for a continuous returner and a lapsed one alike, and which of the
@@ -113,6 +122,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         // queue with work that must never be done -- on a renewal-heavy cycle,
         // most of it.
         .filter((a) => !isHandledStage(stageOf(a)))
+        // On a pooled cycle you get your own pile and nobody else's. That is
+        // the whole point: nobody should have to read every application to
+        // produce an average over a few of them.
+        .filter((a) => !queueScope.pooled || queueScope.assignedIds.has(a.id))
         .map((a) => ({
           applicationId: a.id,
           name: `${a.applicant.firstName} ${a.applicant.lastName}`,
@@ -166,6 +179,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader title="Applicants" description={cycle.title} />
         <div className="flex flex-wrap items-center gap-2">
+          {scope.all && (
+            <ScoringAssignmentLauncher
+              cycleId={id}
+              onLoad={loadScoringPanelAction}
+              onSave={setCycleScoringAction}
+            />
+          )}
           {canScore && speedItems.length > 0 && (
             <SpeedScoreLauncher
               items={speedItems}
@@ -267,7 +287,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   </span>
                 </TD>
                 <TD className="text-foreground-soft">
-                  {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)))}
+                  {/* The target turns "3.7 avg" into "3.7 avg · 2 of 3
+                      reviewers" while a row is short, because speed routing
+                      ranks an average over two reads against one over three. */}
+                  {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
                 <TD>
                   <Badge>{applicationStageLabel[stageOf(a)]}</Badge>

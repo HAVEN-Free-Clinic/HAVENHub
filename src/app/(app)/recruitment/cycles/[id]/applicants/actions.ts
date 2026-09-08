@@ -9,6 +9,12 @@ import { createInterview, InterviewError } from "@/modules/recruitment/services/
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
+import {
+  loadScoringPanel,
+  setCycleScoring,
+  ScoreAssignmentError,
+  type ScoringPanel,
+} from "@/modules/recruitment/services/score-assignment";
 import { reopenWithdrawnApplication, WithdrawError } from "@/modules/recruitment/services/withdraw";
 import {
   clearApplicantAbsenceExcuse,
@@ -198,6 +204,46 @@ export async function speedScoreAction(
     return {};
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof CommitteeScoreError) return { error: err.message };
+    throw err;
+  }
+}
+
+/** Everything the scoring-assignment panel renders. review_all only, enforced in
+ *  the service. */
+export async function loadScoringPanelAction(
+  cycleId: string,
+): Promise<{ panel: ScoringPanel } | { error: string }> {
+  const person = await requirePersonSession();
+  try {
+    return { panel: await loadScoringPanel(cycleId, person.personId) };
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof ScoreAssignmentError) return { error: err.message };
+    throw err;
+  }
+}
+
+/** Save who is scoring this cycle and how many reads each application needs,
+ *  then divide the roster to match. Idempotent: pressing it again tops up what
+ *  is short without disturbing what is settled.
+ *
+ *  Revalidates, unlike speedScoreAction: this changes whose queue holds what, so
+ *  the roster behind the modal is stale the moment it returns. */
+export async function setCycleScoringAction(
+  cycleId: string,
+  input: { scorerIds: string[]; target: number },
+): Promise<{ added: number; removed: number; error?: string }> {
+  const person = await requirePersonSession();
+  try {
+    const result = await setCycleScoring(cycleId, input, person.personId);
+    revalidatePath(`/recruitment/cycles/${cycleId}/applicants`);
+    return result;
+  } catch (err) {
+    // Counts alongside the message so this fits the { error?: string } shape
+    // runAction requires, which is what turns a REJECTED action into a visible
+    // banner rather than a silently-cleared spinner.
+    if (err instanceof RecruitmentAuthError || err instanceof ScoreAssignmentError) {
+      return { added: 0, removed: 0, error: err.message };
+    }
     throw err;
   }
 }

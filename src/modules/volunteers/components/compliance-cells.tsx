@@ -45,6 +45,10 @@ export function taskState(
 }
 
 /** Header cells for everything between the name/second column and Actions. */
+/** How many <TH>s ComplianceHeaderCells emits. Exported so a caller computing a
+ *  colSpan for an empty row cannot drift from the header it has to span. */
+export const COMPLIANCE_COLUMN_COUNT = 8;
+
 export function ComplianceHeaderCells() {
   return (
     <>

@@ -19,12 +19,13 @@ import { listReviewQueue, CONCERN_TYPES } from "@/modules/incidents/services/rep
 import type { IncidentReportStatus } from "@prisma/client";
 import { PageHeader } from "@/platform/ui/page-header";
 import { TextLink } from "@/platform/ui/text-link";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Table, THead, TR, TH, TD, TableEmpty } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
+import { ListEmpty } from "@/platform/ui/list-empty";
 import { Pagination } from "@/platform/ui/pagination";
 import { DateOnly } from "@/platform/dates/display";
 import { formatSubjectNames } from "@/app/(app)/incidents/subject-display";
@@ -176,14 +177,13 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
 
       {/* Queue table */}
       <section className="mt-6">
-        {rows.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <p>No incident reports match these filters.</p>
-          </div>
-        ) : (
-          <>
+        {/* The empty state renders INSIDE the table, so the reviewer whose
+            filter matched nothing still sees the columns they filtered on.
+            Replacing the whole table -- which is what this did -- takes the
+            headers away at exactly the moment they explain what happened. */}
+        <>
             <p className="mb-3 text-sm text-muted-foreground">
-              {total} report{total === 1 ? "" : "s"}
+              {total.toLocaleString()} report{total === 1 ? "" : "s"}
             </p>
 
             <Table>
@@ -228,14 +228,20 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                     </TD>
                   </TR>
                 ))}
+                {rows.length === 0 && (
+                  <TableEmpty colSpan={8}>
+                    <ListEmpty filtered={hasFilters} noun="incident reports" />
+                  </TableEmpty>
+                )}
               </tbody>
             </Table>
 
-            <div className="mt-4">
-              <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
-            </div>
+            {rows.length > 0 && (
+              <div className="mt-4">
+                <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+              </div>
+            )}
           </>
-        )}
       </section>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TextLink } from "@/platform/ui/text-link";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -11,6 +11,7 @@ import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { ListEmpty } from "@/platform/ui/list-empty";
 import {
   countEligible, filterRows, isSelectable,
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
@@ -265,11 +266,11 @@ export function OnboardingTable({
             );
           })}
           {visible.length === 0 && (
-            <TR>
-              <TD colSpan={4} className="py-10 text-center text-subtle-foreground">
-                {rows.length === 0 ? "No accepted applicants yet." : "No applicants match these filters."}
-              </TD>
-            </TR>
+            <TableEmpty colSpan={4}>
+              {/* This table got the branch right before ListEmpty existed; it
+                  now shares the wording so the app says one thing. */}
+              <ListEmpty filtered={rows.length > 0} noun="accepted applicants" />
+            </TableEmpty>
           )}
         </tbody>
       </Table>

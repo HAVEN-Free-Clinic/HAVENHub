@@ -29,10 +29,18 @@ import { TextLink } from "@/platform/ui/text-link";
 import { SupportStatusBadge } from "./status-badge";
 import { CATEGORY_LABELS } from "@/modules/support/labels";
 import type { TechRequestListRow } from "../services/tech-request";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 type RequestListProps = {
   rows: TechRequestListRow[];
   hrefBase: string;
+  /**
+   * Whether the parent has applied a filter or search. This component receives
+   * already-filtered rows and cannot tell an empty queue from a filter that
+   * matched nothing -- and it rendered "No requests yet." for both, on a queue
+   * holding hundreds of tickets.
+   */
+  filtered?: boolean;
   showRequester?: boolean;
   /**
    * Requester ids that are cleared, for the verified badge. Plain string[]
@@ -85,6 +93,7 @@ function ConversationCell({
 export function RequestList({
   rows,
   hrefBase,
+  filtered = false,
   showRequester = false,
   intercomAction,
   clearedPersonIds = [],
@@ -92,8 +101,12 @@ export function RequestList({
   const clearedIds = new Set(clearedPersonIds);
   if (rows.length === 0) {
     return (
-      <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-        No requests yet.
+      <Card pad={false}>
+        <ListEmpty
+          filtered={filtered}
+          noun="requests"
+          emptyDescription="Requests you submit to IT Support show up here."
+        />
       </Card>
     );
   }

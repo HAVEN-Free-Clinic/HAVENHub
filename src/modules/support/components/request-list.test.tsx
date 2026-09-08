@@ -107,6 +107,16 @@ describe("RequestList", () => {
 
   it("shows the empty state when there are no rows", () => {
     const html = renderToStaticMarkup(<RequestList rows={[]} hrefBase="/support" />);
-    expect(html).toContain("No requests yet.");
+    expect(html).toContain("No requests yet");
+  });
+
+  it("blames the filter, not the data, when the parent says a filter is applied", () => {
+    // This component receives already-filtered rows and cannot tell an empty
+    // queue from a filter that matched nothing. It said "No requests yet." for
+    // both -- on /support/all, a queue holding hundreds of tickets, that
+    // sentence asserts the opposite of the truth.
+    const html = renderToStaticMarkup(<RequestList rows={[]} hrefBase="/support" filtered />);
+    expect(html).toContain("match these filters");
+    expect(html).not.toContain("yet");
   });
 });

@@ -13,6 +13,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 /**
  * Hard cap on how many rows a single search renders. Paired with the total
@@ -99,7 +100,7 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
           {ordered.length === 0 && (
             <TR>
               <TD colSpan={3} className="py-10 text-center text-subtle-foreground">
-                {term ? "No matches." : "No imported identities."}
+                <ListEmpty filtered={Boolean(term)} noun="imported identities" />
               </TD>
             </TR>
           )}

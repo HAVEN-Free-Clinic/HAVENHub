@@ -77,6 +77,9 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   }
 
   const effectiveStatus = status ?? "ACTIVE";
+  // One boolean for the Clear link AND the empty state, so the list can never
+  // offer to clear a filter while claiming there is nothing to find.
+  const filtered = Boolean(q) || effectiveStatus !== "ACTIVE";
 
   return (
     <div className="space-y-6">
@@ -95,7 +98,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
       />
 
       {/* Search form (GET) */}
-      <FilterBar clearHref={q || effectiveStatus !== "ACTIVE" ? "/admin/people" : undefined}>
+      <FilterBar clearHref={filtered ? "/admin/people" : undefined}>
         <FilterField label="Search" width="grow">
           <Input
             type="search"
@@ -113,7 +116,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
         </FilterField>
       </FilterBar>
 
-      <PeopleTable rows={rowsWithCounts} />
+      <PeopleTable rows={rowsWithCounts} filtered={filtered} />
 
       <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
     </div>

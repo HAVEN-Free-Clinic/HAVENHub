@@ -82,7 +82,13 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   // carries the real card LABELS (so the swap does not shift the layout), which
   // means the assertions below would pass against a placeholder and prove
   // nothing. The roster count line is rendered only by the resolved body.
-  await expect(page.getByText(/^(No members found\.|\d+ members?)$/)).toBeVisible();
+  // The count line renders only when the roster has rows; an empty roster shows
+  // ListEmpty instead, whose wording depends on whether a filter is set. Accept
+  // any of the three, so this stays a "body resolved" signal rather than an
+  // assertion about how many members the seed happens to have.
+  await expect(
+    page.getByText(/^([\d,]+ members?|No members yet|No members match these filters)$/),
+  ).toBeVisible();
 
   // Summary stat cards are rendered as plain <p> elements (no aria-label).
   // The beforeEach seeds a COMPLIANT ITCM member, so "Compliant" will always be present.

@@ -138,10 +138,12 @@ test("admin opens /admin/audit and sees the table and the entityType select", as
   await expect(page.locator('select[name="entityType"]')).toBeVisible();
   // The filter action input must be present.
   await expect(page.locator('input[name="action"]')).toBeVisible();
-  // The audit view renders either the populated table or its "No audit entries found."
-  // empty state. Row content is not deterministic on a fresh CI seed, so accept either.
+  // The audit view renders either the populated table or its empty state. Row
+  // content is not deterministic on a fresh CI seed, so accept either. The
+  // empty copy now branches on whether a filter is set (ListEmpty), and this
+  // page is unfiltered here, so it is the "yet" form.
   await expect(
-    page.locator("table").or(page.getByText(/No audit entries found/i))
+    page.locator("table").or(page.getByText(/No audit entries yet/i))
   ).toBeVisible();
 });
 

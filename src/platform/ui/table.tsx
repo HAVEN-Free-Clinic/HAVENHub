@@ -125,3 +125,27 @@ export function TD({ className, ...rest }: ComponentProps<"td">) {
     <td {...rest} className={cx("px-3 py-2.5", className)} />
   );
 }
+
+/**
+ * The "nothing here" row, rendered INSIDE the table so the headers survive it.
+ *
+ * Four container shapes were in use for an empty list: a padded Card, a
+ * centred flex div above the table, a `<p>`, and this. Only this one keeps the
+ * column headers on screen -- and on /incidents/review the reviewer whose
+ * filter matched nothing lost the very headers naming what they had filtered
+ * on. The other three replace the table entirely, so the page forgets what it
+ * was showing at exactly the moment the user needs to be told.
+ *
+ * `colSpan` must equal the number of `<TH>`s. There is no way to check that
+ * from here: the header row is built by the caller and a `<td>` that spans too
+ * few columns simply renders narrow.
+ */
+export function TableEmpty({ colSpan, children }: { colSpan: number; children: ReactNode }) {
+  return (
+    <TR>
+      <TD colSpan={colSpan} className="py-12 text-center">
+        {children}
+      </TD>
+    </TR>
+  );
+}

@@ -17,6 +17,9 @@ export default async function AuditPage({ searchParams }: PageProps) {
   const { action, entityType, page: pageStr } = await searchParams;
 
   const pageNum = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
+  // One boolean for the Clear link and the empty state, so the log cannot offer
+  // to clear a filter while claiming there is nothing to find.
+  const filtered = Boolean(action || entityType);
 
   const [{ rows, total, page, pageCount }, entityTypes] = await Promise.all([
     queryAudit({
@@ -43,7 +46,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
       />
 
       {/* Filter bar (GET form) */}
-      <FilterBar clearHref={action || entityType ? "/admin/audit" : undefined}>
+      <FilterBar clearHref={filtered ? "/admin/audit" : undefined}>
         <FilterField label="Action" width="grow">
           <Input
             type="search"
@@ -64,7 +67,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
         </FilterField>
       </FilterBar>
 
-      <AuditTable rows={rows} />
+      <AuditTable rows={rows} filtered={filtered} />
 
       <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
     </div>

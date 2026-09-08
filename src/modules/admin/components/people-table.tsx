@@ -12,15 +12,23 @@ import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TextLink } from "@/platform/ui/text-link";
 import { PersonPhoto } from "@/platform/ui/person-photo";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 /** Verified language codes, resolved by the page (see verifiedLanguagesByPerson). */
 type Row = Person & { _membershipCount?: number; verifiedLanguages: string[] };
 
-export function PeopleTable({ rows }: { rows: Row[] }) {
+export function PeopleTable({
+  rows,
+  filtered = false,
+}: {
+  rows: Row[];
+  /** Whether the page applied a search or filter. See ListEmpty. */
+  filtered?: boolean;
+}) {
   if (rows.length === 0) {
     return (
-      <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-        No people found.
+      <Card pad={false}>
+        <ListEmpty filtered={filtered} noun="people" />
       </Card>
     );
   }

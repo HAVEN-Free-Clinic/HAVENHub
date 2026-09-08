@@ -512,6 +512,54 @@ describe("listLanguageReviewQueue with both sources", () => {
 
     expect(rows[0].departments).toEqual(["EDUC", "INTP (dual)"]);
   });
+
+  // Applicant.applicantPersonId is set for a signed-in renewal, and a
+  // renewal's departmentChoices is [renewalDepartment]. An ACTIVE member with
+  // an unassessed claim who renews into a lane department therefore satisfies
+  // BOTH the member half (languageReviewWhere) and the applicant lane at once.
+  // A claim is not a verdict, so priorLanguageVerdicts does not suppress
+  // either row -- the queue itself must keep only one.
+  it("suppresses the member row for a renewing ACTIVE person also queued as an applicant, keeping the applicant row", async () => {
+    const lead = await prisma.person.create({ data: { name: "Lead" } });
+    await prisma.department.create({
+      data: { code: "PATS", name: "Patient Services", assessLanguageBeforeAcceptance: true },
+    });
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(),
+        status: "ACTIVE", clinicDates: [],
+      },
+    });
+    const cycle = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER", termId: term.id, title: "Fall 2026 Renewals",
+        publicSlug: `s-${Math.random()}`, departments: ["PATS"],
+        createdById: lead.id, status: "OPEN",
+      },
+    });
+    const member = await person("Renewing Ada");
+    await claimLanguage(member.id, "es");
+    const applicant = await prisma.applicant.create({
+      data: {
+        cycleId: cycle.id, firstName: "Ada", lastName: "Renewing",
+        email: "ada-renew@yale.edu", emailLower: "ada-renew@yale.edu",
+        applicantPersonId: member.id,
+      },
+    });
+    await prisma.application.create({
+      data: {
+        cycleId: cycle.id, applicantId: applicant.id, answers: {},
+        applicantType: "RENEWAL", departmentChoices: ["PATS"], renewalDepartment: "PATS",
+        status: "SUBMITTED", submittedAt: new Date(),
+      },
+    });
+
+    const rows = await listLanguageReviewQueue();
+
+    const esRows = rows.filter((r) => r.language === "es");
+    expect(esRows).toHaveLength(1);
+    expect(esRows[0].source).toBe("applicant");
+  });
 });
 
 describe("listLanguageReviewQueue member department context", () => {
@@ -528,23 +576,23 @@ describe("listLanguageReviewQueue member department context", () => {
     ]);
     const member = await person("Two Departments");
     await claimLanguage(member.id, "es");
-    // Created PATS-then-EDUC on purpose: the row order out of the DB is not
-    // alphabetical, so this only comes back ["EDUC", "PATS"] if the queue
-    // actually sorts rather than passing the query's own order through.
-    await Promise.all([
-      prisma.termMembership.create({
-        data: {
-          personId: member.id, termId: term.id, departmentId: pats.id,
-          kind: "VOLUNTEER", status: "ACTIVE",
-        },
-      }),
-      prisma.termMembership.create({
-        data: {
-          personId: member.id, termId: term.id, departmentId: educ.id,
-          kind: "VOLUNTEER", status: "ACTIVE",
-        },
-      }),
-    ]);
+    // Created PATS-then-EDUC on purpose, and sequentially rather than in
+    // Promise.all: two concurrent inserts race, which would make the DB's own
+    // return order (and so the strength of this test) nondeterministic. This
+    // only comes back ["EDUC", "PATS"] if the queue actually sorts rather than
+    // passing the query's own insertion order through.
+    await prisma.termMembership.create({
+      data: {
+        personId: member.id, termId: term.id, departmentId: pats.id,
+        kind: "VOLUNTEER", status: "ACTIVE",
+      },
+    });
+    await prisma.termMembership.create({
+      data: {
+        personId: member.id, termId: term.id, departmentId: educ.id,
+        kind: "VOLUNTEER", status: "ACTIVE",
+      },
+    });
 
     const [row] = await listLanguageReviewQueue();
 

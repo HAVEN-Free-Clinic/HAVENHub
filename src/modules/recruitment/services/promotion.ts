@@ -220,18 +220,27 @@ export async function promoteContracts(
         // transaction stretched it across a permission resolution plus a
         // notification write per reviewer, and mailed them about promotions
         // that then rolled back.
-        // Verdicts INTP recorded before the accept decision. Written first so
-        // the claim loop below can skip a language already carried, rather
-        // than run a redundant claimLanguage call against a row it would
-        // leave unchanged (its update branch only ever touches selfReported).
+        // Verdicts INTP recorded before the accept decision. Written first, so
+        // a language it assessed already carries its verdict onto PersonLanguage
+        // before the claim loop below touches the same row.
         const carried = application
           ? await carryForwardApplicationAssessments(person.id, application.id, tx)
           : [];
-        const carriedLanguages = new Set(carried.map((c) => c.language));
 
+        // Every ACTUALLY CLAIMED language runs through claimLanguage, whether
+        // or not INTP already assessed it pre-acceptance. A language carried
+        // above but never claimed (Spanish is assessed regardless of claim, per
+        // decision 1) must NOT run through here: claimLanguage always sets
+        // selfReported true, and this applicant never made that claim.
+        // claimLanguage's own upsert is safe to run on an already-assessed row:
+        // its update branch only ever touches selfReported, leaving the verdict
+        // carryForwardApplicationAssessments just wrote untouched. Its `created`
+        // flag comes from a read taken BEFORE that upsert, so a language the
+        // carry-forward above already created reads as `created: false` here
+        // and stays out of the new-claims digest -- the carry already IS the
+        // fact worth knowing, not a new claim.
         const newClaims: Array<{ personId: string; language: string }> = [];
         for (const code of claimedLanguages) {
-          if (carriedLanguages.has(code)) continue;
           const { created } = await claimLanguage(person.id, code, tx);
           if (created) newClaims.push({ personId: person.id, language: code });
         }

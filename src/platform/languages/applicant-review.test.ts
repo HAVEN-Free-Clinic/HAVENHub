@@ -143,6 +143,28 @@ describe("priorLanguageVerdicts", () => {
     });
   });
 
+  // scripts/import-spanish-assessments.ts never sets `verified` ("verified is
+  // decided in Hub by a reviewer, never by the import"), so every imported row
+  // stores it as SQL NULL. Coercing that to true here would let the review
+  // card assert a "Verified" outcome nobody ever recorded.
+  it("passes a history row's unset verified through as null, not coerced to true", async () => {
+    const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "", name: "Ada Lovelace", personId: person.id,
+        term: "Spring 2019", termRank: 20191, score: 4,
+        // verified omitted, matching every row import-spanish-assessments.ts writes.
+      },
+    });
+    const { applicant } = await applicantIn("Fall 2026", "ada@yale.edu", person.id);
+
+    const map = await priorLanguageVerdicts([applicant.id]);
+
+    const verdict = map.get(applicant.id)?.get("es");
+    expect(verdict?.verified).toBeNull();
+    expect(verdict?.score).toBe(4);
+  });
+
   it("returns an empty map for an applicant with nothing on file", async () => {
     const { applicant } = await applicantIn("Fall 2026", "nobody@yale.edu");
 

@@ -24,6 +24,7 @@ export function LanguageAssessmentCard({
   applicationId,
   languages,
   verdicts,
+  assessorNames,
   canAssess,
   action,
 }: {
@@ -32,6 +33,8 @@ export function LanguageAssessmentCard({
   languages: string[];
   /** language -> the verdict that stands for this applicant, from priorLanguageVerdicts. */
   verdicts: Map<string, LanguageVerdict>;
+  /** assessedById -> display name. History-sourced verdicts carry no assessor id and are absent here. */
+  assessorNames: Map<string, string>;
   canAssess: boolean;
   action: (formData: FormData) => Promise<void>;
 }) {
@@ -46,6 +49,7 @@ export function LanguageAssessmentCard({
         {languages.map((language) => {
           const verdict = verdicts.get(language);
           const assessedHere = verdict?.applicationId === applicationId;
+          const assessorName = verdict?.assessedById ? assessorNames.get(verdict.assessedById) : undefined;
           return (
             <li key={language} className="flex flex-wrap items-center gap-2 text-sm">
               <Badge>{languageLabel(language)}</Badge>
@@ -53,29 +57,40 @@ export function LanguageAssessmentCard({
                 <span className="text-muted-foreground">Awaiting assessment</span>
               ) : (
                 <>
-                  <Badge tone={verdict.verified ? "success" : "critical"}>
-                    {verdict.verified ? "Verified" : "Not verified"}
-                  </Badge>
+                  {/* verified is tri-state: an imported history row can carry a
+                      human's involvement with no recorded yes/no outcome (see
+                      LanguageVerdict.verified). That must never read as a green
+                      "Verified" nobody actually recorded. */}
+                  {verdict.verified === null ? (
+                    <Badge>Outcome not recorded</Badge>
+                  ) : (
+                    <Badge tone={verdict.verified ? "success" : "critical"}>
+                      {verdict.verified ? "Verified" : "Not verified"}
+                    </Badge>
+                  )}
                   {language === SPANISH && verdict.score !== null && (
                     <Badge tone={spanishScoreTone(verdict.score)}>
                       {formatSpanishScore(verdict.score, null)}
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {assessedHere ? "assessed for this application" : verdictOrigin(verdict)},{" "}
-                    <DateTime value={verdict.assessedAt} />
+                    {assessedHere ? "assessed for this application" : verdictOrigin(verdict)}
+                    {assessorName ? ` by ${assessorName}` : ""}, <DateTime value={verdict.assessedAt} />
                   </span>
                 </>
               )}
-              {/* Only for a language a stale on-file verdict is suppressing from
-                  this application's own queue: the case this exists for is an
-                  applicant whose only verdict is an old "no" who now claims
-                  fluency, and a reviewer who could not record the new number
-                  here would have to go to the review queue to finish the job. */}
-              {canAssess && verdict && !assessedHere && (
+              {/* Always available to a permission holder, not just for a
+                  suppressed on-file verdict: a mistyped score or a wrong
+                  yes/no recorded for THIS application must be correctable too,
+                  not permanent the moment it is saved. ScoreOptions below
+                  defaults to the verdict's own score, so a correction starts
+                  from what is on record rather than blank. */}
+              {canAssess && verdict && (
                 <form action={action} className="ml-auto flex flex-wrap items-center gap-2">
                   <input type="hidden" name="language" value={language} />
-                  <span className="text-xs text-subtle-foreground">Assess anyway:</span>
+                  <span className="text-xs text-subtle-foreground">
+                    {assessedHere ? "Re-record:" : "Assess anyway:"}
+                  </span>
                   {language === SPANISH && (
                     <ScoreOptions name="score" defaultValue={String(verdict.score ?? "")} />
                   )}

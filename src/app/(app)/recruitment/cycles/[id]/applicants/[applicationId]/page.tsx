@@ -110,6 +110,17 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const languageVerdicts = inLane
     ? ((await priorLanguageVerdicts([app.applicant.id])).get(app.applicant.id) ?? new Map())
     : new Map();
+  // Assessor names for the card: PersonLanguage.verifiedById and
+  // ApplicationLanguageAssessment.verifiedById are bare ids (no FK), so this is
+  // its own lookup. A history-sourced verdict carries no assessedById and is
+  // naturally absent from the map.
+  const assessorIds = [...new Set(
+    [...languageVerdicts.values()].map((v) => v.assessedById).filter((id): id is string => id !== null),
+  )];
+  const assessors = assessorIds.length
+    ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
+    : [];
+  const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
   const assessableLanguages = [...new Set([SPANISH, ...app.languagesClaimed])];
   const canAssessLanguages = await can(person.personId, "volunteers.verify_spanish");
 
@@ -292,6 +303,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           applicationId={applicationId}
           languages={assessableLanguages}
           verdicts={languageVerdicts}
+          assessorNames={assessorNames}
           canAssess={canAssessLanguages}
           action={assessApplicantLanguageAction.bind(null, id, applicationId)}
         />

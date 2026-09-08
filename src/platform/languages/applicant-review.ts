@@ -20,7 +20,15 @@ import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
   language: string;
-  verified: boolean;
+  /**
+   * The OUTCOME, when one was recorded. Null means a human's involvement is on
+   * file (an imported history row) but no yes/no outcome was: import-spanish-
+   * assessments.ts never sets it ("verified is decided in Hub by a reviewer,
+   * never by the import"), so every imported row carries this as null forever.
+   * Never coerce this to true or false; a reader that needs a boolean must
+   * handle null as its own state, not "verified" and not "not verified".
+   */
+  verified: boolean | null;
   score: number | null;
   note: string | null;
   assessedAt: Date;
@@ -34,8 +42,15 @@ export type LanguageVerdict = {
 
 /**
  * Later verdicts win between the member and application sources, which both
- * carry a genuine assessment timestamp and are comparable to each other. Ties
- * keep the incumbent, so the read order does not matter.
+ * carry a genuine assessment timestamp and are comparable to each other. `b`
+ * must be STRICTLY later than `a` to replace it, so a tie keeps whichever one
+ * was `put` first -- the member loop below runs before the application loop,
+ * so a tie keeps the member verdict. That IS order-dependent; what makes it
+ * safe is that ties are not a coin flip between two different facts. Ties
+ * happen because carryForwardApplicationAssessments copies verifiedAt (and
+ * verified, and score) verbatim onto PersonLanguage, so after a promotion the
+ * member and application rows for a carried language hold the SAME values,
+ * not just the same timestamp. Picking one over the other there is cosmetic.
  *
  * History does NOT go through this: see the fallback note on source 3 below.
  */
@@ -203,9 +218,15 @@ export async function priorLanguageVerdicts(
     for (const applicantId of byPerson.get(r.personId) ?? []) {
       putFallback(applicantId, {
         language: SPANISH,
-        // An imported row with no explicit outcome still records that INTP sat
-        // down with this person, which is the fact that spares them a re-assessment.
-        verified: r.verified ?? true,
+        // Passed through as-is, including null. import-spanish-assessments.ts
+        // never sets this column ("verified is decided in Hub by a reviewer,
+        // never by the import"), so every imported row that never went through
+        // a Hub reviewer carries verified = null here. That still records that
+        // INTP sat down with this person once, which is the fact that spares
+        // them a re-assessment (existence suppresses the queue row regardless
+        // of this value) -- but it must never be coerced to true, or the card
+        // renders a "Verified" badge nobody actually recorded.
+        verified: r.verified,
         score: r.score,
         note: null,
         // Display only now: putFallback never compares this against another
@@ -495,17 +516,19 @@ export async function recordApplicationLanguageAssessment(
  * Runs inside the promotion transaction, so it takes a client. The Spanish
  * history mirror does NOT: it needs the active term and can fail on its own,
  * and the transaction must not stretch across work like that. The caller does
- * it afterwards, from the returned list.
+ * it afterwards, from the returned list, filtered to WRITTEN entries only:
+ * `written: false` means a standing PersonLanguage verdict was already newer
+ * than this application's, or exactly as new, so the write below was skipped
+ * to protect it; mirroring that (skipped, stale) entry into history anyway
+ * would overwrite a newer-or-equal verdict's history row with an older one.
  *
- * The returned list has TWO consumers with opposite needs, which `written`
- * exists to tell apart:
- *   - promotion's claim loop wants EVERY carried language, written or not, so
- *     it can skip re-claiming a language already on record as assessed.
- *   - the Spanish history mirror wants WRITTEN entries ONLY. `written: false`
- *     means a standing PersonLanguage verdict was already newer than this
- *     application's, or exactly as new, so the write below was skipped to
- *     protect it; mirroring that (skipped, stale) entry into history anyway
- *     would overwrite a newer-or-equal verdict's history row with an older one.
+ * Does NOT set selfReported: true. That flag means "this person claimed this
+ * language", and Spanish is assessed here regardless of claim (decision 1) --
+ * an applicant who never claimed Spanish but was assessed on it must not come
+ * out of promotion looking like they claimed it (person-fields.ts compiles the
+ * "self-reported Spanish speaker" audience straight off this flag). The
+ * caller's own claim loop, over languagesClaimed, is what sets it true, for
+ * the languages this applicant ACTUALLY claimed, whether or not carried here.
  */
 export async function carryForwardApplicationAssessments(
   personId: string,
@@ -535,11 +558,9 @@ export async function carryForwardApplicationAssessments(
     // PersonLanguage record back to an assessment from a previous cycle.
     //
     // Still pushed to `carried` either way, with `written` recording which
-    // branch ran: the claim-loop digest consumer wants every carried
-    // language (see the docstring above), but a skipped entry must never
-    // reach the Spanish history mirror, or it would overwrite a
-    // newer-or-equal standing verdict's history row with the stale one just
-    // skipped.
+    // branch ran: the caller's Spanish history mirror wants WRITTEN entries
+    // ONLY, or it would overwrite a newer-or-equal standing verdict's history
+    // row with the stale one just skipped (see the docstring above).
     const standing = standingVerdictAt.get(a.language);
     const written = !(standing && standing >= a.verifiedAt);
     carried.push({ language: a.language, verified: a.verified, score: a.score, written });
@@ -550,7 +571,10 @@ export async function carryForwardApplicationAssessments(
       create: {
         personId,
         language: a.language,
-        selfReported: true,
+        // Not a claim: see the docstring above for why this stays false here
+        // and is set by the caller's own claim loop instead, for languages
+        // actually claimed.
+        selfReported: false,
         verified: a.verified,
         verifiedAt: a.verifiedAt,
         verifiedById: a.verifiedById,
@@ -558,7 +582,10 @@ export async function carryForwardApplicationAssessments(
         score: a.score,
       },
       update: {
-        selfReported: true,
+        // selfReported deliberately omitted: this upsert's job is the verdict,
+        // and asserting a claim the applicant may never have made would
+        // overwrite whatever the claim loop (or an earlier promotion) already
+        // recorded there.
         verified: a.verified,
         verifiedAt: a.verifiedAt,
         verifiedById: a.verifiedById,

@@ -90,7 +90,7 @@ export type LanguageReviewRow = {
  * session while an application window cannot.
  */
 export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
-  const [applicantRows, memberRows, activeTerm] = await Promise.all([
+  const [applicantRows, memberRowsUnfiltered, activeTerm] = await Promise.all([
     listApplicantLanguageQueue(),
     prisma.personLanguage.findMany({
       where: languageReviewWhere(),
@@ -105,6 +105,36 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     }),
     getActiveTerm(),
   ]);
+
+  // A signed-in renewal (Applicant.applicantPersonId set) into a lane
+  // department can satisfy BOTH sources at once: an ACTIVE member with an
+  // unassessed claim who is also an in-lane applicant. A claim is not a
+  // verdict, so priorLanguageVerdicts does not suppress them, and without this
+  // the reviewer sees two rows for the same (person, language) with two
+  // different write paths behind them. Keep the applicant row -- it is the one
+  // blocking a decision timeline -- and drop the member row; carry-forward
+  // settles PersonLanguage at promotion regardless.
+  const linkedApplicantIds = [...new Set(applicantRows.map((r) => r.applicantId))];
+  const linkedApplicants = linkedApplicantIds.length === 0
+    ? []
+    : await prisma.applicant.findMany({
+        where: { id: { in: linkedApplicantIds }, applicantPersonId: { not: null } },
+        select: { id: true, applicantPersonId: true },
+      });
+  const personIdByApplicantId = new Map(
+    linkedApplicants.map((a) => [a.id, a.applicantPersonId as string]),
+  );
+  const suppressedMemberKeys = new Set(
+    applicantRows
+      .map((r) => {
+        const personId = personIdByApplicantId.get(r.applicantId);
+        return personId ? `${personId}:${r.language}` : null;
+      })
+      .filter((k): k is string => k !== null),
+  );
+  const memberRows = memberRowsUnfiltered.filter(
+    (r) => !suppressedMemberKeys.has(`${r.personId}:${r.language}`),
+  );
 
   const memberIds = memberRows.map((r) => r.personId);
   // Department context for the member half. Resolved live from the ACTIVE

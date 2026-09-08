@@ -2,11 +2,20 @@
  * The INTP Spanish assessment history: the list of what INTP scored whom, and
  * when, going back to Spring 2012.
  *
- * Two stores, one writer. SpanishAssessmentRecord is the per-term history;
- * PersonLanguage.score is the current score that scheduling and the profile
- * badge read. Everything that changes a score goes through
- * recordLanguageAssessment (in ./index), which writes both, so the denormalized
- * copy cannot drift from the history.
+ * Two stores, two writers, one contract each. SpanishAssessmentRecord is the
+ * per-term history; PersonLanguage.score is the current score that scheduling
+ * and the profile badge read.
+ *
+ *   - recordLanguageAssessment (in ./index), the member-queue write path,
+ *     writes BOTH stores itself: PersonLanguage directly, then this module's
+ *     upsertSpanishAssessmentForTerm to mirror the same call into history.
+ *   - carryForwardApplicationAssessments (in ./applicant-review), the
+ *     promotion-time write path for a pre-acceptance verdict, writes only
+ *     PersonLanguage and returns which entries it actually wrote (`written`).
+ *     Its caller (promotion.ts) mirrors ONLY the written entries into history
+ *     afterward, outside the promotion transaction. Nothing here enforces that
+ *     contract; a caller that mirrors an unfiltered or unwritten entry can
+ *     still drift PersonLanguage from the history it's supposed to mirror.
  *
  * Everything here was inline in the review page's server actions, which meant
  * none of it could be tested and two buttons on the same page wrote the same

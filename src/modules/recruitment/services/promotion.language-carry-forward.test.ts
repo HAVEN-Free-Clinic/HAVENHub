@@ -232,4 +232,53 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
     expect(history.score).toBe(4);
     expect(history.verified).toBe(true);
   });
+
+  // Decision 1: Spanish is assessed regardless of claim. selfReported means
+  // "this person claimed this language" -- carrying a pre-acceptance verdict
+  // onto PersonLanguage must not assert a claim the applicant never made, or
+  // person-fields.ts's "Spanish-speaking (self-reported)" email audience would
+  // reach someone who never said they speak Spanish.
+  it("carries an assessed language the applicant never claimed with selfReported false", async () => {
+    const ctx = await seed();
+    await prisma.application.update({
+      where: { id: ctx.application.id }, data: { languagesClaimed: [] },
+    });
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: ctx.application.id, language: "es", verified: true,
+        verifiedById: ctx.assessor.id, score: 4,
+      },
+    });
+
+    await promoteContracts([ctx.contract.id], ctx.srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { name: ctx.applicantName } });
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: person.id, language: "es" } },
+    });
+    expect(row.selfReported).toBe(false);
+    expect(row.verified).toBe(true);
+  });
+
+  // The other half: a language the applicant DID claim (seed()'s default
+  // languagesClaimed: ["es"]) still lands as a genuine claim even though it
+  // was also assessed pre-acceptance and carried forward.
+  it("carries an assessed language the applicant also claimed with selfReported true", async () => {
+    const ctx = await seed();
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: ctx.application.id, language: "es", verified: true,
+        verifiedById: ctx.assessor.id, score: 4,
+      },
+    });
+
+    await promoteContracts([ctx.contract.id], ctx.srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { name: ctx.applicantName } });
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: person.id, language: "es" } },
+    });
+    expect(row.selfReported).toBe(true);
+    expect(row.verified).toBe(true);
+  });
 });

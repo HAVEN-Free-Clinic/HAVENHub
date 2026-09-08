@@ -102,6 +102,9 @@ export async function createDepartment(
     /** Lowest Spanish proficiency score this department staffs as an interpreter.
      *  Absent → null, meaning the clinic-wide bar. */
     minInterpreterScore?: number | null;
+    /** Absent → false, matching the column default: a new department never
+     *  silently joins the pre-acceptance language review lane. */
+    assessLanguageBeforeAcceptance?: boolean;
   }
 ): Promise<Department> {
   const code = input.code.trim().toUpperCase();
@@ -136,6 +139,7 @@ export async function createDepartment(
         allowShiftDrop: input.allowShiftDrop ?? true,
         hoursPerShift: input.hoursPerShift ?? null,
         minInterpreterScore,
+        assessLanguageBeforeAcceptance: input.assessLanguageBeforeAcceptance ?? false,
       },
     });
   } catch (err) {
@@ -191,6 +195,10 @@ export async function updateDepartment(
     /** Explicit null clears it back to the clinic-wide bar; undefined leaves it
      *  untouched, so an edit that does not touch it cannot silently reset it. */
     minInterpreterScore?: number | null;
+    /** Optional for the same reason as autoRouteApplicants: an update that does
+     *  not touch it must preserve it rather than silently dropping the
+     *  department out of the pre-acceptance assessment lane. */
+    assessLanguageBeforeAcceptance?: boolean;
   }
 ): Promise<Department> {
   const before = await prisma.department.findUnique({ where: { id } });
@@ -217,10 +225,12 @@ export async function updateDepartment(
     input.minInterpreterScore === undefined
       ? before.minInterpreterScore
       : validateInterpreterBar(input.minInterpreterScore);
+  const assessLanguageBeforeAcceptance =
+    input.assessLanguageBeforeAcceptance ?? before.assessLanguageBeforeAcceptance;
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore, assessLanguageBeforeAcceptance },
   });
 
   await recordAudit({
@@ -238,6 +248,7 @@ export async function updateDepartment(
       autoRouteApplicants: before.autoRouteApplicants,
       allowShiftDrop: before.allowShiftDrop,
       minInterpreterScore: before.minInterpreterScore,
+      assessLanguageBeforeAcceptance: before.assessLanguageBeforeAcceptance,
     },
     after: {
       name: dept.name,
@@ -249,6 +260,7 @@ export async function updateDepartment(
       autoRouteApplicants: dept.autoRouteApplicants,
       allowShiftDrop: dept.allowShiftDrop,
       minInterpreterScore: dept.minInterpreterScore,
+      assessLanguageBeforeAcceptance: dept.assessLanguageBeforeAcceptance,
     },
   });
   return dept;

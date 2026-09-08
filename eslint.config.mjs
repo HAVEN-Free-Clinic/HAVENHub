@@ -144,10 +144,16 @@ const eslintConfig = [
     },
   },
 
-  // Spec §5: no styled raw controls in app/modules -- use platform/ui primitives.
-  // Files under src/platform/ui are excluded (they ARE the primitives).
+  // Spec §5: no styled raw controls -- use platform/ui primitives.
+  //
+  // src/platform is in scope too, minus src/platform/ui, which IS the primitives.
+  // Leaving the rest of platform out was a real hole: platform/auth/inactivity.tsx
+  // hand-rolled a styled button with NO focus style at all, and it is the button
+  // that keeps a member from being signed out mid-form. A rule that stops at
+  // app/modules cannot see a component just because of where it lives.
   {
-    files: ["src/app/**/*.tsx", "src/modules/**/*.tsx"],
+    files: ["src/app/**/*.tsx", "src/modules/**/*.tsx", "src/platform/**/*.tsx"],
+    ignores: ["src/platform/ui/**"],
     rules: {
       "no-restricted-syntax": [
         "error",

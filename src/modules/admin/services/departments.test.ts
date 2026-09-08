@@ -10,6 +10,7 @@ import {
   DepartmentNotFoundError,
   DepartmentValidationError,
 } from "./departments";
+import { DEPARTMENTS } from "../../../../prisma/department-catalog";
 
 beforeEach(resetDb);
 
@@ -302,5 +303,23 @@ describe("listDepartments", () => {
     expect(list[0].code).toBe("ZZZ");
     expect(list[0].managesDelegations.map((m) => m.managedDepartmentId)).toEqual([a.id]);
     expect(list[0]._count).toHaveProperty("memberships");
+  });
+});
+
+describe("pre-acceptance language assessment flag", () => {
+  // PATS and INTP are the departments whose applicants the interpreting
+  // department assesses before an accept decision. The flag is what puts an
+  // applicant in the pre-acceptance queue, so seeding it wrong silently
+  // empties the queue.
+  it("is set on PATS and INTP in the catalog and on no other department", () => {
+    const flagged = DEPARTMENTS.filter((d) => d.assessLanguageBeforeAcceptance).map((d) => d.code);
+    expect(flagged.sort()).toEqual(["INTP", "PATS"]);
+  });
+
+  it("defaults to false on a department created without it", async () => {
+    const dept = await prisma.department.create({
+      data: { code: "ZZTOP", name: "Test Department" },
+    });
+    expect(dept.assessLanguageBeforeAcceptance).toBe(false);
   });
 });

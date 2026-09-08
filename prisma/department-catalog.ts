@@ -17,6 +17,10 @@
 // swap-only on /schedule. Omitted entries fall back to the column default of
 // true. Create-path only, for the same reason as the Epic columns -- a reseed
 // must not undo an admin's edit.
+//
+// assessLanguageBeforeAcceptance mirrors the Department column of the same
+// name. Create-path only, for the same reason as the Epic columns. Existing
+// databases get it from the 20260908120000 migration's backfill, NOT from here.
 type EpicRequirementLiteral = "ALL" | "NONE" | "SOME";
 
 export const DEPARTMENTS: {
@@ -26,6 +30,7 @@ export const DEPARTMENTS: {
   requiresEpicVolunteer?: EpicRequirementLiteral;
   epicGuidance?: string;
   allowShiftDrop?: boolean;
+  assessLanguageBeforeAcceptance?: boolean;
 }[] = [
   { code: "BVHD", name: "Behavioral Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "CCRH", name: "Care Coordination: Reproductive Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
@@ -36,7 +41,7 @@ export const DEPARTMENTS: {
   { code: "FIND", name: "Finance and Development", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "FOOD", name: "Food Pharmacy", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "ICDD", name: "Infectious and Chronic Disease", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
-  { code: "INTP", name: "Interpreting", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
+  { code: "INTP", name: "Interpreting", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE", assessLanguageBeforeAcceptance: true },
   { code: "ITCM", name: "IT & Compliance Management", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "JCTP", name: "Junior Primary Care Team Member", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL", allowShiftDrop: false },
   { code: "JCTS", name: "Junior Reproductive Care Team Member", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL", allowShiftDrop: false },
@@ -52,7 +57,7 @@ export const DEPARTMENTS: {
   { code: "MDLP", name: "Medical Debt and Legal Partnership", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "MEDS", name: "Medication Access", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "ORHL", name: "Oral Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
-  { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
+  { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL", assessLanguageBeforeAcceptance: true },
   { code: "PBRL", name: "Public Relations", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "PCAR", name: "Primary Care Clinical Advisors", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PHLO", name: "Phlebotomy", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },

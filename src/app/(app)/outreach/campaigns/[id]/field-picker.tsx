@@ -219,8 +219,12 @@ export function FieldPicker({
           type="button"
           aria-label="Remove unknown field"
           onClick={onRemove}
+          // min-h/w-6: a 14px glyph with p-1 gave a ~22px target, under WCAG
+          // 2.5.8's 24px floor. The box grows; the glyph stays small so the
+          // control still reads as a chip affordance rather than a button.
+          //
           // eslint-disable-next-line no-restricted-syntax -- icon-only inline control removing a condition with a stale field reference, not a standard form action Button
-          className="rounded-md p-1 text-subtle-foreground hover:bg-muted hover:text-critical-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-md p-1 text-subtle-foreground hover:bg-muted hover:text-critical-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           <X aria-hidden className="h-3.5 w-3.5" />
         </button>

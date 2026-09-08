@@ -3,6 +3,11 @@ import { Badge } from "@/platform/ui/badge";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import {
+  PendingRequestStrip,
+  RequestChangeDisclosure,
+  PastShiftsDisclosure,
+} from "@/modules/schedule/components/shift-parts";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -47,7 +52,6 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
 import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Clock } from "lucide-react";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -495,16 +499,14 @@ export default async function MySchedulePage() {
 
                 <div className="mt-2">
                   {pendingReq ? (
-                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
-                      <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
-                        <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                        Change requested:{" "}
-                        {pendingReq.targetId
+                    <PendingRequestStrip
+                      reviewerLabel="director"
+                      description={
+                        pendingReq.targetId
                           ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
-                          : "drop"}{" "}
-                        (pending director review)
-                      </p>
-                      <div className="flex items-center gap-2">
+                          : "drop"
+                      }
+                    >
                         {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
                           <form action={remindDirectorsAction}>
                             <input type="hidden" name="requestId" value={pendingReq.id} />
@@ -518,16 +520,11 @@ export default async function MySchedulePage() {
                           <input type="hidden" name="requestId" value={pendingReq.id} />
                           <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
                         </form>
-                      </div>
-                    </div>
+                    </PendingRequestStrip>
                   ) : isPast ? (
                     <p className="text-sm text-subtle-foreground">This shift has passed.</p>
                   ) : (
-                    <details className="group">
-                      <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                        <span className="underline underline-offset-2">Request a change</span>
-                      </summary>
-                      <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
+                    <RequestChangeDisclosure>
                         {/* Swap-only departments (Department.allowShiftDrop = false) show
                             no drop form: the seat has to go to a named person. The
                             server action refuses the drop too, so this is presentation,
@@ -577,8 +574,7 @@ export default async function MySchedulePage() {
                         {swapPartners.length === 0 && (
                           <EmptyState inline>No eligible swap partners for this shift.</EmptyState>
                         )}
-                      </div>
-                    </details>
+                    </RequestChangeDisclosure>
                   )}
                 </div>
               </Card>
@@ -636,14 +632,9 @@ export default async function MySchedulePage() {
                       </div>
                     )}
                     {past.length > 0 && (
-                      <details className="group" open={pastHasPendingRequest}>
-                        <summary className="cursor-pointer text-sm text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                          <span className="underline underline-offset-2">
-                            {past.length} past shift{past.length === 1 ? "" : "s"}
-                          </span>
-                        </summary>
-                        <div className="mt-3 flex flex-col gap-3">{past.map((s) => shiftCard(s, false))}</div>
-                      </details>
+                      <PastShiftsDisclosure count={past.length} noun="shift" defaultOpen={pastHasPendingRequest}>
+                        {past.map((s) => shiftCard(s, false))}
+                      </PastShiftsDisclosure>
                     )}
                   </div>
                 )}

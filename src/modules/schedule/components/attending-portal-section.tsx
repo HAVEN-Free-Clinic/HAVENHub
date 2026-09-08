@@ -17,13 +17,17 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import {
+  PendingRequestStrip,
+  RequestChangeDisclosure,
+  PastShiftsDisclosure,
+} from "./shift-parts";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { CalendarDate } from "@/platform/dates/display";
-import { Clock } from "lucide-react";
 import { isoDateKey } from "../engine/map";
 import { AVAILABILITY_PILL_CLASS } from "./availability-pill";
 import { displayDate } from "../engine/display";
@@ -93,20 +97,19 @@ export function AttendingPortalSection({
 
         <div className="mt-2">
           {pending ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
-              <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
-                <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                Change requested:{" "}
-                {pending.isSwap && pending.target
+            <PendingRequestStrip
+              reviewerLabel="Faculty Relations"
+              description={
+                pending.isSwap && pending.target
                   ? `swap with ${pending.target.name} (${displayDate(isoDateKey(pending.target.clinicDate))})`
-                  : "drop"}{" "}
-                (pending Faculty Relations review)
-              </p>
+                  : "drop"
+              }
+            >
               <form action={cancelRequestAction}>
                 <input type="hidden" name="requestId" value={pending.id} />
                 <ConfirmButton label="Withdraw request" confirmLabel="Withdraw this request?" />
               </form>
-            </div>
+            </PendingRequestStrip>
           ) : isPast ? (
             <p className="text-sm text-subtle-foreground">This clinic date has passed.</p>
           ) : shift.isClosed ? (
@@ -114,11 +117,7 @@ export function AttendingPortalSection({
             // to request. Saying so beats a form that would be refused server-side.
             <p className="text-sm text-subtle-foreground">The clinic is closed this day.</p>
           ) : (
-            <details className="group">
-              <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                <span className="underline underline-offset-2">Request a change</span>
-              </summary>
-              <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
+            <RequestChangeDisclosure>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Give up this date</p>
                   <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
@@ -164,8 +163,7 @@ export function AttendingPortalSection({
                     no one to swap with. Request a drop instead and Faculty Relations will find cover.
                   </EmptyState>
                 )}
-              </div>
-            </details>
+            </RequestChangeDisclosure>
           )}
         </div>
       </Card>
@@ -227,14 +225,9 @@ export function AttendingPortalSection({
                   <EmptyState inline>No upcoming dates left this term.</EmptyState>
                 )}
                 {past.length > 0 && (
-                  <details className="group" open={false}>
-                    <summary className="cursor-pointer text-sm text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                      <span className="underline underline-offset-2">
-                        {past.length} past date{past.length === 1 ? "" : "s"}
-                      </span>
-                    </summary>
-                    <div className="mt-3 flex flex-col gap-3">{past.map((s) => shiftCard(s, false))}</div>
-                  </details>
+                  <PastShiftsDisclosure count={past.length} noun="date">
+                    {past.map((s) => shiftCard(s, false))}
+                  </PastShiftsDisclosure>
                 )}
               </div>
             )}

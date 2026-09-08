@@ -220,7 +220,7 @@ export function FieldPicker({
           aria-label="Remove unknown field"
           onClick={onRemove}
           // eslint-disable-next-line no-restricted-syntax -- icon-only inline control removing a condition with a stale field reference, not a standard form action Button
-          className="rounded-md p-1 text-subtle-foreground outline-none hover:bg-muted hover:text-critical-foreground focus-visible:ring-2 focus-visible:ring-brand/15"
+          className="rounded-md p-1 text-subtle-foreground hover:bg-muted hover:text-critical-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           <X aria-hidden className="h-3.5 w-3.5" />
         </button>

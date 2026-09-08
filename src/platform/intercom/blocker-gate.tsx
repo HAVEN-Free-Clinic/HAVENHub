@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Button } from "@/platform/ui/button";
 import { createPortal } from "react-dom";
 import { ShieldAlert } from "lucide-react";
 import posthog from "posthog-js";
@@ -234,15 +235,14 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
                 Still stuck?{" "}
                 <SupportLink email={supportEmail}>Email the IT team</SupportLink>
               </span>
-              <button
+              <Button
                 type="button"
                 data-testid="blocker-recheck"
                 onClick={() => void recheck()}
                 disabled={checking}
-                className="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
               >
                 {checking ? "Checking..." : "I've turned it off"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

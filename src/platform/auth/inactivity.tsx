@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/platform/ui/button";
 import { signOut } from "next-auth/react";
 
 const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -83,12 +84,9 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
       <p className="text-sm text-foreground-soft mb-3">
         You&apos;ll be signed out in 5 minutes due to inactivity.
       </p>
-      <button
-        onClick={() => resetRef.current()}
-        className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-hover transition-colors"
-      >
+      <Button type="button" size="sm" onClick={() => resetRef.current()}>
         Stay signed in
-      </button>
+      </Button>
     </div>
   );
 }

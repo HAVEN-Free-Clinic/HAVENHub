@@ -292,6 +292,16 @@ The comment must be on the line **immediately above** the `className` attribute.
 
 ---
 
+### Scope of the raw-control rule
+
+`no-restricted-syntax` covers `src/app/**`, `src/modules/**` and `src/platform/**`,
+with `src/platform/ui/**` excluded because that IS the primitives.
+
+Platform was added after a gap it left showed up: `platform/auth/inactivity.tsx`
+hand-rolled a styled button with no focus style at all, and it is the button that
+keeps a member from being signed out mid-form. A component is a component wherever
+it lives, so the rule no longer stops at the app and module trees.
+
 ## 5. Platform/ui authoring
 
 The `src/platform/ui/` directory is excluded from the raw-control rule. Files there ARE the primitives, so raw `<button>`, `<input>`, `<select>`, and `<textarea>` elements are expected and do not need suppress comments.

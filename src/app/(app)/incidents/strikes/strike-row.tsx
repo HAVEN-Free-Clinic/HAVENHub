@@ -97,7 +97,7 @@ export function StrikeRow({
             aria-expanded={open}
             aria-controls={detailId}
             // eslint-disable-next-line no-restricted-syntax -- full-width expand toggle wrapping clamped description text, not a Button primitive shape
-            className="w-full text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 rounded-lg"
+            className="w-full text-left underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand rounded-lg"
           >
             <span className={open ? undefined : "line-clamp-2"}>{action.description}</span>
             <span className="mt-0.5 block text-xs text-subtle-foreground">

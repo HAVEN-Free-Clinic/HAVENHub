@@ -44,6 +44,7 @@ function board(over: Partial<Board> = {}): Board {
     departments: ["ITCM", "SRHD", "PCAR"],
     topPercent: 20,
     bottomPercent: 20,
+    scoresPerApplication: null,
     top: [r],
     middle: [],
     bottom: [],

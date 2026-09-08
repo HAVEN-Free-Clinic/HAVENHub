@@ -31,6 +31,8 @@ type Props = {
 // matching the module-level ApplicationBody pattern in speed-score-modal.tsx).
 type RowHandlers = {
   departments: string[];
+  /** The cycle's scoresPerApplication, or null on a cycle with no scorer pool. */
+  target: number | null;
   deptFor: (r: SpeedRouteRow) => string;
   setDept: (applicationId: string, value: string) => void;
   busy: boolean;
@@ -39,8 +41,8 @@ type RowHandlers = {
   onReopen: (applicationId: string) => void;
 };
 
-function avgLabel(r: SpeedRouteRow) {
-  return formatScoreSummary({ average: r.average, count: r.scoreCount });
+function avgLabel(r: SpeedRouteRow, target: number | null) {
+  return formatScoreSummary({ average: r.average, count: r.scoreCount }, target);
 }
 
 function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom" | "returned"; h: RowHandlers }) {
@@ -49,7 +51,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
   return (
     <TR>
       <TD className="font-medium text-foreground">{r.name}</TD>
-      <TD className="text-foreground-soft">{avgLabel(r)}</TD>
+      <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
       <TD className="text-foreground-soft">{r.departmentChoices.join(", ") || "(none)"}</TD>
       <TD><Badge>{applicationStageLabel[r.stage]}</Badge></TD>
       <TD>
@@ -153,7 +155,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
           {rows.map((r) => (
             <TR key={r.applicationId}>
               <TD className="font-medium text-foreground">{r.name}</TD>
-              <TD className="text-foreground-soft">{avgLabel(r)}</TD>
+              <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
               <TD className="text-foreground-soft">{r.returnedFromDepartmentCode ?? "-"}</TD>
               <TD className="text-foreground-soft">{r.returnedReason || "(none given)"}</TD>
               <TD>
@@ -239,6 +241,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
 
   const h: RowHandlers = {
     departments: board.departments,
+    target: board.scoresPerApplication,
     deptFor,
     setDept: (id, value) => setOverrides((p) => ({ ...p, [id]: value })),
     busy,

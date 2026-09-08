@@ -16,6 +16,7 @@ import { listApplicationInterviews } from "@/modules/recruitment/services/interv
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
+import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -125,6 +126,16 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // read-only average below; only scorers get the entry form).
   const scoreSummary = canScore || canDecideRouted ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
+  // Assignment shapes the speed-score QUEUE; it never gates this form. Scoring
+  // an application nobody handed you still works and still counts, so the most
+  // it does here is say you have wandered off your own pile.
+  //
+  // Read whenever the score card renders, not only for scorers: the
+  // routed-decision director reads the same summary line, and `pooled` is what
+  // keeps a target nobody set off a cycle that never opted in.
+  const queueScope = scoreSummary ? await scorerQueueScope(id, person.personId) : null;
+  const coverageTarget = queueScope?.pooled ? app.cycle.scoresPerApplication : null;
+  const offMyPile = queueScope?.pooled === true && !queueScope.assignedIds.has(applicationId);
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
   return (
@@ -290,8 +301,13 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         <Card>
           <SectionHeader>Committee score</SectionHeader>
           <p className="mt-1 text-xs text-subtle-foreground">
-            {formatScoreSummary(scoreSummary)}
+            {formatScoreSummary(scoreSummary, coverageTarget)}
           </p>
+          {offMyPile && canScore && (
+            <p className="mt-2 text-xs text-subtle-foreground">
+              Not assigned to you. Your score still counts.
+            </p>
+          )}
           {canScore && (
             <>
               <form action={committeeScoreAction.bind(null, id, applicationId)}>

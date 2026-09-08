@@ -31,6 +31,12 @@ export type SpeedRouteBoard = {
   departments: string[];
   topPercent: number;
   bottomPercent: number;
+  /** The cycle's scoresPerApplication, so the board can mark rows still short
+   *  of it. Ranking an average over two reads against one over three is exactly
+   *  what the target exists to prevent, and the lead is the one who has to
+   *  judge whether to wait. Null when the cycle has no scorer pool, and no flag
+   *  is shown at all. */
+  scoresPerApplication: number | null;
   top: SpeedRouteRow[];
   middle: SpeedRouteRow[];
   bottom: SpeedRouteRow[];
@@ -56,7 +62,7 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   }
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id: cycleId },
-    select: { id: true, title: true, track: true, departments: true, routeTopPercent: true, routeBottomPercent: true },
+    select: { id: true, title: true, track: true, departments: true, routeTopPercent: true, routeBottomPercent: true, scoresPerApplication: true, _count: { select: { scorers: true } } },
   });
   if (!cycle) throw new RoutingError("Cycle not found.");
   if (cycle.track !== "VOLUNTEER") throw new RoutingError("Speed route applies to volunteer cycles.");
@@ -126,6 +132,9 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
     departments: cycle.departments,
     topPercent: cycle.routeTopPercent,
     bottomPercent: cycle.routeBottomPercent,
+    // Only meaningful once someone was actually assigned: on an unpooled cycle
+    // the number is just the column default and would flag every row.
+    scoresPerApplication: cycle._count.scorers > 0 ? cycle.scoresPerApplication : null,
     top: rows(buckets.top),
     middle: rows(buckets.middle),
     bottom: rows(buckets.bottom),

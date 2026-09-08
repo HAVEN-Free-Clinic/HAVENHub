@@ -257,6 +257,10 @@ model Person {
   interviewPanels                InterviewPanelist[]        @relation("interviewPanelistPerson")
   interviewEvaluations           Evaluation[]               @relation("interviewEvaluator")
   committeeScores                CommitteeScore[]           @relation("committeeScoreScorer")
+  /// Cycles this person was picked to help score.
+  cycleScorerSeats               CycleScorer[]              @relation("cycleScorerPerson")
+  /// The applications divided out to this person to read.
+  scoreAssignments               ScoreAssignment[]          @relation("scoreAssignmentScorer")
   trainings                      Training[]                 @relation("trainingPerson")
   trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
   /// Training sessions this person was excused from, one per recruitment cycle.
@@ -2334,6 +2338,12 @@ model RecruitmentCycle {
   inPersonTrainingDate DateTime?
   routeTopPercent      Int         @default(20)
   routeBottomPercent   Int         @default(30)
+  /// How many distinct committee scorers each application should be read by.
+  /// Inert until the cycle has a scorer pool: with no CycleScorer rows every
+  /// recruitment.score holder still sees the whole roster, exactly as before
+  /// this existed. Two is the smallest number that yields an average rather
+  /// than one person's opinion.
+  scoresPerApplication Int         @default(2)
   createdById          String
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
@@ -2350,6 +2360,7 @@ model RecruitmentCycle {
   invites        RecruitmentInvite[]
   events         AttendanceEvent[]
   absenceExcuses TrainingAbsenceExcuse[]
+  scorers        CycleScorer[]
 
   @@index([status, track])
 }
@@ -2570,6 +2581,7 @@ model Application {
   dualRoleInterests      DualRoleInterest[]
   interviews             Interview[]
   committeeScores        CommitteeScore[]
+  scoreAssignments       ScoreAssignment[]
   assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?            @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
   routedBy               Person?            @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
@@ -2668,6 +2680,55 @@ model CommitteeScore {
   scorer      Person      @relation("committeeScoreScorer", fields: [scorerId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, scorerId])
+  @@index([applicationId])
+}
+
+/// One person the lead picked to help score a cycle.
+///
+/// A cycle with NO rows here is unpooled and behaves exactly as recruitment did
+/// before assignments existed: every recruitment.score holder gets the whole
+/// roster in their speed-score queue. Adding the first row opts the cycle in,
+/// which is what keeps this safe to ship mid-cycle.
+///
+/// Membership is a FILTER, never a grant. Being listed here does not let anyone
+/// score who could not already: recruitment.score is still the permission, and
+/// the panel only offers people who hold it.
+model CycleScorer {
+  id        String   @id @default(cuid())
+  cycleId   String
+  personId  String
+  createdAt DateTime @default(now())
+
+  cycle  RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  person Person           @relation("cycleScorerPerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, personId])
+  @@index([cycleId])
+}
+
+/// One application handed to one scorer to read.
+///
+/// Keyed exactly like CommitteeScore, so "assigned" and "scored" join on the
+/// same pair and coverage is one query rather than a reconciliation. An
+/// assignment is a work item, not a permission: scoring an application nobody
+/// assigned you still works and still counts, it just warns you first.
+///
+/// Cascades on both sides. A deleted application's assignments are meaningless,
+/// and a departed person's assignments must not hold a slot that the allocator
+/// would then never refill.
+model ScoreAssignment {
+  id            String   @id @default(cuid())
+  applicationId String
+  scorerId      String
+  createdAt     DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scorer      Person      @relation("scoreAssignmentScorer", fields: [scorerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, scorerId])
+  /// Backs the speed-score queue, which asks "what did you give me?" for one
+  /// person across a cycle's applications.
+  @@index([scorerId])
   @@index([applicationId])
 }
 

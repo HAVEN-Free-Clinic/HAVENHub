@@ -8,13 +8,24 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { EvalProgress } from "@/modules/recruitment/components/interview-cells";
 import { Badge } from "@/platform/ui/badge";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const decisionLabels: Record<string, string> = { ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted", PENDING: "Pending" };
 
-function status(iv: { scheduledAt: Date | null; decision: string }): { label: string; tone: Tone } {
+function status(iv: {
+  scheduledAt: Date | null;
+  decision: string;
+  application: { status: string };
+}): { label: string; tone: Tone } {
+  // Withdrawal outranks both the decision and the schedule, and it is the one
+  // fact this list used to omit: the panelist's own list badges it (and the
+  // service deliberately keeps a withdrawn applicant's row precisely so nobody
+  // dials into a cancelled call), while the lead running the cycle saw
+  // "Scheduled" and had no idea the candidate had gone.
+  if (iv.application.status === "WITHDRAWN") return { label: "Withdrawn", tone: "warning" };
   if (iv.decision !== "PENDING") {
     const tone: Tone = iv.decision === "ACCEPT" ? "success" : iv.decision === "REJECT" ? "critical" : "warning";
     return { label: decisionLabels[iv.decision] ?? iv.decision, tone };
@@ -60,9 +71,6 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
             const s = status(iv);
             const panelistCount = iv.panelists.length;
             const evaluationCount = iv.evaluations.length;
-            // Never render more evaluations than panelists (stray non-panelist evals
-            // would otherwise show e.g. "3/2"); show "-" when there are no panelists.
-            const displayEvaluationCount = Math.min(evaluationCount, panelistCount);
             return (
               <TR key={iv.id}>
                 <TD>
@@ -79,8 +87,8 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 </TD>
                 <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
                 <TD className="text-foreground-soft">{panelistCount}</TD>
-                <TD className="text-foreground-soft">
-                  {panelistCount === 0 ? "-" : `${displayEvaluationCount}/${panelistCount}`}
+                <TD>
+                  <EvalProgress done={evaluationCount} panelists={panelistCount} />
                 </TD>
               </TR>
             );

@@ -6,6 +6,7 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { recruitmentTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { ScoreBadge } from "@/modules/recruitment/components/interview-cells";
 import { Badge } from "@/platform/ui/badge";
 
 export default async function MyInterviewsPage() {
@@ -42,7 +43,7 @@ export default async function MyInterviewsPage() {
               <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
-                  <Badge tone="brand">{iv.evaluations[0].score}/5</Badge>
+                  <ScoreBadge score={iv.evaluations[0].score} />
                 ) : (
                   <Badge tone="warning">Pending</Badge>
                 )}

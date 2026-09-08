@@ -63,6 +63,29 @@ async function seed() {
   return { term, srr, assessor, cycle, applicant, application, acceptance, contract, applicantName: "Ada Lovelace" };
 }
 
+/**
+ * A person a reactivating promotion will match on netId, matching the
+ * netId seed() gives the contract ("al99"), carrying a standing PersonLanguage
+ * verdict for Spanish set up by the caller.
+ */
+async function seedExistingPerson() {
+  return prisma.person.create({ data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" } });
+}
+
+/**
+ * A reviewer holding volunteers.verify_spanish globally (no term/department
+ * scoping needed for a person-targeted assignment), so notifyReviewersOfPendingClaims
+ * has somewhere to send a digest if "es" wrongly ends up in it.
+ */
+async function seedReviewer() {
+  const reviewer = await prisma.person.create({ data: { name: "Spanish Reviewer", status: "ACTIVE" } });
+  const role = await prisma.role.create({
+    data: { name: "Spanish Reviewer Role", grants: { create: [{ permission: "volunteers.verify_spanish" }] } },
+  });
+  await prisma.roleAssignment.create({ data: { personId: reviewer.id, roleId: role.id } });
+  return reviewer;
+}
+
 beforeEach(async () => {
   await resetDb();
 });
@@ -120,5 +143,70 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
     });
     expect(row.verifiedAt).toBeNull();
     expect(row.selfReported).toBe(true);
+  });
+
+  // The load-bearing guard: a reactivated member may already carry a NEWER
+  // verdict than the one on this application (e.g. assessed again since, or
+  // the application is an old one being processed late). The write must be
+  // skipped so promotion cannot roll a current record back to a stale one.
+  it("does not roll back a standing verdict that is newer than the application's", async () => {
+    const ctx = await seed();
+    const existing = await seedExistingPerson();
+    const reviewer = await seedReviewer();
+    const standingAssessor = await prisma.person.create({ data: { name: "Standing Assessor", status: "ACTIVE" } });
+    const standingVerifiedAt = new Date("2026-06-01");
+    await prisma.personLanguage.create({
+      data: {
+        personId: existing.id, language: "es", selfReported: true, verified: true,
+        score: 5, verifiedById: standingAssessor.id, verifiedAt: standingVerifiedAt,
+      },
+    });
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: ctx.application.id, language: "es", verified: true,
+        verifiedById: ctx.assessor.id, score: 4, verifiedAt: new Date("2026-03-01"),
+      },
+    });
+
+    await promoteContracts([ctx.contract.id], ctx.srr.id);
+
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: existing.id, language: "es" } },
+    });
+    expect(row).toMatchObject({ verified: true, score: 5, verifiedById: standingAssessor.id });
+    expect(row.verifiedAt).toEqual(standingVerifiedAt);
+    // The subtle half: the language is assessed either way, so it must never
+    // reach the reviewer digest even though the write itself was skipped.
+    const digested = await prisma.notification.count({
+      where: { personId: reviewer.id, type: "volunteers.language_claimed" },
+    });
+    expect(digested).toBe(0);
+  });
+
+  it("does write when the application's verdict is newer than the standing one", async () => {
+    const ctx = await seed();
+    const existing = await seedExistingPerson();
+    const standingAssessor = await prisma.person.create({ data: { name: "Standing Assessor", status: "ACTIVE" } });
+    await prisma.personLanguage.create({
+      data: {
+        personId: existing.id, language: "es", selfReported: true, verified: true,
+        score: 2, verifiedById: standingAssessor.id, verifiedAt: new Date("2026-01-01"),
+      },
+    });
+    const applicationVerifiedAt = new Date("2026-03-01");
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: ctx.application.id, language: "es", verified: true,
+        verifiedById: ctx.assessor.id, score: 4, verifiedAt: applicationVerifiedAt,
+      },
+    });
+
+    await promoteContracts([ctx.contract.id], ctx.srr.id);
+
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: existing.id, language: "es" } },
+    });
+    expect(row).toMatchObject({ verified: true, score: 4, verifiedById: ctx.assessor.id });
+    expect(row.verifiedAt).toEqual(applicationVerifiedAt);
   });
 });

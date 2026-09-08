@@ -513,3 +513,55 @@ describe("listLanguageReviewQueue with both sources", () => {
     expect(rows[0].departments).toEqual(["EDUC", "INTP (dual)"]);
   });
 });
+
+describe("listLanguageReviewQueue member department context", () => {
+  it("resolves a member's departments from ACTIVE TermMembership rows in the ACTIVE term, sorted", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(),
+        status: "ACTIVE", clinicDates: [],
+      },
+    });
+    const [pats, educ] = await Promise.all([
+      prisma.department.create({ data: { code: "PATS", name: "Patient Services" } }),
+      prisma.department.create({ data: { code: "EDUC", name: "Education" } }),
+    ]);
+    const member = await person("Two Departments");
+    await claimLanguage(member.id, "es");
+    // Created PATS-then-EDUC on purpose: the row order out of the DB is not
+    // alphabetical, so this only comes back ["EDUC", "PATS"] if the queue
+    // actually sorts rather than passing the query's own order through.
+    await Promise.all([
+      prisma.termMembership.create({
+        data: {
+          personId: member.id, termId: term.id, departmentId: pats.id,
+          kind: "VOLUNTEER", status: "ACTIVE",
+        },
+      }),
+      prisma.termMembership.create({
+        data: {
+          personId: member.id, termId: term.id, departmentId: educ.id,
+          kind: "VOLUNTEER", status: "ACTIVE",
+        },
+      }),
+    ]);
+
+    const [row] = await listLanguageReviewQueue();
+
+    expect(row.departments).toEqual(["EDUC", "PATS"]);
+    expect(row.contextLabel).toBe("Fall 2026");
+  });
+
+  // Not a throw-path guard, just a sensible-rendering one: with no ACTIVE term
+  // there is nothing to resolve a department from, and no term name to label
+  // the row with either.
+  it("leaves departments empty and contextLabel blank when there is no active term", async () => {
+    const member = await person("No Active Term");
+    await claimLanguage(member.id, "es");
+
+    const [row] = await listLanguageReviewQueue();
+
+    expect(row.departments).toEqual([]);
+    expect(row.contextLabel).toBe("");
+  });
+});

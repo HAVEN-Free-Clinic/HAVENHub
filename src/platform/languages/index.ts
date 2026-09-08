@@ -57,7 +57,11 @@ export type LanguageReviewRow = {
   /** PersonLanguage id for a member; `${applicationId}:${language}` for an applicant. */
   id: string;
   source: "member" | "applicant";
-  /** Null for an applicant: they have no Person until promotion. */
+  /**
+   * Always null on an applicant row. This type never carries an applicant's
+   * linked Person, even when one already exists (Applicant.applicantPersonId,
+   * set for a signed-in renewal): see the mapping in listLanguageReviewQueue.
+   */
   personId: string | null;
   /** Null for a member. */
   applicationId: string | null;

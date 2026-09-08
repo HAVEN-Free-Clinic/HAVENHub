@@ -13,6 +13,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TextLink } from "@/platform/ui/text-link";
 import { PersonPhoto } from "@/platform/ui/person-photo";
 import { ListEmpty } from "@/platform/ui/list-empty";
+import { CapabilityBadges } from "@/platform/ui/capability-badges";
 
 /** Verified language codes, resolved by the page (see verifiedLanguagesByPerson). */
 type Row = Person & { _membershipCount?: number; verifiedLanguages: string[] };
@@ -69,11 +70,19 @@ export function PeopleTable({
               {person._membershipCount ?? 0}
             </TD>
             <TD>
+              {/* The shared badges, not a third hand-rolled copy. This rendered
+                  a bare two-letter code with no accessible name, so the whole
+                  meaning of the cell was available to sighted mouse users and
+                  nobody else.
+
+                  No `department`: this roster is not department-scoped, so the
+                  clinic-wide interpreting bar applies -- which is exactly what
+                  CapabilityBadges falls back to when it is omitted. No score is
+                  passed either, so the Spanish badge renders plain; adding one
+                  would mean a new query on a page that does not need it, and an
+                  unscored badge is the same thing this cell already showed. */}
               <span className="flex flex-wrap gap-1">
-                {person.verifiedLanguages.map((code) => (
-                  <Badge key={code} tone="default">{code.toUpperCase()}</Badge>
-                ))}
-                {person.licensedRN && <Badge tone="default">RN</Badge>}
+                <CapabilityBadges person={person} />
               </span>
             </TD>
             <TD>

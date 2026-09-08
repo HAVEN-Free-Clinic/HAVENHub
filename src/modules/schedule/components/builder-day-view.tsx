@@ -37,6 +37,7 @@ import type { BuilderMember, ShiftTag } from "@/modules/schedule/services/builde
 import { useBuilderBoard, type BoardApi } from "./builder-board";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { CapabilityBadges } from "@/platform/ui/capability-badges";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -50,7 +51,9 @@ export type BuilderDayViewProps = {
   banner: { notCleared: { id: string; name: string }[] }[];
   /** Members fully cleared for this date, for the verified badge. */
   clearedPersonIds: string[];
-  dept: { id: string; code: string; name: string };
+  /** `minInterpreterScore` is what the Spanish badge is measured against: a
+   *  speaker below THIS department's bar is marked, one at or above it is not. */
+  dept: { id: string; code: string; name: string; minInterpreterScore: number | null };
   selectedDateKey: string | null;
   /**
    * The people whose profile this viewer may open (see platform/member-profile).
@@ -151,7 +154,7 @@ export function BuilderDayView({
   // cuid; now it shows their name and flags (audit M12).
   function assigneeInfo(pid: string): {
     name: string;
-    flagPerson: { verifiedLanguages: string[]; licensedRN: boolean } | null;
+    flagPerson: { verifiedLanguages: string[]; spanishScore: number | null; licensedRN: boolean } | null;
   } {
     const member = memberByPersonId.get(pid);
     const entry = assignmentsOnDate[pid];
@@ -252,19 +255,22 @@ export function BuilderDayView({
     .sort(compareBuilderMembers);
   const availableCount = availableMembers.length;
 
-  // One badge per VERIFIED language, plus RN. The codes are short by design
-  // (ES, HT, ZH) so a director scanning a dense grid reads capability at a
-  // glance; the full label is in the language review queue.
-  function flagBadges(person: { verifiedLanguages: string[]; licensedRN: boolean }) {
-    if (person.verifiedLanguages.length === 0 && !person.licensedRN) return null;
-    return (
-      <>
-        {person.verifiedLanguages.map((code) => (
-          <Badge key={code} tone="default">{code.toUpperCase()}</Badge>
-        ))}
-        {person.licensedRN && <Badge tone="default">RN</Badge>}
-      </>
-    );
+  // The SAME badges the read-only Full Schedule renders, not a second set.
+  //
+  // This used to hand-roll `<Badge tone="default">ES</Badge>`: no score, no
+  // below-bar mark, and no accessible name at all -- the whole meaning of a
+  // two-letter code available to nobody using a screen reader. So one
+  // interpreter read "ES 2" in warning tone on /schedule/full and a plain "ES"
+  // here, on the one screen where somebody actually assigns them to a patient.
+  //
+  // The `verifiedLanguages.length === 0 && !licensedRN` early return is dropped
+  // because CapabilityBadges already renders nothing in that case.
+  function flagBadges(person: {
+    verifiedLanguages: string[];
+    spanishScore: number | null;
+    licensedRN: boolean;
+  }) {
+    return <CapabilityBadges person={person} department={dept} />;
   }
 
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {

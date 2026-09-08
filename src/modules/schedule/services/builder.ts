@@ -16,7 +16,7 @@ import { isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
-import { verifiedLanguagesByPerson } from "@/platform/languages";
+import { spanishScoresByPerson, verifiedLanguagesByPerson } from "@/platform/languages";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { mailingEmailForPerson } from "@/platform/auth/match-person";
 import { loadClearanceMap } from "@/platform/clearance";
@@ -1144,7 +1144,14 @@ export type BuilderProvisional = {
 export type BuilderMember = {
   /** Null for a provisional row: there is no TermMembership to point at yet. */
   membershipId: string | null;
-  person: { id: string; name: string; verifiedLanguages: string[]; licensedRN: boolean };
+  person: {
+    id: string;
+    name: string;
+    verifiedLanguages: string[];
+    /** INTP proficiency, for the below-bar mark on the Spanish badge. Null when unscored. */
+    spanishScore: number | null;
+    licensedRN: boolean;
+  };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
   overrideActive: boolean;
@@ -1190,7 +1197,12 @@ export type BuilderAssignmentEntry = {
    * view instead of a raw personId cuid. Members are always in `members`; this is
    * the fallback source for everyone else.
    */
-  person: { name: string; verifiedLanguages: string[]; licensedRN: boolean };
+  person: {
+    name: string;
+    verifiedLanguages: string[];
+    spanishScore: number | null;
+    licensedRN: boolean;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -1224,6 +1236,7 @@ type AssignmentRow = {
 function buildAssignmentsByDate(
   rows: AssignmentRow[],
   languageMap: Map<string, string[]>,
+  spanishScores: Map<string, number>,
 ): BuilderAssignments {
   const byDate: BuilderAssignments = {};
   for (const a of rows) {
@@ -1235,6 +1248,7 @@ function buildAssignmentsByDate(
       person: {
         name: a.person.name,
         verifiedLanguages: languageMap.get(a.personId) ?? [],
+        spanishScore: spanishScores.get(a.personId) ?? null,
         licensedRN: a.person.licensedRN,
       },
     };
@@ -1272,10 +1286,16 @@ export async function assignmentsFor(
       person: { select: { name: true, licensedRN: true } },
     },
   });
-  const languageMap = await verifiedLanguagesByPerson([
-    ...new Set(rows.map((r) => r.personId)),
+  // The score rides with the languages, not separately: the badge that reads it
+  // is the SAME badge the read-only Full Schedule renders, and loading one
+  // without the other is what made the two pages disagree about the same
+  // interpreter.
+  const personIds = [...new Set(rows.map((r) => r.personId))];
+  const [languageMap, spanishScores] = await Promise.all([
+    verifiedLanguagesByPerson(personIds),
+    spanishScoresByPerson(personIds),
   ]);
-  return buildAssignmentsByDate(rows, languageMap);
+  return buildAssignmentsByDate(rows, languageMap, spanishScores);
 }
 
 /**
@@ -1340,7 +1360,14 @@ export type BuilderRhd = {
 
 export type BuilderView = {
   departments: { id: string; code: string; name: string }[];
-  selectedDepartment: { id: string; code: string; name: string } | null;
+  /** `minInterpreterScore` travels with the department because the day view's
+   *  Spanish badge is measured against it -- the same bar /schedule/full uses. */
+  selectedDepartment: {
+    id: string;
+    code: string;
+    name: string;
+    minInterpreterScore: number | null;
+  } | null;
   clinicDates: Date[];
   /**
    * Clinic dates the clinic has declared CLOSED, as UTC day key -> the closure
@@ -1458,7 +1485,12 @@ export async function builderView(
   if (!term) {
     return {
       departments: deptLites,
-      selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
+      selectedDepartment: {
+      id: selectedDept.id,
+      code: selectedDept.code,
+      name: selectedDept.name,
+      minInterpreterScore: selectedDept.minInterpreterScore,
+    },
       clinicDates: [],
       closedDates: {},
       selectedDate: null,
@@ -1565,16 +1597,20 @@ export async function builderView(
   // languages are exactly what a director is drafting around, and the claim was
   // verified when they were last on the roster -- it does not lapse because their
   // renewal has yet to be built.
-  const languageMap = await verifiedLanguagesByPerson([
+  const capabilityPersonIds = [
     ...new Set([
       ...allAssignments.map((a) => a.personId),
       ...members.map((m) => m.person.id),
       ...incomingPersonIds,
     ]),
+  ];
+  const [languageMap, spanishScores] = await Promise.all([
+    verifiedLanguagesByPerson(capabilityPersonIds),
+    spanishScoresByPerson(capabilityPersonIds),
   ]);
 
   // Build assignmentsByDate.
-  const assignmentsByDate = buildAssignmentsByDate(allAssignments, languageMap);
+  const assignmentsByDate = buildAssignmentsByDate(allAssignments, languageMap, spanishScores);
 
   // Load each member's training intake (scheduling preferences from the training
   // quiz), keyed by personId:track. A member's track is their membership kind, so
@@ -1612,6 +1648,7 @@ export async function builderView(
         id: m.person.id,
         name: m.person.name,
         verifiedLanguages: languageMap.get(m.person.id) ?? [],
+        spanishScore: spanishScores.get(m.person.id) ?? null,
         licensedRN: m.person.licensedRN,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
@@ -1645,6 +1682,10 @@ export async function builderView(
       id: i.personId ?? provisionalRowId(i.acceptanceId),
       name: i.name,
       verifiedLanguages: i.personId ? languageMap.get(i.personId) ?? [] : [],
+      // A provisional row has no personId yet, so it has no score to look up.
+      // The badge degrades to a plain verified one, which is correct: nothing
+      // is being claimed about a number nobody has recorded.
+      spanishScore: i.personId ? spanishScores.get(i.personId) ?? null : null,
       licensedRN: i.licensedRN,
     },
     kind: i.kind,
@@ -1824,7 +1865,12 @@ export async function builderView(
 
   return {
     departments: deptLites,
-    selectedDepartment: { id: selectedDept.id, code: selectedDept.code, name: selectedDept.name },
+    selectedDepartment: {
+      id: selectedDept.id,
+      code: selectedDept.code,
+      name: selectedDept.name,
+      minInterpreterScore: selectedDept.minInterpreterScore,
+    },
     clinicDates,
     // A plain object, not the Map: this crosses into the page and its
     // components, and the same reasoning as clearedPersonIds below applies.

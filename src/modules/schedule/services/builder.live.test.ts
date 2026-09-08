@@ -83,8 +83,43 @@ describe("assignmentsFor", () => {
       role: "VOLUNTEER",
       tags: { triage: true, walkin: false, cc: false, remote: false, specialty: false },
       // Only VERIFIED languages reach the builder, matching builderView.
-      person: { name: "Vic Volunteer", verifiedLanguages: ["es"], licensedRN: true },
+      // `spanishScore` is null here because this fixture verifies the claim
+      // without recording a number, which is the historical shape of most of
+      // the roster -- INTP verified for years without always scoring.
+      person: {
+        name: "Vic Volunteer",
+        verifiedLanguages: ["es"],
+        spanishScore: null,
+        licensedRN: true,
+      },
     });
+  });
+
+  it("carries the interpreter score, which the builder used to drop", async () => {
+    // The builder rendered a bare "ES" while /schedule/full rendered "ES 2" in
+    // warning tone for the same person, because the builder never loaded the
+    // score -- on the one screen where somebody actually assigns an interpreter
+    // to a patient. The badge is shared now, so the DATA has to arrive too.
+    const { term, dept } = await fixture();
+    const person = await prisma.person.create({
+      data: {
+        name: "Sam Scored",
+        languages: {
+          create: {
+            language: "es",
+            selfReported: true,
+            verified: true,
+            verifiedAt: new Date(),
+            score: 2,
+          },
+        },
+      },
+    });
+    await shift(term.id, dept.id, person.id, SATURDAY);
+
+    const board = await assignmentsFor(term.id, dept.id);
+
+    expect(board[DATE_KEY][person.id].person.spanishScore).toBe(2);
   });
 
   // The board a director is looking at is one department's. Another

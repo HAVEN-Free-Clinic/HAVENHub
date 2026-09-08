@@ -817,6 +817,49 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
       "Your department directors were already reminded recently, so no new email was sent.",
   },
   {
+    // recruitment/cycles/[id]/decisions/actions.ts:49. The other button on that same
+    // page (Release decisions) redirects `?sent=&skipped=`, which IS registered above --
+    // so one button's confirmation was a four-second toast and the other's was pinned to
+    // the URL forever, surviving refresh, back-navigation and a shared link. Same page,
+    // same kind of action, opposite lifetimes.
+    params: ["rejected"],
+    pathnames: ["/recruitment/cycles/*/decisions"],
+    tone: "success",
+    message: (values) => {
+      const n = values.get("rejected") ?? "0";
+      return `Sent ${n} not-selected email${n === "1" ? "" : "s"}.`;
+    },
+  },
+  {
+    // volunteers/spanish-review/page.tsx, five redirects. `ok` carries a ready-made
+    // sentence from the action, so it is echoed rather than rewritten here. Its
+    // neighbour `error` on the same page is claimed by the convention above, so
+    // without this entry the page's failures vanished and its successes did not.
+    params: ["ok"],
+    pathnames: ["/volunteers/spanish-review"],
+    tone: "success",
+    message: (values) => values.get("ok") ?? "Saved.",
+  },
+  {
+    // schedule/attendings/page.tsx and its subtree. Both params carry a ready-made
+    // sentence. `message` already has two entries above, but both are scoped to
+    // `/schedule` with matchValues, so these cannot collide with them.
+    params: ["notice"],
+    pathnames: ["/schedule/attendings", "/schedule/attendings/*"],
+    tone: "success",
+    message: (values) => values.get("notice") ?? "Done.",
+  },
+  {
+    // schedule/attendings/[id]/page.tsx:91,107 ("Hub access enabled/revoked").
+    // Scoped BELOW the index on purpose: /schedule/attendings itself and
+    // /schedule/attendings/credentialing used `message` for FAILURES, and both
+    // now redirect with `error` instead, so this name means one thing.
+    params: ["message"],
+    pathnames: ["/schedule/attendings/*"],
+    tone: "success",
+    message: (values) => values.get("message") ?? "Done.",
+  },
+  {
     // recruitment/cycles/[id]/onboarding/page.tsx:51 and recruitment/cycles/[id]/training/page.tsx:45.
     // Neither `err` nor `msg` matches the `error`/`message` convention (different literal names).
     // Modeled as two independent single-param entries, not one joint group: onboarding's own

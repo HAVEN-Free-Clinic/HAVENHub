@@ -17,7 +17,6 @@ import {
   hubAccessState,
 } from "@/modules/schedule/services/attending-access";
 import { AttendingForm } from "@/modules/schedule/components/attending-form";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -29,13 +28,11 @@ import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; message?: string }>;
 };
 
-export default async function EditAttendingPage({ params, searchParams }: PageProps) {
+export default async function EditAttendingPage({ params }: PageProps) {
   const session = await requireModuleAccess("schedule");
   const { id } = await params;
-  const { error, message } = await searchParams;
 
   if (!(await canManageAttendings(session.personId))) redirect("/no-access");
 
@@ -118,8 +115,9 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
         status={<ActiveBadge active={attending.isActive} />}
       />
       {/* updateAction redirects here with ?error= on a domain failure. */}
-      {error && <Alert tone="error">{error}</Alert>}
-      {message && <Alert tone="success">{message}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
 
       <AttendingForm
         action={updateAction}

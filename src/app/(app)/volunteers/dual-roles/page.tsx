@@ -99,7 +99,9 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
         description="Volunteers serving another department who offered to also help yours. Accepting puts them on your roster for this term; it does not change the department they were accepted into."
       />
 
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
       {sp.ok && <Alert tone="success">{sp.ok}</Alert>}
 
       <section className="space-y-3">

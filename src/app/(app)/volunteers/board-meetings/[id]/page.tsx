@@ -10,7 +10,6 @@ import {
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
@@ -23,7 +22,6 @@ import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
 };
 
 const STATUS_TONE: Record<BoardAttendanceStatus, "success" | "warning" | "critical"> = {
@@ -32,10 +30,9 @@ const STATUS_TONE: Record<BoardAttendanceStatus, "success" | "warning" | "critic
   ABSENT: "critical",
 };
 
-export default async function BoardMeetingPage({ params, searchParams }: PageProps) {
+export default async function BoardMeetingPage({ params }: PageProps) {
   await requirePermission("volunteers.manage_board_attendance");
   const { id } = await params;
-  const sp = await searchParams;
 
   const meeting = await prisma.boardMeeting.findUnique({
     where: { id },
@@ -89,7 +86,9 @@ export default async function BoardMeetingPage({ params, searchParams }: PagePro
         description={`${formatCalendarDate(meeting.meetingDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${meeting.term.name}`}
       />
 
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
 
       {roster.length === 0 ? (
         <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">

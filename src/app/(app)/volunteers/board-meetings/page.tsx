@@ -14,7 +14,6 @@ import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -125,7 +124,9 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {sp.error && <Alert tone="error">{sp.error}</Alert>}
+      {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
+          from the URL, so an inline branch reported it twice and then lost its
+          value on the router.replace. Error toasts do not auto-dismiss. */}
 
       {isLiveTerm && (
         <section className="space-y-3">

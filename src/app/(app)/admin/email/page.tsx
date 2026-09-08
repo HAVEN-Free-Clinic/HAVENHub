@@ -40,6 +40,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Select } from "@/platform/ui/select";
 import { DeliveryLogTable } from "@/modules/admin/components/delivery-log-table";
 import { Pagination } from "@/platform/ui/pagination";
@@ -343,17 +344,14 @@ export default async function EmailPage({ searchParams }: PageProps) {
         {SENDER_CATEGORIES.map((cat) => {
           const rule = categoryRuleByGroup.get(cat.group);
           return (
-            <form
-              key={cat.group}
-              action={saveSenderAction}
-              className="flex flex-wrap items-end gap-3 border-t border-border pt-4"
-            >
+            <form key={cat.group} action={saveSenderAction}>
+              <FormRow className="border-t border-border pt-4">
               <input type="hidden" name="scope" value="CATEGORY" />
               <input type="hidden" name="target" value={cat.group} />
-              <div className="w-40">
+              <div className={ROW_WIDTH.control}>
                 <p className="text-sm font-medium">{cat.label}</p>
               </div>
-              <div className="w-64">
+              <div className={ROW_WIDTH.wide}>
                 <Input
                   name="fromEmail"
                   type="email"
@@ -362,7 +360,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
                   aria-label={`${cat.label} from address`}
                 />
               </div>
-              <div className="w-48">
+              <div className={ROW_WIDTH.control}>
                 <Input
                   name="fromName"
                   defaultValue={rule?.fromName ?? ""}
@@ -376,6 +374,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
               <Button type="submit" formAction={testSenderAction} variant="ghost" size="sm">
                 Send test
               </Button>
+              </FormRow>
             </form>
           );
         })}
@@ -412,7 +411,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
       {/* Filter bar (GET form) */}
       <FilterBar clearHref={validatedStatus || validatedTemplate || q ? "/admin/email" : undefined}>
-        <FilterField label="Status" width="sm">
+        <FilterField label="Status">
           <Select name="status" defaultValue={validatedStatus ?? ""}>
             <option value="">All statuses</option>
             {VALID_STATUSES.map((s) => (
@@ -422,7 +421,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             ))}
           </Select>
         </FilterField>
-        <FilterField label="Template" width="lg">
+        <FilterField label="Template" width="wide">
           <Select name="template" defaultValue={validatedTemplate ?? ""}>
             <option value="">All templates</option>
             {templateOptions.map((t) => (

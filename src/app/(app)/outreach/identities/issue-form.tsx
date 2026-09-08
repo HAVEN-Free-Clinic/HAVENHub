@@ -5,6 +5,7 @@ import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SenderIdentityNotes, type SendingDomainMap } from "../sender-identity-notes";
+import { FormRow } from "@/platform/ui/form";
 
 type Option = { id: string; name: string };
 
@@ -48,7 +49,7 @@ export function IssueIdentityForm({
 
   return (
     <form action={action} className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
+      <FormRow>
         <Field label="Issue to a person">
           <Select
             name="personId"
@@ -99,7 +100,7 @@ export function IssueIdentityForm({
         <Button type="submit" disabled={!personId && !roleId}>
           Issue
         </Button>
-      </div>
+      </FormRow>
       {roleId && (
         <p className="text-sm text-muted-foreground">
           Everyone holding this role gains the address, and loses it the moment they lose the

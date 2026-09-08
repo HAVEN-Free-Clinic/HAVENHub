@@ -39,6 +39,7 @@ import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
 import { TextLink } from "@/platform/ui/text-link";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 /**
  * Language review queue for the interpreting department.
@@ -331,38 +332,39 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 For someone assessed outside the queue. Enter their NetID or email to link the
                 record to their Hub profile.
               </p>
-              <form action={addPersonToHistoryAction} className="flex flex-wrap items-end gap-2">
-                <Field label="NetID or email">
-                  <Input name="netIdOrEmail" placeholder="abc123 or name@yale.edu" className="w-48" />
-                </Field>
-                <Field label="Season">
-                  <Select name="termSeason" defaultValue="Spring">
-                    {ASSESSMENT_SEASONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Year">
-                  <Input
-                    name="termYear"
-                    inputMode="numeric"
-                    placeholder="2026"
-                    maxLength={4}
-                    className="w-20"
-                    defaultValue={activeTerm ? String(new Date(activeTerm.startDate).getUTCFullYear()) : ""}
-                  />
-                </Field>
-                <Field label="Score">
-                  <ScoreOptions name="score" />
-                </Field>
-                <Field label="Modifier">
-                  <ModifierOptions name="modifier" />
-                </Field>
-                <SubmitButton variant="outline" pendingLabel="Adding...">
-                  Add assessment
-                </SubmitButton>
+              <form action={addPersonToHistoryAction}>
+                <FormRow>
+                  <RowField label="NetID or email">
+                    <Input name="netIdOrEmail" placeholder="abc123 or name@yale.edu" />
+                  </RowField>
+                  <RowField label="Season">
+                    <Select name="termSeason" defaultValue="Spring">
+                      {ASSESSMENT_SEASONS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </Select>
+                  </RowField>
+                  <RowField label="Year" width="numeric">
+                    <Input
+                      name="termYear"
+                      inputMode="numeric"
+                      placeholder="2026"
+                      maxLength={4}
+                      defaultValue={activeTerm ? String(new Date(activeTerm.startDate).getUTCFullYear()) : ""}
+                    />
+                  </RowField>
+                  <RowField label="Score">
+                    <ScoreOptions name="score" />
+                  </RowField>
+                  <RowField label="Modifier">
+                    <ModifierOptions name="modifier" />
+                  </RowField>
+                  <SubmitButton variant="outline" pendingLabel="Adding...">
+                    Add assessment
+                  </SubmitButton>
+                </FormRow>
               </form>
             </div>
           </details>
@@ -380,7 +382,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 defaultValue={search}
               />
             </FilterField>
-            <FilterField label="Term" width="lg">
+            <FilterField label="Term" width="wide">
               <Select name="term" defaultValue={termFilter}>
                 <option value="">All terms</option>
                 {allTerms.map((term) => (
@@ -645,15 +647,6 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
     <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
       {children}
     </Card>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs text-muted-foreground">{label}</label>
-      {children}
-    </div>
   );
 }
 

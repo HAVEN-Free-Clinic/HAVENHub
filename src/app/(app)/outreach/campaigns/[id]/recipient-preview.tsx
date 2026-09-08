@@ -11,6 +11,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "./submit-button";
 import { useFormDirty } from "./use-form-dirty";
 import type { FormProblems } from "./form-state";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 
@@ -315,8 +316,8 @@ export function RecipientPreview({
           people the campaign could already mail. */}
       <Card className="space-y-3">
         <p className="text-sm font-medium text-foreground">Add someone</p>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="w-full max-w-sm">
+        <FormRow>
+          <div className={ROW_WIDTH.grow}>
             <Field label="Search by name or email" hint="Only people inside this campaign's audience scope can be found.">
               <Input
                 type="search"
@@ -343,7 +344,7 @@ export function RecipientPreview({
           >
             {searching ? "Searching..." : "Search"}
           </Button>
-        </div>
+        </FormRow>
 
         {results !== null && results.length === 0 && (
           // eslint-disable-next-line local/no-adhoc-empty-state -- deliberate text-xs in this dense preview panel; EmptyState is text-sm and this repo has no tailwind-merge, so the size override would be unreliable.

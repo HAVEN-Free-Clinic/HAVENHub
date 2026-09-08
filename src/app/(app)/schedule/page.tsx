@@ -8,7 +8,7 @@ import {
   RequestChangeDisclosure,
   PastShiftsDisclosure,
 } from "@/modules/schedule/components/shift-parts";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -532,15 +532,17 @@ export default async function MySchedulePage() {
                         {shift.department.allowShiftDrop ? (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
-                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                              <input type="hidden" name="termId" value={t.term.id} />
-                              <input type="hidden" name="dateKey" value={dateKey} />
-                              <input type="hidden" name="departmentId" value={shift.department.id} />
-                              <input type="hidden" name="kind" value="drop" />
-                              <div className="flex-1 min-w-48">
-                                <Input name="note" placeholder="Optional note" aria-label="Note" />
-                              </div>
-                              <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                            <form action={createRequestAction}>
+                              <FormRow>
+                                <input type="hidden" name="termId" value={t.term.id} />
+                                <input type="hidden" name="dateKey" value={dateKey} />
+                                <input type="hidden" name="departmentId" value={shift.department.id} />
+                                <input type="hidden" name="kind" value="drop" />
+                                <div className={ROW_WIDTH.grow}>
+                                  <Input name="note" placeholder="Optional note" aria-label="Note" />
+                                </div>
+                                <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                              </FormRow>
                             </form>
                           </div>
                         ) : (
@@ -552,22 +554,24 @@ export default async function MySchedulePage() {
                         {swapPartners.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a swap</p>
-                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                              <input type="hidden" name="termId" value={t.term.id} />
-                              <input type="hidden" name="dateKey" value={dateKey} />
-                              <input type="hidden" name="departmentId" value={shift.department.id} />
-                              <input type="hidden" name="kind" value="swap" />
-                              <div className="flex-1 min-w-56">
-                                <Select name="partner" aria-label="Swap partner">
-                                  <option value="">Select swap partner...</option>
-                                  {swapPartners.map((p) => (
-                                    <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>
-                                      {p.name} ({displayDate(p.dateKey)})
-                                    </option>
-                                  ))}
-                                </Select>
-                              </div>
-                              <Button type="submit" variant="outline">Request swap</Button>
+                            <form action={createRequestAction}>
+                              <FormRow>
+                                <input type="hidden" name="termId" value={t.term.id} />
+                                <input type="hidden" name="dateKey" value={dateKey} />
+                                <input type="hidden" name="departmentId" value={shift.department.id} />
+                                <input type="hidden" name="kind" value="swap" />
+                                <div className={ROW_WIDTH.grow}>
+                                  <Select name="partner" aria-label="Swap partner">
+                                    <option value="">Select swap partner...</option>
+                                    {swapPartners.map((p) => (
+                                      <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>
+                                        {p.name} ({displayDate(p.dateKey)})
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </div>
+                                <Button type="submit" variant="outline">Request swap</Button>
+                              </FormRow>
                             </form>
                           </div>
                         )}

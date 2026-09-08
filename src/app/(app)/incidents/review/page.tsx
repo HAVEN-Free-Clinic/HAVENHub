@@ -137,7 +137,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
             placeholder="Subject, reporter, or report #..."
           />
         </FilterField>
-        <FilterField label="Status" width="md">
+        <FilterField label="Status">
           <Select name="status" defaultValue={status ?? ""}>
             <option value="">All statuses</option>
             {(Object.keys(STATUS_LABELS) as IncidentReportStatus[]).map((s) => (
@@ -147,7 +147,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
             ))}
           </Select>
         </FilterField>
-        <FilterField label="Concern type" width="lg">
+        <FilterField label="Concern type" width="wide">
           <Select name="concernType" defaultValue={concernType ?? ""}>
             <option value="">All concern types</option>
             {CONCERN_TYPES.map((t) => (

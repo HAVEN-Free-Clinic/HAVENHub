@@ -22,7 +22,7 @@ import {
   RequestChangeDisclosure,
   PastShiftsDisclosure,
 } from "./shift-parts";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -120,14 +120,16 @@ export function AttendingPortalSection({
             <RequestChangeDisclosure>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Give up this date</p>
-                  <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                    <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
-                    <input type="hidden" name="slotId" value={shift.slot.id} />
-                    <input type="hidden" name="kind" value="drop" />
-                    <div className="flex-1 min-w-48">
-                      <Input name="note" placeholder="Optional note" aria-label="Note" />
-                    </div>
-                    <ConfirmButton label="Request drop" confirmLabel="Request to drop this date?" />
+                  <form action={createRequestAction}>
+                    <FormRow>
+                      <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
+                      <input type="hidden" name="slotId" value={shift.slot.id} />
+                      <input type="hidden" name="kind" value="drop" />
+                      <div className={ROW_WIDTH.grow}>
+                        <Input name="note" placeholder="Optional note" aria-label="Note" />
+                      </div>
+                      <ConfirmButton label="Request drop" confirmLabel="Request to drop this date?" />
+                    </FormRow>
                   </form>
                 </div>
                 {partners.length > 0 ? (
@@ -135,24 +137,26 @@ export function AttendingPortalSection({
                     <p className="text-xs font-medium text-muted-foreground mb-2">
                       Swap with another {shift.slot.label} attending
                     </p>
-                    <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                      <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
-                      <input type="hidden" name="slotId" value={shift.slot.id} />
-                      <input type="hidden" name="kind" value="swap" />
-                      <div className="flex-1 min-w-56">
-                        <Select name="partner" aria-label="Swap partner">
-                          <option value="">Select swap partner...</option>
-                          {partners.map((p) => (
-                            <option
-                              key={`${p.attendingId}|${p.clinicDayId}`}
-                              value={`${p.attendingId}|${p.clinicDayId}|${p.slotId}`}
-                            >
-                              {p.name} ({displayDate(isoDateKey(p.clinicDate))})
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <Button type="submit" variant="outline">Request swap</Button>
+                    <form action={createRequestAction}>
+                      <FormRow>
+                        <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
+                        <input type="hidden" name="slotId" value={shift.slot.id} />
+                        <input type="hidden" name="kind" value="swap" />
+                        <div className={ROW_WIDTH.grow}>
+                          <Select name="partner" aria-label="Swap partner">
+                            <option value="">Select swap partner...</option>
+                            {partners.map((p) => (
+                              <option
+                                key={`${p.attendingId}|${p.clinicDayId}`}
+                                value={`${p.attendingId}|${p.clinicDayId}|${p.slotId}`}
+                              >
+                                {p.name} ({displayDate(isoDateKey(p.clinicDate))})
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                        <Button type="submit" variant="outline">Request swap</Button>
+                      </FormRow>
                     </form>
                   </div>
                 ) : (

@@ -12,6 +12,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { FormRow } from "@/platform/ui/form";
 
 export type QuizQuestion = { id: string; label: string; options: Choice[]; correctValue: string | null };
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
@@ -112,12 +113,12 @@ export function QuizBuilder({
         </section>
       ))}
 
-      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-dashed border-border-strong bg-muted/60 p-5">
+      <FormRow className="rounded-2xl border border-dashed border-border-strong bg-muted/60 p-5">
         <Field label="Quiz section title">
           <Input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} className="min-w-[14rem]" />
         </Field>
         <Button type="button" onClick={addQuizSection} disabled={!editable}>Add quiz section</Button>
-      </div>
+      </FormRow>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FilterBar, FilterField } from "./filter-bar";
+import { FormRow, RowField, ROW_WIDTH } from "./form";
 import { Input } from "./input";
 
 // NavForm is a client component reading router hooks; stub them for SSR.
@@ -109,13 +110,36 @@ describe("FilterBar", () => {
     );
     expect(grow).toContain("flex-1 min-w-48");
 
-    const lg = render(
+    const wide = render(
       <FilterBar>
-        <FilterField label="Department" width="lg">
+        <FilterField label="Department" width="wide">
           <Input name="d" />
         </FilterField>
       </FilterBar>,
     );
-    expect(lg).toContain("w-52");
+    expect(wide).toContain(ROW_WIDTH.wide);
+  });
+
+  it("draws its widths from the same table the write forms use", () => {
+    // A Department select in a filter row and a Department select in the write
+    // form above it are the same control doing the same job, one above the
+    // other on /incidents/strikes. Two width tables is how they drift apart.
+    const filter = render(
+      <FilterBar>
+        <FilterField label="Department" width="wide">
+          <Input name="d" />
+        </FilterField>
+      </FilterBar>,
+    );
+    const write = render(
+      <FormRow>
+        <RowField label="Department" width="wide">
+          <Input name="d" />
+        </RowField>
+      </FormRow>,
+    );
+    const widthOf = (html: string) => /class="(w-\d+|flex-1[^"]*)"/.exec(html)?.[1];
+    expect(widthOf(filter)).toBe(widthOf(write));
+    expect(widthOf(filter)).toBeDefined();
   });
 });

@@ -423,3 +423,93 @@ describe("claimLanguage created-ness", () => {
     expect(await claimLanguage(p.id, "pt")).toEqual({ created: true });
   });
 });
+
+describe("listLanguageReviewQueue with both sources", () => {
+  it("puts applicant rows first, each with its cycle and departments", async () => {
+    const lead = await prisma.person.create({ data: { name: "Lead" } });
+    await prisma.department.create({
+      data: { code: "PATS", name: "Patient Services", assessLanguageBeforeAcceptance: true },
+    });
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(),
+        status: "ACTIVE", clinicDates: [],
+      },
+    });
+    const cycle = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER", termId: term.id, title: "Fall 2026 Volunteers",
+        publicSlug: `s-${Math.random()}`, departments: ["PATS"],
+        createdById: lead.id, status: "OPEN",
+      },
+    });
+    const applicant = await prisma.applicant.create({
+      data: {
+        cycleId: cycle.id, firstName: "Zoe", lastName: "Zephyr",
+        email: "zoe@yale.edu", emailLower: "zoe@yale.edu",
+      },
+    });
+    await prisma.application.create({
+      data: {
+        cycleId: cycle.id, applicantId: applicant.id, answers: {},
+        applicantType: "NEW", departmentChoices: ["PATS"],
+        status: "SUBMITTED", submittedAt: new Date(),
+      },
+    });
+
+    // A member claim, which sorts after every applicant despite the earlier name.
+    const member = await prisma.person.create({ data: { name: "Ada Member", status: "ACTIVE" } });
+    await claimLanguage(member.id, "es");
+
+    const rows = await listLanguageReviewQueue();
+
+    expect(rows.map((r) => r.source)).toEqual(["applicant", "member"]);
+    expect(rows[0]).toMatchObject({
+      name: "Zoe Zephyr",
+      personId: null,
+      contextLabel: "Fall 2026 Volunteers",
+      departments: ["PATS"],
+    });
+    expect(rows[1]).toMatchObject({ name: "Ada Member", applicationId: null });
+  });
+
+  it("marks a dual-role department on an applicant row", async () => {
+    const lead = await prisma.person.create({ data: { name: "Lead" } });
+    await Promise.all([
+      prisma.department.create({ data: { code: "EDUC", name: "Education" } }),
+      prisma.department.create({
+        data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+      }),
+    ]);
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(),
+        status: "ACTIVE", clinicDates: [],
+      },
+    });
+    const cycle = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER", termId: term.id, title: "Fall 2026 Volunteers",
+        publicSlug: `s-${Math.random()}`, departments: ["EDUC"],
+        createdById: lead.id, status: "OPEN",
+      },
+    });
+    const applicant = await prisma.applicant.create({
+      data: {
+        cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace",
+        email: "ada@yale.edu", emailLower: "ada@yale.edu",
+      },
+    });
+    await prisma.application.create({
+      data: {
+        cycleId: cycle.id, applicantId: applicant.id, answers: {},
+        applicantType: "NEW", departmentChoices: ["EDUC"],
+        dualRoleDepartments: ["INTP"], status: "SUBMITTED", submittedAt: new Date(),
+      },
+    });
+
+    const rows = await listLanguageReviewQueue();
+
+    expect(rows[0].departments).toEqual(["EDUC", "INTP (dual)"]);
+  });
+});

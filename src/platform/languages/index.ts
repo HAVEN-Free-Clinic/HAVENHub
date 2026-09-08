@@ -30,6 +30,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
 import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from "./catalog";
 import { upsertSpanishAssessmentForTerm } from "./spanish-assessments";
+import { listApplicantLanguageQueue } from "./applicant-review";
 
 /**
  * The catalog and its pure helpers are re-exported so every existing server
@@ -40,6 +41,7 @@ import { upsertSpanishAssessmentForTerm } from "./spanish-assessments";
  * directly.
  */
 export * from "./catalog";
+export * from "./applicant-review";
 
 /**
  * Claims awaiting assessment, clinic-wide.
@@ -52,43 +54,98 @@ export function languageReviewWhere(): Prisma.PersonLanguageWhereInput {
 }
 
 export type LanguageReviewRow = {
+  /** PersonLanguage id for a member; `${applicationId}:${language}` for an applicant. */
   id: string;
-  personId: string;
+  source: "member" | "applicant";
+  /** Null for an applicant: they have no Person until promotion. */
+  personId: string | null;
+  /** Null for a member. */
+  applicationId: string | null;
   name: string;
   netId: string | null;
   language: string;
   languageLabel: string;
   score: number | null;
+  /** "Fall 2026 Volunteers" for an applicant, the active term name for a member. */
+  contextLabel: string;
+  /** Department codes. A dual-role offer is rendered as "INTP (dual)". */
+  departments: string[];
 };
 
 /**
- * One queue for everyone. This used to split on active-term INTP membership
- * into a scored assessment queue and an unscored "general verification" one,
- * which meant a Spanish speaker outside interpreting never got a number at all.
- * Departments differ on what they will staff (Department.minInterpreterScore),
- * and that call needs a score for every speaker, not only for interpreters.
+ * One queue, two sources.
+ *
+ * MEMBERS are claims awaiting assessment, as they always were. This used to
+ * split on active-term INTP membership into a scored queue and an unscored
+ * "general" one, which meant a Spanish speaker outside interpreting never got a
+ * number at all. Do not reintroduce that split.
+ *
+ * APPLICANTS come from ./applicant-review: people applying to a department that
+ * assesses before it accepts. They sort FIRST because they are the ones holding
+ * up a decision, and because a member's claim can wait for the next assessment
+ * session while an application window cannot.
  */
 export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
-  const rows = await prisma.personLanguage.findMany({
-    where: languageReviewWhere(),
-    orderBy: [{ person: { name: "asc" } }, { language: "asc" }],
-    select: {
-      id: true,
-      personId: true,
-      language: true,
-      score: true,
-      person: { select: { name: true, netId: true } },
-    },
-  });
-  return rows.map((r) => ({
+  const [applicantRows, memberRows, activeTerm] = await Promise.all([
+    listApplicantLanguageQueue(),
+    prisma.personLanguage.findMany({
+      where: languageReviewWhere(),
+      orderBy: [{ person: { name: "asc" } }, { language: "asc" }],
+      select: {
+        id: true,
+        personId: true,
+        language: true,
+        score: true,
+        person: { select: { name: true, netId: true } },
+      },
+    }),
+    getActiveTerm(),
+  ]);
+
+  const memberIds = memberRows.map((r) => r.personId);
+  // Department context for the member half. Resolved live from the ACTIVE
+  // memberships in the ACTIVE term, matching how every other roster read here
+  // resolves a person's departments.
+  const memberships = activeTerm
+    ? await prisma.termMembership.findMany({
+        where: { personId: { in: memberIds }, termId: activeTerm.id, status: "ACTIVE" },
+        select: { personId: true, department: { select: { code: true } } },
+      })
+    : [];
+  const deptsByPerson = new Map<string, string[]>();
+  for (const m of memberships) {
+    deptsByPerson.set(m.personId, [...(deptsByPerson.get(m.personId) ?? []), m.department.code]);
+  }
+
+  const applicants: LanguageReviewRow[] = applicantRows.map((r) => ({
+    id: `${r.applicationId}:${r.language}`,
+    source: "applicant",
+    personId: null,
+    applicationId: r.applicationId,
+    name: r.name,
+    netId: r.netId,
+    language: r.language,
+    languageLabel: languageLabel(r.language),
+    score: null,
+    contextLabel: r.cycleTitle,
+    departments: [...r.departments, ...r.dualRoleDepartments.map((c) => `${c} (dual)`)],
+  }));
+
+  const members: LanguageReviewRow[] = memberRows.map((r) => ({
     id: r.id,
+    source: "member",
     personId: r.personId,
+    applicationId: null,
     name: r.person.name,
     netId: r.person.netId,
     language: r.language,
     languageLabel: languageLabel(r.language),
     score: r.score,
+    contextLabel: activeTerm?.name ?? "",
+    departments: (deptsByPerson.get(r.personId) ?? []).sort(),
   }));
+
+  return [...applicants, ...members];
 }
 
 /**

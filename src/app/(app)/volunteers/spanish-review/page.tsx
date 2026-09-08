@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
@@ -41,6 +40,7 @@ import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
 import { ScoreOptions } from "@/platform/ui/score-options";
 import { QueueTab } from "./queue-tab";
+import { TabRow } from "@/platform/ui/tab-row";
 
 /**
  * Language review queue for the interpreting department.
@@ -267,17 +267,19 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       {sp.error && <Alert tone="error">{sp.error}</Alert>}
       {sp.ok && <Alert tone="success">{sp.ok}</Alert>}
 
-      <nav className="flex gap-1 border-b border-border">
-        <TabLink tab="queue" activeTab={activeTab} count={queueRows.length}>
-          Review queue
-        </TabLink>
-        <TabLink tab="history" activeTab={activeTab}>
-          Assessment history
-        </TabLink>
-        <TabLink tab="crosscheck" activeTab={activeTab}>
-          Flag cross-check
-        </TabLink>
-      </nav>
+      {/* `|| undefined` on the badge, not `|| 0`: TabRow renders a badge
+          whenever it is not undefined, and a literal 0 beside "Review queue"
+          reads as a count of zero rather than as no count. */}
+      <TabRow
+        variant="underline"
+        label="Language review sections"
+        isActive={(item) => item.href === tabHref(activeTab)}
+        items={[
+          { label: "Review queue", href: tabHref("queue"), badge: queueRows.length || undefined },
+          { label: "Assessment history", href: tabHref("history") },
+          { label: "Flag cross-check", href: tabHref("crosscheck") },
+        ]}
+      />
 
       {activeTab === "queue" && (
         <QueueTab
@@ -588,37 +590,6 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
 // Presentational helpers
 // ---------------------------------------------------------------------------
 
-function TabLink({
-  tab,
-  activeTab,
-  count,
-  children,
-}: {
-  tab: Tab;
-  activeTab: Tab;
-  count?: number;
-  children: React.ReactNode;
-}) {
-  const active = tab === activeTab;
-  return (
-    <Link
-      href={tabHref(tab)}
-      className={[
-        "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
-        active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
-      ].join(" ")}
-    >
-      {children}
-      {count !== undefined && count > 0 && (
-        <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-          {count}
-        </span>
-      )}
-    </Link>
-  );
-}
 
 function EmptyCard({ children }: { children: React.ReactNode }) {
   return (

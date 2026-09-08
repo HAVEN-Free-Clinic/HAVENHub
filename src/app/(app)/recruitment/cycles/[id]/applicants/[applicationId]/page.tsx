@@ -9,8 +9,11 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
+import { priorLanguageVerdicts } from "@/platform/languages";
+import { SPANISH } from "@/platform/languages/catalog";
+import { LanguageAssessmentCard } from "@/modules/recruitment/components/language-assessment-card";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
@@ -88,6 +91,39 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // see that the absence was accounted for, the same way they see the badge on
   // the training roster.
   const excuse = await getApplicantAbsenceExcuse(id, app.applicant.id);
+
+  // What the interpreting department already knows about this applicant's
+  // languages, when this application touches a department that assesses before
+  // it accepts (Department.assessLanguageBeforeAcceptance). ADVISORY ONLY: read
+  // below to render LanguageAssessmentCard, never to gate anything on this page.
+  const laneDepartments = await prisma.department.findMany({
+    where: { assessLanguageBeforeAcceptance: true },
+    select: { code: true },
+  });
+  const laneCodes = new Set(laneDepartments.map((d) => d.code));
+  const applicationDepartments = [
+    ...app.departmentChoices,
+    ...app.dualRoleDepartments,
+    ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+    ...(app.renewalDepartment ? [app.renewalDepartment] : []),
+  ];
+  const inLane = applicationDepartments.some((c) => laneCodes.has(c));
+  const languageVerdicts = inLane
+    ? ((await priorLanguageVerdicts([app.applicant.id])).get(app.applicant.id) ?? new Map())
+    : new Map();
+  // Assessor names for the card: PersonLanguage.verifiedById and
+  // ApplicationLanguageAssessment.verifiedById are bare ids (no FK), so this is
+  // its own lookup. A history-sourced verdict carries no assessedById and is
+  // naturally absent from the map.
+  const assessorIds = [...new Set(
+    [...languageVerdicts.values()].map((v) => v.assessedById).filter((id): id is string => id !== null),
+  )];
+  const assessors = assessorIds.length
+    ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
+    : [];
+  const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
+  const assessableLanguages = [...new Set([SPANISH, ...app.languagesClaimed])];
+  const canAssessLanguages = await can(person.personId, "volunteers.verify_spanish");
 
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
   const choices = eligible.filter((d) => !accepted.has(d));
@@ -262,6 +298,17 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         </Card>
         );
       })}
+
+      {inLane && (
+        <LanguageAssessmentCard
+          applicationId={applicationId}
+          languages={assessableLanguages}
+          verdicts={languageVerdicts}
+          assessorNames={assessorNames}
+          canAssess={canAssessLanguages}
+          action={assessApplicantLanguageAction.bind(null, id, applicationId)}
+        />
+      )}
 
       {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
         <Card>

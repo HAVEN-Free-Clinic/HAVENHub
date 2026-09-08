@@ -5,14 +5,13 @@ import { requirePermission } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
   listLanguageReviewQueue,
+  recordApplicationLanguageAssessment,
   recordLanguageAssessment,
-  type LanguageReviewRow,
 } from "@/platform/languages";
 import {
   CLINIC_WIDE_INTERPRETER_MIN_SCORE,
   LanguageValidationError,
   SPANISH,
-  SPANISH_PROFICIENCY_LEVELS,
   formatSpanishScore,
   spanishProficiencyLabel,
   spanishScoreTone,
@@ -40,6 +39,8 @@ import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
 import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
+import { ScoreOptions } from "@/platform/ui/score-options";
+import { QueueTab } from "./queue-tab";
 
 /**
  * Language review queue for the interpreting department.
@@ -116,7 +117,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   // left the reviewer looking at a reset form with no idea what happened.
   // -------------------------------------------------------------------------
 
-  async function assessAction(formData: FormData) {
+  async function assessMemberAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.verify_spanish");
     const personId = String(formData.get("personId") ?? "");
@@ -135,6 +136,28 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         language,
         verified,
         ...(score === undefined ? {} : { score }),
+      });
+    } catch (err) {
+      redirect(tabHref("queue", { error: messageFor(err, "Could not record that assessment.") }));
+    }
+    revalidatePath(BASE_PATH);
+    redirect(tabHref("queue", { ok: "Assessment recorded." }));
+  }
+
+  async function assessApplicantAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.verify_spanish");
+    const applicationId = String(formData.get("applicationId") ?? "");
+    const language = String(formData.get("language") ?? "");
+    const verified = formData.get("verified") === "true";
+    const score = normalizeScore(formData.get("score"));
+
+    try {
+      await recordApplicationLanguageAssessment(actor.personId, {
+        applicationId,
+        language,
+        verified,
+        score,
       });
     } catch (err) {
       redirect(tabHref("queue", { error: messageFor(err, "Could not record that assessment.") }));
@@ -238,7 +261,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Language review"
-        description="Volunteers who reported speaking a language and are awaiting an interpreting-department assessment. Verifying counts them as a provider for that language in scheduling."
+        description="Members who reported speaking a language, and applicants to departments that confirm Spanish before accepting regardless of what they claimed, both awaiting an interpreting-department verdict. Verifying a member counts them as a provider for that language in scheduling."
       />
 
       {sp.error && <Alert tone="error">{sp.error}</Alert>}
@@ -257,60 +280,11 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       </nav>
 
       {activeTab === "queue" && (
-        <section>
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold text-foreground">Language review queue</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Everyone who reported speaking a language and is awaiting assessment. Record a 1-5
-              proficiency score for Spanish speakers before verifying: departments differ on the
-              score they will staff, so a conversational speaker is useful to someone even when
-              they are below the clinic-wide interpreting bar. The score is internal and is never
-              shown to the volunteer.
-            </p>
-          </div>
-          {queueRows.length === 0 ? (
-            <EmptyCard>No one is awaiting language review.</EmptyCard>
-          ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>Name</TH>
-                  <TH>Language</TH>
-                  <TH>NetID</TH>
-                  <TH>Current score</TH>
-                  <TH>Assessment</TH>
-                </TR>
-              </THead>
-              <tbody>
-                {queueRows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="font-medium">{r.name}</TD>
-                    <TD>
-                      <Badge>{r.languageLabel}</Badge>
-                    </TD>
-                    <TD className="text-muted-foreground">
-                      {r.netId ?? <span className="text-subtle-foreground">-</span>}
-                    </TD>
-                    <TD>
-                      {r.language !== SPANISH ? (
-                        <span className="text-xs text-subtle-foreground">-</span>
-                      ) : r.score === null ? (
-                        <span className="text-xs text-subtle-foreground">Not yet scored</span>
-                      ) : (
-                        <Badge tone={spanishScoreTone(r.score)}>
-                          {formatSpanishScore(r.score, null)}
-                        </Badge>
-                      )}
-                    </TD>
-                    <TD>
-                      <AssessForm row={r} action={assessAction} withScore={r.language === SPANISH} />
-                    </TD>
-                  </TR>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </section>
+        <QueueTab
+          rows={queueRows}
+          assessMemberAction={assessMemberAction}
+          assessApplicantAction={assessApplicantAction}
+        />
       )}
 
       {activeTab === "history" && history && (
@@ -654,19 +628,6 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ScoreOptions({ name, defaultValue }: { name: string; defaultValue?: string }) {
-  return (
-    <Select name={name} defaultValue={defaultValue}>
-      <option value="">N/A</option>
-      {SPANISH_PROFICIENCY_LEVELS.map((l) => (
-        <option key={l.score} value={l.score}>
-          {l.score} - {l.label}
-        </option>
-      ))}
-    </Select>
-  );
-}
-
 function ModifierOptions({ name, defaultValue }: { name: string; defaultValue?: string }) {
   return (
     <Select name={name} defaultValue={defaultValue}>
@@ -674,57 +635,6 @@ function ModifierOptions({ name, defaultValue }: { name: string; defaultValue?: 
       <option value="plus">+</option>
       <option value="minus">-</option>
     </Select>
-  );
-}
-
-/**
- * One form, two submit buttons.
- *
- * The score select used to sit outside the verify form and reach it with a
- * `form=` attribute, which meant the Not-verified button (a second, separate
- * form) submitted no score at all and cleared the one on record. Both outcomes
- * now post the same fields.
- */
-function AssessForm({
-  row,
-  action,
-  withScore,
-}: {
-  row: LanguageReviewRow;
-  action: (formData: FormData) => Promise<void>;
-  withScore: boolean;
-}) {
-  return (
-    <form action={action} className="flex flex-col gap-2">
-      <input type="hidden" name="personId" value={row.personId} />
-      <input type="hidden" name="language" value={row.language} />
-      {withScore && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="shrink-0">Score:</span>
-          <ScoreOptions name="score" defaultValue={String(row.score ?? "")} />
-        </div>
-      )}
-      <div className="flex gap-2">
-        <SubmitButton
-          variant="primary"
-          size="sm"
-          name="verified"
-          value="true"
-          pendingLabel="Saving..."
-        >
-          Verify
-        </SubmitButton>
-        <SubmitButton
-          variant="outline"
-          size="sm"
-          name="verified"
-          value="false"
-          pendingLabel="Saving..."
-        >
-          Not verified
-        </SubmitButton>
-      </div>
-    </form>
   );
 }
 

@@ -7,16 +7,16 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/platform/auth/session", () => ({ requirePersonSession: vi.fn() }));
+vi.mock("@/platform/auth/session", () => ({ requirePersonSession: vi.fn(), requirePermission: vi.fn() }));
 vi.mock("@/platform/posthog/capture", () => ({ captureEvent: vi.fn(), GROUP_DEPARTMENT: "department" }));
 vi.mock("@/platform/posthog/groups", () => ({ termGroupForCycle: vi.fn().mockResolvedValue(undefined) }));
 
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePersonSession, requirePermission } from "@/platform/auth/session";
 import { routeApplication, decideRoutedApplication } from "@/modules/recruitment/services/routing";
 import { canViewerOpenApplication } from "@/modules/recruitment/services/review";
-import { routeAction, decideRoutedAction, committeeScoreAction, rescindAcceptanceAction } from "./actions";
+import { routeAction, decideRoutedAction, committeeScoreAction, rescindAcceptanceAction, assessApplicantLanguageAction } from "./actions";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); vi.clearAllMocks(); });
@@ -152,4 +152,28 @@ it("sends a committee-score failure to scoreError so it renders in the score car
   const err = await committeeScoreAction(cycle.id, application.id, form({ score: "9" })).catch((e) => e);
   expect(err.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?scoreError=`);
   expect(decodeURIComponent(err.digest)).toContain("Score must be 1 to 5.");
+});
+
+it("records the interpreting department's verdict against this application", async () => {
+  const { lead, cycle, application } = await seed();
+  vi.mocked(requirePermission).mockResolvedValue({ personId: lead.id } as never);
+
+  await assessApplicantLanguageAction(cycle.id, application.id, form({ language: "es", verified: "true", score: "4" }));
+
+  const row = await prisma.applicationLanguageAssessment.findUniqueOrThrow({
+    where: { applicationId_language: { applicationId: application.id, language: "es" } },
+  });
+  expect(row).toMatchObject({ verified: true, score: 4 });
+});
+
+it("redirects to an inline error rather than throwing when the assessment fails validation", async () => {
+  const { lead, cycle, application } = await seed();
+  vi.mocked(requirePermission).mockResolvedValue({ personId: lead.id } as never);
+
+  // Not a language in the catalog: recordApplicationLanguageAssessment throws
+  // LanguageValidationError, which the action must catch rather than let escape
+  // as an uncaught server-action error.
+  const err = await assessApplicantLanguageAction(cycle.id, application.id, form({ language: "xx", verified: "true" })).catch((e) => e);
+  expect(err.digest).toContain(`/recruitment/cycles/${cycle.id}/applicants/${application.id}?error=`);
+  expect(decodeURIComponent(err.digest)).toContain('Unknown language "xx"');
 });

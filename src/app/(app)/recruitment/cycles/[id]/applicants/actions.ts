@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requirePersonSession } from "@/platform/auth/session";
+import { requirePersonSession, requirePermission } from "@/platform/auth/session";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication } from "@/modules/recruitment/services/review";
@@ -15,6 +15,9 @@ import {
   recordApplicantAbsenceExcuse,
   TrainingStateError,
 } from "@/modules/recruitment/services/training";
+import { recordApplicationLanguageAssessment } from "@/platform/languages";
+import { LanguageValidationError } from "@/platform/languages/catalog";
+import { normalizeScore } from "@/platform/languages/spanish-assessments";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
@@ -46,6 +49,33 @@ export async function committeeScoreAction(cycleId: string, applicationId: strin
     });
   } catch (err) {
     if (err instanceof RecruitmentAuthError || err instanceof CommitteeScoreError) redirect(bounce(cycleId, applicationId, { scoreError: err.message }));
+    throw err;
+  }
+  revalidatePath(bounce(cycleId, applicationId));
+}
+
+/**
+ * Record the interpreting department's verdict on one language for this
+ * application, from the form on LanguageAssessmentCard -- labeled "Assess
+ * anyway" when the on-file verdict came from elsewhere, "Re-record" when it
+ * already belongs to this application.
+ *
+ * Gated on volunteers.verify_spanish rather than requirePersonSession: this is
+ * the same permission the review queue at /volunteers/spanish-review checks,
+ * and a reviewer without it should land on /no-access, not a silent no-op.
+ *
+ * ADVISORY ONLY -- see LanguageAssessmentCard. This action does not touch the
+ * application's decision, routing, or acceptance state in any way.
+ */
+export async function assessApplicantLanguageAction(cycleId: string, applicationId: string, formData: FormData) {
+  const actor = await requirePermission("volunteers.verify_spanish");
+  const language = String(formData.get("language") ?? "");
+  const verified = formData.get("verified") === "true";
+  const score = normalizeScore(formData.get("score"));
+  try {
+    await recordApplicationLanguageAssessment(actor.personId, { applicationId, language, verified, score });
+  } catch (err) {
+    if (err instanceof LanguageValidationError) redirect(bounce(cycleId, applicationId, { error: err.message }));
     throw err;
   }
   revalidatePath(bounce(cycleId, applicationId));

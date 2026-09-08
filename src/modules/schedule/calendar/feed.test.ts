@@ -17,6 +17,7 @@ function department(id: string, name: string, code: string): Department {
     epicGuidance: null,
     autoRouteApplicants: false,
     allowShiftDrop: true,
+    assessLanguageBeforeAcceptance: false,
     hoursPerShift: null,
     minInterpreterScore: null,
     createdAt: new Date(0),

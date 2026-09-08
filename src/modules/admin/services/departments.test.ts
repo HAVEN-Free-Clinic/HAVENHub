@@ -10,6 +10,7 @@ import {
   DepartmentNotFoundError,
   DepartmentValidationError,
 } from "./departments";
+import { DEPARTMENTS } from "../../../../prisma/department-catalog";
 
 beforeEach(resetDb);
 
@@ -302,5 +303,57 @@ describe("listDepartments", () => {
     expect(list[0].code).toBe("ZZZ");
     expect(list[0].managesDelegations.map((m) => m.managedDepartmentId)).toEqual([a.id]);
     expect(list[0]._count).toHaveProperty("memberships");
+  });
+});
+
+describe("pre-acceptance language assessment flag", () => {
+  // PATS and INTP are the departments whose applicants the interpreting
+  // department assesses before an accept decision. The flag is what puts an
+  // applicant in the pre-acceptance queue, so seeding it wrong silently
+  // empties the queue.
+  it("is set on PATS and INTP in the catalog and on no other department", () => {
+    const flagged = DEPARTMENTS.filter((d) => d.assessLanguageBeforeAcceptance).map((d) => d.code);
+    expect(flagged.sort()).toEqual(["INTP", "PATS"]);
+  });
+
+  it("defaults to false on a department created without it", async () => {
+    const dept = await prisma.department.create({
+      data: { code: "ZZTOP", name: "Test Department" },
+    });
+    expect(dept.assessLanguageBeforeAcceptance).toBe(false);
+  });
+});
+
+describe("updateDepartment and the pre-acceptance flag", () => {
+  it("sets the flag when the form supplies it", async () => {
+    const dept = await prisma.department.create({ data: { code: "AAAA", name: "A" } });
+
+    const updated = await updateDepartment("a", dept.id, {
+      name: "A",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      assessLanguageBeforeAcceptance: true,
+    });
+
+    expect(updated.assessLanguageBeforeAcceptance).toBe(true);
+  });
+
+  // Same rule as autoRouteApplicants and allowShiftDrop: an update that does
+  // not mention the flag must preserve it. A bare `input.x ?? false` here would
+  // silently empty the pre-acceptance queue the next time anyone renamed PATS.
+  it("preserves the flag on an update that does not mention it", async () => {
+    const dept = await prisma.department.create({
+      data: { code: "BBBB", name: "B", assessLanguageBeforeAcceptance: true },
+    });
+
+    const updated = await updateDepartment("a", dept.id, {
+      name: "B renamed",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+
+    expect(updated.assessLanguageBeforeAcceptance).toBe(true);
   });
 });

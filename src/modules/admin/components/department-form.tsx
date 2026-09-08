@@ -25,6 +25,7 @@ type DepartmentFormProps = {
     | "allowShiftDrop"
     | "hoursPerShift"
     | "minInterpreterScore"
+    | "assessLanguageBeforeAcceptance"
   >;
 };
 
@@ -145,6 +146,21 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
             New and transfer applicants whose FIRST choice is this department are routed straight here at submit,
             with no committee score. Returning members already skip scoring for their own department regardless of
             this setting.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Checkbox
+            name="assessLanguageBeforeAcceptance"
+            defaultChecked={department?.assessLanguageBeforeAcceptance ?? false}
+            label="Assess applicants' languages before accepting them"
+          />
+          <p className="text-xs text-muted-foreground">
+            For departments where speaking the language IS the job. Applicants to this department
+            appear in the interpreting department&rsquo;s language review queue as soon as they
+            apply, rather than after they are promoted, so the assessment is on the table when the
+            decision is made. Advisory only: it never blocks an acceptance. Anyone with an
+            assessment already on file is skipped.
           </p>
         </div>
 

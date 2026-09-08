@@ -481,6 +481,16 @@ model Department {
   ///
   /// Defaults to false so creating a department never silently bypasses scoring.
   autoRouteApplicants        Boolean                      @default(false)
+  /// Applicants to this department are assessed on their languages by the
+  /// interpreting department BEFORE an accept decision, rather than after
+  /// promotion like everyone else. True for PATS and INTP.
+  ///
+  /// A flag rather than two hardcoded codes in platform/languages: departments
+  /// are configurable data in this app, and Department already carries this
+  /// kind of per-department behaviour switch (autoRouteApplicants,
+  /// minInterpreterScore). Defaults false so no existing department is dragged
+  /// into the lane by the migration.
+  assessLanguageBeforeAcceptance Boolean @default(false)
   /// Whether members may raise a DROP request against this department's shifts.
   /// False makes the department swap-only: the drop form disappears from
   /// /schedule and createRequest refuses a drop, so a member who cannot find a
@@ -1818,6 +1828,44 @@ model PersonLanguage {
   @@index([language])
 }
 
+/// One interpreting-department verdict on one language, for one APPLICATION.
+///
+/// The pre-acceptance twin of PersonLanguage's assessment half. It cannot live
+/// on PersonLanguage: an applicant has no Person row until promotion, which
+/// runs after acceptance AND onboarding, and PersonLanguage.personId is a
+/// required FK.
+///
+/// Anchored on applicationId rather than applicantId because Application is
+/// already @@unique([cycleId, applicantId]), so this is one row per person per
+/// cycle per language with no extra constraint needed.
+///
+/// Carried onto PersonLanguage at promotion (see carryForwardApplicationAssessments),
+/// so an accepted member is never re-queued for a language already assessed.
+model ApplicationLanguageAssessment {
+  id            String   @id @default(cuid())
+  applicationId String
+  /// Lowercase code from LANGUAGE_CODES, matching PersonLanguage.language.
+  language      String
+  /// The OUTCOME. Unlike PersonLanguage there is no separate verifiedAt to read
+  /// it against: the existence of the row IS the assessment, so `verified`
+  /// stands alone here and a "no" is a row with verified = false.
+  verified      Boolean
+  verifiedAt    DateTime @default(now())
+  /// Bare id (no FK), mirroring PersonLanguage.verifiedById.
+  verifiedById  String
+  note          String?
+  /// Internal 1-5 proficiency score, Spanish only. Never shown to the applicant.
+  score         Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  /// Cascade: the verdict belongs to the application.
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, language])
+  @@index([language])
+}
+
 /// One INTP Spanish proficiency assessment, of one person, in one term. Covers
 /// both imported legacy rows (Spring 2012 onward) and new assessments recorded
 /// on the language review page.
@@ -2569,6 +2617,7 @@ model Application {
   acceptances            Acceptance[]
   dualRoleInterests      DualRoleInterest[]
   interviews             Interview[]
+  languageAssessments    ApplicationLanguageAssessment[]
   committeeScores        CommitteeScore[]
   assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?            @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)

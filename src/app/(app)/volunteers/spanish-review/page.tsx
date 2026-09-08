@@ -260,7 +260,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Language review"
-        description="Volunteers who reported speaking a language and are awaiting an interpreting-department assessment. Verifying counts them as a provider for that language in scheduling."
+        description="Members who reported speaking a language, and applicants to departments that confirm Spanish before accepting regardless of what they claimed, both awaiting an interpreting-department verdict. Verifying a member counts them as a provider for that language in scheduling."
       />
 
       {sp.error && <Alert tone="error">{sp.error}</Alert>}

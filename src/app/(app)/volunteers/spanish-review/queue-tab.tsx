@@ -9,10 +9,11 @@ import { ScoreOptions } from "@/platform/ui/score-options";
 /**
  * The review queue, over both sources.
  *
- * Applicant rows come first and carry an "Applicant" badge: they are blocking a
- * department's accept decision, while a member's claim can wait for the next
- * assessment session. The Cycle / Department column is what tells a reviewer
- * which of the two they are looking at without reading the badge.
+ * Applicant rows come first and carry an "Applicant" badge: they are the ones
+ * holding up a decision, while a member's claim can wait for the next
+ * assessment session. Nothing here gates the department's accept control; the
+ * assessment is advisory. The Cycle / Department column is what tells a
+ * reviewer which of the two they are looking at without reading the badge.
  */
 export function QueueTab({
   rows,
@@ -96,6 +97,14 @@ export function QueueTab({
   );
 }
 
+/**
+ * One form, two submit buttons.
+ *
+ * The score select used to sit outside the verify form and reach it with a
+ * `form=` attribute, which meant the Not-verified button (a second, separate
+ * form) submitted no score at all and cleared the one on record. Both outcomes
+ * now post the same fields.
+ */
 function AssessForm({
   row,
   action,

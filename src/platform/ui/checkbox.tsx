@@ -41,8 +41,24 @@ export function Checkbox({
 
   // items-start, not items-center, once a hint is present: a wrapping hint would
   // otherwise drag the box down to the vertical middle of a two-line block.
+  //
+  // min-h-11 (44px) with a little vertical padding: the label row was ~20px
+  // tall, under WCAG 2.2 SC 2.5.8's 24px floor, and these stack in dense
+  // columns -- a department scope list, a notification-preference list -- where
+  // a mis-tap sets the neighbouring option rather than missing. The whole row is
+  // the target because the <label> wraps the box and its text, so the height
+  // buys real hit area rather than whitespace.
+  //
+  // -my-1 keeps the visual rhythm: the padding grows the touch target without
+  // pushing the rows apart, the same trick wizard-review.tsx and
+  // subject-picker.tsx use on their small controls.
   return (
-    <label className={cx("flex gap-2 text-sm", hint == null ? "items-center" : "items-start")}>
+    <label
+      className={cx(
+        "-my-1 flex min-h-11 gap-2 py-1 text-sm",
+        hint == null ? "items-center" : "items-start",
+      )}
+    >
       {hint == null ? input : <span className="mt-0.5 flex">{input}</span>}
       <span>
         {label}

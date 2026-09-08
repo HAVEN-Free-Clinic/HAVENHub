@@ -229,7 +229,10 @@ export const MODULES: ModuleManifest[] = [
     permissions: ["incidents.manage", "incidents.view_strikes"],
     status: "active",
     nav: [
-      { label: "Report a concern", href: "/incidents" },
+      // The form is at /incidents/new, not the module root: the root is where
+      // every up-link in the module lands, and landing in a blank concern
+      // report is not where a reviewer stepping back from a case wants to be.
+      { label: "Report a concern", href: "/incidents/new" },
       { label: "My reports", href: "/incidents/mine" },
       { label: "Review", href: "/incidents/review", permission: "incidents.manage" },
       { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },

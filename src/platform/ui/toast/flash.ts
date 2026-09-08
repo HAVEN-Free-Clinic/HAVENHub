@@ -298,7 +298,7 @@ function resolveErrorValue(rawValue: string, pathname: string): string {
 const SUPPRESSED_ERROR_PARAMS: ReadonlySet<string> = new Set(
   ([
     ["/login", "error"],
-    ["/incidents", "error"],
+    ["/incidents/new", "error"],
     ["/incidents/strikes", "error"],
   ] as const).map(([pathname, name]) => suppressionKey(pathname, name)),
 );

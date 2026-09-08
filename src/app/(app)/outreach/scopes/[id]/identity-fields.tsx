@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Input, Field } from "@/platform/ui/input";
 import { SenderIdentityNotes, type SendingDomainMap } from "../../sender-identity-notes";
+import { FormRow } from "@/platform/ui/form";
 
 /**
  * The scope's sending identity, with the domain notes live under the field.
@@ -29,7 +30,7 @@ export function ScopeIdentityFields({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
+      <FormRow>
         <Field label="Send campaigns as">
           <Input
             name="fromEmail"
@@ -47,7 +48,7 @@ export function ScopeIdentityFields({
             placeholder="HAVEN Pediatrics"
           />
         </Field>
-      </div>
+      </FormRow>
       <p className="text-sm text-muted-foreground">
         This outranks anything issued to the sender. Leave it blank and each sender falls back to an
         address issued to them on the Sending identities page, and then to the clinic&apos;s

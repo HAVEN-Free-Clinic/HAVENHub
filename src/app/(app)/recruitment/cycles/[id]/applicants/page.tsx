@@ -37,6 +37,7 @@ import {
   sortApplicants,
   type ApplicantSortKey,
 } from "@/modules/recruitment/engine/applicant-sort";
+import { FORM_ROW, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 const PAGE_SIZE = 50;
 
@@ -174,19 +175,19 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         </div>
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3">
+        <FormRow>
           {/* The other filters are selects that navigate on change; a search box
               cannot be, or it would push a navigation per keystroke. This is a
               GET form, so Enter submits. The hidden inputs keep the decision and
               department filters and the sort from being dropped by searching;
               `page` is deliberately absent, since the old page number may not
               exist in the narrowed result. */}
-          <NavForm className="flex items-end gap-2">
+          <NavForm className={FORM_ROW}>
             {decisionFilter && <input type="hidden" name="decision" value={decisionFilter} />}
             {departmentFilter && <input type="hidden" name="department" value={departmentFilter} />}
             {sort && <input type="hidden" name="sort" value={sort.key} />}
             {sort && <input type="hidden" name="dir" value={sort.dir} />}
-            <div className="w-56">
+            <div className={ROW_WIDTH.grow}>
               <Input
                 name="q"
                 type="search"
@@ -201,7 +202,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           </NavForm>
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
-        </div>
+        </FormRow>
         <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
           {filtered.length.toLocaleString()} {filtered.length === 1 ? "applicant" : "applicants"}
         </span>

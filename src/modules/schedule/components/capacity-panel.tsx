@@ -14,6 +14,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import type { DayMetrics, Quota } from "@/modules/schedule/engine/capacity";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 // ---------------------------------------------------------------------------
 // Tone helpers
@@ -114,10 +115,11 @@ export function CapacityPanel({
       </div>
 
       {/* Patients booked inline form */}
-      <form action={patientsBookedAction} className="flex flex-wrap items-end gap-2">
+      <form action={patientsBookedAction}>
+        <FormRow>
         <input type="hidden" name="departmentId" value={departmentId} />
         <input type="hidden" name="dateKey" value={dateKey} />
-        <div className="flex-1 min-w-28">
+        <div className={ROW_WIDTH.grow}>
           <Field label="Patients booked">
             <Input
               name="patientsBooked"
@@ -131,6 +133,7 @@ export function CapacityPanel({
         <Button type="submit" variant="outline" size="sm">
           Save
         </Button>
+        </FormRow>
       </form>
 
       {/* Max patient capacity */}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/platform/ui/button";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { FormRow } from "@/platform/ui/form";
 
 type Option = { id: string; name: string };
 
@@ -48,7 +49,7 @@ export function GrantForm({
 
   return (
     <form action={action} className="space-y-3">
-      <div className="flex flex-wrap items-end gap-3">
+      <FormRow>
         <Field label="Grant to a person">
           <Select
             name="personId"
@@ -90,7 +91,7 @@ export function GrantForm({
             ? `Grant and issue ${selectedPerson.issuableAddress}`
             : "Grant"}
         </Button>
-      </div>
+      </FormRow>
 
       {/* A person grant does a SECOND thing, and the admin has to be looking at
           the address they are approving before they click. That is what makes

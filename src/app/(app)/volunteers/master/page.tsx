@@ -266,7 +266,7 @@ async function MasterComplianceBody(props: BodyProps) {
         <FilterField label="Search" width="grow">
           <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email..." />
         </FilterField>
-        <FilterField label="Department" width="lg">
+        <FilterField label="Department" width="wide">
           <Select name="departmentId" defaultValue={departmentId ?? ""}>
             <option value="">All departments</option>
             {departments.map((d) => (

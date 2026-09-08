@@ -34,7 +34,7 @@ import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 
@@ -141,27 +141,29 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
       {/* Create-role inline form */}
       <Card>
         <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Create new role</h3>
-        <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
-          <Field label="Name" required>
-            <Input
-              type="text"
-              name="roleName"
-              required
-              placeholder="e.g. Schedule Editor"
-              className="w-56"
-            />
-          </Field>
-          <Field label="Description" hint="Optional.">
-            <Input
-              type="text"
-              name="roleDescription"
-              placeholder="Short description..."
-              className="w-72"
-            />
-          </Field>
-          <Button type="submit" variant="primary" size="sm">
-            Create role
-          </Button>
+        <form action={createRoleAction}>
+          <FormRow>
+            <Field label="Name" required>
+              <Input
+                type="text"
+                name="roleName"
+                required
+                placeholder="e.g. Schedule Editor"
+                className="w-56"
+              />
+            </Field>
+            <Field label="Description" hint="Optional.">
+              <Input
+                type="text"
+                name="roleDescription"
+                placeholder="Short description..."
+                className="w-72"
+              />
+            </Field>
+            <Button type="submit" variant="primary" size="sm">
+              Create role
+            </Button>
+          </FormRow>
         </form>
       </Card>
 

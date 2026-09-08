@@ -26,6 +26,7 @@ import type { ProcedureKey, ProcedureStatus } from "@/modules/schedule/engine/rh
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmailList } from "@/platform/ui/email-list";
 import { TextLink } from "@/platform/ui/text-link";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 // ---------------------------------------------------------------------------
 // Label maps
@@ -158,12 +159,13 @@ export function ReadinessPanel({
           the cap warning below it, and the person who knows the number is the
           one reading this panel. */}
       {editable ? (
-        <form action={proceduresBookedAction} className="flex flex-wrap items-end gap-2">
+        <form action={proceduresBookedAction}>
+          <FormRow>
           <input type="hidden" name="departmentId" value={departmentId} />
           <input type="hidden" name="dateKey" value={dateKey} />
           {/* Field + Save, laid out exactly like the Patients booked control in
               the capacity panel directly above it in this sidebar. */}
-          <div className="flex-1 min-w-28">
+          <div className={ROW_WIDTH.grow}>
             <Field label="Procedures booked">
               <Input
                 name="proceduresBooked"
@@ -177,6 +179,7 @@ export function ReadinessPanel({
           <Button type="submit" variant="outline" size="sm">
             Save
           </Button>
+          </FormRow>
         </form>
       ) : (
         <div className="flex gap-2 text-sm">

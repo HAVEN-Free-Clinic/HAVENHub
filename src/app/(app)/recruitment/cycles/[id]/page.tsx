@@ -22,7 +22,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { prisma } from "@/platform/db";
 import { MultiCombobox } from "@/platform/ui/multi-combobox";
 import { Card } from "@/platform/ui/card";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, RowField } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
@@ -309,37 +309,31 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   </TextLink>
                 </p>
               )}
-              <form action={updateQuizSettingsAction.bind(null, id)} className="flex flex-wrap items-end gap-3">
-                <div className="w-28">
-                  <Field label="Pass %">
+              <form action={updateQuizSettingsAction.bind(null, id)}>
+                <FormRow>
+                  <RowField label="Pass %" width="numeric">
                     <Input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} />
-                  </Field>
-                </div>
-                <div className="w-28">
-                  <Field label="Max attempts">
+                  </RowField>
+                  <RowField label="Max attempts" width="numeric">
                     <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
-                  </Field>
-                </div>
-                <div className="w-44">
-                  <Field label="In-person training date">
+                  </RowField>
+                  <RowField label="In-person training date">
                     <Input
                       name="inPersonTrainingDate"
                       type="date"
                       defaultValue={cycle.inPersonTrainingDate ? formatForDateInput(cycle.inPersonTrainingDate, zone) : ""}
                     />
-                  </Field>
-                </div>
-                <div className="w-56">
-                  <Field label="Training location / time">
+                  </RowField>
+                  <RowField label="Training location / time" width="wide">
                     <Input
                       name="trainingLocation"
                       type="text"
                       defaultValue={cycle.trainingLocation ?? ""}
                       placeholder="on Zoom at 10:00 AM"
                     />
-                  </Field>
-                </div>
-                <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
+                  </RowField>
+                  <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
+                </FormRow>
               </form>
             </>
           )}

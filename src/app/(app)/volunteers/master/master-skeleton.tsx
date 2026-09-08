@@ -5,6 +5,7 @@ import {
   complianceStatusLabel,
   ALL_COMPLIANCE_STATUSES,
 } from "@/platform/compliance/labels";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 
 /** The roster's column headings, in render order. Kept beside the real table so
@@ -71,22 +72,24 @@ export function MasterComplianceSkeleton() {
         <StatCardSkeleton label="Missing EHS" />
       </div>
 
-      {/* Filter bar */}
-      <div className="mt-6 flex flex-wrap items-end gap-3">
-        <div className="min-w-48 flex-1">
+      {/* Filter bar. The column widths come from ROW_WIDTH, the same table the
+          real FilterField reads, so the skeleton cannot drift away from the bar
+          it stands in for. */}
+      <FormRow className="mt-6">
+        <div className={ROW_WIDTH.grow}>
           <Skeleton className="h-3 w-14" />
           <Skeleton className="mt-1.5 h-9 w-full" />
         </div>
-        <div className="w-52">
+        <div className={ROW_WIDTH.wide}>
           <Skeleton className="h-3 w-20" />
           <Skeleton className="mt-1.5 h-9 w-full" />
         </div>
-        <div className="w-44">
+        <div className={ROW_WIDTH.control}>
           <Skeleton className="h-3 w-12" />
           <Skeleton className="mt-1.5 h-9 w-full" />
         </div>
         <Skeleton className="h-8 w-16" />
-      </div>
+      </FormRow>
 
       {/* Results */}
       <div className="mt-4">

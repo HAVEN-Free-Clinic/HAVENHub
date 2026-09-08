@@ -11,6 +11,7 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { ROW_WIDTH } from "@/platform/ui/form";
 
 export const DECISION_FILTER_OPTIONS = [
   { value: "", label: "All decisions" },
@@ -37,7 +38,7 @@ export function DecisionFilter() {
   }
 
   return (
-    <div className="w-48">
+    <div className={ROW_WIDTH.control}>
       <Field label="Decision">
         <Select aria-label="Filter by decision" value={value} onChange={(e) => onChange(e.target.value)}>
           {DECISION_FILTER_OPTIONS.map((o) => (

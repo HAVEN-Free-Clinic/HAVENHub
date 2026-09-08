@@ -16,9 +16,9 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, RowField } from "@/platform/ui/form";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { TermSwitcher } from "@/platform/ui/term-switcher";
 import { TextLink } from "@/platform/ui/text-link";
@@ -131,20 +131,18 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
         <section className="space-y-3">
           <SectionHeader level="title">Add a meeting</SectionHeader>
           <Card>
-            <form action={createAction} className="flex flex-wrap items-end gap-3">
-              <div className="w-48">
-                <Field label="Date" required>
+            <form action={createAction}>
+              <FormRow>
+                <RowField label="Date" required>
                   <Input type="date" name="meetingDate" required />
-                </Field>
-              </div>
-              <div className="min-w-[12rem] flex-1">
-                <Field label="Title" hint="Optional.">
+                </RowField>
+                <RowField label="Title" hint="Optional." width="grow">
                   <Input name="title" placeholder="Board meeting" />
-                </Field>
-              </div>
-              <FormActions>
-                <SubmitButton pendingLabel="Adding...">Add meeting</SubmitButton>
-              </FormActions>
+                </RowField>
+                <FormActions>
+                  <SubmitButton pendingLabel="Adding...">Add meeting</SubmitButton>
+                </FormActions>
+              </FormRow>
             </form>
           </Card>
         </section>

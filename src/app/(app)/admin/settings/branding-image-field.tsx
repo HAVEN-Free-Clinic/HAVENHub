@@ -1,6 +1,7 @@
 import { Button } from "@/platform/ui/button";
 import { Field } from "@/platform/ui/input";
 import type { ResolvedSetting } from "@/platform/settings/service";
+import { FormRow } from "@/platform/ui/form";
 
 /**
  * Upload widget for an `image` setting: current preview + file picker + (when a
@@ -30,7 +31,8 @@ export function BrandingImageField({
         alt={`${setting.label} preview`}
         className="h-12 max-w-[200px] rounded border bg-muted-strong object-contain p-1"
       />
-      <form action={uploadAction} encType="multipart/form-data" className="flex flex-wrap items-end gap-2">
+      <form action={uploadAction} encType="multipart/form-data">
+        <FormRow>
         <input type="hidden" name="__asset" value={asset} />
         <Field label="Choose image">
           {/* ICO is only meaningful for the favicon; the logo is PNG/JPEG/WebP
@@ -39,6 +41,7 @@ export function BrandingImageField({
           <input type="file" name="file" accept={asset === "favicon" ? "image/png,image/jpeg,image/webp,image/x-icon" : "image/png,image/jpeg,image/webp"} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
         </Field>
         <Button type="submit" variant="primary" size="sm">Upload</Button>
+        </FormRow>
       </form>
       {hasCustom && (
         <form action={removeAction}>

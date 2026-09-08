@@ -36,6 +36,7 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { buildTermOptions } from "@/platform/terms/term-options";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { FormRow } from "@/platform/ui/form";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -322,31 +323,33 @@ export async function AssignmentForm({
       {/* Create department assignment */}
       <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to department</h3>
-        <form action={assignDepartmentAction} className="flex flex-wrap items-end gap-3">
-          <Field label="Department">
-            <Select name="departmentId" className="w-56">
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code} · {d.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Role">
-            <Select name="roleId" className="w-44">
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Term">
-            <TermSelect terms={terms} />
-          </Field>
-          <Button type="submit" variant="primary" size="sm">
-            Assign department
-          </Button>
+        <form action={assignDepartmentAction}>
+          <FormRow>
+            <Field label="Department">
+              <Select name="departmentId" className="w-56">
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.code} · {d.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Role">
+              <Select name="roleId" className="w-44">
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Term">
+              <TermSelect terms={terms} />
+            </Field>
+            <Button type="submit" variant="primary" size="sm">
+              Assign department
+            </Button>
+          </FormRow>
         </form>
       </Card>
 
@@ -356,28 +359,30 @@ export async function AssignmentForm({
         <p className="text-sm text-subtle-foreground">
           Applies to every active member of the chosen kind in the selected term (or every term, if Global), including members added later.
         </p>
-        <form action={assignKindAction} className="flex flex-wrap items-end gap-3">
-          <Field label="Members">
-            <Select name="kind" className="w-44">
-              <option value="VOLUNTEER">All Volunteers</option>
-              <option value="DIRECTOR">All Directors</option>
-            </Select>
-          </Field>
-          <Field label="Role">
-            <Select name="roleId" className="w-44">
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Term">
-            <TermSelect terms={terms} defaultValue={activeTermId} />
-          </Field>
-          <Button type="submit" variant="primary" size="sm">
-            Assign cohort
-          </Button>
+        <form action={assignKindAction}>
+          <FormRow>
+            <Field label="Members">
+              <Select name="kind" className="w-44">
+                <option value="VOLUNTEER">All Volunteers</option>
+                <option value="DIRECTOR">All Directors</option>
+              </Select>
+            </Field>
+            <Field label="Role">
+              <Select name="roleId" className="w-44">
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Term">
+              <TermSelect terms={terms} defaultValue={activeTermId} />
+            </Field>
+            <Button type="submit" variant="primary" size="sm">
+              Assign cohort
+            </Button>
+          </FormRow>
         </form>
       </Card>
     </section>

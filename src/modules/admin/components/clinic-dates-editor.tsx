@@ -16,12 +16,13 @@
  */
 
 import type { ReactNode } from "react";
-import { Input, Field } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { formatCalendarDate } from "@/platform/dates";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 function formatClinicDate(d: Date): string {
   return formatCalendarDate(d, {
@@ -130,16 +131,18 @@ export function ClinicDatesEditor({
       </div>
 
       {/* Add a single date */}
-      <form action={updateAction} className="flex items-end gap-3">
-        <input type="hidden" name="termId" value={termId} />
-        {/* existing dates; the action appends the new one */}
-        <HiddenDatesField dates={currentIsos} />
-        <Field label="Add date">
-          <Input type="date" name="addDate" className="w-44" />
-        </Field>
-        <Button type="submit" variant="outline" size="sm">
-          Add
-        </Button>
+      <form action={updateAction}>
+        <FormRow>
+          <input type="hidden" name="termId" value={termId} />
+          {/* existing dates; the action appends the new one */}
+          <HiddenDatesField dates={currentIsos} />
+          <RowField label="Add date">
+            <Input type="date" name="addDate" />
+          </RowField>
+          <Button type="submit" variant="outline" size="sm">
+            Add
+          </Button>
+        </FormRow>
       </form>
 
       {/* Regenerate Saturdays */}

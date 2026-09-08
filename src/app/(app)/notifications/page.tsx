@@ -10,11 +10,13 @@ import {
 } from "@/platform/notifications/inbox";
 import { markAllReadAction } from "@/platform/notifications/inbox-actions";
 import { getSetting } from "@/platform/settings/service";
-import { DateTime } from "@/platform/dates/display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates/format";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Button } from "@/platform/ui/button";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { NotificationRow, notificationRowClasses } from "@/platform/ui/notification-row";
 
 type PageProps = { searchParams: Promise<{ page?: string }> };
 
@@ -24,6 +26,9 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
   const appName = await getSetting<string>("branding.appName");
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
   const { rows, total } = await listNotifications(personId, { page });
+  // Same formatter and same zone the bell's API uses, so one notification reads
+  // identically in both places.
+  const zone = await getDisplayTimeZone();
   const pageCount = Math.max(1, Math.ceil(total / NOTIFICATIONS_PAGE_SIZE));
 
   async function markAllAction() {
@@ -72,18 +77,14 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
               <form action={openAction}>
                 <input type="hidden" name="id" value={n.id} />
                 {/* eslint-disable-next-line no-restricted-syntax -- full-width flex-col list-row submit; py/layout overrides of Button base are unreliable without tailwind-merge */}
-                <button type="submit" className="flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition-colors hover:bg-muted">
-                  <span className="flex w-full items-center gap-2">
-                    {!n.readAt && (
-                      <>
-                        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-brand" />
-                        <span className="sr-only">Unread</span>
-                      </>
-                    )}
-                    <span className="font-medium text-foreground">{n.title}</span>
-                  </span>
-                  <span className="text-sm text-muted-foreground">{n.body}</span>
-                  <span className="text-xs text-subtle-foreground"><DateTime value={n.createdAt} /></span>
+                <button type="submit" className={notificationRowClasses}>
+                  <NotificationRow
+                    title={n.title}
+                    body={n.body}
+                    time={formatDateTime(n.createdAt, zone)}
+                    iso={n.createdAt.toISOString()}
+                    unread={!n.readAt}
+                  />
                 </button>
               </form>
             </li>

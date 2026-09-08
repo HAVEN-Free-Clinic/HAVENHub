@@ -203,6 +203,27 @@ describe("role reminder document links", () => {
     return [...body.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
   }
 
+  /**
+   * Whether an href actually points at SharePoint, by host rather than by
+   * substring.
+   *
+   * `href.includes("sharepoint.com")` passes for
+   * https://sharepoint.com.example.test/ and for any unrelated host that merely
+   * carries the string in its path or query, so it cannot tell "these are the
+   * five SharePoint documents" from "five links that happen to say sharepoint".
+   * Placeholder hrefs like {{ helpDeskUrl }} are not URLs at all, so they fail
+   * to parse and are excluded.
+   */
+  function isSharePointLink(href: string): boolean {
+    let host: string;
+    try {
+      host = new URL(href).hostname.toLowerCase();
+    } catch {
+      return false;
+    }
+    return host === "sharepoint.com" || host.endsWith(".sharepoint.com");
+  }
+
   it("links the CC JCTM Guide", () => {
     const d = getDescriptor("shift-reminder-cc")!;
     const html = renderTemplate(d.defaultBody, ccContext());
@@ -211,7 +232,7 @@ describe("role reminder document links", () => {
 
   it("links all five triage reference documents", () => {
     const d = getDescriptor("shift-reminder-triage")!;
-    const sharepoint = hrefsIn(d.defaultBody).filter((h) => h.includes("sharepoint.com"));
+    const sharepoint = hrefsIn(d.defaultBody).filter(isSharePointLink);
     expect(sharepoint).toHaveLength(5);
   });
 

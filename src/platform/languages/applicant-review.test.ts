@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { priorLanguageVerdicts } from "./applicant-review";
+import { listApplicantLanguageQueue, priorLanguageVerdicts } from "./applicant-review";
 
 beforeEach(resetDb);
 
@@ -202,5 +202,197 @@ describe("priorLanguageVerdicts", () => {
     expect(map.get(applicant.id)?.get("es")).toMatchObject({
       score: 4, source: "member",
     });
+  });
+});
+
+/** A flagged department, an unflagged one, a term, a cycle, and a lead. */
+async function lane() {
+  const lead = await prisma.person.create({ data: { name: "Lead" } });
+  const [pats, educ] = await Promise.all([
+    prisma.department.create({
+      data: { code: "PATS", name: "Patient Services", assessLanguageBeforeAcceptance: true },
+    }),
+    prisma.department.create({ data: { code: "EDUC", name: "Education" } }),
+  ]);
+  const term = await prisma.term.create({
+    data: {
+      code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(),
+      status: "ACTIVE", clinicDates: [],
+    },
+  });
+  const cycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER", termId: term.id, title: "Fall 2026 Volunteers",
+      publicSlug: `s-${Math.random()}`, departments: ["PATS", "EDUC"],
+      createdById: lead.id, status: "OPEN",
+    },
+  });
+  return { lead, pats, educ, term, cycle };
+}
+
+/** One submitted application in the seeded cycle. */
+async function apply(
+  ctx: Awaited<ReturnType<typeof lane>>,
+  email: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId: ctx.cycle.id, firstName: "Ada", lastName: "Lovelace",
+      email, emailLower: email.toLowerCase(),
+    },
+  });
+  const application = await prisma.application.create({
+    // The cast is load-bearing: `overrides` is an open record so the spread
+    // cannot be narrowed to Prisma's generated create input. Each test supplies
+    // real column names, and a typo surfaces immediately as a failing assertion.
+    data: {
+      cycleId: ctx.cycle.id, applicantId: applicant.id, answers: {},
+      applicantType: "NEW", departmentChoices: ["PATS"],
+      status: "SUBMITTED", submittedAt: new Date(),
+      ...overrides,
+    } as never,
+  });
+  return { applicant, application };
+}
+
+describe("listApplicantLanguageQueue", () => {
+  it("queues Spanish for a flagged-department applicant who claimed nothing", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu");
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["es"]);
+    expect(rows[0].cycleTitle).toBe("Fall 2026 Volunteers");
+    expect(rows[0].departments).toEqual(["PATS"]);
+  });
+
+  it("queues every other language the applicant claimed alongside Spanish", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr", "ht"] });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language).sort()).toEqual(["es", "fr", "ht"]);
+  });
+
+  it("ignores an applicant to an unflagged department", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu", { departmentChoices: ["EDUC"] });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  it("queues a dual-role offer to a flagged department from an unflagged primary", async () => {
+    const ctx = await lane();
+    await prisma.department.create({
+      data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+    });
+    await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"],
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dualRoleDepartments).toEqual(["INTP"]);
+  });
+
+  it("ignores a withdrawn application", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu", { status: "WITHDRAWN", withdrawnAt: new Date() });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  it("ignores an application in an ARCHIVED cycle", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu");
+    await prisma.recruitmentCycle.update({
+      where: { id: ctx.cycle.id }, data: { status: "ARCHIVED" },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  it("ignores a volunteer application the department has already decided", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+    await prisma.application.update({
+      where: { id: application.id }, data: { decision: "REJECT", decidedAt: new Date() },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  // The regression the second decided-clause exists for. A DIRECTOR-track
+  // application is decided on Interview.decision and its Application.decision
+  // stays PENDING forever, so testing only the latter parks every decided
+  // director applicant in the queue permanently.
+  it("ignores a director application decided on its interview", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+    // Interview.createdById is required and non-defaulted: without it Prisma
+    // rejects the row before the query under test ever runs.
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id, departmentCode: "PATS",
+        decision: "ACCEPT", scheduledAt: new Date(), createdById: ctx.lead.id,
+      },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  it("ignores an accepted application", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+    await prisma.acceptance.create({
+      data: { applicationId: application.id, departmentCode: "PATS", approvedById: ctx.lead.id },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+
+  it("drops a language already assessed on this application", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr"] });
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: application.id, language: "es",
+        verified: true, verifiedById: ctx.lead.id, score: 4,
+      },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["fr"]);
+  });
+
+  it("drops a language with a verdict on file from a previous life", async () => {
+    const ctx = await lane();
+    const person = await prisma.person.create({ data: { name: "Ada Lovelace", status: "OFFBOARDED" } });
+    await prisma.personLanguage.create({
+      data: {
+        personId: person.id, language: "es", verified: true,
+        verifiedAt: new Date("2025-01-01"), verifiedById: ctx.lead.id, score: 5,
+      },
+    });
+    const applicant = await prisma.applicant.create({
+      data: {
+        cycleId: ctx.cycle.id, firstName: "Ada", lastName: "Lovelace",
+        email: "ada@yale.edu", emailLower: "ada@yale.edu", applicantPersonId: person.id,
+      },
+    });
+    await prisma.application.create({
+      data: {
+        cycleId: ctx.cycle.id, applicantId: applicant.id, answers: {},
+        applicantType: "NEW", departmentChoices: ["PATS"],
+        status: "SUBMITTED", submittedAt: new Date(),
+      },
+    });
+
+    expect(await listApplicantLanguageQueue()).toEqual([]);
   });
 });

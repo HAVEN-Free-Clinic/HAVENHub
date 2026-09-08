@@ -223,3 +223,111 @@ export async function priorLanguageVerdicts(
 
   return out;
 }
+
+/** One (application, language) pair the interpreting department still owes a verdict on. */
+export type ApplicantQueueRow = {
+  applicationId: string;
+  applicantId: string;
+  name: string;
+  netId: string | null;
+  email: string;
+  language: string;
+  cycleTitle: string;
+  /** Routed department first when one is set, then the ranked choices. */
+  departments: string[];
+  /** Codes offered as a dual role, rendered with a "(dual)" marker. */
+  dualRoleDepartments: string[];
+};
+
+/**
+ * Applications whose department has opted into pre-acceptance assessment, that
+ * nobody has decided yet, crossed with the languages still owing a verdict.
+ *
+ * Spanish is always in the set, claim or no claim: the point of the lane is to
+ * confirm Spanish before the department commits, and an applicant who
+ * under-reported is exactly the case the assessment exists to catch. Every
+ * other language they claimed rides along, because the interpreting department
+ * interprets in more than one.
+ */
+export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]> {
+  const laneDepartments = await prisma.department.findMany({
+    where: { assessLanguageBeforeAcceptance: true },
+    select: { code: true },
+  });
+  const laneCodes = laneDepartments.map((d) => d.code);
+  if (laneCodes.length === 0) return [];
+
+  const applications = await prisma.application.findMany({
+    where: {
+      status: "SUBMITTED",
+      withdrawnAt: null,
+      // Undecided, tested twice on purpose. Application.decision carries the
+      // routed department's verdict on a VOLUNTEER application, but a
+      // DIRECTOR-track application is decided on Interview.decision and leaves
+      // Application.decision PENDING forever. Testing only the first would
+      // park every decided director applicant here permanently.
+      decision: "PENDING",
+      interviews: { none: { decision: { not: "PENDING" } } },
+      acceptances: { none: {} },
+      cycle: { status: { not: "ARCHIVED" } },
+      OR: [
+        { departmentChoices: { hasSome: laneCodes } },
+        { dualRoleDepartments: { hasSome: laneCodes } },
+        { routedDepartmentCode: { in: laneCodes } },
+        // A DIRECTOR-track renewal has no routedDepartmentCode: submissions.ts
+        // only sets that for the VOLUNTEER track. Without this clause a
+        // returning PATS director would never be queued.
+        { renewalDepartment: { in: laneCodes } },
+      ],
+    },
+    select: {
+      id: true,
+      languagesClaimed: true,
+      departmentChoices: true,
+      dualRoleDepartments: true,
+      routedDepartmentCode: true,
+      renewalDepartment: true,
+      cycle: { select: { title: true } },
+      applicant: { select: { id: true, firstName: true, lastName: true, netId: true, email: true } },
+      languageAssessments: { select: { language: true } },
+    },
+    orderBy: [{ applicant: { lastName: "asc" } }, { applicant: { firstName: "asc" } }],
+  });
+  if (applications.length === 0) return [];
+
+  const onFile = await priorLanguageVerdicts(applications.map((a) => a.applicant.id));
+
+  const rows: ApplicantQueueRow[] = [];
+  for (const app of applications) {
+    const assessedHere = new Set(app.languageAssessments.map((a) => a.language));
+    const assessedEver = onFile.get(app.applicant.id) ?? new Map<string, LanguageVerdict>();
+    const wanted = [SPANISH, ...app.languagesClaimed];
+
+    const routedFirst = [
+      ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+      ...(app.renewalDepartment && app.renewalDepartment !== app.routedDepartmentCode
+        ? [app.renewalDepartment]
+        : []),
+      ...app.departmentChoices.filter(
+        (c) => c !== app.routedDepartmentCode && c !== app.renewalDepartment,
+      ),
+    ];
+
+    for (const language of new Set(wanted)) {
+      if (assessedHere.has(language)) continue;
+      if (assessedEver.has(language)) continue;
+      rows.push({
+        applicationId: app.id,
+        applicantId: app.applicant.id,
+        name: `${app.applicant.firstName} ${app.applicant.lastName}`.trim(),
+        netId: app.applicant.netId,
+        email: app.applicant.email,
+        language,
+        cycleTitle: app.cycle.title,
+        departments: routedFirst,
+        dualRoleDepartments: app.dualRoleDepartments,
+      });
+    }
+  }
+  return rows;
+}

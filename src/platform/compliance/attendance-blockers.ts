@@ -43,16 +43,90 @@ export type AttendanceBlockers = {
 export const NO_BLOCKERS: AttendanceBlockers = { keys: [], items: [] };
 
 /**
- * What an unlinked walk-up is told, in place of a clearance list nobody can
+ * What an unlinked STRANGER is told, in place of a clearance list nobody can
  * compute for them. Phrased for someone who may not have applied at all, which
  * is why it does not reuse the shared `contract` sentence (that one speaks to an
- * accepted applicant who owes a contract). Shared by the check-in path and the
- * recurring nudge so the two cannot drift.
+ * accepted applicant who owes a contract -- see ACCEPTED_APPLICANT_BLOCKERS,
+ * which is what an unlinked row on the cycle's accepted list gets instead).
+ * Reach both through resolveWalkUpBlockers rather than picking one at a call
+ * site, so the check-in path and the recurring nudge cannot drift apart.
  */
 export const WALK_UP_BLOCKERS: AttendanceBlockers = {
   keys: ["contract"],
   items: ["Submit an application and onboarding contract so your attendance can be credited"],
 };
+
+/**
+ * What an accepted applicant is told, in place of the stranger's message above.
+ *
+ * Both rows look identical in the database -- unlinked, keyed on a lowercased
+ * email, no Person to compute clearance for -- but the people are not the same
+ * person, and the difference is the whole reason the door lets an accepted
+ * applicant be checked in at all. Someone who applied, interviewed, and was
+ * accepted has one thing left, and telling them to "submit an application" is
+ * both wrong and the kind of wrong that makes them mail a director to ask
+ * whether their acceptance was rescinded.
+ *
+ * The sentence is the shared `contract` one, so this reads exactly like the
+ * message a promoted member's own clearance would produce.
+ */
+export const ACCEPTED_APPLICANT_BLOCKERS: AttendanceBlockers = {
+  keys: ["contract"],
+  items: outstandingItems(["contract"]),
+};
+
+/**
+ * Which of the two unlinked-row messages this email should get.
+ *
+ * Called for a row with no Person, where no clearance exists to compute: the
+ * only question left is whether the hub already knows this address was accepted
+ * into the cycle the event belongs to.
+ *
+ * Deliberately re-asked rather than snapshotted. The check-in path and the
+ * recurring nudge both route through here, so an applicant accepted the week
+ * AFTER they walked into an info session stops being told to apply on their very
+ * next follow-up, and one whose acceptance was rescinded stops being told they
+ * are nearly done.
+ *
+ * @param email    The row's `attendeeEmail`, already lowercased by the writer.
+ * @param cycleId  The event's cycle, or null for an event that belongs to none
+ *                 (a standing training with no recruitment cycle behind it).
+ *                 With no cycle there is no accepted list to be on, so the
+ *                 stranger's message is the only honest answer.
+ */
+export async function resolveWalkUpBlockers(
+  email: string | null,
+  cycleId: string | null,
+): Promise<AttendanceBlockers> {
+  return (await isAcceptedApplicantEmail(email, cycleId))
+    ? ACCEPTED_APPLICANT_BLOCKERS
+    : WALK_UP_BLOCKERS;
+}
+
+/**
+ * Was this address accepted into this cycle?
+ *
+ * Split out of resolveWalkUpBlockers because the door asks the same question for
+ * a different reason: an address nobody accepted is one the operator should be
+ * asked about before a row is written for it. One definition of "on the accepted
+ * list", so the message an attendee receives and the question the door asks
+ * cannot disagree about who is on it.
+ *
+ * `Applicant.emailLower` is maintained as lower(email) by the submission service
+ * and backs a unique index, so this is an index hit rather than a scan with a
+ * case-insensitive comparison.
+ */
+export async function isAcceptedApplicantEmail(
+  email: string | null,
+  cycleId: string | null,
+): Promise<boolean> {
+  if (!email || !cycleId) return false;
+  const accepted = await prisma.acceptance.findFirst({
+    where: { application: { cycleId, applicant: { emailLower: email.trim().toLowerCase() } } },
+    select: { id: true },
+  });
+  return accepted !== null;
+}
 
 /**
  * Resolve blockers for many people in one term, in one pass.

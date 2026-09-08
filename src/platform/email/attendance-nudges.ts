@@ -26,7 +26,8 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 import {
   resolveBlockersFor,
-  WALK_UP_BLOCKERS,
+  resolveWalkUpBlockers,
+  isAcceptedApplicantEmail,
   type AttendanceBlockers,
 } from "@/platform/compliance/attendance-blockers";
 import { queueEmail } from "./send";
@@ -58,7 +59,7 @@ type NudgeRow = {
   personId: string | null;
   attendeeName: string | null;
   attendeeEmail: string | null;
-  event: { title: string; startsAt: Date; termId: string };
+  event: { title: string; startsAt: Date; termId: string; cycleId: string | null };
   person: { id: string; name: string; contactEmail: string | null; entraObjectId: string | null } | null;
 };
 
@@ -67,13 +68,20 @@ const NUDGE_SELECT = {
   personId: true,
   attendeeName: true,
   attendeeEmail: true,
-  event: { select: { title: true, startsAt: true, termId: true } },
+  event: { select: { title: true, startsAt: true, termId: true, cycleId: true } },
   person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
 } as const;
 
-/** Live blockers for one row: recomputed for a member, fixed for a walk-up. */
+/**
+ * Live blockers for one row, re-measured on every pass.
+ *
+ * A member's come from clearance. An unlinked row's depend on whether the cycle
+ * has accepted that address, which is re-asked rather than replayed from the
+ * check-in: somebody accepted the week after they walked into an info session
+ * stops being told to apply on their very next follow-up.
+ */
 async function liveBlockers(row: NudgeRow, now: Date): Promise<AttendanceBlockers> {
-  if (!row.personId) return WALK_UP_BLOCKERS;
+  if (!row.personId) return resolveWalkUpBlockers(row.attendeeEmail, row.event.cycleId);
   return resolveBlockersFor(row.personId, row.event.termId, now);
 }
 
@@ -104,8 +112,16 @@ async function dispatch(
 
   const name = row.person?.name ?? row.attendeeName ?? "there";
   // A walk-up has no account, so /get-started is a door that does not open for
-  // them: point them at the application portal instead.
+  // them: point them at the applicant portal instead, which is where both the
+  // application and (for someone already accepted) their contract live.
   const isMember = row.personId !== null;
+  // Three audiences, not two. An accepted applicant is unlinked exactly like a
+  // stranger, but "Start your application" is a button that contradicts the
+  // acceptance email they are holding, and the wording has to agree with the
+  // items above it -- which resolveWalkUpBlockers has already split on the same
+  // question.
+  const isAcceptedApplicant =
+    !isMember && (await isAcceptedApplicantEmail(row.attendeeEmail, row.event.cycleId));
   const rendered = await renderEmail(
     "attendance-nudge",
     attendanceNudgeContext({
@@ -114,7 +130,11 @@ async function dispatch(
       eventDate: formatDateTime(row.event.startsAt, zone),
       items: blockers.items,
       ctaUrl: `${baseUrl}${isMember ? "/get-started" : "/apply"}`,
-      ctaLabel: isMember ? "Finish onboarding" : "Start your application",
+      ctaLabel: isMember
+        ? "Finish onboarding"
+        : isAcceptedApplicant
+          ? "Finish your onboarding"
+          : "Start your application",
       brandColor,
     }),
   );

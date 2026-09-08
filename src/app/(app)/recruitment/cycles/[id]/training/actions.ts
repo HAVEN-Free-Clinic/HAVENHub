@@ -63,6 +63,31 @@ export async function recordAttendanceAction(cycleId: string, personId: string) 
   redirect(bounce(cycleId, { saved: "attendance" }));
 }
 
+/**
+ * Turn this machine into the door for this cycle's training session.
+ *
+ * An action rather than a plain link because the TRAINING event may not exist
+ * yet: nobody should have to go and create one before taking attendance, and
+ * ensureTrainingEventForCycle is idempotent, so the button is safe to press
+ * every session and by two leads at once.
+ */
+export async function startCheckInAction(cycleId: string) {
+  const person = await requirePersonSession();
+  let eventId: string;
+  try {
+    const event = await ensureTrainingEventForCycle(cycleId, person.personId);
+    eventId = event.id;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AttendanceEventError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  // Outside the try: redirect throws, and catching it here would turn a
+  // successful navigation into the error flash above.
+  redirect(`/check-in/${eventId}`);
+}
+
 export async function resetTrainingAction(cycleId: string, personId: string) {
   const person = await requirePersonSession();
   try {

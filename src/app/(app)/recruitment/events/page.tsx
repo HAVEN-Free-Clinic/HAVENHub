@@ -103,7 +103,7 @@ export default async function EventsPage() {
               </TD>
               <TD className="text-right">
                 <TextLink
-                  href={`/recruitment/events/${event.id}/check-in`}
+                  href={`/check-in/${event.id}`}
                   size="sm"
                   className="font-medium"
                 >

@@ -3,11 +3,13 @@ import { requirePermission, requirePersonSession } from "@/platform/auth/session
 import { can } from "@/platform/rbac/engine";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listTrainingRoster, TrainingStateError } from "@/modules/recruitment/services/training";
+import { canRecordAttendance } from "@/modules/recruitment/services/attendance-events";
 import {
   clearExcuseAction,
   excuseAbsenceAction,
   recordAttendanceAction,
   resetTrainingAction,
+  startCheckInAction,
 } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -32,8 +34,9 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   // Excusing an absence is a lead's call, not a department director's: it is the
   // clinic deciding somebody is not at fault, and it is the leads who receive the
   // emails these excuses come out of. Directors still see the badge.
-  const [canExcuse, zone] = await Promise.all([
+  const [canExcuse, canCheckIn, zone] = await Promise.all([
     can(viewer.personId, "recruitment.manage_cycles"),
+    canRecordAttendance(viewer.personId),
     getDisplayTimeZone(),
   ]);
 
@@ -58,7 +61,22 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   return (
     <div className="max-w-3xl space-y-6">
       <SetBreadcrumb trail={trail} />
-      <PageHeader title="Training" description={cycle.title} />
+      <PageHeader
+        title="Training"
+        description={cycle.title}
+        // The roster below is the after-the-fact surface: it corrects a record,
+        // one person at a time, for people already on it. Taking attendance at
+        // the session itself is a different job with a different shape -- fast,
+        // one screen, and including everyone accepted whether or not they have
+        // onboarded -- and this is the way into it.
+        action={
+          canCheckIn ? (
+            <form action={startCheckInAction.bind(null, id)}>
+              <SubmitButton pendingLabel="Opening…">Start check-in</SubmitButton>
+            </form>
+          ) : undefined
+        }
+      />
       <Table>
         <THead>
           <tr>

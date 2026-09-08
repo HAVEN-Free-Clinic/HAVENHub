@@ -455,6 +455,20 @@ export type CheckInCandidate = {
   offRoster: boolean;
   /** On this cycle's accepted list. Always true for an `applicant`. */
   accepted: boolean;
+  /**
+   * One of the people this session is being run for, rather than somebody who
+   * turned up to it.
+   *
+   * False for, most often, a DIRECTOR at a volunteer training: on the term
+   * roster, legitimately in the room, frequently helping to run the session, and
+   * not one of the volunteers whose attendance it exists to record. The door
+   * lists them under their own heading so an operator working a queue is not
+   * reading one undifferentiated list of everybody in the clinic.
+   *
+   * Always true when the event has no cycle: with no track there is no cohort to
+   * be outside of, and the door shows a single pile.
+   */
+  expected: boolean;
   /** Already checked in to this event. */
   checkedIn: boolean;
 };
@@ -492,7 +506,10 @@ export async function listCheckInCandidates(
 ): Promise<CheckInCandidate[]> {
   const event = await prisma.attendanceEvent.findUnique({
     where: { id: eventId },
-    select: { id: true, termId: true, cycleId: true },
+    // The track comes along because it decides which candidates this session is
+    // FOR: a volunteer training and a director training draw different cohorts
+    // from the same roster.
+    select: { id: true, termId: true, cycleId: true, cycle: { select: { track: true } } },
   });
   if (!event) throw new AttendanceEventError("Event not found.");
 
@@ -503,13 +520,20 @@ export async function listCheckInCandidates(
 
   const memberships = await prisma.termMembership.findMany({
     where: { termId: event.termId, status: "ACTIVE" },
-    select: { personId: true, department: { select: { code: true } } },
+    select: { personId: true, kind: true, department: { select: { code: true } } },
   });
   const deptsByPerson = new Map<string, string[]>();
+  // Membership KINDS, not just departments: a training session is run for one
+  // track, and whether somebody's membership matches it is what separates the
+  // people the session is FOR from the people who merely turned up to it.
+  const kindsByPerson = new Map<string, Set<Track>>();
   for (const m of memberships) {
     const list = deptsByPerson.get(m.personId) ?? [];
     list.push(m.department.code);
     deptsByPerson.set(m.personId, list);
+    const kinds = kindsByPerson.get(m.personId) ?? new Set<Track>();
+    kinds.add(m.kind);
+    kindsByPerson.set(m.personId, kinds);
   }
 
   const [people, acceptances, attendance] = await Promise.all([
@@ -580,9 +604,17 @@ export async function listCheckInCandidates(
   );
   const acceptedEmails = new Set(acceptances.map((a) => a.application.applicant.emailLower));
 
+  /**
+   * The track this session is being run for, or null for an event that is not
+   * for one particular cohort (an info session, or a training with no cycle).
+   * With no track, nobody can be "not on this list" and the door shows one pile.
+   */
+  const sessionTrack: Track | null = event.cycle?.track ?? null;
+
   const personRows: CheckInCandidate[] = people.map((p) => {
     const departmentCodes = deptsByPerson.get(p.id) ?? [];
     const email = p.contactEmail?.toLowerCase() ?? null;
+    const accepted = email !== null && acceptedEmails.has(email);
     return {
       kind: "person" as const,
       id: p.id,
@@ -591,7 +623,13 @@ export async function listCheckInCandidates(
       netId: p.netId?.toLowerCase() ?? null,
       departmentCodes,
       offRoster: departmentCodes.length === 0,
-      accepted: email !== null && acceptedEmails.has(email),
+      accepted,
+      // Expected here if the clinic accepted them into this cycle, or if they
+      // already hold a membership of the track this session trains. A DIRECTOR at
+      // a volunteer training is neither: still checkable in (they do turn up, and
+      // recording that is the point), just not one of the people the session is
+      // for -- which is the whole reason the door piles them separately.
+      expected: sessionTrack === null || accepted || (kindsByPerson.get(p.id)?.has(sessionTrack) ?? false),
       checkedIn: checkedInPersonIds.has(p.id),
     };
   });
@@ -631,12 +669,78 @@ export async function listCheckInCandidates(
       departmentCodes: [a.departmentCode],
       offRoster: true,
       accepted: true,
+      // Being accepted into this cycle is exactly what "expected" means.
+      expected: true,
       checkedIn: checkedInEmails.has(applicant.emailLower),
     });
   }
   const applicantRows = [...byEmail.values()];
 
   return [...personRows, ...applicantRows].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A cheap stamp that moves whenever this event's attendance changes.
+ *
+ * Row count plus the latest `updatedAt`, both covered by the `eventId` index, so
+ * an idle door costs one small aggregate per tick and sends nothing. Modelled on
+ * the schedule builder's boardRevision, which the change stream this feeds is
+ * otherwise a copy of.
+ *
+ * Count AND timestamp, because neither alone is enough: a check-in followed by an
+ * undo returns the count to where it was, and two rows written inside the same
+ * millisecond share a timestamp.
+ */
+export async function attendanceRevision(eventId: string): Promise<string> {
+  const agg = await prisma.eventAttendance.aggregate({
+    where: { eventId },
+    _count: { _all: true },
+    _max: { updatedAt: true },
+  });
+  return `${agg._count._all}:${agg._max.updatedAt?.getTime() ?? 0}`;
+}
+
+/**
+ * Everything the door has to repaint when somebody ELSE checks a person in.
+ *
+ * A full snapshot rather than a delta, for the reason the builder's stream gives:
+ * the payload is small and a snapshot cannot desynchronize the way an applied
+ * sequence of deltas does when one is missed across a reconnect.
+ *
+ * Identity comes back in both currencies because the door's two candidate shapes
+ * are matched differently -- a member by personId, an accepted applicant by the
+ * lowercased email their unlinked row is keyed on.
+ */
+export type DoorSnapshot = {
+  revision: string;
+  /** Names in check-in order, newest last: the list and its count. */
+  names: string[];
+  /** Person ids with a linked row on this event. */
+  personIds: string[];
+  /** Lowercased emails of unlinked rows on this event. */
+  emails: string[];
+};
+
+export async function doorSnapshot(eventId: string): Promise<DoorSnapshot> {
+  const [revision, rows] = await Promise.all([
+    attendanceRevision(eventId),
+    prisma.eventAttendance.findMany({
+      where: { eventId },
+      orderBy: { checkedInAt: "asc" },
+      select: {
+        personId: true,
+        attendeeName: true,
+        attendeeEmail: true,
+        person: { select: { name: true } },
+      },
+    }),
+  ]);
+  return {
+    revision,
+    names: rows.map((r) => r.person?.name ?? r.attendeeName ?? "Unknown"),
+    personIds: rows.flatMap((r) => (r.personId ? [r.personId] : [])),
+    emails: rows.flatMap((r) => (r.attendeeEmail ? [r.attendeeEmail.toLowerCase()] : [])),
+  };
 }
 
 /**

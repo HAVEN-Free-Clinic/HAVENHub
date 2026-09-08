@@ -11,6 +11,7 @@ function candidate(over: Partial<CheckInCandidate> & { name: string }): CheckInC
     departmentCodes: [],
     offRoster: false,
     accepted: false,
+    expected: true,
     checkedIn: false,
     ...over,
   };

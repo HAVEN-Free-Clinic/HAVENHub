@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/platform/ui/button";
 import { Input } from "@/platform/ui/input";
 import { Badge } from "@/platform/ui/badge";
@@ -8,11 +8,13 @@ import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { outstandingShortLabels } from "@/platform/compliance/outstanding-items";
+import { useEventStream } from "@/platform/ui/use-event-stream";
 import { matchCandidates, exactNetIdMatch } from "./check-in-match";
 import type {
   CheckInCandidate,
   CheckInResult,
   CheckInTarget,
+  DoorSnapshot,
 } from "@/modules/recruitment/services/attendance-events";
 
 /**
@@ -40,17 +42,23 @@ import type {
  * rendered each of them twice (caught by e2e/event-attendance.spec.ts).
  */
 export function CheckInKiosk({
+  eventId,
   candidates,
   checkedInNames,
   acceptedCount,
+  expectedHeading,
   action,
   allowWalkUps,
 }: {
+  /** The event this door is for; the change stream subscribes to it. */
+  eventId: string;
   candidates: CheckInCandidate[];
   /** Names already checked in when the page loaded, newest last. */
   checkedInNames: string[];
   /** Size of the cycle's accepted list, for the progress line. Null with no cycle. */
   acceptedCount: number | null;
+  /** Heading over the people this session is for, e.g. "Volunteers for this cycle". */
+  expectedHeading: string;
   action: (target: CheckInTarget) => Promise<CheckInResult>;
   /** False for a department-scoped director, who may not add unknown people. */
   allowWalkUps: boolean;
@@ -73,7 +81,34 @@ export function CheckInKiosk({
   } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // The live picture of who is checked in, from the change stream. Null until
+  // the first snapshot arrives (or forever, if the stream cannot connect), which
+  // is why every read below falls back to the server-rendered props.
+  const [snapshot, setSnapshot] = useState<DoorSnapshot | null>(null);
+
+  const streamUrl = useCallback(
+    (revision: string) =>
+      `/api/check-in/stream?event=${encodeURIComponent(eventId)}` +
+      (revision ? `&rev=${encodeURIComponent(revision)}` : ""),
+    [eventId],
+  );
+  const live = useEventStream<DoorSnapshot>({
+    url: streamUrl,
+    event: "door",
+    onSnapshot: setSnapshot,
+  });
+
+  // The stream is authoritative once it has spoken: it sees the other laptop's
+  // check-ins, and the server-rendered props only ever saw this one's.
+  const names = snapshot?.names ?? checkedInNames;
+  const livePersonIds = useMemo(() => new Set(snapshot?.personIds ?? []), [snapshot]);
+  const liveEmails = useMemo(() => new Set(snapshot?.emails ?? []), [snapshot]);
+
   const results = useMemo(() => matchCandidates(candidates, query), [candidates, query]);
+  // Split for the two piles below. Done after matching so the cap on results is
+  // applied to the search as a whole rather than to each pile separately.
+  const expectedResults = useMemo(() => results.filter((c) => c.expected), [results]);
+  const otherResults = useMemo(() => results.filter((c) => !c.expected), [results]);
 
   function focusSearch() {
     // Back to the search box so the next person can be typed without reaching
@@ -133,8 +168,19 @@ export function CheckInKiosk({
     if (match && !isDone(match)) submitCandidate(match);
   }
 
+  /**
+   * Three sources, unioned, newest first in usefulness.
+   *
+   * The stream carries the other laptop's check-ins; `justCheckedIn` bridges the
+   * sub-second gap before our own tap comes back around through it; and the
+   * server-rendered prop covers the case where the stream never connects at all.
+   * A union is idempotent, so overlap between them costs nothing.
+   */
   function isDone(c: CheckInCandidate) {
-    return c.checkedIn || justCheckedIn.has(c.id);
+    if (c.checkedIn || justCheckedIn.has(c.id)) return true;
+    return c.kind === "person"
+      ? livePersonIds.has(c.id)
+      : c.email !== null && liveEmails.has(c.email.toLowerCase());
   }
 
   return (
@@ -185,38 +231,30 @@ export function CheckInKiosk({
           </EmptyState>
         )}
 
-        <ul className="divide-y divide-border">
-          {results.map((c) => (
-            <li key={c.id} className="flex items-center justify-between gap-3 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-base font-medium text-foreground">{c.name}</div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
-                  {c.netId && <span className="font-mono">{c.netId}</span>}
-                  {c.email && <span className="truncate">{c.email}</span>}
-                  {c.departmentCodes.length > 0 && <span>{c.departmentCodes.join(", ")}</span>}
-                  {/* Surfaced at the door, not hidden in a report: this is the
-                      person whose attendance will not count until they finish
-                      onboarding, and the operator can tell them so in person. An
-                      accepted applicant is off-roster by definition, so saying
-                      both would be noise -- "Accepted, not onboarded" is the
-                      whole story for them. */}
-                  {c.kind === "applicant" ? (
-                    <Badge tone="warning">Accepted, not onboarded</Badge>
-                  ) : (
-                    c.offRoster && <Badge tone="warning">Not on the roster</Badge>
-                  )}
-                </div>
-              </div>
-              {isDone(c) ? (
-                <span className="shrink-0 text-sm text-success-foreground">Checked in</span>
-              ) : (
-                <Button disabled={pending} onClick={() => submitCandidate(c)}>
-                  Check in
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+        {/* Two piles, not one list. Everyone here can be checked in -- a
+            director who turns up to a volunteer training is in the room and
+            recording that is the point -- but only one group is who the session
+            is FOR, and an operator working a queue should not have to tell them
+            apart by reading department codes. A heading appears only when both
+            piles have somebody in them, so the ordinary case stays a plain list. */}
+        {expectedResults.length > 0 && (
+          <CandidateList
+            heading={otherResults.length > 0 ? expectedHeading : null}
+            rows={expectedResults}
+            pending={pending}
+            isDone={isDone}
+            onCheckIn={submitCandidate}
+          />
+        )}
+        {otherResults.length > 0 && (
+          <CandidateList
+            heading={expectedResults.length > 0 ? "Also in the hub" : null}
+            rows={otherResults}
+            pending={pending}
+            isDone={isDone}
+            onCheckIn={submitCandidate}
+          />
+        )}
       </div>
 
       {allowWalkUps && !confirming && (
@@ -239,27 +277,98 @@ export function CheckInKiosk({
       )}
 
       <div className="border-t border-border pt-4">
-        {/* Counted off the SERVER's list alone, never that list plus the local
-            `justCheckedIn` set. A server action re-renders this page's server
-            components, so checkedInNames already contains whoever was just
-            tapped; adding the local set on top counts them twice for as long as
-            the operator stays on the screen. The local set is for row state,
-            where a union is idempotent, and for nothing else. */}
-        <h2 className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">Checked in {checkedInNames.length}</span>
-          {acceptedCount !== null && <> of {acceptedCount} accepted</>}
-        </h2>
+        {/* Counted off ONE list, never a list plus the local `justCheckedIn` set.
+            Both the stream and the server action's re-render already contain
+            whoever was just tapped; adding the local set on top counts them twice
+            for as long as the operator stays on the screen. That set is for row
+            state, where a union is idempotent, and for nothing else. */}
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Checked in {names.length}</span>
+            {acceptedCount !== null && <> of {acceptedCount} accepted</>}
+          </h2>
+          {/* Only ever shown when the count is actually at risk of being stale.
+              A door that says "live" on a healthy connection is noise; one that
+              says nothing when the connection has been down for six seconds is a
+              number an operator is about to trust and should not. */}
+          {live === "reconnecting" && (
+            <span className="text-xs text-warning-foreground">
+              Reconnecting; this count may be behind
+            </span>
+          )}
+        </div>
         <ul className="mt-2 space-y-1 text-sm">
-          {checkedInNames.map((name, i) => (
+          {names.map((name, i) => (
             <li key={`${name}-${i}`} className="text-foreground-soft">
               {name}
             </li>
           ))}
-          {checkedInNames.length === 0 && (
-            <li className="text-subtle-foreground">Nobody yet.</li>
-          )}
+          {names.length === 0 && <li className="text-subtle-foreground">Nobody yet.</li>}
         </ul>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One pile of candidates, under an optional heading.
+ *
+ * A component rather than a loop inlined twice so the row markup -- which is the
+ * part an operator actually reads, and the part most likely to be tweaked -- has
+ * exactly one definition.
+ */
+function CandidateList({
+  heading,
+  rows,
+  pending,
+  isDone,
+  onCheckIn,
+}: {
+  heading: string | null;
+  rows: CheckInCandidate[];
+  pending: boolean;
+  isDone: (c: CheckInCandidate) => boolean;
+  onCheckIn: (c: CheckInCandidate) => void;
+}) {
+  return (
+    <div>
+      {heading && (
+        <h2 className="pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {heading}
+        </h2>
+      )}
+      <ul className="divide-y divide-border">
+        {rows.map((c) => (
+          <li key={c.id} className="flex items-center justify-between gap-3 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-base font-medium text-foreground">{c.name}</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
+                {c.netId && <span className="font-mono">{c.netId}</span>}
+                {c.email && <span className="truncate">{c.email}</span>}
+                {c.departmentCodes.length > 0 && <span>{c.departmentCodes.join(", ")}</span>}
+                {/* Surfaced at the door, not hidden in a report: this is the
+                    person whose attendance will not count until they finish
+                    onboarding, and the operator can tell them so in person. An
+                    accepted applicant is off-roster by definition, so saying
+                    both would be noise -- "Accepted, not onboarded" is the
+                    whole story for them. */}
+                {c.kind === "applicant" ? (
+                  <Badge tone="warning">Accepted, not onboarded</Badge>
+                ) : (
+                  c.offRoster && <Badge tone="warning">Not on the roster</Badge>
+                )}
+              </div>
+            </div>
+            {isDone(c) ? (
+              <span className="shrink-0 text-sm text-success-foreground">Checked in</span>
+            ) : (
+              <Button disabled={pending} onClick={() => onCheckIn(c)}>
+                Check in
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

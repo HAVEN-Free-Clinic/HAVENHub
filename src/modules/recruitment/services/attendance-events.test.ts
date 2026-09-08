@@ -14,9 +14,11 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { RecruitmentAuthError } from "./review";
 import {
+  attendanceRevision,
   AttendanceEventError,
   CheckInConfirmationRequired,
   countAcceptedForCycle,
+  doorSnapshot,
   createEvent,
   deleteEvent,
   ensureTrainingEventForCycle,
@@ -876,6 +878,121 @@ it("counts the accepted roll by person, not by acceptance row", async () => {
 
   expect(await countAcceptedForCycle(cycle.id)).toBe(2);
   expect(await countAcceptedForCycle(null)).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Two piles: who the session is for, and who else turned up
+// ---------------------------------------------------------------------------
+
+it("marks a director at a volunteer training as not expected, but still listed", async () => {
+  const { term, deptA, cycle, lead, door } = await seed();
+  await seedMember(term.id, deptA.id, "Vol");
+  await seedDirector(term.id, deptA.id);
+  await seedAccepted(cycle.id, lead.id, { first: "Ada", last: "Lovelace", email: "ada@yale.edu" });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const rows = await listCheckInCandidates(event.id, door.id);
+  const by = (name: string) => rows.find((c) => c.name === name);
+
+  // The people the session is for: this cycle's track, and its acceptances.
+  expect(by("Vol")?.expected).toBe(true);
+  expect(by("Ada Lovelace")?.expected).toBe(true);
+  // A director is on the term roster and in the room, and is not one of them.
+  expect(by("Dir")?.expected).toBe(false);
+  // Listed either way: they turn up, and recording that is the point.
+  expect(by("Dir")).toBeDefined();
+});
+
+it("counts a dual-role person as expected at their volunteer track's training", async () => {
+  const { term, deptA, deptB, cycle, lead, door } = await seed();
+  const person = await seedMember(term.id, deptA.id, "Both Hats");
+  await prisma.termMembership.create({
+    data: { personId: person.id, termId: term.id, departmentId: deptB.id, kind: "DIRECTOR", status: "ACTIVE" },
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const row = (await listCheckInCandidates(event.id, door.id)).find((c) => c.id === person.id);
+  // Holding a DIRECTOR membership too does not take them out of the cohort: they
+  // owe the volunteer training their VOLUNTEER membership requires.
+  expect(row?.expected).toBe(true);
+});
+
+it("expects everybody at an event with no cycle, where there is no cohort", async () => {
+  const { term, deptA, lead, door } = await seed();
+  await seedMember(term.id, deptA.id, "Vol");
+  await seedDirector(term.id, deptA.id);
+  const event = await createEvent(
+    {
+      termId: term.id,
+      cycleId: null,
+      kind: "INFO_SESSION",
+      title: "Open house",
+      startsAt: START,
+      endsAt: null,
+      location: null,
+      notes: null,
+    },
+    lead.id,
+  );
+
+  const rows = await listCheckInCandidates(event.id, door.id);
+  expect(rows.every((c) => c.expected)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// The change stream's two reads
+// ---------------------------------------------------------------------------
+
+it("moves the revision on a check-in and on an undo", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  const member = await seedMember(term.id, deptA.id, "Vol");
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const empty = await attendanceRevision(event.id);
+  const { attendanceId } = await recordEventCheckIn(
+    event.id,
+    { kind: "person", personId: member.id },
+    lead.id,
+  );
+  const afterCheckIn = await attendanceRevision(event.id);
+  expect(afterCheckIn).not.toBe(empty);
+
+  // Count alone would return to its starting value here, which is exactly why
+  // the stamp carries the latest updatedAt as well.
+  await removeEventCheckIn(attendanceId, lead.id);
+  const afterUndo = await attendanceRevision(event.id);
+  expect(afterUndo).not.toBe(afterCheckIn);
+});
+
+it("holds the revision still when nothing changes, so an idle door sends nothing", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  const member = await seedMember(term.id, deptA.id, "Vol");
+  const event = await trainingEvent(cycle.id, lead.id);
+  await recordEventCheckIn(event.id, { kind: "person", personId: member.id }, lead.id);
+
+  expect(await attendanceRevision(event.id)).toBe(await attendanceRevision(event.id));
+});
+
+it("snapshots both identity currencies, so either candidate shape can be matched", async () => {
+  const { term, deptA, cycle, lead, door } = await seed();
+  const member = await seedMember(term.id, deptA.id, "Vol", "vol@yale.edu");
+  const { acceptance } = await seedAccepted(cycle.id, lead.id, {
+    first: "Ada",
+    last: "Lovelace",
+    email: "Ada@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+  await recordEventCheckIn(event.id, { kind: "person", personId: member.id }, door.id);
+  await recordEventCheckIn(event.id, { kind: "applicant", acceptanceId: acceptance.id }, door.id);
+
+  const snapshot = await doorSnapshot(event.id);
+  expect(snapshot.revision).toBe(await attendanceRevision(event.id));
+  // A member is matched by id; an unlinked applicant row only by its lowercased
+  // email, which is the only handle that row has.
+  expect(snapshot.personIds).toEqual([member.id]);
+  expect(snapshot.emails).toEqual(["ada@yale.edu"]);
+  // Names in check-in order, resolved through the Person where there is one.
+  expect(snapshot.names).toEqual(["Vol", "Ada Lovelace"]);
 });
 
 // ---------------------------------------------------------------------------

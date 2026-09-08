@@ -83,9 +83,16 @@ export default async function EventCheckInPage({
       )}
 
       <CheckInKiosk
+        eventId={eventId}
         candidates={candidates}
         checkedInNames={attendees.map((a) => a.name)}
         acceptedCount={acceptedCount}
+        // Named after the cohort rather than "Expected": the operator knows what
+        // session they are running, and "Volunteers for this cycle" says which
+        // of two piles a name in front of them belongs in without a legend.
+        expectedHeading={
+          event.cycleTrack === "DIRECTOR" ? "Directors for this cycle" : "Volunteers for this cycle"
+        }
         action={checkInAction.bind(null, eventId)}
         allowWalkUps={authority.all}
       />

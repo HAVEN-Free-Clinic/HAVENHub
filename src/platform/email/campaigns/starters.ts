@@ -181,7 +181,7 @@ ${capabilityGroup({
   where: "The bell sits in the top bar of every page, next to your photo.",
 })}
 ${capabilityGroup({
-  eyebrow: "My Info",
+  eyebrow: "My info",
   intro: "Everything the clinic holds about you in one place, including the clearance you need before your first shift.",
   bullets: [
     "Your photo and contact details, so the schedule and the front desk know who you are and how to reach you.",

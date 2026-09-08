@@ -42,7 +42,7 @@ export function PersonForm({ action, mode, person, children }: PersonFormProps) 
     <form action={action}>
       <Card className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full Name" required>
+          <Field label="Full name" required>
             <Input
               name="name"
               defaultValue={person?.name ?? ""}
@@ -85,7 +85,7 @@ export function PersonForm({ action, mode, person, children }: PersonFormProps) 
             />
           </Field>
 
-          <Field label="Yale Affiliation">
+          <Field label="Yale affiliation">
             <Select name="yaleAffiliation" defaultValue={person?.yaleAffiliation ?? ""}>
               <option value="">Not set</option>
               {affiliationOptionsWith(person?.yaleAffiliation).map((opt) => (
@@ -96,7 +96,7 @@ export function PersonForm({ action, mode, person, children }: PersonFormProps) 
             </Select>
           </Field>
 
-          <Field label="Grad Year">
+          <Field label="Grad year">
             <Input
               name="gradYear"
               defaultValue={person?.gradYear ?? ""}

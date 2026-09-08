@@ -375,7 +375,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           ledger without a dead-end form. */}
       {canManageAll && (
       <section className="mt-8">
-        <h2 className="mb-3 text-base font-semibold">Record Disciplinary Action</h2>
+        <h2 className="mb-3 text-base font-semibold">Record disciplinary action</h2>
         <form action={issueActionForm}>
           <Card>
             <FormRow>

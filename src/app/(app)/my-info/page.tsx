@@ -283,7 +283,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   return (
     <>
       <PageHeader
-        title="My Info"
+        title="My info"
         description="Keep your contact details current."
       />
 
@@ -351,7 +351,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
         {/* HIPAA certificate. Anchored: the clearance checklist above links here
             (see requirementHref). scroll-mt clears the sticky app-shell bar. */}
         <section id="hipaa-certificate" className="scroll-mt-24">
-          <SectionHeader className="mb-4">HIPAA Certificate</SectionHeader>
+          <SectionHeader className="mb-4">HIPAA certificate</SectionHeader>
           <HipaaPanel
             certificates={certificates}
             uploadAction={uploadAction}
@@ -362,7 +362,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* EHS Training. Anchored for the clearance checklist, same as HIPAA above. */}
         <section id="ehs-training" className="scroll-mt-24">
-          <SectionHeader className="mb-4">EHS Training</SectionHeader>
+          <SectionHeader className="mb-4">EHS training</SectionHeader>
           <EhsPanel items={ehsItems} />
         </section>
 

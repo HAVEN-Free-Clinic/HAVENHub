@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { devLogin, loginAs } from "./auth";
 
-test("admin login: hub My Info tile links to /my-info and page renders read-only rows and HIPAA section", async ({ page }) => {
+test("admin login: hub My info tile links to /my-info and page renders read-only rows and HIPAA section", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
 
-  // Hub must show a My Info tile with a link to /my-info.
-  const tile = page.getByRole("link", { name: /Open My Info/i });
+  // Hub must show a My info tile with a link to /my-info.
+  const tile = page.getByRole("link", { name: /Open My info/i });
   await expect(tile).toBeVisible();
   await expect(tile).toHaveAttribute("href", "/my-info");
 
@@ -30,7 +30,7 @@ test("volunteer login: /my-info renders the profile form", async ({ page }) => {
   await page.waitForURL((url) => url.pathname === "/my-info");
 
   // The page heading must be visible.
-  await expect(page.getByRole("heading", { name: "My Info" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "My info" })).toBeVisible();
 
   // The Profile section must render (editable form is present).
   await expect(page.getByText("Profile", { exact: true })).toBeVisible();

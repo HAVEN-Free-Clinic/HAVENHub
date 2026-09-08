@@ -22,7 +22,7 @@ import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -36,6 +36,7 @@ import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescin
 import { ApplicantHistory } from "@/modules/recruitment/components/applicant-history";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
@@ -340,23 +341,21 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           </p>
           {canScore && (
             <>
-              <form action={committeeScoreAction.bind(null, id, applicationId)} className="mt-3 flex flex-wrap items-end gap-3">
-                <div className="w-28">
-                  <Field label="Your score">
+              <form action={committeeScoreAction.bind(null, id, applicationId)}>
+                <FormRow className="mt-3">
+                  <RowField label="Your score" width="numeric">
                     <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
                       <option value="" disabled>Select…</option>
                       {[1, 2, 3, 4, 5].map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </Select>
-                  </Field>
-                </div>
-                <div className="min-w-[12rem] flex-1">
-                  <Field label="Comments" hint="Optional.">
+                  </RowField>
+                  <RowField label="Comments" hint="Optional." width="grow">
                     <Input name="comments" defaultValue={myScore?.comments ?? ""} />
-                  </Field>
-                </div>
-                <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+                  </RowField>
+                  <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+                </FormRow>
               </form>
             </>
           )}
@@ -374,9 +373,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
           )}
-          <form action={routeAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
-            <div className="w-40">
-              <Field label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
+          <form action={routeAction.bind(null, id, applicationId)}>
+            <FormRow className="mt-4 border-t border-border-subtle pt-4">
+              <RowField label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
                 <Select name="departmentCode" required defaultValue={app.routedDepartmentCode ?? ""}>
                   <option value="" disabled>Select…</option>
                   {app.cycle.departments.map((d) => (
@@ -385,9 +384,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                     </option>
                   ))}
                 </Select>
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Routing…">Route</SubmitButton>
+              </RowField>
+              <SubmitButton size="sm" pendingLabel="Routing…">Route</SubmitButton>
+            </FormRow>
           </form>
         </Card>
       )}
@@ -407,15 +406,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             </ul>
           )}
           {scheduleChoices.length > 0 ? (
-            <form action={scheduleInterviewAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
-              <div className="w-40">
-                <Field label="Department">
+            <form action={scheduleInterviewAction.bind(null, id, applicationId)}>
+              <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                <RowField label="Department">
                   <Select name="departmentCode" required>
                     {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
                   </Select>
-                </Field>
-              </div>
-              <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
+                </RowField>
+                <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
+              </FormRow>
             </form>
           ) : existingInterviews.length === 0 ? (
             <EmptyState inline className="mt-3">No eligible department to interview for in your scope.</EmptyState>
@@ -468,9 +467,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
                 />
               )}
-              <form action={decideRoutedAction.bind(null, id, applicationId)} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
-                <div className="w-40">
-                  <Field label="Outcome">
+              <form action={decideRoutedAction.bind(null, id, applicationId)}>
+                <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                  <RowField label="Outcome">
                     <Select name="outcome" required defaultValue={app.decision === "PENDING" ? "ACCEPT" : app.decision}>
                       <option value="ACCEPT">Accept</option>
                       <option value="REJECT">Reject</option>
@@ -480,14 +479,12 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                           routing to a different department. */}
                       <option value="RETURN">Not a fit for us, return for re-routing</option>
                     </Select>
-                  </Field>
-                </div>
-                <div className="min-w-[12rem] flex-1">
-                  <Field label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently.">
+                  </RowField>
+                  <RowField label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently." width="grow">
                     <Input name="notes" />
-                  </Field>
-                </div>
-                <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+                  </RowField>
+                  <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+                </FormRow>
               </form>
               {app.decision !== "PENDING" && app.decidedAt && (
                 <p className="mt-2 text-xs text-subtle-foreground">

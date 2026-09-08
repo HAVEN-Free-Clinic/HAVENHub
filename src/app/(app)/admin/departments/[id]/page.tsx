@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import {
@@ -12,6 +13,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { DepartmentForm } from "@/modules/admin/components/department-form";
 import { DelegationEditor } from "@/modules/admin/components/delegation-editor";
 import { optionalInt, epicRequirement } from "@/modules/admin/form-coerce";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -81,7 +83,15 @@ export default async function EditDepartmentPage({ params }: PageProps) {
 
   return (
     <div className="space-y-8">
-      <PageHeader title={`Edit ${department.code}`} description="Code is permanent. Toggle Active to deactivate (soft remove)." />
+      <SetBreadcrumbLeaf label={department.code} />
+      {/* The two notes that used to ride in the description are on the controls
+          they describe: the code field's own hint already says it cannot be
+          changed, and the soft-remove note is now the Active checkbox's hint. */}
+      <PageHeader
+        title={department.name}
+        description={department.code}
+        status={<ActiveBadge active={department.isActive} />}
+      />
       <DepartmentForm action={updateAction} mode="edit" department={department} />
 
       <section className="space-y-3">

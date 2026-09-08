@@ -21,7 +21,7 @@ async function selectDeptByCode(page: import("@playwright/test").Page, code: str
 }
 
 /**
- * The Schedule Builder holds an EventSource open for as long as it is on screen
+ * The schedule builder holds an EventSource open for as long as it is on screen
  * (/api/schedule/builder/stream). Playwright's `networkidle` waits for the
  * absence of in-flight requests, and a stream that stays open by design is one
  * forever -- so every `waitForLoadState("networkidle")` below would sit until it
@@ -139,8 +139,8 @@ test("Jack opens /schedule and sees availability locked once the term's clinics 
   await page.goto("/schedule");
   await page.waitForURL((url) => url.pathname === "/schedule");
 
-  // Page heading (rendered by PageHeader with title="My Schedule")
-  await expect(page.getByRole("heading", { name: "My Schedule" })).toBeVisible();
+  // Page heading (rendered by PageHeader with title="My schedule")
+  await expect(page.getByRole("heading", { name: "My schedule" })).toBeVisible();
 
   // "My availability" section heading (h2)
   await expect(page.locator("h2").filter({ hasText: "My availability" })).toBeVisible();
@@ -162,8 +162,8 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
   await page.goto("/schedule/full");
   await page.waitForURL((url) => url.pathname === "/schedule/full");
 
-  // Page title, rendered by PageHeader with title="Full Schedule".
-  await expect(page.getByRole("heading", { name: "Full Schedule" })).toBeVisible();
+  // Page title, rendered by PageHeader with title="Full schedule".
+  await expect(page.getByRole("heading", { name: "Full schedule" })).toBeVisible();
 
   // Date tab strip: links inside the nav[aria-label="Schedule dates"]
   // displayDate("2026-05-30") = "May 30th", etc.
@@ -244,7 +244,7 @@ test("Builder assign round trip: Jack assigns then removes a member via VADM", a
   await page.goto("/schedule/builder");
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 
-  await expect(page.getByRole("heading", { name: "Schedule Builder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Schedule builder" })).toBeVisible();
 
   // Select VADM department from the Department select.
   await goToDept(page, await selectDeptByCode(page, "VADM"));
@@ -400,6 +400,27 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   const requestDetails = shiftCard.locator("details");
   await expect(requestDetails).toBeVisible();
+  // Closed by default. That is what made the dashboard's "Request a swap" tile
+  // and the shift reminder's "submitted here" link promise an action and
+  // deliver the top of a list, with the form they named folded shut and
+  // nothing on screen saying where it was.
+  await expect(requestDetails).not.toHaveAttribute("open", /.*/);
+
+  // Both links now carry ?request=1#request-a-change. Asserted HERE, inside the
+  // round trip, because this is the one point in the suite where the volunteer
+  // is guaranteed to have an upcoming shift: a standalone test would pass by
+  // doing nothing whenever they do not.
+  //
+  // The param, not the hash, does the work: a hash never reaches the server and
+  // <details> cannot be opened by :target. The hash only scrolls.
+  await page.goto("/schedule?request=1#request-a-change");
+  await page.waitForURL((url) => url.pathname === "/schedule");
+  await expect(page.locator("#request-a-change details").first()).toHaveAttribute("open", /.*/);
+
+  // Back to the plain page for the rest of the round trip, so what follows
+  // exercises the ordinary click-to-open path.
+  await page.goto("/schedule");
+  await page.waitForURL((url) => url.pathname === "/schedule");
   await requestDetails.locator("summary").click();
 
   // "Request drop" ConfirmButton: first click arms, second click submits.
@@ -422,9 +443,9 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await page.goto(builderUrl);
   await page.waitForLoadState("networkidle");
 
-  // "Pending Requests" panel must be visible.
-  const pendingPanel = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending Requests" }) });
-  await expect(pendingPanel.locator("h2", { hasText: "Pending Requests" })).toBeVisible();
+  // "Pending requests" panel must be visible.
+  const pendingPanel = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending requests" }) });
+  await expect(pendingPanel.locator("h2", { hasText: "Pending requests" })).toBeVisible();
 
   // There must be at least one pending row (Dev Volunteer's drop request).
   const approveBtn = pendingPanel.getByRole("button", { name: "Approve" }).first();
@@ -448,7 +469,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   await expect(approveBtns).toHaveCount(pendingCountBefore - 1, { timeout: 15_000 });
 
   // Assert the decided section shows at least one "approved" entry.
-  const pendingPanelAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending Requests" }) });
+  const pendingPanelAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending requests" }) });
   await expect(pendingPanelAfter.getByText(/approved/i).first()).toBeVisible();
 });
 
@@ -670,7 +691,7 @@ test("attendings: add one, then schedule it on a clinic date", async ({ page }) 
   await page.waitForURL((url) => url.pathname === "/schedule/attendings/new");
   await page.fill('input[name="scheduleName"]', name);
   await page.fill('input[name="fullName"]', `Dr. ${name}`);
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Create attending" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
   // It becomes assignable on every column of the selected clinic date. The Day
@@ -710,7 +731,7 @@ test("attendings: schedule one from the grid, then clear it", async ({ page }) =
   await page.goto("/schedule/attendings/new");
   await page.fill('input[name="scheduleName"]', name);
   await page.fill('input[name="fullName"]', `Dr. ${name}`);
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Create attending" }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/attendings");
 
   const grid = page.getByRole("table", { name: "Attending schedule grid" });
@@ -833,3 +854,4 @@ test("builder: a grid click saves in place, without reloading or losing scroll",
     }).first(),
   ).toBeVisible({ timeout: 15_000 });
 });
+

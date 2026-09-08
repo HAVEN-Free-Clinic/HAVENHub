@@ -10,6 +10,9 @@ import {
 import { CYCLE_EMAIL_KEYS, type CycleEmailKey } from "@/modules/recruitment/email/render";
 import { getSetting } from "@/platform/settings/service";
 import { PageHeader } from "@/platform/ui/page-header";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { getCycle } from "@/modules/recruitment/services/cycles";
 // TemplateEditor lives in the admin route group. TypeScript resolves the path
 // correctly because [key] is a literal directory name on disk.
 import { TemplateEditorForm } from "@/modules/admin/components/template-editor-form";
@@ -28,6 +31,8 @@ export default async function EditCycleEmailPage({ params }: Props) {
   const { id, key } = await params;
   const decodedKey = decodeURIComponent(key);
   if (!isCycleKey(decodedKey)) notFound();
+  const cycle = await getCycle(id);
+  if (!cycle) notFound();
   const t = await getCycleEmailForEdit(id, decodedKey);
   const brandColor = await getSetting<string>("branding.brandColor");
   const base = `/recruitment/cycles/${id}/emails/${key}`;
@@ -59,6 +64,14 @@ export default async function EditCycleEmailPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: id,
+          cycleTitle: cycle.title,
+          section: { label: "Emails", slug: "emails" },
+          leaf: t.name,
+        })}
+      />
       <PageHeader
         title={t.name}
         description={t.hasOverride ? "Customized for this cycle" : "Using the default"}

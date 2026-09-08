@@ -51,6 +51,7 @@ export function generateMetadata() {
 // something no permission string can express.
 const BUILDER_HREF = "/schedule/builder";
 const ATTENDINGS_HREF = "/schedule/attendings";
+const CREDENTIALING_HREF = "/schedule/attendings/credentialing";
 const COVERAGE_HREF = "/schedule/coverage";
 const APPROVALS_HREF = "/schedule/requests";
 const CHECK_IN_HREF = "/schedule/check-in";
@@ -97,6 +98,11 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&
       (item.href !== ATTENDINGS_HREF || managesAttendings) &&
+      // Credentialing enforces canManageAttendings too (credentialing/page.tsx
+      // redirects otherwise). Without this clause it would fall through the
+      // filter -- the list is deliberately non-exhaustive -- and show every
+      // schedule.view holder a link straight to /no-access.
+      (item.href !== CREDENTIALING_HREF || managesAttendings) &&
       (item.href !== COVERAGE_HREF || viewsCoverage) &&
       (item.href !== APPROVALS_HREF || canApprove) &&
       (item.href !== CHECK_IN_HREF || (isClinicDay && !attendingOnly)),

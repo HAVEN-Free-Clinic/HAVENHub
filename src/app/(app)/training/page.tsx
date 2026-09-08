@@ -17,6 +17,8 @@ import { buttonClasses } from "@/platform/ui/button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { requirePersonSession } from "@/platform/auth/session";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
@@ -282,6 +284,12 @@ export default async function TrainingPage() {
 
   return (
     <div className="max-w-[760px]">
+      {/* /training is a personal page, not a module page: it gates on
+          requirePersonSession alone, so `training` matches no module id and the
+          registry-derived trail comes back as "Hub" only -- which the bar drops
+          entirely, leaving the page with no chrome above the title at all. Two
+          crumbs is the whole fix. */}
+      <SetBreadcrumb trail={hubTrail({ label: "Training" })} />
       <header className="mb-5">
         <PageHeader
           title="Training"

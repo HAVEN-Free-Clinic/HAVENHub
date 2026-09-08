@@ -193,7 +193,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
       {/* Filter bar (GET form) */}
       <FilterBar clearHref={validatedStatus || validatedType || q ? "/admin/notifications" : undefined}>
-        <FilterField label="Status" width="sm">
+        <FilterField label="Status">
           <Select name="status" defaultValue={validatedStatus ?? ""}>
             <option value="">All statuses</option>
             {VALID_STATUSES.map((s) => (
@@ -203,7 +203,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             ))}
           </Select>
         </FilterField>
-        <FilterField label="Type" width="lg">
+        <FilterField label="Type" width="wide">
           <Select name="type" defaultValue={validatedType ?? ""}>
             <option value="">All types</option>
             {NOTIFICATION_TYPES.map((t) => (

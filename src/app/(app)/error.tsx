@@ -45,13 +45,17 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
             : "We hit an unexpected error loading this page. Please try again. If the problem persists, contact support."}
         </p>
         {/* The retry is withheld while recovering -- it cannot clear any of the
-            three errors we reload out of. "Back to home" stays either way, so a
+            three errors we reload out of. "Back to Hub" stays either way, so a
             tab that has already spent its automatic reload (see
             isBoundaryRecoverableError) is never left without a way out. */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
           {!recovering && <Button onClick={() => reset()}>Try again</Button>}
+          {/* "Back to Hub" names the same destination the breadcrumb root
+              does, so the app has one name for /. Outline, not primary: "Try
+              again" is the action here. On the three screens where going back
+              is the ONLY thing to do (/no-access, the 404), it is primary. */}
           <Link href="/" className={buttonClasses("outline")}>
-            Back to home
+            Back to Hub
           </Link>
         </div>
       </Card>

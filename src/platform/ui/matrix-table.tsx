@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cx } from "./cx";
 import { PendingDim } from "./list-pending";
+import { ScrollRegion } from "./scroll-region";
 
 /**
  * The scroll shell for a person-by-date matrix.
@@ -40,9 +41,12 @@ export type MatrixTone = keyof typeof TONE;
 export function MatrixScroll({
   tone = "default",
   capHeight = false,
+  label,
   children,
 }: {
   tone?: MatrixTone;
+  /** Accessible name for the scroll region, e.g. "Schedule grid". */
+  label?: string;
   /**
    * Bound the height and scroll both axes. Required when the grid pins its
    * header ROW as well as its first column: `position: sticky` resolves against
@@ -53,14 +57,16 @@ export function MatrixScroll({
   children: ReactNode;
 }) {
   return (
-    <PendingDim
-      className={cx(
-        "rounded-2xl border shadow-sm",
-        TONE[tone],
-        capHeight ? "max-h-[70vh] overflow-auto" : "overflow-x-auto",
-      )}
-    >
-      {children}
+    <PendingDim className={cx("rounded-2xl border shadow-sm", TONE[tone])}>
+      <ScrollRegion
+        label={label}
+        className={cx(
+          "rounded-2xl",
+          capHeight ? "max-h-[70vh] overflow-auto" : "overflow-x-auto",
+        )}
+      >
+        {children}
+      </ScrollRegion>
     </PendingDim>
   );
 }

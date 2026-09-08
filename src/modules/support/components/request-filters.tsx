@@ -18,12 +18,14 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { TechRequestStatus } from "@prisma/client";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { STATUS_LABELS } from "./status-badge";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
 import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
+import { FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
+import { cx } from "@/platform/ui/cx";
 
 type RequestFiltersProps = {
   counts: Record<TechRequestStatus, number>;
@@ -64,87 +66,81 @@ export function RequestFilters({ counts, total, assignees }: RequestFiltersProps
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <div className="w-44">
-        <Field label="Status">
-          <Select
-            aria-label="Filter by status"
-            value={status}
-            onChange={(e) => setParam("status", e.target.value)}
-          >
-            <option value="">All statuses</option>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABELS[s]} ({counts[s]})
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+    <FormRow>
+      <RowField label="Status">
+        <Select
+          aria-label="Filter by status"
+          value={status}
+          onChange={(e) => setParam("status", e.target.value)}
+        >
+          <option value="">All statuses</option>
+          {ALL_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABELS[s]} ({counts[s]})
+            </option>
+          ))}
+        </Select>
+      </RowField>
 
-      <div className="w-44">
-        <Field label="Category">
-          <Select
-            aria-label="Filter by category"
-            value={category}
-            onChange={(e) => setParam("category", e.target.value)}
-          >
-            <option value="">All categories</option>
-            {ALL_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+      <RowField label="Category">
+        <Select
+          aria-label="Filter by category"
+          value={category}
+          onChange={(e) => setParam("category", e.target.value)}
+        >
+          <option value="">All categories</option>
+          {ALL_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {CATEGORY_LABELS[c]}
+            </option>
+          ))}
+        </Select>
+      </RowField>
 
-      <div className="w-40">
-        <Field label="Priority">
-          <Select
-            aria-label="Filter by priority"
-            value={priority}
-            onChange={(e) => setParam("priority", e.target.value)}
-          >
-            <option value="">All priorities</option>
-            {ALL_PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {PRIORITY_LABELS[p]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+      <RowField label="Priority">
+        <Select
+          aria-label="Filter by priority"
+          value={priority}
+          onChange={(e) => setParam("priority", e.target.value)}
+        >
+          <option value="">All priorities</option>
+          {ALL_PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {PRIORITY_LABELS[p]}
+            </option>
+          ))}
+        </Select>
+      </RowField>
 
-      <div className="w-44">
-        <Field label="Assignee">
-          <Select
-            aria-label="Filter by assignee"
-            value={assignee}
-            onChange={(e) => setParam("assignee", e.target.value)}
-          >
-            <option value="">All assignees</option>
-            {assignees.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name ?? "Unknown"}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+      <RowField label="Assignee">
+        <Select
+          aria-label="Filter by assignee"
+          value={assignee}
+          onChange={(e) => setParam("assignee", e.target.value)}
+        >
+          <option value="">All assignees</option>
+          {assignees.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name ?? "Unknown"}
+            </option>
+          ))}
+        </Select>
+      </RowField>
 
-      <form onSubmit={submitSearch} className="flex flex-1 min-w-48 items-end gap-2">
-        <div className="flex-1">
-          <Field label="Search">
-            <Input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Subject, requester, or ticket #"
-              aria-label="Search requests"
-            />
-          </Field>
-        </div>
+      {/* A nested form so Enter submits the search without submitting the
+          selects, which navigate on change. It is one grow item of the row
+          around it, so it takes the row's own grow width rather than a
+          hand-picked one. */}
+      <form onSubmit={submitSearch} className={cx(ROW_WIDTH.grow, "flex items-end gap-2")}>
+        <RowField label="Search" width="grow">
+          <Input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Subject, requester, or ticket #"
+            aria-label="Search requests"
+          />
+        </RowField>
         <Button type="submit" variant="outline" size="sm">
           Search
         </Button>
@@ -153,6 +149,6 @@ export function RequestFilters({ counts, total, assignees }: RequestFiltersProps
       <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
         {total.toLocaleString()} {total === 1 ? "request" : "requests"}
       </span>
-    </div>
+    </FormRow>
   );
 }

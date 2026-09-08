@@ -22,7 +22,7 @@ export function OnboardingStepsEditor({
       <p className="text-sm text-foreground-soft">
         Customize the onboarding checklist for this term. Uncheck a step to hide it, rename it, make it optional (non-blocking), or change its order. Leave a label blank to use the default. Volunteer and director training are separate steps.
       </p>
-      <div className="overflow-x-auto">
+      <div>
         <Table>
           <THead>
             <TR>

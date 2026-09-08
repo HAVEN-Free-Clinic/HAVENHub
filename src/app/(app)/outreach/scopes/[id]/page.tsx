@@ -25,6 +25,7 @@ import { AudienceBuilder } from "../../campaigns/[id]/audience-builder";
 import { GrantForm, type GrantPersonOption } from "./grant-form";
 import { ScopeIdentityFields } from "./identity-fields";
 import type { SendingDomainMap } from "../../sender-identity-notes";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export default async function ScopeDetailPage({
   params,
@@ -173,6 +174,7 @@ export default async function ScopeDetailPage({
 
   return (
     <div className="space-y-8">
+      <SetBreadcrumbLeaf label={scope.name} />
       <PageHeader title={scope.name} description="Who campaigns sent under this scope may reach." />
       {error && <Alert tone="warning">{error}</Alert>}
 

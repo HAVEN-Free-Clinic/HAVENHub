@@ -17,13 +17,17 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { FormActions } from "@/platform/ui/form";
+import {
+  PendingRequestStrip,
+  RequestChangeDisclosure,
+  PastShiftsDisclosure,
+} from "./shift-parts";
+import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { CalendarDate } from "@/platform/dates/display";
-import { Clock } from "lucide-react";
 import { isoDateKey } from "../engine/map";
 import { AVAILABILITY_PILL_CLASS } from "./availability-pill";
 import { displayDate } from "../engine/display";
@@ -93,20 +97,19 @@ export function AttendingPortalSection({
 
         <div className="mt-2">
           {pending ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
-              <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
-                <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                Change requested:{" "}
-                {pending.isSwap && pending.target
+            <PendingRequestStrip
+              reviewerLabel="Faculty Relations"
+              description={
+                pending.isSwap && pending.target
                   ? `swap with ${pending.target.name} (${displayDate(isoDateKey(pending.target.clinicDate))})`
-                  : "drop"}{" "}
-                (pending Faculty Relations review)
-              </p>
+                  : "drop"
+              }
+            >
               <form action={cancelRequestAction}>
                 <input type="hidden" name="requestId" value={pending.id} />
                 <ConfirmButton label="Withdraw request" confirmLabel="Withdraw this request?" />
               </form>
-            </div>
+            </PendingRequestStrip>
           ) : isPast ? (
             <p className="text-sm text-subtle-foreground">This clinic date has passed.</p>
           ) : shift.isClosed ? (
@@ -114,21 +117,19 @@ export function AttendingPortalSection({
             // to request. Saying so beats a form that would be refused server-side.
             <p className="text-sm text-subtle-foreground">The clinic is closed this day.</p>
           ) : (
-            <details className="group">
-              <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                <span className="underline underline-offset-2">Request a change</span>
-              </summary>
-              <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
+            <RequestChangeDisclosure>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">Give up this date</p>
-                  <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                    <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
-                    <input type="hidden" name="slotId" value={shift.slot.id} />
-                    <input type="hidden" name="kind" value="drop" />
-                    <div className="flex-1 min-w-48">
-                      <Input name="note" placeholder="Optional note" aria-label="Note" />
-                    </div>
-                    <ConfirmButton label="Request drop" confirmLabel="Request to drop this date?" />
+                  <form action={createRequestAction}>
+                    <FormRow>
+                      <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
+                      <input type="hidden" name="slotId" value={shift.slot.id} />
+                      <input type="hidden" name="kind" value="drop" />
+                      <div className={ROW_WIDTH.grow}>
+                        <Input name="note" placeholder="Optional note" aria-label="Note" />
+                      </div>
+                      <ConfirmButton label="Request drop" confirmLabel="Request to drop this date?" />
+                    </FormRow>
                   </form>
                 </div>
                 {partners.length > 0 ? (
@@ -136,24 +137,26 @@ export function AttendingPortalSection({
                     <p className="text-xs font-medium text-muted-foreground mb-2">
                       Swap with another {shift.slot.label} attending
                     </p>
-                    <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                      <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
-                      <input type="hidden" name="slotId" value={shift.slot.id} />
-                      <input type="hidden" name="kind" value="swap" />
-                      <div className="flex-1 min-w-56">
-                        <Select name="partner" aria-label="Swap partner">
-                          <option value="">Select swap partner...</option>
-                          {partners.map((p) => (
-                            <option
-                              key={`${p.attendingId}|${p.clinicDayId}`}
-                              value={`${p.attendingId}|${p.clinicDayId}|${p.slotId}`}
-                            >
-                              {p.name} ({displayDate(isoDateKey(p.clinicDate))})
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <Button type="submit" variant="outline">Request swap</Button>
+                    <form action={createRequestAction}>
+                      <FormRow>
+                        <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
+                        <input type="hidden" name="slotId" value={shift.slot.id} />
+                        <input type="hidden" name="kind" value="swap" />
+                        <div className={ROW_WIDTH.grow}>
+                          <Select name="partner" aria-label="Swap partner">
+                            <option value="">Select swap partner...</option>
+                            {partners.map((p) => (
+                              <option
+                                key={`${p.attendingId}|${p.clinicDayId}`}
+                                value={`${p.attendingId}|${p.clinicDayId}|${p.slotId}`}
+                              >
+                                {p.name} ({displayDate(isoDateKey(p.clinicDate))})
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                        <Button type="submit" variant="outline">Request swap</Button>
+                      </FormRow>
                     </form>
                   </div>
                 ) : (
@@ -164,8 +167,7 @@ export function AttendingPortalSection({
                     no one to swap with. Request a drop instead and Faculty Relations will find cover.
                   </EmptyState>
                 )}
-              </div>
-            </details>
+            </RequestChangeDisclosure>
           )}
         </div>
       </Card>
@@ -227,14 +229,9 @@ export function AttendingPortalSection({
                   <EmptyState inline>No upcoming dates left this term.</EmptyState>
                 )}
                 {past.length > 0 && (
-                  <details className="group" open={false}>
-                    <summary className="cursor-pointer text-sm text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                      <span className="underline underline-offset-2">
-                        {past.length} past date{past.length === 1 ? "" : "s"}
-                      </span>
-                    </summary>
-                    <div className="mt-3 flex flex-col gap-3">{past.map((s) => shiftCard(s, false))}</div>
-                  </details>
+                  <PastShiftsDisclosure count={past.length} noun="date">
+                    {past.map((s) => shiftCard(s, false))}
+                  </PastShiftsDisclosure>
                 )}
               </div>
             )}

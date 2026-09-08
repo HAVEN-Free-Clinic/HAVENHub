@@ -49,7 +49,7 @@ export default async function NewTermPage() {
         title="Create term"
         description="A new term starts in PLANNING status. Clinic dates are auto-populated from Saturdays between the start and end dates."
       />
-      <TermForm action={createAction} />
+      <TermForm mode="create" action={createAction} />
     </div>
   );
 }

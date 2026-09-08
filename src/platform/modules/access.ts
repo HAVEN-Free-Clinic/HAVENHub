@@ -82,12 +82,22 @@ function moduleHref(
  * evaluate a data-driven gate, so offering the link would risk a bounce to
  * /no-access. `filterNavItems` deliberately keeps them, because the module's own
  * layout (which CAN evaluate the gate) filters the ModuleNav tab row on top of it.
+ *
+ * `resolvedGates` is the way back in. A caller that HAS evaluated a gate passes
+ * the hrefs it resolved to true, and those items survive in their registry
+ * position. Without it, six real tabs were reachable from nowhere but the
+ * module's own tab row: a director whose whole job is /schedule/builder could
+ * not get there from the toolbar or from Cmd+K, and had to land on /schedule
+ * first and find the tab. (`extraNavItems` cannot do this job: it appends, so
+ * the four schedule tabs would arrive after Specialties and Triage chats
+ * instead of in the order the tab row uses.)
  */
 export function filterAccessibleModules(
   modules: ModuleManifest[],
   perms: Set<string>,
   extraIds: ReadonlySet<string> = new Set(),
   extraNavItems: Readonly<Record<string, NavSubItem[]>> = {},
+  resolvedGates: ReadonlySet<string> = new Set(),
 ): NavModule[] {
   return modules
     .filter((m) => m.status === "active" && !m.personal && (canAccessModule(m, perms) || extraIds.has(m.id)))
@@ -96,7 +106,7 @@ export function filterAccessibleModules(
       // have already been applied server-side, and the consumer is a client
       // component that must not carry the RBAC vocabulary.
       const registryNav: NavSubItem[] = filterNavItems(m.nav, perms)
-        .filter((item) => !item.dynamicGate)
+        .filter((item) => !item.dynamicGate || resolvedGates.has(item.href))
         .map(({ label, href }) => ({ label, href }));
       const extras: NavSubItem[] = (extraNavItems[m.id] ?? []).map(({ label, href }) => ({ label, href }));
       const admittedOnlyByExtraIds = !canAccessModule(m, perms) && extraIds.has(m.id);
@@ -126,7 +136,8 @@ export async function getAccessibleModules(
   personId: string,
   extraIds: ReadonlySet<string> = new Set(),
   extraNavItems: Readonly<Record<string, NavSubItem[]>> = {},
+  resolvedGates: ReadonlySet<string> = new Set(),
 ): Promise<NavModule[]> {
   const perms = await getEffectivePermissions(personId);
-  return filterAccessibleModules(MODULES, perms, extraIds, extraNavItems);
+  return filterAccessibleModules(MODULES, perms, extraIds, extraNavItems, resolvedGates);
 }

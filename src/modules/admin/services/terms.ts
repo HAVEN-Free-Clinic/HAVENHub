@@ -208,6 +208,70 @@ export async function createTerm(
   return term;
 }
 
+/**
+ * Correct a term's identity and date range.
+ *
+ * A term could be created and never fixed: TermForm has taken a `term` prop for
+ * edit mode since it was written, but nothing ever passed one and no update
+ * service existed, so a mistyped code, a wrong name or an off-by-a-week range
+ * was permanent.
+ *
+ * Editing `code` is safe. Every Term relation is keyed on `id`, and the one
+ * denormalised copy (HistoricalApplication.termCode) is deliberately a plain
+ * string whose own comment says history "must outlive a Term being renamed or
+ * absent".
+ *
+ * It deliberately does NOT touch clinicDates, though createTerm seeds them from
+ * the range. Regenerating here would silently drop dates that no longer fall in
+ * the range, and a shift left on a removed date is visible yet can no longer be
+ * dropped, swapped, approved or unassigned. setClinicDates owns that change
+ * precisely because it has to delete the orphaned assignments and cancel their
+ * pending requests in the same transaction, and it has its own editor. Moving
+ * the range is therefore a rename of the window, not a rebuild of the calendar.
+ */
+export async function updateTerm(
+  actorPersonId: string,
+  id: string,
+  input: { code: string; name: string; startDate: string; endDate: string }
+): Promise<Term> {
+  const existing = await prisma.term.findUnique({ where: { id } });
+  if (!existing) throw new TermNotFoundError(id);
+
+  const code = input.code.trim().toUpperCase();
+
+  // Same case-insensitive pre-check as createTerm, minus this row itself: a term
+  // keeping its own code must not collide with itself.
+  const clash = await prisma.term.findFirst({
+    where: { code: { equals: code, mode: "insensitive" }, id: { not: id } },
+  });
+  if (clash) throw new TermConflictError(code);
+
+  const startDate = toNoonUtc(input.startDate);
+  const endDate = toNoonUtc(input.endDate);
+
+  let term: Term;
+  try {
+    term = await prisma.term.update({
+      where: { id },
+      data: { code, name: input.name, startDate, endDate },
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) throw new TermConflictError(code);
+    throw err;
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "term.update",
+    entityType: "Term",
+    entityId: term.id,
+    before: { code: existing.code, name: existing.name, startDate: existing.startDate, endDate: existing.endDate },
+    after: { code: term.code, name: term.name, startDate: term.startDate, endDate: term.endDate },
+  });
+
+  return term;
+}
+
 export async function activateTerm(actorPersonId: string, id: string): Promise<Term> {
   // Verify target exists first; surface a typed error early.
   const target = await prisma.term.findUnique({ where: { id } });

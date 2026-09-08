@@ -14,6 +14,7 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
+import { ROW_WIDTH } from "@/platform/ui/form";
 
 export function DepartmentFilter({ options }: { options: string[] }) {
   const router = useRouter();
@@ -35,7 +36,7 @@ export function DepartmentFilter({ options }: { options: string[] }) {
   if (options.length === 0) return null;
 
   return (
-    <div className="w-48">
+    <div className={ROW_WIDTH.control}>
       <Field label="Department">
         <Select
           aria-label="Filter by department"

@@ -16,6 +16,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AttendingSpecialtyForm } from "@/modules/admin/components/attending-specialty-form";
 import { optionalInt } from "@/modules/admin/form-coerce";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -84,10 +85,8 @@ export default async function EditAttendingSpecialtyPage({ params }: PageProps) 
 
   return (
     <div className="space-y-8">
-      <PageHeader
-        title={`Edit ${specialty.code}`}
-        description="Code and name can both be changed; everything that points at this specialty follows the row, not the code."
-      />
+      <SetBreadcrumbLeaf label={specialty.code} />
+      <PageHeader title={specialty.name} description={specialty.code} />
       <AttendingSpecialtyForm action={updateAction} mode="edit" specialty={specialty} />
 
       <section className="space-y-3">

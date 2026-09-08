@@ -27,6 +27,7 @@ export async function AppShell({
   personThemePreference,
   extraModuleIds,
   extraNavItems,
+  resolvedNavGates,
   children,
 }: {
   userName: string | null;
@@ -43,10 +44,19 @@ export async function AppShell({
   /** Nav sub-items gated on dynamic conditions rather than permissions, keyed by
    *  module id (e.g. recruitment's panelist-only "My interviews"). */
   extraNavItems?: Record<string, { label: string; href: string }[]>;
+  /** Hrefs of registry nav items marked `dynamicGate` that the caller has
+   *  resolved to true for this viewer. Without these the global nav and Cmd+K
+   *  drop them, since neither can run a data-driven gate. */
+  resolvedNavGates?: ReadonlySet<string>;
   children: ReactNode;
 }) {
   const [navModules, themeDefault, org, displayZone] = await Promise.all([
-    getAccessibleModules(personId, new Set(extraModuleIds ?? []), extraNavItems ?? {}),
+    getAccessibleModules(
+      personId,
+      new Set(extraModuleIds ?? []),
+      extraNavItems ?? {},
+      resolvedNavGates ?? new Set(),
+    ),
     getSetting<string>("ui.defaultTheme"),
     getOrgIdentity(),
     getDisplayTimeZone(),

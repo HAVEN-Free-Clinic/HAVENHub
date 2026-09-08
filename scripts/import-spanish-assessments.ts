@@ -18,10 +18,10 @@
  * had recorded, every manual link, and every hand-added record.
  */
 
-import * as XLSX from "xlsx";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as path from "path";
 import * as fs from "fs";
+import { loadWorkbook, sheetToRows } from "../src/platform/attendings/import/workbook";
 import { normalizeTermLabel, termRankOf } from "../src/platform/languages/assessment-terms";
 
 const prisma = new PrismaClient();
@@ -95,10 +95,11 @@ function shouldSkip(row: unknown[]): boolean {
   return ["withdrew", "did not sign up", "withdrawn"].some((x) => combined.includes(x));
 }
 
-function parseWorkbook(filePath: string): ParsedRecord[] {
-  const workbook = XLSX.readFile(filePath);
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+async function parseWorkbook(filePath: string): Promise<ParsedRecord[]> {
+  const workbook = await loadWorkbook(filePath);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error(`${filePath} has no worksheets.`);
+  const rawRows = sheetToRows(sheet);
 
   const records: ParsedRecord[] = [];
   let currentTerm = "Unknown";
@@ -213,7 +214,7 @@ async function main() {
     process.exit(1);
   }
 
-  const records = parseWorkbook(filePath);
+  const records = await parseWorkbook(filePath);
   const unknownTerm = records.filter((r) => termRankOf(r.term) === 0);
   console.log(`Parsed ${records.length} records across terms.`);
   if (unknownTerm.length > 0) {

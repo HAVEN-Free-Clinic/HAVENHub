@@ -7,9 +7,9 @@
 
 import type { Term } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { SubmitButton } from "@/platform/ui/submit-button";
 
 function toDateInputValue(d: Date): string {
   // Return YYYY-MM-DD in UTC for the date input default value.
@@ -19,11 +19,14 @@ function toDateInputValue(d: Date): string {
 type TermFormProps = {
   /** The server action to bind to the form's action prop. */
   action: (formData: FormData) => Promise<void>;
+  /** Which verb the submit takes, and nothing else. Same shape as the other
+   *  record forms in this module. */
+  mode: "create" | "edit";
   /** Existing term values (for edit mode). Omit for create mode. */
   term?: Pick<Term, "code" | "name" | "startDate" | "endDate">;
 };
 
-export function TermForm({ action, term }: TermFormProps) {
+export function TermForm({ action, mode, term }: TermFormProps) {
   return (
     <form action={action}>
       <Card className="space-y-6">
@@ -66,9 +69,9 @@ export function TermForm({ action, term }: TermFormProps) {
         </div>
 
         <FormActions>
-          <Button type="submit" variant="primary">
-            Create term
-          </Button>
+          <SubmitButton variant="primary">
+            {mode === "create" ? "Create term" : "Save changes"}
+          </SubmitButton>
         </FormActions>
       </Card>
     </form>

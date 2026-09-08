@@ -182,7 +182,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           Filled roles this term. Someone in two departments is counted in both.
           Select a row to filter the roster below.
         </p>
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3">
           <Table>
             <THead>
               <TR>
@@ -243,7 +243,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               placeholder="Name, NetID, or email..."
             />
           </FilterField>
-          <FilterField label="Department" width="lg">
+          <FilterField label="Department" width="wide">
             <Select name="departmentId" defaultValue={departmentId ?? ""}>
               {/* "All departments" would overpromise for a scoped viewer,
                   whose list holds only the ones they direct. */}
@@ -257,7 +257,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               ))}
             </Select>
           </FilterField>
-          <FilterField label="Role" width="sm">
+          <FilterField label="Role">
             <Select name="kind" defaultValue={kind ?? ""}>
               <option value="">All roles</option>
               <option value="DIRECTOR">Directors</option>
@@ -321,7 +321,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           </p>
         )}
 
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3">
           <Table>
             <THead>
               <TR>
@@ -416,7 +416,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               body={{ scope: "attendings" }}
             />
           </div>
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-3">
             <Table>
               <THead>
                 <TR>

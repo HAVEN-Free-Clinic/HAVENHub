@@ -80,10 +80,10 @@ export async function submitReportAction(formData: FormData): Promise<void> {
     number = report.number;
   } catch (err) {
     if (err instanceof IncidentValidationError) {
-      redirect(`/incidents?error=validation&message=${encodeURIComponent(err.message)}`);
+      redirect(`/incidents/new?error=validation&message=${encodeURIComponent(err.message)}`);
     }
-    if (err instanceof IncidentNotFoundError) redirect("/incidents?error=subject-not-found");
-    if (err instanceof IncidentForbiddenError) redirect("/incidents?error=forbidden");
+    if (err instanceof IncidentNotFoundError) redirect("/incidents/new?error=subject-not-found");
+    if (err instanceof IncidentForbiddenError) redirect("/incidents/new?error=forbidden");
     throw err;
   }
   // Success redirect lives OUTSIDE the try: redirect() throws NEXT_REDIRECT, which

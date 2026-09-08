@@ -34,6 +34,7 @@ import { RecipientPreview } from "./recipient-preview";
 import { TimingActions } from "./timing-actions";
 import { EditorTabs, type EditorTab } from "./tabs";
 import { SenderPicker } from "./sender-picker";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import {
   saveAction,
   previewAction,
@@ -189,6 +190,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
   return (
     <div className="space-y-6">
+      <SetBreadcrumbLeaf label={campaign.name} />
       <PageHeader
         title={campaign.name}
         description={

@@ -181,7 +181,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
     <div>
       <div className="mb-8">
         <PageHeader
-          title="Full Schedule"
+          title="Full schedule"
           description={
             term
               ? `${term.name}${

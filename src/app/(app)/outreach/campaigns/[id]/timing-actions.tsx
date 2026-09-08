@@ -6,6 +6,7 @@ import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "./submit-button";
 import { CronPresets } from "./cron-presets";
 import { useFormDirty } from "./use-form-dirty";
+import { FormRow } from "@/platform/ui/form";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 
@@ -65,16 +66,18 @@ export function TimingActions({
       {/* Schedule for later */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground-soft">Schedule for later</p>
-        <form action={scheduleLaterAction} className="flex flex-wrap items-end gap-3">
-          <Field label={`Send at (${zoneLabel})`}>
-            <Input name="scheduledAt" type="datetime-local" required className="w-auto" />
-          </Field>
-          <Field label="Confirm count (required for >25 recipients)">
-            <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
-          </Field>
-          <SubmitButton pendingLabel="Scheduling..." disabled={dirty}>
-            Schedule
-          </SubmitButton>
+        <form action={scheduleLaterAction}>
+          <FormRow>
+            <Field label={`Send at (${zoneLabel})`}>
+              <Input name="scheduledAt" type="datetime-local" required className="w-auto" />
+            </Field>
+            <Field label="Confirm count (required for >25 recipients)">
+              <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
+            </Field>
+            <SubmitButton pendingLabel="Scheduling..." disabled={dirty}>
+              Schedule
+            </SubmitButton>
+          </FormRow>
         </form>
         <p className="text-xs text-muted-foreground">The send time is interpreted in {zoneLabel}.</p>
       </div>
@@ -82,16 +85,18 @@ export function TimingActions({
       {/* Recurring */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground-soft">Recurring</p>
-        <form action={scheduleRecurringAction} className="flex flex-wrap items-end gap-3">
-          <Field label="Cron expression">
-            <CronPresets />
-          </Field>
-          <Field label="Confirm count (required for >25 recipients)">
-            <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
-          </Field>
-          <SubmitButton pendingLabel="Starting..." disabled={dirty}>
-            Start recurring
-          </SubmitButton>
+        <form action={scheduleRecurringAction}>
+          <FormRow>
+            <Field label="Cron expression">
+              <CronPresets />
+            </Field>
+            <Field label="Confirm count (required for >25 recipients)">
+              <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
+            </Field>
+            <SubmitButton pendingLabel="Starting..." disabled={dirty}>
+              Start recurring
+            </SubmitButton>
+          </FormRow>
         </form>
         <p className="text-xs text-muted-foreground">
           Cron format: minute hour day month weekday, evaluated in UTC (recurring schedules run on

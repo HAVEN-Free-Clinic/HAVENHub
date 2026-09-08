@@ -355,15 +355,45 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               {items.map((m) => {
                 const active = isModuleActive(pathname, m.href);
                 return (
-                  <Link
-                    key={m.id}
-                    href={m.href}
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => setOpen(false)}
-                    className={`block ${linkClasses(active)}`}
-                  >
-                    {m.title}
-                  </Link>
+                  <div key={m.id}>
+                    <Link
+                      href={m.href}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => setOpen(false)}
+                      className={`block ${linkClasses(active)}`}
+                    >
+                      {m.title}
+                    </Link>
+                    {/* Sub-pages for the module you are IN. The desktop row
+                        offers these behind a per-module chevron, and this menu
+                        used to drop them entirely, which left the TabRow strip
+                        as the only route to them on a phone -- a strip whose
+                        scrollbar is hidden and which auto-scrolls to the active
+                        tab, so a director on a 13-tab recruitment cycle could
+                        see three of them and no sign of the rest.
+                        Only the active module expands: every module at once is
+                        a wall of links, and the sub-pages you want are almost
+                        always the ones next to where you already are. */}
+                    {active && m.nav.length > 1 && (
+                      <div
+                        className="mt-1 flex flex-col gap-1 border-l border-border pl-3"
+                        role="group"
+                        aria-label={`${m.title} sub-pages`}
+                      >
+                        {m.nav.map((item) => (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            aria-current={pathname === item.href ? "page" : undefined}
+                            onClick={() => setOpen(false)}
+                            className={`block ${linkClasses(pathname === item.href)}`}
+                          >
+                            {item.label}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

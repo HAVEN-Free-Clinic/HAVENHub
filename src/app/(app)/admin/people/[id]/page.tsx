@@ -31,6 +31,7 @@ import {
 import { Alert } from "@/platform/ui/alert";
 import { Field, Input } from "@/platform/ui/input";
 import { DateOnly } from "@/platform/dates/display";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -228,10 +229,11 @@ export default async function PersonDetailPage({ params }: PageProps) {
 
   return (
     <div className="space-y-10">
+      <SetBreadcrumbLeaf label={person.name} />
       <PageHeader
         title={person.name}
         description={description}
-        action={
+        status={
           person.status === "ACTIVE" ? (
             <Badge tone="success">Active</Badge>
           ) : (
@@ -261,7 +263,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
       {/* Edit form */}
       <section>
         <SectionHeader className="mb-4">Details</SectionHeader>
-        <PersonForm
+        <PersonForm mode="edit"
           action={updateAction}
           person={person}
         />

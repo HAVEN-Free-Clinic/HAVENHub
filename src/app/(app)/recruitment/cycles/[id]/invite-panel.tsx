@@ -13,11 +13,12 @@
 
 import { useState } from "react";
 import { Button } from "@/platform/ui/button";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 export type InviteRow = {
   id: string;
@@ -101,20 +102,18 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
         </Alert>
       )}
 
-      <form action={handleCreate} className="flex flex-wrap items-end gap-2">
-        <div className="w-72">
-          <Field label="Label (optional)" hint="Who this is for, so you can recognize it later">
-            <Input name="label" placeholder="e.g. info-session walk-up" />
-          </Field>
-        </div>
-        <div className="w-40">
-          <Field label="Expires in (days)">
-            <Input name="ttlDays" type="number" min={1} max={365} defaultValue={14} />
-          </Field>
-        </div>
+      <form action={handleCreate}>
+        <FormRow>
+        <RowField label="Label (optional)" hint="Who this is for, so you can recognize it later" width="wide">
+          <Input name="label" placeholder="e.g. info-session walk-up" />
+        </RowField>
+        <RowField label="Expires in (days)" width="numeric">
+          <Input name="ttlDays" type="number" min={1} max={365} defaultValue={14} />
+        </RowField>
         <Button type="submit" variant="outline">
           Generate link
         </Button>
+        </FormRow>
       </form>
 
       {rows.length > 0 && (

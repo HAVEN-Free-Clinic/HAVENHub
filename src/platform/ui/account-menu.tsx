@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { UserRoundPen, GraduationCap, LogOut } from "lucide-react";
+// BadgeCheck, not GraduationCap: the Learning module's chip in the toolbar is
+// already a graduation cap, and the two point at different products. Term
+// clearance is a check you pass, not a course you take.
+import { UserRoundPen, BadgeCheck, LogOut } from "lucide-react";
 import { PersonPhoto } from "./person-photo";
 
 /**
@@ -78,10 +81,10 @@ export function AccountMenu({
           <div className="flex flex-col gap-0.5 py-1.5">
             <Link href="/my-info" onClick={() => setOpen(false)} className={itemClasses}>
               <UserRoundPen aria-hidden className="h-4 w-4" />
-              My Info
+              My info
             </Link>
             <Link href="/training" onClick={() => setOpen(false)} className={itemClasses}>
-              <GraduationCap aria-hidden className="h-4 w-4" />
+              <BadgeCheck aria-hidden className="h-4 w-4" />
               Training
             </Link>
           </div>

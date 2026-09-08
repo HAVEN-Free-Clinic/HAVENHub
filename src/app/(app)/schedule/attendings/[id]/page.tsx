@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requireModuleAccess } from "@/platform/auth/session";
 import {
   getAttending,
@@ -24,6 +25,7 @@ import { Button } from "@/platform/ui/button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { PageHeader } from "@/platform/ui/page-header";
 import { revalidatePath } from "next/cache";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -109,12 +111,32 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`Edit ${attending.scheduleName}`} description={attending.fullName} />
+      <SetBreadcrumbLeaf label={attending.scheduleName} />
+      <PageHeader
+        title={attending.scheduleName}
+        description={attending.fullName}
+        status={<ActiveBadge active={attending.isActive} />}
+      />
       {/* updateAction redirects here with ?error= on a domain failure. */}
       {error && <Alert tone="error">{error}</Alert>}
       {message && <Alert tone="success">{message}</Alert>}
 
-      {/* Hub access. Kept out of AttendingForm on purpose: the form is a
+      <AttendingForm
+        action={updateAction}
+        mode="edit"
+        attending={attending}
+        specialties={specialties}
+        selectedSpecialtyId={attending.specialtyId}
+        capabilities={capabilities}
+        values={attending.capabilityValues}
+      />
+
+      {/* Hub access, BELOW the roster form. This route is the attending's own
+          page, so the record's own fields come first; access is a separate act
+          performed on the record above it, and the "add an email address above"
+          branch below only reads correctly in that order.
+
+          Kept out of AttendingForm on purpose: the form is a
           replace-set save of the roster record, and access is a separate act with
           its own audit entry, its own email, and a consequence (a login) that must
           not ride along on an unrelated field edit. */}
@@ -159,14 +181,6 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
         )}
       </Card>
 
-      <AttendingForm
-        action={updateAction}
-        attending={attending}
-        specialties={specialties}
-        selectedSpecialtyId={attending.specialtyId}
-        capabilities={capabilities}
-        values={attending.capabilityValues}
-      />
     </div>
   );
 }

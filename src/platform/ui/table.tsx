@@ -4,13 +4,16 @@ import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { cardClasses } from "./card";
 import { cx } from "./cx";
 import { LinkPendingReporter, PendingDim } from "./list-pending";
+import { ScrollRegion } from "./scroll-region";
 
 /**
  * Scrollable container card wrapping the table element.
  *
- * The container is a PendingDim, so every table in the app fades and stops
+ * The outer container is a PendingDim, so every table in the app fades and stops
  * taking clicks while a `?`-only navigation (filter, page, term switch) is in
- * flight. Those navigations do not remount a Suspense boundary, so loading.tsx
+ * flight. Inside it a ScrollRegion makes the sideways scroll reachable from the
+ * keyboard, which it was not: a scroll container is not focusable by default and
+ * these have no focusable descendant off-screen to Tab to. Those navigations do not remount a Suspense boundary, so loading.tsx
  * never fires and the rows would otherwise sit looking current while the server
  * re-queries.
  *
@@ -23,13 +26,27 @@ import { LinkPendingReporter, PendingDim } from "./list-pending";
  * functions cannot cross a server/client boundary, so table.tsx must never gain
  * "use client". Rendering a client wrapper around server children is fine.
  */
-export function Table({ className, ...rest }: ComponentProps<"table">) {
+export function Table({
+  label,
+  className,
+  ...rest
+}: ComponentProps<"table"> & {
+  /**
+   * Accessible name for the scroll region, e.g. "Master compliance roster".
+   * Worth adding on a wide table: it is what a screen reader announces when
+   * focus lands on the scroller. Optional, because the scroller takes its tab
+   * stop either way (see ScrollRegion).
+   */
+  label?: string;
+}) {
   return (
-    <PendingDim className={cx(cardClasses({ pad: false }), "overflow-x-auto")}>
-      <table
-        {...rest}
-        className={cx("w-full text-sm", className)}
-      />
+    <PendingDim className={cardClasses({ pad: false })}>
+      <ScrollRegion label={label} className="overflow-x-auto rounded-2xl">
+        <table
+          {...rest}
+          className={cx("w-full text-sm", className)}
+        />
+      </ScrollRegion>
     </PendingDim>
   );
 }

@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import type { AudiencePreview } from "@/platform/email/campaigns/service";
-import { Input, Field } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "./submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AudiencePreviewPanel } from "./audience-preview";
 import { useFormDirty } from "./use-form-dirty";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 
@@ -70,21 +71,17 @@ export function ReviewActions({
         </form>
 
         {/* Live send */}
-        <form action={sendAction} className="flex items-end gap-2">
-          <Field label="Confirm count (required for >25 recipients)">
-            <Input
-              name="confirmCount"
-              type="number"
-              min={1}
-              placeholder="e.g. 42"
-              className="w-24"
-            />
-          </Field>
+        <form action={sendAction}>
+          <FormRow>
+          <RowField label="Confirm count (required for >25 recipients)" width="numeric">
+            <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" />
+          </RowField>
           {/* One element across both states. This used to swap SubmitButton for
               Button, two different component types at one position, so arming
               unmounted the focused node and dropped a keyboard user to <body>
               with no way to reach the confirm step (#12). */}
           <ConfirmButton label="Send now" confirmLabel="Confirm send" disabled={dirty} />
+          </FormRow>
         </form>
       </div>
 

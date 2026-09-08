@@ -3,7 +3,12 @@ import { Badge } from "@/platform/ui/badge";
 import { Button, buttonClasses } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { FormActions } from "@/platform/ui/form";
+import {
+  PendingRequestStrip,
+  RequestChangeDisclosure,
+  PastShiftsDisclosure,
+} from "@/modules/schedule/components/shift-parts";
+import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -47,7 +52,6 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
 import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
-import { Clock } from "lucide-react";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -78,8 +82,17 @@ function attendingRedirect(err: unknown): never {
   throw err;
 }
 
-export default async function MySchedulePage() {
+export default async function MySchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ request?: string }>;
+}) {
   const session = await requireModuleAccess("schedule");
+  // `?request=1` opens the next shift's change form. A param, not just the
+  // hash, because a hash never reaches the server and <details> cannot be
+  // opened by :target -- the link carries both, so the server opens the form
+  // and the browser scrolls to it.
+  const openRequestForm = (await searchParams).request === "1";
   // Evaluated per request (not at module load) so the "pending N days" gate
   // below stays accurate across warm server instances. `new Date()` (not
   // Date.now()) to match the codebase convention and satisfy react-hooks/purity.
@@ -342,7 +355,7 @@ export default async function MySchedulePage() {
     <div>
       <div className="mb-8">
         <PageHeader
-          title="My Schedule"
+          title="My schedule"
           description={
             primary
               ? `${primary.term.name}${
@@ -387,7 +400,7 @@ export default async function MySchedulePage() {
         // so the volunteer block is simply absent for them.
         attendingSchedule ? null : <EmptyState inline>No active term.</EmptyState>
       ) : (
-        termSections.map(({ t, swapPartnersByKey }) => {
+        termSections.map(({ t, swapPartnersByKey }, termIndex) => {
           // Whether to show the shift list at all -- this is purely about
           // whether shifts exist, not about live/next status. An empty list
           // still needs a message: which one depends on t.isLive below. A
@@ -423,7 +436,16 @@ export default async function MySchedulePage() {
             t.pendingRequests.has(`${isoDateKey(s.clinicDate)}|${s.department.id}`),
           );
 
-          function shiftCard(shift: (typeof t.shifts)[number], emphasised: boolean) {
+          // Only the first term section carries the anchor: ids must be unique,
+          // and the live term is first (see `primary` above), so its next shift
+          // is what "request a swap" means.
+          const anchorsRequestForm = termIndex === 0 && nextShifts.length > 0;
+
+          function shiftCard(
+            shift: (typeof t.shifts)[number],
+            emphasised: boolean,
+            openRequest = false,
+          ) {
             const dateKey = isoDateKey(shift.clinicDate);
             // >= today matches Task 2's guard: today is not past, so a
             // same-day shift still gets the full change form.
@@ -495,16 +517,14 @@ export default async function MySchedulePage() {
 
                 <div className="mt-2">
                   {pendingReq ? (
-                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted px-3 py-2">
-                      <p className="text-sm text-foreground-soft flex-1 flex items-center gap-1.5">
-                        <Clock className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-                        Change requested:{" "}
-                        {pendingReq.targetId
+                    <PendingRequestStrip
+                      reviewerLabel="director"
+                      description={
+                        pendingReq.targetId
                           ? `swap with ${pendingReq.target?.name ?? "unknown"} (${pendingReq.targetDate ? displayDate(isoDateKey(pendingReq.targetDate)) : "?"})`
-                          : "drop"}{" "}
-                        (pending director review)
-                      </p>
-                      <div className="flex items-center gap-2">
+                          : "drop"
+                      }
+                    >
                         {Math.floor((now.getTime() - new Date(pendingReq.createdAt).getTime()) / (1000 * 60 * 60 * 24)) >= 5 && (
                           <form action={remindDirectorsAction}>
                             <input type="hidden" name="requestId" value={pendingReq.id} />
@@ -518,16 +538,11 @@ export default async function MySchedulePage() {
                           <input type="hidden" name="requestId" value={pendingReq.id} />
                           <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
                         </form>
-                      </div>
-                    </div>
+                    </PendingRequestStrip>
                   ) : isPast ? (
                     <p className="text-sm text-subtle-foreground">This shift has passed.</p>
                   ) : (
-                    <details className="group">
-                      <summary className="text-xs font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                        <span className="underline underline-offset-2">Request a change</span>
-                      </summary>
-                      <div className="mt-3 flex flex-col gap-4 pl-1 border-t border-border-subtle pt-3">
+                    <RequestChangeDisclosure defaultOpen={openRequest}>
                         {/* Swap-only departments (Department.allowShiftDrop = false) show
                             no drop form: the seat has to go to a named person. The
                             server action refuses the drop too, so this is presentation,
@@ -535,15 +550,17 @@ export default async function MySchedulePage() {
                         {shift.department.allowShiftDrop ? (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
-                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                              <input type="hidden" name="termId" value={t.term.id} />
-                              <input type="hidden" name="dateKey" value={dateKey} />
-                              <input type="hidden" name="departmentId" value={shift.department.id} />
-                              <input type="hidden" name="kind" value="drop" />
-                              <div className="flex-1 min-w-48">
-                                <Input name="note" placeholder="Optional note" aria-label="Note" />
-                              </div>
-                              <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                            <form action={createRequestAction}>
+                              <FormRow>
+                                <input type="hidden" name="termId" value={t.term.id} />
+                                <input type="hidden" name="dateKey" value={dateKey} />
+                                <input type="hidden" name="departmentId" value={shift.department.id} />
+                                <input type="hidden" name="kind" value="drop" />
+                                <div className={ROW_WIDTH.grow}>
+                                  <Input name="note" placeholder="Optional note" aria-label="Note" />
+                                </div>
+                                <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                              </FormRow>
                             </form>
                           </div>
                         ) : (
@@ -555,30 +572,31 @@ export default async function MySchedulePage() {
                         {swapPartners.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Request a swap</p>
-                            <form action={createRequestAction} className="flex flex-wrap items-end gap-3">
-                              <input type="hidden" name="termId" value={t.term.id} />
-                              <input type="hidden" name="dateKey" value={dateKey} />
-                              <input type="hidden" name="departmentId" value={shift.department.id} />
-                              <input type="hidden" name="kind" value="swap" />
-                              <div className="flex-1 min-w-56">
-                                <Select name="partner" aria-label="Swap partner">
-                                  <option value="">Select swap partner...</option>
-                                  {swapPartners.map((p) => (
-                                    <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>
-                                      {p.name} ({displayDate(p.dateKey)})
-                                    </option>
-                                  ))}
-                                </Select>
-                              </div>
-                              <Button type="submit" variant="outline">Request swap</Button>
+                            <form action={createRequestAction}>
+                              <FormRow>
+                                <input type="hidden" name="termId" value={t.term.id} />
+                                <input type="hidden" name="dateKey" value={dateKey} />
+                                <input type="hidden" name="departmentId" value={shift.department.id} />
+                                <input type="hidden" name="kind" value="swap" />
+                                <div className={ROW_WIDTH.grow}>
+                                  <Select name="partner" aria-label="Swap partner">
+                                    <option value="">Select swap partner...</option>
+                                    {swapPartners.map((p) => (
+                                      <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>
+                                        {p.name} ({displayDate(p.dateKey)})
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </div>
+                                <Button type="submit" variant="outline">Request swap</Button>
+                              </FormRow>
                             </form>
                           </div>
                         )}
                         {swapPartners.length === 0 && (
                           <EmptyState inline>No eligible swap partners for this shift.</EmptyState>
                         )}
-                      </div>
-                    </details>
+                    </RequestChangeDisclosure>
                   )}
                 </div>
               </Card>
@@ -622,11 +640,18 @@ export default async function MySchedulePage() {
                 ) : (
                   <div className="flex flex-col gap-6">
                     {nextShifts.length > 0 && (
-                      <div>
+                      <div
+                        id={anchorsRequestForm ? "request-a-change" : undefined}
+                        className={anchorsRequestForm ? "scroll-mt-8" : undefined}
+                      >
                         <SectionHeader as="h3" className="mb-2">
                           {nextShifts.length > 1 ? "Next shifts" : "Next shift"}
                         </SectionHeader>
-                        <div className="flex flex-col gap-3">{nextShifts.map((s) => shiftCard(s, true))}</div>
+                        <div className="flex flex-col gap-3">
+                          {nextShifts.map((s) =>
+                            shiftCard(s, true, anchorsRequestForm && openRequestForm),
+                          )}
+                        </div>
                       </div>
                     )}
                     {laterShifts.length > 0 && (
@@ -636,14 +661,9 @@ export default async function MySchedulePage() {
                       </div>
                     )}
                     {past.length > 0 && (
-                      <details className="group" open={pastHasPendingRequest}>
-                        <summary className="cursor-pointer text-sm text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden">
-                          <span className="underline underline-offset-2">
-                            {past.length} past shift{past.length === 1 ? "" : "s"}
-                          </span>
-                        </summary>
-                        <div className="mt-3 flex flex-col gap-3">{past.map((s) => shiftCard(s, false))}</div>
-                      </details>
+                      <PastShiftsDisclosure count={past.length} noun="shift" defaultOpen={pastHasPendingRequest}>
+                        {past.map((s) => shiftCard(s, false))}
+                      </PastShiftsDisclosure>
                     )}
                   </div>
                 )}

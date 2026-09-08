@@ -3,6 +3,7 @@ import Link from "next/link";
 import { NavForm } from "./nav-form";
 import { Button, buttonClasses } from "./button";
 import { Field } from "./input";
+import { FORM_ROW, ROW_WIDTH, type RowWidth } from "./form";
 import { cx } from "./cx";
 
 /**
@@ -14,7 +15,8 @@ import { cx } from "./cx";
  * admin pages labelled their controls with `aria-label` only, submitted through an
  * outline button and offered no way to clear; the volunteers and incidents pages
  * used visible `Field` labels, a brand-filled primary button, and a Clear link.
- * Widths were picked per page from six different values.
+ * Widths were picked per page from six different values; they now come from
+ * the shared `ROW_WIDTH` table in form.tsx.
  *
  * The settled shape, and why:
  *
@@ -53,7 +55,7 @@ export function FilterBar({
   children: ReactNode;
 }) {
   return (
-    <NavForm action={action} className={cx("flex flex-wrap items-end gap-3", className)}>
+    <NavForm action={action} className={cx(FORM_ROW, className)}>
       {children}
       <Button type="submit" variant="outline" size="sm">
         {submitLabel}
@@ -71,32 +73,20 @@ export function FilterBar({
   );
 }
 
-/**
- * Column widths for a filter control. Collapses the six hand-picked values the
- * eleven bars had drifted into down to four roles.
- */
-const FIELD_WIDTH = {
-  /** The search box: takes the leftover room. */
-  grow: "flex-1 min-w-48",
-  sm: "w-40",
-  md: "w-44",
-  lg: "w-52",
-} as const;
-
-export type FilterFieldWidth = keyof typeof FIELD_WIDTH;
-
-/** One labelled control in a FilterBar. */
+/** One labelled control in a FilterBar. Widths come from the shared `ROW_WIDTH`
+ * table in form.tsx, so a Department select in a filter row is the same width as
+ * a Department select in the write form above it. */
 export function FilterField({
   label,
-  width = "md",
+  width = "control",
   children,
 }: {
   label: string;
-  width?: FilterFieldWidth;
+  width?: RowWidth;
   children: ReactNode;
 }) {
   return (
-    <div className={FIELD_WIDTH[width]}>
+    <div className={ROW_WIDTH[width]}>
       <Field label={label}>{children}</Field>
     </div>
   );

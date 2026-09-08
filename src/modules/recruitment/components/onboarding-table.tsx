@@ -10,6 +10,7 @@ import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import {
   countEligible, filterRows, isSelectable,
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
@@ -125,8 +126,8 @@ export function OnboardingTable({
     // action (no formAction override) keeps its name/value pair literal, so
     // sendLinks and promote are the only controls that need formAction.
     <form className="space-y-3" action={withdraw}>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="w-56">
+      <FormRow>
+        <div className={ROW_WIDTH.wide}>
           <Input
             type="search"
             placeholder="Search name…"
@@ -143,7 +144,7 @@ export function OnboardingTable({
             onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
           />
         </div>
-        <div className="w-44">
+        <div className={ROW_WIDTH.control}>
           <Select
             aria-label="Filter by status"
             value={filters.status}
@@ -157,7 +158,7 @@ export function OnboardingTable({
             ))}
           </Select>
         </div>
-        <div className="w-40">
+        <div className={ROW_WIDTH.control}>
           <Select
             aria-label="Filter by department"
             value={filters.dept}
@@ -169,7 +170,7 @@ export function OnboardingTable({
             ))}
           </Select>
         </div>
-      </div>
+      </FormRow>
 
       <Table>
         <THead>

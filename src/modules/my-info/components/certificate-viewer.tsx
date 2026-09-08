@@ -6,10 +6,11 @@ import { Eye } from "lucide-react";
 import { Alert } from "@/platform/ui/alert";
 import { Modal } from "@/platform/ui/modal";
 import { Button, buttonClasses } from "@/platform/ui/button";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { runAction } from "@/platform/ui/run-action";
 import { formatForDateInput } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 type CertificateViewerProps = {
   certId: string;
@@ -167,8 +168,9 @@ export function CertificateViewer({
           footer={
             <div className="flex w-full items-end justify-between gap-3">
               {showForm ? (
-                <form action={handleSubmit} className="flex items-end gap-2">
-                  <Field label="Completion date">
+                <form action={handleSubmit}>
+                  <FormRow>
+                  <RowField label="Completion date">
                     <Input
                       type="date"
                       name="completionDate"
@@ -176,7 +178,7 @@ export function CertificateViewer({
                       max={today}
                       defaultValue={isOverwrite ? currentDateValue : undefined}
                     />
-                  </Field>
+                  </RowField>
                   <Button
                     type="submit"
                     variant="primary"
@@ -198,6 +200,7 @@ export function CertificateViewer({
                       Cancel
                     </Button>
                   )}
+                  </FormRow>
                 </form>
               ) : canOverwrite || canVerifyNow ? (
                 <div className="flex items-center gap-2">

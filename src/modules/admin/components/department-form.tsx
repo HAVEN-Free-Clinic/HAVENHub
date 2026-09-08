@@ -1,10 +1,10 @@
 import type { Department, EpicRequirement } from "@prisma/client";
 import { Input, Field } from "@/platform/ui/input";
-import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
+import { SubmitButton } from "@/platform/ui/submit-button";
 // ./catalog, not the package root: the root imports prisma and notify, and this
 // is a presentational form that must not drag the server graph into a bundle.
 import { CLINIC_WIDE_INTERPRETER_MIN_SCORE } from "@/platform/languages/catalog";
@@ -177,12 +177,17 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
           </p>
         </div>
 
-        <Checkbox name="isActive" defaultChecked={department?.isActive ?? true} label="Active" />
+        <Checkbox
+          name="isActive"
+          defaultChecked={department?.isActive ?? true}
+          label="Active"
+          hint="Clearing this is the soft remove: the department stops being offered, and its history stays."
+        />
 
         <FormActions>
-          <Button type="submit" variant="primary">
+          <SubmitButton variant="primary">
             {mode === "create" ? "Create department" : "Save changes"}
-          </Button>
+          </SubmitButton>
         </FormActions>
       </Card>
     </form>

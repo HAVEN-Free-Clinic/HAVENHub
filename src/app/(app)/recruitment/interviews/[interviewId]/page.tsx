@@ -20,7 +20,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AddPanelistForm } from "./add-panelist-form";
 import { Card } from "@/platform/ui/card";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, RowField } from "@/platform/ui/form";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
@@ -77,7 +77,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
         description={`${iv.departmentCode} director interview`}
-        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
+        status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {canManage && (
         <>
@@ -187,22 +187,20 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
               action={rescindAcceptanceAction.bind(null, interviewId, emailedAcceptance.id)}
             />
           )}
-          <form action={decideAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="w-40">
-              <Field label="Outcome">
+          <form action={decideAction.bind(null, interviewId)}>
+            <FormRow className="mt-3">
+              <RowField label="Outcome">
                 <Select name="outcome" required defaultValue={iv.decision === "PENDING" ? "ACCEPT" : iv.decision}>
                   <option value="ACCEPT">Accept</option>
                   <option value="REJECT">Reject</option>
                   <option value="WAITLIST">Waitlist</option>
                 </Select>
-              </Field>
-            </div>
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Notes" hint="Optional.">
+              </RowField>
+              <RowField label="Notes" hint="Optional." width="grow">
                 <Input name="notes" />
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+              </RowField>
+              <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+            </FormRow>
           </form>
           {iv.decision !== "PENDING" && iv.decidedAt && (
             <p className="mt-2 text-xs text-subtle-foreground">
@@ -216,9 +214,9 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       {isPanelist && (
         <Card>
           <SectionHeader>Your evaluation</SectionHeader>
-          <form action={submitEvaluationAction.bind(null, interviewId)} className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="w-44">
-              <Field label="Score (1-5)">
+          <form action={submitEvaluationAction.bind(null, interviewId)}>
+            <FormRow className="mt-3">
+              <RowField label="Score (1-5)">
                 <Select name="score" required defaultValue={myEval?.score != null ? String(myEval.score) : ""}>
                   <option value="" disabled>
                     Select…
@@ -229,14 +227,12 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
                     </option>
                   ))}
                 </Select>
-              </Field>
-            </div>
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Comments">
+              </RowField>
+              <RowField label="Comments" width="grow">
                 <Input name="comments" defaultValue={myEval?.comments ?? ""} />
-              </Field>
-            </div>
-            <SubmitButton size="sm" pendingLabel="Submitting…">Submit</SubmitButton>
+              </RowField>
+              <SubmitButton size="sm" pendingLabel="Submitting…">Submit</SubmitButton>
+            </FormRow>
           </form>
         </Card>
       )}

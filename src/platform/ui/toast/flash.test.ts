@@ -477,10 +477,10 @@ describe("classifyFlashParams", () => {
     expect(result.stripParams).toEqual(["error"]);
   });
 
-  it("suppresses error and message together on incidents/page.tsx, ruled INLINE for mixed vocabulary", () => {
+  it("suppresses error and message together on incidents/new/page.tsx, ruled INLINE for mixed vocabulary", () => {
     const result = classifyFlashParams(
       paramsOf({ error: "subject-not-found" }),
-      "/incidents",
+      "/incidents/new",
     );
     expect(result.toasts).toEqual([]);
     expect(result.stripParams).toEqual([]);
@@ -489,7 +489,7 @@ describe("classifyFlashParams", () => {
   it("leaves message alone too when error is suppressed, since it rides along with error", () => {
     const result = classifyFlashParams(
       paramsOf({ error: "validation", message: "Pick a department first." }),
-      "/incidents",
+      "/incidents/new",
     );
     expect(result.toasts).toEqual([]);
     expect(result.stripParams).toEqual([]);

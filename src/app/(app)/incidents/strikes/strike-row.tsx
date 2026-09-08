@@ -7,6 +7,7 @@ import { Combobox } from "@/platform/ui/combobox";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { ForwardForm } from "../forward-form";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 /**
  * One row of the strikes ledger, with an expandable detail row.
@@ -97,7 +98,7 @@ export function StrikeRow({
             aria-expanded={open}
             aria-controls={detailId}
             // eslint-disable-next-line no-restricted-syntax -- full-width expand toggle wrapping clamped description text, not a Button primitive shape
-            className="w-full text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 rounded-lg"
+            className="w-full text-left underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand rounded-lg"
           >
             <span className={open ? undefined : "line-clamp-2"}>{action.description}</span>
             <span className="mt-0.5 block text-xs text-subtle-foreground">
@@ -192,20 +193,22 @@ export function StrikeRow({
                       </Button>
                     </form>
                   ) : (
-                    <form action={linkReport} className="flex flex-wrap items-end gap-2">
-                      <input type="hidden" name="actionId" value={action.id} />
-                      <div className="w-72">
-                        <Combobox
-                          name="reportId"
-                          ariaLabel={`Link ${personName}'s strike to an incident report`}
-                          placeholder="Search reports..."
-                          emptyLabel="No matching reports"
-                          options={reportOptions}
-                        />
-                      </div>
-                      <Button type="submit" variant="outline" size="sm">
-                        Link report
-                      </Button>
+                    <form action={linkReport}>
+                      <FormRow>
+                        <input type="hidden" name="actionId" value={action.id} />
+                        <div className={ROW_WIDTH.wide}>
+                          <Combobox
+                            name="reportId"
+                            ariaLabel={`Link ${personName}'s strike to an incident report`}
+                            placeholder="Search reports..."
+                            emptyLabel="No matching reports"
+                            options={reportOptions}
+                          />
+                        </div>
+                        <Button type="submit" variant="outline" size="sm">
+                          Link report
+                        </Button>
+                      </FormRow>
                     </form>
                   )}
                 </dd>

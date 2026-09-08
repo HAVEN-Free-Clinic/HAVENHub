@@ -32,6 +32,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { FormRow } from "@/platform/ui/form";
 
 type Props = {
   personId: string;
@@ -190,25 +191,27 @@ export async function PersonMembershipsPanel({
           )}
 
           {canManage && !subjectOffboarded && (
-            <form action={addAction} className="flex flex-wrap items-end gap-3 border-t border-border-subtle pt-4">
-              <Field label="Department">
-                <Select name="departmentId" className="w-56">
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.code} · {d.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Role">
-                <Select name="kind" className="w-36">
-                  <option value="VOLUNTEER">Volunteer</option>
-                  <option value="DIRECTOR">Director</option>
-                </Select>
-              </Field>
-              <Button type="submit" variant="primary" size="sm">
-                Add assignment
-              </Button>
+            <form action={addAction}>
+              <FormRow className="border-t border-border-subtle pt-4">
+                <Field label="Department">
+                  <Select name="departmentId" className="w-56">
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code} · {d.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Role">
+                  <Select name="kind" className="w-36">
+                    <option value="VOLUNTEER">Volunteer</option>
+                    <option value="DIRECTOR">Director</option>
+                  </Select>
+                </Field>
+                <Button type="submit" variant="primary" size="sm">
+                  Add assignment
+                </Button>
+              </FormRow>
             </form>
           )}
         </Card>

@@ -4,6 +4,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { getCourseForLearner } from "@/modules/learning/services/enrollment";
 import { LearningAuthError } from "@/modules/learning/services/errors";
 import { ScormPlayer } from "./ScormPlayer";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export default async function LearningCoursePage({
   params,
@@ -23,6 +24,7 @@ export default async function LearningCoursePage({
 
   return (
     <>
+      <SetBreadcrumbLeaf label={course.title} />
       <PageHeader title={course.title} description={course.description ?? undefined} />
       <div className="mt-6 space-y-4">
         {course.scos.length > 0 ? (

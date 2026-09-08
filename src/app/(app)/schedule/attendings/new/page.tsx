@@ -68,6 +68,7 @@ export default async function NewAttendingPage({ searchParams }: PageProps) {
       {sp.error && <Alert tone="error">{sp.error}</Alert>}
       <AttendingForm
         action={createAction}
+        mode="create"
         specialties={specialties}
         selectedSpecialtyId={selectedSpecialtyId}
         capabilities={capabilities}

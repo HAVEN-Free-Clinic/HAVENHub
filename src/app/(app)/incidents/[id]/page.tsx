@@ -68,6 +68,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 // ---------------------------------------------------------------------------
 // Labels
@@ -213,9 +214,10 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumbLeaf label={`Report #${report.number}`} />
       <PageHeader
         title={`Report #${report.number}`}
-        action={<Badge tone={STATUS_TONES[report.status]}>{statusLabel(report.status, isOwner)}</Badge>}
+        status={<Badge tone={STATUS_TONES[report.status]}>{statusLabel(report.status, isOwner)}</Badge>}
       />
 
       <Card>

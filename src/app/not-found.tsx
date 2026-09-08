@@ -4,6 +4,7 @@ import { getSupportContact } from "@/platform/branding/support";
 import { SupportLink } from "@/platform/branding/support-link";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
+import { buttonClasses } from "@/platform/ui/button";
 
 export default async function NotFound() {
   const [org, support] = await Promise.all([getOrgIdentity(), getSupportContact()]);
@@ -21,10 +22,10 @@ export default async function NotFound() {
           <SupportLink email={support.email}>the IT team</SupportLink> know so we
           can fix it.
         </p>
-        <Link
-          href="/"
-          className="mt-6 inline-block rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
-        >
+        {/* Primary: on a 404 there is nothing else to do. Through
+            buttonClasses rather than a hand-rolled brand button, which had
+            drifted to rounded-md while every other button is rounded-lg. */}
+        <Link href="/" className={`${buttonClasses("primary")} mt-6`}>
           Back to Hub
         </Link>
       </div>

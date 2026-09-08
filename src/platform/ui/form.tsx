@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cx } from "./cx";
+import { Field } from "./input";
 
 /**
  * A labeled group of fields inside a form. Replaces the divergent hand-rolled
@@ -133,6 +134,104 @@ export function linkifyUrls(text: string): ReactNode {
   if (nodes.length === 0) return text;
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
+}
+
+/**
+ * The single-line form row: a few controls and their submit, side by side.
+ *
+ * Forty-odd write forms across recruitment, schedule, admin, volunteers,
+ * incidents, outreach, support and my-info hand-rolled this row, in five
+ * spellings of the same idea: `flex flex-wrap items-end gap-3` (32 of them),
+ * the same with `gap-2` (11), `flex items-end gap-2`, `flex items-end gap-3`,
+ * and `flex flex-wrap items-end gap-4`.
+ *
+ * The widths inside drifted further than the rows did. Field wrappers used
+ * eight fixed values (w-28 through w-72) and five different grow spellings,
+ * and three more forms put the width on the `<Input>` itself instead of a
+ * wrapper. /volunteers/spanish-review had gone one further and defined its own
+ * page-local `Field` with its own label style. On the applicant detail page
+ * the result is visible in one screen: four stacked rows whose columns do not
+ * line up with each other, so the eye re-finds every control.
+ *
+ * `RowField` owns the widths so a Notes field is the same width on the
+ * interview page and the applicant page, and `FilterBar` draws from the same
+ * table, so the Category select in the strike composer lines up with the
+ * Category select in the strike filter bar directly below it.
+ *
+ * ## Why this is a container, not the <form>
+ *
+ * These rows are not all forms. Six of them are `<div>`s inside a larger form
+ * (the outreach identity and scope forms, the strike composer), and the ones
+ * that are forms carry their own bound server action and their own spacing or
+ * separator classes. A primitive that silently rendered `<form>` or `<div>`
+ * depending on whether an `action` prop was passed would hide that difference
+ * rather than serve it, so the caller keeps its own element and this owns only
+ * the row.
+ *
+ * The submit goes LAST, unwrapped: `items-end` already sits it on the row's
+ * baseline, and giving it a width wrapper is what pushes it out of line.
+ *
+ * ## What this is not
+ *
+ * Not every bottom-aligned flex row is a form row, and four kinds were left
+ * alone deliberately:
+ *
+ *  - **Header bars** (`justify-between`), where the row's job is to push a
+ *    count or a status to the far edge rather than to lay out controls.
+ *  - **The two schedule toolbars**, which use `gap-x-6 gap-y-4` on purpose:
+ *    a toolbar separates groups of controls, and the tighter form gap runs
+ *    them together.
+ *  - **Card-internal control pairs**, e.g. the builder's field card, whose
+ *    layout belongs to the card.
+ *  - **Grids** that happen to bottom-align their last row.
+ */
+/** The row's own flex classes. Exported for `FilterBar`, which needs the same
+ * row on a `NavForm` rather than on a `<div>`. */
+export const FORM_ROW = "flex flex-wrap items-end gap-3";
+
+export function FormRow({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  /** Outer spacing and separators only. The row's own flex classes are not overridable. */
+  className?: string;
+}) {
+  return (
+    <div className={cx(FORM_ROW, className)}>{children}</div>
+  );
+}
+
+/**
+ * Column widths for one control in a `FormRow` or a `FilterBar`.
+ *
+ * Four roles, named for what the control HOLDS rather than for a size, because
+ * a size name is what let eight values drift in: "medium" invites a judgement
+ * call on every form, "a bounded number" does not.
+ */
+export const ROW_WIDTH = {
+  /** A bounded number or a 1-5 score: percentages, attempt counts, ratings. */
+  numeric: "w-28",
+  /** The default. A select, a date, or a short input. */
+  control: "w-44",
+  /** Content that is genuinely long: a person picker, an email address, a place. */
+  wide: "w-56",
+  /** Free text -- notes, comments, search. Takes the leftover room. */
+  grow: "flex-1 min-w-48",
+} as const;
+
+export type RowWidth = keyof typeof ROW_WIDTH;
+
+/** One labelled control in a `FormRow`. Takes every `Field` prop, plus a width. */
+export function RowField({
+  width = "control",
+  ...field
+}: { width?: RowWidth } & ComponentProps<typeof Field>) {
+  return (
+    <div className={ROW_WIDTH[width]}>
+      <Field {...field} />
+    </div>
+  );
 }
 
 /** Standard footer row for form submit/secondary buttons. */

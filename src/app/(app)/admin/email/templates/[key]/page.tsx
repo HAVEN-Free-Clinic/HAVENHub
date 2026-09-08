@@ -21,6 +21,8 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { cardClasses } from "@/platform/ui/card";
 import { Input } from "@/platform/ui/input";
 import { TemplateEditorForm } from "@/modules/admin/components/template-editor-form";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type Props = {
   params: Promise<{ key: string }>;
@@ -125,6 +127,7 @@ export default async function EditTemplatePage({ params }: Props) {
 
   return (
     <div className="space-y-6">
+      <SetBreadcrumbLeaf label={t.name} />
       <PageHeader
         title={t.name}
         description={t.hasOverride ? "Customized" : "Using default"}
@@ -151,8 +154,8 @@ export default async function EditTemplatePage({ params }: Props) {
             must have Send-As rights on any address you enter.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="w-64">
+        <FormRow>
+          <div className={ROW_WIDTH.wide}>
             <Input
               name="fromEmail"
               type="email"
@@ -161,7 +164,7 @@ export default async function EditTemplatePage({ params }: Props) {
               aria-label="From address"
             />
           </div>
-          <div className="w-48">
+          <div className={ROW_WIDTH.control}>
             <Input
               name="fromName"
               defaultValue={t.senderFromName ?? ""}
@@ -171,7 +174,7 @@ export default async function EditTemplatePage({ params }: Props) {
           </div>
           <SubmitButton variant="outline" pendingLabel="Saving…">Save sender</SubmitButton>
           <SubmitButton formAction={testSenderAction} variant="ghost" pendingLabel="Sending…">Send test</SubmitButton>
-        </div>
+        </FormRow>
       </form>
     </div>
   );

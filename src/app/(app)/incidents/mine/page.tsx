@@ -72,7 +72,7 @@ export default async function MyReportsPage() {
       {rows.length === 0 ? (
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You have not filed any incident reports.</p>
-          <Link href="/incidents" className={buttonClasses("primary", "sm")}>
+          <Link href="/incidents/new" className={buttonClasses("primary", "sm")}>
             Report a concern
           </Link>
         </div>

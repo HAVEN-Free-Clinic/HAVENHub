@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { devLogin } from "./auth";
 
 async function devSignIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
@@ -27,6 +28,21 @@ test("module dropdown reaches a sub-page in one hop from another module", async 
   await panel(page, "Admin").getByRole("link", { name: "Onboarding contract" }).click();
   await page.waitForURL((url) => url.pathname === "/admin/contract");
   await expect(page).toHaveURL(/\/admin\/contract$/);
+});
+
+test("schedule dropdown reaches the Builder, whose gate the global nav cannot run", async ({ page }) => {
+  // The Builder gates on "manages at least one schedule department", which no
+  // permission string expresses, so the registry marks it dynamicGate and the
+  // global nav used to drop it. A department director whose whole job is the
+  // Builder had to land on /schedule first and find the tab. The app layout now
+  // resolves that gate and hands the result to the nav, so the link is one hop
+  // away from anywhere. (j.carney manages schedule departments in the seed --
+  // schedule.spec.ts drives the Builder as this same user.)
+  await devSignIn(page);
+  await page.goto("/admin");
+  await chevron(page, "Schedule").click();
+  await panel(page, "Schedule").getByRole("link", { name: "Builder", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/builder");
 });
 
 test("account menu reaches Training, which has no other nav entry", async ({ page }) => {
@@ -173,11 +189,16 @@ test("navigating to another module closes an open dropdown", async ({ page }) =>
 });
 
 test("the Schedule dropdown offers no link that bounces to /no-access", async ({ page }) => {
-  // Builder, Approvals and Attendings gate on a data-driven capability the
-  // global nav cannot evaluate (dynamicGate in the registry), so they are
-  // deliberately absent here even for a full admin who can open all three.
-  await devSignIn(page);
-  await page.goto("/volunteers");
+  // Builder, Approvals and Attendings gate on a data-driven capability, so the
+  // registry marks them dynamicGate and the global nav shows them only to a
+  // viewer the app layout resolved them TRUE for. This is the other half of
+  // that: a plain volunteer holds schedule.view (every seeded volunteer role
+  // does) and can open none of the three, so none of them may appear.
+  //
+  // The guarantee used to be enforced by dropping the links for EVERYONE, which
+  // also hid them from the admin who could open them -- see the case below.
+  await devLogin(page, "dev.volunteer@yale.edu");
+  await page.goto("/schedule");
   await chevron(page, "Schedule").click();
   const schedulePanel = panel(page, "Schedule");
   await expect(schedulePanel.getByRole("link", { name: "Full schedule" })).toBeVisible();
@@ -186,10 +207,45 @@ test("the Schedule dropdown offers no link that bounces to /no-access", async ({
   await expect(schedulePanel.getByRole("link", { name: "Approvals" })).toHaveCount(0);
 });
 
+test("the Schedule dropdown DOES offer a dynamically-gated link to someone who can open it", async ({ page }) => {
+  // The same three links, for a viewer the gates resolve true for. Together
+  // with the case above this pins both directions: the dropdown mirrors what
+  // the schedule tab row would show, rather than being permanently blind to it.
+  await devSignIn(page);
+  await page.goto("/volunteers");
+  await chevron(page, "Schedule").click();
+  const schedulePanel = panel(page, "Schedule");
+  await expect(schedulePanel.getByRole("link", { name: "Builder", exact: true })).toBeVisible();
+});
+
 test("sign out still works from the account menu", async ({ page }) => {
   await devSignIn(page);
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/login");
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test("the phone menu offers the sub-pages of the module you are in", async ({ page }) => {
+  // The desktop row puts sub-pages behind a per-module chevron. The phone menu
+  // used to drop them entirely, which left the TabRow strip as the only route
+  // to them -- a strip whose scrollbar is hidden and which auto-scrolls to the
+  // active tab, so on a 13-tab cycle a director could see three and no sign of
+  // the rest.
+  await devSignIn(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/schedule");
+  await page.waitForURL((url) => url.pathname === "/schedule");
+
+  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  const menu = page.getByRole("navigation", { name: "Modules (menu)" });
+  await expect(menu).toBeVisible();
+
+  // The module you are in expands; its sub-pages are reachable without the strip.
+  const scheduleSubPages = menu.getByRole("group", { name: "Schedule sub-pages" });
+  await expect(scheduleSubPages).toBeVisible();
+  await expect(scheduleSubPages.getByRole("link", { name: "Full schedule" })).toBeVisible();
+
+  // A module you are NOT in stays collapsed, so the menu does not become a wall.
+  await expect(menu.getByRole("group", { name: "Admin sub-pages" })).toHaveCount(0);
 });

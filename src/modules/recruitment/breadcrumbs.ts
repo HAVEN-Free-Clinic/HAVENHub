@@ -1,4 +1,4 @@
-import type { Crumb } from "@/platform/ui/breadcrumb-trail";
+import { HUB_CRUMB, type Crumb } from "@/platform/ui/breadcrumb-trail";
 
 /**
  * Recruitment breadcrumb trails (rich, per-page "option B").
@@ -16,12 +16,11 @@ import type { Crumb } from "@/platform/ui/breadcrumb-trail";
  * clickable. See breadcrumbs.tsx.)
  */
 
-const HUB: Crumb = { label: "Hub", href: "/" };
 const RECRUITMENT: Crumb = { label: "Recruitment", href: "/recruitment" };
 
 /** Prepend the shared `Hub > Recruitment` prefix to a recruitment trail. */
 export function recruitmentTrail(...tail: Crumb[]): Crumb[] {
-  return [HUB, RECRUITMENT, ...tail];
+  return [HUB_CRUMB, RECRUITMENT, ...tail];
 }
 
 /** A section within a cycle, e.g. `{ label: "Applicants", slug: "applicants" }`. */
@@ -92,5 +91,5 @@ export function interviewDetailTrail(opts: {
   if (staff) {
     return cycleTrail({ cycleId, cycleTitle, section: { label: "Interviews", slug: "interviews" }, leaf: candidate });
   }
-  return [HUB, { label: "My interviews", href: "/recruitment/interviews" }, { label: candidate }];
+  return [HUB_CRUMB, { label: "My interviews", href: "/recruitment/interviews" }, { label: candidate }];
 }

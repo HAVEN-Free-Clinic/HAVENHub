@@ -31,7 +31,7 @@ import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
-import { FormActions } from "@/platform/ui/form";
+import { FormActions, FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
 import { Combobox } from "@/platform/ui/combobox";
 import {
   issueAction,
@@ -375,76 +375,66 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           ledger without a dead-end form. */}
       {canManageAll && (
       <section className="mt-8">
-        <h2 className="mb-3 text-base font-semibold">Record Disciplinary Action</h2>
+        <h2 className="mb-3 text-base font-semibold">Record disciplinary action</h2>
         <form action={issueActionForm}>
           <Card>
-            <div className="flex flex-wrap items-end gap-3">
+            <FormRow>
 
               {/* Person picker: searchable combobox for central, select for directors */}
               {issuable.all ? (
-                <div className="w-72">
-                  <Field label="Person" required>
-                    <Combobox
-                      name="personId"
-                      ariaLabel="Person"
-                      placeholder="Search by name..."
-                      required
-                      options={searchablePeople.map((p) => ({
-                        value: p.id,
-                        label: p.hint ? `${p.name} (${p.hint})` : p.name,
-                      }))}
-                    />
-                  </Field>
-                </div>
+                <RowField label="Person" required width="wide">
+                  <Combobox
+                    name="personId"
+                    ariaLabel="Person"
+                    placeholder="Search by name..."
+                    required
+                    options={searchablePeople.map((p) => ({
+                      value: p.id,
+                      label: p.hint ? `${p.name} (${p.hint})` : p.name,
+                    }))}
+                  />
+                </RowField>
               ) : (
-                <div className="w-64">
-                  <Field label="Person" required>
-                    <Select name="personId" required>
-                      <option value="">Select person...</option>
-                      {issuable.people.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name ?? p.id}
-                          {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </div>
-              )}
-
-              {/* Date */}
-              <div className="w-44">
-                <Field label="Date of incident" required>
-                  <Input type="date" name="occurredAt" required />
-                </Field>
-              </div>
-
-              {/* Category */}
-              <div className="w-52">
-                <Field label="Category" required>
-                  <Select name="category" required>
-                    <option value="">Select category...</option>
-                    {DISCIPLINARY_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                <RowField label="Person" required width="wide">
+                  <Select name="personId" required>
+                    <option value="">Select person...</option>
+                    {issuable.people.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name ?? p.id}
+                        {p.departmentNames.length > 0 ? ` (${p.departmentNames.join(", ")})` : ""}
                       </option>
                     ))}
                   </Select>
-                </Field>
-              </div>
+                </RowField>
+              )}
+
+              {/* Date */}
+              <RowField label="Date of incident" required>
+                <Input type="date" name="occurredAt" required />
+              </RowField>
+
+              {/* Category */}
+              <RowField label="Category" required width="wide">
+                <Select name="category" required>
+                  <option value="">Select category...</option>
+                  {DISCIPLINARY_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              </RowField>
 
               {/* Optional link to the incident report this strike relates to. */}
-              <div className="w-72">
-                <Field label="Related incident report">
-                  <Combobox
-                    name="reportId"
-                    ariaLabel="Related incident report"
-                    placeholder="Search reports..."
-                    emptyLabel="No matching reports"
-                    options={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
-                  />
-                </Field>
-              </div>
+              <RowField label="Related incident report" width="wide">
+                <Combobox
+                  name="reportId"
+                  ariaLabel="Related incident report"
+                  placeholder="Search reports..."
+                  emptyLabel="No matching reports"
+                  options={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
+                />
+              </RowField>
 
               {/* Description */}
               <div className="w-full">
@@ -470,14 +460,12 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               </div>
 
               {/* Policy reference */}
-              <div className="w-56">
-                <Field label="Policy reference">
-                  <Input name="policyReference" placeholder="Optional" />
-                </Field>
-              </div>
+              <RowField label="Policy reference" width="wide">
+                <Input name="policyReference" placeholder="Optional" />
+              </RowField>
 
               {/* Notes */}
-              <div className="flex-1 min-w-48">
+              <div className={ROW_WIDTH.grow}>
                 {/* Not internal, despite what this field used to say. This text
                     is what subjectFacingDetail prefers, so it becomes the Details
                     block of the strike_issued email and the text pinned to the
@@ -502,7 +490,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 <Checkbox name="confidential" label="Confidential" />
                 <Checkbox name="patientInvolved" label="Patient involved" />
               </div>
-            </div>
+            </FormRow>
 
             <FormActions>
               <SubmitButton variant="primary" size="sm" pendingLabel="Recording…">
@@ -523,7 +511,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         <FilterField label="Search" width="grow">
           <Input type="search" name="q" defaultValue={qSearch ?? ""} placeholder="Person name..." />
         </FilterField>
-        <FilterField label="Department" width="lg">
+        <FilterField label="Department" width="wide">
           <Select name="departmentId" defaultValue={departmentId ?? ""}>
             <option value="">All departments</option>
             {departments.map((d) => (
@@ -533,7 +521,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
             ))}
           </Select>
         </FilterField>
-        <FilterField label="Category" width="lg">
+        <FilterField label="Category" width="wide">
           <Select name="category" defaultValue={categoryFilter ?? ""}>
             <option value="">All categories</option>
             {DISCIPLINARY_CATEGORIES.map((c) => (

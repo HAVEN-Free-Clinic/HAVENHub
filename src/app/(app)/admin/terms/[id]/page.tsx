@@ -4,10 +4,12 @@ import { can } from "@/platform/rbac/engine";
 import {
   activateTerm,
   archiveTerm,
+  updateTerm,
   updateClinicDates,
   saturdaysBetween,
   TermNotFoundError,
   TermNotActivatableError,
+  TermConflictError,
   TermDateError,
 } from "@/modules/admin/services/terms";
 import {
@@ -22,8 +24,10 @@ import { Badge } from "@/platform/ui/badge";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-editor";
+import { TermForm } from "@/modules/admin/components/term-form";
 import { RosterPanel } from "@/modules/admin/components/roster-panel";
 import { OnboardingStepsEditor } from "@/modules/onboarding/components/onboarding-steps-editor";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import {
   listStepConfig,
   setStepConfig,
@@ -94,6 +98,35 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
   // ---------------------------------------------------------------------------
   // Server actions
   // ---------------------------------------------------------------------------
+
+  async function updateAction(formData: FormData) {
+    "use server";
+    const actorSession = await requirePermission("admin.manage_terms");
+
+    const code = (formData.get("code") as string) ?? "";
+    const name = (formData.get("name") as string) ?? "";
+    const startDate = (formData.get("startDate") as string) ?? "";
+    const endDate = (formData.get("endDate") as string) ?? "";
+
+    const back = `/admin/terms/${id}`;
+    if (startDate && endDate && endDate < startDate) {
+      redirect(`${back}?error=${encodeURIComponent("End date must be after the start date")}`);
+    }
+
+    try {
+      await updateTerm(actorSession.personId, id, { code, name, startDate, endDate });
+    } catch (err) {
+      if (err instanceof TermConflictError) {
+        redirect(`${back}?error=${encodeURIComponent(`A term with code "${err.code}" already exists.`)}`);
+      }
+      if (err instanceof TermDateError) {
+        redirect(`${back}?error=${encodeURIComponent(`Invalid date: ${err.input}`)}`);
+      }
+      throw err;
+    }
+
+    redirect(`${back}?saved=1`);
+  }
 
   async function activateAction() {
     "use server";
@@ -243,11 +276,25 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
   return (
     <div className="space-y-10">
+      <SetBreadcrumbLeaf label={term.name} />
       <PageHeader
         title={term.name}
         description={`${term.code} · ${term._count.memberships} member(s)`}
-        action={statusBadge}
+        status={statusBadge}
       />
+
+      {/* Details: the term's own identity and range. TermForm has taken a
+          `term` prop for edit mode since it was written and nothing ever
+          passed one, so a mistyped code or an off-by-a-week range was
+          permanent. Clinic dates are NOT rebuilt from the range here; that is
+          the Clinic dates section's job, because removing a date has to clean
+          up the shifts left stranded on it. */}
+      {canManageTerms && (
+        <section>
+          <SectionHeader className="mb-4">Details</SectionHeader>
+          <TermForm mode="edit" action={updateAction} term={term} />
+        </section>
+      )}
 
       {/* Lifecycle section */}
       {canManageTerms && (

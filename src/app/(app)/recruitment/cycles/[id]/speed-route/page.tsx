@@ -9,7 +9,7 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Field, Input } from "@/platform/ui/input";
+import { Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SpeedRouteBoard } from "@/modules/recruitment/components/speed-route-board";
 import {
@@ -20,6 +20,7 @@ import {
   applyBottomTierAction,
   setRouteThresholdsAction,
 } from "./actions";
+import { FormRow, RowField } from "@/platform/ui/form";
 
 export default async function SpeedRoutePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -48,18 +49,16 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
         <p className="mt-1 text-xs text-subtle-foreground">
           Top {board.topPercent}% route to a department, bottom {board.bottomPercent}% auto-reject, middle {middlePercent}% you decide. Ties never split, so tier counts can exceed the percentage.
         </p>
-        <form action={setRouteThresholdsAction.bind(null, id)} className="mt-3 flex flex-wrap items-end gap-3">
-          <div className="w-28">
-            <Field label="Top %">
+        <form action={setRouteThresholdsAction.bind(null, id)}>
+          <FormRow className="mt-3">
+            <RowField label="Top %" width="numeric">
               <Input name="topPercent" type="number" min={0} max={100} defaultValue={board.topPercent} />
-            </Field>
-          </div>
-          <div className="w-28">
-            <Field label="Bottom %">
+            </RowField>
+            <RowField label="Bottom %" width="numeric">
               <Input name="bottomPercent" type="number" min={0} max={100} defaultValue={board.bottomPercent} />
-            </Field>
-          </div>
-          <SubmitButton size="sm" pendingLabel="Saving…">Save thresholds</SubmitButton>
+            </RowField>
+            <SubmitButton size="sm" pendingLabel="Saving…">Save thresholds</SubmitButton>
+          </FormRow>
         </form>
       </Card>
 

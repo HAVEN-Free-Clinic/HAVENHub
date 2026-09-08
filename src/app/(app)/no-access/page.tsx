@@ -27,7 +27,7 @@ export default function NoAccessPage() {
       <div className="mt-7 flex justify-center">
         <Link href="/" className={buttonClasses("primary", "md", "gap-2")}>
           <ArrowLeft aria-hidden className="h-4 w-4" />
-          Back to hub
+          Back to Hub
         </Link>
       </div>
     </div>

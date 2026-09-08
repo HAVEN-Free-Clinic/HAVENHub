@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ScrollRegion } from "@/platform/ui/scroll-region";
 import { notFound } from "next/navigation";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { getSetting } from "@/platform/settings/service";
@@ -71,7 +72,7 @@ export default async function CredentialPage({
       <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Service history
       </h2>
-      <div className="mt-3 overflow-x-auto">
+      <ScrollRegion label="Service record" className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <THead>
             <TR>
@@ -110,7 +111,7 @@ export default async function CredentialPage({
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
 
       <p className="mt-10 text-xs leading-relaxed text-muted-foreground">
         Clinic shift counts reflect published schedule assignments, not attendance. Terms marked

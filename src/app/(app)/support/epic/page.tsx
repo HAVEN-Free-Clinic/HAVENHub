@@ -331,7 +331,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Epic Requests"
+        title="Epic requests"
         description="Generate YNHH service request PDFs and track submission status."
       />
       <EpicRequestTabs

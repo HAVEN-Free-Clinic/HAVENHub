@@ -1,4 +1,5 @@
 import { requirePermission } from "@/platform/auth/session";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { scopeEditorDepartments } from "@/platform/departments";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -10,6 +11,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
 import { getTrainingForEdit } from "@/platform/ehs/services/trainings";
 import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export default async function EditEhsTrainingPage({
   params,
@@ -27,7 +29,12 @@ export default async function EditEhsTrainingPage({
 
   return (
     <>
-      <PageHeader title={`Edit: ${training.name}`} description="Edit this EHS training requirement." />
+      <SetBreadcrumbLeaf label={training.name} />
+      <PageHeader
+        title={training.name}
+        description="EHS training requirement."
+        status={<ActiveBadge active={training.isActive} />}
+      />
       <div className="mt-6 grid max-w-3xl gap-8">
         <Card>
           <form action={updateTrainingAction}>

@@ -288,7 +288,7 @@ export function AttendingGrid({
   }
 
   return (
-    <MatrixScroll tone={mode.kind === "oncall" ? "warning" : "default"}>
+    <MatrixScroll label="Attending schedule grid" tone={mode.kind === "oncall" ? "warning" : "default"}>
       <table className="border-collapse text-sm" aria-label="Attending schedule grid">
         <thead>
           <tr className="bg-muted">

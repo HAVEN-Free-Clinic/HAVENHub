@@ -565,7 +565,7 @@ export function BuilderGrid({
   return (
     <div>
       <GridLegend deptCode={deptCode} />
-      <MatrixScroll capHeight tone={mode === "shadow" ? "warning" : "default"}>
+      <MatrixScroll capHeight label="Schedule grid" tone={mode === "shadow" ? "warning" : "default"}>
         {/* border-separate, not the default collapse: collapsed borders are
             painted by the TABLE, so they scroll out from under a sticky cell and
             the pinned row loses its lines. Each cell therefore draws its own

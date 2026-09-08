@@ -59,7 +59,13 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
                     <summary className="text-xs text-brand-fg hover:underline">
                       view
                     </summary>
-                    <pre className="mt-2 max-w-xl overflow-x-auto rounded bg-muted p-2 text-xs">
+                    {/* Scrollable, so it needs a keyboard route in. Unconditional
+                        rather than measured: it sits inside a collapsed <details>,
+                        so the stop only exists once someone has expanded it. */}
+                    <pre
+                      tabIndex={0}
+                      className="mt-2 max-w-xl overflow-x-auto rounded bg-muted p-2 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                    >
                       {JSON.stringify({ before: row.before, after: row.after }, null, 2)}
                     </pre>
                   </details>

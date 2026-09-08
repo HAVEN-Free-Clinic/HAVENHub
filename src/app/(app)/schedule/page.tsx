@@ -396,9 +396,17 @@ export default async function MySchedulePage() {
           // published yet"; a live term's empty list means "no shifts
           // assigned yet" since the live schedule is never gated.
           const hasShifts = t.shifts.length > 0;
-          const noShiftsMessage = t.isLive
-            ? "No shifts assigned yet. Check back after the schedule is published."
-            : `Your ${t.term.name} schedule isn't published yet. It will show here once it's ready.`;
+          // Split across EmptyState's two roles: the title is the fact, with no
+          // trailing period, and the description is the supporting sentence.
+          const noShifts = t.isLive
+            ? {
+                title: "No shifts assigned yet",
+                description: "Check back after the schedule is published.",
+              }
+            : {
+                title: `Your ${t.term.name} schedule isn't published yet`,
+                description: "It will show here once it's ready.",
+              };
 
           // Ordering comes from the service (clinicDate ascending), so upcoming keeps
           // that order and past is reversed to put the most recent first.
@@ -610,9 +618,7 @@ export default async function MySchedulePage() {
                 <SectionHeader as="h2" level="title" className="mb-5">My shifts</SectionHeader>
 
                 {!hasShifts ? (
-                  <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
-                    {noShiftsMessage}
-                  </div>
+                  <EmptyState bordered title={noShifts.title} description={noShifts.description} />
                 ) : (
                   <div className="flex flex-col gap-6">
                     {nextShifts.length > 0 && (

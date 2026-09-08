@@ -228,9 +228,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
 
           {/* Department cards */}
           {departments.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
-              Nothing scheduled for this date.
-            </div>
+            <EmptyState bordered title="Nothing scheduled for this date" />
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {departments.map(({ department, directors, volunteers, shadows, conflicts }) => (

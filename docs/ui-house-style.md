@@ -132,6 +132,20 @@ Two rules worth knowing:
   filters. Widen the date range or clear a filter above."). An empty state that
   hides the fact that a filter is responsible reads as data loss.
 
+**A section that is NOT inside a Card takes `bordered`.** It draws a dashed
+bounding panel so the state reads as a region rather than as loose text on the
+canvas:
+
+```tsx
+<EmptyState bordered title="Nothing scheduled for this date" />
+```
+
+Four such panels were hand-rolled in the schedule module with a byte-identical
+class string. They survived the sweep that retired the other 78 because
+`local/no-adhoc-empty-state` only inspects `<p>` elements, so a div-shaped empty
+state is structurally invisible to it. Reach for `bordered` rather than
+hand-rolling the panel again.
+
 If the flagged element genuinely is not an empty state (delete-confirmation
 prose, a label), add an `eslint-disable-next-line local/no-adhoc-empty-state`
 with a one-line reason, the same way §4 handles raw controls.

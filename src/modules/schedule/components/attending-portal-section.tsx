@@ -211,10 +211,11 @@ export function AttendingPortalSection({
           <div className="mb-10">
             <SectionHeader as="h3" className="mb-2">Clinic dates you are covering</SectionHeader>
             {shifts.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
-                You are not on the {term.name} schedule yet. Faculty Relations builds it before the term
-                starts, and it will show here once it is set.
-              </div>
+              <EmptyState
+                bordered
+                title={`You are not on the ${term.name} schedule yet`}
+                description="Faculty Relations builds it before the term starts, and it will show here once it is set."
+              />
             ) : (
               <div className="flex flex-col gap-6">
                 {upcoming.length > 0 && (

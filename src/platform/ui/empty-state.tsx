@@ -25,8 +25,16 @@ import { cx } from "./cx";
  *   a padded centered block would be wrong. Same look the sites already had,
  *   just on one canonical token.
  *
- * Deliberately carries NO border or background. Most empty states already sit
- * inside a Card, and adding a surface here would double-card them.
+ * Carries no border or background BY DEFAULT. Most empty states already sit
+ * inside a Card, and adding a surface there would double-card them.
+ *
+ * `bordered` opts into a dashed bounding panel for the case that is not inside
+ * a Card: an empty section that needs its own edge to read as a region rather
+ * than as loose text on the canvas. Four such panels were hand-rolled in the
+ * schedule module with a byte-identical class string. They escaped the sweep
+ * that retired the other 78 because `local/no-adhoc-empty-state` only inspects
+ * `<p>` elements (eslint.config.mjs), and a div-shaped empty state is
+ * structurally invisible to it.
  *
  * The title renders as a `<p>`, not a heading: these appear at unpredictable
  * depths inside pages that already have a PageHeader and SectionHeaders, and a
@@ -56,6 +64,11 @@ type EmptyStateBlockProps = {
   description?: ReactNode;
   /** Optional call to action, typically a Button or a link. */
   action?: ReactNode;
+  /**
+   * Draw a dashed bounding panel. For an empty section that is NOT inside a
+   * Card and would otherwise read as loose text on the canvas.
+   */
+  bordered?: boolean;
   /** Outer spacing only. */
   className?: string;
 };
@@ -67,10 +80,16 @@ export function EmptyState(props: EmptyStateInlineProps | EmptyStateBlockProps) 
     );
   }
 
-  const { icon: Icon, title, description, action, className } = props;
+  const { icon: Icon, title, description, action, bordered, className } = props;
 
   return (
-    <div className={cx("flex flex-col items-center px-6 py-10 text-center", className)}>
+    <div
+      className={cx(
+        "flex flex-col items-center px-6 py-10 text-center",
+        bordered && "rounded-2xl border border-dashed border-border",
+        className,
+      )}
+    >
       {Icon ? <Icon aria-hidden className="mb-3 h-6 w-6 text-subtle-foreground" /> : null}
       <p className="text-base font-semibold text-foreground">{title}</p>
       {description ? (

@@ -99,3 +99,25 @@ describe("EmptyState", () => {
     });
   });
 });
+
+describe("EmptyState bordered", () => {
+  it("draws no border by default, so an empty state inside a Card is not double-carded", () => {
+    const el = render({ title: "Nothing yet" });
+    expect(el.props.className).not.toContain("border");
+  });
+
+  it("draws a dashed bounding panel when asked", () => {
+    const el = render({ title: "Nothing yet", bordered: true });
+    expect(el.props.className).toContain("border-dashed");
+    expect(el.props.className).toContain("rounded-2xl");
+  });
+
+  it("keeps the block padding either way, so bordered is only an edge", () => {
+    const plain = render({ title: "x" }).props.className ?? "";
+    const bordered = render({ title: "x", bordered: true }).props.className ?? "";
+    for (const c of ["px-6", "py-10", "text-center"]) {
+      expect(plain).toContain(c);
+      expect(bordered).toContain(c);
+    }
+  });
+});

@@ -22,8 +22,8 @@
  */
 
 import { BuilderCell } from "./builder-cell";
+import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
-import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import type { AttendingScheduleRow, ClinicSlotView } from "@/modules/schedule/services/attendings";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -288,12 +288,7 @@ export function AttendingGrid({
   }
 
   return (
-    <div
-      className={cx(
-        "overflow-x-auto rounded-2xl border",
-        mode.kind === "oncall" ? "border-warning bg-warning/5" : "border-border",
-      )}
-    >
+    <MatrixScroll tone={mode.kind === "oncall" ? "warning" : "default"}>
       <table className="border-collapse text-sm" aria-label="Attending schedule grid">
         <thead>
           <tr className="bg-muted">
@@ -361,6 +356,6 @@ export function AttendingGrid({
           })}
         </tbody>
       </table>
-    </div>
+    </MatrixScroll>
   );
 }

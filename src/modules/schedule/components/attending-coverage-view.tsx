@@ -15,6 +15,7 @@
  */
 
 import { Badge } from "@/platform/ui/badge";
+import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { displayDate } from "@/modules/schedule/engine/display";
 import type {
   AttendingScheduleRow,
@@ -34,7 +35,7 @@ export function AttendingCoverageView({ rows, slots, specialties, highlightDateK
   const specialtyById = new Map(specialties.map((s) => [s.id, s]));
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border">
+    <MatrixScroll>
       <table className="w-full border-collapse text-sm" aria-label="Attending coverage">
         <thead>
           <tr className="bg-muted">
@@ -136,6 +137,6 @@ export function AttendingCoverageView({ rows, slots, specialties, highlightDateK
           })}
         </tbody>
       </table>
-    </div>
+    </MatrixScroll>
   );
 }

@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
@@ -564,18 +565,7 @@ export function BuilderGrid({
   return (
     <div>
       <GridLegend deptCode={deptCode} />
-      <div
-        className={cx(
-          // The box scrolls in both axes, which is what lets the header row and
-          // the member column stick: `position: sticky` resolves against the
-          // nearest scrollport, and with the page as that scrollport a header
-          // pinned to the top of a table that never scrolls internally simply
-          // never engages. Bounding the height here is what makes the dates stay
-          // in view down an 18-week term.
-          "max-h-[70vh] overflow-auto rounded-2xl border",
-          mode === "shadow" ? "border-warning bg-warning/5" : "border-border",
-        )}
-      >
+      <MatrixScroll capHeight tone={mode === "shadow" ? "warning" : "default"}>
         {/* border-separate, not the default collapse: collapsed borders are
             painted by the TABLE, so they scroll out from under a sticky cell and
             the pinned row loses its lines. Each cell therefore draws its own
@@ -687,7 +677,7 @@ export function BuilderGrid({
             })}
           </tbody>
         </table>
-      </div>
+      </MatrixScroll>
     </div>
   );
 }

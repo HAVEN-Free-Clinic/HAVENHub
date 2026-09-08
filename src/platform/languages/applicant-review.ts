@@ -30,7 +30,13 @@ export type LanguageVerdict = {
   term: string | null;
 };
 
-/** Later verdicts win. Ties keep the incumbent, so the read order does not matter. */
+/**
+ * Later verdicts win between the member and application sources, which both
+ * carry a genuine assessment timestamp and are comparable to each other. Ties
+ * keep the incumbent, so the read order does not matter.
+ *
+ * History does NOT go through this: see the fallback note on source 3 below.
+ */
 function keepLater(a: LanguageVerdict | undefined, b: LanguageVerdict): LanguageVerdict {
   if (!a) return b;
   return b.assessedAt > a.assessedAt ? b : a;
@@ -52,10 +58,22 @@ function keepLater(a: LanguageVerdict | undefined, b: LanguageVerdict): Language
  *   2. ApplicationLanguageAssessment on any application of the same identity,
  *      including the one being queued. This is what stops a rejected applicant
  *      being re-assessed when they reapply next year.
- *   3. SpanishAssessmentRecord linked to the Person, Spanish only.
+ *   3. SpanishAssessmentRecord linked to the Person, Spanish only, and used as
+ *      a FALLBACK: it only fills in a language neither source above already
+ *      settled. PersonLanguage is the current authoritative record (the badge
+ *      backfill copies history INTO it) and ApplicationLanguageAssessment is a
+ *      deliberate verdict recorded in this system; a term-granular archival
+ *      row must never outrank either on a timestamp. It exists to cover an
+ *      alum whose score is here and nowhere else, because
  *      backfill-language-badges only carried historical scores onto
- *      PersonLanguage for ACTIVE people, so an alum's score is here and nowhere
- *      else.
+ *      PersonLanguage for ACTIVE people.
+ *
+ *      Within this source, a person can have one row per term, and a re-import
+ *      (scripts/import-spanish-assessments.ts, documented safe to re-run)
+ *      upserts, bumping updatedAt on every matching row regardless of which
+ *      term it represents. termRank -- not updatedAt -- is the only signal
+ *      for which row is the newest term, matching latestSpanishAssessment in
+ *      ./spanish-assessments.ts.
  */
 export async function priorLanguageVerdicts(
   applicantIds: string[],
@@ -106,7 +124,11 @@ export async function priorLanguageVerdicts(
       ? []
       : prisma.spanishAssessmentRecord.findMany({
           where: { personId: { in: personIds } },
-          select: { personId: true, score: true, verified: true, term: true, termRank: true, updatedAt: true },
+          // One row per person: the newest TERM, not the newest write. See the
+          // fallback note on source 3 above for why updatedAt cannot be used here.
+          distinct: ["personId"],
+          orderBy: [{ termRank: "desc" }, { createdAt: "desc" }],
+          select: { personId: true, score: true, verified: true, term: true, createdAt: true },
         }),
   ]);
 
@@ -123,6 +145,17 @@ export async function priorLanguageVerdicts(
     const forApplicant = out.get(applicantId);
     if (!forApplicant) return;
     forApplicant.set(verdict.language, keepLater(forApplicant.get(verdict.language), verdict));
+  }
+
+  /**
+   * Fills in a language ONLY when member/application left it unset. Used for
+   * history, which must never outrank either on a timestamp (see source 3's
+   * doc comment above).
+   */
+  function putFallback(applicantId: string, verdict: LanguageVerdict): void {
+    const forApplicant = out.get(applicantId);
+    if (!forApplicant || forApplicant.has(verdict.language)) return;
+    forApplicant.set(verdict.language, verdict);
   }
 
   for (const r of memberRows) {
@@ -166,14 +199,20 @@ export async function priorLanguageVerdicts(
   for (const r of historyRows) {
     if (!r.personId) continue;
     for (const applicantId of byPerson.get(r.personId) ?? []) {
-      put(applicantId, {
+      putFallback(applicantId, {
         language: SPANISH,
         // An imported row with no explicit outcome still records that INTP sat
         // down with this person, which is the fact that spares them a re-assessment.
         verified: r.verified ?? true,
         score: r.score,
         note: null,
-        assessedAt: r.updatedAt,
+        // Display only now: putFallback never compares this against another
+        // source's timestamp (see source 3's doc comment above). createdAt is
+        // when this row entered Hub, the closest thing history has to a stable
+        // "assessed at" -- unlike updatedAt it does not get bumped by a
+        // same-term re-import. `term` (below) is the actual academic-term label
+        // and is what should be shown to a reviewer, not this timestamp.
+        assessedAt: r.createdAt,
         assessedById: null,
         source: "history",
         applicationId: null,

@@ -143,6 +143,64 @@ describe("priorLanguageVerdicts", () => {
 
     const map = await priorLanguageVerdicts([applicant.id]);
 
-    expect(map.get(applicant.id)?.size ?? 0).toBe(0);
+    expect(map.has(applicant.id)).toBe(true);
+    expect(map.get(applicant.id)!.size).toBe(0);
+  });
+
+  // A re-import (scripts/import-spanish-assessments.ts, documented safe to
+  // re-run) upserts and bumps updatedAt on every matching row regardless of
+  // which term it represents. termRank, not updatedAt, is the only signal
+  // that says which of a person's assessment rows is the newest term.
+  it("orders history by termRank rather than updatedAt, so a re-import cannot outrank a newer term", async () => {
+    const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "", name: "Ada Lovelace", personId: person.id,
+        term: "Spring 2019", termRank: 20191, score: 3, verified: true,
+        updatedAt: new Date("2026-06-01"),
+      },
+    });
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "", name: "Ada Lovelace", personId: person.id,
+        term: "Fall 2024", termRank: 20243, score: 5, verified: true,
+        updatedAt: new Date("2020-01-01"),
+      },
+    });
+    const { applicant } = await applicantIn("Fall 2026", "ada@yale.edu", person.id);
+
+    const map = await priorLanguageVerdicts([applicant.id]);
+
+    expect(map.get(applicant.id)?.get("es")).toMatchObject({
+      score: 5, term: "Fall 2024", source: "history",
+    });
+  });
+
+  // History is a fallback, not a competitor. PersonLanguage is the current
+  // authoritative record (the badge backfill copies history INTO it), so a
+  // live member verdict must win even when a history row's updatedAt is
+  // newer, which is exactly what a re-import produces.
+  it("keeps the member verdict over a history row with a newer updatedAt", async () => {
+    const person = await prisma.person.create({ data: { name: "Ada Lovelace" } });
+    await prisma.personLanguage.create({
+      data: {
+        personId: person.id, language: "es", verified: true,
+        verifiedAt: new Date("2020-01-01"), verifiedById: "assessor", score: 4,
+      },
+    });
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "", name: "Ada Lovelace", personId: person.id,
+        term: "Spring 2019", termRank: 20191, score: 2, verified: true,
+        updatedAt: new Date("2026-06-01"),
+      },
+    });
+    const { applicant } = await applicantIn("Fall 2026", "ada@yale.edu", person.id);
+
+    const map = await priorLanguageVerdicts([applicant.id]);
+
+    expect(map.get(applicant.id)?.get("es")).toMatchObject({
+      score: 4, source: "member",
+    });
   });
 });

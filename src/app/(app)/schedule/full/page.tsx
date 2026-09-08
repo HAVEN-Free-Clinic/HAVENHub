@@ -16,7 +16,7 @@ import { displayTodayKey } from "@/platform/dates/today";
 import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
-import { CapabilityBadges } from "@/modules/schedule/components/capability-badges";
+import { CapabilityBadges } from "@/platform/ui/capability-badges";
 import { formatCalendarDate } from "@/platform/dates";
 import { loadClearedSet } from "@/platform/clearance";
 import { PersonName } from "@/platform/ui/person-name";

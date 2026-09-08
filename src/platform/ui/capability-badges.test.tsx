@@ -194,3 +194,32 @@ describe("CapabilityBadges Spanish proficiency bar", () => {
     expect(host.textContent).not.toContain("HT+");
   });
 });
+
+describe("one badge, every surface that staffs an interpreter", () => {
+  // The point of moving this out of src/modules/schedule: the admin roster
+  // could not import it at all (modules may not import each other), so it grew
+  // a third hand-rolled copy. These pin the two properties that made the copies
+  // wrong, so a future copy has something to fail against.
+
+  it("marks a below-bar speaker the same way wherever it is rendered", () => {
+    // The builder rendered a bare "ES" for exactly this person while
+    // /schedule/full rendered "ES 2" in warning tone -- on the one screen where
+    // somebody assigns an interpreter to a patient.
+    const host = render(
+      { verifiedLanguages: ["es"], spanishScore: 2, licensedRN: false },
+      { minInterpreterScore: 4 },
+    );
+    expect(host.textContent).toContain("ES 2");
+    expect(accessibleText(host)).toContain("below this department's bar of 4");
+  });
+
+  it("degrades to a plain verified badge when no score is supplied", () => {
+    // What the admin roster passes: it is not department-scoped and has no
+    // score to hand, and an unscored badge is exactly what that cell showed
+    // before. The point is that it is the SAME component, so it gains the
+    // accessible name the hand-rolled copy never had.
+    const host = render({ verifiedLanguages: ["es"], licensedRN: false });
+    expect(accessibleText(host)).toContain("Verified: Spanish");
+    expect(accessibleText(host)).not.toContain("below this department");
+  });
+});

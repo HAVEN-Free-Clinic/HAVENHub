@@ -27,6 +27,7 @@ import { ClinicDatesEditor } from "@/modules/admin/components/clinic-dates-edito
 import { TermForm } from "@/modules/admin/components/term-form";
 import { RosterPanel } from "@/modules/admin/components/roster-panel";
 import { OnboardingStepsEditor } from "@/modules/onboarding/components/onboarding-steps-editor";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import {
   listStepConfig,
   setStepConfig,
@@ -275,6 +276,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
   return (
     <div className="space-y-10">
+      <SetBreadcrumbLeaf label={term.name} />
       <PageHeader
         title={term.name}
         description={`${term.code} · ${term._count.memberships} member(s)`}

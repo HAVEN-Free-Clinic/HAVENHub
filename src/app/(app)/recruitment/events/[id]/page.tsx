@@ -25,6 +25,7 @@ import {
   updateEventAction,
 } from "../actions";
 import { KIND_LABELS, kindTone } from "../kind-labels";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export function generateMetadata() {
   return buildPageMetadata({
@@ -50,6 +51,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="max-w-4xl space-y-6">
+      <SetBreadcrumbLeaf label={event.title} />
       <PageHeader
         title={event.title}
         description={`${KIND_LABELS[event.kind]} · ${formatDateTime(event.startsAt, zone)}${

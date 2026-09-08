@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { buildBreadcrumbs, type BreadcrumbModule } from "./breadcrumb-trail";
-import { useBreadcrumbOverride } from "./breadcrumb-context";
+import { useBreadcrumbLeaf, useBreadcrumbOverride } from "./breadcrumb-context";
 
 /** Compare two app paths ignoring a trailing slash (buildBreadcrumbs strips one). */
 function samePath(href: string, pathname: string) {
@@ -16,7 +16,10 @@ export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
   // A page may supply a rich trail (entity names, dynamic sections) via context.
   // Otherwise fall back to the route-derived trail from the module registry.
   const override = useBreadcrumbOverride(pathname);
-  const crumbs = override ?? buildBreadcrumbs(pathname, modules);
+  // Most detail pages need only the record's name; the registry already knows
+  // the rest of the trail. See SetBreadcrumbLeaf.
+  const leaf = useBreadcrumbLeaf(pathname);
+  const crumbs = override ?? buildBreadcrumbs(pathname, modules, leaf ?? undefined);
 
   // Nothing useful to show on the hub root (just "Hub").
   if (crumbs.length <= 1) return null;

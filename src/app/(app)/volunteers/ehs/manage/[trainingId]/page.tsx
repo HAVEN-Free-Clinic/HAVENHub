@@ -11,6 +11,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
 import { getTrainingForEdit } from "@/platform/ehs/services/trainings";
 import { updateTrainingAction, setTrainingDepartmentsAction } from "../actions";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 export default async function EditEhsTrainingPage({
   params,
@@ -28,6 +29,7 @@ export default async function EditEhsTrainingPage({
 
   return (
     <>
+      <SetBreadcrumbLeaf label={training.name} />
       <PageHeader
         title={training.name}
         description="EHS training requirement."

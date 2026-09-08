@@ -74,6 +74,7 @@
  */
 
 import { PageHeader } from "@/platform/ui/page-header";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Field, Textarea } from "@/platform/ui/input";
@@ -249,6 +250,9 @@ export async function TicketDetail({
 
   return (
     <div className="space-y-8">
+      {/* "#412" rather than the subject: the subject is already the h1 right
+          below, and a long one would push every crumb above it off the row. */}
+      <SetBreadcrumbLeaf label={`#${detail.number}`} />
       <PageHeader
         title={detail.subject}
         description={`#${detail.number} · ${CATEGORY_LABELS[detail.category]} · Submitted ${formatDateOnly(

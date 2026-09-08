@@ -22,6 +22,7 @@ import { cardClasses } from "@/platform/ui/card";
 import { Input } from "@/platform/ui/input";
 import { TemplateEditorForm } from "@/modules/admin/components/template-editor-form";
 import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 type Props = {
   params: Promise<{ key: string }>;
@@ -126,6 +127,7 @@ export default async function EditTemplatePage({ params }: Props) {
 
   return (
     <div className="space-y-6">
+      <SetBreadcrumbLeaf label={t.name} />
       <PageHeader
         title={t.name}
         description={t.hasOverride ? "Customized" : "Using default"}

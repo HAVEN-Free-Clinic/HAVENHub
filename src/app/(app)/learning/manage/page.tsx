@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -6,6 +5,11 @@ import { Input } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { listCourses } from "@/modules/learning/services/courses";
 import { createCourseAction } from "./actions";
+import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TextLink } from "@/platform/ui/text-link";
+import { Badge } from "@/platform/ui/badge";
+import { ActiveBadge } from "@/platform/ui/active-badge";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 export default async function ManageCoursesPage() {
   await requirePermission("learning.manage_courses");
@@ -22,24 +26,50 @@ export default async function ManageCoursesPage() {
           </form>
         </Card>
         {courses.length === 0 ? (
-          <Card pad={false} className="px-4 py-3 text-sm text-muted-foreground">
-            No courses yet. Create your first using the form above.
+          <Card pad={false}>
+            <ListEmpty
+              filtered={false}
+              noun="courses"
+              emptyDescription="Create your first using the form above."
+            />
           </Card>
         ) : (
-          <ul className="space-y-2">
-            {courses.map((c) => (
-              <li key={c.id}>
-                <Link href={`/learning/manage/${c.id}`} className="block">
-                  <Card interactive pad={false} className="flex items-center justify-between px-4 py-3">
-                    <span>{c.title}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {c.hasPackage ? "package uploaded" : "no package"}{c.isActive ? "" : " · inactive"}{c.assignToAll ? " · all depts" : ""}
-                    </span>
-                  </Card>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Course</TH>
+                <TH>Package</TH>
+                <TH>Assignment</TH>
+                <TH>Status</TH>
+              </TR>
+            </THead>
+            <tbody>
+              {courses.map((c) => (
+                <TR key={c.id}>
+                  <TD>
+                    <TextLink href={`/learning/manage/${c.id}`} className="font-medium">
+                      {c.title}
+                    </TextLink>
+                  </TD>
+                  {/* Four facts that used to run together in one sentence
+                      ("package uploaded · inactive · all depts"), which is the
+                      one shape a reader cannot scan a column of. Same states,
+                      same Badges /learning already gives them. */}
+                  <TD>
+                    <Badge tone={c.hasPackage ? "success" : "warning"}>
+                      {c.hasPackage ? "Uploaded" : "No package"}
+                    </Badge>
+                  </TD>
+                  <TD className="text-muted-foreground">
+                    {c.assignToAll ? "All departments" : "By department"}
+                  </TD>
+                  <TD>
+                    <ActiveBadge active={c.isActive} />
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
         )}
       </div>
     </>

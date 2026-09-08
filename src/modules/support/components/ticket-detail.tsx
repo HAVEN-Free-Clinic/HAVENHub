@@ -255,7 +255,7 @@ export async function TicketDetail({
           detail.createdAt,
           zone
         )}`}
-        action={<SupportStatusBadge status={detail.status} />}
+        status={<SupportStatusBadge status={detail.status} />}
       />
 
       {isLinked && (

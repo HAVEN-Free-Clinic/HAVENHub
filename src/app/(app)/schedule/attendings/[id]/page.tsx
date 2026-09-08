@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requireModuleAccess } from "@/platform/auth/session";
 import {
   getAttending,
@@ -109,7 +110,11 @@ export default async function EditAttendingPage({ params, searchParams }: PagePr
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`Edit ${attending.scheduleName}`} description={attending.fullName} />
+      <PageHeader
+        title={attending.scheduleName}
+        description={attending.fullName}
+        status={<ActiveBadge active={attending.isActive} />}
+      />
       {/* updateAction redirects here with ?error= on a domain failure. */}
       {error && <Alert tone="error">{error}</Alert>}
       {message && <Alert tone="success">{message}</Alert>}

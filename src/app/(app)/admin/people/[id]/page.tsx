@@ -231,7 +231,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
       <PageHeader
         title={person.name}
         description={description}
-        action={
+        status={
           person.status === "ACTIVE" ? (
             <Badge tone="success">Active</Badge>
           ) : (

@@ -246,7 +246,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       <PageHeader
         title={term.name}
         description={`${term.code} · ${term._count.memberships} member(s)`}
-        action={statusBadge}
+        status={statusBadge}
       />
 
       {/* Lifecycle section */}

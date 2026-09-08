@@ -77,7 +77,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
         description={`${iv.departmentCode} director interview`}
-        action={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
+        status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
       />
       {canManage && (
         <>

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { devLogin } from "./auth";
 
 async function devSignIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
@@ -188,17 +189,33 @@ test("navigating to another module closes an open dropdown", async ({ page }) =>
 });
 
 test("the Schedule dropdown offers no link that bounces to /no-access", async ({ page }) => {
-  // Builder, Approvals and Attendings gate on a data-driven capability the
-  // global nav cannot evaluate (dynamicGate in the registry), so they are
-  // deliberately absent here even for a full admin who can open all three.
-  await devSignIn(page);
-  await page.goto("/volunteers");
+  // Builder, Approvals and Attendings gate on a data-driven capability, so the
+  // registry marks them dynamicGate and the global nav shows them only to a
+  // viewer the app layout resolved them TRUE for. This is the other half of
+  // that: a plain volunteer holds schedule.view (every seeded volunteer role
+  // does) and can open none of the three, so none of them may appear.
+  //
+  // The guarantee used to be enforced by dropping the links for EVERYONE, which
+  // also hid them from the admin who could open them -- see the case below.
+  await devLogin(page, "dev.volunteer@yale.edu");
+  await page.goto("/schedule");
   await chevron(page, "Schedule").click();
   const schedulePanel = panel(page, "Schedule");
   await expect(schedulePanel.getByRole("link", { name: "Full schedule" })).toBeVisible();
   await expect(schedulePanel.getByRole("link", { name: "Builder" })).toHaveCount(0);
   await expect(schedulePanel.getByRole("link", { name: "Attendings" })).toHaveCount(0);
   await expect(schedulePanel.getByRole("link", { name: "Approvals" })).toHaveCount(0);
+});
+
+test("the Schedule dropdown DOES offer a dynamically-gated link to someone who can open it", async ({ page }) => {
+  // The same three links, for a viewer the gates resolve true for. Together
+  // with the case above this pins both directions: the dropdown mirrors what
+  // the schedule tab row would show, rather than being permanently blind to it.
+  await devSignIn(page);
+  await page.goto("/volunteers");
+  await chevron(page, "Schedule").click();
+  const schedulePanel = panel(page, "Schedule");
+  await expect(schedulePanel.getByRole("link", { name: "Builder", exact: true })).toBeVisible();
 });
 
 test("sign out still works from the account menu", async ({ page }) => {

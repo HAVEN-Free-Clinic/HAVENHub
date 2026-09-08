@@ -40,8 +40,8 @@ async function submitReport(
   description: string,
   subjects: ReportSubject[] = []
 ): Promise<string> {
-  await page.goto("/incidents");
-  await page.waitForURL((url) => url.pathname === "/incidents");
+  await page.goto("/incidents/new");
+  await page.waitForURL((url) => url.pathname === "/incidents/new");
 
   // Section 1: at least one concern type.
   await page.locator('input[name="concernTypes"]').first().check();
@@ -335,4 +335,17 @@ test("multi-person report: director links two people, admin approves the single 
 
   await confirmButtonClick(strikeRow, "Delete");
   await expect(strikeRow).not.toBeVisible();
+});
+
+test("the incidents module root sends a reviewer to the queue, not into a blank report", async ({ page }) => {
+  // Every up-link in this module -- the toolbar chip, the "Incidents"
+  // breadcrumb on a report, the first tab -- points at the module root. It used
+  // to BE the concern form, so stepping back from a case landed the reviewer in
+  // a half-built Professional Standards Incident Report, which reads like a
+  // half-filed report rather than a way out.
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/incidents");
+  await page.waitForURL((url) => url.pathname === "/incidents/review");
+  // The form is still one click away, under its own name.
+  await expect(page.getByRole("link", { name: "Report a concern" })).toBeVisible();
 });

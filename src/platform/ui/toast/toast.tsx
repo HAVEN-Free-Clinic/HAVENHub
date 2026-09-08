@@ -257,6 +257,19 @@ function ToastItem({
  * The bottom-center lane. Anything passed as `children` renders in the same flex
  * column, directly above the toast stack.
  *
+ * ## Why the lane sits higher on a phone
+ *
+ * The help launcher is a 56px bubble at `bottom-6 right-6`, so it occupies the
+ * bottom-right 80px square, and it shares this lane's z-50. A toast is
+ * `max-w-sm`: from `sm` up, a centred pill cannot reach that corner, but on a
+ * 375px phone it spans nearly the full width and lands underneath it, with the
+ * launcher painting over the toast's right end and its dismiss target.
+ *
+ * `bottom-24` clears the launcher's 80px on small screens only. Unlike the
+ * hand-computed offset described below, this one is not a guess about content
+ * height: it is measured against a fixed-size launcher, and the thing that
+ * varies (the toast stack) grows upward from this edge.
+ *
  * That slot exists for the inactivity warning (R12). Both it and the toasts are
  * bottom-center fixed elements, and an earlier version kept them apart by giving
  * the warning a hand-computed `bottom-*` offset sized against the tallest stack
@@ -279,7 +292,7 @@ export function ToastViewport({ children }: { children?: ReactNode }) {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex flex-col items-center gap-2 px-4 sm:bottom-4">
       {children}
       {visible.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={dismiss} />

@@ -153,11 +153,11 @@ describe("filterAccessibleModules", () => {
     expect(recruitment?.nav).toContainEqual({ label: "My interviews", href: "/recruitment/interviews" });
   });
 
-  it("omits dynamicGate items from the module nav the global dropdown renders", () => {
+  it("omits dynamicGate items when the caller resolved no gates", () => {
     // The global nav cannot evaluate a data-driven gate (e.g. "manages at least
-    // one schedule department"), so offering the link would risk a bounce to
-    // /no-access. Under-inclusive on purpose: the tab is still one hop away on
-    // the module's own page, where the layout CAN resolve the gate.
+    // one schedule department") on its own, so offering the link would risk a
+    // bounce to /no-access. This is what a caller that supplies no resolutions
+    // still gets.
     const modules = [
       mod({
         id: "schedule",
@@ -179,6 +179,76 @@ describe("filterAccessibleModules", () => {
     // Even a viewer holding every permission does not get the dynamicGate items.
     const result = filterAccessibleModules(modules, new Set(["*"]));
     expect(result[0].nav).toEqual([{ label: "My schedule", href: "/schedule" }]);
+  });
+
+  it("keeps a dynamicGate item the caller resolved, in its registry position", () => {
+    // A department director whose whole job is /schedule/builder could not
+    // reach it from the toolbar or Cmd+K: the link existed only in the module's
+    // own tab row. The app layout CAN resolve these gates (it already loads the
+    // request-cached assignment context they read), so it passes the hrefs it
+    // resolved and they survive.
+    const modules = [
+      mod({
+        id: "schedule",
+        title: "Schedule",
+        accessPermission: "schedule.view",
+        permissions: ["schedule.view"],
+        nav: [
+          { label: "My schedule", href: "/schedule" },
+          { label: "Builder", href: "/schedule/builder", dynamicGate: true },
+          { label: "Coverage", href: "/schedule/coverage", dynamicGate: true },
+          { label: "Specialties", href: "/schedule/specialties" },
+        ],
+      }),
+    ];
+    const result = filterAccessibleModules(
+      modules,
+      new Set(["*"]),
+      new Set(),
+      {},
+      new Set(["/schedule/builder"]),
+    );
+    // Builder is back, Coverage (not resolved) stays out...
+    expect(result[0].nav.map((n) => n.href)).toEqual([
+      "/schedule",
+      "/schedule/builder",
+      "/schedule/specialties",
+    ]);
+    // ...and Builder sits where the registry put it, not appended at the end.
+    // That is why this rides the registry nav rather than extraNavItems, which
+    // appends: the dropdown would otherwise list the schedule tabs in a
+    // different order from the tab row they mirror.
+    expect(result[0].nav[1]).toEqual({ label: "Builder", href: "/schedule/builder" });
+  });
+
+  it("does not admit a resolved gate the viewer lacks the permission for", () => {
+    // resolvedGates lifts the dynamicGate drop and nothing else. The item's own
+    // `permission` is still applied first, by filterNavItems.
+    const modules = [
+      mod({
+        id: "schedule",
+        title: "Schedule",
+        accessPermission: "schedule.view",
+        permissions: ["schedule.view", "schedule.manage_requests"],
+        nav: [
+          { label: "My schedule", href: "/schedule" },
+          {
+            label: "Approvals",
+            href: "/schedule/requests",
+            permission: "schedule.manage_requests",
+            dynamicGate: true,
+          },
+        ],
+      }),
+    ];
+    const result = filterAccessibleModules(
+      modules,
+      new Set(["schedule.view"]),
+      new Set(),
+      {},
+      new Set(["/schedule/requests"]),
+    );
+    expect(result[0].nav.map((n) => n.href)).toEqual(["/schedule"]);
   });
 
   it("lands a module admitted only via extraIds on its first available nav item, not its root", () => {

@@ -45,9 +45,13 @@ const DEBOUNCE_MS = 200;
  * Hardcoded rather than read from the registry on purpose: this is a "use
  * client" component and must not pull the server registry (and PrismaClient
  * behind it) into the browser bundle. Safe to append unconditionally, with no
- * gate of its own, because both destinations are open to every signed-in
- * person: My Info's manifest declares no accessPermission, and /training gates
- * on requirePersonSession() alone.
+ * gate of its own, because all three destinations are open to every signed-in
+ * person: My Info's manifest declares no accessPermission, and /training and
+ * /notifications gate on requirePersonSession() alone.
+ *
+ * Notifications is the third for the same reason as the other two: the bell in
+ * the toolbar was the ONLY way in, so a member who wanted their inbox had to
+ * know it was behind an icon. Typing "notifications" found nothing.
  *
  * The module root doubles as the My Info entry. matchPages only skips a
  * duplicate href once an earlier candidate for it actually matched, so
@@ -60,6 +64,7 @@ const PERSONAL_PAGES: NavModule = {
   nav: [
     { label: "My Info", href: "/my-info" },
     { label: "Training", href: "/training" },
+    { label: "Notifications", href: "/notifications" },
   ],
 };
 

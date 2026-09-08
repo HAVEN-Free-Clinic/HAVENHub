@@ -29,6 +29,21 @@ test("module dropdown reaches a sub-page in one hop from another module", async 
   await expect(page).toHaveURL(/\/admin\/contract$/);
 });
 
+test("schedule dropdown reaches the Builder, whose gate the global nav cannot run", async ({ page }) => {
+  // The Builder gates on "manages at least one schedule department", which no
+  // permission string expresses, so the registry marks it dynamicGate and the
+  // global nav used to drop it. A department director whose whole job is the
+  // Builder had to land on /schedule first and find the tab. The app layout now
+  // resolves that gate and hands the result to the nav, so the link is one hop
+  // away from anywhere. (j.carney manages schedule departments in the seed --
+  // schedule.spec.ts drives the Builder as this same user.)
+  await devSignIn(page);
+  await page.goto("/admin");
+  await chevron(page, "Schedule").click();
+  await panel(page, "Schedule").getByRole("link", { name: "Builder", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/builder");
+});
+
 test("account menu reaches Training, which has no other nav entry", async ({ page }) => {
   await devSignIn(page);
   await page.goto("/schedule");

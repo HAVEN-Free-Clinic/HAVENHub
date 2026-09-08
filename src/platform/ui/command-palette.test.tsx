@@ -50,6 +50,11 @@ describe("pageIndex", () => {
     expect(hits.some((h) => h.href === "/training" && h.group === "Personal")).toBe(true);
   });
 
+  it("finds Notifications, whose only other route is the toolbar bell", () => {
+    const hits = matchPages(pageIndex(ITEMS), "notifications");
+    expect(hits.some((h) => h.href === "/notifications" && h.group === "Personal")).toBe(true);
+  });
+
   it("finds My Info, which filterAccessibleModules drops as a personal module", () => {
     const hits = matchPages(pageIndex(ITEMS), "my info");
     expect(hits.some((h) => h.href === "/my-info")).toBe(true);

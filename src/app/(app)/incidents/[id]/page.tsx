@@ -215,7 +215,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
     <div className="max-w-2xl space-y-6">
       <PageHeader
         title={`Report #${report.number}`}
-        action={<Badge tone={STATUS_TONES[report.status]}>{statusLabel(report.status, isOwner)}</Badge>}
+        status={<Badge tone={STATUS_TONES[report.status]}>{statusLabel(report.status, isOwner)}</Badge>}
       />
 
       <Card>

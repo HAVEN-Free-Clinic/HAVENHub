@@ -85,8 +85,8 @@ export default async function EditAttendingSpecialtyPage({ params }: PageProps) 
   return (
     <div className="space-y-8">
       <PageHeader
-        title={`Edit ${specialty.code}`}
-        description="Code and name can both be changed; everything that points at this specialty follows the row, not the code."
+        title={specialty.name}
+        description={`${specialty.code} · code and name can both be changed; everything that points at this specialty follows the row, not the code.`}
       />
       <AttendingSpecialtyForm action={updateAction} mode="edit" specialty={specialty} />
 

@@ -50,7 +50,7 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 
 | Export | Import path | Use for |
 |---|---|---|
-| `PageHeader` | `@/platform/ui/page-header` | Top-of-page `<h1>` with optional description and action slot. |
+| `PageHeader` | `@/platform/ui/page-header` | Top-of-page `<h1>` with optional description, a `status` slot for the record's own state (a Badge, rendered as a chip beside the title) and an `action` slot for controls. Keep them apart: the top-right is the position users learn as "the thing this page lets me do". |
 | `SectionHeader` | `@/platform/ui/section-header` | Subsection heading. `level="eyebrow"` (default) renders the small uppercase label; `level="title"` renders a larger non-uppercase heading. Use `as="h3"` inside an `h2` context. |
 | `TextLink` | `@/platform/ui/text-link` | An inline link in running text. Supplies colour, underline and the focus ring; sets NO font size, so pass `size` (`inherit` / `xs` / `sm`) rather than a class. `external` renders a plain `<a>` with `target="_blank"` and the safe `rel` pair. Not for a link-styled button, and not for a row-title link that opens a record. |
 | `FilterBar` | `@/platform/ui/filter-bar` | The filter row above a list. Wraps `NavForm`, owns the row layout, and renders the outline submit plus a `Clear` link. Props: `action`, `clearHref` (pass only when a filter is applied), `submitLabel` (defaults to "Filter"), `className` for outer spacing only. |

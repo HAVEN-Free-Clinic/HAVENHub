@@ -206,7 +206,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
             .filter(Boolean)
             .join(" · ")
         }
-        action={
+        status={
           person.status === "ACTIVE" ? (
             <Badge tone="success">Active</Badge>
           ) : (

@@ -278,7 +278,7 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       <PageHeader
         title={term.name}
         description={`${term.code} · ${term._count.memberships} member(s)`}
-        action={statusBadge}
+        status={statusBadge}
       />
 
       {/* Details: the term's own identity and range. TermForm has taken a

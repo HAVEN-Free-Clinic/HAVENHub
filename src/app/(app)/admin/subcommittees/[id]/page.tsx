@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requirePermission } from "@/platform/auth/session";
 import {
   getSubcommittee, updateSubcommittee,
@@ -39,7 +40,11 @@ export default async function EditSubcommitteePage({ params }: PageProps) {
 
   return (
     <div className="space-y-8">
-      <PageHeader title={`Edit ${subcommittee.name}`} description="Toggle Active to deactivate (soft remove)." />
+      <PageHeader
+        title={subcommittee.name}
+        description="Toggle Active to deactivate (soft remove)."
+        status={<ActiveBadge active={subcommittee.isActive} />}
+      />
       <SubcommitteeForm action={updateAction} mode="edit" subcommittee={subcommittee} />
     </div>
   );

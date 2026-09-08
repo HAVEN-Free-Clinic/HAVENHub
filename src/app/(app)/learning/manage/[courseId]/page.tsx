@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requirePermission } from "@/platform/auth/session";
 import { scopeEditorDepartments } from "@/platform/departments";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -50,7 +51,7 @@ export default async function EditCoursePage({
 
   return (
     <>
-      <PageHeader title={`Edit: ${course.title}`} />
+      <PageHeader title={course.title} status={<ActiveBadge active={course.isActive} />} />
       <div className="mt-6 grid max-w-3xl gap-8">
         {course.isActive && isAssigned && !hasPackage && (
           <Alert tone="warning">

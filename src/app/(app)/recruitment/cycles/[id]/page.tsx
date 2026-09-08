@@ -147,7 +147,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
       <PageHeader
         title={cycle.title}
-        action={<Badge tone={statusTone[cycle.status as keyof typeof statusTone] ?? "default"}>{cycle.status}</Badge>}
+        status={<Badge tone={statusTone[cycle.status as keyof typeof statusTone] ?? "default"}>{cycle.status}</Badge>}
       />
 
       <Card>

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import {
@@ -80,7 +81,11 @@ export default async function EditDepartmentPage({ params }: PageProps) {
 
   return (
     <div className="space-y-8">
-      <PageHeader title={`Edit ${department.code}`} description="Code is permanent. Toggle Active to deactivate (soft remove)." />
+      <PageHeader
+        title={department.name}
+        description={`${department.code} · code is permanent. Toggle Active to deactivate (soft remove).`}
+        status={<ActiveBadge active={department.isActive} />}
+      />
       <DepartmentForm action={updateAction} mode="edit" department={department} />
 
       <section className="space-y-3">

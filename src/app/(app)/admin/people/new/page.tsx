@@ -42,7 +42,7 @@ export default async function NewPersonPage() {
         title="Add person"
         description={`Create a new person in ${appName}.`}
       />
-      <PersonForm action={createAction} />
+      <PersonForm mode="create" action={createAction} />
     </div>
   );
 }

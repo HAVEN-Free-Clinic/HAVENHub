@@ -281,4 +281,31 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
     expect(row.selfReported).toBe(true);
     expect(row.verified).toBe(true);
   });
+
+  // The new-person path for the digest-safety property covered above only for
+  // a reactivation (seedExistingPerson): no PersonLanguage row exists for this
+  // person before promotion, so carryForwardApplicationAssessments is the one
+  // creating it, moments before claimLanguage's own findUnique runs against
+  // the very row it just created. claimLanguage's `created` flag comes from a
+  // read taken BEFORE its own upsert (see promotion.ts), so it must still read
+  // `existing !== null` and report `created: false` here -- otherwise this
+  // claimed-and-assessed language wrongly reaches the reviewer digest for a
+  // brand-new member.
+  it("does not digest a claimed-and-assessed language for a brand-new person", async () => {
+    const ctx = await seed();
+    const reviewer = await seedReviewer();
+    await prisma.applicationLanguageAssessment.create({
+      data: {
+        applicationId: ctx.application.id, language: "es", verified: true,
+        verifiedById: ctx.assessor.id, score: 4,
+      },
+    });
+
+    await promoteContracts([ctx.contract.id], ctx.srr.id);
+
+    const digested = await prisma.notification.count({
+      where: { personId: reviewer.id, type: "volunteers.language_claimed" },
+    });
+    expect(digested).toBe(0);
+  });
 });

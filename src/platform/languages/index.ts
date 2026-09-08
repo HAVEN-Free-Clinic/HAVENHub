@@ -112,8 +112,12 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
   // verdict, so priorLanguageVerdicts does not suppress them, and without this
   // the reviewer sees two rows for the same (person, language) with two
   // different write paths behind them. Keep the applicant row -- it is the one
-  // blocking a decision timeline -- and drop the member row; carry-forward
-  // settles PersonLanguage at promotion regardless.
+  // blocking a decision timeline -- and drop the member row. This only needs
+  // to hold while the application is still pending: if it is accepted,
+  // carry-forward settles PersonLanguage at promotion; if it is rejected or
+  // withdrawn, it drops out of applicantRows (listApplicantLanguageQueue is
+  // derived live) and the member row is no longer suppressed on the next read,
+  // so it is back in the queue rather than settled by carry-forward.
   const linkedApplicantIds = [...new Set(applicantRows.map((r) => r.applicantId))];
   const linkedApplicants = linkedApplicantIds.length === 0
     ? []

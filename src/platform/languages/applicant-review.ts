@@ -22,9 +22,12 @@ export type LanguageVerdict = {
   language: string;
   /**
    * The OUTCOME, when one was recorded. Null means a human's involvement is on
-   * file (an imported history row) but no yes/no outcome was: import-spanish-
-   * assessments.ts never sets it ("verified is decided in Hub by a reviewer,
-   * never by the import"), so every imported row carries this as null forever.
+   * file but no yes/no outcome was. This is not just a legacy-import artifact:
+   * import-spanish-assessments.ts never sets this column ("verified is decided
+   * in Hub by a reviewer, never by the import"), so every imported row carries
+   * it as null forever, but addPersonToSpanishHistory (in
+   * ./spanish-assessments) writes it as null too for a history row a Hub
+   * reviewer hand-enters today, so nulls keep arriving long after the import.
    * Never coerce this to true or false; a reader that needs a boolean must
    * handle null as its own state, not "verified" and not "not verified".
    */
@@ -218,14 +221,17 @@ export async function priorLanguageVerdicts(
     for (const applicantId of byPerson.get(r.personId) ?? []) {
       putFallback(applicantId, {
         language: SPANISH,
-        // Passed through as-is, including null. import-spanish-assessments.ts
-        // never sets this column ("verified is decided in Hub by a reviewer,
-        // never by the import"), so every imported row that never went through
-        // a Hub reviewer carries verified = null here. That still records that
-        // INTP sat down with this person once, which is the fact that spares
-        // them a re-assessment (existence suppresses the queue row regardless
-        // of this value) -- but it must never be coerced to true, or the card
-        // renders a "Verified" badge nobody actually recorded.
+        // Passed through as-is, including null, which is not exclusive to the
+        // legacy import: import-spanish-assessments.ts never sets this column
+        // ("verified is decided in Hub by a reviewer, never by the import"),
+        // so every imported row carries verified = null, but a row a Hub
+        // reviewer hand-enters today through addPersonToSpanishHistory (in
+        // ./spanish-assessments) carries it as null too. Either way, that
+        // still records that INTP sat down with this person once, which is
+        // the fact that spares them a re-assessment (existence suppresses the
+        // queue row regardless of this value) -- but it must never be coerced
+        // to true, or the card renders a "Verified" badge nobody actually
+        // recorded.
         verified: r.verified,
         score: r.score,
         note: null,

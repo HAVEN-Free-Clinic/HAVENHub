@@ -213,13 +213,6 @@ export async function promoteContracts(
         //     application question.
         const claimedLanguages = new Set<string>(application?.languagesClaimed ?? []);
         if (contract.spanishSelfReported) claimedLanguages.add("es");
-        // Only claims that did not already exist are worth telling the
-        // interpreting department about; a returning member re-stating a
-        // language already on their record is not new work for a reviewer.
-        // Collected here and sent after the loop: notifying from inside this
-        // transaction stretched it across a permission resolution plus a
-        // notification write per reviewer, and mailed them about promotions
-        // that then rolled back.
         // Verdicts INTP recorded before the accept decision. Written first, so
         // a language it assessed already carries its verdict onto PersonLanguage
         // before the claim loop below touches the same row.
@@ -239,6 +232,13 @@ export async function promoteContracts(
         // carry-forward above already created reads as `created: false` here
         // and stays out of the new-claims digest -- the carry already IS the
         // fact worth knowing, not a new claim.
+        // Only claims that did not already exist are worth telling the
+        // interpreting department about; a returning member re-stating a
+        // language already on their record is not new work for a reviewer.
+        // Collected here and sent after the loop: notifying from inside this
+        // transaction stretched it across a permission resolution plus a
+        // notification write per reviewer, and mailed them about promotions
+        // that then rolled back.
         const newClaims: Array<{ personId: string; language: string }> = [];
         for (const code of claimedLanguages) {
           const { created } = await claimLanguage(person.id, code, tx);

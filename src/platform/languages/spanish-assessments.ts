@@ -2,9 +2,14 @@
  * The INTP Spanish assessment history: the list of what INTP scored whom, and
  * when, going back to Spring 2012.
  *
- * Two stores, two writers, one contract each. SpanishAssessmentRecord is the
- * per-term history; PersonLanguage.score is the current score that scheduling
- * and the profile badge read.
+ * Two stores: SpanishAssessmentRecord is the per-term history; PersonLanguage.score
+ * is a denormalized copy of it, the current score that scheduling and the
+ * profile badge read. The invariant that matters is that a write meaning to
+ * change what's CURRENT keeps the two in step; a write meaning only to correct
+ * or extend the archival record does not touch PersonLanguage at all. This file
+ * is not a closed list of every writer to either store -- read each function's
+ * own doc comment for what it does and does not touch -- but two write paths
+ * are worth naming because they are the ones that keep the two stores in step:
  *
  *   - recordLanguageAssessment (in ./index), the member-queue write path,
  *     writes BOTH stores itself: PersonLanguage directly, then this module's
@@ -16,6 +21,10 @@
  *     afterward, outside the promotion transaction. Nothing here enforces that
  *     contract; a caller that mirrors an unfiltered or unwritten entry can
  *     still drift PersonLanguage from the history it's supposed to mirror.
+ *
+ * updateSpanishAssessment and addPersonToSpanishHistory, both below, are the
+ * opposite case: each edits or creates a history row only, by design, and
+ * neither one touches PersonLanguage.
  *
  * Everything here was inline in the review page's server actions, which meant
  * none of it could be tested and two buttons on the same page wrote the same

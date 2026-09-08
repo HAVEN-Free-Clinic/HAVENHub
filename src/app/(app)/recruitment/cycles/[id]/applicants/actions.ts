@@ -56,7 +56,9 @@ export async function committeeScoreAction(cycleId: string, applicationId: strin
 
 /**
  * Record the interpreting department's verdict on one language for this
- * application, from the "Assess anyway" form on LanguageAssessmentCard.
+ * application, from the form on LanguageAssessmentCard -- labeled "Assess
+ * anyway" when the on-file verdict came from elsewhere, "Re-record" when it
+ * already belongs to this application.
  *
  * Gated on volunteers.verify_spanish rather than requirePersonSession: this is
  * the same permission the review queue at /volunteers/spanish-review checks,

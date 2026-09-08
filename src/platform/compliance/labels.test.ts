@@ -50,6 +50,22 @@ describe("complianceStatusLabel", () => {
     }
   });
 
+  it("never asks a member for a completion date they cannot supply", () => {
+    // The member label was "Needs completion date" in a warning tone, written on
+    // the belief that this is the one cert state a member can resolve. It is
+    // not: the only entry point is setCompletionDateAsManager, which is
+    // staff-only, and the HIPAA panel the row links to has always said so --
+    // "a compliance manager will set it. No action is needed from you."
+    //
+    // So the summary row demanded an action the page it pointed at denied. The
+    // wording must name a wait, and must not carry the tone reserved for
+    // something the reader has to do.
+    const member = complianceStatusLabel("UNKNOWN_DATE", "member");
+    expect(member.label).toBe("Completion date pending");
+    expect(member.tone).toBe("default");
+    expect(member.label).not.toMatch(/needs|required|action/i);
+  });
+
   it("uses sentence case, not the Title Case the roster maps had drifted into", () => {
     expect(complianceStatusLabel("EXPIRING_SOON", "staff").label).toBe("Expiring soon");
     expect(complianceStatusLabel("UNKNOWN_DATE", "staff").label).toBe("Date unknown");

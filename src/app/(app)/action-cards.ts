@@ -73,7 +73,10 @@ function myInfoCard(input: ActionCardInput): ActionCard {
 }
 
 function scheduleCard(input: ActionCardInput): ActionCard {
-  const base = { key: "schedule", href: "/schedule", icon: CalendarDays, hue: "schedule", label: "Schedule" };
+  // "My schedule", the registry's own name for /schedule, not "Schedule",
+  // which is the MODULE's name and already the toolbar chip's label. The tile
+  // and the tab it lands on should read the same.
+  const base = { key: "schedule", href: "/schedule", icon: CalendarDays, hue: "schedule", label: "My schedule" };
   const d = input.nextShiftDaysAway;
   if (d != null && d <= 2) {
     const sub = d <= 0 ? "Today" : d === 1 ? "Tomorrow" : `In ${d} days`;
@@ -84,7 +87,19 @@ function scheduleCard(input: ActionCardInput): ActionCard {
 }
 
 function swapCard(input: ActionCardInput): ActionCard {
-  const base = { key: "swap", href: "/schedule", icon: Repeat, hue: "swap", label: "Request a swap" };
+  // Not bare /schedule. This tile and scheduleCard above both sat in the same
+  // four-tile feed pointing at the same URL, so half the feed was redundant on
+  // the app's most-visited page -- and the one that named an action delivered
+  // the top of a list, with the request form folded shut inside a disclosure
+  // and nothing on screen saying where it was. The param opens that form (a
+  // hash never reaches the server) and the hash scrolls to it.
+  const base = {
+    key: "swap",
+    href: "/schedule?request=1#request-a-change",
+    icon: Repeat,
+    hue: "swap",
+    label: "Request a swap",
+  };
   if (input.pendingSwapCount > 0) {
     return { ...base, priority: 40, sub: `${input.pendingSwapCount} pending` };
   }

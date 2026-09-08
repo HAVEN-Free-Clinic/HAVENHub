@@ -400,6 +400,27 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
 
   const requestDetails = shiftCard.locator("details");
   await expect(requestDetails).toBeVisible();
+  // Closed by default. That is what made the dashboard's "Request a swap" tile
+  // and the shift reminder's "submitted here" link promise an action and
+  // deliver the top of a list, with the form they named folded shut and
+  // nothing on screen saying where it was.
+  await expect(requestDetails).not.toHaveAttribute("open", /.*/);
+
+  // Both links now carry ?request=1#request-a-change. Asserted HERE, inside the
+  // round trip, because this is the one point in the suite where the volunteer
+  // is guaranteed to have an upcoming shift: a standalone test would pass by
+  // doing nothing whenever they do not.
+  //
+  // The param, not the hash, does the work: a hash never reaches the server and
+  // <details> cannot be opened by :target. The hash only scrolls.
+  await page.goto("/schedule?request=1#request-a-change");
+  await page.waitForURL((url) => url.pathname === "/schedule");
+  await expect(page.locator("#request-a-change details").first()).toHaveAttribute("open", /.*/);
+
+  // Back to the plain page for the rest of the round trip, so what follows
+  // exercises the ordinary click-to-open path.
+  await page.goto("/schedule");
+  await page.waitForURL((url) => url.pathname === "/schedule");
   await requestDetails.locator("summary").click();
 
   // "Request drop" ConfirmButton: first click arms, second click submits.
@@ -833,3 +854,4 @@ test("builder: a grid click saves in place, without reloading or losing scroll",
     }).first(),
   ).toBeVisible({ timeout: 15_000 });
 });
+

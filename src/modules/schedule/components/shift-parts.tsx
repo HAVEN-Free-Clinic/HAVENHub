@@ -63,9 +63,26 @@ const SUMMARY_CLASS =
   "cursor-pointer font-medium text-subtle-foreground hover:text-foreground-soft list-none [&::-webkit-details-marker]:hidden";
 
 /** The collapsed "Request a change" form, holding whichever forms the view offers. */
-export function RequestChangeDisclosure({ children }: { children: ReactNode }) {
+/**
+ * The per-shift "Request a change" disclosure.
+ *
+ * `defaultOpen` exists for one case, mirroring PastShiftsDisclosure below: the
+ * dashboard's "Request a swap" tile and the weekly shift reminder's "submitted
+ * here" link both promise an action and used to deliver the top of a list, with
+ * the form they named folded shut inside this disclosure and nothing on screen
+ * saying so. Both now link to /schedule?request=1#request-a-change; the page
+ * reads the param (a hash never reaches the server) and opens the next shift's
+ * form, and the hash scrolls to it.
+ */
+export function RequestChangeDisclosure({
+  defaultOpen = false,
+  children,
+}: {
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <details className="group">
+    <details className="group" open={defaultOpen}>
       <summary className={`text-xs ${SUMMARY_CLASS}`}>
         <span className="underline underline-offset-2">Request a change</span>
       </summary>

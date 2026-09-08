@@ -5,6 +5,7 @@ import {
   saturdaysBetween,
   listTerms,
   createTerm,
+  updateTerm,
   activateTerm,
   archiveTerm,
   updateClinicDates,
@@ -694,5 +695,118 @@ describe("activateTerm last-admin invariant", () => {
     await activateTerm(ACTOR, next.id);
     expect((await prisma.term.findUniqueOrThrow({ where: { id: next.id } })).status).toBe("ACTIVE");
     expect((await prisma.term.findUniqueOrThrow({ where: { id: live.id } })).status).not.toBe("ACTIVE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateTerm
+// ---------------------------------------------------------------------------
+
+describe("updateTerm", () => {
+  beforeEach(resetDb);
+
+  async function seed() {
+    return createTerm(ACTOR, {
+      code: "SU26",
+      name: "Summer 2026",
+      startDate: "2026-05-30",
+      endDate: "2026-09-26",
+    });
+  }
+
+  it("corrects the code and name, uppercasing and trimming as create does", async () => {
+    const term = await seed();
+    const updated = await updateTerm(ACTOR, term.id, {
+      code: " fa26 ",
+      name: "Fall 2026",
+      startDate: "2026-05-30",
+      endDate: "2026-09-26",
+    });
+    expect(updated.code).toBe("FA26");
+    expect(updated.name).toBe("Fall 2026");
+  });
+
+  it("lets a term keep its own code without colliding with itself", async () => {
+    const term = await seed();
+    const updated = await updateTerm(ACTOR, term.id, {
+      code: "SU26",
+      name: "Summer 2026 (revised)",
+      startDate: "2026-05-30",
+      endDate: "2026-09-26",
+    });
+    expect(updated.name).toBe("Summer 2026 (revised)");
+  });
+
+  it("refuses a code another term already holds, case-insensitively", async () => {
+    const first = await seed();
+    await createTerm(ACTOR, {
+      code: "FA26",
+      name: "Fall 2026",
+      startDate: "2026-09-27",
+      endDate: "2026-12-19",
+    });
+    await expect(
+      updateTerm(ACTOR, first.id, {
+        code: "fa26",
+        name: "Summer 2026",
+        startDate: "2026-05-30",
+        endDate: "2026-09-26",
+      })
+    ).rejects.toBeInstanceOf(TermConflictError);
+  });
+
+  it("leaves clinicDates alone when the range moves", async () => {
+    // createTerm seeds clinicDates from the range, but rebuilding them here
+    // would silently drop dates and strand the shifts sitting on them. That
+    // cleanup belongs to updateClinicDates, which deletes the orphaned
+    // assignments and cancels their pending requests in one transaction.
+    const term = await seed();
+    const before = term.clinicDates.map((d) => d.getTime());
+
+    const updated = await updateTerm(ACTOR, term.id, {
+      code: "SU26",
+      name: "Summer 2026",
+      startDate: "2026-06-06",
+      endDate: "2026-08-29",
+    });
+
+    expect(updated.clinicDates.map((d) => d.getTime())).toEqual(before);
+  });
+
+  it("rejects an unknown term", async () => {
+    await expect(
+      updateTerm(ACTOR, "no-such-term", {
+        code: "XX26",
+        name: "Nope",
+        startDate: "2026-01-03",
+        endDate: "2026-03-28",
+      })
+    ).rejects.toBeInstanceOf(TermNotFoundError);
+  });
+
+  it("rejects an unparseable date", async () => {
+    const term = await seed();
+    await expect(
+      updateTerm(ACTOR, term.id, {
+        code: "SU26",
+        name: "Summer 2026",
+        startDate: "not-a-date",
+        endDate: "2026-09-26",
+      })
+    ).rejects.toBeInstanceOf(TermDateError);
+  });
+
+  it("records a term.update audit row carrying the before and after", async () => {
+    const term = await seed();
+    await updateTerm(ACTOR, term.id, {
+      code: "SU26",
+      name: "Summer 2026 (revised)",
+      startDate: "2026-05-30",
+      endDate: "2026-09-26",
+    });
+    const row = await prisma.auditLog.findFirst({
+      where: { action: "term.update", entityId: term.id },
+    });
+    expect(row).not.toBeNull();
   });
 });

@@ -3,17 +3,29 @@ import { DateTime } from "@/platform/dates/display";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 function truncate(s: string | null | undefined, max = 12): string {
   if (!s) return "";
   return s.length > max ? s.slice(0, max) + "..." : s;
 }
 
-export function AuditTable({ rows }: { rows: AuditRow[] }) {
+export function AuditTable({
+  rows,
+  filtered = false,
+}: {
+  rows: AuditRow[];
+  /** Whether the page applied a filter. See ListEmpty. */
+  filtered?: boolean;
+}) {
   if (rows.length === 0) {
     return (
-      <Card pad={false} className="px-6 py-12 text-center text-sm text-muted-foreground">
-        No audit entries found.
+      <Card pad={false}>
+        <ListEmpty
+          filtered={filtered}
+          noun="audit entries"
+          emptyDescription="Every change staff make to a record is recorded here."
+        />
       </Card>
     );
   }

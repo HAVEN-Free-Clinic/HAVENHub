@@ -96,6 +96,7 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
       <RequestList
         rows={rows}
         hrefBase="/support"
+        filtered={Boolean(sp.status || sp.category || sp.priority || sp.assignee || sp.q)}
         showRequester
         clearedPersonIds={clearedPersonIds}
         // "inbox": managers work tickets in Intercom's agent inbox, so a

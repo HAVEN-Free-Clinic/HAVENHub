@@ -61,7 +61,7 @@ describe("OnboardingTable", () => {
   });
 
   it("renders an empty state when there are no acceptances", () => {
-    expect(html([])).toContain("No accepted applicants yet.");
+    expect(html([])).toContain("No accepted applicants yet");
   });
 
   // The per-row Withdraw is how you deal with one person without touching the

@@ -407,7 +407,11 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                     <TH>Score</TH>
                     <TH>Notes</TH>
                     <TH>Verified</TH>
-                    <TH>Edit</TH>
+                    {/* Buttons, not an editable column: named for screen
+                        readers and left blank for the eye, the way the other
+                        eight action columns in the app are. The header also
+                        said "Edit" over a Verify / Not verified form. */}
+                    <TH><span className="sr-only">Actions</span></TH>
                   </TR>
                 </THead>
                 <tbody>

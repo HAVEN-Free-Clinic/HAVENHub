@@ -36,8 +36,10 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { Table, THead, TR, TH, TD, TableEmpty } from "@/platform/ui/table";
+import { ListEmpty } from "@/platform/ui/list-empty";
 import {
+  COMPLIANCE_COLUMN_COUNT,
   ComplianceHeaderCells,
   ComplianceNameCell,
   ComplianceCells,
@@ -194,6 +196,9 @@ async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, pag
 
 async function MasterComplianceBody(props: BodyProps) {
   const { q, departmentId, statusFilter } = props;
+  // One boolean for the Clear link AND the empty state, so the roster cannot
+  // offer to clear a filter while claiming there is nothing to find.
+  const filtered = Boolean(q || departmentId || statusFilter);
   const { result, departments, isAdmin, isManager } = await loadBodyData(props);
 
   async function setDateAction(certId: string, dateIso: string): Promise<{ error?: string }> {
@@ -260,7 +265,8 @@ async function MasterComplianceBody(props: BodyProps) {
       {/* Filter bar - GET form so filters are in the URL */}
       <FilterBar
         action="/volunteers/master"
-        clearHref={q || departmentId || statusFilter ? "/volunteers/master" : undefined}
+        clearHref={filtered ? "/volunteers/master" : undefined}
+        resultCount={{ total: result.total, noun: "member" }}
         className="mt-6"
       >
         <FilterField label="Search" width="grow">
@@ -290,14 +296,8 @@ async function MasterComplianceBody(props: BodyProps) {
 
       {/* Results */}
       <div className="mt-4">
-        <p className="mb-3 text-sm text-muted-foreground">
-          {result.total === 0
-            ? "No members found."
-            : `${result.total} member${result.total === 1 ? "" : "s"}`}
-        </p>
 
-        {result.rows.length > 0 && (
-          <>
+        <>
             <Table>
               <THead>
                 <TR>
@@ -337,18 +337,24 @@ async function MasterComplianceBody(props: BodyProps) {
                     </TR>
                   );
                 })}
+                {result.rows.length === 0 && (
+                  <TableEmpty colSpan={COMPLIANCE_COLUMN_COUNT + 3}>
+                    <ListEmpty filtered={filtered} noun="members" />
+                  </TableEmpty>
+                )}
               </tbody>
             </Table>
 
-            <div className="mt-4">
-              <Pagination
-                page={result.page}
-                pageCount={result.pageCount}
-                hrefFor={buildHref}
-              />
-            </div>
+            {result.rows.length > 0 && (
+              <div className="mt-4">
+                <Pagination
+                  page={result.page}
+                  pageCount={result.pageCount}
+                  hrefFor={buildHref}
+                />
+              </div>
+            )}
           </>
-        )}
       </div>
     </>
   );

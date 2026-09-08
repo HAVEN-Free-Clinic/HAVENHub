@@ -7,10 +7,11 @@ import { assignSubcommitteeAction } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
 import { Select } from "@/platform/ui/select";
 import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -82,11 +83,9 @@ export default async function AssignSubcommitteesPage({ params }: PageProps) {
             </TR>
           ))}
           {rows.length === 0 && (
-            <TR>
-              <TD colSpan={4} className="py-10 text-center text-subtle-foreground">
-                No accepted applicants yet.
-              </TD>
-            </TR>
+            <TableEmpty colSpan={4}>
+              <ListEmpty filtered={false} noun="accepted applicants" />
+            </TableEmpty>
           )}
         </tbody>
       </Table>

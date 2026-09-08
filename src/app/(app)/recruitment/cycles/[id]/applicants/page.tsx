@@ -38,6 +38,7 @@ import {
   type ApplicantSortKey,
 } from "@/modules/recruitment/engine/applicant-sort";
 import { FORM_ROW, FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { ListEmpty } from "@/platform/ui/list-empty";
 
 const PAGE_SIZE = 50;
 
@@ -295,11 +296,18 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           {filtered.length === 0 && (
             <TR>
               <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
-                {apps.length > 0
-                  ? "No applicants match these filters."
-                  : unrouted > 0
+                {/* The filtered case goes through ListEmpty so it says the same
+                    thing every other filtered list in the app says. The two
+                    non-filtered branches stay bespoke: they carry scope
+                    information ("N waiting to be routed") that no shared copy
+                    can express. */}
+                {apps.length > 0 ? (
+                  <ListEmpty filtered noun="applicants" />
+                ) : (
+                  unrouted > 0
                     ? `No applicants in your review scope yet. ${unrouted} submitted ${unrouted === 1 ? "application is" : "applications are"} waiting to be routed to a department, and will appear here once ${unrouted === 1 ? "it reaches" : "they reach"} yours.`
-                    : "No applicants in your review scope."}
+                    : "No applicants in your review scope."
+                )}
               </TD>
             </TR>
           )}

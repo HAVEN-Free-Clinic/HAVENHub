@@ -51,7 +51,7 @@ export default async function WaitlistPage({ params }: PageProps) {
             <TH>Name</TH>
             <TH>Email</TH>
             <TH>Department</TH>
-            <TH>Action</TH>
+            <TH><span className="sr-only">Actions</span></TH>
           </tr>
         </THead>
         <tbody>

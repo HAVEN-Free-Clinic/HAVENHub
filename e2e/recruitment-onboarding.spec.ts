@@ -124,6 +124,11 @@ test("onboarding: accept via department decision, then send onboarding link", as
 
   // Status filter narrows the table and prunes the selection with it.
   await page.getByLabel("Filter by status").selectOption("SUBMITTED");
-  await expect(page.getByText("No applicants match these filters.")).toBeVisible();
+  // Wording comes from ListEmpty now, which is shared with every other filtered
+  // list. Matched loosely so the shared copy can be reworded without breaking
+  // this flow -- what matters here is that the table blames the FILTER rather
+  // than claiming there are no acceptances.
+  await expect(page.getByText(/match these filters/)).toBeVisible();
+  await expect(page.getByText(/No accepted applicants yet/)).toHaveCount(0);
   await expect(page.getByText("1 selected")).toHaveCount(0);
 });

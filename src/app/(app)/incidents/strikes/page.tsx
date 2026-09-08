@@ -22,7 +22,8 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TH } from "@/platform/ui/table";
+import { Table, THead, TR, TH, TableEmpty } from "@/platform/ui/table";
+import { ListEmpty } from "@/platform/ui/list-empty";
 import { Pagination } from "@/platform/ui/pagination";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -172,6 +173,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
   const rows = listResult?.rows ?? [];
   const total = listResult?.total ?? 0;
   const canManageAll = listResult?.canManageAll ?? false;
+  // One boolean for the Clear link and the empty state, so the list cannot
+  // offer to clear a filter while claiming there is nothing to find.
+  const filtered = Boolean(qSearch || departmentId || categoryFilter);
   const pageCount = Math.max(1, Math.ceil(total / 25));
 
   // Label any report a visible strike is linked to. One query, no N+1.
@@ -505,7 +509,8 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
       {/* Filter bar */}
       <FilterBar
         action="/incidents/strikes"
-        clearHref={qSearch || departmentId || categoryFilter ? "/incidents/strikes" : undefined}
+        clearHref={filtered ? "/incidents/strikes" : undefined}
+        resultCount={{ total, noun: "action" }}
         className="mt-10"
       >
         <FilterField label="Search" width="grow">
@@ -539,15 +544,10 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <p>{forbiddenMessage ?? "You do not have access to disciplinary records."}</p>
           </div>
-        ) : rows.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <p>No disciplinary actions found.</p>
-          </div>
         ) : (
           <>
-            <p className="mb-3 text-sm text-muted-foreground">
-              {total} action{total === 1 ? "" : "s"}
-            </p>
+            {/* The empty state renders INSIDE the table below, so a filter that
+                matches nothing leaves the columns it filtered on visible. */}
 
             <Table>
               <THead>
@@ -606,12 +606,19 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     forwardStrike={forwardStrikeForm}
                   />
                 ))}
+                {rows.length === 0 && (
+                  <TableEmpty colSpan={canManageAll ? 8 : 7}>
+                    <ListEmpty filtered={filtered} noun="disciplinary actions" />
+                  </TableEmpty>
+                )}
               </tbody>
             </Table>
 
-            <div className="mt-4">
-              <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
-            </div>
+            {rows.length > 0 && (
+              <div className="mt-4">
+                <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+              </div>
+            )}
           </>
         )}
       </section>

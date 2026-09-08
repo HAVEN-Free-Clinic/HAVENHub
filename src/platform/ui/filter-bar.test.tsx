@@ -120,6 +120,47 @@ describe("FilterBar", () => {
     expect(wide).toContain(ROW_WIDTH.wide);
   });
 
+  it("puts the result count on the row, beside the controls that change it", () => {
+    // The number moved to a different part of the screen on every page: the
+    // PageHeader description on /admin/people, a <p> above the table on
+    // /volunteers/master and both incidents queues, inside the filter row on
+    // /support/all. One slot, one place to look.
+    const out = render(
+      <FilterBar resultCount={{ total: 1234, noun: "member" }}>
+        <FilterField label="Search">
+          <Input name="q" />
+        </FilterField>
+      </FilterBar>,
+    );
+    // Always a thousands separator: two queues were printing bare integers.
+    expect(out).toContain("1,234 members");
+  });
+
+  it("agrees with itself about singular and plural", () => {
+    const one = render(
+      <FilterBar resultCount={{ total: 1, noun: "report" }}>
+        <FilterField label="Search">
+          <Input name="q" />
+        </FilterField>
+      </FilterBar>,
+    );
+    expect(one).toContain("1 report");
+    expect(one).not.toContain("1 reports");
+  });
+
+  it("takes an irregular plural rather than bolting an s onto the noun", () => {
+    // "person" -> "people". Without this the shared slot would have forced
+    // /admin/people to keep printing its own count.
+    const out = render(
+      <FilterBar resultCount={{ total: 42, noun: "active person", pluralNoun: "active people" }}>
+        <FilterField label="Search">
+          <Input name="q" />
+        </FilterField>
+      </FilterBar>,
+    );
+    expect(out).toContain("42 active people");
+  });
+
   it("draws its widths from the same table the write forms use", () => {
     // A Department select in a filter row and a Department select in the write
     // form above it are the same control doing the same job, one above the

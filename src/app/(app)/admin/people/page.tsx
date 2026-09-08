@@ -77,16 +77,17 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   }
 
   const effectiveStatus = status ?? "ACTIVE";
+  // One boolean for the Clear link AND the empty state, so the list can never
+  // offer to clear a filter while claiming there is nothing to find.
+  const filtered = Boolean(q) || effectiveStatus !== "ACTIVE";
 
   return (
     <div className="space-y-6">
+      {/* The count moved out of the description and onto the filter row, beside
+          the controls that change it. What is left here is what the page IS. */}
       <PageHeader
         title="People"
-        description={
-          effectiveStatus === "ALL"
-            ? `${total.toLocaleString()} people`
-            : `${total.toLocaleString()} ${effectiveStatus === "OFFBOARDED" ? "offboarded" : "active"} people`
-        }
+        description="Everyone the Hub knows about, current and past."
         action={
           <Link href="/admin/people/new" className={buttonClasses("primary", "sm")}>
             Add person
@@ -95,7 +96,24 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
       />
 
       {/* Search form (GET) */}
-      <FilterBar clearHref={q || effectiveStatus !== "ACTIVE" ? "/admin/people" : undefined}>
+      <FilterBar
+        clearHref={filtered ? "/admin/people" : undefined}
+        resultCount={{
+          total,
+          noun:
+            effectiveStatus === "ALL"
+              ? "person"
+              : effectiveStatus === "OFFBOARDED"
+                ? "offboarded person"
+                : "active person",
+          pluralNoun:
+            effectiveStatus === "ALL"
+              ? "people"
+              : effectiveStatus === "OFFBOARDED"
+                ? "offboarded people"
+                : "active people",
+        }}
+      >
         <FilterField label="Search" width="grow">
           <Input
             type="search"
@@ -113,7 +131,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
         </FilterField>
       </FilterBar>
 
-      <PeopleTable rows={rowsWithCounts} />
+      <PeopleTable rows={rowsWithCounts} filtered={filtered} />
 
       <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
     </div>

@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
-import { claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
+import { carryForwardApplicationAssessments, claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
 import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
 import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
@@ -13,6 +13,8 @@ import {
 } from "@/platform/recruitment/incoming-roster";
 import { cancelOpenDeactivationRequestsTx } from "@/platform/people";
 import { isNetIdShaped } from "@/platform/auth/match-person";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { upsertSpanishAssessmentForTerm } from "@/platform/languages/spanish-assessments";
 import { normalizeIdentityKey } from "./identity-keys";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { RecruitmentAuthError } from "./review";
@@ -38,6 +40,10 @@ export async function promoteContracts(
   // New language claims across every promoted contract, sent as ONE digest per
   // reviewer once the whole batch has committed.
   const pendingLanguageClaims: Array<{ personId: string; language: string }> = [];
+  // Spanish verdicts carried forward this batch, mirrored into the assessment
+  // history AFTER every transaction has committed. Same reason the notification
+  // digest waits: the mirror needs the active term and can fail on its own.
+  const carriedSpanish: Array<{ personId: string; verified: boolean; score: number | null }> = [];
   // Dual-role offers created across this batch, told to the receiving
   // departments as one digest each once everything has committed -- same
   // reasoning as the language claims above, and the same failure to avoid: a
@@ -213,8 +219,18 @@ export async function promoteContracts(
         // transaction stretched it across a permission resolution plus a
         // notification write per reviewer, and mailed them about promotions
         // that then rolled back.
+        // Verdicts INTP recorded before the accept decision. Written first so
+        // the claim loop below can skip a language already carried, rather
+        // than run a redundant claimLanguage call against a row it would
+        // leave unchanged (its update branch only ever touches selfReported).
+        const carried = application
+          ? await carryForwardApplicationAssessments(person.id, application.id, tx)
+          : [];
+        const carriedLanguages = new Set(carried.map((c) => c.language));
+
         const newClaims: Array<{ personId: string; language: string }> = [];
         for (const code of claimedLanguages) {
+          if (carriedLanguages.has(code)) continue;
           const { created } = await claimLanguage(person.id, code, tx);
           if (created) newClaims.push({ personId: person.id, language: code });
         }
@@ -341,11 +357,20 @@ export async function promoteContracts(
 
         // The status/promotedAt/promotedById half was written by the claim above.
         await tx.onboardingContract.update({ where: { id: contract.id }, data: { promotedPersonId: person.id } });
-        return { isNew, personId: person.id, newClaims, newDualRoles };
+        return {
+          isNew,
+          personId: person.id,
+          newClaims,
+          newDualRoles,
+          carriedSpanish: carried
+            .filter((c) => c.language === "es")
+            .map((c) => ({ personId: person.id, verified: c.verified, score: c.score })),
+        };
       });
       if (result.isNew) created += 1; else reactivated += 1;
       pendingLanguageClaims.push(...result.newClaims);
       pendingDualRoles.push(...result.newDualRoles);
+      carriedSpanish.push(...result.carriedSpanish);
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a
@@ -407,5 +432,26 @@ export async function promoteContracts(
   // failure must not read as a failed promotion.
   await notifyReviewersOfPendingClaims(pendingLanguageClaims, actorId);
   await notifyDirectorsOfDualRoleOffers(pendingDualRoles, actorId);
+  // The assessment history mirror, after every transaction has committed.
+  // Best-effort: a missing ACTIVE term means there is nothing to file under,
+  // and PersonLanguage above is already the authoritative current score.
+  const activeTerm = await getActiveTerm();
+  if (activeTerm) {
+    for (const c of carriedSpanish) {
+      try {
+        await upsertSpanishAssessmentForTerm({
+          personId: c.personId,
+          term: activeTerm.name,
+          score: c.score,
+          verified: c.verified,
+        });
+      } catch (err) {
+        log.error(
+          "[promotion] failed to mirror a carried Spanish assessment into history",
+          errorAttrs(err, { personId: c.personId }),
+        );
+      }
+    }
+  }
   return { created, reactivated, skipped, failed };
 }

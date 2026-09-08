@@ -12,6 +12,7 @@
  * queue on its own with no cleanup path to maintain.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from "./catalog";
@@ -479,4 +480,77 @@ export async function recordApplicationLanguageAssessment(
     },
     after: { language: input.language, verified: input.verified, score },
   });
+}
+
+/**
+ * Copy an application's pre-acceptance verdicts onto the person promotion just
+ * created, so a member the interpreting department already assessed is never
+ * put back in the queue.
+ *
+ * Preserves the ORIGINAL assessor and timestamp rather than stamping the
+ * promoting SRR: the fact being recorded is INTP's assessment, made weeks
+ * earlier, and re-stamping it would misattribute an interpreting judgment to
+ * whoever happened to run the promotion.
+ *
+ * Runs inside the promotion transaction, so it takes a client. The Spanish
+ * history mirror does NOT: it needs the active term and can fail on its own,
+ * and the transaction must not stretch across work like that. The caller does
+ * it afterwards, from the returned list.
+ */
+export async function carryForwardApplicationAssessments(
+  personId: string,
+  applicationId: string,
+  client: Prisma.TransactionClient,
+): Promise<Array<{ language: string; verified: boolean; score: number | null }>> {
+  const assessments = await client.applicationLanguageAssessment.findMany({
+    where: { applicationId },
+    select: { language: true, verified: true, score: true, note: true, verifiedAt: true, verifiedById: true },
+  });
+  if (assessments.length === 0) return [];
+
+  const existing = await client.personLanguage.findMany({
+    where: { personId, language: { in: assessments.map((a) => a.language) } },
+    select: { language: true, verifiedAt: true },
+  });
+  const standingVerdictAt = new Map(
+    existing
+      .filter((e) => e.verifiedAt !== null)
+      .map((e) => [e.language, e.verifiedAt as Date]),
+  );
+
+  const carried: Array<{ language: string; verified: boolean; score: number | null }> = [];
+  for (const a of assessments) {
+    // A reactivated member may already carry a verdict. Only write when the
+    // application's is NEWER, so re-onboarding an alum cannot roll their record
+    // back to an assessment from a previous cycle. Their carried verdict is
+    // still returned, because they must stay out of the reviewer digest either
+    // way: the language IS assessed, just not by this row.
+    const standing = standingVerdictAt.get(a.language);
+    carried.push({ language: a.language, verified: a.verified, score: a.score });
+    if (standing && standing >= a.verifiedAt) continue;
+
+    await client.personLanguage.upsert({
+      where: { personId_language: { personId, language: a.language } },
+      create: {
+        personId,
+        language: a.language,
+        selfReported: true,
+        verified: a.verified,
+        verifiedAt: a.verifiedAt,
+        verifiedById: a.verifiedById,
+        note: a.note,
+        score: a.score,
+      },
+      update: {
+        selfReported: true,
+        verified: a.verified,
+        verifiedAt: a.verifiedAt,
+        verifiedById: a.verifiedById,
+        note: a.note,
+        score: a.score,
+      },
+    });
+  }
+
+  return carried;
 }

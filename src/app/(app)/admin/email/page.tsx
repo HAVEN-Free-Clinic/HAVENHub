@@ -37,12 +37,11 @@ import { getSetting } from "@/platform/settings/service";
 import type { EmailStatus, EmailSenderScope } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { DeliveryLogTable } from "@/modules/admin/components/delivery-log-table";
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
@@ -451,65 +450,26 @@ export default async function EmailPage({ searchParams }: PageProps) {
             {total.toLocaleString()} {total === 1 ? "email" : "emails"}
           </p>
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>Recipient</TH>
-                <TH>Template</TH>
-                <TH>Status</TH>
-                <TH>Attempts</TH>
-                <TH>Last error</TH>
-                <TH>Created</TH>
-                <TH>Sent</TH>
-                <TH></TH>
-              </TR>
-            </THead>
-            <tbody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD className="font-medium text-sm">{row.toEmail}</TD>
-                  <TD className="text-sm text-foreground-soft">{row.template}</TD>
-                  <TD>
-                    <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft">
-                    {row.attempts}
-                  </TD>
-                  <TD className="text-sm text-muted-foreground max-w-xs">
-                    {row.lastError ? (
-                      <span
-                        title={row.lastError}
-                        className="block truncate max-w-[15rem]"
-                      >
-                        {row.lastError.length > 60
-                          ? row.lastError.slice(0, 60) + "…"
-                          : row.lastError}
-                      </span>
-                    ) : (
-                      <span className="text-subtle-foreground">-</span>
-                    )}
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    <DateTime value={row.createdAt} />
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    <DateTime value={row.sentAt} />
-                  </TD>
-                  <TD>
-                    {row.status === "FAILED" && (
-                      <form action={retryAction}>
-                        <input type="hidden" name="id" value={row.id} />
-                        <ConfirmButton
-                          label="Retry"
-                          confirmLabel="Re-queue this email?"
-                        />
-                      </form>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
+          <DeliveryLogTable
+            recipientHeader="Recipient"
+            kindHeader="Template"
+            retryAction={retryAction}
+            retryConfirmLabel="Re-queue this email?"
+            rows={rows.map((row) => ({
+              id: row.id,
+              recipient: row.toEmail,
+              kind: row.template,
+              status: row.status,
+              statusTone: statusTone(row.status),
+              attempts: row.attempts,
+              lastError: row.lastError,
+              createdAt: row.createdAt,
+              sentAt: row.sentAt,
+              // Only a hard failure is worth re-queuing here: a SENT message is
+              // done and a QUEUED one is still on the cron's list.
+              canRetry: row.status === "FAILED",
+            }))}
+          />
 
           <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
         </>

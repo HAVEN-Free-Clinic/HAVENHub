@@ -21,16 +21,13 @@ import { NOTIFICATION_TYPES } from "@/platform/notifications/registry";
 import type { TeamsMessageStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { DeliveryLogTable } from "@/modules/admin/components/delivery-log-table";
 import { Pagination } from "@/platform/ui/pagination";
-import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { StatCard } from "@/platform/ui/stat-card";
-import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
 
@@ -234,65 +231,28 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             {total.toLocaleString()} {total === 1 ? "message" : "messages"}
           </p>
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>Recipient</TH>
-                <TH>Type</TH>
-                <TH>Status</TH>
-                <TH>Attempts</TH>
-                <TH>Last error</TH>
-                <TH>Created</TH>
-                <TH>Sent</TH>
-                <TH></TH>
-              </TR>
-            </THead>
-            <tbody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD className="font-medium text-sm">{row.person.name}</TD>
-                  <TD className="text-sm text-foreground-soft">{NOTIFICATION_TYPE_LABELS.get(row.type) ?? row.type}</TD>
-                  <TD>
-                    <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft">
-                    {row.attempts}
-                  </TD>
-                  <TD className="text-sm text-muted-foreground max-w-xs">
-                    {row.lastError ? (
-                      <span
-                        title={row.lastError}
-                        className="block truncate max-w-[15rem]"
-                      >
-                        {row.lastError.length > 60
-                          ? row.lastError.slice(0, 60) + "…"
-                          : row.lastError}
-                      </span>
-                    ) : (
-                      <span className="text-subtle-foreground">-</span>
-                    )}
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    <DateTime value={row.createdAt} />
-                  </TD>
-                  <TD className="tabular-nums text-sm text-foreground-soft whitespace-nowrap">
-                    <DateTime value={row.sentAt} />
-                  </TD>
-                  <TD>
-                    {(row.status === "FAILED" || row.status === "FALLBACK" || row.status === "LOGGED") && (
-                      <form action={retryAction}>
-                        <input type="hidden" name="id" value={row.id} />
-                        <ConfirmButton
-                          label="Retry"
-                          confirmLabel="Re-queue this Teams message?"
-                        />
-                      </form>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
+          <DeliveryLogTable
+            recipientHeader="Recipient"
+            kindHeader="Type"
+            retryAction={retryAction}
+            retryConfirmLabel="Re-queue this Teams message?"
+            rows={rows.map((row) => ({
+              id: row.id,
+              recipient: row.person.name,
+              kind: NOTIFICATION_TYPE_LABELS.get(row.type) ?? row.type,
+              status: row.status,
+              statusTone: statusTone(row.status),
+              attempts: row.attempts,
+              lastError: row.lastError,
+              createdAt: row.createdAt,
+              sentAt: row.sentAt,
+              // Wider than email's: FALLBACK went out by another channel and
+              // LOGGED never went out at all, so a re-queue still means
+              // something for both.
+              canRetry:
+                row.status === "FAILED" || row.status === "FALLBACK" || row.status === "LOGGED",
+            }))}
+          />
 
           <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
         </>

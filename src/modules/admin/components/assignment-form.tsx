@@ -23,6 +23,7 @@ import {
   AssignmentTargetError,
   DuplicateAssignmentError,
   LastAdminError,
+  type ReachCounts,
 } from "@/modules/admin/services/rbac";
 import { searchPeople } from "@/modules/admin/services/people";
 import { Badge } from "@/platform/ui/badge";
@@ -54,6 +55,11 @@ type AssignmentFormProps = {
   roles: Role[];
   departments: Department[];
   terms: (Term & { _count: { memberships: number } })[];
+  /**
+   * Active-term reach per department, plus the whole-clinic cohort counts, from
+   * assignmentReach(). Drives the "reaches N people" readouts below.
+   */
+  reach: { byDepartmentId: Record<string, ReachCounts>; cohort: ReachCounts };
   /** Current ?assignq= search query for person search. */
   assignq?: string;
   /** Base href for this page. Used for redirect targets. */
@@ -87,6 +93,23 @@ function TermSelect({
   );
 }
 
+/**
+ * "3 directors, 24 volunteers" for one assignment target.
+ *
+ * Spells out BOTH halves whenever either is non-zero, because the whole point
+ * is the half an admin does not expect: "Assign role to department" reads like
+ * leadership, and the volunteer count is the number that says otherwise. A
+ * target with no active members reads as such rather than as "0, 0", since an
+ * empty department is a different mistake from an over-broad one.
+ */
+function reachLabel({ directors, volunteers }: ReachCounts): string {
+  if (directors === 0 && volunteers === 0) return "no active members";
+  const parts: string[] = [];
+  if (directors > 0) parts.push(`${directors} director${directors === 1 ? "" : "s"}`);
+  if (volunteers > 0) parts.push(`${volunteers} volunteer${volunteers === 1 ? "" : "s"}`);
+  return parts.join(", ");
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -96,6 +119,7 @@ export async function AssignmentForm({
   roles,
   departments,
   terms,
+  reach,
   assignq,
   pageHref,
 }: AssignmentFormProps): Promise<ReactNode> {
@@ -226,6 +250,25 @@ export async function AssignmentForm({
 
   const activeTermId = terms.find((t) => t.status === "ACTIVE")?.id ?? "";
 
+  /**
+   * The Reach cell for one existing assignment row.
+   *
+   * A row scoped to a term that is not the ACTIVE one resolves to nobody today
+   * (loadAssignmentContext only admits termId null or the term being asked
+   * about), so it is reported as inert rather than given a count that would
+   * overstate it.
+   */
+  function assignmentReachLabel(a: AssignmentWithRelations): string {
+    if (a.termId !== null && a.termId !== activeTermId) return "inert this term";
+    if (a.personId) return "1 person";
+    if (a.departmentId) {
+      return reachLabel(reach.byDepartmentId[a.departmentId] ?? { directors: 0, volunteers: 0 });
+    }
+    if (a.kind === "DIRECTOR") return reachLabel({ directors: reach.cohort.directors, volunteers: 0 });
+    if (a.kind === "VOLUNTEER") return reachLabel({ directors: 0, volunteers: reach.cohort.volunteers });
+    return "unknown";
+  }
+
   return (
     <section className="space-y-8">
       <SectionHeader level="title" className="mb-4">Assignments</SectionHeader>
@@ -239,6 +282,7 @@ export async function AssignmentForm({
             <TR>
               <TH>Role</TH>
               <TH>Target</TH>
+              <TH>Reach</TH>
               <TH>Scope</TH>
               <TH />
             </TR>
@@ -268,6 +312,7 @@ export async function AssignmentForm({
                     <span className="text-subtle-foreground">Unknown</span>
                   )}
                 </TD>
+                <TD className="text-subtle-foreground">{assignmentReachLabel(a)}</TD>
                 <TD>
                   {a.term ? (
                     <span className="font-mono text-xs">{a.term.code}</span>
@@ -323,13 +368,20 @@ export async function AssignmentForm({
       {/* Create department assignment */}
       <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to department</h3>
+        <p className="text-sm text-subtle-foreground">
+          Applies to <strong>every active member</strong> of the chosen department, directors and
+          volunteers alike, including members added later. It is not a way to reach a
+          department&rsquo;s leadership: for that, assign the role to each director by name above.
+          Each option shows who it reaches this term.
+        </p>
         <form action={assignDepartmentAction}>
           <FormRow>
             <Field label="Department">
-              <Select name="departmentId" className="w-56">
+              <Select name="departmentId" className="w-72">
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.code} · {d.name}
+                    {d.code} · {d.name} ·{" "}
+                    {reachLabel(reach.byDepartmentId[d.id] ?? { directors: 0, volunteers: 0 })}
                   </option>
                 ))}
               </Select>
@@ -357,7 +409,9 @@ export async function AssignmentForm({
       <Card className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground-soft">Assign role to all members of a kind</h3>
         <p className="text-sm text-subtle-foreground">
-          Applies to every active member of the chosen kind in the selected term (or every term, if Global), including members added later.
+          Applies to every active member of the chosen kind in the selected term (or every term,
+          if Global), including members added later. This term that is {reachLabel(reach.cohort)},
+          counted by person rather than by membership.
         </p>
         <form action={assignKindAction}>
           <FormRow>

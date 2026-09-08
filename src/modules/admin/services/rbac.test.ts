@@ -36,6 +36,7 @@ import {
   DuplicateAssignmentError,
   AssignmentNotFoundError,
   LastAdminError,
+  assignmentReach,
 } from "./rbac";
 
 const ACTOR = "actor-person-id";
@@ -306,6 +307,100 @@ describe("deleteRole", () => {
 
   it("throws RoleNotFoundError when the role id does not exist", async () => {
     await expect(deleteRole(ACTOR, "bogus-role-id")).rejects.toBeInstanceOf(RoleNotFoundError);
+  });
+});
+
+describe("assignmentReach", () => {
+  beforeEach(resetDb);
+
+  async function seedMembership(
+    person: { id: string },
+    term: { id: string },
+    department: { id: string },
+    kind: "DIRECTOR" | "VOLUNTEER",
+    status: "ACTIVE" | "REMOVED" = "ACTIVE",
+  ) {
+    return prisma.termMembership.create({
+      data: {
+        personId: person.id,
+        termId: term.id,
+        departmentId: department.id,
+        kind,
+        status,
+      },
+    });
+  }
+
+  it("counts a department's directors and volunteers separately", async () => {
+    const term = await seedTerm("ACT");
+    const dept = await seedDepartment("INTP");
+    await seedMembership(await seedPerson("Dir"), term, dept, "DIRECTOR");
+    await seedMembership(await seedPerson("Vol A"), term, dept, "VOLUNTEER");
+    await seedMembership(await seedPerson("Vol B"), term, dept, "VOLUNTEER");
+
+    const reach = await assignmentReach();
+    expect(reach.byDepartmentId[dept.id]).toEqual({ directors: 1, volunteers: 2 });
+  });
+
+  /**
+   * The regression this readout exists for: a department-targeted assignment
+   * reaches the volunteers too, so the count behind that target must never be
+   * the director count alone.
+   */
+  it("does not report a volunteer-heavy department as directors only", async () => {
+    const term = await seedTerm("ACT");
+    const dept = await seedDepartment("INTP");
+    await seedMembership(await seedPerson("Dir"), term, dept, "DIRECTOR");
+    for (const name of ["V1", "V2", "V3"]) {
+      await seedMembership(await seedPerson(name), term, dept, "VOLUNTEER");
+    }
+
+    const reach = await assignmentReach();
+    expect(reach.byDepartmentId[dept.id].volunteers).toBe(3);
+  });
+
+  it("excludes non-ACTIVE memberships", async () => {
+    const term = await seedTerm("ACT");
+    const dept = await seedDepartment("SOSE");
+    await seedMembership(await seedPerson("Active"), term, dept, "VOLUNTEER");
+    await seedMembership(await seedPerson("Gone"), term, dept, "VOLUNTEER", "REMOVED");
+
+    const reach = await assignmentReach();
+    expect(reach.byDepartmentId[dept.id]).toEqual({ directors: 0, volunteers: 1 });
+  });
+
+  it("ignores departments outside the ACTIVE term", async () => {
+    const active = await seedTerm("ACT");
+    const planning = await seedTerm("PLAN", "PLANNING");
+    const dept = await seedDepartment("EDUC");
+    await seedMembership(await seedPerson("Now"), active, dept, "DIRECTOR");
+    await seedMembership(await seedPerson("Later"), planning, dept, "VOLUNTEER");
+
+    const reach = await assignmentReach();
+    expect(reach.byDepartmentId[dept.id]).toEqual({ directors: 1, volunteers: 0 });
+  });
+
+  it("counts cohort reach by distinct person, not by membership", async () => {
+    const term = await seedTerm("ACT");
+    const one = await seedDepartment("PCAR");
+    const two = await seedDepartment("EXEC");
+    const dualDirector = await seedPerson("Directs Two");
+    await seedMembership(dualDirector, term, one, "DIRECTOR");
+    await seedMembership(dualDirector, term, two, "DIRECTOR");
+    await seedMembership(await seedPerson("Vol"), term, one, "VOLUNTEER");
+
+    const reach = await assignmentReach();
+    expect(reach.cohort).toEqual({ directors: 1, volunteers: 1 });
+  });
+
+  it("returns empty counts when no term is ACTIVE", async () => {
+    const planning = await seedTerm("PLAN", "PLANNING");
+    const dept = await seedDepartment("INTP");
+    await seedMembership(await seedPerson("Someone"), planning, dept, "VOLUNTEER");
+
+    const reach = await assignmentReach();
+    expect(reach.byDepartmentId).toEqual({});
+    expect(reach.cohort).toEqual({ directors: 0, volunteers: 0 });
   });
 });
 

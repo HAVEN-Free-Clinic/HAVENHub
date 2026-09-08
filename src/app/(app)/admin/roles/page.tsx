@@ -11,7 +11,7 @@
  */
 
 import { requirePermission } from "@/platform/auth/session";
-import { listRoles, listAssignments } from "@/modules/admin/services/rbac";
+import { listRoles, listAssignments, assignmentReach } from "@/modules/admin/services/rbac";
 import { listTerms } from "@/modules/admin/services/terms";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -32,7 +32,7 @@ export default async function RolesPage({ searchParams }: PageProps) {
   const { assignq } = await searchParams;
 
   // Fetch all data in parallel.
-  const [roles, assignments, terms, departments] = await Promise.all([
+  const [roles, assignments, terms, departments, reach] = await Promise.all([
     listRoles(),
     listAssignments(),
     listTerms(),
@@ -40,6 +40,9 @@ export default async function RolesPage({ searchParams }: PageProps) {
       where: { isActive: true },
       orderBy: { code: "asc" },
     }),
+    // How many people each department- and kind-targeted assignment actually
+    // reaches this term, so the forms below can say so before the click.
+    assignmentReach(),
   ]);
 
   return (
@@ -55,6 +58,7 @@ export default async function RolesPage({ searchParams }: PageProps) {
         roles={roles}
         departments={departments}
         terms={terms}
+        reach={reach}
         assignq={assignq}
         pageHref={PAGE_HREF}
       />

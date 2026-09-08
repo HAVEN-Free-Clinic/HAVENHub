@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { listApplicantLanguageQueue, priorLanguageVerdicts } from "./applicant-review";
+import {
+  listApplicantLanguageQueue,
+  priorLanguageVerdicts,
+  recordApplicationLanguageAssessment,
+} from "./applicant-review";
+import { LanguageValidationError } from "./catalog";
 
 beforeEach(resetDb);
 
@@ -491,5 +496,93 @@ describe("listApplicantLanguageQueue", () => {
     });
 
     expect(await listApplicantLanguageQueue()).toEqual([]);
+  });
+});
+
+describe("recordApplicationLanguageAssessment", () => {
+  it("records the verdict, the score, and an audit row", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true, score: 4,
+    });
+
+    const row = await prisma.applicationLanguageAssessment.findUniqueOrThrow({
+      where: { applicationId_language: { applicationId: application.id, language: "es" } },
+    });
+    expect(row).toMatchObject({ verified: true, score: 4, verifiedById: ctx.lead.id });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "application.language_assess", entityId: application.id },
+    });
+    expect(audit).not.toBeNull();
+  });
+
+  it("re-recording overwrites rather than creating a second row", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true, score: 4,
+    });
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: false, score: 2,
+    });
+
+    const rows = await prisma.applicationLanguageAssessment.findMany({
+      where: { applicationId: application.id },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ verified: false, score: 2 });
+  });
+
+  it("rejects an unknown language", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await expect(
+      recordApplicationLanguageAssessment(ctx.lead.id, {
+        applicationId: application.id, language: "klingon", verified: true,
+      }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
+  it("rejects a score outside 1 to 5", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await expect(
+      recordApplicationLanguageAssessment(ctx.lead.id, {
+        applicationId: application.id, language: "es", verified: true, score: 6,
+      }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
+  // The score is the INTP Spanish assessment. A score on any other language is
+  // a caller bug, not something to quietly drop.
+  it("rejects a score on a language other than Spanish", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await expect(
+      recordApplicationLanguageAssessment(ctx.lead.id, {
+        applicationId: application.id, language: "fr", verified: true, score: 4,
+      }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
+  // An applicant has no Person and no /my-info to link them to, so there is
+  // nobody to notify and nowhere to send them. The outcome reaches them through
+  // the acceptance decision.
+  it("queues no email to the applicant", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true, score: 4,
+    });
+
+    expect(await prisma.emailLog.count({ where: { toEmail: "ada@yale.edu" } })).toBe(0);
   });
 });

@@ -13,7 +13,8 @@
  */
 
 import { prisma } from "@/platform/db";
-import { SPANISH } from "./catalog";
+import { recordAudit } from "@/platform/audit";
+import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from "./catalog";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -395,4 +396,87 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
     }
   }
   return rows;
+}
+
+/**
+ * Record the interpreting department's verdict on one language for one
+ * application. Same validation as recordLanguageAssessment, and deliberately
+ * one difference: it notifies nobody.
+ *
+ * recordLanguageAssessment emails the member and links them to /my-info. An
+ * applicant has neither a Person nor a /my-info page, and telling someone their
+ * language was "not confirmed" before anyone has decided on their application
+ * would land as a rejection they have not received. The outcome reaches them
+ * through the acceptance decision instead.
+ */
+export async function recordApplicationLanguageAssessment(
+  actorPersonId: string,
+  input: {
+    applicationId: string;
+    language: string;
+    verified: boolean;
+    note?: string | null;
+    score?: number | null;
+  },
+): Promise<void> {
+  if (!isLanguageCode(input.language)) {
+    throw new LanguageValidationError(`Unknown language "${input.language}".`);
+  }
+  // Unlike recordLanguageAssessment, an omitted score here always means N/A and
+  // writes null. That form has two variants and an omitted score there means
+  // "did not ask, leave the stored value alone"; this one has a single form
+  // that always shows the score field for Spanish, so there is no distinction
+  // to preserve between "omitted" and "explicitly cleared".
+  const score = input.score ?? null;
+  if (score !== null) {
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      throw new LanguageValidationError(`Score must be 1-5, got "${score}".`);
+    }
+    if (input.language !== SPANISH) {
+      throw new LanguageValidationError(
+        `Only ${languageLabel(SPANISH)} carries a proficiency score.`,
+      );
+    }
+  }
+
+  const key = {
+    applicationId_language: { applicationId: input.applicationId, language: input.language },
+  };
+  const before = await prisma.applicationLanguageAssessment.findUnique({
+    where: key,
+    select: { verified: true, score: true },
+  });
+
+  await prisma.applicationLanguageAssessment.upsert({
+    where: key,
+    create: {
+      applicationId: input.applicationId,
+      language: input.language,
+      verified: input.verified,
+      verifiedAt: new Date(),
+      verifiedById: actorPersonId,
+      note: input.note?.trim() || null,
+      score,
+    },
+    update: {
+      verified: input.verified,
+      verifiedAt: new Date(),
+      verifiedById: actorPersonId,
+      note: input.note?.trim() || null,
+      score,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "application.language_assess",
+    entityType: "Application",
+    entityId: input.applicationId,
+    before: {
+      language: input.language,
+      verified: before?.verified ?? null,
+      score: before?.score ?? null,
+    },
+    after: { language: input.language, verified: input.verified, score },
+  });
 }

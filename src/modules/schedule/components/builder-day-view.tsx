@@ -493,9 +493,7 @@ export function BuilderDayView({
         </div>
 
         {!selectedDateKey ? (
-          <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-subtle-foreground">
-            Select a date above to start assigning.
-          </div>
+          <EmptyState bordered title="Select a date above to start assigning" />
         ) : (
           <div className="flex flex-col gap-5">
             <div>

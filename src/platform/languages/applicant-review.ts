@@ -496,12 +496,22 @@ export async function recordApplicationLanguageAssessment(
  * history mirror does NOT: it needs the active term and can fail on its own,
  * and the transaction must not stretch across work like that. The caller does
  * it afterwards, from the returned list.
+ *
+ * The returned list has TWO consumers with opposite needs, which `written`
+ * exists to tell apart:
+ *   - promotion's claim loop wants EVERY carried language, written or not, so
+ *     it can skip re-claiming a language already on record as assessed.
+ *   - the Spanish history mirror wants WRITTEN entries ONLY. `written: false`
+ *     means a standing PersonLanguage verdict was already newer than this
+ *     application's, so the write below was skipped to protect it; mirroring
+ *     that (skipped, stale) entry into history anyway would overwrite a
+ *     newer verdict's history row with an older one.
  */
 export async function carryForwardApplicationAssessments(
   personId: string,
   applicationId: string,
   client: Prisma.TransactionClient,
-): Promise<Array<{ language: string; verified: boolean; score: number | null }>> {
+): Promise<Array<{ language: string; verified: boolean; score: number | null; written: boolean }>> {
   const assessments = await client.applicationLanguageAssessment.findMany({
     where: { applicationId },
     select: { language: true, verified: true, score: true, note: true, verifiedAt: true, verifiedById: true },
@@ -518,16 +528,21 @@ export async function carryForwardApplicationAssessments(
       .map((e) => [e.language, e.verifiedAt as Date]),
   );
 
-  const carried: Array<{ language: string; verified: boolean; score: number | null }> = [];
+  const carried: Array<{ language: string; verified: boolean; score: number | null; written: boolean }> = [];
   for (const a of assessments) {
     // A reactivated member may already carry a verdict. Only write when the
-    // application's is NEWER, so re-onboarding an alum cannot roll their record
-    // back to an assessment from a previous cycle. Their carried verdict is
-    // still returned, because they must stay out of the reviewer digest either
-    // way: the language IS assessed, just not by this row.
+    // application's is NEWER, so re-onboarding an alum cannot roll their
+    // PersonLanguage record back to an assessment from a previous cycle.
+    //
+    // Still pushed to `carried` either way, with `written` recording which
+    // branch ran: the claim-loop digest consumer wants every carried
+    // language (see the docstring above), but a skipped entry must never
+    // reach the Spanish history mirror, or it would overwrite a newer
+    // standing verdict's history row with the stale one just skipped.
     const standing = standingVerdictAt.get(a.language);
-    carried.push({ language: a.language, verified: a.verified, score: a.score });
-    if (standing && standing >= a.verifiedAt) continue;
+    const written = !(standing && standing >= a.verifiedAt);
+    carried.push({ language: a.language, verified: a.verified, score: a.score, written });
+    if (!written) continue;
 
     await client.personLanguage.upsert({
       where: { personId_language: { personId, language: a.language } },

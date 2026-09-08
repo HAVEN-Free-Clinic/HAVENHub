@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
+import { termRankOf } from "@/platform/languages/assessment-terms";
 import { promoteContracts } from "./promotion";
 
 /**
@@ -16,7 +17,7 @@ import { promoteContracts } from "./promotion";
 async function seed() {
   const term = await prisma.term.create({
     data: {
-      code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(),
+      code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(),
       status: "ACTIVE", clinicDates: [],
     },
   });
@@ -86,12 +87,7 @@ async function seedReviewer() {
   return reviewer;
 }
 
-beforeEach(async () => {
-  await resetDb();
-});
-afterEach(async () => {
-  await resetDb();
-});
+beforeEach(resetDb);
 
 describe("promotion carries a pre-acceptance language verdict forward", () => {
   it("writes a VERIFIED PersonLanguage keeping the original assessor and score", async () => {
@@ -161,6 +157,15 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
         score: 5, verifiedById: standingAssessor.id, verifiedAt: standingVerifiedAt,
       },
     });
+    // The mirror row this term's standing verdict already produced (the
+    // history half of what recordLanguageAssessment writes together). A
+    // skipped carry must leave this alone too, not just PersonLanguage.
+    await prisma.spanishAssessmentRecord.create({
+      data: {
+        email: "", personId: existing.id, term: ctx.term.name,
+        termRank: termRankOf(ctx.term.name), score: 5, verified: true,
+      },
+    });
     await prisma.applicationLanguageAssessment.create({
       data: {
         applicationId: ctx.application.id, language: "es", verified: true,
@@ -181,6 +186,15 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
       where: { personId: reviewer.id, type: "volunteers.language_claimed" },
     });
     expect(digested).toBe(0);
+    // CRITICAL: a skipped carry must not reach the Spanish history mirror
+    // either. carryForwardApplicationAssessments returns this "es" entry with
+    // written: false, and promotion.ts must filter the mirror on that flag,
+    // or this row regresses from 5 to the application's stale 4.
+    const history = await prisma.spanishAssessmentRecord.findUniqueOrThrow({
+      where: { personId_term: { personId: existing.id, term: ctx.term.name } },
+    });
+    expect(history.score).toBe(5);
+    expect(history.verified).toBe(true);
   });
 
   it("does write when the application's verdict is newer than the standing one", async () => {

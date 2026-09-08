@@ -1,7 +1,7 @@
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
-import { carryForwardApplicationAssessments, claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
+import { SPANISH, carryForwardApplicationAssessments, claimLanguage, notifyReviewersOfPendingClaims } from "@/platform/languages";
 import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
 import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
@@ -362,8 +362,12 @@ export async function promoteContracts(
           personId: person.id,
           newClaims,
           newDualRoles,
+          // written: false means the guard above deliberately left PersonLanguage
+          // alone because a standing verdict was already newer. That entry must
+          // never reach the Spanish history mirror below, or it would overwrite
+          // the newer verdict's history row with the stale one just skipped.
           carriedSpanish: carried
-            .filter((c) => c.language === "es")
+            .filter((c) => c.language === SPANISH && c.written)
             .map((c) => ({ personId: person.id, verified: c.verified, score: c.score })),
         };
       });
@@ -434,22 +438,32 @@ export async function promoteContracts(
   await notifyDirectorsOfDualRoleOffers(pendingDualRoles, actorId);
   // The assessment history mirror, after every transaction has committed.
   // Best-effort: a missing ACTIVE term means there is nothing to file under,
-  // and PersonLanguage above is already the authoritative current score.
-  const activeTerm = await getActiveTerm();
-  if (activeTerm) {
-    for (const c of carriedSpanish) {
-      try {
-        await upsertSpanishAssessmentForTerm({
-          personId: c.personId,
-          term: activeTerm.name,
-          score: c.score,
-          verified: c.verified,
-        });
-      } catch (err) {
-        log.error(
-          "[promotion] failed to mirror a carried Spanish assessment into history",
-          errorAttrs(err, { personId: c.personId }),
-        );
+  // and PersonLanguage above is already the authoritative current score for
+  // every entry that reaches this loop. carriedSpanish is pre-filtered to
+  // WRITTEN carries only (see carryForwardApplicationAssessments): a skipped
+  // carry left a newer standing verdict in PersonLanguage untouched, and
+  // mirroring it here would overwrite that newer verdict's history row with
+  // the stale one just skipped. Guarded on carriedSpanish.length first, so
+  // the overwhelming majority of promotions (nothing carried) skip the
+  // getActiveTerm() read entirely, and so nothing after commit can turn a
+  // fully successful batch into a thrown error.
+  if (carriedSpanish.length > 0) {
+    const activeTerm = await getActiveTerm();
+    if (activeTerm) {
+      for (const c of carriedSpanish) {
+        try {
+          await upsertSpanishAssessmentForTerm({
+            personId: c.personId,
+            term: activeTerm.name,
+            score: c.score,
+            verified: c.verified,
+          });
+        } catch (err) {
+          log.error(
+            "[promotion] failed to mirror a carried Spanish assessment into history",
+            errorAttrs(err, { personId: c.personId }),
+          );
+        }
       }
     }
   }

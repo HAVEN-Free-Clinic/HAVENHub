@@ -87,6 +87,69 @@ it("waits out the interval before following up", async () => {
   expect(email.personId).toBeNull();
 });
 
+it("tells an unlinked attendee the cycle accepted to finish onboarding, not to apply", async () => {
+  // The two rows are indistinguishable in the database -- both unlinked, both
+  // keyed on an email, neither with a Person to compute clearance for -- and the
+  // ONLY thing that separates them is whether the event's cycle already accepted
+  // that address. Getting this wrong tells somebody holding an acceptance email
+  // to go and apply.
+  const { term, event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER",
+      termId: term.id,
+      title: "Fall 2026 Volunteers",
+      publicSlug: "fa26-vol",
+      departments: ["SRHD"],
+      createdById: lead.id,
+      status: "OPEN",
+    },
+  });
+  await prisma.attendanceEvent.update({ where: { id: event.id }, data: { cycleId: cycle.id } });
+
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId: cycle.id,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "walkup@yale.edu",
+      emailLower: "walkup@yale.edu",
+    },
+  });
+  const application = await prisma.application.create({
+    data: {
+      cycleId: cycle.id,
+      applicantId: applicant.id,
+      answers: {},
+      applicantType: "NEW",
+      departmentChoices: ["SRHD"],
+    },
+  });
+  await prisma.acceptance.create({
+    data: { applicationId: application.id, departmentCode: "SRHD", approvedById: lead.id },
+  });
+
+  await seedWalkUp(event.id, { nudgeLastSentAt: new Date(NOW.getTime() - 30 * DAY) });
+  expect((await runAttendanceNudges(NOW)).sent).toBe(1);
+
+  const email = await prisma.emailLog.findFirstOrThrow({ where: { template: "attendance-nudge" } });
+  expect(email.html).toContain("Finish your onboarding");
+  expect(email.html).not.toContain("Start your application");
+  // And the item list agrees with the button above it.
+  expect(email.html).toContain("Submit your onboarding contract");
+  expect(email.html).not.toContain("Submit an application");
+});
+
+it("still tells a stranger to apply", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
+  await seedWalkUp(event.id, { nudgeLastSentAt: new Date(NOW.getTime() - 30 * DAY) });
+
+  expect((await runAttendanceNudges(NOW)).sent).toBe(1);
+  const email = await prisma.emailLog.findFirstOrThrow({ where: { template: "attendance-nudge" } });
+  expect(email.html).toContain("Start your application");
+});
+
 it("stops after the attempt cap", async () => {
   const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
   await seedWalkUp(event.id, {

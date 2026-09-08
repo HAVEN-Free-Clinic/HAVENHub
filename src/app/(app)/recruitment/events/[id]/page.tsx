@@ -59,10 +59,10 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         }`}
         action={
           <Link
-            href={`/recruitment/events/${event.id}/check-in`}
+            href={`/check-in/${event.id}`}
             className={buttonClasses("primary", "md")}
           >
-            Open check-in
+            Start check-in
           </Link>
         }
       />

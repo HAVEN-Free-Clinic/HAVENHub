@@ -43,6 +43,47 @@ export const OUTSTANDING_ITEM_LABELS: Record<OutstandingItemKey, string> = {
 };
 
 /**
+ * The same items as two or three words, for a surface with no room for a
+ * sentence.
+ *
+ * The door screen renders these as chips beside an attendee's name while a queue
+ * waits behind them: the operator needs to know at a glance what to say out
+ * loud, and "Complete and upload your HIPAA certificate" is a sentence written
+ * for the member reading their own email, not for someone scanning a screen.
+ *
+ * Kept in this file rather than beside the component precisely because the two
+ * are read minutes apart -- the operator says one, the attendee receives the
+ * other -- and a chip reading "Health forms" against an email reading "HIPAA
+ * certificate" is the drift this module exists to prevent. Same keys, one place
+ * to add a task.
+ */
+export const OUTSTANDING_ITEM_SHORT: Record<OutstandingItemKey, string> = {
+  contract: "Onboarding contract",
+  profile: "Profile details",
+  hipaa: "HIPAA certificate",
+  ehs: "EHS training",
+  training: "Volunteer training",
+  directorTraining: "Director training",
+  learning: "Learning courses",
+};
+
+/**
+ * Short labels for outstanding keys, dropping any this module has no name for.
+ *
+ * Mirrors outstandingItems' handling of an unknown key, for the same reason: a
+ * task key added to the onboarding engine without a label here must not reach a
+ * door screen as the raw string "directorTraining".
+ */
+export function outstandingShortLabels(keys: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const key of keys) {
+    const label = OUTSTANDING_ITEM_SHORT[key as OutstandingItemKey];
+    if (label) out.push(label);
+  }
+  return out;
+}
+
+/**
  * Turn outstanding keys into display sentences.
  *
  * @param keys       Outstanding keys, in the order they should read.

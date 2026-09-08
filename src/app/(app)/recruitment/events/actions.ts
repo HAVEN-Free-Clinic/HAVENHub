@@ -1,6 +1,5 @@
 "use server";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { requirePersonSession } from "@/platform/auth/session";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import type { AttendanceEventKind } from "@prisma/client";
@@ -9,17 +8,13 @@ import {
   createEvent,
   deleteEvent,
   linkAttendee,
-  recordEventCheckIn,
   removeEventCheckIn,
   updateEvent,
-  type CheckInResult,
 } from "@/modules/recruitment/services/attendance-events";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { parseZonedInput } from "@/platform/dates";
 import { prisma } from "@/platform/db";
-import { captureEvent } from "@/platform/posthog/capture";
-import { termGroup } from "@/platform/posthog/groups";
 
 /** Both flash params follow the app-wide convention (see ui/toast/flash.ts), so
  *  a redirect carrying either pops a toast without the page rendering anything:
@@ -172,61 +167,7 @@ export async function linkAttendeeAction(eventId: string, attendanceId: string, 
   redirect(bounce(path, { saved: true }));
 }
 
-/**
- * The kiosk's check-in action.
- *
- * Returns a result rather than redirecting: the kiosk stays on one screen while
- * a queue moves past it, and a redirect per person would throw away the running
- * list and the search box's state. Errors come back in the same shape for the
- * same reason -- a refusal at the door has to be readable without losing the
- * screen.
- */
-export async function checkInAction(
-  eventId: string,
-  target: { kind: "person"; personId: string } | { kind: "walkUp"; name: string; email: string },
-): Promise<CheckInResult> {
-  const person = await requirePersonSession();
-  try {
-    const outcome = await recordEventCheckIn(eventId, target, person.personId);
-    // Capture every outcome, success and refusal alike, the way clinic check-in
-    // does: how often walk-ups happen and how often attendees turn up with
-    // onboarding outstanding are exactly the numbers this feature exists to
-    // learn, and neither is knowable from the database alone once rows are
-    // linked and blockers clear.
-    await captureEvent({
-      distinctId: person.personId,
-      event: "event_check_in_succeeded",
-      properties: {
-        eventId,
-        targetKind: target.kind,
-        alreadyCheckedIn: outcome.alreadyCheckedIn,
-        trainingCredited: outcome.trainingCredited,
-        blockerCount: outcome.blockers.length,
-        nudgeQueued: outcome.nudgeQueued,
-      },
-      groups: await eventGroups(eventId),
-    });
-    revalidatePath(`/recruitment/events/${eventId}`);
-    return { ok: true, ...outcome };
-  } catch (err) {
-    if (err instanceof RecruitmentAuthError || err instanceof AttendanceEventError) {
-      await captureEvent({
-        distinctId: person.personId,
-        event: "event_check_in_failed",
-        properties: { eventId, targetKind: target.kind, reason: (err as Error).name },
-        groups: await eventGroups(eventId),
-      });
-      return { ok: false, message: (err as Error).message };
-    }
-    throw err;
-  }
-}
-
-/** The event's term as a PostHog group, so check-in analytics slice by term. */
-async function eventGroups(eventId: string): Promise<Record<string, string> | undefined> {
-  const event = await prisma.attendanceEvent.findUnique({
-    where: { id: eventId },
-    select: { termId: true },
-  });
-  return event ? termGroup(event.termId) : undefined;
-}
+// checkInAction lives with the door screen itself, at src/app/check-in/actions.ts.
+// The screen is a top-level route rather than one in this group (see that
+// route's layout for why), and the action belongs beside the only page that
+// calls it.

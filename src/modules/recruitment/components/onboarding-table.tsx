@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { TextLink } from "@/platform/ui/text-link";
 import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -44,29 +45,22 @@ export function OnboardingTable({
   const [filters, setFilters] = useState<OnboardingFilters>({
     query: "", status: "ALL", dept: "ALL",
   });
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  // Anchor for shift-click ranges, in visible order.
-  const anchorRef = useRef<string | null>(null);
-
   const departments = useMemo(
     () => [...new Set(rows.map((r) => r.departmentCode))].sort(),
     [rows],
   );
   const visible = useMemo(() => filterRows(rows, filters), [rows, filters]);
 
-  const selectableVisible = useMemo(() => visible.filter((r) => isSelectable(r.state)), [visible]);
+  // The visible rows, not `rows`: the hook scopes the selection to what it is
+  // given, so filtering a row out of view deselects it and a bulk action can
+  // never touch a row the operator cannot see.
+  const selection = useBulkSelection({
+    rows: visible,
+    idOf: (r) => r.acceptanceId,
+    selectable: (r) => isSelectable(r.state),
+  });
 
-  // The selection is always scoped to what is on screen. Filtering something out
-  // deselects it, so a bulk action can never touch a row the operator cannot see.
-  const effectiveSelected = useMemo(() => {
-    const visibleIds = new Set(selectableVisible.map((r) => r.acceptanceId));
-    return new Set([...selected].filter((id) => visibleIds.has(id)));
-  }, [selected, selectableVisible]);
-
-  const selectedRows = useMemo(
-    () => selectableVisible.filter((r) => effectiveSelected.has(r.acceptanceId)),
-    [selectableVisible, effectiveSelected],
-  );
+  const selectedRows = visible.filter((r) => selection.has(r.acceptanceId) && isSelectable(r.state));
 
   const counts = {
     send: countEligible(selectedRows, "send"),
@@ -74,43 +68,7 @@ export function OnboardingTable({
     withdraw: countEligible(selectedRows, "withdraw"),
   };
   const submittedInSelection = selectedRows.filter((r) => r.state === "SUBMITTED").length;
-  const allVisibleSelected =
-    selectableVisible.length > 0 && effectiveSelected.size === selectableVisible.length;
-
-  // The indeterminate wiring moved into Checkbox, so all three bulk-selection
-  // tables get it from one place rather than this being the only one that
-  // remembered.
-
-  function toggleAll() {
-    setSelected(allVisibleSelected ? new Set() : new Set(selectableVisible.map((r) => r.acceptanceId)));
-    anchorRef.current = null;
-  }
-
-  function toggleRow(acceptanceId: string, shiftKey: boolean) {
-    // Captured here, before the ref is reassigned below: setSelected only
-    // schedules the updater, which React does not run until after this
-    // function returns, so reading anchorRef.current from inside the updater
-    // would see the reassignment rather than the anchor this click started from.
-    const anchor = anchorRef.current;
-    setSelected((prev) => {
-      const next = new Set(prev);
-      // Shift-click extends from the anchor across the visible order, selecting
-      // the whole span rather than toggling each member.
-      if (shiftKey && anchor !== null) {
-        const ids = selectableVisible.map((r) => r.acceptanceId);
-        const from = ids.indexOf(anchor);
-        const to = ids.indexOf(acceptanceId);
-        if (from !== -1 && to !== -1) {
-          for (const id of ids.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(id);
-          return next;
-        }
-      }
-      if (next.has(acceptanceId)) next.delete(acceptanceId);
-      else next.add(acceptanceId);
-      return next;
-    });
-    anchorRef.current = acceptanceId;
-  }
+  const selectableVisible = visible.filter((r) => isSelectable(r.state));
 
   return (
     // The form's default action is withdraw, since both the per-row and the bulk
@@ -175,9 +133,9 @@ export function OnboardingTable({
             <TH className="w-10">
               <Checkbox
                 aria-label="Select all"
-                checked={allVisibleSelected}
-                indeterminate={effectiveSelected.size > 0 && !allVisibleSelected}
-                onChange={toggleAll}
+                checked={selection.allSelected}
+                indeterminate={selection.someSelected}
+                onChange={selection.toggleAll}
                 disabled={selectableVisible.length === 0}
               />
             </TH>
@@ -197,8 +155,8 @@ export function OnboardingTable({
                       name="acceptanceId"
                       value={r.acceptanceId}
                       aria-label={`Select ${r.firstName} ${r.lastName}`}
-                      checked={effectiveSelected.has(r.acceptanceId)}
-                      onClick={(e) => toggleRow(r.acceptanceId, e.shiftKey)}
+                      checked={selection.has(r.acceptanceId)}
+                      onClick={(e) => selection.toggle(r.acceptanceId, e.shiftKey)}
                       onChange={() => {}}
                     />
                   )}
@@ -303,13 +261,13 @@ export function OnboardingTable({
               : `Withdraw ${counts.withdraw}?`
           }
         />
-        {effectiveSelected.size > 0 && (
+        {selection.ids.length > 0 && (
           <span className="text-xs text-subtle-foreground">
-            {effectiveSelected.size} selected
+            {selection.ids.length} selected
           </span>
         )}
-        {effectiveSelected.size > 0 && (
-          <Button type="button" size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+        {selection.ids.length > 0 && (
+          <Button type="button" size="sm" variant="ghost" onClick={selection.clear}>
             Clear
           </Button>
         )}

@@ -5,12 +5,13 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
 import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { BulkResultAlert, downloadCsv } from "@/modules/volunteers/components/offboarding-shared";
-import type { TransitionRow, TransitionView } from "@/modules/volunteers/services/transition";
+import type { TransitionView } from "@/modules/volunteers/services/transition";
 // Type-only, so the server module is erased at compile time and never bundled.
 import type { BulkResult } from "@/modules/volunteers/services/transition-actions";
 // Value import, so it MUST come from the dependency-free limits module.
@@ -52,9 +53,17 @@ export function TransitionTab({
   bulkFlagAction: BulkAction;
   bulkOffboardAction: BulkAction;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(view.rows.filter((r) => r.bucket === "NOT_RETURNING").map((r) => r.personId)),
+  // Rows in the order the buckets are RENDERED, so a shift-click range walks
+  // the list the operator is actually looking at rather than the query order.
+  const orderedRows = BUCKET_ORDER.flatMap((bucket) =>
+    view.rows.filter((r) => r.bucket === bucket),
   );
+  const selection = useBulkSelection({
+    rows: orderedRows,
+    idOf: (r) => r.personId,
+    selectable: (r) => r.selectable,
+    initial: (r) => r.bucket === "NOT_RETURNING",
+  });
   const [exportError, setExportError] = useState<string | null>(null);
   // `exporting` is not cosmetic. The export route records an audit entry per
   // POST, so a second click while the first is in flight writes a SECOND
@@ -79,27 +88,6 @@ export function TransitionTab({
     );
   }
 
-  function toggle(personId: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(personId)) next.delete(personId);
-      else next.add(personId);
-      return next;
-    });
-  }
-
-  function toggleBucket(rows: TransitionRow[], on: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const row of rows) {
-        if (!row.selectable) continue;
-        if (on) next.add(row.personId);
-        else next.delete(row.personId);
-      }
-      return next;
-    });
-  }
-
   async function exportCsv() {
     setExportError(null);
     setExporting(true);
@@ -112,14 +100,12 @@ export function TransitionTab({
     }
   }
 
-  // Derived from the rows actually on the page, not raw state: revalidatePath
-  // re-renders this component with fresh props but never remounts it, so the
-  // `selected` Set survives a successful bulk offboard even though the people
-  // in it just dropped out of view.rows. Submitting the stale ids would rerun
-  // executeOffboard on already-offboarded people. Filtering against the live
-  // rows here means the header count, the button labels, the cap check, and
-  // the hidden inputs all agree with what is actually still selectable.
-  const selectedIds = view.rows.filter((r) => r.selectable && selected.has(r.personId)).map((r) => r.personId);
+  // Scoped to the rows actually on the page by the hook, which matters here:
+  // revalidatePath re-renders this component with fresh props but never
+  // remounts it, so the raw Set survives a successful bulk offboard even though
+  // the people in it just dropped out of view.rows, and submitting those stale
+  // ids would rerun executeOffboard on already-offboarded people.
+  const selectedIds = selection.ids;
   const overCap = selectedIds.length > MAX_BULK_OFFBOARD;
 
   return (
@@ -190,8 +176,7 @@ export function TransitionTab({
         const rows = view.rows.filter((r) => r.bucket === bucket);
         if (rows.length === 0) return null;
         const selectableRows = rows.filter((r) => r.selectable);
-        const allSelected =
-          selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.personId));
+        const bucketIds = selectableRows.map((r) => r.personId);
 
         return (
           <section key={bucket}>
@@ -207,15 +192,12 @@ export function TransitionTab({
                     {selectableRows.length > 0 ? (
                       <>
                         <Checkbox
-                          checked={allSelected}
-                          // Some-but-not-all in THIS bucket. Without it a
-                          // partial selection reported "unchecked" while rows
-                          // were plainly ticked.
-                          indeterminate={
-                            !allSelected &&
-                            selectableRows.some((r) => selected.has(r.personId))
-                          }
-                          onChange={(e) => toggleBucket(rows, e.target.checked)}
+                          // Scoped to THIS bucket: each section has its own
+                          // header box, and a partial selection in one must not
+                          // report "unchecked" while its rows are plainly ticked.
+                          checked={selection.allOf(bucketIds)}
+                          indeterminate={selection.someOf(bucketIds)}
+                          onChange={(e) => selection.setMany(bucketIds, e.target.checked)}
                           aria-label={`Select all ${BUCKET_LABELS[bucket]}`}
                         />
                         <span className="sr-only">Select</span>
@@ -236,8 +218,11 @@ export function TransitionTab({
                     <TD>
                       {row.selectable ? (
                         <Checkbox
-                          checked={selected.has(row.personId)}
-                          onChange={() => toggle(row.personId)}
+                          checked={selection.has(row.personId)}
+                          // onClick, not onChange: a change event carries no
+                          // shiftKey, and the range is the whole point.
+                          onClick={(e) => selection.toggle(row.personId, e.shiftKey)}
+                          onChange={() => {}}
                           aria-label={`Select ${row.name}`}
                         />
                       ) : null}

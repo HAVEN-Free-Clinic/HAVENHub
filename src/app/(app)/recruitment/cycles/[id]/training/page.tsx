@@ -128,18 +128,17 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                   <>-</>
                 )}
               </TD>
-              {/* Before promotion the certificate lives on the onboarding
-                  contract rather than on a Person, so this cell was the
-                  absent-value marker for exactly the people a training session
-                  is full of. It is the same document; the title says where it
-                  is being read from, since "Needs verification" for someone
-                  with no hub account is otherwise a puzzle. */}
+              {/* Before promotion a certificate can be in two places -- on the
+                  account a returning volunteer already has, and on the contract
+                  the applicant just filed -- and the roster reads both. The
+                  title says so, since a status on a row for somebody with no
+                  membership yet is otherwise a puzzle. */}
               <TD className="text-foreground-soft">
                 <StatusBadge
                   {...complianceStatusLabel(r.certStatus, "staff")}
                   title={
                     r.kind === "applicant"
-                      ? "From the certificate attached to their onboarding contract. It becomes their HIPAA certificate when the contract is promoted."
+                      ? "From the certificate on their hub account, if they have one, and the one attached to their onboarding contract. The contract's copy becomes a HIPAA certificate when the contract is promoted."
                       : undefined
                   }
                 />

@@ -1,6 +1,6 @@
 import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
-import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
-import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus, overallClearance } from "@/platform/compliance/rules";
+import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getPersonTerms } from "@/platform/terms/person-terms";
@@ -501,34 +501,76 @@ export async function recordApplicantAbsenceExcuse(
   actorId: string
 ): Promise<void> {
   await requireExcuseLead(actorId);
-  const identity = await resolveApplicantIdentity(cycleId, applicantId);
-  await writeExcuse(cycleId, identity, reason, actorId);
+  const keys = await resolveApplicantExcuseKeys(cycleId, applicantId);
+  await writeExcuse(cycleId, keys.write, reason, actorId);
+  // One answer to "why were they not there", which is what the upsert above is
+  // for -- but the upsert can only be unique on the key it writes under. A row
+  // filed under the OTHER key (before the applicant had an account, or by an
+  // import that only knew their email) would sit behind this one and come back
+  // the moment this one is cleared.
+  const superseded = keys.personIds.filter((id) => id !== keys.write.personId);
+  if (keys.write.personId !== undefined) {
+    await prisma.trainingAbsenceExcuse.deleteMany({
+      where: {
+        cycleId,
+        OR: [
+          { emailLower: keys.emailLower },
+          ...(superseded.length > 0 ? [{ personId: { in: superseded } }] : []),
+        ],
+      },
+    });
+  }
 }
 
-/** The applicant's excuse, or null. Reads by whichever key they were stored
- *  under, so a lead sees the same excuse whether it was entered here or on the
- *  roster after they were promoted. */
+/** The applicant's excuse, or null. Reads under BOTH keys, so a lead sees the
+ *  same excuse the training roster does whether it was filed against their email
+ *  or against the account they turn out to have. */
 export async function getApplicantAbsenceExcuse(
   cycleId: string,
   applicantId: string
 ): Promise<TrainingExcuse | null> {
-  const identity = await resolveApplicantIdentity(cycleId, applicantId);
-  const row = await prisma.trainingAbsenceExcuse.findFirst({
-    where: { cycleId, ...identity },
+  const keys = await resolveApplicantExcuseKeys(cycleId, applicantId);
+  const rows = await prisma.trainingAbsenceExcuse.findMany({
+    where: excuseWhere(cycleId, keys),
     include: { recordedBy: { select: { name: true } } },
   });
+  // Person-keyed wins, the same order the roster reads in: it is the row written
+  // about the account they have now.
+  const row = rows.find((r) => r.personId !== null) ?? rows[0];
   return row ? selectExcuse(row) : null;
 }
 
 /**
- * An applicant's excuse identity: their Person if one can be found, their
- * lowercased email otherwise.
+ * BOTH keys an applicant's excuse could be filed under.
  *
- * Applicant.applicantPersonId is only set for signed-in renewals and promotion
- * never backfills it, so the email match is not a fallback for odd cases -- it is
- * how most promoted applicants are found.
+ * `write` is where a new one goes: their Person if one can be found, their
+ * lowercased email otherwise. Applicant.applicantPersonId is only set for
+ * signed-in renewals and promotion never backfills it, so the email match is not
+ * a fallback for odd cases -- it is how most promoted applicants are found.
+ *
+ * The other fields are what a READ must ask for. Which key an excuse landed
+ * under depends on what was known about the applicant at the moment it was
+ * written, and that changes underneath us: an applicant with no account gets one,
+ * a Person's contact email gets filled in, a batch of excuses is loaded straight
+ * into the table. Reading under one key only is what let an excuse be saved and
+ * then never seen again.
+ *
+ * `personIds` can hold more than one when two Person rows share a contact email.
+ * That is a data fault rather than a choice to make, so reads take all of them.
  */
-async function resolveApplicantIdentity(cycleId: string, applicantId: string): Promise<ExcuseIdentity> {
+type ApplicantExcuseKeys = { write: ExcuseIdentity; personIds: string[]; emailLower: string };
+
+function excuseWhere(cycleId: string, keys: ApplicantExcuseKeys): Prisma.TrainingAbsenceExcuseWhereInput {
+  return {
+    cycleId,
+    OR: [
+      ...(keys.personIds.length > 0 ? [{ personId: { in: keys.personIds } }] : []),
+      { emailLower: keys.emailLower },
+    ],
+  };
+}
+
+async function resolveApplicantExcuseKeys(cycleId: string, applicantId: string): Promise<ApplicantExcuseKeys> {
   const applicant = await prisma.applicant.findUnique({
     where: { id: applicantId },
     select: { cycleId: true, applicantPersonId: true, emailLower: true },
@@ -538,12 +580,19 @@ async function resolveApplicantIdentity(cycleId: string, applicantId: string): P
   // which would file the excuse against the wrong training session.
   if (applicant.cycleId !== cycleId) throw new TrainingStateError("That applicant is not in this cycle.");
 
-  if (applicant.applicantPersonId) return { personId: applicant.applicantPersonId };
-  const match = await prisma.person.findFirst({
+  const byEmail = await prisma.person.findMany({
     where: { contactEmail: { equals: applicant.emailLower, mode: "insensitive" } },
     select: { id: true },
   });
-  return match ? { personId: match.id } : { emailLower: applicant.emailLower };
+  const personIds = [
+    ...new Set([
+      ...(applicant.applicantPersonId ? [applicant.applicantPersonId] : []),
+      ...byEmail.map((p) => p.id),
+    ]),
+  ];
+  const write: ExcuseIdentity =
+    personIds[0] !== undefined ? { personId: personIds[0] } : { emailLower: applicant.emailLower };
+  return { write, personIds, emailLower: applicant.emailLower };
 }
 
 /** Withdraw a roster member's excuse. Idempotent: clearing one that is already
@@ -551,21 +600,33 @@ async function resolveApplicantIdentity(cycleId: string, applicantId: string): P
  *  stale page is harmless. */
 export async function clearAbsenceExcuse(cycleId: string, personId: string, actorId: string): Promise<void> {
   await requireExcuseLead(actorId);
-  await deleteExcuse(cycleId, { personId }, actorId);
+  await deleteExcuse(cycleId, { cycleId, personId }, { personId }, actorId);
 }
 
-/** Withdraw an applicant's excuse, by whichever key it was stored under. */
+/**
+ * Withdraw an applicant's excuse, under EVERY key it could be stored under.
+ *
+ * Clearing only the key a new excuse would be written to left the other row in
+ * place, so the excuse the lead just withdrew came straight back on the next
+ * render -- from a page that had already told them it was gone.
+ */
 export async function clearApplicantAbsenceExcuse(
   cycleId: string,
   applicantId: string,
   actorId: string
 ): Promise<void> {
   await requireExcuseLead(actorId);
-  await deleteExcuse(cycleId, await resolveApplicantIdentity(cycleId, applicantId), actorId);
+  const keys = await resolveApplicantExcuseKeys(cycleId, applicantId);
+  await deleteExcuse(cycleId, excuseWhere(cycleId, keys), keys.write, actorId);
 }
 
-async function deleteExcuse(cycleId: string, identity: ExcuseIdentity, actorId: string): Promise<void> {
-  const { count } = await prisma.trainingAbsenceExcuse.deleteMany({ where: { cycleId, ...identity } });
+async function deleteExcuse(
+  cycleId: string,
+  where: Prisma.TrainingAbsenceExcuseWhereInput,
+  identity: ExcuseIdentity,
+  actorId: string
+): Promise<void> {
+  const { count } = await prisma.trainingAbsenceExcuse.deleteMany({ where });
   if (count === 0) return;
   await recordAudit({
     actorPersonId: actorId,
@@ -593,13 +654,16 @@ type TrainingRosterFields = {
   name: string;
   departmentCode: string;
   /**
-   * HIPAA status, read from the member's certificates or, before promotion has
-   * created any, from the certificate they attached to their onboarding
-   * contract. Same vocabulary either way: the contract's copy is the file that
-   * promotion turns into the certificate, so it is the same document at an
-   * earlier address, and it deserves the same words.
+   * HIPAA status over every certificate the clinic holds for this person: the
+   * ones on their hub account, and -- before promotion has copied it across --
+   * the one attached to their onboarding contract. Same vocabulary either way:
+   * the contract's copy is the file that promotion turns into the certificate,
+   * so it is the same document at an earlier address.
+   *
+   * Judged by effectiveComplianceStatus, the rule the clearance engine and the
+   * HIPAA panel use, so the roster cannot contradict either.
    */
-  certStatus: ReturnType<typeof complianceStatus>;
+  certStatus: ComplianceStatus;
   /** Null when neither source knows: no application this cycle, no prior term. */
   origin: RosterOrigin | null;
   trainingState: TrainingState;
@@ -634,6 +698,37 @@ export type TrainingRosterRow =
       /** The excuse key: recordApplicantAbsenceExcuse takes an applicant. */
       applicantId: string;
     });
+
+/** The shape effectiveCompliance judges, plus the date it must be ordered by. */
+type DatedCertificate = { completionDate: Date | null; verifiedAt: Date | null; uploadedAt: Date };
+
+/**
+ * Every HIPAA certificate the clinic holds for one accepted applicant, newest
+ * first, across the two places one can live before promotion.
+ *
+ * The account's own certificates are already ordered. The contract's copy joins
+ * them at the moment it was filed, so effectiveCompliance sees a single history
+ * and can apply its fallback across both: an unverified upload on the contract
+ * does not revoke a still-valid verified certificate on the account behind it.
+ *
+ * An unsubmitted contract has neither file nor date, and contributes nothing --
+ * which leaves NO_CERTIFICATE as the honest answer for someone genuinely new.
+ */
+function certificatesOnFile(
+  onAccount: DatedCertificate[],
+  contract: { hipaaStoredName: string | null; hipaaCompletedAt: Date | null; submittedAt: Date | null; updatedAt: Date } | null,
+): DatedCertificate[] {
+  if (!contract?.hipaaStoredName) return onAccount;
+  const fromContract: DatedCertificate = {
+    completionDate: contract.hipaaCompletedAt,
+    // Never verified at this stage: promotion writes it onto the Person
+    // unverified too, so an applicant must not read as more cleared than the
+    // member they are about to become.
+    verifiedAt: null,
+    uploadedAt: contract.submittedAt ?? contract.updatedAt,
+  };
+  return [...onAccount, fromContract].sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+}
 
 /**
  * Everyone expected at this cycle's training session.
@@ -677,7 +772,11 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       },
       include: {
         department: { select: { code: true } },
-        person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" }, take: 1 } } },
+        // The WHOLE certificate history, not the newest row: effectiveCompliance
+        // is the rule the clearance engine and the HIPAA panel both apply, and
+        // taking one row disagreed with both for a member mid-renewal, whose
+        // newest upload is unverified and whose verified one is still valid.
+        person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" } } } },
       },
     }),
     prisma.acceptance.findMany({
@@ -693,11 +792,23 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
         // link back the other way, from a member to the application they
         // arrived on. The hipaa columns are the certificate itself, held
         // against the contract until promotion copies it onto the Person.
-        contract: { select: { promotedPersonId: true, hipaaStoredName: true, hipaaCompletedAt: true } },
+        contract: {
+          select: {
+            promotedPersonId: true,
+            hipaaStoredName: true,
+            hipaaCompletedAt: true,
+            // When the contract's copy was filed, so it can be ordered against
+            // the dated certificates on an account the applicant already has.
+            submittedAt: true,
+            updatedAt: true,
+          },
+        },
         application: {
           select: {
             applicantType: true,
-            applicant: { select: { id: true, firstName: true, lastName: true, emailLower: true } },
+            applicant: {
+              select: { id: true, firstName: true, lastName: true, emailLower: true, applicantPersonId: true },
+            },
           },
         },
       },
@@ -714,6 +825,66 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   );
   const pendingEmails = pending.map((a) => a.application.applicant.emailLower);
 
+  // Who the pending half ALREADY IS in the hub.
+  //
+  // "Accepted, not promoted" is not the same as "new to the clinic". In a
+  // renewal-heavy cycle almost everybody on this half kept the account they had
+  // last year; the only thing they are missing is this term's contract. Two
+  // columns were wrong for want of asking:
+  //
+  //  - Cert said "No certificate" about a document the clinic is holding, for
+  //    every returning volunteer, because it read the unsubmitted contract and
+  //    stopped there.
+  //  - Excused showed nothing, because recordApplicantAbsenceExcuse PREFERS the
+  //    linked account, so those excuses are stored person-keyed and the applicant
+  //    rows were read by email alone.
+  //
+  // Resolved by the same rule the excuse writer uses
+  // (resolveApplicantExcuseKeys): the linked account first, an email match
+  // second. Reading by a different rule than we write by is exactly how an
+  // excuse gets saved and then never seen.
+  const linkedPersonIds = pending.flatMap((a) =>
+    a.application.applicant.applicantPersonId ? [a.application.applicant.applicantPersonId] : [],
+  );
+  const accounts =
+    linkedPersonIds.length === 0 && pendingEmails.length === 0
+      ? []
+      : await prisma.person.findMany({
+          where: {
+            OR: [
+              { id: { in: linkedPersonIds } },
+              { contactEmail: { in: pendingEmails, mode: "insensitive" } },
+            ],
+          },
+          select: {
+            id: true,
+            contactEmail: true,
+            hipaaCertificates: { orderBy: { uploadedAt: "desc" } },
+          },
+        });
+  const accountById = new Map(accounts.map((p) => [p.id, p]));
+  const accountsByEmail = new Map<string, typeof accounts>();
+  for (const p of accounts) {
+    if (!p.contactEmail) continue;
+    const key = p.contactEmail.toLowerCase();
+    const bucket = accountsByEmail.get(key);
+    if (bucket) bucket.push(p);
+    else accountsByEmail.set(key, [p]);
+  }
+  /**
+   * Every hub account an accepted applicant could be, best guess first.
+   *
+   * More than one only when two Person rows share a contact email, which is a
+   * data fault rather than a choice to make -- so the excuse lookup tries all of
+   * them rather than betting on the one `findFirst` happened to pick when the
+   * excuse was written.
+   */
+  const accountsFor = (applicant: { applicantPersonId: string | null; emailLower: string }) => {
+    const byEmail = accountsByEmail.get(applicant.emailLower) ?? [];
+    const linked = applicant.applicantPersonId ? accountById.get(applicant.applicantPersonId) : undefined;
+    return linked ? [linked, ...byEmail.filter((p) => p.id !== linked.id)] : byEmail;
+  };
+
   // A member's arrival story, read back through the contract that promoted
   // them: the application they filled in this cycle said NEW, RENEWAL or
   // TRANSFER, and that answer is still the best one anybody has. Both halves of
@@ -728,14 +899,19 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   // An excuse written against an applicant before they had an account is keyed
   // on their email, so the roster has to ask for it that way too: without this,
   // an excuse recorded in October would vanish the moment promotion made them a
-  // member, which is exactly when the roster starts judging them. The pending
-  // half is read through the same map, since an excuse for someone with no
-  // Person can only ever have been stored under their email.
+  // member, which is exactly when the roster starts judging them.
+  //
+  // The person ids reach past the membership half for the same reason. An
+  // accepted applicant's excuse is filed against the account they already have,
+  // and that account holds no membership this term -- so asking only about
+  // members fetched none of them, and in the weeks before promotion (when the
+  // membership half is empty) it fetched nothing at all.
   const emailsLower = [...memberEmails, ...pendingEmails];
+  const excusePersonIds = [...personIds, ...accounts.map((p) => p.id)];
   const [trainingRows, excuseRows, pendingAttendance, priorService] = await Promise.all([
     prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
     prisma.trainingAbsenceExcuse.findMany({
-      where: { cycleId, OR: [{ personId: { in: personIds } }, { emailLower: { in: emailsLower } }] },
+      where: { cycleId, OR: [{ personId: { in: excusePersonIds } }, { emailLower: { in: emailsLower } }] },
       include: { recordedBy: { select: { name: true } } },
     }),
     // The pending half's training state cannot come from the Training table:
@@ -776,8 +952,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     excusesByPerson.get(personId) ?? (email ? excusesByEmail.get(email.toLowerCase()) ?? null : null);
 
   const memberRows: TrainingRosterRow[] = memberships.map((m) => {
-    const cert = m.person.hipaaCertificates[0] ?? null;
-    const certStatus = complianceStatus(cert ? { completionDate: cert.completionDate, verifiedAt: cert.verifiedAt } : null, term.endDate);
+    const certStatus = effectiveComplianceStatus(m.person.hipaaCertificates, term.endDate);
     const row = training.get(m.person.id);
     const trainingState: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
     return {
@@ -793,30 +968,29 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   const pendingRows: TrainingRosterRow[] = pending.map((a) => {
     const applicant = a.application.applicant;
     const trainingState: TrainingState = attended.has(applicant.emailLower) ? "COMPLETE" : "PENDING";
+    const known = accountsFor(applicant);
     return {
       kind: "applicant",
       acceptanceId: a.id,
       applicantId: applicant.id,
       name: `${applicant.firstName} ${applicant.lastName}`.trim(),
       departmentCode: a.departmentCode,
-      // Read off the CONTRACT, not off a Person they do not have yet.
+      // Every certificate the clinic holds for them, from BOTH addresses.
       //
-      // HipaaCertificate rows hang off a Person, so this column used to say "no
-      // certificate" for every accepted applicant, and the page drew a dash
-      // instead of even that. Both were wrong about the clinic's own records:
-      // submitContract requires the certificate file AND its completion date,
-      // stores both on the contract, and promotion later copies that exact file
-      // onto the Person. The document exists; only its address is different.
+      // The contract's copy is one of them: submitContract requires the file and
+      // its completion date, and promotion later copies that exact file onto the
+      // Person. It is unverified at this stage (promotion writes it unverified
+      // too), which is why a freshly submitted contract reads "Needs
+      // verification" rather than clearing anybody.
       //
-      // So the same rules run over the contract's copy. Nothing is verified at
-      // this stage (promotion writes the certificate unverified too), which is
-      // why a submitted contract reads "Needs verification" rather than
-      // clearing anybody. A contract not yet submitted has no file and no date,
-      // and NO_CERTIFICATE is then the honest answer it always was.
-      certStatus: complianceStatus(
-        a.contract?.hipaaStoredName
-          ? { completionDate: a.contract.hipaaCompletedAt, verifiedAt: null }
-          : null,
+      // The other address is the account a returning volunteer already has, and
+      // leaving it out is what made this column say "No certificate" about most
+      // of a renewal-heavy roster. Judged together rather than one preferred
+      // over the other, so effectiveCompliance can do its job: a new upload
+      // waiting on a manager must not revoke the verified certificate
+      // underneath it that is still perfectly valid.
+      certStatus: effectiveComplianceStatus(
+        certificatesOnFile(known[0]?.hipaaCertificates ?? [], a.contract),
         term.endDate,
       ),
       origin: a.application.applicantType,
@@ -827,7 +1001,14 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       // ready -- the contract that puts them on the roster is still outstanding --
       // but they have not failed a check either: there is nothing to check yet.
       overallClearance: "NOT_ONBOARDED",
-      excuse: excusesByEmail.get(applicant.emailLower) ?? null,
+      // BOTH keys, account first. Which one a given row landed under depends on
+      // what was known when it was written, and rows exist under each for people
+      // who have an account -- an excuse taken before they had one, or a batch
+      // loaded straight into the table. Asking for one key was the bug.
+      excuse:
+        known.map((p) => excusesByPerson.get(p.id)).find((e) => e !== undefined) ??
+        excusesByEmail.get(applicant.emailLower) ??
+        null,
     };
   });
 

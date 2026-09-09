@@ -13,12 +13,18 @@ import type { StatusLabel } from "@/platform/compliance/labels";
  * StatusTone is a subset of the Badge tones on purpose: a status is never
  * "brand", which is reserved for identity rather than judgement.
  */
-export function StatusBadge({ label, tone }: StatusLabel) {
+export function StatusBadge({ label, tone, title }: StatusLabel & { title?: string }) {
   // nowrap because these are two- and three-word labels in narrow table columns,
   // and a status folded across two lines ("No / certificate") reads as two
   // statuses. The column widens to fit instead.
+  //
+  // `title` is for a status whose SOURCE is not obvious from the words -- the
+  // training roster reads an accepted applicant's certificate off their
+  // onboarding contract, so "Needs verification" is about a document that is not
+  // on any Person yet. It never carries the status itself: hover text nobody
+  // opens must not be the only place a fact is stated.
   return (
-    <Badge tone={tone} className="whitespace-nowrap">
+    <Badge tone={tone} title={title} className="whitespace-nowrap">
       {label}
     </Badge>
   );

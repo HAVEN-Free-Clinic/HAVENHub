@@ -1,6 +1,8 @@
 import type { CycleStatus } from "@prisma/client";
 import { Badge } from "@/platform/ui/badge";
 import type { Decision } from "@/modules/recruitment/engine/decision-summary";
+import { APPLICANT_TYPE_LABELS } from "@/modules/recruitment/engine/visibility";
+import type { RosterOrigin } from "@/modules/recruitment/services/training";
 
 /**
  * Recruitment's two status vocabularies, in one place.
@@ -64,3 +66,36 @@ const DECISION_TONES: Record<Exclude<Decision, "PENDING">, Tone> = {
 export function DecisionBadge({ decision }: { decision: Exclude<Decision, "PENDING"> }) {
   return <Badge tone={DECISION_TONES[decision]}>{DECISION_LABELS[decision]}</Badge>;
 }
+
+/**
+ * How somebody arrived at the term, for the training roster's Type column.
+ *
+ * The first three words are the applicants table's words, taken from the same
+ * map rather than retyped, because the two pages describe the same person
+ * during the same cycle and a lead moving between them must not have to
+ * translate. "Returning" is the fourth case only the roster has: a member the
+ * roster copy carried over, who filled in no application to be typed by.
+ *
+ * Plain text, not a badge. Three of this table's columns already carry a chip;
+ * a fourth would be texture rather than information, and this is a fact about
+ * the person, not a status anybody has to act on.
+ */
+export const ROSTER_ORIGIN_LABELS: Record<RosterOrigin, string> = {
+  ...APPLICANT_TYPE_LABELS,
+  RETURNING: "Returning",
+};
+
+/**
+ * Where each of those words comes from, as hover text.
+ *
+ * "Renewal" and "Returning" both mean somebody who has served before, and the
+ * difference between them is not guessable from four syllables: one applied
+ * this cycle and one was carried over without applying. The column is one word
+ * wide, so the distinction has to live here.
+ */
+export const ROSTER_ORIGIN_TITLES: Record<RosterOrigin, string> = {
+  NEW: "Applied this cycle as a new applicant.",
+  RENEWAL: "Applied this cycle to renew an existing role.",
+  TRANSFER: "Applied this cycle to transfer to another department.",
+  RETURNING: "Served a previous term and was carried onto this roster without applying this cycle.",
+};

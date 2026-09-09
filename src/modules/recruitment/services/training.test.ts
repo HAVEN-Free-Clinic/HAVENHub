@@ -16,6 +16,7 @@ import {
   getApplicantAbsenceExcuse,
 } from "./training";
 import type { TrainingRosterRow } from "./training";
+import type { ApplicantType } from "@prisma/client";
 
 /**
  * The roster row for a promoted member, narrowed.
@@ -572,9 +573,15 @@ async function seedApplicant(cycleId: string, email: string, personId?: string) 
 }
 
 /** Accept an applicant into a department, with no contract and so no promotion. */
-async function acceptApplicant(applicantId: string, cycleId: string, approverId: string, deptCode = "SRHD") {
+async function acceptApplicant(
+  applicantId: string,
+  cycleId: string,
+  approverId: string,
+  deptCode = "SRHD",
+  applicantType: ApplicantType = "NEW",
+) {
   const application = await prisma.application.create({
-    data: { cycleId, applicantId, answers: {}, applicantType: "NEW", departmentChoices: [deptCode] },
+    data: { cycleId, applicantId, answers: {}, applicantType, departmentChoices: [deptCode] },
   });
   return prisma.acceptance.create({
     data: { applicationId: application.id, departmentCode: deptCode, approvedById: approverId },
@@ -804,4 +811,134 @@ it("an excuse on one cycle does not leak onto another cycle's roster", async () 
 
   const row = memberRow(await listTrainingRoster(c2.id, srr.id), vol.id);
   expect(row.excuse).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// The Cert column, before anybody has been promoted
+//
+// A training session happens in the window where most of the roster is accepted
+// and not yet onboarded, so "no Person, therefore no certificate" left the
+// column saying nothing on exactly the day it is read. By then the certificate
+// is on the contract; these pin that it is read from there, on the same rules.
+// ---------------------------------------------------------------------------
+
+/** A contract against an acceptance, carrying whatever HIPAA columns the test needs. */
+async function seedContract(
+  acceptanceId: string,
+  hipaa: { storedName?: string; completedAt?: Date } = {},
+) {
+  return prisma.onboardingContract.create({
+    data: {
+      acceptanceId,
+      token: `tok-${acceptanceId}`,
+      email: "ada@yale.edu",
+      firstName: "App",
+      lastName: "Licant",
+      hipaaStoredName: hipaa.storedName ?? null,
+      hipaaFileName: hipaa.storedName ? "hipaa.pdf" : null,
+      hipaaCompletedAt: hipaa.completedAt ?? null,
+    },
+  });
+}
+
+/** The roster's single accepted-not-promoted row. */
+function applicantRow(rows: TrainingRosterRow[]) {
+  return rows.find((r) => r.kind === "applicant");
+}
+
+it("reads an accepted applicant's certificate off their onboarding contract", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id);
+  // What submitContract writes: the file, and the completion date it requires
+  // beside it. Dated today, so expiry is not what is under test.
+  await seedContract(acceptance.id, { storedName: "hipaa-1.pdf", completedAt: new Date() });
+
+  const row = applicantRow(await listTrainingRoster(c1.id, srr.id));
+  // Not COMPLIANT. Promotion writes this same certificate unverified, so an
+  // applicant must not read as more cleared than the member they become.
+  expect(row?.certStatus).toBe("PENDING_VERIFICATION");
+  // And it clears nobody by itself: the contract is still the outstanding thing.
+  expect(row?.overallClearance).toBe("NOT_ONBOARDED");
+});
+
+it("leaves an applicant at NO_CERTIFICATE while the contract is unsubmitted", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id);
+  // Sent, not filled in: submitContract is what writes the hipaa columns, so
+  // the honest answer here is the one this column always gave.
+  await seedContract(acceptance.id);
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("NO_CERTIFICATE");
+});
+
+it("reads a dateless contract certificate as UNKNOWN_DATE, not as none at all", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id);
+  await seedContract(acceptance.id, { storedName: "hipaa-1.pdf" });
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("UNKNOWN_DATE");
+});
+
+// ---------------------------------------------------------------------------
+// The Type column: has the clinic trained this person before?
+// ---------------------------------------------------------------------------
+
+it("carries the applicant's own answer onto the roster", async () => {
+  const { srr, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "TRANSFER");
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.origin).toBe("TRANSFER");
+});
+
+it("carries that answer through promotion, onto the member row", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu");
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+  await prisma.onboardingContract.create({
+    data: {
+      acceptanceId: acceptance.id,
+      token: "tok-promoted",
+      email: "vol@yale.edu",
+      firstName: "Vol",
+      lastName: "Unteer",
+      promotedPersonId: vol.id,
+    },
+  });
+
+  // The applicant half drops them (they are promoted), and the member half now
+  // says how they arrived rather than nothing at all.
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  expect(rows.filter((r) => r.kind === "applicant")).toHaveLength(0);
+  expect(memberRow(rows, vol.id).origin).toBe("RENEWAL");
+});
+
+it("reads a member carried over from a previous term as RETURNING", async () => {
+  const { term, srr, vol, c1, dept } = await seedMember();
+  // A roster copy writes the membership and no application, so the applicant
+  // type has nothing to say about them. The previous term does.
+  const lastTerm = await prisma.term.create({
+    data: {
+      code: "SP26",
+      name: "Spring",
+      startDate: new Date(term.startDate.getTime() - 180 * 24 * 60 * 60 * 1000),
+      endDate: new Date(term.startDate.getTime() - 90 * 24 * 60 * 60 * 1000),
+      status: "ARCHIVED",
+    },
+  });
+  await prisma.termMembership.create({
+    data: { personId: vol.id, termId: lastTerm.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+
+  expect(memberRow(await listTrainingRoster(c1.id, srr.id), vol.id).origin).toBe("RETURNING");
+});
+
+it("says nothing about a member with no application and no previous term", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  // Added to this term's roster by hand: the column has no source to answer
+  // from, and inventing "New" for them would be a guess.
+  expect(memberRow(await listTrainingRoster(c1.id, srr.id), vol.id).origin).toBeNull();
 });

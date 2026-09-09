@@ -17,8 +17,7 @@
  * drag.
  */
 
-import { useState } from "react";
-import { Button } from "@/platform/ui/button";
+import { CopyButton } from "@/platform/ui/copy-button";
 import { Textarea } from "@/platform/ui/input";
 
 type Props = {
@@ -40,7 +39,6 @@ export function EmailList({
   rows = 3,
   hint,
 }: Props) {
-  const [copied, setCopied] = useState(false);
   // Comma-space, which is what Outlook, Gmail and Apple Mail all accept in a To:
   // field. Semicolons work in Outlook alone.
   const value = emails.join(", ");
@@ -56,34 +54,11 @@ export function EmailList({
             </span>
           )}
         </span>
-        {emails.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="px-2 py-0.5 text-xs"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(value);
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 2000);
-              } catch {
-                // Clipboard denied or unavailable. The addresses are on screen
-                // and selectable, so there is nothing to recover from and
-                // nothing worth interrupting the director with.
-              }
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </Button>
-        )}
-        {/* The button's own label already swaps to "Copied", which changes the
-            accessible name of the still-focused button -- but a name change on
-            a focused element is not reliably re-announced. A polite region that
-            is always present, and fills in on success, is. */}
-        <span role="status" className="sr-only">
-          {copied ? "Copied to clipboard" : ""}
-        </span>
+        {/* No errorMessage: the addresses are on screen in a select-on-focus
+            box below, so a refused clipboard costs one drag and is not worth
+            interrupting a director over. CopyButton stays silent and, more to
+            the point, does not claim a copy that did not happen. */}
+        {emails.length > 0 && <CopyButton value={value} buttonClassName="px-2 py-0.5 text-xs" />}
       </div>
       {hint && <p className="text-xs text-subtle-foreground">{hint}</p>}
       {emails.length === 0 ? (

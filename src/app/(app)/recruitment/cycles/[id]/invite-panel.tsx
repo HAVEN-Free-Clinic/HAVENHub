@@ -13,6 +13,7 @@
 
 import { useState } from "react";
 import { Button } from "@/platform/ui/button";
+import { CopyButton } from "@/platform/ui/copy-button";
 import { Input } from "@/platform/ui/input";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
@@ -47,26 +48,10 @@ function statusOf(row: InviteRow): { label: string; tone: "default" | "success" 
 
 export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelProps) {
   const [issued, setIssued] = useState<string | null>(null);
-  // Three states, not a boolean. This link is shown for exactly one render (see
-  // the file header), so reporting a copy that did not happen loses it for good.
-  // A rejected or unavailable clipboard has to say so and send the reader to the
-  // code block above, which is still on screen and selectable.
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   async function handleCreate(formData: FormData) {
     const url = await createAction(formData);
     setIssued(url);
-    setCopyState("idle");
-  }
-
-  async function copyIssued(url: string) {
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(url);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
   }
 
   return (
@@ -84,28 +69,19 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
           <p className="font-medium">Copy this link now. It is not shown again.</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="break-all rounded bg-muted px-2 py-1 text-xs">{issued}</code>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void copyIssued(issued)}
-            >
-              {copyState === "copied" ? "Copied" : "Copy"}
-            </Button>
-            {/* The failure path already had role="alert" (added when the
-                fire-and-forget write was fixed); the SUCCESS path was a bare
-                label swap on the focused button, which is not reliably
-                re-announced. This is its counterpart. */}
-            <span role="status" className="sr-only">
-              {copyState === "copied" ? "Copied to clipboard" : ""}
-            </span>
+            {/* The link is rendered for exactly one render (see the file
+                header), so a copy that did not happen loses it for good. That
+                is what earns the errorMessage: it has to say so, and point at
+                the code block beside it, which is still selectable. */}
+            <CopyButton
+              // Keyed on the link, so issuing a second one gets a fresh button.
+              // Without it a failure reported against the previous link would
+              // still be on screen beside the new one, and "Copied" likewise.
+              key={issued}
+              value={issued}
+              errorMessage="Could not copy to the clipboard. Select the link above and copy it manually before leaving this page."
+            />
           </div>
-          {copyState === "error" && (
-            <p role="alert" className="mt-2 text-sm text-critical-foreground">
-              Could not copy to the clipboard. Select the link above and copy it manually before
-              leaving this page.
-            </p>
-          )}
         </Alert>
       )}
 

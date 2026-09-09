@@ -6,11 +6,11 @@ import {
   listLanguageReviewQueue,
   recordApplicationLanguageAssessment,
   recordLanguageAssessment,
+  verifyHistoricalAssessment,
 } from "@/platform/languages";
 import {
   CLINIC_WIDE_INTERPRETER_MIN_SCORE,
   LanguageValidationError,
-  SPANISH,
   formatSpanishScore,
   spanishProficiencyLabel,
   spanishScoreTone,
@@ -203,38 +203,46 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   }
 
   /**
-   * Verify (or un-verify) straight from a history row.
+   * Verify (or un-verify) THE ROW the reviewer clicked.
    *
-   * Routed through recordLanguageAssessment rather than writing PersonLanguage
-   * directly, so this button produces the same audit row and the same member
-   * email as the identical button on the queue tab. The version that called
-   * updateMany here produced neither, and silently reported success when the
-   * person had no Spanish claim to update.
+   * Keyed on the record id, which is the whole correction. It used to post only
+   * a personId and call recordLanguageAssessment, so the button was rendered
+   * against the row's own `verified` badge and wrote the person's live flag
+   * instead: the row never changed, an assessment was fabricated in the active
+   * term that then outranked the real one on the member's profile, and "Not
+   * verified" on an old row pulled a current member out of the interpreter pool.
+   * See verifyAssessmentRecord for the full account.
+   *
+   * The live flag now follows only for the person's NEWEST record, and the
+   * confirmation says which of the two happened, because a termRank comparison
+   * is not something the reviewer can see from the table.
    */
   async function verifyFromHistoryAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.verify_spanish");
-    const personId = String(formData.get("personId") ?? "");
+    const recordId = String(formData.get("id") ?? "");
     const back = { term: String(formData.get("returnTerm") ?? ""), page: String(formData.get("returnPage") ?? "") };
-    if (!personId) {
-      redirect(
-        tabHref("history", {
-          ...back,
-          error: "Link this record to a Hub account before verifying it.",
-        }),
-      );
+    if (!recordId) {
+      redirect(tabHref("history", { ...back, error: "Could not tell which record that was." }));
     }
+    let liveFlagUpdated = false;
     try {
-      await recordLanguageAssessment(actor.personId, {
-        personId,
-        language: SPANISH,
+      ({ liveFlagUpdated } = await verifyHistoricalAssessment(actor.personId, {
+        recordId,
         verified: formData.get("verified") === "true",
-      });
+      }));
     } catch (err) {
       redirect(tabHref("history", { ...back, error: messageFor(err, "Could not verify that record.") }));
     }
     revalidatePath(BASE_PATH);
-    redirect(tabHref("history", { ...back, ok: "Verification recorded." }));
+    redirect(
+      tabHref("history", {
+        ...back,
+        ok: liveFlagUpdated
+          ? "Record verified, and their current Spanish flag updated to match."
+          : "Record verified. This is not their latest assessment, so their current flag is unchanged.",
+      }),
+    );
   }
 
   async function linkPersonAction(formData: FormData) {
@@ -444,7 +452,11 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                             <span className="text-xs text-subtle-foreground">Not linked</span>
                           ) : (
                             <form action={verifyFromHistoryAction} className="flex gap-1">
-                              <input type="hidden" name="personId" value={r.personId} />
+                              {/* The RECORD id, not the person's. The badge and
+                                  the buttons beside it are the row's own
+                                  verdict, so the write has to be able to reach
+                                  that row. */}
+                              <input type="hidden" name="id" value={r.id} />
                               <input type="hidden" name="returnTerm" value={termFilter} />
                               <input type="hidden" name="returnPage" value={String(history.page)} />
                               {r.verified !== true && (

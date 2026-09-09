@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { recordLanguageAssessment } from "./index";
+import { recordLanguageAssessment, verifyHistoricalAssessment } from "./index";
 import {
   addPersonToSpanishHistory,
   latestSpanishAssessment,
@@ -617,5 +617,163 @@ describe("history stays consistent with the queue", () => {
     });
     expect(claim.score).toBe(4);
     expect(await prisma.spanishAssessmentRecord.count()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyHistoricalAssessment
+// ---------------------------------------------------------------------------
+
+/**
+ * The history tab's Verify button. Every test here pins one of the three
+ * defects the old version shipped with, all three of which reached production
+ * and one of which was destructive.
+ *
+ * The old button posted a personId and called recordLanguageAssessment, so it
+ * was rendered against a row's own verdict and wrote the person's live flag.
+ */
+describe("verifyHistoricalAssessment", () => {
+  it("verifies the row that was clicked, so the badge and the button change", async () => {
+    await actor();
+    const p = await person("Rosa Delgado");
+    const old = await record({ personId: p.id, term: "Fall 2024", score: 5 });
+
+    await verifyHistoricalAssessment(ACTOR, { recordId: old.id, verified: true });
+
+    // Defect 1: the clicked row's own `verified` was never touched, so it kept
+    // showing no badge and kept offering Verify however many times it was pressed.
+    const after = await prisma.spanishAssessmentRecord.findUniqueOrThrow({
+      where: { id: old.id },
+    });
+    expect(after.verified).toBe(true);
+  });
+
+  it("creates no record in any other term", async () => {
+    await actor();
+    const p = await person("Rosa Delgado");
+    // An ACTIVE term has to exist for this test to mean anything: it is the
+    // term the old code mirrored into, so without one the fabrication could not
+    // happen and the assertion below would pass for the wrong reason.
+    await prisma.term.create({
+      data: {
+        code: "SU26",
+        name: "Summer 2026",
+        status: "ACTIVE",
+        startDate: new Date("2026-06-01"),
+        endDate: new Date("2026-08-31"),
+      },
+    });
+    const old = await record({ personId: p.id, term: "Fall 2024", score: 5 });
+
+    await verifyHistoricalAssessment(ACTOR, { recordId: old.id, verified: true });
+
+    // Defect 2, and the one that corrupted data rather than merely confusing a
+    // reviewer. recordLanguageAssessment mirrors into the ACTIVE term, so
+    // verifying a Fall 2024 row invented a Summer 2026 assessment -- which then
+    // outranked the real one on the member's profile (latestSpanishAssessment
+    // orders on termRank) and carried no score, so a genuine 5 read as none.
+    const all = await prisma.spanishAssessmentRecord.findMany();
+    expect(all).toHaveLength(1);
+    expect(all[0].term).toBe("Fall 2024");
+    expect((await latestSpanishAssessment(p.id))?.score).toBe(5);
+  });
+
+  it("syncs the live flag from the record's own score when it is the newest", async () => {
+    await actor();
+    const p = await person("Rosa Delgado");
+    const newest = await record({ personId: p.id, term: "Spring 2026", score: 4 });
+
+    const result = await verifyHistoricalAssessment(ACTOR, {
+      recordId: newest.id,
+      verified: true,
+    });
+
+    expect(result.liveFlagUpdated).toBe(true);
+    // The RECORD's score, not null. The old path passed no score at all, which
+    // blanked whatever was on file.
+    const claim = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(claim.verified).toBe(true);
+    expect(claim.score).toBe(4);
+    expect(claim.verifiedAt).not.toBeNull();
+  });
+
+  it("upserts a live flag for an alum who has none yet", async () => {
+    // The workflow this button legitimately serves: a returning alum whose
+    // historical record has just been linked has no PersonLanguage row at all.
+    await actor();
+    const p = await person("Vera Ochoa");
+    const only = await record({ personId: p.id, term: "Fall 2019", score: 5 });
+
+    await verifyHistoricalAssessment(ACTOR, { recordId: only.id, verified: true });
+
+    const claim = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(claim.score).toBe(5);
+  });
+
+  // ---- THE DESTRUCTIVE ONE -------------------------------------------------
+  //
+  // Defect 3. verifiedLanguagesByPerson gates scheduling, capacity, badges and
+  // the passport on PersonLanguage.verified, so "Not verified" on someone's
+  // 2019 row pulled a CURRENT member out of the interpreter pool. Both halves
+  // are asserted, because a version that simply stopped writing PersonLanguage
+  // would pass the first and fail the "newest" tests above.
+
+  it("does not touch the live flag from an OLDER record", async () => {
+    await actor();
+    const p = await person("Rosa Delgado");
+    await record({ personId: p.id, term: "Spring 2026", score: 5 });
+    const stale = await record({ personId: p.id, term: "Fall 2019", score: 2 });
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: 5,
+    });
+
+    const result = await verifyHistoricalAssessment(ACTOR, {
+      recordId: stale.id,
+      verified: false,
+    });
+
+    expect(result.liveFlagUpdated).toBe(false);
+    // Still a verified 5. A verdict about 2019 is a statement about 2019.
+    const claim = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(claim.verified).toBe(true);
+    expect(claim.score).toBe(5);
+    // The old row still records the verdict that was actually given.
+    expect(
+      (await prisma.spanishAssessmentRecord.findUniqueOrThrow({ where: { id: stale.id } }))
+        .verified,
+    ).toBe(false);
+  });
+
+  it("records the verdict on an unlinked row without inventing a person to apply it to", async () => {
+    await actor();
+    const orphan = await record({ personId: null, term: "Fall 2016", score: 3, name: "A. Lum" });
+
+    const result = await verifyHistoricalAssessment(ACTOR, {
+      recordId: orphan.id,
+      verified: true,
+    });
+
+    expect(result.liveFlagUpdated).toBe(false);
+    expect(await prisma.personLanguage.count()).toBe(0);
+    expect(
+      (await prisma.spanishAssessmentRecord.findUniqueOrThrow({ where: { id: orphan.id } }))
+        .verified,
+    ).toBe(true);
+  });
+
+  it("refuses a record id that no longer exists rather than reporting success", async () => {
+    await actor();
+    await expect(
+      verifyHistoricalAssessment(ACTOR, { recordId: "gone", verified: true }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
   });
 });

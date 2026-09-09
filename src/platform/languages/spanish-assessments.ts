@@ -32,6 +32,7 @@
  * member email, one straight to updateMany with neither).
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
@@ -110,14 +111,29 @@ export function normalizeScoreAndModifier(
 // ---------------------------------------------------------------------------
 
 /**
- * The person's most recent assessment, for the profile badge.
+ * The ordering that decides which of a person's records is their CURRENT one.
  *
- * Ordered on termRank, never on the term label: see ./assessment-terms.
+ * Shared rather than repeated, because two callers now depend on agreeing about
+ * it: the profile badge below reads the newest record, and
+ * verifyAssessmentRecord decides whether a verdict may move the person's live
+ * flag by asking whether the record being verified IS that one. If those two
+ * orderings ever drifted apart, a verdict could update a live flag the profile
+ * then contradicts.
+ *
+ * termRank, never the term label: see ./assessment-terms.
+ */
+const NEWEST_FIRST: Prisma.SpanishAssessmentRecordOrderByWithRelationInput[] = [
+  { termRank: "desc" },
+  { createdAt: "desc" },
+];
+
+/**
+ * The person's most recent assessment, for the profile badge.
  */
 export async function latestSpanishAssessment(personId: string) {
   return prisma.spanishAssessmentRecord.findFirst({
     where: { personId },
-    orderBy: [{ termRank: "desc" }, { createdAt: "desc" }],
+    orderBy: NEWEST_FIRST,
     select: { score: true, modifier: true, term: true, verified: true },
   });
 }
@@ -347,6 +363,85 @@ export async function upsertSpanishAssessmentForTerm(input: {
     },
     update: { score: input.score, verified: input.verified },
   });
+}
+
+/** What verifying one history row settled, for the caller to act on. */
+export type AssessmentRecordVerdict = {
+  /** Null when the row was never linked to a Hub account. */
+  personId: string | null;
+  term: string;
+  /** The record's OWN score, which is the score this verdict is about. */
+  score: number | null;
+  /**
+   * Whether this record is the person's current one (see NEWEST_FIRST). Only a
+   * verdict on the newest record may move their live PersonLanguage flag; the
+   * caller owns that write, and this is the fact it decides on.
+   */
+  isNewestForPerson: boolean;
+};
+
+/**
+ * Record a reviewer's verdict on ONE history row, by id.
+ *
+ * WHAT THIS REPLACES, because the old shape is the bug. The Verify buttons on
+ * the history tab used to post only a personId and call recordLanguageAssessment,
+ * which meant the control was rendered against one fact and wrote a different
+ * one. Three things followed, all of them live in production:
+ *
+ *   1. The row you clicked never changed. Its own `verified` column was never
+ *      touched, so the badge stayed blank and the button stayed offered, and
+ *      clicking again just did the whole thing a second time.
+ *   2. It FABRICATED an assessment. recordLanguageAssessment mirrors into the
+ *      ACTIVE term, so verifying a Fall 2024 record created a Summer 2026 one.
+ *      Because latestSpanishAssessment orders on termRank, that invented row
+ *      then OUTRANKED the real assessment on the member's profile, and it
+ *      carried no score, so a genuine 5 read as no score at all.
+ *   3. "Not verified" on an old row stripped a CURRENT member's live flag.
+ *      verifiedLanguagesByPerson gates scheduling, capacity, badges and the
+ *      passport on it, so a verdict about 2019 pulled someone out of the
+ *      interpreter pool today.
+ *
+ * So this writes the record it was given and nothing else. It reports
+ * `isNewestForPerson` rather than deciding for itself what that means for the
+ * person, keeping this module's stated split intact: history rows here, the live
+ * PersonLanguage flag in ./index.
+ */
+export async function verifyAssessmentRecord(input: {
+  id: string;
+  verified: boolean;
+}): Promise<AssessmentRecordVerdict> {
+  const record = await prisma.spanishAssessmentRecord.findUnique({
+    where: { id: input.id },
+    select: { id: true, personId: true, term: true, score: true },
+  });
+  if (!record) {
+    throw new LanguageValidationError("That assessment record no longer exists.");
+  }
+
+  await prisma.spanishAssessmentRecord.update({
+    where: { id: record.id },
+    data: { verified: input.verified },
+  });
+
+  // An unlinked row has no person to be newest FOR. Answering false rather than
+  // leaving it undefined keeps the caller from having to special-case it: there
+  // is no live flag to move either way.
+  if (!record.personId) {
+    return { personId: null, term: record.term, score: record.score, isNewestForPerson: false };
+  }
+
+  const newest = await prisma.spanishAssessmentRecord.findFirst({
+    where: { personId: record.personId },
+    orderBy: NEWEST_FIRST,
+    select: { id: true },
+  });
+
+  return {
+    personId: record.personId,
+    term: record.term,
+    score: record.score,
+    isNewestForPerson: newest?.id === record.id,
+  };
 }
 
 /** Edit an imported or hand-entered history row in place. Does not touch PersonLanguage. */

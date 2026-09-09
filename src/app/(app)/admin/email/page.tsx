@@ -60,6 +60,13 @@ const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
 
 type BadgeTone = "default" | "success" | "critical";
 
+/** Friendly text, never the raw enum. */
+const STATUS_LABELS: Record<EmailStatus, string> = {
+  QUEUED: "Queued",
+  SENT: "Sent",
+  FAILED: "Failed",
+};
+
 function statusTone(status: EmailStatus): BadgeTone {
   if (status === "SENT") return "success";
   if (status === "FAILED") return "critical";
@@ -458,7 +465,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
               id: row.id,
               recipient: row.toEmail,
               kind: row.template,
-              status: row.status,
+              status: STATUS_LABELS[row.status] ?? row.status,
               statusTone: statusTone(row.status),
               attempts: row.attempts,
               lastError: row.lastError,

@@ -16,7 +16,6 @@ import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAc
 import { countGradedQuestions } from "@/platform/quiz/graded";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Badge } from "@/platform/ui/badge";
 import { Field, Input } from "@/platform/ui/input";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { prisma } from "@/platform/db";
@@ -26,8 +25,8 @@ import { FormActions, FormRow, RowField } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
+import { CycleStatusBadge } from "@/modules/recruitment/components/status-badge";
 
-const statusTone = { DRAFT: "default", OPEN: "success", CLOSED: "warning", ARCHIVED: "default" } as const;
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -147,7 +146,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
       <PageHeader
         title={cycle.title}
-        status={<Badge tone={statusTone[cycle.status as keyof typeof statusTone] ?? "default"}>{cycle.status}</Badge>}
+        status={<CycleStatusBadge status={cycle.status} />}
       />
 
       <Card>

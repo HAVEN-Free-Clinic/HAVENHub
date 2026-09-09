@@ -225,7 +225,11 @@ export async function listWaitlisted(cycleId: string, viewerId: string): Promise
  *  director-track cycles with an application that RANKED their department. */
 export async function listReviewableCycles(
   personId: string,
-): Promise<{ id: string; title: string; track: string; status: string }[]> {
+  // `status` is the CycleStatus enum, not a bare string. It was typed loosely,
+  // which is what let /recruitment render the raw constant ("OPEN") in a Badge
+  // without anything objecting: a CycleStatus is exhaustively labelled by
+  // CYCLE_STATUS_LABELS, a string is not.
+): Promise<{ id: string; title: string; track: string; status: CycleStatus }[]> {
   const [scope, managesCycles, canScore] = await Promise.all([
     reviewScope(personId),
     can(personId, "recruitment.manage_cycles"),

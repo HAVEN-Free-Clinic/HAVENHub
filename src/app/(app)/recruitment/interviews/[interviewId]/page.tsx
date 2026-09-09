@@ -24,10 +24,10 @@ import { FormActions, FormRow, RowField } from "@/platform/ui/form";
 import { RescindAcceptanceNotice } from "@/modules/recruitment/components/rescind-acceptance-notice";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
+import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
 
 const SCORES = [1, 2, 3, 4, 5];
 const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical", WAITLIST: "warning" } as const;
-const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
 export default async function InterviewDetail({ params }: { params: Promise<{ interviewId: string }> }) {
   const { interviewId } = await params;
@@ -77,7 +77,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
         description={`${iv.departmentCode} director interview`}
-        status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{decisionLabel[iv.decision as keyof typeof decisionLabel] ?? iv.decision}</Badge>}
+        status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{DECISION_LABELS[iv.decision as keyof typeof DECISION_LABELS] ?? iv.decision}</Badge>}
       />
       {canManage && (
         <>
@@ -204,7 +204,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
           </form>
           {iv.decision !== "PENDING" && iv.decidedAt && (
             <p className="mt-2 text-xs text-subtle-foreground">
-              {decisionLabel[iv.decision as keyof typeof decisionLabel]} · recorded <DateTime value={iv.decidedAt} />
+              {DECISION_LABELS[iv.decision as keyof typeof DECISION_LABELS]} · recorded <DateTime value={iv.decidedAt} />
             </p>
           )}
           <p className="mt-2 text-xs text-subtle-foreground">Accept creates an acceptance, released from the Decisions page.</p>

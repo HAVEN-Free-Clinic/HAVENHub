@@ -41,6 +41,15 @@ const NOTIFICATION_TYPE_LABELS = new Map(NOTIFICATION_TYPES.map((t) => [t.key, t
 
 type BadgeTone = "default" | "success" | "warning" | "critical";
 
+/** Friendly text, never the raw enum -- the shared rule SupportStatusBadge states. */
+const STATUS_LABELS: Record<TeamsMessageStatus, string> = {
+  QUEUED: "Queued",
+  SENT: "Sent",
+  FAILED: "Failed",
+  FALLBACK: "Sent by email",
+  LOGGED: "Logged",
+};
+
 function statusTone(status: TeamsMessageStatus): BadgeTone {
   if (status === "SENT") return "success";
   if (status === "FAILED") return "critical"; // undelivered by any channel
@@ -240,7 +249,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
               id: row.id,
               recipient: row.person.name,
               kind: NOTIFICATION_TYPE_LABELS.get(row.type) ?? row.type,
-              status: row.status,
+              status: STATUS_LABELS[row.status] ?? row.status,
               statusTone: statusTone(row.status),
               attempts: row.attempts,
               lastError: row.lastError,

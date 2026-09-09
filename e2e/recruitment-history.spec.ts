@@ -115,7 +115,7 @@ test("the reviewer's application detail page shows a Past applications card for 
 
     await page.goto(`/recruitment/cycles/${cycleId}`);
     await page.click('button:has-text("Publish")');
-    await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
+    await expect(page.locator("span").filter({ hasText: /^Open$/ })).toBeVisible();
 
     // --- Submit one public application, as a verified portal applicant, that
     //     shares its email with the seeded historical applicant above ---

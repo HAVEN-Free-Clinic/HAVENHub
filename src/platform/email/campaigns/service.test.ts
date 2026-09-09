@@ -452,6 +452,22 @@ describe("listCampaigns scope filtering", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not ship the email body to a table of links", async () => {
+    // A campaign row carries the whole email -- subject, body, and the audience
+    // tree -- and /outreach/campaigns renders a name, a date and a status chip.
+    const admin = await prisma.person.create({ data: { name: "Projection admin" } });
+    await createDraft(null, "Projection", { scopeId: null });
+    vi.spyOn(rbac, "can").mockImplementation(async (_id, p) => p === "outreach.send_unrestricted");
+
+    const [row] = await listCampaigns(admin.id);
+
+    expect(row).not.toHaveProperty("body");
+    expect(row).not.toHaveProperty("subject");
+    // What it DOES carry, so this cannot pass by returning nothing.
+    expect(row.name).toBe("Projection");
+    expect(row.status).toBeTruthy();
+  });
+
   it("shows an unrestricted sender every campaign regardless of scope", async () => {
     const admin = await prisma.person.create({ data: { name: "Admin" } });
     const scope = await createScope(null, { name: "Dept scope", audience: ALL_ACTIVE });

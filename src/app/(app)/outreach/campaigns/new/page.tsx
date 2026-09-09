@@ -9,13 +9,13 @@ import {
 import { scopesForPerson } from "@/platform/email/audience/scopes";
 import { CAMPAIGN_STARTERS } from "@/platform/email/campaigns/starters";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { Select } from "@/platform/ui/select";
 import { FormActions } from "@/platform/ui/form";
+import { SubmitButton } from "@/platform/ui/submit-button";
 
 export default async function NewCampaignPage() {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
@@ -122,7 +122,16 @@ export default async function NewCampaignPage() {
           </p>
 
           <FormActions>
-            <Button type="submit">Create</Button>
+            {/* SubmitButton, not Button: React form actions do not block a second
+              submit -- startHostTransition dispatches a fresh transition per
+              click with no in-flight guard -- and this action runs a permission
+              check, a scope assertion and a DB write before it redirects.
+              EmailCampaign.name has no unique constraint and the service exports
+              no delete or archive, so a double-click left a duplicate draft in
+              the campaigns list permanently. The sibling create forms
+              (recruitment cycles, learning courses, board meetings) already use
+              it. */}
+          <SubmitButton pendingLabel="Creating…">Create</SubmitButton>
           </FormActions>
         </Card>
       </form>

@@ -40,6 +40,7 @@ import { FormRow, RowField } from "@/platform/ui/form";
 import { ScoreOptions } from "@/platform/ui/score-options";
 import { QueueTab } from "./queue-tab";
 import { TabRow } from "@/platform/ui/tab-row";
+import { viewableMemberIds } from "@/platform/member-profile";
 
 /**
  * Language review queue for the interpreting department.
@@ -87,7 +88,7 @@ function tabHref(tab: Tab, params: Record<string, string | undefined> = {}): str
 }
 
 export default async function LanguageReviewPage({ searchParams }: PageProps) {
-  await requirePermission("volunteers.verify_spanish");
+  const viewer = await requirePermission("volunteers.verify_spanish");
   const sp = await searchParams;
   const activeTab: Tab =
     sp.tab === "history" ? "history" : sp.tab === "crosscheck" ? "crosscheck" : "queue";
@@ -109,6 +110,25 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       : null;
   const allTerms = activeTab === "history" ? await listAssessmentTerms() : [];
   const mismatches = activeTab === "crosscheck" ? await listSpanishFlagMismatches() : [];
+
+  // Which of these names the reviewer may actually open.
+  //
+  // Both tables linked every name to /volunteers/compliance/[personId]
+  // unconditionally, and that page redirects to /no-access unless
+  // canViewMemberProfile passes. A reviewer holding only
+  // volunteers.verify_spanish -- the persona the registry documents as this
+  // being "their sole page" -- bounced on every single row; an INTP
+  // director-reviewer bounced on every name outside their own departments and
+  // on every alum, which is most of a history running back to 2012.
+  //
+  // Every other surface that renders this link already gates it and falls back
+  // to plain text: /schedule/full, the builder day view, the readiness panel,
+  // and the directory, whose comment calls this "the dead-end-result bug this
+  // codebase has already shipped four times".
+  const profileIds = await viewableMemberIds(viewer.personId, [
+    ...history?.rows.flatMap((r) => (r.personId ? [r.personId] : [])) ?? [],
+    ...mismatches.map((m) => m.personId),
+  ]);
 
   // -------------------------------------------------------------------------
   // Actions. Each one bounces back with ?error= or ?ok= rather than returning
@@ -394,7 +414,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                   {history.rows.map((r) => (
                     <TR key={r.id}>
                       <TD className="font-medium">
-                        {r.personId ? (
+                        {r.personId && profileIds.has(r.personId) ? (
                           <TextLink href={`/volunteers/compliance/${r.personId}`}>
                             {r.displayName ?? "Unnamed"}
                           </TextLink>
@@ -542,9 +562,13 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                 {mismatches.map((m) => (
                   <TR key={m.personId}>
                     <TD className="font-medium">
-                      <TextLink href={`/volunteers/compliance/${m.personId}`}>
-                        {m.name}
-                      </TextLink>
+                      {profileIds.has(m.personId) ? (
+                        <TextLink href={`/volunteers/compliance/${m.personId}`}>
+                          {m.name}
+                        </TextLink>
+                      ) : (
+                        m.name
+                      )}
                     </TD>
                     <TD className="text-muted-foreground">
                       {m.netId ?? <span className="text-subtle-foreground">-</span>}

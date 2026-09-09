@@ -15,6 +15,40 @@ describe("Checkbox", () => {
     expect(out).toContain('type="checkbox"');
   });
 
+  /**
+   * The regression this guards. `Checkbox` carries no "use client" and fifteen
+   * SERVER components render it, and React refuses to serialise a ref from a
+   * server render at all: "Refs cannot be used in Server Components, nor passed
+   * to Client Components." Attaching the indeterminate callback ref
+   * unconditionally threw on every admin page holding a checkbox -- /admin/roles,
+   * /admin/people/[id], /admin/terms/[id] -- and the e2e shard covering them
+   * failed on ten timed-out navigations rather than on anything that named a
+   * checkbox.
+   *
+   * These read the element rather than its HTML because a ref leaves no trace in
+   * markup: renderToStaticMarkup renders the same string either way.
+   */
+  const inputOf = (el: React.ReactElement): React.ReactElement =>
+    el.type === "input"
+      ? el
+      : // labelled: <label>{input}<span/></label>
+        (el.props as { children: React.ReactElement[] }).children[0];
+
+  const refOf = (el: React.ReactElement) =>
+    (inputOf(el).props as { ref?: unknown }).ref;
+
+  it("attaches NO ref when nothing needs one, which is the server case", () => {
+    expect(refOf(Checkbox({ name: "x" }) as React.ReactElement)).toBeUndefined();
+    expect(refOf(Checkbox({ name: "x", label: "One" }) as React.ReactElement)).toBeUndefined();
+  });
+
+  it("attaches one when there is an indeterminate to apply or a ref to forward", () => {
+    // Both only ever come from a client component, which is what makes the
+    // conditional safe rather than a way of losing the feature.
+    expect(refOf(Checkbox({ name: "x", indeterminate: false }) as React.ReactElement)).toBeTypeOf("function");
+    expect(refOf(Checkbox({ name: "x", ref: () => {} }) as React.ReactElement)).toBeTypeOf("function");
+  });
+
   it("returns a bare control when unlabelled, so table-cell callers are unchanged", () => {
     const out = render(<Checkbox name="x" />);
     expect(out).not.toContain("<label");

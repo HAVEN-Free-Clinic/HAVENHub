@@ -636,16 +636,20 @@ describe("approve / deny", () => {
     const realFind = prisma.attendingShiftRequest.findUnique.bind(
       prisma.attendingShiftRequest,
     );
-    const spy = vi
-      .spyOn(prisma.attendingShiftRequest, "findUnique")
-      .mockImplementation((async (args: Parameters<typeof realFind>[0]) => {
-        const row = await realFind(args);
-        await prisma.attendingShiftRequest.update({
-          where: { id },
-          data: { status: "APPROVED", decidedById: FCRL, decidedAt: new Date() },
-        });
-        return row;
-      }) as typeof prisma.attendingShiftRequest.findUnique);
+    // Double cast: Prisma's findUnique is generic over the args object and
+    // narrows its return type from the caller's `select`, so no concrete
+    // function is assignable to it. The wrapper genuinely defers to the real
+    // one, so the runtime shape is correct even though the types cannot say so.
+    type Find = typeof prisma.attendingShiftRequest.findUnique;
+    const spy = vi.spyOn(prisma.attendingShiftRequest, "findUnique");
+    spy.mockImplementation((async (args: Parameters<Find>[0]) => {
+      const row = await realFind(args);
+      await prisma.attendingShiftRequest.update({
+        where: { id },
+        data: { status: "APPROVED", decidedById: FCRL, decidedAt: new Date() },
+      });
+      return row;
+    }) as unknown as Find);
 
     try {
       await expect(denyAttendingRequest(FCRL, id)).rejects.toThrow(/already decided/i);

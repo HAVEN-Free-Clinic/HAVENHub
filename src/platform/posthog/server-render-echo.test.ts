@@ -22,24 +22,67 @@ const exceptionEvent = (values: unknown[]) => ({
   },
 });
 
-describe("isServerRenderEchoError", () => {
-  it("matches the scrubbed message React ships in the flight client", () => {
-    // Pinned to the framework rather than to our copy of the string: React owns
-    // this wording, so if it rewords the scrubbing this fails instead of the
-    // filter quietly going dead and the echo issue coming back.
-    const require = createRequire(import.meta.url);
-    const flightClient = require.resolve(
-      "next/dist/compiled/react-server-dom-turbopack/cjs/react-server-dom-turbopack-client.browser.production.js",
-    );
-    const shipped = readFileSync(flightClient, "utf8").match(
-      /An error occurred in the Server[^"']{0,300}/,
-    )?.[0];
+/**
+ * What React's `resolveErrorProd` actually constructs in one shipped bundle.
+ *
+ * Read from the file rather than trusted from memory, because this is the whole
+ * point of these two tests: next 16.2.11 -> 16.3.4 switched the BROWSER bundle
+ * from the prose to a minified code, and matching only the prose would have left
+ * the filter dead in the exact place it runs.
+ */
+function shippedEchoMessage(runtime: "browser" | "node"): string | undefined {
+  const require = createRequire(import.meta.url);
+  const src = readFileSync(
+    require.resolve(
+      `next/dist/compiled/react-server-dom-turbopack/cjs/react-server-dom-turbopack-client.${runtime}.production.js`,
+    ),
+    "utf8",
+  );
+  const body = src.slice(src.indexOf("function resolveErrorProd"));
+  const prose = body.match(/An error occurred in the Server[^"']{0,300}/)?.[0];
+  if (prose) return prose;
+  // Minified form: Error(formatProdErrorMessage(441)). Rebuild what that
+  // returns, from the code in the file, so a renumber is caught.
+  const code = body.match(/formatProdErrorMessage\((\d+)\)/)?.[1];
+  if (!code) return undefined;
+  return (
+    `Minified React error #${code}; visit https://react.dev/errors/${code}` +
+    " for the full message or use the non-minified dev environment for full" +
+    " errors and additional helpful warnings."
+  );
+}
 
+describe("isServerRenderEchoError", () => {
+  it("matches what the BROWSER flight client throws, which is where this runs", () => {
+    // Both capture paths are client-side, so this bundle is the one that
+    // matters. next 16.3 minified it; on 16.2.11 it carried the prose.
+    const shipped = shippedEchoMessage("browser");
     expect(
       shipped,
-      "React no longer ships the scrubbed server-render message this filter matches -- re-derive it before trusting the filter",
+      "Could not read resolveErrorProd out of React's browser flight client -- re-derive the marker before trusting the filter",
     ).toBeTruthy();
     expect(isServerRenderEchoError(new Error(shipped!))).toBe(true);
+  });
+
+  it("still matches what the SSR flight client throws, which kept the prose", () => {
+    // node/edge did NOT change in 16.3, and an echo can still reach a client
+    // capture path with the prose (a cached older bundle mid-rollout).
+    const shipped = shippedEchoMessage("node");
+    expect(shipped).toBeTruthy();
+    expect(shipped).toContain("An error occurred in the Server");
+    expect(isServerRenderEchoError(new Error(shipped!))).toBe(true);
+  });
+
+  it("does not drop every minified React error, only this one", () => {
+    // The generic "Minified React error #" prefix would swallow real
+    // client-side React failures, which is the opposite of the point.
+    expect(
+      isServerRenderEchoError(
+        new Error(
+          "Minified React error #418; visit https://react.dev/errors/418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("matches the message production actually captured", () => {

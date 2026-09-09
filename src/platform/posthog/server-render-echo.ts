@@ -13,6 +13,9 @@
  *    property is included on this error instance which may provide additional
  *    details about the nature of the error."
  *
+ * (In the browser that prose is now a minified code instead -- see the two
+ * markers below -- but it is the same stand-in.)
+ *
  * That stand-in is what our client capture paths see, and it is pure noise:
  * constant message, no stack, no route. Worse, those are exactly the inputs
  * PostHog fingerprints on, so *every* server bug collapses into one issue --
@@ -35,19 +38,50 @@
  */
 
 /**
- * The redaction sentence React adds when it scrubs a server error for the
- * client. Matched instead of the full message because React owns the
- * surrounding wording: this clause is the part that actually means "the real
- * message was withheld and reported elsewhere". It is React-internal prose, so
- * an app error will not carry it by accident.
- * (`server-render-echo.test.ts` pins it to the copy of React that Next ships,
- * so a rewording fails the suite instead of silently un-filtering.)
+ * The echo has TWO shapes, because React builds `resolveErrorProd` differently
+ * per bundle and Next 16.3 changed which one the browser gets.
+ *
+ *   client.node.production.js     prose      (SSR: what onRequestError sees)
+ *   client.edge.production.js     prose
+ *   client.browser.production.js  minified   (soft navigation: what WE see)
+ *
+ * Up to and including next 16.2.11 the browser bundle carried the prose too, so
+ * one marker covered everything. In 16.3.4 the browser build minified it:
+ *
+ *   function resolveErrorProd() {
+ *     var error = Error(formatProdErrorMessage(441));
+ *
+ * Matching only the prose would therefore have gone quietly dead in the browser
+ * on this upgrade -- and the browser is where both of our capture paths run, so
+ * every server bug would have collapsed back into one unactionable PostHog
+ * issue. Both markers are pinned to the shipped bundles by
+ * `server-render-echo.test.ts`, which is what caught the change.
+ */
+
+/**
+ * The redaction sentence, still emitted by the node and edge clients. Matched
+ * instead of the full message because React owns the surrounding wording: this
+ * clause is the part that actually means "the real message was withheld and
+ * reported elsewhere". It is React-internal prose, so an app error will not
+ * carry it by accident.
  */
 const REDACTION_MARKER =
   "The specific message is omitted in production builds to avoid leaking sensitive details.";
 
+/**
+ * The browser client's minified stand-in. Pinned to the ONE code React uses for
+ * this error, not to "any minified React error": the generic prefix would drop
+ * real client-side React failures, which is the opposite of the point. A React
+ * upgrade that renumbers this fails the test rather than silently widening or
+ * narrowing the filter.
+ */
+const MINIFIED_ECHO_MARKER = "Minified React error #441;";
+
 function isEchoText(text: unknown): boolean {
-  return typeof text === "string" && text.includes(REDACTION_MARKER);
+  return (
+    typeof text === "string" &&
+    (text.includes(REDACTION_MARKER) || text.includes(MINIFIED_ECHO_MARKER))
+  );
 }
 
 /**

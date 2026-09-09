@@ -24,11 +24,17 @@ import { cx } from "./cx";
  * `checked={allSelected}` and nothing else, so a partial selection reported
  * "unchecked" to the accessibility tree while rows were plainly selected.
  *
- * Applied through a CALLBACK ref rather than useRef + useEffect, deliberately:
- * this file carries no "use client" and is rendered by a couple of dozen server
- * components, so a hook here would break every one of them. A callback ref is
- * not a hook. It is re-created each render, which means React re-runs it on
- * every render -- exactly what keeps the property in step with the prop.
+ * Applied through a CALLBACK ref rather than useRef + useEffect, because this
+ * file carries no "use client" and is rendered by fifteen server components, so
+ * a hook here would break every one of them. A callback ref is not a hook.
+ *
+ * But a ref is not free in a server render either: React refuses to serialise
+ * an attached one at all ("Refs cannot be used in Server Components, nor passed
+ * to Client Components"), and attaching this one unconditionally took down
+ * every admin page that renders a checkbox. So the ref resolves to undefined
+ * unless there is something for it to do -- an `indeterminate` to apply, or a
+ * caller's own ref to forward -- and both of those only ever come from a client
+ * component.
  */
 export function Checkbox({
   label,
@@ -43,16 +49,25 @@ export function Checkbox({
   /** Some-but-not-all selected. Wins over `checked` in what the box displays. */
   indeterminate?: boolean;
 } & ComponentProps<"input">) {
+  // undefined unless there is work to do. TabRow already relies on this shape
+  // (`ref={navRef}` with navRef undefined from its server callers), so a ref
+  // prop that resolves to undefined is known to be server-safe here; an
+  // attached one is not.
+  const attachRef =
+    indeterminate === undefined && ref == null
+      ? undefined
+      : (el: HTMLInputElement | null) => {
+          if (el) el.indeterminate = indeterminate ?? false;
+          // Forward the caller's own ref, so adding this prop cannot silently
+          // steal a ref a call site already depends on.
+          if (typeof ref === "function") ref(el);
+          else if (ref) ref.current = el;
+        };
+
   const input = (
     <input
       type="checkbox"
-      ref={(el) => {
-        if (el) el.indeterminate = indeterminate ?? false;
-        // Forward the caller's own ref, so adding this prop cannot silently
-        // steal a ref a call site already depends on.
-        if (typeof ref === "function") ref(el);
-        else if (ref) ref.current = el;
-      }}
+      ref={attachRef}
       {...rest}
       className={cx(
         "h-4 w-4 rounded border-border-strong text-brand accent-brand cursor-pointer",

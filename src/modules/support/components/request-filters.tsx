@@ -15,7 +15,7 @@
  * may no longer exist under the new filter.
  */
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { TechRequestStatus } from "@prisma/client";
 import { Input } from "@/platform/ui/input";
@@ -26,6 +26,7 @@ import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
 import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 import { FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
 import { cx } from "@/platform/ui/cx";
+import { useNavFilter } from "@/platform/ui/nav-form";
 
 type RequestFiltersProps = {
   counts: Record<TechRequestStatus, number>;
@@ -35,9 +36,8 @@ type RequestFiltersProps = {
 };
 
 export function RequestFilters({ counts, total, assignees }: RequestFiltersProps) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const navFilter = useNavFilter();
 
   const status = searchParams.get("status") ?? "";
   const category = searchParams.get("category") ?? "";
@@ -52,12 +52,15 @@ export function RequestFilters({ counts, total, assignees }: RequestFiltersProps
     setQ(urlQ);
   }
 
+  // useNavFilter, not a bare router.push: a `?`-only navigation never remounts
+  // a Suspense boundary and never starts the anchor-driven progress bar, so
+  // changing a select re-queried the server while the rows sat looking current
+  // -- on a page where clicking a PAGE dims them.
   function setParam(key: string, value: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value) params.set(key, value);
-    else params.delete(key);
-    params.delete("page");
-    router.push(`${pathname}?${params.toString()}`);
+    navFilter((params) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    });
   }
 
   function submitSearch(e: FormEvent) {

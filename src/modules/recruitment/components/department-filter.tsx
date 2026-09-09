@@ -11,25 +11,25 @@
  * never offers a department the viewer would find empty.
  */
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { ROW_WIDTH } from "@/platform/ui/form";
+import { useNavFilter } from "@/platform/ui/nav-form";
 
 export function DepartmentFilter({ options }: { options: string[] }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const navFilter = useNavFilter();
   const value = searchParams.get("department") ?? "";
 
+  // useNavFilter reports the navigation to ListPendingProvider, which is what
+  // dims the table while the server re-queries. A bare router.push did not, so
+  // this filter changed nothing on screen until the new rows arrived.
   function onChange(next: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next) params.set("department", next);
-    else params.delete("department");
-    // The prior page number may not exist under the new filter.
-    params.delete("page");
-    const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    navFilter((params) => {
+      if (next) params.set("department", next);
+      else params.delete("department");
+    });
   }
 
   // Nothing to choose between on a roster with no departments on it at all.

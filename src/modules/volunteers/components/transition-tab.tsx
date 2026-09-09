@@ -56,6 +56,14 @@ export function TransitionTab({
     () => new Set(view.rows.filter((r) => r.bucket === "NOT_RETURNING").map((r) => r.personId)),
   );
   const [exportError, setExportError] = useState<string | null>(null);
+  // `exporting` is not cosmetic. The export route records an audit entry per
+  // POST, so a second click while the first is in flight writes a SECOND
+  // "offboarding.export" row and downloads a second file. The button gave no
+  // sign it was working -- no disable, no label change -- on a request that
+  // builds a CSV server-side, which is exactly the wait people click through.
+  // Declared here, above the `!view.nextTerm` early return, because a hook
+  // after it would not run in every render.
+  const [exporting, setExporting] = useState(false);
   const [flagResult, flagFormAction, flagPending] = useActionState(bulkFlagAction, null);
   const [offboardResult, offboardFormAction] = useActionState(bulkOffboardAction, null);
 
@@ -94,10 +102,13 @@ export function TransitionTab({
 
   async function exportCsv() {
     setExportError(null);
+    setExporting(true);
     try {
       await downloadCsv({ scope: "selection", personIds: selectedIds });
     } catch {
       setExportError("Export failed. Refresh and try again.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -152,8 +163,13 @@ export function TransitionTab({
         )}
 
         {canExecute && (
-          <Button type="button" variant="outline" onClick={exportCsv} disabled={selectedIds.length === 0}>
-            Export emails CSV
+          <Button
+            type="button"
+            variant="outline"
+            onClick={exportCsv}
+            disabled={exporting || selectedIds.length === 0}
+          >
+            {exporting ? "Preparing…" : "Export emails CSV"}
           </Button>
         )}
       </div>

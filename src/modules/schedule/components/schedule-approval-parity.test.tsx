@@ -5,6 +5,7 @@ import { AttendingPendingRequests } from "./attending-pending-requests";
 import type { RequestRow } from "@/modules/schedule/services/requests";
 import type { AttendingRequestRow } from "@/modules/schedule/services/attending-portal";
 import type { ShiftRequest } from "@prisma/client";
+import { SHIFT_REQUEST_COPY } from "./shift-parts";
 
 /**
  * These two panels stack on ONE page, /schedule/requests, and settle the same
@@ -62,6 +63,25 @@ const denyForm = (html: string) =>
   html.split("<form").find((chunk) => chunk.includes("Deny")) ?? "";
 
 describe("the two approval panels on /schedule/requests", () => {
+  it("say the same thing when there is nothing pending", () => {
+    // Three phrasings for one fact across these two files: "No requests." in the
+    // nothing-at-all branch, "No pending requests." in the decided-rows-only
+    // branch, and "No pending attending requests." next door -- on a page that
+    // mounts BOTH panels, so a reader could meet two of them at once.
+    const volunteer = renderToStaticMarkup(
+      <PendingRequests rows={[]} approveAction={noop} denyAction={noop} todayKey={TODAY} timeZone={ZONE} />,
+    );
+    const attending = renderToStaticMarkup(
+      <AttendingPendingRequests rows={[]} approveAction={noop} denyAction={noop} todayKey={TODAY} timeZone={ZONE} />,
+    );
+    for (const [name, html] of [["volunteer", volunteer], ["attending", attending]] as const) {
+      expect(html, `${name} panel`).toContain(SHIFT_REQUEST_COPY.noPending);
+    }
+    // The qualifier the section header directly above already carries.
+    expect(attending).not.toContain("No pending attending requests.");
+  });
+
+
   it("both make Deny confirm, because denying ends the request", () => {
     // ConfirmButton's tell: it arms rather than submitting, so the idle control
     // is a plain button that is not type=submit.

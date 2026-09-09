@@ -7,6 +7,7 @@ import {
   PendingRequestStrip,
   RequestChangeDisclosure,
   PastShiftsDisclosure,
+  SHIFT_REQUEST_COPY,
 } from "@/modules/schedule/components/shift-parts";
 import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
@@ -536,7 +537,10 @@ export default async function MySchedulePage({
                         )}
                         <form action={cancelRequestAction}>
                           <input type="hidden" name="requestId" value={pendingReq.id} />
-                          <ConfirmButton label="Cancel request" confirmLabel="Cancel this request?" />
+                          <ConfirmButton
+                            label={SHIFT_REQUEST_COPY.cancelLabel}
+                            confirmLabel={SHIFT_REQUEST_COPY.cancelConfirm}
+                          />
                         </form>
                     </PendingRequestStrip>
                   ) : isPast ? (
@@ -549,7 +553,7 @@ export default async function MySchedulePage({
                             not the gate. */}
                         {shift.department.allowShiftDrop ? (
                           <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Request a drop</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-2">{SHIFT_REQUEST_COPY.dropHeading}</p>
                             <form action={createRequestAction}>
                               <FormRow>
                                 <input type="hidden" name="termId" value={t.term.id} />
@@ -559,7 +563,10 @@ export default async function MySchedulePage({
                                 <div className={ROW_WIDTH.grow}>
                                   <Input name="note" placeholder="Optional note" aria-label="Note" />
                                 </div>
-                                <ConfirmButton label="Request drop" confirmLabel="Request this drop?" />
+                                <ConfirmButton
+                                  label={SHIFT_REQUEST_COPY.dropLabel}
+                                  confirmLabel={SHIFT_REQUEST_COPY.dropConfirm}
+                                />
                               </FormRow>
                             </form>
                           </div>

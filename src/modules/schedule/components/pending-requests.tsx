@@ -8,6 +8,7 @@
  */
 
 import { Badge } from "@/platform/ui/badge";
+import { SHIFT_REQUEST_COPY } from "./shift-parts";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
@@ -67,7 +68,7 @@ export function PendingRequests({
     return (
       <section className={`${cardClasses({ pad: false })} px-4 py-3`}>
         <SectionHeader as="h2" level="title" className="text-sm mb-2">Pending requests</SectionHeader>
-        <EmptyState inline>No requests.</EmptyState>
+        <EmptyState inline>{SHIFT_REQUEST_COPY.noPending}</EmptyState>
       </section>
     );
   }
@@ -84,7 +85,7 @@ export function PendingRequests({
       </div>
 
       {pendingRows.length === 0 && (
-        <EmptyState inline>No pending requests.</EmptyState>
+        <EmptyState inline>{SHIFT_REQUEST_COPY.noPending}</EmptyState>
       )}
 
       {/* Pending rows with approve/deny actions */}

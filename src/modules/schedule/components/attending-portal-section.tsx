@@ -21,6 +21,7 @@ import {
   PendingRequestStrip,
   RequestChangeDisclosure,
   PastShiftsDisclosure,
+  SHIFT_REQUEST_COPY,
 } from "./shift-parts";
 import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
@@ -107,7 +108,10 @@ export function AttendingPortalSection({
             >
               <form action={cancelRequestAction}>
                 <input type="hidden" name="requestId" value={pending.id} />
-                <ConfirmButton label="Withdraw request" confirmLabel="Withdraw this request?" />
+                <ConfirmButton
+                  label={SHIFT_REQUEST_COPY.cancelLabel}
+                  confirmLabel={SHIFT_REQUEST_COPY.cancelConfirm}
+                />
               </form>
             </PendingRequestStrip>
           ) : isPast ? (
@@ -119,7 +123,7 @@ export function AttendingPortalSection({
           ) : (
             <RequestChangeDisclosure>
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Give up this date</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">{SHIFT_REQUEST_COPY.dropHeading}</p>
                   <form action={createRequestAction}>
                     <FormRow>
                       <input type="hidden" name="clinicDayId" value={shift.clinicDayId} />
@@ -128,7 +132,10 @@ export function AttendingPortalSection({
                       <div className={ROW_WIDTH.grow}>
                         <Input name="note" placeholder="Optional note" aria-label="Note" />
                       </div>
-                      <ConfirmButton label="Request drop" confirmLabel="Request to drop this date?" />
+                      <ConfirmButton
+                        label={SHIFT_REQUEST_COPY.dropLabel}
+                        confirmLabel={SHIFT_REQUEST_COPY.dropConfirm}
+                      />
                     </FormRow>
                   </form>
                 </div>

@@ -26,6 +26,33 @@ import { Clock } from "lucide-react";
  */
 
 /**
+ * The words both halves use for a request, so neither can drift again.
+ *
+ * This file's own header already named "Cancel request" against "Withdraw
+ * request" as a drift it existed to end, and then left it in place: the
+ * attending half said Withdraw and the volunteer half said Cancel for the
+ * identical action, under headings "Give up this date" and "Request a drop".
+ * Somebody who is both scrolls past both.
+ *
+ * Constants rather than a shared component, for the same reason the shift CARD
+ * is not shared: the two forms differ in what they post. Only the words are
+ * common.
+ *
+ * The volunteer side's wording wins throughout. It is the one nearly every
+ * reader meets, and "Cancel" is what the rest of the app calls undoing your own
+ * pending thing.
+ */
+export const SHIFT_REQUEST_COPY = {
+  cancelLabel: "Cancel request",
+  cancelConfirm: "Cancel this request?",
+  dropHeading: "Request a drop",
+  dropLabel: "Request drop",
+  dropConfirm: "Request this drop?",
+  /** The section header above already says WHOSE requests these are. */
+  noPending: "No pending requests.",
+} as const;
+
+/**
  * The strip that replaces the request controls once a change is pending.
  *
  * `reviewerLabel` is who reviews it, and it is the whole reason this is a prop:

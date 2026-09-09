@@ -92,8 +92,12 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
   // Coverage is the read-only twin of Attendings, on a WIDER gate: Faculty
   // Relations builds the schedule, but everyone holding clinic-wide schedule
   // rights runs a clinic day and has to be able to look coverage up.
-  // Permission gates first, then the data-driven ones. Both apply: Approvals
-  // carries a permission AND a department check, and narrowing twice is right.
+  // Permission gates first, then the data-driven ones.
+  //
+  // Approvals is the case that shows why order matters: filterNavItems can only
+  // REMOVE, so a permission on an item whose real gate is wider than that
+  // permission is unrecoverable here. Approvals therefore carries no permission
+  // at all (see registry.ts) and is decided by `canApprove` alone.
   const items = filterNavItems(mod.nav, perms).filter(
     (item) =>
       (item.href !== BUILDER_HREF || canBuild) &&

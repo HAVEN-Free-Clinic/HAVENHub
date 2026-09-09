@@ -295,9 +295,29 @@ export function BuilderBoardProvider({
               assignments: BuilderAssignments;
             };
           } else if (res.status === 503) {
-            // A database blip, not a rejection: the write may yet have landed and
-            // the next stream tick settles it. Leave the optimistic board alone.
-            failure = "Saved locally but the server is unreachable. Retrying in the background.";
+            // A database blip rather than a rejection, so this is worth naming
+            // separately from "could not be saved" -- the director should try
+            // again in a moment, not go looking for what they did wrong.
+            //
+            // It must NOT promise more than that. This used to read "Saved
+            // locally but the server is unreachable. Retrying in the
+            // background." Both halves were false:
+            //
+            //  - Nothing retries. The only timers in this file (FIRST_RETRY_MS /
+            //    MAX_RETRY_MS / retryTimer) reconnect the EventSource; no write
+            //    is ever re-sent.
+            //  - It is not saved locally either. This path falls through to the
+            //    rollback below like every other failure, and the edit is
+            //    discarded -- by the deferred snapshot, by resync(), or, if
+            //    resync's own fetch fails in the same outage, by acceptSnapshot
+            //    the moment the stream reconnects.
+            //
+            // So a director was told a shift was staffed, watched the cell
+            // revert, and had a banner still saying it was saved -- a banner
+            // that only clears on Dismiss. Building a real retry queue is a
+            // separate piece of work; until it exists the message says what
+            // actually happened.
+            failure = "Not saved: the server is briefly unreachable. Try that change again.";
           } else {
             const payload = (await res.json().catch(() => null)) as { error?: string } | null;
             failure = payload?.error ?? "That change could not be saved.";

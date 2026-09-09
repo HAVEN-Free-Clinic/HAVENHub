@@ -207,6 +207,28 @@ test("the Schedule dropdown offers no link that bounces to /no-access", async ({
   await expect(schedulePanel.getByRole("link", { name: "Approvals" })).toHaveCount(0);
 });
 
+test("a department director can reach the Approvals page they are emailed about", async ({ page }) => {
+  // dev.director is an ACTIVE DIRECTOR of VADM and holds no schedule.manage_*
+  // permission -- the shipped Director role grants neither. That is exactly the
+  // persona /schedule/requests admits (manageableRequestDepartmentIds unions
+  // manageableDepartmentIds, which needs a directorship and nothing else) and
+  // exactly the persona the nav used to hide it from, because the item carried
+  // a permission that filterNavItems applied BEFORE the layout's canApprove
+  // check -- and filterNavItems can only remove.
+  //
+  // The daily reminder email and the dashboard card both link here off the same
+  // permission-free authority, so the destination existed and the route to it
+  // did not.
+  await devLogin(page, "dev.director@yale.edu");
+  await page.goto("/schedule");
+  await chevron(page, "Schedule").click();
+  await panel(page, "Schedule").getByRole("link", { name: "Approvals", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/schedule/requests");
+  // ...and the page admits them rather than bouncing, which is the half that
+  // proves the nav and the page now agree.
+  await expect(page).toHaveURL(/\/schedule\/requests$/);
+});
+
 test("the Schedule dropdown DOES offer a dynamically-gated link to someone who can open it", async ({ page }) => {
   // The same three links, for a viewer the gates resolve true for. Together
   // with the case above this pins both directions: the dropdown mirrors what

@@ -602,7 +602,9 @@ it("lists accepted applicants who have no account yet", async () => {
   // No Person means no certificate can exist for them yet, and the contract that
   // would put them on the roster is the thing still outstanding.
   expect(row.certStatus).toBe("NO_CERTIFICATE");
-  expect(row.overallClearance).toBe("NOT_CLEARED");
+  // Its own state, NOT the failure one a member gets: nothing has been checked
+  // and found wanting, there is nothing to check yet. See clearanceLabel.
+  expect(row.overallClearance).toBe("NOT_ONBOARDED");
   expect(row.locked).toBe(false);
 
   // The membership half is untouched and the two interleave by name.
@@ -625,7 +627,7 @@ it("reads an accepted applicant's training state off their attendance row", asyn
   const row = (await listTrainingRoster(c1.id, srr.id)).find((r) => r.kind === "applicant");
   expect(row?.trainingState).toBe("COMPLETE");
   // Attending does not clear them: the contract is still outstanding.
-  expect(row?.overallClearance).toBe("NOT_CLEARED");
+  expect(row?.overallClearance).toBe("NOT_ONBOARDED");
 });
 
 it("drops an accepted applicant from the roster once promotion gives them a membership", async () => {

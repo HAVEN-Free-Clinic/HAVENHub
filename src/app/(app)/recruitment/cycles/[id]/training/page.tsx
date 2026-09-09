@@ -23,6 +23,12 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
+import { StatusBadge } from "@/platform/ui/status-badge";
+import {
+  clearanceLabel,
+  complianceStatusLabel,
+  trainingStateLabel,
+} from "@/platform/compliance/labels";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 
@@ -65,10 +71,11 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   }
 
   return (
-    // 4xl, not 3xl: the roster carries a status badge under the name now, which
-    // widens that column and squeezed "Record attendance" onto two lines at the
-    // old width.
-    <div className="max-w-4xl space-y-6">
+    // 5xl, not the original 3xl: three of the six columns now carry a status
+    // chip that must not wrap, and the two row actions sit beside them. At the
+    // old width the chips folded; one step up and "Record attendance" folded
+    // instead.
+    <div className="max-w-5xl space-y-6">
       <SetBreadcrumb trail={trail} />
       <PageHeader
         title="Training"
@@ -100,47 +107,28 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         <tbody>
           {rows.map((r) => (
             <TR key={`${r.kind === "member" ? r.personId : r.acceptanceId}-${r.departmentCode}`}>
-              <TD className="font-medium text-foreground">
-                <div className="space-y-1">
-                  <div>{r.name}</div>
-                  {/* The row's whole point. Their attendance is recordable and
-                      starts counting the moment promotion gives them a
-                      membership, but every clearance column beside it is
-                      unknowable until then, and a lead reading NOT_CLEARED
-                      deserves to know which of the two stories they are seeing. */}
-                  {/* nowrap so the badge does not fold onto a second line and
-                      make every applicant row twice the height of a member's:
-                      the name column widens to fit it instead. */}
-                  {r.kind === "applicant" && (
-                    <Badge tone="warning" className="whitespace-nowrap">
-                      Accepted, not onboarded
-                    </Badge>
-                  )}
-                </div>
-              </TD>
+              {/* No second badge under the name. The Overall column now reads
+                  "Not onboarded" for exactly these rows, and two chips saying the
+                  same thing is how a table stops being scannable. */}
+              <TD className="font-medium text-foreground">{r.name}</TD>
               <TD className="text-foreground-soft">{r.departmentCode}</TD>
               {/* No Person means no HipaaCertificate can exist yet: promotion is
                   what creates both, from whatever they uploaded with their
                   contract. An em-dash, matching how the other tables here render
                   a cell with genuinely nothing in it. */}
               <TD className="text-foreground-soft">
-                {r.kind === "applicant" ? <>&mdash;</> : r.certStatus}
+                {r.kind === "applicant" ? <>&mdash;</> : <StatusBadge {...complianceStatusLabel(r.certStatus, "staff")} />}
               </TD>
               <TD className="text-foreground-soft">
                 <div className="space-y-1">
-                  <div>
-                    {r.trainingState}
-                    {r.locked ? " (locked)" : ""}
-                    {/* Shown even once training is COMPLETE: "COMPLETE, Excused" is
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge {...trainingStateLabel(r.trainingState)} />
+                    {r.locked && <Badge tone="critical">Locked</Badge>}
+                    {/* Shown even once training is complete: "Complete, Excused" is
                         the true story of someone who missed the session with warning
                         and finished by makeup quiz, and keeping the record is the
                         point of recording it. */}
-                    {r.excuse && (
-                      <>
-                        {" "}
-                        <Badge tone="warning">Excused</Badge>
-                      </>
-                    )}
+                    {r.excuse && <Badge tone="warning">Excused</Badge>}
                   </div>
                   {r.excuse && (
                     // Clamped, not truncated to a tooltip: a long reason must not
@@ -156,7 +144,9 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                   )}
                 </div>
               </TD>
-              <TD className="text-foreground-soft">{r.overallClearance}</TD>
+              <TD className="text-foreground-soft">
+                <StatusBadge {...clearanceLabel(r.overallClearance)} />
+              </TD>
               <TD>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {/* Recording an applicant writes an UNLINKED row, which is a

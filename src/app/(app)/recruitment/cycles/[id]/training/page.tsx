@@ -17,6 +17,10 @@ import {
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
+import {
+  ROSTER_ORIGIN_LABELS,
+  ROSTER_ORIGIN_TITLES,
+} from "@/modules/recruitment/components/status-badge";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -71,11 +75,11 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   }
 
   return (
-    // 5xl, not the original 3xl: three of the six columns now carry a status
-    // chip that must not wrap, and the two row actions sit beside them. At the
-    // old width the chips folded; one step up and "Record attendance" folded
-    // instead.
-    <div className="max-w-5xl space-y-6">
+    // 6xl, not the original 3xl: three of the seven columns carry a status chip
+    // that must not wrap, the two row actions sit beside them, and the Cert
+    // column now draws a chip on every row rather than a dash on half of them.
+    // At 3xl the chips folded; at 5xl "Record attendance" folded instead.
+    <div className="max-w-6xl space-y-6">
       <SetBreadcrumb trail={trail} />
       <PageHeader
         title="Training"
@@ -98,6 +102,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           <tr>
             <TH>{cycle.track === "DIRECTOR" ? "Director" : "Volunteer"}</TH>
             <TH>Dept</TH>
+            <TH>Type</TH>
             <TH>Cert</TH>
             <TH>Training</TH>
             <TH>Overall</TH>
@@ -112,12 +117,32 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                   same thing is how a table stops being scannable. */}
               <TD className="font-medium text-foreground">{r.name}</TD>
               <TD className="text-foreground-soft">{r.departmentCode}</TD>
-              {/* No Person means no HipaaCertificate can exist yet: promotion is
-                  what creates both, from whatever they uploaded with their
-                  contract. An em-dash, matching how the other tables here render
-                  a cell with genuinely nothing in it. */}
+              {/* Whether the clinic has trained this person before, which is the
+                  question a trainer asks about every name on the sheet. The
+                  absent-value marker (#796) when neither the cycle's
+                  applications nor a previous term's roster can answer it. */}
               <TD className="text-foreground-soft">
-                {r.kind === "applicant" ? <>-</> : <StatusBadge {...complianceStatusLabel(r.certStatus, "staff")} />}
+                {r.origin ? (
+                  <span title={ROSTER_ORIGIN_TITLES[r.origin]}>{ROSTER_ORIGIN_LABELS[r.origin]}</span>
+                ) : (
+                  <>-</>
+                )}
+              </TD>
+              {/* Before promotion the certificate lives on the onboarding
+                  contract rather than on a Person, so this cell was the
+                  absent-value marker for exactly the people a training session
+                  is full of. It is the same document; the title says where it
+                  is being read from, since "Needs verification" for someone
+                  with no hub account is otherwise a puzzle. */}
+              <TD className="text-foreground-soft">
+                <StatusBadge
+                  {...complianceStatusLabel(r.certStatus, "staff")}
+                  title={
+                    r.kind === "applicant"
+                      ? "From the certificate attached to their onboarding contract. It becomes their HIPAA certificate when the contract is promoted."
+                      : undefined
+                  }
+                />
               </TD>
               <TD className="text-foreground-soft">
                 <div className="space-y-1">
@@ -208,7 +233,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           ))}
           {rows.length === 0 && (
             <TR>
-              <TD colSpan={6} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
                 No {cycle.track === "DIRECTOR" ? "directors" : "volunteers"} in scope, either
                 accepted into this cycle or on the term roster for it.
               </TD>

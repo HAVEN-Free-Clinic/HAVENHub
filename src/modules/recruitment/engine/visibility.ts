@@ -18,9 +18,23 @@ export function scopeForApplicantType(type: ApplicantType): Exclude<ApplicantSco
   return type === "TRANSFER" ? "NEW" : type;
 }
 
+/**
+ * Human labels for the applicant types, never the raw enum.
+ *
+ * A Record rather than the chained ternary this used to be, so a fourth type
+ * would not silently fall through to "New", and so surfaces that need these
+ * words alongside a state of their own (the training roster's Type column adds
+ * "Returning") can extend one vocabulary instead of writing a second.
+ */
+export const APPLICANT_TYPE_LABELS: Record<ApplicantType, string> = {
+  NEW: "New",
+  RENEWAL: "Renewal",
+  TRANSFER: "Transfer",
+};
+
 /** Human label for an applicant type, used in review screens. */
 export function applicantTypeLabel(type: ApplicantType): string {
-  return type === "RENEWAL" ? "Renewal" : type === "TRANSFER" ? "Transfer" : "New";
+  return APPLICANT_TYPE_LABELS[type];
 }
 
 /** A section shows iff its applicant-type scope matches AND (it is not a

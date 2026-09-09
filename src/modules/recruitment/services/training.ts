@@ -1,4 +1,4 @@
-import type { RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
+import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
 import { complianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma } from "@/platform/db";
@@ -6,6 +6,7 @@ import { can } from "@/platform/rbac/engine";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
+import { serviceGapsForCycle } from "./service-gap";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
 import { countGradedQuestions } from "@/platform/quiz/graded";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -575,10 +576,32 @@ async function deleteExcuse(cycleId: string, identity: ExcuseIdentity, actorId: 
   });
 }
 
+/**
+ * How this person is arriving at the term, which is the one thing the roster
+ * could not say and a trainer most wants to know: whether the name in front of
+ * them has done any of this before.
+ *
+ * The first three are the applicant's own answer on this cycle's application,
+ * so a row here reads the same word the applicants table reads for them.
+ * RETURNING is the fourth case that answer cannot cover: a member carried onto
+ * the term by a roster copy, who never filled in an application this cycle but
+ * did serve a previous term.
+ */
+export type RosterOrigin = ApplicantType | "RETURNING";
+
 type TrainingRosterFields = {
   name: string;
   departmentCode: string;
+  /**
+   * HIPAA status, read from the member's certificates or, before promotion has
+   * created any, from the certificate they attached to their onboarding
+   * contract. Same vocabulary either way: the contract's copy is the file that
+   * promotion turns into the certificate, so it is the same document at an
+   * earlier address, and it deserves the same words.
+   */
   certStatus: ReturnType<typeof complianceStatus>;
+  /** Null when neither source knows: no application this cycle, no prior term. */
+  origin: RosterOrigin | null;
   trainingState: TrainingState;
   locked: boolean;
   /**
@@ -665,11 +688,17 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       select: {
         id: true,
         departmentCode: true,
-        // Promotion is what creates the Person, so this is the authoritative
-        // "already in the membership half above" link.
-        contract: { select: { promotedPersonId: true } },
+        // Promotion is what creates the Person, so promotedPersonId is the
+        // authoritative "already in the membership half above" link -- and the
+        // link back the other way, from a member to the application they
+        // arrived on. The hipaa columns are the certificate itself, held
+        // against the contract until promotion copies it onto the Person.
+        contract: { select: { promotedPersonId: true, hipaaStoredName: true, hipaaCompletedAt: true } },
         application: {
-          select: { applicant: { select: { id: true, firstName: true, lastName: true, emailLower: true } } },
+          select: {
+            applicantType: true,
+            applicant: { select: { id: true, firstName: true, lastName: true, emailLower: true } },
+          },
         },
       },
     }),
@@ -685,6 +714,17 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   );
   const pendingEmails = pending.map((a) => a.application.applicant.emailLower);
 
+  // A member's arrival story, read back through the contract that promoted
+  // them: the application they filled in this cycle said NEW, RENEWAL or
+  // TRANSFER, and that answer is still the best one anybody has. Both halves of
+  // the roster are scoped by department, so this never surfaces a type for
+  // somebody the viewer cannot already see.
+  const originByPerson = new Map<string, RosterOrigin>();
+  for (const a of acceptances) {
+    const promotedPersonId = a.contract?.promotedPersonId;
+    if (promotedPersonId) originByPerson.set(promotedPersonId, a.application.applicantType);
+  }
+
   // An excuse written against an applicant before they had an account is keyed
   // on their email, so the roster has to ask for it that way too: without this,
   // an excuse recorded in October would vanish the moment promotion made them a
@@ -692,7 +732,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   // half is read through the same map, since an excuse for someone with no
   // Person can only ever have been stored under their email.
   const emailsLower = [...memberEmails, ...pendingEmails];
-  const [trainingRows, excuseRows, pendingAttendance] = await Promise.all([
+  const [trainingRows, excuseRows, pendingAttendance, priorService] = await Promise.all([
     prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
     prisma.trainingAbsenceExcuse.findMany({
       where: { cycleId, OR: [{ personId: { in: personIds } }, { emailLower: { in: emailsLower } }] },
@@ -708,7 +748,17 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
           where: { event: { cycleId, kind: "TRAINING" }, attendeeEmail: { in: pendingEmails } },
           select: { attendeeEmail: true },
         }),
+    // The arrival story the application cannot tell: a member the roster copy
+    // carried over from last term filled nothing in this cycle. Asked only
+    // about the members left over, and answered by the same helper the
+    // applicants table reads, which returns a row only for someone who served a
+    // term that started before this one.
+    serviceGapsForCycle(
+      personIds.filter((id) => !originByPerson.has(id)),
+      cycle.termId,
+    ),
   ]);
+  for (const personId of priorService.keys()) originByPerson.set(personId, "RETURNING");
   const attended = new Set(
     pendingAttendance.flatMap((a) => (a.attendeeEmail ? [a.attendeeEmail.toLowerCase()] : [])),
   );
@@ -733,7 +783,8 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     return {
       kind: "member",
       personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
-      certStatus, trainingState, locked: row?.locked ?? false,
+      certStatus, origin: originByPerson.get(m.person.id) ?? null,
+      trainingState, locked: row?.locked ?? false,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
       excuse: excuseFor(m.person.id, m.person.contactEmail),
     };
@@ -748,11 +799,27 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       applicantId: applicant.id,
       name: `${applicant.firstName} ${applicant.lastName}`.trim(),
       departmentCode: a.departmentCode,
-      // NO_CERTIFICATE is the honest answer, not a placeholder: HipaaCertificate
-      // rows hang off a Person, and promotion is what creates both the Person and
-      // the certificate from whatever they uploaded with their contract. Until
-      // then the clinic genuinely holds no certificate for them.
-      certStatus: complianceStatus(null, term.endDate),
+      // Read off the CONTRACT, not off a Person they do not have yet.
+      //
+      // HipaaCertificate rows hang off a Person, so this column used to say "no
+      // certificate" for every accepted applicant, and the page drew a dash
+      // instead of even that. Both were wrong about the clinic's own records:
+      // submitContract requires the certificate file AND its completion date,
+      // stores both on the contract, and promotion later copies that exact file
+      // onto the Person. The document exists; only its address is different.
+      //
+      // So the same rules run over the contract's copy. Nothing is verified at
+      // this stage (promotion writes the certificate unverified too), which is
+      // why a submitted contract reads "Needs verification" rather than
+      // clearing anybody. A contract not yet submitted has no file and no date,
+      // and NO_CERTIFICATE is then the honest answer it always was.
+      certStatus: complianceStatus(
+        a.contract?.hipaaStoredName
+          ? { completionDate: a.contract.hipaaCompletedAt, verifiedAt: null }
+          : null,
+        term.endDate,
+      ),
+      origin: a.application.applicantType,
       trainingState,
       // Locking is a quiz-attempt state on a Training row they cannot have.
       locked: false,

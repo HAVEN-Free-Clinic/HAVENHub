@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "PersonLanguage" ALTER COLUMN "score" SET DATA TYPE DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "SpanishAssessmentRecord" ALTER COLUMN "score" SET DATA TYPE DOUBLE PRECISION;

@@ -66,9 +66,13 @@ export const SPANISH = "es";
  */
 export const SPANISH_PROFICIENCY_LEVELS = [
   { score: 1, label: "Almost none" },
+  { score: 1.5, label: "Almost none / Some" },
   { score: 2, label: "Some" },
+  { score: 2.5, label: "Some / Conversational" },
   { score: 3, label: "Conversational" },
+  { score: 3.5, label: "Conversational / Fluent" },
   { score: 4, label: "Fluent" },
+  { score: 4.5, label: "Fluent / Native" },
   { score: 5, label: "Native" },
 ] as const;
 
@@ -78,7 +82,16 @@ const SPANISH_LABEL_BY_SCORE = new Map<number, string>(
 
 /** "Conversational" for 3. Empty string for no score, so it can render inline. */
 export function spanishProficiencyLabel(score: number | null): string {
-  return score === null ? "" : (SPANISH_LABEL_BY_SCORE.get(score) ?? "");
+  if (score === null) return "";
+  // Direct match first
+  const direct = SPANISH_LABEL_BY_SCORE.get(score);
+  if (direct) return direct;
+  // Fallback for any score not in the map
+  if (score >= 4.5) return "Native";
+  if (score >= 3.5) return "Fluent";
+  if (score >= 2.5) return "Conversational";
+  if (score >= 1.5) return "Some";
+  return "Almost none";
 }
 
 /**
@@ -88,8 +101,13 @@ export function spanishProficiencyLabel(score: number | null): string {
  */
 export function formatSpanishScore(score: number | null, modifier: string | null): string {
   if (score === null) return "Not scored";
-  const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
-  return `${score}${mod}`;
+  // Legacy records use integer + modifier; new records use float half-increments
+  if (Number.isInteger(score) && modifier && modifier !== "") {
+    const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+    return `${score}${mod}`;
+  }
+  // Float scores: show one decimal place
+  return score % 1 === 0 ? `${score}.0` : `${score}`;
 }
 
 /**

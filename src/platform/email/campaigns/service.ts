@@ -134,12 +134,20 @@ export async function getCampaign(id: string) {
  * an unrestricted sender.
  */
 export async function listCampaigns(personId: string) {
+  // The four columns /outreach/campaigns renders, and nothing else. A campaign
+  // row carries the whole email -- subject, body, and the audience tree -- and
+  // this list shows a name, a date and a status chip. Selecting the rest shipped
+  // every draft body a clinic has ever written across the wire to render a
+  // table of links.
+  const select = { id: true, name: true, status: true, createdAt: true } as const;
+
   const unrestricted = await can(personId, "outreach.send_unrestricted");
   if (unrestricted) {
-    return prisma.emailCampaign.findMany({ orderBy: { createdAt: "desc" } });
+    return prisma.emailCampaign.findMany({ select, orderBy: { createdAt: "desc" } });
   }
   const scopeIds = (await scopesForPerson(personId)).map((s) => s.id);
   return prisma.emailCampaign.findMany({
+    select,
     where: { scopeId: { in: scopeIds } },
     orderBy: { createdAt: "desc" },
   });

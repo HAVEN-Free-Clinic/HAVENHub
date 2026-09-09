@@ -656,9 +656,29 @@ describe("listMyReports", () => {
     const rows = await listMyReports(a.id);
 
     expect(rows).toHaveLength(2);
+    // On id, not on description: the row is projected to the five columns
+    // /incidents/mine renders, and the narrative is deliberately not one of
+    // them. The ids already say which report is which.
     expect(rows.map((r) => r.report.id)).toEqual([second.id, first.id]);
-    expect(rows[0].report.description).toBe("second");
-    expect(rows[1].report.description).toBe("first");
+  });
+
+  it("does not ship the narrative to a list that shows four columns", async () => {
+    // An incident row is mostly free text -- description, subjectDescription,
+    // patientImpactDetail, priorOccurrenceDetail, anonymousReason -- plus
+    // reviewNotes, which is reviewer-only and has no business in a reporter's
+    // own list at all. This list renders a number, a concern type, a status and
+    // a date.
+    const a = await createPerson("Projection", "prj001");
+    await submitReport(a.id, { concernTypes: ["OTHER"], description: "a long narrative" });
+
+    const [row] = await listMyReports(a.id);
+
+    expect(row.report).not.toHaveProperty("description");
+    expect(row.report).not.toHaveProperty("reviewNotes");
+    expect(row.report).not.toHaveProperty("subjectDescription");
+    // What it DOES carry, so this cannot pass by returning nothing.
+    expect(row.report.number).toBeGreaterThan(0);
+    expect(row.report.status).toBeTruthy();
   });
 
   it("includes the subject's name when the report names a subject", async () => {

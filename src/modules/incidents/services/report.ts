@@ -675,8 +675,19 @@ function summarizeSubjects(subjects: SubjectWithName[]): {
   };
 }
 
+/**
+ * The five columns /incidents/mine renders, and nothing else.
+ *
+ * Narrowed from the whole IncidentReport on purpose. The row an incident
+ * carries is mostly free text -- description, subjectDescription,
+ * patientImpactDetail, priorOccurrenceDetail, anonymousReason, reviewNotes --
+ * and this list shows a number, a status, a date and a concern type. Selecting
+ * the rest shipped every narrative a person has ever filed across the wire to
+ * render four columns, and reviewNotes is reviewer-only text that has no
+ * business in a reporter's own list at all.
+ */
 export type ReportListRow = {
-  report: IncidentReport;
+  report: Pick<IncidentReport, "id" | "number" | "concernTypes" | "status" | "createdAt">;
   subjectNames: string[];
   strikePendingCount: number;
   strikeIssuedCount: number;
@@ -690,10 +701,20 @@ export type ReportListRow = {
 export async function listMyReports(actorPersonId: string): Promise<ReportListRow[]> {
   const reports = await prisma.incidentReport.findMany({
     where: { reporterId: actorPersonId },
-    include: { subjects: { include: { person: { select: { name: true } } } } },
+    select: {
+      id: true,
+      number: true,
+      concernTypes: true,
+      status: true,
+      createdAt: true,
+      subjects: { include: { person: { select: { name: true } } } },
+    },
     orderBy: [{ createdAt: "desc" }, { number: "desc" }],
   });
-  return reports.map((r) => ({ report: r, ...summarizeSubjects(r.subjects) }));
+  return reports.map(({ subjects, ...report }) => ({
+    report,
+    ...summarizeSubjects(subjects),
+  }));
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
 import type { AudiencePreview } from "@/platform/email/campaigns/service";
+import { ListTruncated } from "@/platform/ui/list-truncated";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -65,9 +66,11 @@ export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) 
       </div>
 
       {preview.truncated && (
-        <p className="text-xs text-muted-foreground">
-          Showing the first {preview.sample.length} of {preview.count}. The count above is exact.
-        </p>
+        <ListTruncated
+          shown={preview.sample.length}
+          total={preview.count}
+          hint="The count above is exact."
+        />
       )}
 
       {/* The same component the Audience tab renders, so the one wording that

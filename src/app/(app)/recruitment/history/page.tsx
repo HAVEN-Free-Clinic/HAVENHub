@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ListTruncated } from "@/platform/ui/list-truncated";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import {
@@ -70,9 +71,11 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
       </FilterBar>
 
       {truncated && (
-        <p className="text-sm text-subtle-foreground">
-          Showing the first {ordered.length} of {total.toLocaleString()} matches. Narrow your search to see more.
-        </p>
+        <ListTruncated
+          shown={ordered.length}
+          total={total}
+          hint="Narrow your search to see more."
+        />
       )}
 
       <Table>

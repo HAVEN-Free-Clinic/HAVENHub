@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { ListTruncated } from "@/platform/ui/list-truncated";
 import type { AudiencePreview, RecipientReason } from "@/platform/email/campaigns/service";
 import type { PersonSearchHit } from "@/platform/email/audience/resolve";
 import { Alert } from "@/platform/ui/alert";
@@ -305,9 +306,11 @@ export function RecipientPreview({
         )}
 
         {preview.truncated && (
-          <p className="text-xs text-muted-foreground">
-            Showing the first {preview.sample.length} of {preview.count}. The count above is exact.
-          </p>
+          <ListTruncated
+            shown={preview.sample.length}
+            total={preview.count}
+            hint="The count above is exact."
+          />
         )}
       </Card>
 

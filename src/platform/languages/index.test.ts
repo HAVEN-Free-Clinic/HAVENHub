@@ -229,6 +229,33 @@ describe("recordLanguageAssessment", () => {
     expect(log.html).toContain("not a mark against you");
   });
 
+  // The history tab's Verify button reaches any person a historical assessment
+  // row is linked to, including alumni offboarded years ago, and it is the same
+  // recordLanguageAssessment call the queue makes. The queue is ACTIVE-only, so
+  // the email was written for someone who is still here: "directors will see
+  // this when building the clinic schedule", linking to /my-info. An alum got
+  // that in production about an assessment from a term they are not in.
+  it("records the assessment for an offboarded alum but sends them no email", async () => {
+    await actor();
+    const p = await prisma.person.create({
+      data: { name: "Alum Ortiz", status: "OFFBOARDED", contactEmail: "alum@yale.edu" },
+    });
+    await recordLanguageAssessment(ACTOR, { personId: p.id, language: "es", verified: true });
+
+    // The RECORD is the point of that button and must still be written: linking
+    // an alum's historical score to their account feeds the passport and the
+    // service record.
+    const row = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(row.verified).toBe(true);
+    expect(
+      await prisma.emailLog.count({
+        where: { template: "volunteers.language_assessed", personId: p.id },
+      }),
+    ).toBe(0);
+  });
+
   // The assessment is already committed by the time the email is attempted, so
   // a delivery problem must never surface as a failed assessment.
   it("still records the assessment when the member has no email", async () => {

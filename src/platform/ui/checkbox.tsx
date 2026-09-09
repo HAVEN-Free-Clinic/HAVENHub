@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cx } from "./cx";
+import { IndeterminateCheckboxInput } from "./checkbox-indeterminate";
 
 /**
  * Brand-tinted checkbox with the same visible focus ring as Input/Select, so
@@ -24,18 +25,31 @@ import { cx } from "./cx";
  * `checked={allSelected}` and nothing else, so a partial selection reported
  * "unchecked" to the accessibility tree while rows were plainly selected.
  *
- * Applied through a CALLBACK ref rather than useRef + useEffect, deliberately:
- * this file carries no "use client" and is rendered by a couple of dozen server
- * components, so a hook here would break every one of them. A callback ref is
- * not a hook. It is re-created each render, which means React re-runs it on
- * every render -- exactly what keeps the property in step with the prop.
+ * Setting it needs a ref, and THIS FILE MAY NOT HOLD ONE. It carries no
+ * "use client" and is rendered by a couple of dozen server components, where a
+ * ref is not merely discouraged but refused outright ("Refs cannot be used in
+ * Server Components"). The first cut put a callback ref here, on the reasoning
+ * that a callback ref is not a hook; the premise holds and the conclusion does
+ * not, and every server-rendered page carrying a checkbox threw on render as a
+ * result. So the ref lives in ./checkbox-indeterminate, behind "use client",
+ * and this component reaches for it ONLY when a caller asks for the property.
+ *
+ * That branch is what keeps the default path server-safe. Passing
+ * `indeterminate` from a Server Component would not work anyway -- the three
+ * call sites that use it are all bulk-selection tables, and all three are
+ * already client components, because a select-all box is a client concern by
+ * nature.
+ *
+ * `ref` is deliberately NOT destructured here. It rides `...rest` onto the
+ * element, which is correct in both worlds: a Server Component has no ref to
+ * pass, and a client caller's ref reaches the input exactly as it would on a
+ * plain <input>.
  */
 export function Checkbox({
   label,
   hint,
   indeterminate,
   className,
-  ref,
   ...rest
 }: {
   label?: ReactNode;
@@ -43,25 +57,19 @@ export function Checkbox({
   /** Some-but-not-all selected. Wins over `checked` in what the box displays. */
   indeterminate?: boolean;
 } & ComponentProps<"input">) {
-  const input = (
-    <input
-      type="checkbox"
-      ref={(el) => {
-        if (el) el.indeterminate = indeterminate ?? false;
-        // Forward the caller's own ref, so adding this prop cannot silently
-        // steal a ref a call site already depends on.
-        if (typeof ref === "function") ref(el);
-        else if (ref) ref.current = el;
-      }}
-      {...rest}
-      className={cx(
-        "h-4 w-4 rounded border-border-strong text-brand accent-brand cursor-pointer",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
-        className,
-      )}
-    />
+  const boxClass = cx(
+    "h-4 w-4 rounded border-border-strong text-brand accent-brand cursor-pointer",
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+    "disabled:opacity-50 disabled:cursor-not-allowed",
+    className,
   );
+
+  const input =
+    indeterminate === undefined ? (
+      <input type="checkbox" {...rest} className={boxClass} />
+    ) : (
+      <IndeterminateCheckboxInput indeterminate={indeterminate} {...rest} className={boxClass} />
+    );
 
   // Unlabelled: return the bare control, so the ~20 sites that put a checkbox in
   // a table cell or compose their own row keep working unchanged.

@@ -48,6 +48,7 @@ import type {
 } from "@/modules/support/services/itcm";
 import { Combobox, type ComboboxOption } from "@/platform/ui/combobox";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
 import { TicketNumberField } from "./ticket-number-field";
 import { TermBatchTab } from "./term-batch-tab";
 import type { EpicRollup } from "@/modules/support/services/epic-rollup";
@@ -639,7 +640,9 @@ function HistoryTable({
 // Pending tab -- attached (un-submitted) Epic requests, batched into a ticket
 // ---------------------------------------------------------------------------
 
-function PendingTab({
+/** Exported for epic-pending-selection.interaction.test.tsx: what this posts has
+ *  to match what the operator ticked, and that is worth a test of its own. */
+export function PendingTab({
   pending,
   action,
   cancelAction,
@@ -648,6 +651,9 @@ function PendingTab({
   action: (formData: FormData) => Promise<void>;
   cancelAction: (formData: FormData) => Promise<void>;
 }) {
+  // Hooks before the early return: an empty queue must not change the hook order.
+  const selection = useBulkSelection({ rows: pending, idOf: (r) => r.id });
+
   if (pending.length === 0) {
     return (
       <EmptyState
@@ -667,10 +673,39 @@ function PendingTab({
         {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
             (formAction below) redirects back to this tab. */}
         <input type="hidden" name="tab" value="pending" />
+
+        {/* The ids are posted as hidden inputs rather than by the row boxes'
+            own `name`, the way the offboarding tabs do it. The boxes used to be
+            uncontrolled, which is why this queue was the one bulk surface in the
+            app with no select-all and no count at all: a director ticking twelve
+            of forty and pressing Create had nothing on screen telling them how
+            many were going into the ticket. */}
+        {selection.ids.map((id) => (
+          <input key={id} type="hidden" name="requestIds" value={id} />
+        ))}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Checkbox
+            label="Select all"
+            checked={selection.allSelected}
+            indeterminate={selection.someSelected}
+            onChange={selection.toggleAll}
+          />
+          <span className="text-xs text-subtle-foreground">
+            {selection.ids.length} of {pending.length} selected
+          </span>
+        </div>
+
         <ul className="space-y-1">
           {pending.map((r) => (
             <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
-              <Checkbox name="requestIds" value={r.id} />
+              <Checkbox
+                checked={selection.has(r.id)}
+                // onClick, not onChange: a change event carries no shiftKey.
+                onClick={(e) => selection.toggle(r.id, e.shiftKey)}
+                onChange={() => {}}
+                aria-label={`Select ${r.person.name}`}
+              />
               <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
               <span className="font-medium">{r.person.name}</span>
               {r.techRequest ? (

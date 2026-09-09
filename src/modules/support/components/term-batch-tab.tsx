@@ -17,6 +17,7 @@
  */
 
 import { useState } from "react";
+import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
@@ -49,18 +50,6 @@ const GROUP_BLURB: Record<RollupGroupKind, string> = {
   RENEW: "Same departments as last term. Access is extended to the new end date.",
 };
 
-type Selection = Record<RollupGroupKind, Set<string>>;
-
-function defaultSelection(rollup: EpicRollup): Selection {
-  const out: Selection = { NEW: new Set(), MODIFY: new Set(), RENEW: new Set() };
-  for (const group of GROUPS) {
-    for (const row of rollup.groups[group]) {
-      if (row.selectable && row.cleared && !row.optional) out[group].add(row.personId);
-    }
-  }
-  return out;
-}
-
 export function TermBatchTab({
   rollup,
   authorizers,
@@ -75,21 +64,37 @@ export function TermBatchTab({
   const router = useRouter();
   const [authorizerId, setAuthorizerId] = useState(authorizers[0]?.id ?? "");
   const [endDate, setEndDate] = useState(rollup.term.endDateIso);
-  const [selection, setSelection] = useState<Selection>(() => defaultSelection(rollup));
+  // One flat selection across all three groups. They are disjoint by person --
+  // buildEpicRollup pushes each personId into exactly one of NEW/MODIFY/RENEW --
+  // so a single Set cannot conflate two rows, and the per-group headers below
+  // scope themselves with allOf/someOf/setMany.
+  //
+  // The hook's scoping earns its keep after a successful submit: that calls
+  // router.refresh(), which re-renders this component WITHOUT remounting it (the
+  // key is the term id and the term has not changed). A person in another group
+  // whose row came back non-selectable would otherwise stay ticked, stay
+  // counted, and stay in the next batch's personIds.
+  const selection = useBulkSelection({
+    rows: GROUPS.flatMap((g) => rollup.groups[g]),
+    idOf: (r) => r.personId,
+    selectable: (r) => r.selectable,
+    // Everyone who can go and is ready to go, minus the optional extras.
+    initial: (r) => r.selectable && r.cleared && !r.optional,
+  });
   const [busyGroup, setBusyGroup] = useState<RollupGroupKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ group: RollupGroupKind; subject: string; body: string } | null>(null);
 
-  function toggle(group: RollupGroupKind, personId: string) {
-    setError(null);
-    setWarning(null);
-    setSelection((prev) => {
-      const next = new Set(prev[group]);
-      if (next.has(personId)) next.delete(personId);
-      else next.add(personId);
-      return { ...prev, [group]: next };
-    });
+  /** The selectable ids of one group, in render order. */
+  function groupIds(group: RollupGroupKind): string[] {
+    return rollup.groups[group].filter((r) => r.selectable).map((r) => r.personId);
+  }
+
+  /** What is actually ticked in one group, scoped to the rows on screen. */
+  function selectedIn(group: RollupGroupKind): string[] {
+    const ids = new Set(groupIds(group));
+    return selection.ids.filter((id) => ids.has(id));
   }
 
   async function submitGroup(group: RollupGroupKind) {
@@ -98,7 +103,7 @@ export function TermBatchTab({
       setError("No ITCM director is available to authorize this request.");
       return;
     }
-    const personIds = [...selection[group]];
+    const personIds = selectedIn(group);
     if (personIds.length === 0) {
       setError(`Select at least one person in the ${EPIC_KIND_LABELS[group]} group.`);
       return;
@@ -129,7 +134,7 @@ export function TermBatchTab({
         // and re-clickable. Skipped when tracking failed (trackingWarning set):
         // nothing was recorded server-side, so clearing here would force the
         // director to re-tick everyone by hand.
-        setSelection((prev) => ({ ...prev, [group]: new Set() }));
+        selection.setMany(personIds, false);
         router.refresh();
       }
     } catch (e) {
@@ -197,10 +202,22 @@ export function TermBatchTab({
             key={group}
             group={group}
             rows={rollup.groups[group]}
-            selected={selection[group]}
+            selectedCount={selectedIn(group).length}
+            allSelected={selection.allOf(groupIds(group))}
+            someSelected={selection.someOf(groupIds(group))}
+            isSelected={selection.has}
             busy={busyGroup === group}
             disabled={busyGroup !== null}
-            onToggle={(personId) => toggle(group, personId)}
+            onToggle={(personId, shiftKey) => {
+              setError(null);
+              setWarning(null);
+              selection.toggle(personId, shiftKey);
+            }}
+            onToggleAll={(on) => {
+              setError(null);
+              setWarning(null);
+              selection.setMany(groupIds(group), on);
+            }}
             onSubmit={() => submitGroup(group)}
           />
         ))
@@ -235,21 +252,31 @@ export function TermBatchTab({
 function GroupCard({
   group,
   rows,
-  selected,
+  selectedCount,
+  allSelected,
+  someSelected,
+  isSelected,
   busy,
   disabled,
   onToggle,
+  onToggleAll,
   onSubmit,
 }: {
   group: RollupGroupKind;
   rows: EpicRollupRow[];
-  selected: Set<string>;
+  /** Scoped to this group's selectable rows, so it cannot count a stale id. */
+  selectedCount: number;
+  allSelected: boolean;
+  someSelected: boolean;
+  isSelected: (personId: string) => boolean;
   busy: boolean;
   disabled: boolean;
-  onToggle: (personId: string) => void;
+  onToggle: (personId: string, shiftKey: boolean) => void;
+  onToggleAll: (on: boolean) => void;
   onSubmit: () => void;
 }) {
   const clearedCount = rows.filter((r) => r.cleared).length;
+  const selectableCount = rows.filter((r) => r.selectable).length;
   return (
     <Card className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -263,16 +290,30 @@ function GroupCard({
       {rows.length === 0 ? (
         <EmptyState inline>Nobody in this group.</EmptyState>
       ) : (
-        <ul className="space-y-1">
-          {rows.map((row) => (
-            <RollupRow
-              key={row.personId}
-              row={row}
-              checked={selected.has(row.personId)}
-              onToggle={() => onToggle(row.personId)}
+        <>
+          {/* Select-all, per group. A director staffing a term ticks most of a
+              list of forty; this and the shift-range on the rows below are what
+              the other four bulk surfaces in the app already had. */}
+          {selectableCount > 0 && (
+            <Checkbox
+              label={`Select all ${EPIC_KIND_LABELS[group].toLowerCase()}`}
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={(e) => onToggleAll(e.target.checked)}
+              disabled={disabled}
             />
-          ))}
-        </ul>
+          )}
+          <ul className="space-y-1">
+            {rows.map((row) => (
+              <RollupRow
+                key={row.personId}
+                row={row}
+                checked={isSelected(row.personId)}
+                onToggle={(shiftKey) => onToggle(row.personId, shiftKey)}
+              />
+            ))}
+          </ul>
+        </>
       )}
 
       <div className="flex items-center gap-3">
@@ -280,12 +321,12 @@ function GroupCard({
           type="button"
           variant="primary"
           size="sm"
-          disabled={disabled || selected.size === 0}
+          disabled={disabled || selectedCount === 0}
           onClick={onSubmit}
         >
           {busy ? "Submitting..." : `Submit ${EPIC_KIND_LABELS[group].toLowerCase()} batch`}
         </Button>
-        <span className="text-xs text-subtle-foreground">{selected.size} selected</span>
+        <span className="text-xs text-subtle-foreground">{selectedCount} selected</span>
       </div>
     </Card>
   );
@@ -298,7 +339,7 @@ function RollupRow({
 }: {
   row: EpicRollupRow;
   checked: boolean;
-  onToggle: () => void;
+  onToggle: (shiftKey: boolean) => void;
 }) {
   const deptLabel =
     row.kind === "MODIFY" && row.priorDepartmentNames.length > 0
@@ -309,7 +350,10 @@ function RollupRow({
     <li className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-sm">
       <Checkbox
         checked={checked}
-        onChange={onToggle}
+        // onClick, not onChange: a change event carries no shiftKey, and the
+        // range is what makes a forty-person group workable.
+        onClick={(e) => onToggle(e.shiftKey)}
+        onChange={() => {}}
         disabled={!row.selectable}
         aria-label={`Select ${row.name}`}
       />

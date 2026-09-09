@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -594,6 +594,69 @@ describe("approve / deny", () => {
     const { id } = await pendingSwap();
     await approveAttendingRequest(FCRL, id);
     await expect(denyAttendingRequest(FCRL, id)).rejects.toThrow(/pending/i);
+  });
+
+  it("records the decider's reason, so the attending learns WHY", async () => {
+    // The volunteer panel stacked directly below this one on /schedule/requests
+    // has always taken a reason. Only one of the two offering it is how the same
+    // refusal reaches one person with an explanation and the other without.
+    const { id } = await pendingSwap();
+    await denyAttendingRequest(FCRL, id, "Both of you are already on that Saturday.");
+    const after = await prisma.attendingShiftRequest.findUniqueOrThrow({ where: { id } });
+    expect(after.note).toContain("Denied: Both of you are already on that Saturday.");
+  });
+
+  it("keeps the requester's own note and appends the denial under it", async () => {
+    const { id } = await pendingSwap();
+    await prisma.attendingShiftRequest.update({ where: { id }, data: { note: "Conference that week." } });
+    await denyAttendingRequest(FCRL, id, "No cover available.");
+    const after = await prisma.attendingShiftRequest.findUniqueOrThrow({ where: { id } });
+    expect(after.note).toBe("Conference that week.\nDenied: No cover available.");
+  });
+
+  it("leaves the note alone when no reason is given", async () => {
+    const { id } = await pendingSwap();
+    await prisma.attendingShiftRequest.update({ where: { id }, data: { note: "Conference that week." } });
+    await denyAttendingRequest(FCRL, id);
+    const after = await prisma.attendingShiftRequest.findUniqueOrThrow({ where: { id } });
+    expect(after.note).toBe("Conference that week.");
+  });
+
+  it("cannot deny a request approved BETWEEN its read and its write", async () => {
+    // The guarded transition, matching denyRequest. Approval writes grid rows,
+    // so flipping an already-applied swap to DENIED would leave the schedule
+    // changed under a denied request.
+    //
+    // The read-time check cannot catch this and the test above does not reach
+    // it: the row has to change AFTER the findUnique returns PENDING. So the
+    // approval is landed from inside the read, which is the only way to make
+    // this fail against a plain update() and pass against updateMany's PENDING
+    // precondition.
+    const { id } = await pendingSwap();
+    const realFind = prisma.attendingShiftRequest.findUnique.bind(
+      prisma.attendingShiftRequest,
+    );
+    // Double cast: Prisma's findUnique is generic over the args object and
+    // narrows its return type from the caller's `select`, so no concrete
+    // function is assignable to it. The wrapper genuinely defers to the real
+    // one, so the runtime shape is correct even though the types cannot say so.
+    type Find = typeof prisma.attendingShiftRequest.findUnique;
+    const spy = vi.spyOn(prisma.attendingShiftRequest, "findUnique");
+    spy.mockImplementation((async (args: Parameters<Find>[0]) => {
+      const row = await realFind(args);
+      await prisma.attendingShiftRequest.update({
+        where: { id },
+        data: { status: "APPROVED", decidedById: FCRL, decidedAt: new Date() },
+      });
+      return row;
+    }) as unknown as Find);
+
+    try {
+      await expect(denyAttendingRequest(FCRL, id)).rejects.toThrow(/already decided/i);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await prisma.attendingShiftRequest.findUniqueOrThrow({ where: { id } })).status).toBe("APPROVED");
   });
 });
 

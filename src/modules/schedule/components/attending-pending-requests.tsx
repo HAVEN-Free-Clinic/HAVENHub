@@ -11,9 +11,9 @@
  */
 
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { Input } from "@/platform/ui/input";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { formatDateOnly, isoDateKey } from "@/platform/dates";
@@ -97,9 +97,29 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
                   title={isStale ? "This clinic date has passed. Deny instead." : undefined}
                 />
               </form>
-              <form action={denyAction}>
+              {/* Deny (with optional reason) -- always available; it is the
+                  only disposition left once a request has gone stale.
+
+                  This used to be a bare solid-danger Button: the one control on
+                  the card that took effect in a single click, and the loudest
+                  one, while the routine action beside it asked to be confirmed.
+                  Approving a swap is undoable by swapping back; denying it ends
+                  the request. Its sibling panel, stacked directly below this one
+                  on the same page, already settled on outline + confirm for
+                  both. */}
+              <form action={denyAction} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="requestId" value={r.id} />
-                <Button type="submit" variant="danger" size="sm">Deny</Button>
+                <Input
+                  name="denyNote"
+                  aria-label="Denial reason"
+                  placeholder="Reason (optional)"
+                  className="flex-1 min-w-32 py-1 text-xs"
+                />
+                <ConfirmButton
+                  label="Deny"
+                  confirmLabel="Deny this request?"
+                  size="sm"
+                />
               </form>
             </div>
           </Card>

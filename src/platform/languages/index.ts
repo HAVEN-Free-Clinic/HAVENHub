@@ -35,7 +35,7 @@ import {
   isSpanishScore,
   languageLabel,
 } from "./catalog";
-import { upsertSpanishAssessmentForTerm } from "./spanish-assessments";
+import { upsertSpanishAssessmentForTerm, verifyAssessmentRecord } from "./spanish-assessments";
 import { listApplicantLanguageQueue } from "./applicant-review";
 
 /**
@@ -306,6 +306,112 @@ export async function recordLanguageAssessment(
       errorAttrs(err, { personId: input.personId, language: input.language }),
     );
   }
+}
+
+/**
+ * Record a reviewer's verdict on ONE row of the assessment history, and let it
+ * move the person's live flag only when it is a verdict about their present.
+ *
+ * TWO FACTS, and the button that used to do this conflated them. A history row
+ * carries its own `verified` column, meaning "a reviewer has signed off on this
+ * archival record". A person carries PersonLanguage.verified, meaning "this
+ * person is on record as a Spanish provider TODAY", and that one gates
+ * scheduling, capacity, badges and the passport. The old button was rendered
+ * against the first and wrote the second. See verifyAssessmentRecord for the
+ * three production defects that produced.
+ *
+ * THE RULE. The record's own verdict is always written, because that is the row
+ * the reviewer was looking at. The live flag follows ONLY when this record is
+ * that person's newest, because only then is the reviewer making a statement
+ * about the present. Verifying a 2019 row is a statement about 2019: it must not
+ * drag a current member's score down to what they scored as a first-year, and
+ * un-verifying one must not pull them out of the interpreter pool today.
+ *
+ * WHEN IT DOES SYNC, it carries the RECORD's score, not null and not the score
+ * already on file. The record is the evidence being acted on, so a 5 in the
+ * history becomes a 5 on the person. The old path sent no score at all, which
+ * silently blanked one.
+ *
+ * Returns whether the live flag moved, because the reviewer cannot otherwise
+ * tell: two rows, one button, and the difference between them is a termRank
+ * comparison they cannot see. The page says which happened.
+ */
+export async function verifyHistoricalAssessment(
+  actorPersonId: string,
+  input: { recordId: string; verified: boolean },
+): Promise<{ liveFlagUpdated: boolean }> {
+  const verdict = await verifyAssessmentRecord({ id: input.recordId, verified: input.verified });
+
+  await recordAudit({
+    actorPersonId,
+    action: "person.language_assess_record",
+    entityType: "SpanishAssessmentRecord",
+    entityId: input.recordId,
+    after: {
+      language: SPANISH,
+      term: verdict.term,
+      verified: input.verified,
+      score: verdict.score,
+      liveFlagUpdated: verdict.personId !== null && verdict.isNewestForPerson,
+    },
+  });
+
+  if (!verdict.personId || !verdict.isNewestForPerson) return { liveFlagUpdated: false };
+
+  const key = { personId_language: { personId: verdict.personId, language: SPANISH } };
+  const before = await prisma.personLanguage.findUnique({
+    where: key,
+    select: { verified: true, score: true },
+  });
+
+  // Upsert, not update: an alum whose historical record has just been linked may
+  // have no PersonLanguage row at all, and creating one is the point of doing
+  // this from the history tab. It is the same shape recordLanguageAssessment
+  // uses, minus the active-term mirror -- the history row being verified IS the
+  // record, so mirroring would be the fabrication this function exists to stop.
+  await prisma.personLanguage.upsert({
+    where: key,
+    create: {
+      personId: verdict.personId,
+      language: SPANISH,
+      verified: input.verified,
+      verifiedAt: new Date(),
+      verifiedById: actorPersonId,
+      score: verdict.score,
+    },
+    update: {
+      verified: input.verified,
+      verifiedAt: new Date(),
+      verifiedById: actorPersonId,
+      score: verdict.score,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "person.language_assess",
+    entityType: "Person",
+    entityId: verdict.personId,
+    before: {
+      language: SPANISH,
+      verified: before?.verified ?? null,
+      score: before?.score ?? null,
+    },
+    after: { language: SPANISH, verified: input.verified, score: verdict.score },
+  });
+
+  // Best-effort, exactly as in recordLanguageAssessment: the verdict is already
+  // committed and a delivery failure must not surface as a failed assessment.
+  try {
+    await notifyLanguageAssessed(verdict.personId, SPANISH, input.verified, null, actorPersonId);
+  } catch (err) {
+    log.error(
+      "[languages] failed to notify a member of their language assessment",
+      errorAttrs(err, { personId: verdict.personId, language: SPANISH }),
+    );
+  }
+
+  return { liveFlagUpdated: true };
 }
 
 /**

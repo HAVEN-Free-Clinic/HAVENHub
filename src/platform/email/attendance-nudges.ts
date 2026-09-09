@@ -92,6 +92,12 @@ async function liveBlockers(row: NudgeRow, now: Date): Promise<AttendanceBlocker
  */
 function canReach(row: NudgeRow, channel: string): boolean {
   if (!row.personId) return !!row.attendeeEmail;
+  // The in-app inbox needs nothing but a Person, so a member is ALWAYS reachable
+  // on the quiet channel. Without this the address/identity tests below both
+  // fail, and an unreachable row is skipped without claiming -- so the nudge
+  // would be retried forever and never delivered, which is the one outcome worse
+  // than not sending it.
+  if (channel === "inbox") return true;
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";
   if (wantsTeams && !!row.person?.contactEmail) return true;

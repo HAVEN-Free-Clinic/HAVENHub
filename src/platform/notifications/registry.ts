@@ -1,5 +1,17 @@
-/** Where a notification type is delivered. */
-export type NotificationChannel = "email" | "teams" | "both";
+/**
+ * Where a notification type is delivered.
+ *
+ * "inbox" is the QUIET one: no email, no Teams DM, just the in-app bell. It is
+ * not a fourth destination, because the inbox row is written on every channel
+ * already (createNotification in notify() is unconditional). It is the absence
+ * of the other two, which is why notify() needs no branch for it.
+ *
+ * It exists because "this notification is real but does not deserve an email"
+ * had no expression. The alternative was deleting a notify() call, which throws
+ * away the in-app record and the admin's ability to turn the email back on
+ * without a deploy.
+ */
+export type NotificationChannel = "email" | "teams" | "both" | "inbox";
 
 /** One admin-routable notification type, keyed by its email-template descriptor. */
 export interface NotificationType {
@@ -44,7 +56,15 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "incidents.strike_issued", label: "Incident: strike issued (subject)", defaultChannel: "email" },
   { key: "incidents.strike_issued_directors", label: "Incident: strike issued (directors)", defaultChannel: "email" },
   { key: "volunteers.self_withdrawal", label: "Volunteers: member not returning this term (offboarding managers)", defaultChannel: "email" },
-  { key: "volunteers.language_assessed", label: "Volunteers: language assessment result (member)", defaultChannel: "email" },
+  // INBOX, not email. Two of these have ever been sent, against 70 assessments
+  // on file -- the other 69 arrived by import and backfill, which notify
+  // nobody. The result is already visible to the member on /my-info, so the
+  // email restated a fact they could see and, on the confirm branch, told an
+  // adult that someone agrees they speak their own language. The bell entry
+  // keeps the one case worth keeping, which is a NOT-confirmed verdict not
+  // going by unannounced. An admin can put it back on email from
+  // /admin/notifications without a deploy.
+  { key: "volunteers.language_assessed", label: "Volunteers: language assessment result (member)", defaultChannel: "inbox" },
   { key: "volunteers.language_claimed", label: "Volunteers: language claim needs review (INTP directors)", defaultChannel: "email" },
   { key: "volunteers.dual_role_requested", label: "Volunteers: dual-role offer needs a decision (receiving directors)", defaultChannel: "email" },
 ];

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
+import { _resetSettingsCache } from "@/platform/settings/service";
 import {
   LANGUAGES,
   isLanguageCode,
@@ -196,34 +197,70 @@ describe("recordLanguageAssessment", () => {
     ).rejects.toBeInstanceOf(LanguageValidationError);
   });
 
-  it("emails the member when their language is confirmed", async () => {
+  // The type ships on the "inbox" channel, so the member is told in the app and
+  // NOT by email. Both halves are asserted together on purpose: the no-email
+  // half alone would pass against a version that notified nobody at all, which
+  // is the mistake this channel exists to avoid.
+  it("tells the member in-app, without an email, when their language is confirmed", async () => {
     await actor();
     const p = await prisma.person.create({
       data: { name: "Ana Reyes", status: "ACTIVE", contactEmail: "ana@yale.edu" },
     });
     await recordLanguageAssessment(ACTOR, { personId: p.id, language: "es", verified: true });
 
-    const log = await prisma.emailLog.findFirstOrThrow({
-      where: { template: "volunteers.language_assessed", personId: p.id },
+    const note = await prisma.notification.findFirstOrThrow({
+      where: { type: "volunteers.language_assessed", personId: p.id },
     });
-    expect(log.html).toContain("Spanish");
-    expect(log.html).toContain("confirmed");
+    expect(note.title).toContain("Spanish");
+    expect(note.body).toContain("confirmed");
+    expect(
+      await prisma.emailLog.count({
+        where: { template: "volunteers.language_assessed", personId: p.id },
+      }),
+    ).toBe(0);
   });
 
   // The outcome that would otherwise be silent. A claim assessed and NOT
   // confirmed leaves the queue with nothing said, so the member goes on
-  // believing they are on record as a provider when they are not.
-  it("emails the member when their language is NOT confirmed", async () => {
+  // believing they are on record as a provider when they are not. Quieting the
+  // email must not quiet THIS -- it is the whole reason the type still notifies.
+  it("tells the member in-app when their language is NOT confirmed", async () => {
     await actor();
     const p = await prisma.person.create({
       data: { name: "Ben Ito", status: "ACTIVE", contactEmail: "ben@yale.edu" },
     });
     await recordLanguageAssessment(ACTOR, { personId: p.id, language: "ht", verified: false });
 
+    const note = await prisma.notification.findFirstOrThrow({
+      where: { type: "volunteers.language_assessed", personId: p.id },
+    });
+    expect(note.title).toContain("Haitian Creole");
+    expect(note.body).toContain("has not confirmed");
+    expect(
+      await prisma.emailLog.count({
+        where: { template: "volunteers.language_assessed", personId: p.id },
+      }),
+    ).toBe(0);
+  });
+
+  // The template is not deleted, only unhooked from the default channel, so an
+  // admin flipping this type back to email in /admin/notifications gets a real
+  // message rather than a render failure on a template nobody kept working.
+  it("still renders and sends the email when an admin puts the type back on email", async () => {
+    await actor();
+    await prisma.setting.create({
+      data: { key: "notifications.volunteers.language_assessed.channel", value: "email" },
+    });
+    _resetSettingsCache();
+    const p = await prisma.person.create({
+      data: { name: "Cara Lin", status: "ACTIVE", contactEmail: "cara@yale.edu" },
+    });
+    await recordLanguageAssessment(ACTOR, { personId: p.id, language: "es", verified: false });
+
     const log = await prisma.emailLog.findFirstOrThrow({
       where: { template: "volunteers.language_assessed", personId: p.id },
     });
-    expect(log.html).toContain("Haitian Creole");
+    expect(log.html).toContain("Spanish");
     expect(log.html).toContain("has not confirmed it");
     // Reassurance matters here: this is not a disciplinary outcome.
     expect(log.html).toContain("not a mark against you");

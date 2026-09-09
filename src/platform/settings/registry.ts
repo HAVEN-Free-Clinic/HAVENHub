@@ -431,9 +431,10 @@ export const SETTINGS: SettingDef<unknown>[] = [
           { value: "email", label: "Email" },
           { value: "teams", label: "Teams DM" },
           { value: "both", label: "Email + Teams DM" },
+          { value: "inbox", label: "In-app only (no email or DM)" },
         ],
       },
-      schema: z.enum(["email", "teams", "both"]),
+      schema: z.enum(["email", "teams", "both", "inbox"]),
       envDefault: () => t.defaultChannel,
       secret: false,
     })

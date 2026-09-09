@@ -34,6 +34,11 @@ export type NotifyInput = {
  */
 export async function notify(db: Db, input: NotifyInput): Promise<void> {
   const channel = await resolveChannel(input.type);
+  // "inbox" needs no branch of its own and must not get one: it is defined as
+  // neither of these two being wanted, and the unconditional createNotification
+  // at the bottom is the whole of it. A reader looking for where the quiet
+  // channel is handled should find it HERE, in its absence, rather than conclude
+  // it was forgotten. See NotificationChannel in ./registry.
   const wantsEmail = channel === "email" || channel === "both";
   const wantsTeams = channel === "teams" || channel === "both";
 

@@ -219,6 +219,11 @@ export async function runClearanceReminders(
     channel: string,
     person: { contactEmail: string | null; entraObjectId: string | null }
   ): boolean => {
+    // The in-app inbox needs nothing but a Person, so everyone is reachable on
+    // the quiet channel. Without this both tests below fail and the member is
+    // skipped WITHOUT the claim being taken, so the reminder is retried on every
+    // run and never delivered.
+    if (channel === "inbox") return true;
     const wantsEmail = channel === "email" || channel === "both";
     const wantsTeams = channel === "teams" || channel === "both";
     // A cached entraObjectId is NOT required to reach someone on Teams. notify()

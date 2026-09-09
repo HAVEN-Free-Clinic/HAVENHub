@@ -101,13 +101,11 @@ export function spanishProficiencyLabel(score: number | null): string {
  */
 export function formatSpanishScore(score: number | null, modifier: string | null): string {
   if (score === null) return "Not scored";
-  // Legacy records use integer + modifier; new records use float half-increments
-  if (Number.isInteger(score) && modifier && modifier !== "") {
-    const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
-    return `${score}${mod}`;
-  }
-  // Float scores: show one decimal place
-  return score % 1 === 0 ? `${score}.0` : `${score}`;
+  const mod = modifier === "plus" ? "+" : modifier === "minus" ? "-" : "";
+  // Legacy integer records with a modifier: show as "3+" or "3-"
+  if (mod) return `${score}${mod}`;
+  // New half-increment records: show one decimal place for halves, plain integer for whole numbers
+  return score % 1 === 0 ? `${score}` : `${score}`;
 }
 
 /**

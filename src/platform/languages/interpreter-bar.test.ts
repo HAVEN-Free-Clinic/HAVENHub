@@ -75,7 +75,7 @@ describe("score presentation", () => {
   });
 
   it("covers exactly 1 through 5", () => {
-    expect(SPANISH_PROFICIENCY_LEVELS.map((l) => l.score)).toEqual([1, 2, 3, 4, 5]);
+      expect(SPANISH_PROFICIENCY_LEVELS.map((l) => l.score)).toEqual([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]);
   });
 
   it("renders an empty label rather than a guess for no score", () => {

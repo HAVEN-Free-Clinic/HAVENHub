@@ -18,8 +18,9 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   // rather than crashes; React's redacted stand-in for a server-side failure,
   // which duplicates an error the server already reported with its message and
   // stack; exceptions thrown entirely inside the visitor's own browser
-  // extensions, which land on us only because they happened on our page and
-  // which no deploy of ours can fix; React's recoverable hydration mismatches,
+  // extensions or inside the scripts their browser injects into every page,
+  // which land on us only because they happened on our page and which no deploy
+  // of ours can fix; React's recoverable hydration mismatches,
   // which React fixes by re-rendering before anyone sees them and which arrive
   // with no element, component, or stack to act on; the browser's opaque
   // cross-origin "Script error." report, which the browser strips of message,

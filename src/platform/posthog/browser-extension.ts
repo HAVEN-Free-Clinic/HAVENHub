@@ -1,20 +1,27 @@
 /**
- * Recognise exceptions thrown by the visitor's BROWSER EXTENSIONS so they stay
- * out of Error Tracking.
+ * Recognise exceptions that no deploy of ours can cause or fix, so they stay out
+ * of Error Tracking. Two sources, both of which run inside our page and are
+ * therefore attributed to our site:
+ *
+ *  - the visitor's BROWSER EXTENSIONS, through their content scripts, and
+ *  - the BROWSER ITSELF, through the scripts it injects into every page it
+ *    renders.
  *
  * posthog-js's `capture_exceptions` listens on `window.onerror` and
- * `unhandledrejection`, which fire for anything running in the page -- including
- * content scripts injected by whatever extensions the visitor happens to have
- * installed. Those exceptions are attributed to our site because they happened
- * on our page, but no deploy of ours can cause or fix them.
+ * `unhandledrejection`, which fire for anything running in the page, including
+ * both of those.
  *
- * This is not hypothetical: a visitor with the Zotero Connector installed
+ * Neither is hypothetical. A visitor with the Zotero Connector installed
  * produced "Zotero Connector: Failed to send message i18n.getStrings to
- * background page. It may be dead." -- an extension talking to its own dead
- * background worker -- which became an Error Tracking issue and then an
- * auto-filed GitHub issue that sat in the open list alongside real defects.
+ * background page. It may be dead.", an extension talking to its own dead
+ * background worker. A visitor on Firefox for iOS produced "Can't find variable:
+ * __firefox__" and "undefined is not an object (evaluating
+ * 'window.__firefox__.reader')", that browser's own injected reader-mode script
+ * racing the namespace it expects to find. Both became Error Tracking issues and
+ * then auto-filed GitHub issues that sat in the open list alongside real
+ * defects.
  *
- * Two independent signals, because either can be missing:
+ * Three independent signals, because any of them can be missing:
  *
  *  - A stack frame whose filename is an extension URL. This is the reliable one
  *    when a stack survives, and it is scheme-based rather than a list of
@@ -22,11 +29,16 @@
  *  - A message naming a known extension. Needed because a cross-origin script
  *    error is delivered to `window.onerror` with the stack stripped ("Script
  *    error."), leaving the message as the only evidence.
+ *  - A message naming a global that only a browser or an extension injects.
+ *    Needed because a script injected INLINE into the document gets a stack
+ *    whose single frame IS the document ("global code", line 1, our own URL),
+ *    which no filename test can tell apart from our code. The global it names is
+ *    then the only evidence left.
  *
  * Deliberately NOT a general "does the message look third-party" heuristic: a
  * broad matcher here would silently eat our own errors, which is a far worse
- * failure than filing the occasional extension issue. Both predicates require a
- * positive identification.
+ * failure than filing the occasional extension issue. All three predicates
+ * require a positive identification.
  */
 
 /**
@@ -50,6 +62,30 @@ const EXTENSION_SCHEMES = [
  */
 const EXTENSION_MESSAGE_MARKERS = ["Zotero Connector:", "Grammarly:"];
 
+/**
+ * Globals that ONLY a browser or an extension puts on `window`, for the case
+ * where the injected script ran inline and its stack therefore points at our own
+ * document rather than at any extension URL.
+ *
+ * Add to this only with a real captured message in hand, and only for a token
+ * that cannot turn up in a message of ours. Both entries below were checked
+ * against the source tree: neither name is defined, read, or so much as
+ * mentioned anywhere in it, so a match here cannot be one of our errors.
+ *
+ *  - `__firefox__` is the namespace Firefox for iOS injects into every page it
+ *    renders, for reader mode and its other browser features. Captured on /login
+ *    from Firefox for iOS 18.7 in both of its shapes, "Can't find variable:
+ *    __firefox__" and "undefined is not an object (evaluating
+ *    'window.__firefox__.reader')".
+ *  - `window.ethereum` is the EIP-1193 provider that crypto wallet extensions
+ *    inject. Captured in that same session as "undefined is not an object
+ *    (evaluating 'window.ethereum.selectedAddress = undefined')". Qualified with
+ *    `window.` deliberately: bare "ethereum" is an ordinary English word that
+ *    could legitimately appear in a message of ours, and it is the property
+ *    access, not the word, that identifies the injection.
+ */
+const INJECTED_GLOBAL_MARKERS = ["__firefox__", "window.ethereum"];
+
 function isExtensionUrl(value: unknown): boolean {
   return (
     typeof value === "string" &&
@@ -64,6 +100,13 @@ function hasExtensionMarker(value: unknown): boolean {
   );
 }
 
+function namesInjectedGlobal(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    INJECTED_GLOBAL_MARKERS.some((marker) => value.includes(marker))
+  );
+}
+
 /** The slice of a posthog-js `$exception_list` entry this filter reads. */
 type ExceptionEntry = {
   value?: unknown;
@@ -74,6 +117,7 @@ function isExtensionException(entry: unknown): boolean {
   if (typeof entry !== "object" || entry === null) return false;
   const { value, stacktrace } = entry as ExceptionEntry;
   if (hasExtensionMarker(value)) return true;
+  if (namesInjectedGlobal(value)) return true;
 
   const frames = stacktrace?.frames;
   if (!Array.isArray(frames) || frames.length === 0) return false;
@@ -101,11 +145,12 @@ type CapturedEvent = {
 
 /**
  * True when a posthog-js event is an `$exception` whose captured errors ALL come
- * from a browser extension. Used as a drop condition in `before_send`.
+ * from a browser extension or from a script the browser injected. Used as a drop
+ * condition in `before_send`.
  *
  * `every`, matching the Next control-flow filter: an exception that mixes
- * extension code with a real error of ours is kept, because the real error is
- * the signal.
+ * injected code with a real error of ours is kept, because the real error is the
+ * signal.
  */
 export function isBrowserExtensionEvent(event: CapturedEvent | null): boolean {
   if (!event || event.event !== "$exception") return false;

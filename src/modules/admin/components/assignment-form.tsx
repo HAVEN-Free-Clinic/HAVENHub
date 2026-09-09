@@ -334,7 +334,7 @@ export async function AssignmentForm({
 
       {/* Create person assignment */}
       <Card className="space-y-4">
-        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to person</h3>
+        <SectionHeader level="card" as="h3">Assign role to person</SectionHeader>
 
         <PersonSearchPanel
           paramName="assignq"
@@ -367,7 +367,7 @@ export async function AssignmentForm({
 
       {/* Create department assignment */}
       <Card className="space-y-4">
-        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to department</h3>
+        <SectionHeader level="card" as="h3">Assign role to department</SectionHeader>
         <p className="text-sm text-subtle-foreground">
           Applies to <strong>every active member</strong> of the chosen department, directors and
           volunteers alike, including members added later. It is not a way to reach a
@@ -407,7 +407,7 @@ export async function AssignmentForm({
 
       {/* Create kind (cohort) assignment */}
       <Card className="space-y-4">
-        <h3 className="text-sm font-semibold text-foreground-soft">Assign role to all members of a kind</h3>
+        <SectionHeader level="card" as="h3">Assign role to all members of a kind</SectionHeader>
         <p className="text-sm text-subtle-foreground">
           Applies to every active member of the chosen kind in the selected term (or every term,
           if Global), including members added later. This term that is {reachLabel(reach.cohort)},

@@ -18,7 +18,6 @@ import {
 import {
   ASSESSMENT_SEASONS,
   addPersonToSpanishHistory,
-  HISTORY_PAGE_SIZE,
   linkSpanishAssessmentToPerson,
   listAssessmentTerms,
   listSpanishAssessmentHistory,
@@ -41,6 +40,7 @@ import { ScoreOptions } from "@/platform/ui/score-options";
 import { QueueTab } from "./queue-tab";
 import { TabRow } from "@/platform/ui/tab-row";
 import { viewableMemberIds } from "@/platform/member-profile";
+import { Pagination } from "@/platform/ui/pagination";
 
 /**
  * Language review queue for the interpreting department.
@@ -366,6 +366,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
           <FilterBar
             action={BASE_PATH}
             clearHref={search || termFilter ? `${BASE_PATH}?tab=history` : undefined}
+            resultCount={{ total: history.total, noun: "record" }}
           >
             <input type="hidden" name="tab" value="history" />
             <FilterField label="Search" width="grow">
@@ -518,9 +519,9 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
               <Pagination
                 page={history.page}
                 pageCount={history.pageCount}
-                total={history.total}
-                term={termFilter}
-                search={search}
+                hrefFor={(p) =>
+                  tabHref("history", { term: termFilter, q: search, page: String(p) })
+                }
               />
             </>
           )}
@@ -637,54 +638,6 @@ function ModifierOptions({ name, defaultValue }: { name: string; defaultValue?: 
   );
 }
 
-function Pagination({
-  page,
-  pageCount,
-  total,
-  term,
-  search,
-}: {
-  page: number;
-  pageCount: number;
-  total: number;
-  term: string;
-  search: string;
-}) {
-  if (pageCount <= 1) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        {total} {total === 1 ? "record" : "records"}.
-      </p>
-    );
-  }
-  const first = (page - 1) * HISTORY_PAGE_SIZE + 1;
-  const last = Math.min(page * HISTORY_PAGE_SIZE, total);
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <p className="text-xs text-muted-foreground">
-        {first}-{last} of {total}
-      </p>
-      <div className="flex gap-2">
-        {page > 1 && (
-          <TextLink
-            href={tabHref("history", { term, q: search, page: String(page - 1) })}
-            size="xs"
-          >
-            Previous
-          </TextLink>
-        )}
-        {page < pageCount && (
-          <TextLink
-            href={tabHref("history", { term, q: search, page: String(page + 1) })}
-            size="xs"
-          >
-            Next
-          </TextLink>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /** The user-facing half of a thrown error, without leaking an internal message. */
 function messageFor(err: unknown, fallback: string): string {

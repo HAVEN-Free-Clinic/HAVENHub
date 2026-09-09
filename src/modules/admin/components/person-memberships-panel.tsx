@@ -150,7 +150,7 @@ export async function PersonMembershipsPanel({
 
       {activeTerm ? (
         <Card className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground-soft">Active term ({activeTerm.code})</h3>
+          <SectionHeader level="card" as="h3">Active term ({activeTerm.code})</SectionHeader>
           {activeMembers.length === 0 ? (
             <EmptyState inline>No active-term assignments.</EmptyState>
           ) : (
@@ -221,7 +221,7 @@ export async function PersonMembershipsPanel({
 
       {memberships.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-foreground-soft">History</h3>
+          <SectionHeader level="card" as="h3" className="mb-2">History</SectionHeader>
           <Table>
             <THead>
               <TR>

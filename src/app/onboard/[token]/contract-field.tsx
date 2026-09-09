@@ -64,9 +64,11 @@ export function ContractField({
 }) {
   const [hasEpic, setHasEpic] = useState(false);
 
-  // Tie each field's error message to its control so screen readers announce it
-  // on focus and mark the input invalid. errorId derives a stable id per field
-  // name; errorProps wires aria-invalid + aria-describedby onto the input.
+  // Field owns this for every control it wraps: it shows the message, ties it to
+  // the control (aria-invalid + aria-describedby) AND announces it. Only the
+  // agreement checkbox below is not inside a Field, so it keeps the wiring by
+  // hand -- including the role="alert" the ten hand-rolled copies all lacked,
+  // which is why a rejected contract used to re-render in silence.
   const errorId = (name: string) => `${name.replace(/[^\w-]/g, "_")}-error`;
   const errorProps = (name: string): { "aria-invalid": boolean; "aria-describedby"?: string } =>
     err(name) ? { "aria-invalid": true, "aria-describedby": errorId(name) } : { "aria-invalid": false };
@@ -96,7 +98,7 @@ export function ContractField({
               label={renderVars(block.signatureLabel, ctx)}
             />
             {err(`confirm__${block.id}`) && (
-              <p id={errorId(`confirm__${block.id}`)} className="mt-1 text-xs text-critical-foreground">{err(`confirm__${block.id}`)}</p>
+              <p id={errorId(`confirm__${block.id}`)} role="alert" className="mt-1 text-xs text-critical-foreground">{err(`confirm__${block.id}`)}</p>
             )}
           </>
         ) : (
@@ -174,12 +176,14 @@ export function ContractField({
           />
           {hasEpic ? (
             <div className="space-y-2 border-l-2 border-border pl-3">
-              <div>
-                <Field label="Your Epic ID" hint="Enter it in capital letters." required>
-                  <Input name="existingEpicId" required {...errorProps("existingEpicId")} />
-                </Field>
-                {err("existingEpicId") && <p id={errorId("existingEpicId")} className="mt-1 text-xs text-critical-foreground">{err("existingEpicId")}</p>}
-              </div>
+              <Field
+                label="Your Epic ID"
+                hint="Enter it in capital letters."
+                required
+                error={err("existingEpicId")}
+              >
+                <Input name="existingEpicId" required />
+              </Field>
               <Checkbox name="worksWithYnhh" label="I currently work with Yale New Haven Hospital." />
             </div>
           ) : (
@@ -200,8 +204,9 @@ export function ContractField({
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{label}</p>
           {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
-          <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} {...errorProps("hipaaCompletedAt")} /></Field>
-          {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical-foreground">{err("hipaaCompletedAt")}</p>}
+          <Field label="HIPAA completion date" required error={err("hipaaCompletedAt")}>
+            <Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} />
+          </Field>
           {/* UploadSizeField, not a raw input. The disable comment here used to
               say "no file primitive exists"; it does, and this was the one
               upload path still posting an oversized file at the edge.
@@ -212,7 +217,7 @@ export function ContractField({
               generic retry message and retrying re-sends the same file forever.
               `accept="image/*"` invites exactly the phone photo that trips it,
               at the end of a contract they have just filled in and signed. */}
-          <Field label="HIPAA certificate (PDF)" required>
+          <Field label="HIPAA certificate (PDF)" required error={err("hipaaFile")}>
             <UploadSizeField
               name="hipaaFile"
               maxMb={maxUploadMb}
@@ -220,7 +225,6 @@ export function ContractField({
               required
             />
           </Field>
-          {err("hipaaFile") && <p id={errorId("hipaaFile")} className="mt-1 text-xs text-critical-foreground">{err("hipaaFile")}</p>}
         </div>
       );
     }
@@ -250,24 +254,20 @@ export function ContractField({
       };
       const current = selectDefaults[block.systemKey] ?? "";
       return (
-        <div>
-          <Field label={label}>
-            {/* onChange feeds the answers map so a visibleWhen keyed on this
-                field (e.g. staffTitle on yaleAffiliation) matches server-side. */}
-            <Select
-              name={inputName}
-              defaultValue={current}
-              onChange={(e) => onAnswer(inputName, e.target.value)}
-              {...errorProps(inputName)}
-            >
-              <option value="">Select…</option>
-              {systemFieldOptions(block.systemKey, current).map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
-          </Field>
-          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical-foreground">{err(inputName)}</p>}
-        </div>
+        <Field label={label} error={err(inputName)}>
+          {/* onChange feeds the answers map so a visibleWhen keyed on this
+              field (e.g. staffTitle on yaleAffiliation) matches server-side. */}
+          <Select
+            name={inputName}
+            defaultValue={current}
+            onChange={(e) => onAnswer(inputName, e.target.value)}
+          >
+            <option value="">Select…</option>
+            {systemFieldOptions(block.systemKey, current).map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </Field>
       );
     }
     case "date": case "email": case "tel": case "text": default: {
@@ -275,14 +275,12 @@ export function ContractField({
       if (block.systemKey === "name") {
         return (
           <div className="space-y-4">
-            <div>
-              <Field label="First name" required><Input name="firstName" defaultValue={prefill.firstName} required {...errorProps("firstName")} /></Field>
-              {err("firstName") && <p id={errorId("firstName")} className="mt-1 text-xs text-critical-foreground">{err("firstName")}</p>}
-            </div>
-            <div>
-              <Field label="Last name" required><Input name="lastName" defaultValue={prefill.lastName} required {...errorProps("lastName")} /></Field>
-              {err("lastName") && <p id={errorId("lastName")} className="mt-1 text-xs text-critical-foreground">{err("lastName")}</p>}
-            </div>
+            <Field label="First name" required error={err("firstName")}>
+              <Input name="firstName" defaultValue={prefill.firstName} required />
+            </Field>
+            <Field label="Last name" required error={err("lastName")}>
+              <Input name="lastName" defaultValue={prefill.lastName} required />
+            </Field>
           </div>
         );
       }
@@ -312,26 +310,22 @@ export function ContractField({
       const required = block.systemKey === "email";
       const inputName = nameByKey[block.systemKey];
       return (
-        <div>
-          <Field label={label} required={required}>
-            <Input
-              name={inputName}
-              type={type}
-              defaultValue={defaults[block.systemKey]}
-              required={required}
-              // Uncontrolled (defaultValue), but still reports every keystroke
-              // to onAnswer, matching the select/checkbox/custom_question
-              // branches above. None of these fields is a visibleWhen
-              // controller today, but keeping every field's value available
-              // in the answers map is what makes the next one that becomes a
-              // controller (staffTitle, netId, etc.) work correctly from the
-              // first keystroke instead of silently failing to gate anything.
-              onChange={(e) => onAnswer(inputName, e.target.value)}
-              {...errorProps(inputName)}
-            />
-          </Field>
-          {err(inputName) && <p id={errorId(inputName)} className="mt-1 text-xs text-critical-foreground">{err(inputName)}</p>}
-        </div>
+        <Field label={label} required={required} error={err(inputName)}>
+          <Input
+            name={inputName}
+            type={type}
+            defaultValue={defaults[block.systemKey]}
+            required={required}
+            // Uncontrolled (defaultValue), but still reports every keystroke
+            // to onAnswer, matching the select/checkbox/custom_question
+            // branches above. None of these fields is a visibleWhen
+            // controller today, but keeping every field's value available
+            // in the answers map is what makes the next one that becomes a
+            // controller (staffTitle, netId, etc.) work correctly from the
+            // first keystroke instead of silently failing to gate anything.
+            onChange={(e) => onAnswer(inputName, e.target.value)}
+          />
+        </Field>
       );
     }
   }

@@ -20,7 +20,7 @@ type Ctx = {
 };
 
 export function OnboardForm({
-  token, prefill, layout, ctx, departments = [],
+  token, prefill, layout, ctx, departments = [], maxUploadMb = 4,
 }: {
   token: string;
   prefill: Prefill;
@@ -31,6 +31,8 @@ export function OnboardForm({
   // that never render a DEPARTMENT_CHOICE block keep typechecking; the real
   // onboard page always supplies the loaded list.
   departments?: string[];
+  /** `uploads.maxMb`, threaded to the HIPAA upload. See ContractField. */
+  maxUploadMb?: number;
 }) {
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -146,6 +148,7 @@ export function OnboardForm({
           <ContractField
             key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
             block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
+            maxUploadMb={maxUploadMb}
           />
         ))}
 

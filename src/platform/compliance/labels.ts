@@ -28,7 +28,7 @@
  * Tone is the Badge tone, so callers pass it straight through.
  */
 
-import type { ComplianceStatus } from "./rules";
+import type { ComplianceStatus, OverallClearance, TrainingState } from "./rules";
 import type { OnboardingTaskState } from "./task-state";
 
 /** Who is reading the label, which is not always who the row is about. */
@@ -127,4 +127,44 @@ export function onboardingTaskLabel(
   if (opts.audience !== "member") return TASK_STAFF[state];
   if (state === "INCOMPLETE" && opts.actionable === false) return TASK_MEMBER_PENDING;
   return TASK_MEMBER[state];
+}
+
+const TRAINING_STATE: Record<TrainingState, StatusLabel> = {
+  COMPLETE: { label: "Complete", tone: "success" },
+  PENDING: { label: "Not yet", tone: "warning" },
+};
+
+/**
+ * Words and tone for a training state.
+ *
+ * "Not yet" rather than "Pending", which in this vocabulary already means an
+ * outstanding task the reader cannot act on (see TASK_MEMBER_PENDING). Training
+ * is the opposite: it is the one thing on the roster a lead CAN resolve on the
+ * spot, with the button in the same row.
+ *
+ * No audience split. A member and a lead want the same two words here, and the
+ * only surface showing it today is the staff roster.
+ */
+export function trainingStateLabel(state: TrainingState): StatusLabel {
+  return TRAINING_STATE[state];
+}
+
+/**
+ * Clearance as the training roster reads it, including a state the shared
+ * OverallClearance type does not have.
+ *
+ * `NOT_ONBOARDED` is display-only and deliberately NOT added to
+ * OverallClearance, which is a two-value verdict ABOUT A MEMBER and is consumed
+ * by the dashboard and the compliance surfaces. This third case is somebody who
+ * is not a member yet: accepted into a cycle, no TermMembership, so there is no
+ * certificate to check and no clearance to compute. Reusing "Not cleared" for
+ * them reads as a member who failed rather than an applicant who has not
+ * started, and those are two different follow-ups -- chase a certificate, or
+ * chase a contract.
+ */
+export function clearanceLabel(value: OverallClearance | "NOT_ONBOARDED"): StatusLabel {
+  if (value === "NOT_ONBOARDED") return { label: "Not onboarded", tone: "warning" };
+  return value === "CLEARED"
+    ? { label: "Cleared", tone: "success" }
+    : { label: "Not cleared", tone: "critical" };
 }

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  clearanceLabel,
   complianceStatusLabel,
   onboardingTaskLabel,
+  trainingStateLabel,
   ALL_COMPLIANCE_STATUSES,
 } from "./labels";
 import type { ComplianceStatus } from "./rules";
@@ -128,5 +130,41 @@ describe("onboardingTaskLabel", () => {
         onboardingTaskLabel(state, { audience: "staff" }).label,
       );
     }
+  });
+});
+
+describe("trainingStateLabel", () => {
+  it("never renders a raw enum", () => {
+    // The whole reason this helper exists: the training roster was the last
+    // surface in the app printing database enum names at a human.
+    for (const state of ["COMPLETE", "PENDING"] as const) {
+      expect(trainingStateLabel(state).label).not.toMatch(/[_A-Z]{2,}/);
+    }
+  });
+
+  it("does not reuse the word this vocabulary already spends on an unactionable task", () => {
+    // "Pending" means "outstanding and not yours to fix" (TASK_MEMBER_PENDING).
+    // Training on this roster is the opposite: the button is in the same row.
+    expect(trainingStateLabel("PENDING").label).not.toBe("Pending");
+  });
+});
+
+describe("clearanceLabel", () => {
+  it("never renders a raw enum", () => {
+    for (const value of ["CLEARED", "NOT_CLEARED", "NOT_ONBOARDED"] as const) {
+      expect(clearanceLabel(value).label).not.toMatch(/[_A-Z]{2,}/);
+    }
+  });
+
+  it("separates somebody who has not started from somebody who failed a check", () => {
+    // Same table, two different follow-ups: chase a certificate, or chase a
+    // contract. Collapsing them is what this third state exists to prevent.
+    expect(clearanceLabel("NOT_ONBOARDED").label).not.toBe(clearanceLabel("NOT_CLEARED").label);
+    expect(clearanceLabel("NOT_ONBOARDED").tone).not.toBe(clearanceLabel("NOT_CLEARED").tone);
+  });
+
+  it("tones the two failure-ish states below the cleared one", () => {
+    expect(clearanceLabel("CLEARED").tone).toBe("success");
+    expect(clearanceLabel("NOT_CLEARED").tone).toBe("critical");
   });
 });

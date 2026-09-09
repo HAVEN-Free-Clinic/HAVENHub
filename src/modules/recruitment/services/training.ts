@@ -581,7 +581,13 @@ type TrainingRosterFields = {
   certStatus: ReturnType<typeof complianceStatus>;
   trainingState: TrainingState;
   locked: boolean;
-  overallClearance: OverallClearance;
+  /**
+   * Widened past OverallClearance for the roster's second half. An accepted
+   * applicant has no membership, so there is no certificate to check and no
+   * clearance to compute -- see clearanceLabel for why that is a third state
+   * rather than "Not cleared".
+   */
+  overallClearance: OverallClearance | "NOT_ONBOARDED";
   /** Set when a lead recorded an absence excused ahead of the session. Kept even
    *  after training completes: "COMPLETE, excused" is the true story of someone
    *  who missed the session with warning and finished by makeup quiz. */
@@ -750,10 +756,10 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       trainingState,
       // Locking is a quiz-attempt state on a Training row they cannot have.
       locked: false,
-      // Never CLEARED whatever their attendance says: the contract that puts them
-      // on the roster is still outstanding, which is the thing this row exists to
-      // make visible.
-      overallClearance: "NOT_CLEARED",
+      // Its own state, not NOT_CLEARED. Attendance alone must not make them look
+      // ready -- the contract that puts them on the roster is still outstanding --
+      // but they have not failed a check either: there is nothing to check yet.
+      overallClearance: "NOT_ONBOARDED",
       excuse: excusesByEmail.get(applicant.emailLower) ?? null,
     };
   });

@@ -5,15 +5,9 @@ import { listReviewableCycles } from "@/modules/recruitment/services/review";
 import { requireRecruitmentStaff } from "./cycles/access";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { Badge } from "@/platform/ui/badge";
 import { buttonClasses } from "@/platform/ui/button";
+import { CycleStatusBadge } from "@/modules/recruitment/components/status-badge";
 
-const statusTone = {
-  DRAFT: "default",
-  OPEN: "success",
-  CLOSED: "warning",
-  ARCHIVED: "default",
-} as const;
 
 const trackLabels: Record<string, string> = { VOLUNTEER: "Volunteer", DIRECTOR: "Director" };
 function trackLabel(track: string): string {
@@ -70,7 +64,7 @@ export default async function RecruitmentPage() {
               </TD>
               <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
               <TD>
-                <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
+                <CycleStatusBadge status={c.status} />
               </TD>
             </TR>
           ))}
@@ -112,7 +106,7 @@ export default async function RecruitmentPage() {
                     </TD>
                     <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
                     <TD>
-                      <Badge tone={statusTone[c.status as keyof typeof statusTone] ?? "default"}>{c.status}</Badge>
+                      <CycleStatusBadge status={c.status} />
                     </TD>
                   </TR>
                 ))}

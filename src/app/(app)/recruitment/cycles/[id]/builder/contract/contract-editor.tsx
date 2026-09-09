@@ -21,6 +21,8 @@ import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import type { CycleStatus } from "@prisma/client";
+import { CYCLE_STATUS_LABELS } from "@/modules/recruitment/components/status-badge";
 
 /** Unique, stable drag id per block. `systemKey` / `id` / `key` are each
  *  immutable and unique within a layout, so they double as dnd ids. */
@@ -54,7 +56,7 @@ export function ContractEditor({
   mode?: "cycle" | "global";
   /** In global mode, the track whose master template this editor edits. */
   globalTrack?: Track;
-  status?: string;
+  status?: CycleStatus;
   preview: OnboardingPreviewContext;
 }) {
   const router = useRouter();
@@ -150,7 +152,8 @@ export function ContractEditor({
 
       {mode === "cycle" && status !== undefined && status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}. Applicants may have already
+          submitted. Changes take effect for new submissions
           immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}

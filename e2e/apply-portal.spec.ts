@@ -49,8 +49,11 @@ test("apply portal: an applicant can withdraw a submitted application", async ({
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
   await page.click('button:has-text("Publish")');
-  // Anchor the badge match: a bare "OPEN" substring also matches "Opens".
-  await expect(page.locator("span").filter({ hasText: /^OPEN$/ })).toBeVisible();
+  // Anchor the badge match: a bare "Open" substring also matches "Opens".
+  // The badge shows the friendly label now, not the raw CycleStatus enum, so
+  // this reads "Open" rather than "OPEN". A regex hasText is case-SENSITIVE
+  // (unlike the string form), which is why the case matters here.
+  await expect(page.locator("span").filter({ hasText: /^Open$/ })).toBeVisible();
 
   // --- Submit as a verified portal applicant ---
   const applicantEmail = `e2e-withdraw-${Date.now()}@yale.edu`;

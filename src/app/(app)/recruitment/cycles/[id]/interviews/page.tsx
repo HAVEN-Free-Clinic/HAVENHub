@@ -10,14 +10,17 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { EvalProgress } from "@/modules/recruitment/components/interview-cells";
 import { Badge } from "@/platform/ui/badge";
+import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
+import type { Decision } from "@/modules/recruitment/engine/decision-summary";
 
 type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
-const decisionLabels: Record<string, string> = { ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted", PENDING: "Pending" };
 
 function status(iv: {
   scheduledAt: Date | null;
-  decision: string;
+  // The Decision enum, not a bare string: a loose type here is what let the
+  // raw constant fall through the `?? iv.decision` escape hatch below.
+  decision: Decision;
   application: { status: string };
 }): { label: string; tone: Tone } {
   // Withdrawal outranks both the decision and the schedule, and it is the one
@@ -28,7 +31,7 @@ function status(iv: {
   if (iv.application.status === "WITHDRAWN") return { label: "Withdrawn", tone: "warning" };
   if (iv.decision !== "PENDING") {
     const tone: Tone = iv.decision === "ACCEPT" ? "success" : iv.decision === "REJECT" ? "critical" : "warning";
-    return { label: decisionLabels[iv.decision] ?? iv.decision, tone };
+    return { label: DECISION_LABELS[iv.decision], tone };
   }
   return iv.scheduledAt ? { label: "Scheduled", tone: "brand" } : { label: "Offered", tone: "default" };
 }

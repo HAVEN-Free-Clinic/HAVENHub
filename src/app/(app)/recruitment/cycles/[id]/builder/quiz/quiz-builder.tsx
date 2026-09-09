@@ -13,6 +13,8 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { FormRow } from "@/platform/ui/form";
+import type { CycleStatus } from "@prisma/client";
+import { CYCLE_STATUS_LABELS } from "@/modules/recruitment/components/status-badge";
 
 export type QuizQuestion = { id: string; label: string; options: Choice[]; correctValue: string | null };
 export type QuizSection = { id: string; title: string; questions: QuizQuestion[] };
@@ -23,7 +25,7 @@ export function QuizBuilder({
   cycleId: string;
   cycleTitle: string;
   editable: boolean;
-  status: string;
+  status: CycleStatus;
   sections: QuizSection[];
 }) {
   const router = useRouter();
@@ -71,7 +73,8 @@ export function QuizBuilder({
     <div className="space-y-4">
       {status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {status}. Applicants may have already submitted. Changes take effect for new submissions
+          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}. Applicants may have already
+          submitted. Changes take effect for new submissions
           immediately; existing answers are kept as-is and may no longer match the updated form.
         </Alert>
       )}

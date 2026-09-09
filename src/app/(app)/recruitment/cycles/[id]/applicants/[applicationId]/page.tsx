@@ -38,8 +38,8 @@ import { ApplicantHistory } from "@/modules/recruitment/components/applicant-his
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
+import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
 
-const decisionLabel = { PENDING: "Pending", ACCEPT: "Accepted", REJECT: "Rejected", WAITLIST: "Waitlisted" } as const;
 
 export default async function ApplicationDetailPage({ params }: { params: Promise<{ id: string; applicationId: string }> }) {
   const { id, applicationId } = await params;
@@ -443,7 +443,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             app.decision !== "PENDING" ? (
               <div className="mt-3 space-y-2">
                 <p className="text-sm text-foreground-soft">
-                  This applicant was <strong className="text-foreground">{decisionLabel[app.decision as keyof typeof decisionLabel]}</strong> without routing.
+                  This applicant was <strong className="text-foreground">{DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]}</strong> without routing.
                   {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
                 </p>
                 {scope.all && (
@@ -504,7 +504,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               </form>
               {app.decision !== "PENDING" && app.decidedAt && (
                 <p className="mt-2 text-xs text-subtle-foreground">
-                  {decisionLabel[app.decision as keyof typeof decisionLabel]} · recorded <DateTime value={app.decidedAt} />
+                  {DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]} · recorded <DateTime value={app.decidedAt} />
                   {app.decisionNotes ? ` · ${app.decisionNotes}` : ""}
                 </p>
               )}

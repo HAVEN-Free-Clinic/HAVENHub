@@ -74,12 +74,28 @@ describe("score presentation", () => {
     }
   });
 
-  it("covers exactly 1 through 5", () => {
-      expect(SPANISH_PROFICIENCY_LEVELS.map((l) => l.score)).toEqual([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]);
+  it("covers 1 through 5 in half steps", () => {
+    expect(SPANISH_PROFICIENCY_LEVELS.map((l) => l.score)).toEqual([
+      1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5,
+    ]);
   });
 
   it("renders an empty label rather than a guess for no score", () => {
     expect(spanishProficiencyLabel(null)).toBe("");
+  });
+
+  // The fallback ladder this replaced invented a label for any number off the
+  // scale, and the history tab prefills that label into the row's notes field,
+  // so a guess for a 0 became the assessor's own note on the next save.
+  it("renders an empty label rather than a guess for a score off the scale", () => {
+    expect(spanishProficiencyLabel(0)).toBe("");
+    expect(spanishProficiencyLabel(6)).toBe("");
+    expect(spanishProficiencyLabel(3.25)).toBe("");
+  });
+
+  it("renders a half step as itself", () => {
+    expect(formatSpanishScore(3.5, null)).toBe("3.5");
+    expect(formatSpanishScore(4, null)).toBe("4");
   });
 
   it("renders an imported modifier", () => {
@@ -105,5 +121,24 @@ describe("score presentation", () => {
   it("keeps the tone split aligned with the bar rather than hardcoding 4", () => {
     expect(spanishScoreTone(CLINIC_WIDE_INTERPRETER_MIN_SCORE)).toBe("success");
     expect(spanishScoreTone(CLINIC_WIDE_INTERPRETER_MIN_SCORE - 1)).toBe("warning");
+  });
+
+  // The middle band compared for equality, so every half step between the bar
+  // and the band below it fell through to critical: a 3.5 badged red while a 3
+  // badged amber, i.e. the better assessment read as the worse one.
+  it("never tones a higher score worse than a lower one", () => {
+    const scores = SPANISH_PROFICIENCY_LEVELS.map((l) => l.score);
+    const rank = { critical: 0, warning: 1, success: 2, default: -1 } as const;
+    for (let i = 1; i < scores.length; i += 1) {
+      expect(rank[spanishScoreTone(scores[i])]).toBeGreaterThanOrEqual(
+        rank[spanishScoreTone(scores[i - 1])],
+      );
+    }
+  });
+
+  it("tones a half step below the bar as the conversational middle", () => {
+    expect(spanishScoreTone(3.5)).toBe("warning");
+    expect(spanishScoreTone(4.5)).toBe("success");
+    expect(spanishScoreTone(2.5)).toBe("critical");
   });
 });

@@ -602,6 +602,34 @@ describe("recordApplicationLanguageAssessment", () => {
     ).rejects.toBeInstanceOf(LanguageValidationError);
   });
 
+  // The third store on the same scale. Its column was left an INTEGER when the
+  // other two were widened, while the card above it already offered the halves,
+  // so a 3.5 here was rejected by the guard and then by the column behind it.
+  it("records a half step, which carryForward copies onto the member claim", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await recordApplicationLanguageAssessment(ctx.lead.id, {
+      applicationId: application.id, language: "es", verified: true, score: 3.5,
+    });
+
+    const row = await prisma.applicationLanguageAssessment.findUniqueOrThrow({
+      where: { applicationId_language: { applicationId: application.id, language: "es" } },
+    });
+    expect(row.score).toBe(3.5);
+  });
+
+  it("rejects a fraction that is not a point on the scale", async () => {
+    const ctx = await lane();
+    const { application } = await apply(ctx, "ada@yale.edu");
+
+    await expect(
+      recordApplicationLanguageAssessment(ctx.lead.id, {
+        applicationId: application.id, language: "es", verified: true, score: 3.25,
+      }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+  });
+
   // The score is the INTP Spanish assessment. A score on any other language is
   // a caller bug, not something to quietly drop.
   it("rejects a score on a language other than Spanish", async () => {

@@ -28,7 +28,13 @@ import { firstNameOf } from "@/platform/person-name";
 import { log, errorAttrs } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
-import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from "./catalog";
+import {
+  LanguageValidationError,
+  SPANISH,
+  isLanguageCode,
+  isSpanishScore,
+  languageLabel,
+} from "./catalog";
 import { upsertSpanishAssessmentForTerm } from "./spanish-assessments";
 import { listApplicantLanguageQueue } from "./applicant-review";
 
@@ -216,8 +222,10 @@ export async function recordLanguageAssessment(
     throw new LanguageValidationError(`Unknown language "${input.language}".`);
   }
   if (input.score !== undefined && input.score !== null) {
-    if (!Number.isInteger(input.score) || input.score < 1 || input.score > 5) {
-      throw new LanguageValidationError(`Score must be 1-5, got "${input.score}".`);
+    if (!isSpanishScore(input.score)) {
+      throw new LanguageValidationError(
+        `Score must be 1-5 in half steps, got "${input.score}".`,
+      );
     }
   }
   // The score is a Spanish-only concept (the INTP assessment). A score arriving

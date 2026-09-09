@@ -39,6 +39,7 @@ import {
   LanguageValidationError,
   SPANISH,
   interpreterBarFor,
+  isSpanishScore,
   meetsInterpreterBar,
 } from "./catalog";
 import {
@@ -63,18 +64,45 @@ export type SpanishAssessmentRow = {
   verified: boolean | null;
 };
 
-/** A score outside 1-5 is not a score. Returns null for "no score recorded". */
+/**
+ * A value off the scale is not a score. Returns null for "no score recorded".
+ *
+ * Parsed with Number, not parseInt: parseInt("3.5") is 3, which passed the old
+ * integer check and stored a silently downgraded assessment. Number also refuses
+ * trailing garbage, so "3.5abc" is null rather than 3.5.
+ */
 export function normalizeScore(raw: unknown): number | null {
   if (raw === null || raw === undefined || raw === "") return null;
-  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
-  if (!Number.isInteger(n) || n < 1 || n > 5) return null;
-  return n;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  return isSpanishScore(n) ? n : null;
 }
 
 /** "plus" | "minus" | null. Anything else is not a modifier. */
 export function normalizeModifier(raw: unknown): string | null {
   const s = raw === null || raw === undefined ? "" : String(raw);
   return s === "plus" || s === "minus" ? s : null;
+}
+
+/**
+ * Read a score and a modifier off the same form, and refuse to store both.
+ *
+ * "3.5+" is not a point on the scale. The modifier is how the assessors wrote a
+ * half step before the scale had one, so the two are the same idea in two
+ * spellings and a row must carry at most one of them. The half step wins,
+ * because it is what the reviewer just picked from a labelled list; the modifier
+ * on a history row is inherited from the import and was never re-confirmed.
+ *
+ * Whole scores keep their modifier, so editing the notes on a legacy "4-" row
+ * leaves the "4-" alone.
+ */
+export function normalizeScoreAndModifier(
+  rawScore: unknown,
+  rawModifier: unknown,
+): { score: number | null; modifier: string | null } {
+  const score = normalizeScore(rawScore);
+  const modifier = normalizeModifier(rawModifier);
+  if (score !== null && !Number.isInteger(score)) return { score, modifier: null };
+  return { score, modifier };
 }
 
 // ---------------------------------------------------------------------------

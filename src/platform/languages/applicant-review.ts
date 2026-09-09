@@ -15,7 +15,13 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { LanguageValidationError, SPANISH, isLanguageCode, languageLabel } from "./catalog";
+import {
+  LanguageValidationError,
+  SPANISH,
+  isLanguageCode,
+  isSpanishScore,
+  languageLabel,
+} from "./catalog";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -457,8 +463,8 @@ export async function recordApplicationLanguageAssessment(
   // to preserve between "omitted" and "explicitly cleared".
   const score = input.score ?? null;
   if (score !== null) {
-    if (!Number.isInteger(score) || score < 1 || score > 5) {
-      throw new LanguageValidationError(`Score must be 1-5, got "${score}".`);
+    if (!isSpanishScore(score)) {
+      throw new LanguageValidationError(`Score must be 1-5 in half steps, got "${score}".`);
     }
     if (input.language !== SPANISH) {
       throw new LanguageValidationError(

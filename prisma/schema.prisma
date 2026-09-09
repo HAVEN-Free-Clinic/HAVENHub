@@ -460,8 +460,9 @@ model Department {
   requiresEpicVolunteer      EpicRequirement              @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
   epicGuidance               String?
-  /// The lowest INTP Spanish proficiency score (1-5) this department will staff as
-  /// an interpreter.
+  /// The lowest INTP Spanish proficiency score (a whole 1-5) this department will
+  /// staff as an interpreter. The bar is a whole number even though an
+  /// assessment may be a half step: a 3.5 speaker clears a bar of 3, not 4.
   ///
   /// Null means "use the clinic-wide bar" (4, see languages/catalog). Departments
   /// that accept conversational speakers set 3. Ops asked for this per-department
@@ -1819,8 +1820,9 @@ model PersonLanguage {
   /// Bare id (no FK), mirroring the spanishVerifiedById it replaces.
   verifiedById String?
   note         String?
-  /// Internal 1-5 proficiency score for Spanish assessments only. Not visible
-  /// to volunteers. 4 or 5 qualifies clinic-wide; 1-3 is conversational only.
+  /// Internal proficiency score for Spanish assessments only, 1 to 5 in half
+  /// steps (1, 1.5, 2, ... 5). Not visible to volunteers. 4 and up qualifies
+  /// clinic-wide; below that is conversational only.
   /// Null for non-Spanish languages or when no score has been recorded.
   score        Float?
   createdAt    DateTime  @default(now())
@@ -1858,8 +1860,11 @@ model ApplicationLanguageAssessment {
   /// Bare id (no FK), mirroring PersonLanguage.verifiedById.
   verifiedById  String
   note          String?
-  /// Internal 1-5 proficiency score, Spanish only. Never shown to the applicant.
-  score         Int?
+  /// Internal proficiency score, 1 to 5 in half steps, Spanish only. Never shown
+  /// to the applicant. Float for the same reason as PersonLanguage.score:
+  /// carryForwardApplicationAssessments copies this value onto that column at
+  /// promotion, so an integer here would round the applicant's assessment.
+  score         Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1885,10 +1890,13 @@ model SpanishAssessmentRecord {
   /// Name as it appeared in the assessment list, for rows the list identified by
   /// name rather than email (2019 onward). Display fallback when personId is null.
   name      String?
-  /// Numeric score 1-5. Null if the person was assessed but no score recorded.
-  score        Float?
-  /// Optional modifier carried by imported rows written as "3+" or "3-".
-  /// New assessments record a plain 1-5 and leave this null.
+  /// Numeric score, 1 to 5 in half steps. Null if the person was assessed but no
+  /// score recorded.
+  score     Float?
+  /// Optional modifier carried by imported rows written as "3+" or "3-", which is
+  /// how the assessors wrote a half step before the scale had one. New
+  /// assessments record the half step itself and leave this null; the two never
+  /// coexist on a row (see normalizeScoreAndModifier).
   modifier  String?
   /// Free-text notes from the assessor.
   notes     String?

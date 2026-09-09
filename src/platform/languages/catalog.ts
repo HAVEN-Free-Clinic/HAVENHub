@@ -60,15 +60,23 @@ export const SPANISH = "es";
  * language review page and on a member's profile, both of which are gated to
  * staff, and nowhere on /my-info.
  *
- * 4 or 5 is the clinic-wide interpreting bar. 1-3 is conversational, which some
- * departments staff and some do not; that call is theirs to make from the number,
- * so nothing here turns the score into a hard gate.
+ * The scale runs 1 to 5 in half steps. 4 and up is the clinic-wide interpreting
+ * bar; anything below it is conversational, which some departments staff and some
+ * do not. That call is theirs to make from the number, so nothing here turns the
+ * score into a hard gate.
+ *
+ * This array is the ONLY definition of the scale. Every validator derives from it
+ * (see isSpanishScore), so adding a level here is the whole change.
  */
 export const SPANISH_PROFICIENCY_LEVELS = [
   { score: 1, label: "Almost none" },
+  { score: 1.5, label: "Almost none / Some" },
   { score: 2, label: "Some" },
+  { score: 2.5, label: "Some / Conversational" },
   { score: 3, label: "Conversational" },
+  { score: 3.5, label: "Conversational / Fluent" },
   { score: 4, label: "Fluent" },
+  { score: 4.5, label: "Fluent / Native" },
   { score: 5, label: "Native" },
 ] as const;
 
@@ -76,15 +84,39 @@ const SPANISH_LABEL_BY_SCORE = new Map<number, string>(
   SPANISH_PROFICIENCY_LEVELS.map((l) => [l.score, l.label]),
 );
 
-/** "Conversational" for 3. Empty string for no score, so it can render inline. */
-export function spanishProficiencyLabel(score: number | null): string {
-  return score === null ? "" : (SPANISH_LABEL_BY_SCORE.get(score) ?? "");
+/**
+ * Whether a number is a point on the scale.
+ *
+ * Derived from SPANISH_PROFICIENCY_LEVELS rather than spelled out as a range
+ * test, because a range test is what let the half steps reach the select while
+ * every validator still rejected or truncated them. A score that is not on the
+ * list the reviewer picked from is not a score.
+ */
+export function isSpanishScore(value: unknown): value is number {
+  return typeof value === "number" && SPANISH_LABEL_BY_SCORE.has(value);
 }
 
 /**
- * The badge text for a score: "4", or "3+" when an imported row carried a
- * modifier. "Not scored" reads better than an empty chip when INTP assessed
- * someone but never wrote a number down, which the older rows often did.
+ * "Conversational" for 3. Empty string for no score, so it can render inline.
+ *
+ * Empty for an off-scale score too, and deliberately: the history tab prefills
+ * this into the row's notes field, so a guessed label for a 0 ("did not attend",
+ * which the importer preserves rather than clamping) would be saved as the
+ * assessor's own note the next time anyone touched that row.
+ */
+export function spanishProficiencyLabel(score: number | null): string {
+  if (score === null) return "";
+  return SPANISH_LABEL_BY_SCORE.get(score) ?? "";
+}
+
+/**
+ * The badge text for a score: "3.5" today, or "4-" for an imported row that
+ * carried a modifier. "Not scored" reads better than an empty chip when INTP
+ * assessed someone but never wrote a number down, which the older rows often did.
+ *
+ * A half step and a modifier are two spellings of the same thing, so a row never
+ * carries both and there is nothing here to reconcile: normalizeScoreAndModifier
+ * drops the modifier at the write boundary.
  */
 export function formatSpanishScore(score: number | null, modifier: string | null): string {
   if (score === null) return "Not scored";
@@ -93,16 +125,20 @@ export function formatSpanishScore(score: number | null, modifier: string | null
 }
 
 /**
- * Badge tone for a score. Split at the clinic-wide interpreting bar: 4-5 reads
- * as cleared, 3 as the conversational middle a department may still staff, 1-2
- * as below it.
+ * Badge tone for a score. Split at the clinic-wide interpreting bar: 4 and up
+ * reads as cleared, the band below it as the conversational middle a department
+ * may still staff, anything under that as below it.
+ *
+ * Every band is a range test. The middle one compared for equality once, which
+ * put a 3.5 in the same red as a 1 while a 3 rendered amber, i.e. a strictly
+ * better assessment reading as the worse one on the roster.
  */
 export function spanishScoreTone(
   score: number | null,
 ): "default" | "success" | "warning" | "critical" {
   if (score === null) return "default";
   if (score >= CLINIC_WIDE_INTERPRETER_MIN_SCORE) return "success";
-  if (score === CLINIC_WIDE_INTERPRETER_MIN_SCORE - 1) return "warning";
+  if (score >= CLINIC_WIDE_INTERPRETER_MIN_SCORE - 1) return "warning";
   return "critical";
 }
 

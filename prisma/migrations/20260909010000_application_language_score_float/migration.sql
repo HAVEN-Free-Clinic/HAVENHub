@@ -1,0 +1,23 @@
+-- ApplicationLanguageAssessment.score is the third store on the INTP scale, and
+-- the one 20260909001233_score_float_half_increments missed. The recruitment
+-- card already renders the half steps, and carryForwardApplicationAssessments
+-- copies this column onto PersonLanguage.score at promotion, so leaving it an
+-- INTEGER rounds an applicant's assessment on the way in and again on the way
+-- through.
+--
+-- Written as its own migration rather than folded into the one above, which is
+-- already applied on the PR preview branch: a new DDL statement added to an
+-- applied file never runs there, so the preview database would keep the INTEGER
+-- column while the schema claimed otherwise.
+--
+-- rolling-deploy: same window as the migration above, and see the corrected note
+-- there for what actually happens in it. The column widens during
+-- `prisma migrate deploy`, before `next build` promotes the new code, so an old
+-- client can read a half step only if someone records one during the deploy or
+-- after a rollback. Roll forward, do not roll back, once a half score exists.
+-- Nothing reads this column outside the recruitment review card and
+-- carryForwardApplicationAssessments, so the exposure is one page rather than
+-- the roster.
+
+-- AlterTable
+ALTER TABLE "ApplicationLanguageAssessment" ALTER COLUMN "score" SET DATA TYPE DOUBLE PRECISION;

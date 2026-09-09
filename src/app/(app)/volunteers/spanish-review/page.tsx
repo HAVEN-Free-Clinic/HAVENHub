@@ -23,8 +23,8 @@ import {
   listAssessmentTerms,
   listSpanishAssessmentHistory,
   listSpanishFlagMismatches,
-  normalizeModifier,
   normalizeScore,
+  normalizeScoreAndModifier,
   updateSpanishAssessment,
 } from "@/platform/languages/spanish-assessments";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -172,8 +172,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     try {
       await updateSpanishAssessment({
         id: String(formData.get("id") ?? ""),
-        score: normalizeScore(formData.get("score")),
-        modifier: normalizeModifier(formData.get("modifier")),
+        ...normalizeScoreAndModifier(formData.get("score"), formData.get("modifier")),
         notes: formData.get("notes") === null ? null : String(formData.get("notes")),
       });
     } catch (err) {
@@ -246,8 +245,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
       await addPersonToSpanishHistory({
         netIdOrEmail: String(formData.get("netIdOrEmail") ?? ""),
         term: `${season} ${year}`,
-        score: normalizeScore(formData.get("score")),
-        modifier: normalizeModifier(formData.get("modifier")),
+        ...normalizeScoreAndModifier(formData.get("score"), formData.get("modifier")),
       });
     } catch (err) {
       redirect(tabHref("history", { error: messageFor(err, "Could not add that assessment.") }));
@@ -599,6 +597,12 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Legacy only. The modifier is how the assessors wrote a half step before the
+ * scale had one, so it stays editable for imported rows but is not how a new
+ * assessment records a half. Picking a half step from the score select drops
+ * whatever is selected here: see normalizeScoreAndModifier.
+ */
 function ModifierOptions({ name, defaultValue }: { name: string; defaultValue?: string }) {
   return (
     <Select name={name} defaultValue={defaultValue}>

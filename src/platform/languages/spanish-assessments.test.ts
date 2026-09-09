@@ -19,6 +19,7 @@ import {
   listSpanishFlagMismatches,
   normalizeModifier,
   normalizeScore,
+  normalizeScoreAndModifier,
   updateSpanishAssessment,
   upsertSpanishAssessmentForTerm,
 } from "./spanish-assessments";
@@ -63,6 +64,31 @@ describe("normalizeScore", () => {
     for (const n of [1, 2, 3, 4, 5]) expect(normalizeScore(String(n))).toBe(n);
   });
 
+  // The half steps reached the select before any validator understood them.
+  // parseInt("3.5") is 3, and 3 is an integer, so the old guard passed a
+  // silently downgraded score straight through to both stores with a success
+  // toast on top. Nothing in the suite fed it a half, so CI stayed green.
+  it("accepts the half steps the scale offers", () => {
+    for (const n of [1.5, 2.5, 3.5, 4.5]) expect(normalizeScore(String(n))).toBe(n);
+  });
+
+  it("rejects a fraction that is not a point on the scale", () => {
+    expect(normalizeScore("3.25")).toBeNull();
+    expect(normalizeScore("0.5")).toBeNull();
+    expect(normalizeScore("5.5")).toBeNull();
+  });
+
+  it("rejects a number with trailing garbage rather than parsing a prefix", () => {
+    expect(normalizeScore("3.5abc")).toBeNull();
+    expect(normalizeScore("4 or 5")).toBeNull();
+  });
+
+  it("accepts a number as readily as its string", () => {
+    expect(normalizeScore(3.5)).toBe(3.5);
+    expect(normalizeScore(4)).toBe(4);
+    expect(normalizeScore(3.25)).toBeNull();
+  });
+
   it("treats an empty selection as no score, not as zero", () => {
     expect(normalizeScore("")).toBeNull();
     expect(normalizeScore(null)).toBeNull();
@@ -86,6 +112,25 @@ describe("normalizeModifier", () => {
     expect(normalizeModifier("minus")).toBe("minus");
     expect(normalizeModifier("")).toBeNull();
     expect(normalizeModifier("sideways")).toBeNull();
+  });
+});
+
+describe("normalizeScoreAndModifier", () => {
+  // "3.5+" is not a point on the scale. The history row inherits a modifier from
+  // the import and the score select now offers halves, so both arrive on the
+  // same form with nothing to stop the combination.
+  it("drops an inherited modifier when the score is a half step", () => {
+    expect(normalizeScoreAndModifier("3.5", "plus")).toEqual({ score: 3.5, modifier: null });
+    expect(normalizeScoreAndModifier("4.5", "minus")).toEqual({ score: 4.5, modifier: null });
+  });
+
+  it("keeps the modifier on a whole score, so editing a legacy row leaves 4- alone", () => {
+    expect(normalizeScoreAndModifier("4", "minus")).toEqual({ score: 4, modifier: "minus" });
+    expect(normalizeScoreAndModifier("3", "plus")).toEqual({ score: 3, modifier: "plus" });
+  });
+
+  it("keeps a modifier with no score, which is how an unscored legacy row reads", () => {
+    expect(normalizeScoreAndModifier("", "plus")).toEqual({ score: null, modifier: "plus" });
   });
 });
 
@@ -505,6 +550,55 @@ describe("history stays consistent with the queue", () => {
       where: { personId_language: { personId: p.id, language: "es" } },
     });
     expect(claim.score).toBe(4);
+  });
+
+  // The end-to-end assertion the feature shipped without: a half step selected
+  // in the UI has to survive normalizeScore, the recordLanguageAssessment guard,
+  // and both columns. Each of those three rejected or truncated it independently,
+  // so any one of them left in place makes this fail.
+  it("records a half step to both stores without rounding it", async () => {
+    await actor();
+    const p = await person("Sam Rivera");
+    await prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        status: "ACTIVE",
+        startDate: new Date("2026-09-01"),
+        endDate: new Date("2026-12-31"),
+      },
+    });
+
+    await recordLanguageAssessment(ACTOR, {
+      personId: p.id,
+      language: "es",
+      verified: true,
+      score: normalizeScore("3.5"),
+    });
+
+    const row = await prisma.spanishAssessmentRecord.findFirstOrThrow({ where: { personId: p.id } });
+    expect(row.score).toBe(3.5);
+
+    const claim = await prisma.personLanguage.findUniqueOrThrow({
+      where: { personId_language: { personId: p.id, language: "es" } },
+    });
+    expect(claim.score).toBe(3.5);
+  });
+
+  it("refuses a score off the scale rather than storing it", async () => {
+    await actor();
+    const p = await person("Sam Rivera");
+
+    await expect(
+      recordLanguageAssessment(ACTOR, {
+        personId: p.id,
+        language: "es",
+        verified: true,
+        score: 3.25,
+      }),
+    ).rejects.toBeInstanceOf(LanguageValidationError);
+
+    expect(await prisma.personLanguage.count()).toBe(0);
   });
 
   it("does not blow up when there is no active term to file under", async () => {

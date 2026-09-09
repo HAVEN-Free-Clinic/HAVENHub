@@ -54,12 +54,20 @@ export function FlaggedTab({
     });
   }
 
+  // See transition-tab.tsx: the export route audits every POST, so a second
+  // click while the first is in flight writes a second audit row and downloads
+  // a second file. This button had no `disabled` at all.
+  const [exporting, setExporting] = useState(false);
+
   async function exportOffboardedCsv() {
     setExportError(null);
+    setExporting(true);
     try {
       await downloadCsv({ scope: "offboarded-term" });
     } catch {
       setExportError("Export failed. Refresh and try again.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -94,8 +102,8 @@ export function FlaggedTab({
           />
         </form>
 
-        <Button type="button" variant="outline" onClick={exportOffboardedCsv}>
-          Export offboarded-this-term CSV
+        <Button type="button" variant="outline" onClick={exportOffboardedCsv} disabled={exporting}>
+          {exporting ? "Preparing…" : "Export offboarded-this-term CSV"}
         </Button>
       </div>
 

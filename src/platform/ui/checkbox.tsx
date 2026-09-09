@@ -15,16 +15,44 @@ import { cx } from "./cx";
  * Mirrors `Radio` deliberately: same wrapper classes, same `label` prop, same
  * optional `hint`. The two controls appear side by side often enough that any
  * divergence between them reads as a bug.
+ *
+ * ## `indeterminate`
+ *
+ * A select-all box with SOME rows ticked is neither checked nor unchecked, and
+ * `indeterminate` is the only way to say so -- it is a DOM property, not an
+ * attribute, so it cannot be set in JSX. Two bulk-selection tables rendered
+ * `checked={allSelected}` and nothing else, so a partial selection reported
+ * "unchecked" to the accessibility tree while rows were plainly selected.
+ *
+ * Applied through a CALLBACK ref rather than useRef + useEffect, deliberately:
+ * this file carries no "use client" and is rendered by a couple of dozen server
+ * components, so a hook here would break every one of them. A callback ref is
+ * not a hook. It is re-created each render, which means React re-runs it on
+ * every render -- exactly what keeps the property in step with the prop.
  */
 export function Checkbox({
   label,
   hint,
+  indeterminate,
   className,
+  ref,
   ...rest
-}: { label?: ReactNode; hint?: ReactNode } & ComponentProps<"input">) {
+}: {
+  label?: ReactNode;
+  hint?: ReactNode;
+  /** Some-but-not-all selected. Wins over `checked` in what the box displays. */
+  indeterminate?: boolean;
+} & ComponentProps<"input">) {
   const input = (
     <input
       type="checkbox"
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate ?? false;
+        // Forward the caller's own ref, so adding this prop cannot silently
+        // steal a ref a call site already depends on.
+        if (typeof ref === "function") ref(el);
+        else if (ref) ref.current = el;
+      }}
       {...rest}
       className={cx(
         "h-4 w-4 rounded border-border-strong text-brand accent-brand cursor-pointer",

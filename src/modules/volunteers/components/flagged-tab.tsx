@@ -124,6 +124,7 @@ export function FlaggedTab({
             <TH>
               <Checkbox
                 checked={allSelected}
+                indeterminate={!allSelected && selected.size > 0}
                 onChange={(e) =>
                   setSelected(e.target.checked ? new Set(flagged.map((f) => f.person.id)) : new Set())
                 }

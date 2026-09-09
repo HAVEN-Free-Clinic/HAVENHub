@@ -303,21 +303,33 @@ export type EventListRow = AttendanceEvent & {
   attendeeCount: number;
   unlinkedCount: number;
   cycleTitle: string | null;
+  termName: string;
 };
 
-/** Events for a term (or a single cycle), soonest-first within past/future. */
+/**
+ * Events for a set of terms (or a single cycle), newest-first.
+ *
+ * `termIds` is a LIST rather than the single id this took, because an event's
+ * term comes from its cycle and a recruitment cycle recruits for the term
+ * AFTER the one running: every event the clinic had was attached to the term in
+ * preparation while the events page asked only about the live one, so the page
+ * was empty from the day it shipped. Callers pass every term they mean.
+ *
+ * An empty or absent list means no term filter at all.
+ */
 export async function listEvents(opts: {
-  termId?: string;
+  termIds?: string[];
   cycleId?: string;
 }): Promise<EventListRow[]> {
   const events = await prisma.attendanceEvent.findMany({
     where: {
-      ...(opts.termId ? { termId: opts.termId } : {}),
+      ...(opts.termIds && opts.termIds.length > 0 ? { termId: { in: opts.termIds } } : {}),
       ...(opts.cycleId ? { cycleId: opts.cycleId } : {}),
     },
     orderBy: { startsAt: "desc" },
     include: {
       cycle: { select: { title: true } },
+      term: { select: { name: true } },
       _count: { select: { attendances: true } },
     },
   });
@@ -330,11 +342,12 @@ export async function listEvents(opts: {
   });
   const unlinkedByEvent = new Map(unlinked.map((u) => [u.eventId, u._count._all]));
 
-  return events.map(({ cycle, _count, ...event }) => ({
+  return events.map(({ cycle, term, _count, ...event }) => ({
     ...event,
     attendeeCount: _count.attendances,
     unlinkedCount: unlinkedByEvent.get(event.id) ?? 0,
     cycleTitle: cycle?.title ?? null,
+    termName: term.name,
   }));
 }
 

@@ -26,6 +26,7 @@ import {
   linkAttendanceByEmail,
   linkAttendee,
   listCheckInCandidates,
+  listEvents,
   recordEventCheckIn,
   relinkUnlinkedAttendance,
   removeEventCheckIn,
@@ -1088,4 +1089,60 @@ it("the detail view offers a link suggestion for a walk-up whose email now match
   const detail = await getEventDetail(event.id);
   expect(detail?.linkSuggestions).toHaveLength(1);
   expect(detail?.linkSuggestions[0]!.personId).toBe(person.id);
+});
+
+// ---------------------------------------------------------------------------
+// The list
+//
+// An event's term comes from its cycle, and a cycle recruits for the term after
+// the one running. Asking for one term at a time is what emptied the events
+// page: every event the clinic had belonged to the term in preparation.
+// ---------------------------------------------------------------------------
+
+it("lists events across every term it is asked about", async () => {
+  const { term, cycle, lead } = await seed();
+  // The term being recruited FOR, with its own cycle and its own training
+  // session: the shape the events page actually meets.
+  const nextTerm = await prisma.term.create({
+    data: {
+      code: "SP27",
+      name: "Spring 2027",
+      startDate: new Date("2027-01-12T12:00:00.000Z"),
+      endDate: new Date("2027-05-15T12:00:00.000Z"),
+      status: "PLANNING",
+    },
+  });
+  const nextCycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER",
+      termId: nextTerm.id,
+      title: "Spring 2027 Volunteers",
+      publicSlug: "sp27-vol",
+      departments: ["SRHD"],
+      createdById: lead.id,
+      status: "OPEN",
+    },
+  });
+  await trainingEvent(cycle.id, lead.id);
+  await trainingEvent(nextCycle.id, lead.id);
+
+  const both = await listEvents({ termIds: [term.id, nextTerm.id] });
+  expect(both.map((e) => e.termName).sort()).toEqual(["Fall 2026", "Spring 2027"]);
+  // The name is on the row so a lead can tell two training sessions apart.
+  expect(both.every((e) => e.termName.length > 0)).toBe(true);
+
+  // One term still narrows, which is what the per-cycle callers rely on.
+  const live = await listEvents({ termIds: [term.id] });
+  expect(live).toHaveLength(1);
+  expect(live[0]!.termName).toBe("Fall 2026");
+});
+
+it("applies no term filter when asked about none", async () => {
+  const { cycle, lead } = await seed();
+  await trainingEvent(cycle.id, lead.id);
+
+  // How the page degrades with no live term and nothing in preparation: an
+  // unfiltered list beats a blank page that cannot say why it is blank.
+  expect(await listEvents({ termIds: [] })).toHaveLength(1);
+  expect(await listEvents({})).toHaveLength(1);
 });

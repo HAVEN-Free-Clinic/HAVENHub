@@ -8,7 +8,6 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { Alert } from "@/platform/ui/alert";
 import { cardClasses } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -18,20 +17,11 @@ import { TextLink } from "@/platform/ui/text-link";
  *  land here with an ?error= (a permission or ordering refusal), and until this
  *  page read it those refusals were silently swallowed: the user pressed
  *  Release, nothing happened, and nothing said why. */
-function first(value: string | string[] | undefined): string | null {
-  if (value === undefined) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
 
-export default async function DecisionsPage({
-  params,
-  searchParams,
-}: {
+export default async function DecisionsPage({ params }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const query = await searchParams;
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
@@ -41,9 +31,6 @@ export default async function DecisionsPage({
     releaseSummary(id),
     rejectionSummary(id),
   ]);
-
-  const released = first(query.sent);
-  const rejected = first(query.rejected);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -59,16 +46,6 @@ export default async function DecisionsPage({
       {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
           from the URL, so an inline branch reported it twice and then lost its
           value on the router.replace. Error toasts do not auto-dismiss. */}
-      {released && (
-        <Alert tone="success">
-          Sent {released} acceptance {released === "1" ? "email" : "emails"}.
-        </Alert>
-      )}
-      {rejected && (
-        <Alert tone="success">
-          Sent {rejected} not-selected {rejected === "1" ? "email" : "emails"}.
-        </Alert>
-      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Accepted" value={summary.acceptedApplications} />

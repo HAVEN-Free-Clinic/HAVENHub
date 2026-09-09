@@ -1139,6 +1139,19 @@ describe("params that used to be pinned to the URL forever", () => {
     expect(result.stripParams).toEqual(["ok"]);
   });
 
+  it("claims `ok` on dual roles too, not only the language review", () => {
+    // Scoping this entry to one path left the other page pinned: its `error`
+    // neighbour was claimed by the convention while its `ok` survived refresh,
+    // back-navigation and a shared link. Two halves of one action, opposite
+    // lifetimes -- the exact defect this entry exists to close.
+    const result = classifyFlashParams(
+      paramsOf({ ok: "Dual role recorded." }),
+      "/volunteers/dual-roles",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Dual role recorded." }]);
+    expect(result.stripParams).toEqual(["ok"]);
+  });
+
   it("claims `notice` on the attendings roster", () => {
     const result = classifyFlashParams(
       paramsOf({ notice: "Reminders sent." }),

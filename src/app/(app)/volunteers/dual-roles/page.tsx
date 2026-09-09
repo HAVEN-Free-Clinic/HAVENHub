@@ -13,7 +13,6 @@ import {
 import { formatSpanishScore, spanishScoreTone } from "@/platform/languages/catalog";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
-import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -102,7 +101,6 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
       {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
           from the URL, so an inline branch reported it twice and then lost its
           value on the router.replace. Error toasts do not auto-dismiss. */}
-      {sp.ok && <Alert tone="success">{sp.ok}</Alert>}
 
       <section className="space-y-3">
         <div className="flex items-end justify-between gap-4">

@@ -11,6 +11,7 @@
  */
 
 import { Badge } from "@/platform/ui/badge";
+import { SHIFT_REQUEST_COPY } from "./shift-parts";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
@@ -47,7 +48,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
       </div>
 
       {pendingRows.length === 0 && (
-        <EmptyState inline>No pending attending requests.</EmptyState>
+        <EmptyState inline>{SHIFT_REQUEST_COPY.noPending}</EmptyState>
       )}
 
       {pendingRows.map((r) => {

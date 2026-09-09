@@ -97,9 +97,13 @@ export function FilterBar({
   );
 }
 
-/** One labelled control in a FilterBar. Widths come from the shared `ROW_WIDTH`
+/** One labelled control in a filter row. Widths come from the shared `ROW_WIDTH`
  * table in form.tsx, so a Department select in a filter row is the same width as
- * a Department select in the write form above it. */
+ * a Department select in the write form above it.
+ *
+ * Usually inside a FilterBar, but not necessarily: the recruitment onboarding
+ * table filters client-side through a plain FormRow and still wants its controls
+ * labelled the way every other filter row in the app labels them. */
 export function FilterField({
   label,
   width = "control",

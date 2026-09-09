@@ -234,6 +234,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           action="/volunteers/directory"
           clearHref={hasFilters ? "/volunteers/directory" : undefined}
           className="mt-3"
+          resultCount={{ total: people.total, noun: "person", pluralNoun: "people" }}
         >
           <FilterField label="Search" width="grow">
             <Input
@@ -266,12 +267,10 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           </FilterField>
         </FilterBar>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4">
-          <p className="text-sm text-muted-foreground">
-            {people.total.toLocaleString()}{" "}
-            {people.total === 1 ? "person" : "people"}
-            {hasFilters ? " matching these filters" : ""}
-          </p>
+        {/* justify-end, not justify-between: the count that used to sit at the
+            left of this row now sits on the filter row with every other list's,
+            and a lone button in a justify-between row drifts to the left edge. */}
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border-subtle pt-4">
           {/* Exports exactly what the filters select, so "everyone", "one
               department" and "directors only" are all this one button. */}
           <DirectoryExportButton

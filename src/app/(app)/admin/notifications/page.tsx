@@ -201,7 +201,10 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       </div>
 
       {/* Filter bar (GET form) */}
-      <FilterBar clearHref={validatedStatus || validatedType || q ? "/admin/notifications" : undefined}>
+      <FilterBar
+        clearHref={validatedStatus || validatedType || q ? "/admin/notifications" : undefined}
+        resultCount={{ total, noun: "message" }}
+      >
         <FilterField label="Status">
           <Select name="status" defaultValue={validatedStatus ?? ""}>
             <option value="">All statuses</option>
@@ -236,10 +239,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
         />
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            {total.toLocaleString()} {total === 1 ? "message" : "messages"}
-          </p>
-
           <DeliveryLogTable
             recipientHeader="Recipient"
             kindHeader="Type"

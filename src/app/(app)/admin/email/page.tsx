@@ -417,7 +417,10 @@ export default async function EmailPage({ searchParams }: PageProps) {
       )}
 
       {/* Filter bar (GET form) */}
-      <FilterBar clearHref={validatedStatus || validatedTemplate || q ? "/admin/email" : undefined}>
+      <FilterBar
+        clearHref={validatedStatus || validatedTemplate || q ? "/admin/email" : undefined}
+        resultCount={{ total, noun: "email" }}
+      >
         <FilterField label="Status">
           <Select name="status" defaultValue={validatedStatus ?? ""}>
             <option value="">All statuses</option>
@@ -452,10 +455,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
         />
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            {total.toLocaleString()} {total === 1 ? "email" : "emails"}
-          </p>
-
           <DeliveryLogTable
             recipientHeader="Recipient"
             kindHeader="Template"

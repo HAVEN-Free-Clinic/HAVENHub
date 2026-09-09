@@ -47,12 +47,18 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
   return (
     <div className="space-y-6">
       <SetBreadcrumb trail={recruitmentTrail({ label: "History", href: "/recruitment/history" })} />
+      {/* The count, and the search term it was echoing, both moved onto the
+          filter row: the count sits beside the controls that change it, and the
+          term is already visible in the search box directly below. */}
       <PageHeader
         title="Recruitment history"
-        description={`${total.toLocaleString()} imported ${total === 1 ? "identity" : "identities"}${term ? ` matching "${term}"` : ""}`}
+        description="Applicants imported from past cycles, matched into one identity per person."
       />
 
-      <FilterBar clearHref={q ? "/recruitment/history" : undefined}>
+      <FilterBar
+        clearHref={q ? "/recruitment/history" : undefined}
+        resultCount={{ total, noun: "identity", pluralNoun: "identities" }}
+      >
         <FilterField label="Search" width="grow">
           <Input
             type="search"

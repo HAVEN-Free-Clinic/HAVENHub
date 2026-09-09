@@ -527,10 +527,20 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                 Recorded {excuse.recordedByName ? `by ${excuse.recordedByName} ` : ""}
                 on <DateTime value={excuse.recordedAt} />. They still need the makeup quiz.
               </p>
+              {/* The training roster lists people accepted into the cycle, and
+                  excuses arrive well before decisions do. Without this the
+                  excuse simply was not on the roster and the page gave no
+                  reason, which reads as the record having been lost. */}
+              {acceptances.length === 0 && (
+                <p className="text-xs text-subtle-foreground">
+                  Not on the training roster yet: they have not been accepted into this cycle.
+                  It appears there as soon as an acceptance is recorded.
+                </p>
+              )}
               {excuse.unlinked && (
                 <p className="text-xs text-subtle-foreground">
                   Held against their email address for now: they have no hub account yet. It
-                  joins the training roster automatically once they are promoted.
+                  follows them onto the training roster, and stays with them through promotion.
                 </p>
               )}
             </div>

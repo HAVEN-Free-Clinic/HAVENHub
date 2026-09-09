@@ -669,6 +669,40 @@ it("shows an applicant excuse on the roster, under the email it was stored with"
   expect(row?.excuse?.reason).toBe("Exam that night");
 });
 
+it("shows an applicant excuse filed against the account they already have", async () => {
+  // recordApplicantAbsenceExcuse PREFERS the linked account, so in a
+  // renewal-heavy cycle almost every excuse is stored person-keyed. The roster
+  // read the applicant half by email alone and showed none of them.
+  const { srr, c1 } = await seedMember();
+  const returning = await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "ada@yale.edu" },
+  });
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu", returning.id);
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Sister's wedding", srr.id);
+  // Person-keyed, which is the half the roster could not see.
+  expect(
+    await prisma.trainingAbsenceExcuse.findFirst({ where: { cycleId: c1.id, personId: returning.id } }),
+  ).not.toBeNull();
+
+  const row = applicantRow(await listTrainingRoster(c1.id, srr.id));
+  expect(row?.excuse?.reason).toBe("Sister's wedding");
+});
+
+it("shows an applicant excuse filed against an account matched only by email", async () => {
+  const { srr, c1 } = await seedMember();
+  await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "Ada@Yale.edu" },
+  });
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Away that weekend", srr.id);
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.excuse?.reason).toBe(
+    "Away that weekend",
+  );
+});
+
 it("scopes accepted applicants to a director's own departments", async () => {
   const { term, srr, c1 } = await seedMember();
   const other = await prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
@@ -751,6 +785,53 @@ it("stores a personId when only the email matches an existing account", async ()
 
   const stored = await prisma.trainingAbsenceExcuse.findFirstOrThrow();
   expect(stored.personId).toBe(vol.id);
+});
+
+// The state the hub is actually in: excuses that reached the table under the
+// email key, for applicants who since turned out to have an account. Every read
+// has to cope, or the two pages tell a lead different things about the same row.
+it("finds an email-keyed excuse for an applicant who does have an account", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@yale.edu" } });
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu", vol.id);
+  // Filed under the email, as an import or a pre-account write leaves it.
+  await prisma.trainingAbsenceExcuse.create({
+    data: { cycleId: c1.id, emailLower: "vol@yale.edu", reason: "Booked travel", recordedById: srr.id },
+  });
+
+  expect((await getApplicantAbsenceExcuse(c1.id, applicant.id))?.reason).toBe("Booked travel");
+});
+
+it("clearing an applicant's excuse takes the row under the other key with it", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@yale.edu" } });
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu", vol.id);
+  await prisma.trainingAbsenceExcuse.create({
+    data: { cycleId: c1.id, emailLower: "vol@yale.edu", reason: "Booked travel", recordedById: srr.id },
+  });
+
+  await clearApplicantAbsenceExcuse(c1.id, applicant.id, srr.id);
+
+  // Left behind, the excuse came back on the next render of a page that had
+  // just said it was gone.
+  expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
+  expect(await getApplicantAbsenceExcuse(c1.id, applicant.id)).toBeNull();
+});
+
+it("re-excusing an applicant leaves one row, not one per key", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  await prisma.person.update({ where: { id: vol.id }, data: { contactEmail: "vol@yale.edu" } });
+  const applicant = await seedApplicant(c1.id, "vol@yale.edu", vol.id);
+  await prisma.trainingAbsenceExcuse.create({
+    data: { cycleId: c1.id, emailLower: "vol@yale.edu", reason: "Booked travel", recordedById: srr.id },
+  });
+
+  await recordApplicantAbsenceExcuse(c1.id, applicant.id, "Family wedding", srr.id);
+
+  const rows = await prisma.trainingAbsenceExcuse.findMany();
+  expect(rows).toHaveLength(1);
+  expect(rows[0].personId).toBe(vol.id);
+  expect(rows[0].reason).toBe("Family wedding");
 });
 
 it("refuses an applicant belonging to a different cycle", async () => {
@@ -880,6 +961,102 @@ it("reads a dateless contract certificate as UNKNOWN_DATE, not as none at all", 
   await seedContract(acceptance.id, { storedName: "hipaa-1.pdf" });
 
   expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("UNKNOWN_DATE");
+});
+
+/** A certificate on a Person, the way an earlier term left it. */
+async function seedCert(
+  personId: string,
+  cert: { completionDate?: Date | null; verified?: boolean; uploadedAt?: Date } = {},
+) {
+  return prisma.hipaaCertificate.create({
+    data: {
+      personId,
+      fileName: "hipaa.pdf",
+      storedName: `cert-${personId}-${cert.uploadedAt?.getTime() ?? 0}.pdf`,
+      size: 1,
+      mimeType: "application/pdf",
+      completionDate: cert.completionDate ?? new Date(),
+      verifiedAt: cert.verified === false ? null : new Date(),
+      ...(cert.uploadedAt ? { uploadedAt: cert.uploadedAt } : {}),
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The Cert column for a returning volunteer, who has an account already
+// ---------------------------------------------------------------------------
+
+it("reads a returning applicant's certificate off the account they already have", async () => {
+  // The renewal-heavy case the column was wrong about: a volunteer who signed in
+  // to renew has a Person and a verified certificate, and their contract is the
+  // thing still outstanding. Reading only the contract said NO_CERTIFICATE about
+  // a document the clinic is holding.
+  const { srr, c1 } = await seedMember();
+  const returning = await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "ada@yale.edu" },
+  });
+  await seedCert(returning.id);
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu", returning.id);
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+
+  const row = applicantRow(await listTrainingRoster(c1.id, srr.id));
+  expect(row?.certStatus).toBe("COMPLIANT");
+  // Still not cleared: the contract is outstanding whatever the certificate says.
+  expect(row?.overallClearance).toBe("NOT_ONBOARDED");
+});
+
+it("finds that account by email when the applicant never signed in to renew", async () => {
+  // applicantPersonId is only ever set for a signed-in renewal, so the email
+  // match is the path most returning applicants actually take.
+  const { srr, c1 } = await seedMember();
+  const returning = await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "Ada@Yale.edu" },
+  });
+  await seedCert(returning.id);
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu");
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("COMPLIANT");
+});
+
+it("keeps a returning applicant cleared while their contract upload awaits verification", async () => {
+  // Mid-renewal: the newest document is the unverified one they just attached to
+  // the contract, and the verified one behind it is still valid. Reading only
+  // the contract downgraded them to PENDING_VERIFICATION on the strength of an
+  // upload that ADDED coverage.
+  const { srr, c1 } = await seedMember();
+  const returning = await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "ada@yale.edu" },
+  });
+  await seedCert(returning.id);
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu", returning.id);
+  const acceptance = await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+  await seedContract(acceptance.id, { storedName: "hipaa-1.pdf", completedAt: new Date() });
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("COMPLIANT");
+});
+
+it("still says NO_CERTIFICATE for a returning applicant whose account has none", async () => {
+  const { srr, c1 } = await seedMember();
+  const returning = await prisma.person.create({
+    data: { name: "Re Turning", status: "ACTIVE", contactEmail: "ada@yale.edu" },
+  });
+  const applicant = await seedApplicant(c1.id, "ada@yale.edu", returning.id);
+  await acceptApplicant(applicant.id, c1.id, srr.id, "SRHD", "RENEWAL");
+
+  expect(applicantRow(await listTrainingRoster(c1.id, srr.id))?.certStatus).toBe("NO_CERTIFICATE");
+});
+
+it("reads a member's whole certificate history, not just the newest upload", async () => {
+  // The same rule the clearance engine and the HIPAA panel apply
+  // (effectiveCompliance): an early renewal awaiting verification must not
+  // revoke the clearance the still-valid verified certificate underneath it
+  // gives. The roster judged the newest row alone and disagreed with both.
+  const { srr, c1, vol } = await seedMember();
+  await seedCert(vol.id, { uploadedAt: new Date(Date.now() - 86_400_000) });
+  await seedCert(vol.id, { verified: false, uploadedAt: new Date() });
+
+  expect(memberRow(await listTrainingRoster(c1.id, srr.id), vol.id).certStatus).toBe("COMPLIANT");
 });
 
 // ---------------------------------------------------------------------------

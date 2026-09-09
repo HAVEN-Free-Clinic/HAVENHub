@@ -247,7 +247,7 @@ export function AttendingPortalSection({
 
             {clinicDates.length === 0 ? (
               <p className="text-sm text-subtle-foreground">
-                Clinic dates for this term haven&apos;t been set yet &mdash; check back once the calendar is
+                Clinic dates for this term haven&apos;t been set yet. Check back once the calendar is
                 published.
               </p>
             ) : schedule.availabilityLocked ? (

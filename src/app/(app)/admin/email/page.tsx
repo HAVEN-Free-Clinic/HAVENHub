@@ -328,7 +328,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
       {mailConn.connected && !mailConn.healthy && (
         <Alert tone="error">
           The mailbox is connected but its Microsoft sign-in token is failing to refresh. All email
-          and Teams delivery will fail until this is fixed &mdash; click Reconnect above to sign in again.
+          and Teams delivery will fail until this is fixed. Click Reconnect above to sign in again.
         </Alert>
       )}
       {needsTeamsReconnect && (

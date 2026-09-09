@@ -8,14 +8,19 @@ const noEmDash = {
     return {
       Program(node) {
         const text = src.getText();
-        const DASH = "—";
-        for (let i = text.indexOf(DASH); i !== -1; i = text.indexOf(DASH, i + 1)) {
-          context.report({
-            node,
-            loc: src.getLocFromIndex(i),
-            message:
-              "Em-dash reads as AI-generated; use a comma, colon, parentheses, or hyphen. Add an eslint-disable-next-line local/no-em-dash with a reason if genuinely required.",
-          });
+        // The character AND the HTML entity. Scanning for the character alone
+        // let `&mdash;` through, and six absent-value markers in the schedule
+        // module drifted in that way: the rule was passing while the rendered
+        // page showed exactly what it bans.
+        for (const form of ["—", "&mdash;"]) {
+          for (let i = text.indexOf(form); i !== -1; i = text.indexOf(form, i + 1)) {
+            context.report({
+              node,
+              loc: src.getLocFromIndex(i),
+              message:
+                "Em-dash reads as AI-generated; use a comma, colon, parentheses, or hyphen. For an absent value use \"-\", which the date helpers already default to. Add an eslint-disable-next-line local/no-em-dash with a reason if genuinely required.",
+            });
+          }
         }
       },
     };

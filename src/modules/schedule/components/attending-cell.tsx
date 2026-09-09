@@ -42,7 +42,7 @@ export function AttendingCell({ slot, coverage, dateKey, canEdit, options, isClo
   if (!canEdit || isClosed) {
     const staffed = assigned.filter((a) => a.isActive);
     return staffed.length === 0 ? (
-      <span className="text-subtle-foreground">&mdash;</span>
+      <span className="text-subtle-foreground">-</span>
     ) : (
       <>
         {staffed.map((a) => (
@@ -73,7 +73,11 @@ export function AttendingCell({ slot, coverage, dateKey, canEdit, options, isClo
           }
           className="text-sm"
         >
-          <option value="">&mdash;</option>
+          {/* "Not set", not a dash. An <option>'s text IS its accessible name,
+              so a screen-reader user heard an em-dash where the On-call select
+              one line away in the same grid says "Not set" -- and this is the
+              option that CLEARS an attending off a clinic date. */}
+          <option value="">Not set</option>
           {options.map((a) => {
             const label = a.isActive ? a.scheduleName : `${a.scheduleName} (inactive)`;
             // Advisory, never a filter: Faculty Relations still books whoever

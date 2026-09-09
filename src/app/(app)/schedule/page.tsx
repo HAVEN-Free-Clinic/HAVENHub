@@ -728,7 +728,7 @@ export default async function MySchedulePage({
                       // No clinic calendar yet: the checkbox grid would be empty and
                       // an empty save would wipe the application baseline to an empty
                       // SELF tier (#90). Explain instead of offering a destructive Save.
-                      <p className="text-sm text-subtle-foreground">Clinic dates for this term haven&apos;t been set yet &mdash; check back once the calendar is published.</p>
+                      <p className="text-sm text-subtle-foreground">Clinic dates for this term haven&apos;t been set yet. Check back once the calendar is published.</p>
                     ) : t.availabilityLocked ? (
                       // Clinics have started: the schedule built from this
                       // availability is live, so a silent edit here would desync

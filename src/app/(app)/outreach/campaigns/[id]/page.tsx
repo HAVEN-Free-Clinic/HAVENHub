@@ -408,7 +408,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           <h2 className="text-base font-semibold text-foreground">Sent runs</h2>
           {campaign.runs.some((run) => run.enqueuedCount < run.recipientCount) && (
             <Alert tone="warning">
-              One or more runs enqueued fewer recipient emails than recorded &mdash; a run may have
+              One or more runs enqueued fewer recipient emails than recorded: a run may have
               been interrupted just after it was marked sent. Compare the Recipients and Enqueued
               columns below and resend if recipients are missing.
             </Alert>

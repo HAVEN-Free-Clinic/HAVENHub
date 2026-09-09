@@ -140,7 +140,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
           <dl className="mt-3 space-y-3 text-sm">
             <div>
               <dt className="text-xs text-subtle-foreground">Time</dt>
-              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="To be determined" /></dd>
+              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></dd>
             </div>
             <div>
               <dt className="text-xs text-subtle-foreground">Zoom link</dt>

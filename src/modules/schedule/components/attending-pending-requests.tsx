@@ -68,7 +68,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
                   {r.target
                     ? `Swap with ${r.target.name} on ${displayDate(targetKey!)}`
                     : "Drop"}{" "}
-                  &mdash; {r.requesterSlotLabel} on {displayDate(requesterKey)}
+                  · {r.requesterSlotLabel} on {displayDate(requesterKey)}
                 </span>
                 {/* A drop leaves the column short. Say so here, where the decision
                     is made, rather than making Faculty Relations open the coverage
@@ -124,7 +124,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
                 {r.status.toLowerCase()}
               </span>{" "}
               on {formatDateOnly(r.decidedAt ?? r.updatedAt, timeZone, SETTLED_DATE_OPTS)}
-              {" "}&mdash; {r.isSwap ? "swap" : "drop"}, {r.requesterSlotLabel} on{" "}
+              {" "}· {r.isSwap ? "swap" : "drop"}, {r.requesterSlotLabel} on{" "}
               {displayDate(isoDateKey(r.requesterDate))}
             </p>
           ))}

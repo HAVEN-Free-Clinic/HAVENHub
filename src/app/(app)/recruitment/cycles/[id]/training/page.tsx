@@ -117,7 +117,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                   contract. An em-dash, matching how the other tables here render
                   a cell with genuinely nothing in it. */}
               <TD className="text-foreground-soft">
-                {r.kind === "applicant" ? <>&mdash;</> : <StatusBadge {...complianceStatusLabel(r.certStatus, "staff")} />}
+                {r.kind === "applicant" ? <>-</> : <StatusBadge {...complianceStatusLabel(r.certStatus, "staff")} />}
               </TD>
               <TD className="text-foreground-soft">
                 <div className="space-y-1">

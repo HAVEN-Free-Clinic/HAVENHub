@@ -163,7 +163,7 @@ ${valueProp("Built for HAVEN", "volunteers, by HAVEN volunteers.", { last: true 
   </tr>
 </table>
 
-<p style="margin:0 0 24px;font-family:${FONT};font-size:13px;line-height:1.5;color:#64748b;">Sign in at <a href="${HUB_URL}" style="color:${BRAND};text-decoration:underline;">hub.havenfreeclinic.org</a> with your Yale credentials &mdash; no separate password to remember.</p>
+<p style="margin:0 0 24px;font-family:${FONT};font-size:13px;line-height:1.5;color:#64748b;">Sign in at <a href="${HUB_URL}" style="color:${BRAND};text-decoration:underline;">hub.havenfreeclinic.org</a> with your Yale credentials, with no separate password to remember.</p>
 
 <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 24px;">
 

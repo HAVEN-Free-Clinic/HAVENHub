@@ -85,7 +85,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                 </TD>
-                <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
+                <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></TD>
                 <TD className="text-foreground-soft">{panelistCount}</TD>
                 <TD>
                   <EvalProgress done={evaluationCount} panelists={panelistCount} />

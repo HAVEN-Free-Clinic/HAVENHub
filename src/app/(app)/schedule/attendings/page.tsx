@@ -520,7 +520,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                       </span>
                     </TD>
                     <TD className="text-sm text-muted-foreground">
-                      {a.specialtyId ? specialtyById.get(a.specialtyId)?.name ?? "" : "Not set"}
+                      {(a.specialtyId ? specialtyById.get(a.specialtyId)?.name : null) ?? "Not set"}
                     </TD>
                     <TD className="text-xs text-muted-foreground">
                       {a.email && <span className="block">{a.email}</span>}

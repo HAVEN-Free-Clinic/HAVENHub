@@ -1,9 +1,14 @@
-import { Badge } from "@/platform/ui/badge";
+import { StatusBadge } from "@/platform/ui/status-badge";
 import { TextLink } from "@/platform/ui/text-link";
 import { TH, TD } from "@/platform/ui/table";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { certExpiresAt } from "@/platform/compliance/rules";
-import { complianceStatusLabel, onboardingTaskLabel } from "@/platform/compliance/labels";
+import {
+  complianceStatusLabel,
+  onboardingTaskLabel,
+  trainingStateLabel,
+  clearanceLabel,
+} from "@/platform/compliance/labels";
 import type { OnboardingTaskKey, OnboardingTaskState } from "@/platform/compliance/task-state";
 import type { MemberCompliance } from "@/modules/volunteers/services/compliance";
 
@@ -83,16 +88,14 @@ export function ComplianceNameCell({ person }: { person: ComplianceRowData["pers
 /** A task badge, or a dash when the task does not apply to this person. */
 function TaskCell({ state }: { state: OnboardingTaskState | null }) {
   if (!state) return <TD><span className="text-subtle-foreground">-</span></TD>;
-  const { label, tone } = onboardingTaskLabel(state, { audience: "staff" });
   return (
     <TD>
-      <Badge tone={tone}>{label}</Badge>
+      <StatusBadge {...onboardingTaskLabel(state, { audience: "staff" })} />
     </TD>
   );
 }
 
 export function ComplianceCells({ row }: { row: ComplianceRowData }) {
-  const status = complianceStatusLabel(row.status, "staff");
   const expiresAt = row.cert?.completionDate ? certExpiresAt(row.cert.completionDate) : null;
   // Training only applies to a volunteer, and only when this term designated one.
   // Without both, show a dash rather than a "Pending" that contradicts Cleared.
@@ -102,13 +105,16 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
   return (
     <>
       <TD>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <StatusBadge {...complianceStatusLabel(row.status, "staff")} />
       </TD>
       <TD>
+        {/* trainingStateLabel, not a local ternary. This column said "Pending"
+            in grey while the training roster one click away said "Not yet" in
+            amber for the same state -- and "Pending" in this vocabulary already
+            means outstanding and NOT yours to fix, which is exactly wrong for
+            the one item a lead can clear on the spot. */}
         {trainingApplies ? (
-          <Badge tone={row.trainingState === "COMPLETE" ? "success" : "default"}>
-            {row.trainingState === "COMPLETE" ? "Complete" : "Pending"}
-          </Badge>
+          <StatusBadge {...trainingStateLabel(row.trainingState)} />
         ) : (
           <span className="text-subtle-foreground">-</span>
         )}
@@ -116,9 +122,7 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
       <TaskCell state={taskState(row.clearance, "learning")} />
       <TaskCell state={taskState(row.clearance, "ehs")} />
       <TD>
-        <Badge tone={row.clearance.cleared ? "success" : "critical"}>
-          {row.clearance.cleared ? "Cleared" : "Not cleared"}
-        </Badge>
+        <StatusBadge {...clearanceLabel(row.clearance.cleared ? "CLEARED" : "NOT_CLEARED")} />
       </TD>
       <TD className="text-foreground-soft tabular-nums">
         <CalendarDate value={row.cert?.completionDate} />

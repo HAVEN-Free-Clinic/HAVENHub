@@ -2,6 +2,7 @@ import type { Prisma, Track, TechRequestStatus, EpicRequestStatus } from "@prism
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
+import { ALL_COMPLIANCE_STATUSES, complianceStatusLabel } from "@/platform/compliance/labels";
 import { LANGUAGES } from "@/platform/languages";
 import type { DisplayTimeZone } from "@/platform/dates/zone";
 import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
@@ -179,14 +180,21 @@ export type PersonFieldDef = {
  */
 export type PersonFieldView = Omit<PersonFieldDef, "compile">;
 
-const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] = [
-  { value: "COMPLIANT", label: "Compliant" },
-  { value: "EXPIRING_SOON", label: "Expiring soon" },
-  { value: "EXPIRED", label: "Expired" },
-  { value: "PENDING_VERIFICATION", label: "Awaiting verification" },
-  { value: "UNKNOWN_DATE", label: "Unknown date" },
-  { value: "NO_CERTIFICATE", label: "No certificate" },
-];
+/**
+ * Derived, not written out: a filter must not offer words the roster it filters
+ * does not use. The hand-written list had drifted on two of six --
+ * "Awaiting verification" for what /volunteers calls "Needs verification", and
+ * "Unknown date" for "Date unknown" -- so a campaign author picked one
+ * vocabulary in the audience builder and read another on the roster.
+ *
+ * "staff" because the audience is the reader, not the subject: whoever is
+ * building a campaign is staff, whatever the people they are selecting are.
+ */
+const COMPLIANCE_OPTIONS: { value: ComplianceStatus; label: string }[] =
+  ALL_COMPLIANCE_STATUSES.map((value) => ({
+    value,
+    label: complianceStatusLabel(value, "staff").label,
+  }));
 
 /** IT support ticket statuses that count as "open" (not resolved/closed/cancelled). */
 const OPEN_TECH_STATUSES: TechRequestStatus[] = ["SUBMITTED", "IN_PROGRESS", "AWAITING_REQUESTER", "AWAITING_YNHH"];

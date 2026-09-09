@@ -17,6 +17,7 @@
  */
 
 import type { BoardAttendanceStatus } from "@prisma/client";
+import type { StatusLabel } from "@/platform/compliance/labels";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -36,6 +37,21 @@ export class BoardAttendanceValidationError extends Error {
 }
 
 export const BOARD_ATTENDANCE_STATUSES: BoardAttendanceStatus[] = ["PRESENT", "EXCUSED", "ABSENT"];
+
+/**
+ * The words and tone for each status, beside the ordered list they belong to.
+ *
+ * The meeting page used to derive them twice and disagree: the chip rendered
+ * `status.toLowerCase()` ("present") and the Select beside it rendered
+ * `s.charAt(0) + s.slice(1).toLowerCase()` ("Present"), so one screen spelled
+ * the same three values two ways and the chip read as a database constant that
+ * had leaked into the UI.
+ */
+export const BOARD_ATTENDANCE_LABELS: Record<BoardAttendanceStatus, StatusLabel> = {
+  PRESENT: { label: "Present", tone: "success" },
+  EXCUSED: { label: "Excused", tone: "warning" },
+  ABSENT: { label: "Absent", tone: "critical" },
+};
 
 async function assertManager(actorPersonId: string): Promise<void> {
   if (!(await can(actorPersonId, "volunteers.manage_board_attendance"))) {

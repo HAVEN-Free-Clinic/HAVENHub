@@ -22,6 +22,7 @@ import {
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import type { StatusTone } from "@/platform/compliance/labels";
 import { revalidatePath } from "next/cache";
+import { VOLUNTEER_ENTRY_FALLBACKS } from "./module-entry";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
@@ -49,18 +50,34 @@ function CountChip({ label, count, tone }: CountChipProps) {
 // ---------------------------------------------------------------------------
 
 export default async function VolunteersPage() {
-  // The volunteers layout admits Spanish-review reviewers via the module's
-  // additionalAccessPermissions (volunteers.verify_spanish), so the nav tile
-  // routes them to /volunteers -- this compliance page. But it requires
-  // volunteers.view, which a review-only reviewer does not hold. Send them to
-  // their one page instead of bouncing to /no-access, so the module tile leads
-  // somewhere. Everyone else still hits the volunteers.view gate below.
+  // This page IS the module root, so it is where the dashboard tile, the
+  // toolbar chip and the "Volunteers" breadcrumb all point -- and it requires
+  // volunteers.view, which is only one of the five ways into this module.
+  //
+  // The module's additionalAccessPermissions admit four more personas
+  // (registry.ts). Each of them was shown the tile, the chip and the crumb, and
+  // each of them bounced to /no-access on clicking it; their working tabs were
+  // reachable only from the dropdown, or once they were already inside.
+  //
+  // A redirect for ONE of the four (verify_spanish) was written here with the
+  // comment "so the module tile leads somewhere", and never extended when the
+  // other three were added. This is that list, completed.
+  //
+  // Ordered as the nav row is, so a viewer lands on the first tab they would
+  // see rather than on whichever branch happened to be checked first. Each
+  // destination's own gate is the one named here, so a persona cannot be sent
+  // somewhere that bounces in turn:
+  //
+  //   /volunteers/directory  requireAnyPermission([view_directory,
+  //                                                view_directory_own_dept])
+  //   /volunteers/ehs        requireAnyPermission([view_compliance,
+  //                                                manage_compliance])
+  //   /volunteers/spanish-review  requirePermission(verify_spanish)
   const session = await requirePersonSession();
-  if (
-    !(await can(session.personId, "volunteers.view")) &&
-    (await can(session.personId, "volunteers.verify_spanish"))
-  ) {
-    redirect("/volunteers/spanish-review");
+  if (!(await can(session.personId, "volunteers.view"))) {
+    for (const [permission, href] of VOLUNTEER_ENTRY_FALLBACKS) {
+      if (await can(session.personId, permission)) redirect(href);
+    }
   }
 
   const viewer = await requirePermission("volunteers.view");

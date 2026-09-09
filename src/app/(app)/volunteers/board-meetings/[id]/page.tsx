@@ -4,30 +4,25 @@ import {
   meetingRoster,
   markAttendance,
   BOARD_ATTENDANCE_STATUSES,
+  BOARD_ATTENDANCE_LABELS,
   BoardAttendanceValidationError,
   BoardAttendanceForbiddenError,
 } from "@/modules/volunteers/services/board-attendance";
+import type { BoardAttendanceStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
-import { Badge } from "@/platform/ui/badge";
 import { Select } from "@/platform/ui/select";
 import { Input } from "@/platform/ui/input";
+import { StatusBadge } from "@/platform/ui/status-badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { formatCalendarDate } from "@/platform/dates";
-import type { BoardAttendanceStatus } from "@prisma/client";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-};
-
-const STATUS_TONE: Record<BoardAttendanceStatus, "success" | "warning" | "critical"> = {
-  PRESENT: "success",
-  EXCUSED: "warning",
-  ABSENT: "critical",
 };
 
 export default async function BoardMeetingPage({ params }: PageProps) {
@@ -120,7 +115,7 @@ export default async function BoardMeetingPage({ params }: PageProps) {
                   <TD className="text-sm text-foreground-soft">{r.departmentNames.join(", ")}</TD>
                   <TD>
                     {r.status ? (
-                      <Badge tone={STATUS_TONE[r.status]}>{r.status.toLowerCase()}</Badge>
+                      <StatusBadge {...BOARD_ATTENDANCE_LABELS[r.status]} />
                     ) : (
                       <span className="text-xs text-subtle-foreground">Not recorded</span>
                     )}
@@ -135,7 +130,7 @@ export default async function BoardMeetingPage({ params }: PageProps) {
                         <Select name="status" defaultValue={r.status ?? "PRESENT"} aria-label={`Status for ${r.name}`}>
                           {BOARD_ATTENDANCE_STATUSES.map((s) => (
                             <option key={s} value={s}>
-                              {s.charAt(0) + s.slice(1).toLowerCase()}
+                              {BOARD_ATTENDANCE_LABELS[s].label}
                             </option>
                           ))}
                         </Select>

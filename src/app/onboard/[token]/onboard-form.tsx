@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
@@ -95,17 +95,32 @@ export function OnboardForm({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, submitting, result?.ok]);
 
+  // Where a rejected submit sends the reader. This form runs to thirty-odd
+  // fields, and its submit button is at the very bottom, so a refusal used to
+  // land entirely off-screen: the summary renders above the FIRST field, the
+  // page does not scroll, and focus stays on the button. Pressing Submit looked
+  // like it had done nothing at all.
+  //
+  // Alert tone="error" already carries role="alert", so the message was
+  // announced; what was missing was getting the reader TO it. Mirrors the apply
+  // wizard's step-heading focus (apply-wizard.tsx:394), including the
+  // requestAnimationFrame, which waits for the summary to be in the DOM before
+  // focusing it.
+  const errorSummaryRef = useRef<HTMLDivElement>(null);
+
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     try {
       const res = await submitOnboarding(token, new FormData(e.currentTarget));
       setResult(res);
+      if (!res.ok) requestAnimationFrame(() => errorSummaryRef.current?.focus());
     } catch {
       // A blob/DB failure inside submitContract would otherwise re-throw and
       // freeze the button on "Submitting..." with no feedback. Surface a
       // retryable error and always re-enable submit.
       setResult({ ok: false, message: "Something went wrong submitting your onboarding. Please try again." });
+      requestAnimationFrame(() => errorSummaryRef.current?.focus());
     } finally {
       setSubmitting(false);
     }
@@ -116,6 +131,11 @@ export function OnboardForm({
   }
 
   const err = (k: string) => (result && !result.ok ? result.fieldErrors?.[k] : undefined);
+  // How many fields the server rejected. Worth saying in the summary: the
+  // per-field messages are scattered down a long form, and "please try again"
+  // alone does not tell you whether one date is wrong or eight.
+  const fieldErrorCount =
+    result && !result.ok ? Object.keys(result.fieldErrors ?? {}).length : 0;
 
   // Client-side visibility mirrors the server: both call visibleOnboardingBlocks,
   // the same helper the builder preview uses, so the two can never diverge. It
@@ -142,7 +162,23 @@ export function OnboardForm({
             : " Set aside a few minutes to finish in one sitting."}
         </Alert>
 
-        {result && !result.ok && <Alert tone="error">{result.message}</Alert>}
+        {result && !result.ok && (
+          // tabIndex -1 so focus can be moved here programmatically without
+          // adding a tab stop people have to pass through on every attempt.
+          <div ref={errorSummaryRef} tabIndex={-1} className="outline-none">
+            <Alert tone="error">
+              {result.message}
+              {fieldErrorCount > 0 && (
+                <>
+                  {" "}
+                  {fieldErrorCount === 1
+                    ? "One field below needs attention."
+                    : `${fieldErrorCount} fields below need attention.`}
+                </>
+              )}
+            </Alert>
+          </div>
+        )}
 
         {shown.map((b) => (
           <ContractField

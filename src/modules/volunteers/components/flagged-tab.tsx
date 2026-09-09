@@ -7,6 +7,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
 import { formatDateOnly } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
 import { BulkResultAlert, downloadCsv } from "@/modules/volunteers/components/offboarding-shared";
@@ -40,19 +41,10 @@ export function FlaggedTab({
   executeOffboardAction: (formData: FormData) => Promise<void>;
   bulkOffboardAction: BulkAction;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selection = useBulkSelection({ rows: flagged, idOf: (f) => f.person.id });
   const [exportError, setExportError] = useState<string | null>(null);
   const [offboardResult, offboardFormAction] = useActionState(bulkOffboardAction, null);
   const zone = useTimeZone();
-
-  function toggle(personId: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(personId)) next.delete(personId);
-      else next.add(personId);
-      return next;
-    });
-  }
 
   // See transition-tab.tsx: the export route audits every POST, so a second
   // click while the first is in flight writes a second audit row and downloads
@@ -73,15 +65,12 @@ export function FlaggedTab({
 
   // Derived from the rows actually on the page, not raw state: revalidatePath
   // re-renders this component with fresh props but never remounts it, so the
-  // `selected` Set survives a successful bulk offboard even though the people
-  // in it just dropped out of `flagged` (executeOffboard deletes the flag).
-  // Submitting the stale ids would rerun executeOffboard on already-offboarded
-  // people. Filtering against the live rows here means the button label, the
-  // cap check, and the hidden inputs all agree with what is actually still
-  // in the queue.
-  const selectedIds = flagged.filter((f) => selected.has(f.person.id)).map((f) => f.person.id);
+  // Scoped to the live rows by the hook, which matters here: the raw Set
+  // survives a successful bulk offboard even though the people in it just
+  // dropped out of `flagged` (executeOffboard deletes the flag), and submitting
+  // those stale ids would rerun executeOffboard on already-offboarded people.
+  const selectedIds = selection.ids;
   const overCap = selectedIds.length > MAX_BULK_OFFBOARD;
-  const allSelected = flagged.length > 0 && flagged.every((f) => selected.has(f.person.id));
 
   return (
     // mt-8 matches DepartmentTab's top spacing: both tabs' content sits directly
@@ -123,11 +112,9 @@ export function FlaggedTab({
           <TR>
             <TH>
               <Checkbox
-                checked={allSelected}
-                indeterminate={!allSelected && selected.size > 0}
-                onChange={(e) =>
-                  setSelected(e.target.checked ? new Set(flagged.map((f) => f.person.id)) : new Set())
-                }
+                checked={selection.allSelected}
+                indeterminate={selection.someSelected}
+                onChange={selection.toggleAll}
                 aria-label="Select all flagged people"
               />
               <span className="sr-only">Select</span>
@@ -152,8 +139,11 @@ export function FlaggedTab({
               <TR key={flag.id}>
                 <TD>
                   <Checkbox
-                    checked={selected.has(person.id)}
-                    onChange={() => toggle(person.id)}
+                    checked={selection.has(person.id)}
+                    // onClick, not onChange: a change event carries no shiftKey,
+                    // and the range is the whole point of this migration.
+                    onClick={(e) => selection.toggle(person.id, e.shiftKey)}
+                    onChange={() => {}}
                     aria-label={`Select ${person.name}`}
                   />
                 </TD>

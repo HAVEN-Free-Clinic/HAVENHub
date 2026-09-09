@@ -118,23 +118,22 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
               <TD className="font-medium text-foreground">{r.name}</TD>
               <TD className="text-foreground-soft">{r.departmentCode}</TD>
               {/* Whether the clinic has trained this person before, which is the
-                  question a trainer asks about every name on the sheet. An
-                  em-dash when neither the cycle's applications nor a previous
-                  term's roster can answer it, matching how the other tables here
-                  render a cell with genuinely nothing in it. */}
+                  question a trainer asks about every name on the sheet. The
+                  absent-value marker (#796) when neither the cycle's
+                  applications nor a previous term's roster can answer it. */}
               <TD className="text-foreground-soft">
                 {r.origin ? (
                   <span title={ROSTER_ORIGIN_TITLES[r.origin]}>{ROSTER_ORIGIN_LABELS[r.origin]}</span>
                 ) : (
-                  <>&mdash;</>
+                  <>-</>
                 )}
               </TD>
               {/* Before promotion the certificate lives on the onboarding
-                  contract rather than on a Person, so this cell used to be a
-                  dash for exactly the people a training session is full of. It
-                  is the same document; the title says where it is being read
-                  from, since "Needs verification" for someone with no hub
-                  account is otherwise a puzzle. */}
+                  contract rather than on a Person, so this cell was the
+                  absent-value marker for exactly the people a training session
+                  is full of. It is the same document; the title says where it
+                  is being read from, since "Needs verification" for someone
+                  with no hub account is otherwise a puzzle. */}
               <TD className="text-foreground-soft">
                 <StatusBadge
                   {...complianceStatusLabel(r.certStatus, "staff")}

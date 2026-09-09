@@ -116,7 +116,7 @@ export default async function NewCampaignPage() {
           </RadioGroup>
 
           <p className="text-xs text-muted-foreground">
-            Picking a template pre-fills the subject and body &mdash; you can edit
+            Picking a template pre-fills the subject and body, and you can edit
             everything before sending. Leaving the name blank uses the template&rsquo;s
             name.
           </p>

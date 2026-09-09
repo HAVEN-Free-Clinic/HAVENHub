@@ -147,7 +147,7 @@ export default async function CredentialingPage() {
                           {row.scheduleName}
                         </TextLink>
                         <span className="block text-xs text-subtle-foreground">
-                          {row.specialtyName ?? "No specialty"}
+                          {row.specialtyName ?? "Not set"}
                         </span>
                         {outstanding.length > 0 && (
                           <span className="mt-1 block text-xs text-muted-foreground">

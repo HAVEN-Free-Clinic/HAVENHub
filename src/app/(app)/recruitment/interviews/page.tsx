@@ -40,7 +40,7 @@ export default async function MyInterviewsPage() {
                 )}
               </TD>
               <TD className="text-foreground-soft">{iv.departmentCode}</TD>
-              <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="TBD" /></TD>
+              <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></TD>
               <TD>
                 {iv.evaluations.length > 0 ? (
                   <ScoreBadge score={iv.evaluations[0].score} />

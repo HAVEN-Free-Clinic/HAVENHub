@@ -35,6 +35,7 @@ import { TimingActions } from "./timing-actions";
 import { EditorTabs, type EditorTab } from "./tabs";
 import { SenderPicker } from "./sender-picker";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
+import { SectionHeader } from "@/platform/ui/section-header";
 import {
   saveAction,
   previewAction,
@@ -225,7 +226,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
           {/* Section 1: Compose */}
           <div hidden={activeTab !== "compose"} className="space-y-6">
-            <h2 className="text-base font-semibold text-foreground">1. Compose</h2>
+            <SectionHeader level="title">1. Compose</SectionHeader>
 
             {/* Campaign name */}
             <div className="max-w-sm">
@@ -252,7 +253,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
           {/* Section 2: Audience */}
           <div hidden={activeTab !== "audience"} className="border-t border-border pt-6 space-y-4">
-            <h2 className="text-base font-semibold text-foreground">2. Audience</h2>
+            <SectionHeader level="title">2. Audience</SectionHeader>
             {campaign.scopeId && (
               <Alert tone="info">
                 This campaign is bounded by the <strong>{scopeName}</strong> scope. Recipients are
@@ -337,7 +338,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Section 3: Review & send (drafts only) */}
       {isDraft && (
         <div hidden={activeTab !== "review"} id="review" className="space-y-4 border-t border-border pt-6">
-          <h2 className="text-base font-semibold text-foreground">3. Review &amp; send</h2>
+          <SectionHeader level="title">3. Review &amp; send</SectionHeader>
 
           {/* Preview / Test / Send. These operate on the last-saved campaign, so
               ReviewActions disables them while the compose form has unsaved edits. */}
@@ -389,7 +390,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
           (and then locked, since a scheduled campaign can no longer be edited). */}
       {isDraft && (
         <div hidden={activeTab !== "review"} className="space-y-5 border-t border-border pt-6">
-          <h2 className="text-base font-semibold text-foreground">Timing</h2>
+          <SectionHeader level="title">Timing</SectionHeader>
           <TimingActions
             // Remount on save so the useFormDirty guard resets -- see ReviewActions (#14).
             key={campaign.updatedAt.toISOString()}
@@ -405,10 +406,10 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       {/* Sent runs list */}
       {campaign.runs.length > 0 && (
         <div className="space-y-3 border-t border-border pt-6">
-          <h2 className="text-base font-semibold text-foreground">Sent runs</h2>
+          <SectionHeader level="title">Sent runs</SectionHeader>
           {campaign.runs.some((run) => run.enqueuedCount < run.recipientCount) && (
             <Alert tone="warning">
-              One or more runs enqueued fewer recipient emails than recorded &mdash; a run may have
+              One or more runs enqueued fewer recipient emails than recorded: a run may have
               been interrupted just after it was marked sent. Compare the Recipients and Enqueued
               columns below and resend if recipients are missing.
             </Alert>

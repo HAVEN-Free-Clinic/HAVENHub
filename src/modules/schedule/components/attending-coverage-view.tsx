@@ -108,7 +108,7 @@ export function AttendingCoverageView({ rows, slots, specialties, highlightDateK
                   return (
                     <td key={s.id} className="border border-border px-3 py-2 align-top">
                       {staffed.length === 0 ? (
-                        <span className="text-subtle-foreground">&mdash;</span>
+                        <span className="text-subtle-foreground">-</span>
                       ) : (
                         staffed.map((a) => (
                           <span key={a.id} className="block text-foreground">
@@ -124,13 +124,13 @@ export function AttendingCoverageView({ rows, slots, specialties, highlightDateK
                   {/* Shown on closed dates too: on call covers the week leading
                       up to the next clinic day, so someone holds the pager
                       through a break week. */}
-                  {row.onCallName ?? <span className="text-subtle-foreground">&mdash;</span>}
+                  {row.onCallName ?? <span className="text-subtle-foreground">-</span>}
                 </td>
 
                 <td className="border border-border px-3 py-2 align-top text-muted-foreground">
                   {!row.isClosed && row.specialtyId
-                    ? (specialtyById.get(row.specialtyId)?.name ?? <span className="text-subtle-foreground">&mdash;</span>)
-                    : <span className="text-subtle-foreground">&mdash;</span>}
+                    ? (specialtyById.get(row.specialtyId)?.name ?? <span className="text-subtle-foreground">-</span>)
+                    : <span className="text-subtle-foreground">-</span>}
                 </td>
               </tr>
             );

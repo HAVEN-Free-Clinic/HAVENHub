@@ -53,6 +53,7 @@ import { DateOnly } from "@/platform/dates/display";
 import { SenderIdentityNotes, type SendingDomainMap } from "../sender-identity-notes";
 import { IssueIdentityForm } from "./issue-form";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 const PATH = "/outreach/identities";
 
@@ -267,7 +268,7 @@ export default async function SendingIdentitiesPage({
       {gap.length > 0 && (
         <Card className="space-y-4">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Senders with no address</h2>
+            <SectionHeader level="title">Senders with no address</SectionHeader>
             <p className="text-sm text-muted-foreground">
               These people can send campaigns but hold no sending identity, so they can only use a
               scope identity if their campaign has one. Issuing their own address here snapshots it:
@@ -338,7 +339,7 @@ export default async function SendingIdentitiesPage({
       )}
 
       <Card className="space-y-4">
-        <h2 className="text-base font-semibold text-foreground">Issue an address</h2>
+        <SectionHeader level="title">Issue an address</SectionHeader>
         <IssueIdentityForm
           action={issueAction}
           people={people}
@@ -350,7 +351,7 @@ export default async function SendingIdentitiesPage({
       </Card>
 
       <div className="space-y-4">
-        <h2 className="text-base font-semibold text-foreground">Issued</h2>
+        <SectionHeader level="title">Issued</SectionHeader>
         {identities.length === 0 ? (
           <EmptyState
             title="Nothing issued yet"

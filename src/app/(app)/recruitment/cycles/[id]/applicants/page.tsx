@@ -39,7 +39,8 @@ import {
   sortApplicants,
   type ApplicantSortKey,
 } from "@/modules/recruitment/engine/applicant-sort";
-import { FORM_ROW, FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { FORM_ROW, FormRow } from "@/platform/ui/form";
+import { FilterField } from "@/platform/ui/filter-bar";
 import { ListEmpty } from "@/platform/ui/list-empty";
 
 const PAGE_SIZE = 50;
@@ -208,7 +209,12 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             {departmentFilter && <input type="hidden" name="department" value={departmentFilter} />}
             {sort && <input type="hidden" name="sort" value={sort.key} />}
             {sort && <input type="hidden" name="dir" value={sort.dir} />}
-            <div className={ROW_WIDTH.grow}>
+            {/* Labelled like every other filter row in the app. The two
+                controls beside this one (DecisionFilter, DepartmentFilter)
+                already carry visible labels, so this row was labelling two of
+                three. The aria-label stays: it is the fuller name, and the
+                visible word is a substring of it. */}
+            <FilterField label="Search" width="grow">
               <Input
                 name="q"
                 type="search"
@@ -216,7 +222,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                 placeholder="Name or email"
                 aria-label="Search applicants by name or email"
               />
-            </div>
+            </FilterField>
             <Button type="submit" variant="outline" size="sm">
               Search
             </Button>

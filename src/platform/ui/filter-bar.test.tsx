@@ -136,6 +136,21 @@ describe("FilterBar", () => {
     expect(out).toContain("1,234 members");
   });
 
+  it("still shows a count when the filter matched nothing", () => {
+    // The reason five lists could move their count onto this row: each of them
+    // rendered its own <p> INSIDE a `rows.length > 0` branch, so the number
+    // vanished at exactly the moment a reader is asking "did my filter match
+    // anything?". Zero is an answer.
+    const out = renderToStaticMarkup(
+      <FilterBar resultCount={{ total: 0, noun: "email" }}>
+        <FilterField label="Search">
+          <Input name="q" />
+        </FilterField>
+      </FilterBar>,
+    );
+    expect(out).toContain("0 emails");
+  });
+
   it("agrees with itself about singular and plural", () => {
     const one = render(
       <FilterBar resultCount={{ total: 1, noun: "report" }}>

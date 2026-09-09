@@ -40,13 +40,19 @@ export default async function AuditPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
+      {/* The count moved out of the description and onto the filter row, beside
+          the controls that change it -- the same move admin/people made. What
+          is left here is what the page IS. */}
       <PageHeader
         title="Audit log"
-        description={`${total.toLocaleString()} ${total === 1 ? "entry" : "entries"}`}
+        description="Every recorded change, newest first. Filter by action, actor or entity."
       />
 
       {/* Filter bar (GET form) */}
-      <FilterBar clearHref={filtered ? "/admin/audit" : undefined}>
+      <FilterBar
+        clearHref={filtered ? "/admin/audit" : undefined}
+        resultCount={{ total, noun: "entry", pluralNoun: "entries" }}
+      >
         <FilterField label="Action" width="grow">
           <Input
             type="search"

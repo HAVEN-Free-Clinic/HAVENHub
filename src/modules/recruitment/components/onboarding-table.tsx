@@ -11,7 +11,8 @@ import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { FormRow } from "@/platform/ui/form";
+import { FilterField } from "@/platform/ui/filter-bar";
 import { ListEmpty } from "@/platform/ui/list-empty";
 import {
   countEligible, filterRows, isSelectable,
@@ -82,7 +83,11 @@ export function OnboardingTable({
     // sendLinks and promote are the only controls that need formAction.
     <form className="space-y-3" action={withdraw}>
       <FormRow>
-        <div className={ROW_WIDTH.wide}>
+        {/* RowField, not a bare width wrapper: a visible label beside a control
+            whose only name was an aria-label. Every aria-label here is KEPT --
+            each visible label is a substring of it, so WCAG 2.5.3 holds and the
+            existing locators still resolve. */}
+        <FilterField label="Search" width="wide">
           <Input
             type="search"
             placeholder="Search name…"
@@ -98,8 +103,8 @@ export function OnboardingTable({
             // is simply swallowed here.
             onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
           />
-        </div>
-        <div className={ROW_WIDTH.control}>
+        </FilterField>
+        <FilterField label="Status">
           <Select
             aria-label="Filter by status"
             value={filters.status}
@@ -112,8 +117,8 @@ export function OnboardingTable({
               <option key={s} value={s}>{STATE_LABELS[s].label}</option>
             ))}
           </Select>
-        </div>
-        <div className={ROW_WIDTH.control}>
+        </FilterField>
+        <FilterField label="Department">
           <Select
             aria-label="Filter by department"
             value={filters.dept}
@@ -124,7 +129,7 @@ export function OnboardingTable({
               <option key={d} value={d}>{d}</option>
             ))}
           </Select>
-        </div>
+        </FilterField>
       </FormRow>
 
       <Table>

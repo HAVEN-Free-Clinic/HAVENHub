@@ -68,6 +68,42 @@ const THREE = [
   row({ acceptanceId: "a3", state: "NO_CONTRACT", departmentCode: "SRHD" }),
 ];
 
+/**
+ * Every control in this filter row had an aria-label and no visible one, so a
+ * sighted operator inferred "status" from the words "All statuses". The two
+ * filters on the applicant roster next door were already labelled, and this row
+ * was the odd one out.
+ *
+ * Asserted through closest("label") rather than by looking for the text: Field
+ * wraps its child in a real <label>, which is what associates the words with the
+ * control. A className check would pass on a <span> that associates nothing.
+ */
+describe("the onboarding filter row", () => {
+  const labelTextOf = (el: Element | null) =>
+    el?.closest("label")?.querySelector("span")?.textContent ?? null;
+
+  it("gives every control a visible label, not just an aria-label", () => {
+    const c = mount([row()]);
+    expect(labelTextOf(c.querySelector('input[aria-label="Search applicants by name"]'))).toBe("Search");
+    expect(labelTextOf(c.querySelector('select[aria-label="Filter by status"]'))).toBe("Status");
+    expect(labelTextOf(c.querySelector('select[aria-label="Filter by department"]'))).toBe("Department");
+  });
+
+  it("keeps the fuller aria-label, which the visible word is a substring of", () => {
+    // WCAG 2.5.3: a visible label must be part of the accessible name, or voice
+    // control cannot address the control by what the user can see.
+    const c = mount([row()]);
+    for (const [visible, aria] of [
+      ["Search", "Search applicants by name"],
+      ["Status", "Filter by status"],
+      ["Department", "Filter by department"],
+    ] as const) {
+      expect(aria.toLowerCase()).toContain(visible.toLowerCase());
+      expect(c.querySelector(`[aria-label="${aria}"]`)).not.toBeNull();
+    }
+  });
+});
+
 describe("OnboardingTable selection", () => {
   it("selects every visible selectable row from the header checkbox", () => {
     const c = mount(THREE);

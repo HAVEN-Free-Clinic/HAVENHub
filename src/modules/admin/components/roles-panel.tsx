@@ -140,7 +140,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
 
       {/* Create-role inline form */}
       <Card>
-        <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Create new role</h3>
+        <SectionHeader level="card" as="h3" className="mb-4">Create new role</SectionHeader>
         <form action={createRoleAction}>
           <FormRow>
             <Field label="Name" required>

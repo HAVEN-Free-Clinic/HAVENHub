@@ -325,10 +325,10 @@ export async function RosterPanel({
               key={dept.id}
               className="rounded-2xl border border-border bg-muted p-5"
             >
-              <h3 className="mb-4 text-sm font-semibold text-foreground-soft">
+              <SectionHeader level="card" as="h3" className="mb-4">
                 {dept.code} · {dept.name}
                 {!dept.isActive && <span className="ml-2 text-xs font-normal text-subtle-foreground">(inactive: remaining members)</span>}
-              </h3>
+              </SectionHeader>
 
               {isEmpty ? (
                 <EmptyState inline>No members yet.</EmptyState>
@@ -393,7 +393,7 @@ export async function RosterPanel({
       {/* Copy-roster section: PLANNING terms only, admin.manage_roster only */}
       {canManage && term.status === "PLANNING" && (
         <Card>
-          <h3 className="mb-4 text-sm font-semibold text-foreground-soft">Copy roster from another term</h3>
+          <SectionHeader level="card" as="h3" className="mb-4">Copy roster from another term</SectionHeader>
           {sourceTerms.length === 0 ? (
             <EmptyState inline>No other terms available to copy from.</EmptyState>
           ) : (

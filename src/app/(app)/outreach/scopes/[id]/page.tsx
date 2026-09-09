@@ -25,6 +25,7 @@ import { GrantForm, type GrantPersonOption } from "./grant-form";
 import { ScopeIdentityFields } from "./identity-fields";
 import type { SendingDomainMap } from "../../sender-identity-notes";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
+import { SectionHeader } from "@/platform/ui/section-header";
 
 export default async function ScopeDetailPage({
   params,
@@ -202,7 +203,7 @@ export default async function ScopeDetailPage({
       </form>
 
       <div className="space-y-4 border-t border-border pt-6">
-        <h2 className="text-base font-semibold text-foreground">Granted to</h2>
+        <SectionHeader level="title">Granted to</SectionHeader>
         {grants.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Not granted to anyone yet, so nobody can send under it.

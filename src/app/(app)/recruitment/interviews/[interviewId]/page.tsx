@@ -13,6 +13,7 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Badge } from "@/platform/ui/badge";
@@ -137,24 +138,18 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       {isPanelist && !canManage && (
         <Card>
           <SectionHeader>Schedule</SectionHeader>
-          <dl className="mt-3 space-y-3 text-sm">
-            <div>
-              <dt className="text-xs text-subtle-foreground">Time</dt>
-              <dd className="text-foreground"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></dd>
-            </div>
-            <div>
-              <dt className="text-xs text-subtle-foreground">Zoom link</dt>
-              <dd>
-                {iv.zoomLink ? (
-                  <TextLink href={iv.zoomLink} external className="break-all font-medium">
-                    {iv.zoomLink}
-                  </TextLink>
-                ) : (
-                  <span className="text-muted-foreground">Not shared yet</span>
-                )}
-              </dd>
-            </div>
-          </dl>
+          <DescriptionList columns={1} className="mt-3">
+            <DetailRow label="Time">
+              <DateTime value={iv.scheduledAt} fallback="Not scheduled yet" />
+            </DetailRow>
+            <DetailRow label="Zoom link" empty="Not shared yet">
+              {iv.zoomLink && (
+                <TextLink href={iv.zoomLink} external className="break-all font-medium">
+                  {iv.zoomLink}
+                </TextLink>
+              )}
+            </DetailRow>
+          </DescriptionList>
         </Card>
       )}
 

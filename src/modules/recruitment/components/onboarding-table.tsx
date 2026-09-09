@@ -210,10 +210,14 @@ export function OnboardingTable({
                 <TD className="font-medium text-foreground">
                   {r.firstName} {r.lastName}
                   {r.customAnswers.length > 0 && (
+                    // A dl whose rows were <div><span> held no dt or dd at all,
+                    // so a screen reader in list mode announced a description
+                    // list with nothing in it. Same look, real terms.
                     <dl className="mt-1 space-y-0.5 text-xs font-normal text-subtle-foreground">
                       {r.customAnswers.map((a) => (
                         <div key={a.label}>
-                          <span className="font-medium">{a.label}:</span> {a.value}
+                          <dt className="inline font-medium">{a.label}:</dt>{" "}
+                          <dd className="inline">{a.value}</dd>
                         </div>
                       ))}
                     </dl>

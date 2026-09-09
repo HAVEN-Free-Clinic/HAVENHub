@@ -16,12 +16,12 @@
  * director reads the same page without the ability to set a date or verify.
  */
 
-import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { PersonPhoto } from "@/platform/ui/person-photo";
@@ -63,19 +63,6 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 
 type PageProps = { params: Promise<{ personId: string }> };
-
-/** One label/value row of the identity card. Renders "Not set" rather than nothing,
- *  so a director can tell a missing phone number from a field that does not exist. */
-function InfoRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="min-w-0 break-words [overflow-wrap:anywhere]">
-      <dt className="text-xs text-subtle-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm text-foreground">
-        {value || <span className="text-subtle-foreground">Not set</span>}
-      </dd>
-    </div>
-  );
-}
 
 export default async function PersonCompliancePage({ params }: PageProps) {
   const viewer = await requirePersonSession();
@@ -225,60 +212,54 @@ export default async function PersonCompliancePage({ params }: PageProps) {
           <Card>
             <div className="flex flex-wrap items-start gap-6">
               <PersonPhoto person={person} size={72} />
-              <dl className="grid min-w-0 flex-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                <InfoRow
-                  label="Email"
-                  value={
-                    person.contactEmail ? (
-                      <a href={`mailto:${person.contactEmail}`} className="text-brand-fg hover:underline">
-                        {person.contactEmail}
-                      </a>
-                    ) : null
-                  }
-                />
-                <InfoRow label="Phone" value={person.phone} />
-                <InfoRow label="NetID" value={person.netId} />
-                <InfoRow label="Pronouns" value={person.pronouns} />
-                <InfoRow label="Yale affiliation" value={person.yaleAffiliation} />
-                <InfoRow label="Class year" value={person.gradYear} />
-                {person.staffTitle && <InfoRow label="Title" value={person.staffTitle} />}
-                <InfoRow
+              <DescriptionList columns={3} className="flex-1">
+                <DetailRow label="Email" empty="Not set">
+                  {person.contactEmail && (
+                    <a href={`mailto:${person.contactEmail}`} className="text-brand-fg hover:underline">
+                      {person.contactEmail}
+                    </a>
+                  )}
+                </DetailRow>
+                <DetailRow label="Phone" empty="Not set">{person.phone}</DetailRow>
+                <DetailRow label="NetID" empty="Not set">{person.netId}</DetailRow>
+                <DetailRow label="Pronouns" empty="Not set">{person.pronouns}</DetailRow>
+                <DetailRow label="Yale affiliation" empty="Not set">{person.yaleAffiliation}</DetailRow>
+                <DetailRow label="Class year" empty="Not set">{person.gradYear}</DetailRow>
+                {person.staffTitle && <DetailRow label="Title">{person.staffTitle}</DetailRow>}
+                <DetailRow
                   label={person.termName ? `Departments (${person.termName})` : "Departments"}
-                  value={
-                    person.memberships.length > 0
-                      ? person.memberships.map((m) => `${m.departmentCode} - ${m.departmentName}`).join(", ")
-                      : null
-                  }
-                />
-                <InfoRow
-                  label="Clinical flags"
-                  value={
-                    person.licensedRN || person.verifiedLanguages.length > 0 ? (
-                      <span className="flex flex-wrap gap-1.5">
-                        {person.licensedRN && <Badge tone="brand">RN</Badge>}
-                        {/* VERIFIED languages only. A self-reported claim is an
-                            intake signal and must never read here as something a
-                            director can staff a shift on. */}
-                        {person.verifiedLanguages.map((code) => (
-                          <span key={code} className="inline-flex items-center gap-1">
-                            <Badge tone="brand" title={`Verified: ${languageLabel(code)}`}>
-                              {languageLabel(code)}
+                  empty="None this term"
+                >
+                  {person.memberships
+                    .map((m) => `${m.departmentCode} - ${m.departmentName}`)
+                    .join(", ")}
+                </DetailRow>
+                <DetailRow label="Clinical flags" empty="None recorded">
+                  {(person.licensedRN || person.verifiedLanguages.length > 0) && (
+                    <span className="flex flex-wrap gap-1.5">
+                      {person.licensedRN && <Badge tone="brand">RN</Badge>}
+                      {/* VERIFIED languages only. A self-reported claim is an
+                          intake signal and must never read here as something a
+                          director can staff a shift on. */}
+                      {person.verifiedLanguages.map((code) => (
+                        <span key={code} className="inline-flex items-center gap-1">
+                          <Badge tone="brand" title={`Verified: ${languageLabel(code)}`}>
+                            {languageLabel(code)}
+                          </Badge>
+                          {code === SPANISH && spanishAssessment?.score != null && (
+                            <Badge
+                              tone={spanishScoreTone(spanishAssessment.score)}
+                              title={`INTP assessment ${formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)} (${spanishProficiencyLabel(spanishAssessment.score)}), ${spanishAssessment.term}`}
+                            >
+                              {formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)}
                             </Badge>
-                            {code === SPANISH && spanishAssessment?.score != null && (
-                              <Badge
-                                tone={spanishScoreTone(spanishAssessment.score)}
-                                title={`INTP assessment ${formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)} (${spanishProficiencyLabel(spanishAssessment.score)}), ${spanishAssessment.term}`}
-                              >
-                                {formatSpanishScore(spanishAssessment.score, spanishAssessment.modifier)}
-                              </Badge>
-                            )}
-                          </span>
-                        ))}
-                      </span>
-                    ) : null
-                  }
-                />
-              </dl>
+                          )}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </DetailRow>
+              </DescriptionList>
             </div>
           </Card>
         </section>

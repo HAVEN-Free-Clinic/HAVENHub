@@ -41,25 +41,31 @@ export function LastLoginPanel({
   const location = [person.lastLoginCity, person.lastLoginCountry].filter(Boolean).join(", ");
 
   return (
-    <dl className="grid gap-2 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-6">
-      <dt className="font-medium text-foreground">Last sign-in</dt>
-      <dd className="text-muted-foreground">
+    // The rows sit BESIDE their labels rather than under them, and the dt/dd
+    // pairs are direct grid children so the value column lines up across rows --
+    // which is why this is not a DescriptionList (its rows are wrapped, and a
+    // wrapper breaks that alignment). The INK is the house one: the label is the
+    // small grey and the value carries the weight. It used to be the other way
+    // round here, which made a compact panel read as a heading list.
+    <dl className="grid gap-2 sm:grid-cols-[auto_1fr] sm:gap-x-6">
+      <dt className="text-xs text-subtle-foreground">Last sign-in</dt>
+      <dd className="text-sm text-foreground">
         <time dateTime={person.lastLoginAt.toISOString()}>
           {formatDateTime(person.lastLoginAt, timeZone)}
         </time>
       </dd>
       {browser ? (
         <>
-          <dt className="font-medium text-foreground">Browser</dt>
-          <dd className="text-muted-foreground">{browser}</dd>
+          <dt className="text-xs text-subtle-foreground">Browser</dt>
+          <dd className="text-sm text-foreground">{browser}</dd>
         </>
       ) : null}
       {/* Omitted rather than shown empty when absent: local and non-Vercel
           sign-ins carry no geo headers at all. */}
       {location ? (
         <>
-          <dt className="font-medium text-foreground">Location</dt>
-          <dd className="text-muted-foreground">{location}</dd>
+          <dt className="text-xs text-subtle-foreground">Location</dt>
+          <dd className="text-sm text-foreground">{location}</dd>
         </>
       ) : null}
     </dl>

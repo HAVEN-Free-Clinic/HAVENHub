@@ -8,6 +8,7 @@ import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { ForwardForm } from "../forward-form";
 import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 
 /**
  * One row of the strikes ledger, with an expandable detail row.
@@ -142,78 +143,67 @@ export function StrikeRow({
 
       <TR id={detailId} hidden={!open}>
         <TD colSpan={columnCount} className="bg-muted/40">
-          <dl className="grid gap-4 py-2 text-sm sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <dt className="font-medium text-foreground">Description</dt>
-              <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">
-                {action.description}
-              </dd>
-            </div>
+          <DescriptionList className="py-2">
+            <DetailRow label="Description" wide wrap>
+              {action.description}
+            </DetailRow>
 
             {action.followUpActions && (
-              <div>
-                <dt className="font-medium text-foreground">Follow-up actions</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">
-                  {action.followUpActions}
-                </dd>
-              </div>
+              <DetailRow label="Follow-up actions" wrap>
+                {action.followUpActions}
+              </DetailRow>
             )}
 
             {action.policyReference && (
-              <div>
-                <dt className="font-medium text-foreground">Policy reference</dt>
-                <dd className="mt-1 text-foreground-soft">{action.policyReference}</dd>
-              </div>
+              <DetailRow label="Policy reference">{action.policyReference}</DetailRow>
             )}
 
             {action.notes && (
-              <div className="sm:col-span-2">
-                {/* Named for what it is: subjectFacingDetail prefers this field,
-                    so the member has already received it. Calling it "internal"
-                    here was the other half of the trap (audit 14). */}
-                <dt className="font-medium text-foreground">Notes sent to the member</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-foreground-soft">{action.notes}</dd>
-              </div>
+              /* Named for what it is: subjectFacingDetail prefers this field,
+                 so the member has already received it. Calling it "internal"
+                 here was the other half of the trap (audit 14). */
+              <DetailRow label="Notes sent to the member" wide wrap>
+                {action.notes}
+              </DetailRow>
             )}
 
-            <div className="sm:col-span-2">
-              <dt className="font-medium text-foreground">Incident report</dt>
-              <dd className="mt-1 text-foreground-soft">
-                {action.reportLabel ?? "Not linked to a report."}
-              </dd>
-
-              {canManageAll && (
-                <dd className="mt-2">
-                  {action.reportId ? (
-                    <form action={linkReport}>
+            <DetailRow
+              label="Incident report"
+              empty="Not linked to a report"
+              wide
+              control={
+                canManageAll &&
+                (action.reportId ? (
+                  <form action={linkReport}>
+                    <input type="hidden" name="actionId" value={action.id} />
+                    <input type="hidden" name="reportId" value="" />
+                    <Button type="submit" variant="outline" size="sm">
+                      Unlink report
+                    </Button>
+                  </form>
+                ) : (
+                  <form action={linkReport}>
+                    <FormRow>
                       <input type="hidden" name="actionId" value={action.id} />
-                      <input type="hidden" name="reportId" value="" />
+                      <div className={ROW_WIDTH.wide}>
+                        <Combobox
+                          name="reportId"
+                          ariaLabel={`Link ${personName}'s strike to an incident report`}
+                          placeholder="Search reports..."
+                          emptyLabel="No matching reports"
+                          options={reportOptions}
+                        />
+                      </div>
                       <Button type="submit" variant="outline" size="sm">
-                        Unlink report
+                        Link report
                       </Button>
-                    </form>
-                  ) : (
-                    <form action={linkReport}>
-                      <FormRow>
-                        <input type="hidden" name="actionId" value={action.id} />
-                        <div className={ROW_WIDTH.wide}>
-                          <Combobox
-                            name="reportId"
-                            ariaLabel={`Link ${personName}'s strike to an incident report`}
-                            placeholder="Search reports..."
-                            emptyLabel="No matching reports"
-                            options={reportOptions}
-                          />
-                        </div>
-                        <Button type="submit" variant="outline" size="sm">
-                          Link report
-                        </Button>
-                      </FormRow>
-                    </form>
-                  )}
-                </dd>
-              )}
-            </div>
+                    </FormRow>
+                  </form>
+                ))
+              }
+            >
+              {action.reportLabel}
+            </DetailRow>
 
             {/* Forwarding outside the clinic. Hidden entirely for a confidential
                 strike, which forwardStrike refuses server-side: it arises from an
@@ -221,34 +211,35 @@ export function StrikeRow({
                 directors, so offering the control would advertise an action that
                 can only fail. */}
             {canManageAll && !action.confidential && (
-              <div className="sm:col-span-2">
-                <dt className="font-medium text-foreground">Forwarded outside the clinic</dt>
-                {forwards.length > 0 ? (
-                  <dd className="mt-1 space-y-1 text-foreground-soft">
-                    {forwards.map((f) => (
-                      <div key={f.id}>
-                        Sent to <span className="text-foreground">{f.toEmail}</span> by{" "}
-                        {f.forwardedByName}
-                        {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
-                      </div>
-                    ))}
-                  </dd>
-                ) : (
-                  <dd className="mt-1 text-foreground-soft">Not forwarded.</dd>
-                )}
-                {forwardStrike && (
-                  <dd className="mt-2">
+              <DetailRow
+                label="Forwarded outside the clinic"
+                empty="Not forwarded"
+                wide
+                control={
+                  forwardStrike && (
                     <ForwardForm
                       action={forwardStrike}
                       targetIdName="actionId"
                       targetId={action.id}
                       suggestions={suggestions}
                     />
-                  </dd>
+                  )
+                }
+              >
+                {forwards.length > 0 && (
+                  <div className="space-y-1">
+                    {forwards.map((f) => (
+                      <div key={f.id}>
+                        Sent to <span className="font-medium">{f.toEmail}</span> by{" "}
+                        {f.forwardedByName}
+                        {f.note && <span className="block text-xs">&ldquo;{f.note}&rdquo;</span>}
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </div>
+              </DetailRow>
             )}
-          </dl>
+          </DescriptionList>
         </TD>
       </TR>
     </>

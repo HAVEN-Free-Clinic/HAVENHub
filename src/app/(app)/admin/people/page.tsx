@@ -87,7 +87,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
           the controls that change it. What is left here is what the page IS. */}
       <PageHeader
         title="People"
-        description="Everyone the Hub knows about, current and past."
+        description="Current members by default. Filter by status to include offboarded people."
         action={
           <Link href="/admin/people/new" className={buttonClasses("primary", "sm")}>
             Add person

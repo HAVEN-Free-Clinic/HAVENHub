@@ -831,12 +831,14 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
-    // volunteers/spanish-review/page.tsx, five redirects. `ok` carries a ready-made
-    // sentence from the action, so it is echoed rather than rewritten here. Its
-    // neighbour `error` on the same page is claimed by the convention above, so
-    // without this entry the page's failures vanished and its successes did not.
+    // volunteers/spanish-review (five redirects) and volunteers/dual-roles. `ok`
+    // carries a ready-made sentence from the action, so it is echoed rather than
+    // rewritten here. Its neighbour `error` on both pages is claimed by the
+    // convention above, so without this entry a page's failures vanished and its
+    // successes stayed pinned to the URL through refresh, back-navigation and a
+    // shared link -- opposite lifetimes for the two halves of one action.
     params: ["ok"],
-    pathnames: ["/volunteers/spanish-review"],
+    pathnames: ["/volunteers/spanish-review", "/volunteers/dual-roles"],
     tone: "success",
     message: (values) => values.get("ok") ?? "Saved.",
   },

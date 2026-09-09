@@ -76,7 +76,7 @@ export function WizardReview({
               // break-words/overflow-wrap inherit to dt+dd; min-w-0 stops a long
               // unbroken answer from blowing the 1fr track past the card.
               <div key={r.label} className="grid gap-1 break-words [overflow-wrap:anywhere] sm:grid-cols-[180px_1fr] sm:gap-4">
-                <dt className="min-w-0 text-xs text-muted-foreground">{r.label}</dt>
+                <dt className="min-w-0 text-xs text-subtle-foreground">{r.label}</dt>
                 <dd className="min-w-0 text-sm text-foreground">
                   {r.imageSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element -- inline signature data URL, not a remote asset

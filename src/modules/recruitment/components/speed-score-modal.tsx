@@ -9,6 +9,7 @@ import { Spinner } from "@/platform/ui/spinner";
 import { Input } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { runAction } from "@/platform/ui/run-action";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { buildSpeedScoreQueue, type SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import type { ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import { DocumentPreview } from "./document-preview";
@@ -276,16 +277,13 @@ function ApplicationBody({ view }: { view: ReviewApplicationView }) {
       {scalars.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle-foreground">At a glance</h3>
-          <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <DescriptionList>
             {scalars.map((f) => (
-              // min-w-0 stops a long unbroken answer (a pasted NetID, a joined
-              // multi-select) from widening its column into the neighbouring one.
-              <div key={f.key} className="min-w-0 break-words [overflow-wrap:anywhere]">
-                <dt className="text-xs text-subtle-foreground">{f.label}</dt>
-                <dd className="mt-0.5 text-sm text-foreground">{f.displayValue}</dd>
-              </div>
+              <DetailRow key={f.key} label={f.label} empty="Not answered">
+                {f.displayValue}
+              </DetailRow>
             ))}
-          </dl>
+          </DescriptionList>
         </section>
       )}
       {essays.length > 0 && (

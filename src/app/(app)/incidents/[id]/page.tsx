@@ -60,6 +60,7 @@ import { PersonName } from "@/platform/ui/person-name";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { Field, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
@@ -222,150 +223,109 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
 
       <Card>
         <SectionHeader>Concern</SectionHeader>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-subtle-foreground">Type of concern</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.concernTypes.length > 0
-                ? report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")
-                : "(none)"}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-subtle-foreground">Description</dt>
-            <dd className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{report.description}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Date of the incident</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              <CalendarDate value={report.occurredAt} fallback="Unknown" />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Setting</dt>
-            <dd className="mt-0.5 text-sm text-foreground">{report.setting ?? "(none)"}</dd>
-          </div>
-        </dl>
+        <DescriptionList className="mt-3">
+          <DetailRow label="Type of concern" empty="None selected" wide>
+            {report.concernTypes.length > 0 &&
+              report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")}
+          </DetailRow>
+          <DetailRow label="Description" wide wrap>
+            {report.description}
+          </DetailRow>
+          <DetailRow label="Date of the incident">
+            <CalendarDate value={report.occurredAt} fallback="Unknown" />
+          </DetailRow>
+          <DetailRow label="Setting">
+            {report.setting}
+          </DetailRow>
+        </DescriptionList>
       </Card>
 
       <Card>
         <SectionHeader>Individual(s) of concern</SectionHeader>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-subtle-foreground">Linked people</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.subjects.length > 0 ? (
-                <ul className="space-y-1">
-                  {report.subjects.map((s) => (
-                    <li key={s.id} className="flex items-center gap-2">
-                      <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} />
-                      {s.strikeDecision && (
-                        <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                "(none linked)"
-              )}
-            </dd>
-          </div>
+        <DescriptionList className="mt-3">
+          <DetailRow label="Linked people" empty="Nobody linked" wide>
+            {report.subjects.length > 0 && (
+              <ul className="space-y-1">
+                {report.subjects.map((s) => (
+                  <li key={s.id} className="flex items-center gap-2">
+                    <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} />
+                    {s.strikeDecision && (
+                      <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </DetailRow>
           {report.subjectDescription && (
-            <div className="sm:col-span-2">
-              <dt className="text-xs text-subtle-foreground">As described</dt>
-              <dd className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{report.subjectDescription}</dd>
-            </div>
+            <DetailRow label="As described" wide wrap>
+              {report.subjectDescription}
+            </DetailRow>
           )}
-        </dl>
+        </DescriptionList>
       </Card>
 
       <Card>
         <SectionHeader>Impact and risk</SectionHeader>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-subtle-foreground">Patient directly impacted</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.patientImpact ? PATIENT_IMPACT_LABELS[report.patientImpact] : "Not answered"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Ongoing risk right now</dt>
-            <dd className="mt-0.5 text-sm text-foreground">{report.immediateRisk ? "Yes" : "No"}</dd>
-          </div>
+        <DescriptionList className="mt-3">
+          <DetailRow label="Patient directly impacted" empty="Not answered">
+            {report.patientImpact && PATIENT_IMPACT_LABELS[report.patientImpact]}
+          </DetailRow>
+          <DetailRow label="Ongoing risk right now">{report.immediateRisk ? "Yes" : "No"}</DetailRow>
           {report.patientImpactDetail && (
-            <div className="sm:col-span-2">
-              <dt className="text-xs text-subtle-foreground">Patient impact detail</dt>
-              <dd className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{report.patientImpactDetail}</dd>
-            </div>
+            <DetailRow label="Patient impact detail" wide wrap>
+              {report.patientImpactDetail}
+            </DetailRow>
           )}
-          <div>
-            <dt className="text-xs text-subtle-foreground">Nature of the issue</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.issueNature ? ISSUE_NATURE_LABELS[report.issueNature] : "Not answered"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Occurred before</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.priorOccurrence ? PRIOR_OCCURRENCE_LABELS[report.priorOccurrence] : "Not answered"}
-            </dd>
-          </div>
+          <DetailRow label="Nature of the issue" empty="Not answered">
+            {report.issueNature && ISSUE_NATURE_LABELS[report.issueNature]}
+          </DetailRow>
+          <DetailRow label="Occurred before" empty="Not answered">
+            {report.priorOccurrence && PRIOR_OCCURRENCE_LABELS[report.priorOccurrence]}
+          </DetailRow>
           {report.priorOccurrenceDetail && (
-            <div className="sm:col-span-2">
-              <dt className="text-xs text-subtle-foreground">Prior occurrence detail</dt>
-              <dd className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{report.priorOccurrenceDetail}</dd>
-            </div>
+            <DetailRow label="Prior occurrence detail" wide wrap>
+              {report.priorOccurrenceDetail}
+            </DetailRow>
           )}
-        </dl>
+        </DescriptionList>
       </Card>
 
       <Card>
         <SectionHeader>Reporting details</SectionHeader>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-subtle-foreground">Reported by</dt>
-            <dd className="mt-0.5 text-sm text-foreground">{report.reporter.name}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Anonymity</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
-              {/* The reporter's own words on why. Only ever set alongside an
-                  anonymity request (submitReport clears it otherwise), and this
-                  page is reachable only by the reporter and by reviewers who are
-                  not linked as subjects, so it never reaches the person the
-                  report is about. */}
-              {report.anonymous && report.anonymousReason && (
-                <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">
-                  &ldquo;{report.anonymousReason}&rdquo;
-                </p>
-              )}
-              <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure()}</p>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Submitted</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              <DateOnly value={report.createdAt} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-subtle-foreground">Strike requests</dt>
-            <dd className="mt-0.5 text-sm text-foreground">
-              {(() => {
-                const pending = report.subjects.filter((s) => s.strikeDecision === "PENDING").length;
-                const issued = report.subjects.filter((s) => s.strikeDecision === "APPROVED").length;
-                const declined = report.subjects.filter((s) => s.strikeDecision === "DECLINED").length;
-                const parts = [
-                  pending ? `${pending} pending` : "",
-                  issued ? `${issued} issued` : "",
-                  declined ? `${declined} declined` : "",
-                ].filter(Boolean);
-                return parts.length ? parts.join(", ") : "No strike requested";
-              })()}
-            </dd>
-          </div>
-        </dl>
+        <DescriptionList className="mt-3">
+          <DetailRow label="Reported by">{report.reporter.name}</DetailRow>
+          <DetailRow label="Anonymity">
+            {report.anonymous ? "Reporter asked to remain anonymous to the subject." : "Not anonymous."}
+            {/* The reporter's own words on why. Only ever set alongside an
+                anonymity request (submitReport clears it otherwise), and this
+                page is reachable only by the reporter and by reviewers who are
+                not linked as subjects, so it never reaches the person the
+                report is about. */}
+            {report.anonymous && report.anonymousReason && (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-foreground-soft">
+                &ldquo;{report.anonymousReason}&rdquo;
+              </p>
+            )}
+            <p className="mt-1 text-xs text-subtle-foreground">{detailReviewerDisclosure()}</p>
+          </DetailRow>
+          <DetailRow label="Submitted">
+            <DateOnly value={report.createdAt} />
+          </DetailRow>
+          <DetailRow label="Strike requests">
+            {(() => {
+              const pending = report.subjects.filter((s) => s.strikeDecision === "PENDING").length;
+              const issued = report.subjects.filter((s) => s.strikeDecision === "APPROVED").length;
+              const declined = report.subjects.filter((s) => s.strikeDecision === "DECLINED").length;
+              const parts = [
+                pending ? `${pending} pending` : "",
+                issued ? `${issued} issued` : "",
+                declined ? `${declined} declined` : "",
+              ].filter(Boolean);
+              return parts.length ? parts.join(", ") : "No strike requested";
+            })()}
+          </DetailRow>
+        </DescriptionList>
       </Card>
 
       {report.attachments.length > 0 && (

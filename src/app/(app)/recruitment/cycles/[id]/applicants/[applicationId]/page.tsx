@@ -29,6 +29,7 @@ import { Badge } from "@/platform/ui/badge";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { Alert } from "@/platform/ui/alert";
 import { getRehireFlag } from "@/modules/incidents/services/disciplinary";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -271,7 +272,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         return (
         <Card key={section.id}>
           <SectionHeader>{section.title}</SectionHeader>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <DescriptionList className="mt-3">
             {fields.map((f) => {
               const val = answers[f.key];
               const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
@@ -279,33 +280,34 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               // Option labels, Yes/No, language names and readable dates all
               // resolve in formatAnswer -- the same resolution the applicant saw
               // on the wizard's review step. It returns "" for an unanswered
-              // question, which is the only case that shows a placeholder.
-              const display = formatAnswer(f, val) || "(none)";
+              // question, and DetailRow turns that into the house placeholder.
+              const display = formatAnswer(f, val);
               const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
               return (
-                // min-w-0 keeps a long unbroken answer from widening its grid
-                // column; break-words/overflow-wrap inherit to the dt, dd and link.
                 // An essay gets the full width and keeps its paragraph breaks --
                 // squeezed into one half-width column with the newlines collapsed,
                 // a 300-word answer was the least readable thing on the page.
-                <div key={f.id} className={`min-w-0 break-words [overflow-wrap:anywhere]${f.type === "LONG_TEXT" ? " sm:col-span-2" : ""}`}>
-                  <dt className="text-xs text-subtle-foreground">{label}</dt>
-                  <dd className="mt-0.5 whitespace-pre-line text-sm text-foreground">
-                    {f.type === "SIGNATURE" && fileVal?.storedName ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
-                      <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
-                    ) : fileVal?.storedName ? (
-                      <TextLink href={fileHref} external className="font-medium">
-                        {display}
-                      </TextLink>
-                    ) : (
-                      display
-                    )}
-                  </dd>
-                </div>
+                <DetailRow
+                  key={f.id}
+                  label={label}
+                  empty="Not answered"
+                  wide={f.type === "LONG_TEXT"}
+                  wrap
+                >
+                  {f.type === "SIGNATURE" && fileVal?.storedName ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
+                    <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
+                  ) : fileVal?.storedName ? (
+                    <TextLink href={fileHref} external className="font-medium">
+                      {display}
+                    </TextLink>
+                  ) : (
+                    display
+                  )}
+                </DetailRow>
               );
             })}
-          </dl>
+          </DescriptionList>
         </Card>
         );
       })}
@@ -324,22 +326,16 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
       {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
         <Card>
           <SectionHeader>Subcommittee</SectionHeader>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="min-w-0 break-words [overflow-wrap:anywhere]">
-              <dt className="text-xs text-subtle-foreground">Ranked preferences</dt>
-              <dd className="mt-0.5 text-sm text-foreground">
-                {app.subcommitteeRanking.length === 0
-                  ? "(none)"
-                  : app.subcommitteeRanking.map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`).join("  ·  ")}
-              </dd>
-            </div>
-            <div className="min-w-0 break-words [overflow-wrap:anywhere]">
-              <dt className="text-xs text-subtle-foreground">Assigned</dt>
-              <dd className="mt-0.5 text-sm text-foreground">
-                {app.assignedSubcommitteeId ? (subName.get(app.assignedSubcommitteeId) ?? "(removed)") : "Not assigned"}
-              </dd>
-            </div>
-          </dl>
+          <DescriptionList className="mt-3">
+            <DetailRow label="Ranked preferences" empty="None ranked">
+              {app.subcommitteeRanking
+                .map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`)
+                .join("  ·  ")}
+            </DetailRow>
+            <DetailRow label="Assigned" empty="Not assigned">
+              {app.assignedSubcommitteeId && (subName.get(app.assignedSubcommitteeId) ?? "(removed)")}
+            </DetailRow>
+          </DescriptionList>
           <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
         </Card>
       )}

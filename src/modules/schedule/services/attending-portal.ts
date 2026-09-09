@@ -977,8 +977,18 @@ export async function approveAttendingRequest(actorPersonId: string, requestId: 
 }
 
 /** Deny a request. Writes no grid row, so unlike approval it has no past-date
- *  guard: a stale request still has to be closable. */
-export async function denyAttendingRequest(actorPersonId: string, requestId: string): Promise<void> {
+ *  guard: a stale request still has to be closable.
+ *
+ *  `note` is the decider's reason, appended to the requester's own note the way
+ *  denyRequest does it on the volunteer side -- both panels stack on
+ *  /schedule/requests and only one of them used to offer it, so an attending
+ *  learned WHY a swap was refused and a volunteer did not, or the reverse
+ *  depending on which panel they were in. */
+export async function denyAttendingRequest(
+  actorPersonId: string,
+  requestId: string,
+  note?: string,
+): Promise<void> {
   if (!(await canManageAttendingRequests(actorPersonId))) throw new AttendingPortalForbiddenError();
 
   const req = await prisma.attendingShiftRequest.findUnique({
@@ -986,6 +996,7 @@ export async function denyAttendingRequest(actorPersonId: string, requestId: str
     select: {
       id: true,
       status: true,
+      note: true,
       targetId: true,
       targetDayId: true,
       targetSlotId: true,
@@ -1001,10 +1012,22 @@ export async function denyAttendingRequest(actorPersonId: string, requestId: str
     throw new AttendingPortalValidationError("Only a pending request can be denied.");
   }
 
-  await prisma.attendingShiftRequest.update({
-    where: { id: requestId },
-    data: { status: "DENIED", decidedById: actorPersonId, decidedAt: new Date() },
+  let newNote = req.note ?? null;
+  if (note) {
+    newNote = newNote ? `${newNote}\nDenied: ${note}` : `Denied: ${note}`;
+  }
+
+  // Atomic guarded transition, matching denyRequest. The read-time check above
+  // covers the common case; the PENDING precondition closes the race window so
+  // an approval that has ALREADY written its grid rows cannot then be flipped
+  // to DENIED, which would leave a swap applied under a denied request.
+  const { count } = await prisma.attendingShiftRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
+    data: { status: "DENIED", decidedById: actorPersonId, decidedAt: new Date(), note: newNote },
   });
+  if (count === 0) {
+    throw new AttendingPortalValidationError("This request was already decided.");
+  }
 
   await recordAudit({
     actorPersonId,

@@ -140,8 +140,9 @@ export default async function ScheduleRequestsPage() {
     "use server";
     const actor = await requirePersonSession();
     const requestId = (formData.get("requestId") as string) ?? "";
+    const note = ((formData.get("denyNote") as string) ?? "").trim() || undefined;
     await runAction({
-      work: () => denyAttendingRequest(actor.personId, requestId),
+      work: () => denyAttendingRequest(actor.personId, requestId, note),
       domainErrors: [AttendingPortalValidationError, AttendingPortalForbiddenError, AttendingPortalNotFoundError],
       errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
       revalidate: "/schedule/requests",

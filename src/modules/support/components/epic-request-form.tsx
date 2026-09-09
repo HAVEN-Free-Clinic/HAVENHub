@@ -28,6 +28,7 @@ import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { CopyButton } from "@/platform/ui/copy-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
@@ -72,7 +73,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   // Set when generation succeeded but tracking was skipped because an open Epic
   // request already exists; shown as a warning that points at the Tracker.
   const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   const isBulk = requestType.startsWith("bulk");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
@@ -152,20 +152,6 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       setError((e as Error).message);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleCopyEmail() {
-    if (!emailDraft) return;
-    const text = `To: helpdesk@ynhh.org\nSubject: ${emailDraft.subject}\n\n${emailDraft.body}`;
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(text);
-      setCopyState("copied");
-      window.setTimeout(() => setCopyState("idle"), 2000);
-    } catch {
-      setCopyState("error");
-      window.setTimeout(() => setCopyState("idle"), 4000);
     }
   }
 
@@ -467,27 +453,14 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
                 {emailDraft.body}
               </pre>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="outline" onClick={handleCopyEmail}>
-                Copy email
-              </Button>
-              <span
-                aria-live="polite"
-                className={`text-xs font-medium ${
-                  copyState === "copied"
-                    ? "text-success-foreground"
-                    : copyState === "error"
-                      ? "text-critical-foreground"
-                      : "text-muted-foreground"
-                }`}
-              >
-                {copyState === "copied"
-                  ? "Copied to clipboard"
-                  : copyState === "error"
-                    ? "Copy failed. Select the text above and copy manually."
-                    : ""}
-              </span>
-            </div>
+            {/* The draft is long and generated, so a silent failure would
+                leave the reader retyping it. It earns the errorMessage. */}
+            <CopyButton
+              label="Copy email"
+              size="md"
+              value={`To: helpdesk@ynhh.org\nSubject: ${emailDraft.subject}\n\n${emailDraft.body}`}
+              errorMessage="Copy failed. Select the text above and copy manually."
+            />
           </div>
         )}
       </Card>

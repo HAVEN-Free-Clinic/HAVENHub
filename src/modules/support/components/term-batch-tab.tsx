@@ -23,6 +23,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
+import { CopyButton } from "@/platform/ui/copy-button";
 import { Field, Input } from "@/platform/ui/input";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Select } from "@/platform/ui/select";
@@ -79,7 +80,6 @@ export function TermBatchTab({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ group: RollupGroupKind; subject: string; body: string } | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   function toggle(group: RollupGroupKind, personId: string) {
     setError(null);
@@ -136,20 +136,6 @@ export function TermBatchTab({
       setError((e as Error).message);
     } finally {
       setBusyGroup(null);
-    }
-  }
-
-  async function copyDraft() {
-    if (!draft) return;
-    const text = `To: helpdesk@ynhh.org\nSubject: ${draft.subject}\n\n${draft.body}`;
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(text);
-      setCopyState("copied");
-      window.setTimeout(() => setCopyState("idle"), 2000);
-    } catch {
-      setCopyState("error");
-      window.setTimeout(() => setCopyState("idle"), 4000);
     }
   }
 
@@ -233,27 +219,13 @@ export function TermBatchTab({
           <pre className="whitespace-pre-wrap rounded-lg border border-border bg-muted p-3 text-xs text-foreground-soft">
             {draft.body}
           </pre>
-          <div className="flex items-center gap-3">
-            <Button type="button" variant="outline" size="sm" onClick={copyDraft}>
-              Copy email
-            </Button>
-            <span
-              aria-live="polite"
-              className={`text-xs font-medium ${
-                copyState === "copied"
-                  ? "text-success-foreground"
-                  : copyState === "error"
-                    ? "text-critical-foreground"
-                    : "text-muted-foreground"
-              }`}
-            >
-              {copyState === "copied"
-                ? "Copied to clipboard"
-                : copyState === "error"
-                  ? "Copy failed. Select the text above and copy manually."
-                  : ""}
-            </span>
-          </div>
+          {/* Same call as epic-request-form: a long generated draft, so a
+              silent failure would leave the reader retyping it. */}
+          <CopyButton
+            label="Copy email"
+            value={`To: helpdesk@ynhh.org\nSubject: ${draft.subject}\n\n${draft.body}`}
+            errorMessage="Copy failed. Select the text above and copy manually."
+          />
         </Card>
       )}
     </div>

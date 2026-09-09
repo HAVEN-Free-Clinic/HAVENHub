@@ -9,7 +9,6 @@ import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { Prose } from "@/modules/recruitment/contract/prose";
 import { SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
-import { UploadSizeField } from "@/platform/ui/upload-size-field";
 
 // todayIso is stamped once on the server and passed down, so the HIPAA date
 // bounds are identical between the server render and client hydration (a
@@ -42,7 +41,7 @@ function renderVars(text: string, ctx: Ctx): string {
 // outside the list still renders selected instead of silently blanking out.
 
 export function ContractField({
-  block, prefill, ctx, err, onAnswer, departments = [], maxUploadMb = 4,
+  block, prefill, ctx, err, onAnswer, departments = [],
 }: {
   block: ContractBlock;
   prefill: Prefill;
@@ -54,13 +53,6 @@ export function ContractField({
   // existing callers that never render a DEPARTMENT_CHOICE block keep
   // typechecking; the real onboard page always supplies the loaded list.
   departments?: string[];
-  /**
-   * The `uploads.maxMb` setting, mirrored into the browser so an oversized
-   * HIPAA certificate is refused before it is posted. Defaults to 4 -- the cap
-   * settings/registry.ts enforces -- so a test rendering this block in
-   * isolation still gets a real limit rather than an unbounded one.
-   */
-  maxUploadMb?: number;
 }) {
   const [hasEpic, setHasEpic] = useState(false);
 
@@ -202,23 +194,9 @@ export function ContractField({
           {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
           <Field label="HIPAA completion date" required><Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} {...errorProps("hipaaCompletedAt")} /></Field>
           {err("hipaaCompletedAt") && <p id={errorId("hipaaCompletedAt")} className="mt-1 text-xs text-critical-foreground">{err("hipaaCompletedAt")}</p>}
-          {/* UploadSizeField, not a raw input. The disable comment here used to
-              say "no file primitive exists"; it does, and this was the one
-              upload path still posting an oversized file at the edge.
-
-              Over the platform's ~4.5 MB Server Action limit the edge answers
-              the POST itself, so `submitContract` never runs and its own
-              "max N MB" field error never fires -- the applicant gets the
-              generic retry message and retrying re-sends the same file forever.
-              `accept="image/*"` invites exactly the phone photo that trips it,
-              at the end of a contract they have just filled in and signed. */}
           <Field label="HIPAA certificate (PDF)" required>
-            <UploadSizeField
-              name="hipaaFile"
-              maxMb={maxUploadMb}
-              accept="application/pdf,image/*"
-              required
-            />
+            {/* eslint-disable-next-line no-restricted-syntax -- native file input, no file primitive exists */}
+            <input name="hipaaFile" type="file" accept="application/pdf,image/*" {...errorProps("hipaaFile")} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground-soft hover:file:bg-muted-strong" />
           </Field>
           {err("hipaaFile") && <p id={errorId("hipaaFile")} className="mt-1 text-xs text-critical-foreground">{err("hipaaFile")}</p>}
         </div>

@@ -41,10 +41,6 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   }
 
   const orgName = await getSetting<string>("branding.orgName");
-  // Mirrored into the browser so an oversized HIPAA certificate is refused
-  // before it is posted: over the platform's Server Action limit the edge
-  // answers the POST and submitContract's own cap never runs.
-  const maxUploadMb = await getSetting<number>("uploads.maxMb");
   const zone = await getDisplayTimeZone();
   const cycle = contract.acceptance?.application?.cycle ?? null;
 
@@ -180,7 +176,6 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
           department: departmentCode, track, epicRequirement, storedEpicId,
         }}
         departments={departments}
-        maxUploadMb={maxUploadMb}
       />
       <CopyrightNotice className="mt-10" />
     </main>

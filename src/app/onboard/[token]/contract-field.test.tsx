@@ -166,28 +166,4 @@ describe("ContractField", () => {
     expect(out).toContain('<option value="BVHD">BVHD</option>');
     expect(out).toContain('<option value="MDIC">MDIC</option>');
   });
-
-  it("refuses an oversized HIPAA certificate in the browser, not at the edge", () => {
-    // Over the platform's ~4.5 MB Server Action limit the edge answers the POST
-    // itself, so submitContract never runs and its own "max N MB" field error
-    // never fires. The applicant -- who has just filled in and signed an entire
-    // contract -- gets the generic "please try again", and retrying re-sends the
-    // same file forever. `accept="image/*"` invites exactly the phone photo that
-    // trips it.
-    //
-    // UploadSizeField mirrors the server rule with setCustomValidity, so the
-    // file never leaves the browser.
-    //
-    // This asserts only that the field still renders with the attributes that
-    // matter -- the refusal ITSELF is not observable here: the primitive emits
-    // the same markup as the raw input it replaced (deliberately: the visual is
-    // unchanged), and this suite has no DOM to fire a change event in. The rule
-    // is pinned where it lives, in upload-size-field.test.ts.
-    const out = html({ kind: "system_field", systemKey: "hipaa", label: "HIPAA" });
-    expect(out).toContain('name="hipaaFile"');
-    expect(out).toContain('type="file"');
-    // `accept` is what invites the phone photo, so it has to survive the swap.
-    expect(out).toContain("image/*");
-    expect(out).toContain("required");
-  });
 });

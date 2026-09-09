@@ -16,6 +16,21 @@ const exceptionEvent = (list: unknown) => ({
 
 const frame = (filename: string) => ({ filename, function: "doThing", in_app: false });
 
+/**
+ * The stack an INLINE injected script actually gets: one frame, at line 1 of the
+ * document itself. Reproduced from the real Firefox for iOS capture, where
+ * posthog-js recorded `source: "/login"` and marked it `in_app`. Nothing about
+ * this frame distinguishes it from our own code, which is the whole reason the
+ * message-level signal has to exist.
+ */
+const documentFrame = () => ({
+  source: "/login",
+  function: "global code",
+  line: 1,
+  column: 19,
+  in_app: true,
+});
+
 describe("isBrowserExtensionEvent", () => {
   // The real capture that motivated this: an extension talking to its own dead
   // background worker, delivered with the stack stripped.
@@ -115,6 +130,72 @@ describe("isBrowserExtensionEvent", () => {
           {
             type: "Error",
             value: "Refused to load chrome-extension://abc because of our CSP",
+            stacktrace: { frames: [frame("https://hub.havenfreeclinic.org/_next/static/chunk.js")] },
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  // --- Globals injected by the browser or an extension ---
+  //
+  // The real capture that motivated these: a member on Firefox for iOS hit
+  // /login and that browser's own injected scripts threw 11 times in three
+  // seconds, opening two auto-filed GitHub issues. Every one of them carried the
+  // document frame above, so the scheme test could not see them.
+
+  it.each([
+    ["Can't find variable: __firefox__"],
+    ["undefined is not an object (evaluating 'window.__firefox__.reader')"],
+    ["undefined is not an object (evaluating 'window.ethereum.selectedAddress = undefined')"],
+  ])("drops an injected-global error whose only frame is our own document: %s", (value) => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([{ type: "TypeError", value, stacktrace: { frames: [documentFrame()] } }]),
+      ),
+    ).toBe(true);
+  });
+
+  // Proves the message signal is doing the work here, not the frame signal: the
+  // same frame carrying an ordinary message is kept.
+  it("keeps an ordinary error carrying the same document frame", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "TypeError",
+            value: "Cannot read properties of undefined (reading 'shiftId')",
+            stacktrace: { frames: [documentFrame()] },
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  // Why `window.ethereum` is qualified rather than a bare "ethereum" match: the
+  // word can legitimately reach one of our messages through user-entered text.
+  it("keeps an error of ours that merely uses the word ethereum", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "Error",
+            value: "Invalid department code: ethereum",
+            stacktrace: { frames: [frame("https://hub.havenfreeclinic.org/_next/static/chunk.js")] },
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a batch that mixes an injected-global error with one of ours", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          { type: "ReferenceError", value: "Can't find variable: __firefox__" },
+          {
+            type: "TypeError",
+            value: "our real bug",
             stacktrace: { frames: [frame("https://hub.havenfreeclinic.org/_next/static/chunk.js")] },
           },
         ]),

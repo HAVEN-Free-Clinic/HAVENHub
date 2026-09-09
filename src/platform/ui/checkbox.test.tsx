@@ -53,6 +53,14 @@ describe("Checkbox", () => {
     expect(render(<Checkbox name="a" label="One" />)).toContain("-my-1");
   });
 
+  it("does not set indeterminate unless asked", () => {
+    // `indeterminate` is a DOM property, not an attribute, so it never appears
+    // in static markup. What CAN be asserted here is that adding the prop did
+    // not change the rendered element for the ~90 call sites that omit it.
+    const plain = render(<Checkbox name="a" label="One" />);
+    expect(plain).not.toContain("indeterminate");
+  });
+
   it("renders a hint under the label, in the muted token", () => {
     const out = render(
       <Checkbox name="x" label="Send a copy" hint="Goes to the department inbox." />,

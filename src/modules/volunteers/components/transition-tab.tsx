@@ -208,6 +208,13 @@ export function TransitionTab({
                       <>
                         <Checkbox
                           checked={allSelected}
+                          // Some-but-not-all in THIS bucket. Without it a
+                          // partial selection reported "unchecked" while rows
+                          // were plainly ticked.
+                          indeterminate={
+                            !allSelected &&
+                            selectableRows.some((r) => selected.has(r.personId))
+                          }
                           onChange={(e) => toggleBucket(rows, e.target.checked)}
                           aria-label={`Select all ${BUCKET_LABELS[bucket]}`}
                         />

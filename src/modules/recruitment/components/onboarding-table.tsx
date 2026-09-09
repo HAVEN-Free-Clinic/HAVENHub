@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { TextLink } from "@/platform/ui/text-link";
 import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
@@ -47,7 +47,6 @@ export function OnboardingTable({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   // Anchor for shift-click ranges, in visible order.
   const anchorRef = useRef<string | null>(null);
-  const headerRef = useRef<HTMLInputElement>(null);
 
   const departments = useMemo(
     () => [...new Set(rows.map((r) => r.departmentCode))].sort(),
@@ -78,12 +77,9 @@ export function OnboardingTable({
   const allVisibleSelected =
     selectableVisible.length > 0 && effectiveSelected.size === selectableVisible.length;
 
-  useEffect(() => {
-    if (headerRef.current) {
-      headerRef.current.indeterminate =
-        effectiveSelected.size > 0 && !allVisibleSelected;
-    }
-  }, [effectiveSelected, allVisibleSelected]);
+  // The indeterminate wiring moved into Checkbox, so all three bulk-selection
+  // tables get it from one place rather than this being the only one that
+  // remembered.
 
   function toggleAll() {
     setSelected(allVisibleSelected ? new Set() : new Set(selectableVisible.map((r) => r.acceptanceId)));
@@ -178,9 +174,9 @@ export function OnboardingTable({
           <tr>
             <TH className="w-10">
               <Checkbox
-                ref={headerRef}
                 aria-label="Select all"
                 checked={allVisibleSelected}
+                indeterminate={effectiveSelected.size > 0 && !allVisibleSelected}
                 onChange={toggleAll}
                 disabled={selectableVisible.length === 0}
               />

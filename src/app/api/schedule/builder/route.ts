@@ -171,9 +171,14 @@ export async function POST(request: Request): Promise<Response> {
     ]);
     return Response.json({ assignments, revision });
   } catch (err) {
-    // A Neon blip must not file an exception per click. The client keeps its
-    // optimistic state on a 503 and the next stream tick reconciles it, exactly
-    // like the notification bell's poll.
+    // A Neon blip must not file an exception per click, hence 503 rather than a
+    // 500 and an error report.
+    //
+    // This used to say the client "keeps its optimistic state on a 503 and the
+    // next stream tick reconciles it". Reconciling is precisely what throws the
+    // write away: the client rolls back to server truth, so the edit is lost.
+    // The client now says so rather than claiming the change was saved and is
+    // being retried (see builder-board.tsx's 503 branch).
     if (isDbUnreachableError(err)) {
       log.warn("[schedule/builder] database unreachable writing an assignment", errorAttrs(err));
       return Response.json({ error: "Service Unavailable" }, { status: 503 });

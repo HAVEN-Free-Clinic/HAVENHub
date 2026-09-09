@@ -153,6 +153,27 @@ describe("module registry", () => {
     expect(labels).not.toContain("Epic / YNHH tools");
   });
 
+  it("puts no permission on Approvals, whose real gate is wider than any permission", () => {
+    // The page admits anyone with an ACTIVE DIRECTOR TermMembership, via
+    // manageableRequestDepartmentIds -> manageableDepartmentIds, which needs no
+    // permission at all. A `permission` here is applied by filterNavItems BEFORE
+    // the layout's data-driven canApprove check, and filterNavItems can only
+    // REMOVE -- so any permission string on this item hides the tab from every
+    // director, and canApprove never gets the chance to put it back.
+    //
+    // That is not hypothetical: it shipped that way. Directors were emailed a
+    // daily link to /schedule/requests and shown a dashboard "Approvals" card,
+    // both computed from the same permission-free authority the page uses, while
+    // the tab row, the Schedule dropdown and Cmd+K all denied the destination.
+    const schedule = MODULES.find((m) => m.id === "schedule")!;
+    const approvals = schedule.nav.find((n) => n.href === "/schedule/requests")!;
+    expect(approvals).toBeDefined();
+    expect(approvals.permission).toBeUndefined();
+    // dynamicGate is what keeps it honest without one: the global nav omits it
+    // unless a caller resolves the gate, and the layout applies canApprove.
+    expect(approvals.dynamicGate).toBe(true);
+  });
+
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {
     const admin = MODULES.find((m) => m.id === "admin")!;
     expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");

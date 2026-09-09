@@ -57,11 +57,28 @@ export const MODULES: ModuleManifest[] = [
       {
         label: "Approvals",
         href: "/schedule/requests",
-        // EITHER authority: schedule.manage_requests decides a department's
-        // volunteer requests, schedule.manage_attendings decides the clinic-wide
-        // attending ones. filterNavItems shows an item when the viewer holds ANY
-        // listed permission, matching a page that admits on either.
-        permission: ["schedule.manage_requests", "schedule.manage_attendings"],
+        // NO `permission`, deliberately. The page admits on
+        // `manageableRequestDepartmentIds(...).length > 0 ||
+        // canManageAttendingRequests(...)`, and the first of those unions
+        // `manageableDepartmentIds`, which is satisfied by an ACTIVE DIRECTOR
+        // TermMembership and no permission at all. So a plain department
+        // director can open this page.
+        //
+        // The item used to carry
+        // `["schedule.manage_requests", "schedule.manage_attendings"]`, neither
+        // of which the shipped Director role grants. filterNavItems runs BEFORE
+        // the layout's data-driven `canApprove` clause, so that permission
+        // filter dropped the tab for every director and `canApprove` -- which
+        // can only narrow -- never got the chance to restore it. Directors were
+        // emailed a link to a page with no route back to it: the daily reminder
+        // and the dashboard card both use the same wide, permission-free
+        // authority the page does, so they offered a destination the nav denied.
+        //
+        // `dynamicGate` is what keeps this honest without a permission string:
+        // the global nav drops the item unless a caller resolves the gate
+        // (resolvedScheduleNavHrefs computes the same canApprove), and the
+        // schedule layout applies canApprove to the tab row. A viewer who can
+        // approve nothing still never sees it.
         dynamicGate: true,
       },
       { label: "Attendings", href: "/schedule/attendings", dynamicGate: true },

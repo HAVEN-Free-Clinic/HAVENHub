@@ -155,6 +155,29 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: playwright-${{ runner.os }}-
+      # `--with-deps` shells out to apt, and apt fails the whole job if ANY
+      # configured source has a bad index -- including sources this suite has no
+      # use for. The runner image ships Google's Chrome repo, which on
+      # 2026-09-09 served a corrupt one:
+      #
+      #   E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/dists/
+      #      stable/main/binary-amd64/Packages.gz  Hash Sum mismatch
+      #   E: Some index files failed to download.
+      #   Failed to install browsers / Installation process exited with code: 100
+      #
+      # Every e2e shard on main and on two open PRs died there, before a single
+      # spec ran, which reads in the checks list exactly like a suite failure.
+      #
+      # Playwright downloads its own pinned chromium build and never reads that
+      # repo, so dropping the source costs nothing and removes an upstream
+      # dependency the suite should not have had. Both filename shapes, because
+      # runner images have been migrating these to deb822 `.sources`.
+      #
+      # NOT `|| true` on the install itself: a genuine failure to install the
+      # browser must still fail the job, or the shard goes green having run
+      # nothing.
+      - name: Drop the Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
       - run: npx playwright install --with-deps chromium
       # Every spec self-seeds via the UI or the Prisma fixtures helper
       # (e2e/fixtures.ts, per-spec create-and-cleanup) and asserts only against

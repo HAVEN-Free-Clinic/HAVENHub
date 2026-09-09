@@ -308,6 +308,35 @@ export async function recordLanguageAssessment(
   }
 }
 
+/**
+ * Tell the member. ACTIVE people only.
+ *
+ * The queue this normally runs behind is already ACTIVE-only
+ * (languageReviewWhere), so for a reviewer working the queue this filter never
+ * fires. It exists for the OTHER caller: the Verify button on the history tab,
+ * which reaches any person a historical assessment row is linked to, including
+ * alumni offboarded years ago. That button is for curating a record that runs
+ * back to Spring 2012; it is not a message to anybody.
+ *
+ * It sent one anyway, and the email is the reason to care rather than the record
+ * being wrong. An alum who left the clinic got "The interpreting department has
+ * confirmed your Spanish... directors will see this when building the clinic
+ * schedule", linking to a /my-info they have no reason to open, about a shift
+ * they will never be assigned. Every sentence of it is addressed to a current
+ * volunteer. There is no version of this template that reads correctly to
+ * someone who is not one, which is why this filters rather than branching the
+ * copy.
+ *
+ * The ASSESSMENT is still recorded either way, and must be: linking an alum's
+ * historical score to their Hub account is exactly what the history tab is for,
+ * and it feeds the passport and the service record. Only the notification is
+ * scoped, because only the notification claims the person is still here.
+ *
+ * Deliberately here rather than in the history action, so the rule holds for any
+ * future caller of recordLanguageAssessment. It is the same judgement
+ * languageReviewWhere already makes about whose worklist a member belongs on,
+ * applied to whose inbox.
+ */
 async function notifyLanguageAssessed(
   personId: string,
   language: string,
@@ -318,11 +347,12 @@ async function notifyLanguageAssessed(
   const [person, baseUrl] = await Promise.all([
     prisma.person.findUnique({
       where: { id: personId },
-      select: { id: true, name: true, entraObjectId: true, contactEmail: true },
+      select: { id: true, name: true, status: true, entraObjectId: true, contactEmail: true },
     }),
     getSetting<string>("app.baseUrl"),
   ]);
   if (!person) return;
+  if (person.status !== "ACTIVE") return;
 
   const label = languageLabel(language);
   const rendered = await renderEmail("volunteers.language_assessed", {

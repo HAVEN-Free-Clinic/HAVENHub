@@ -887,7 +887,7 @@ describe("SigningDomainRouter", () => {
     return { sent, send: async (m: EmailMessage) => void sent.push(m) };
   };
 
-  const build = (graphMailbox?: string | null) => {
+  const build = (graphMailbox?: string | null, defaultFrom?: string | null) => {
     const mailerooStub = spyTransport();
     const graphStub = spyTransport();
     const fallback = spyTransport();
@@ -895,6 +895,7 @@ describe("SigningDomainRouter", () => {
       fallback,
       signers: { maileroo: mailerooStub, graph: graphStub },
       graphMailbox,
+      defaultFrom,
     });
     return { router, mailerooStub, graphStub, fallback };
   };
@@ -989,6 +990,79 @@ describe("SigningDomainRouter", () => {
     await router.send(msg);
     expect(fallback.sent).toHaveLength(1);
     expect(graphStub.sent).toHaveLength(0);
+  });
+
+  // ---- THE DEFAULT FROM IS STILL A FROM -----------------------------------
+  //
+  // The production bug, at both polarities. A row whose sender rule chose no
+  // address arrives here with `from: undefined` and leaves carrying
+  // `email.sender`, because that is the pinned sender of whichever transport
+  // takes it. Routing on the absent From instead of the address that will
+  // actually leave sent every such message to the fallback -- so a From the
+  // operator had listed in GRAPH_SENDER_ADDRESSES went out through Maileroo, on
+  // exactly the address the list exists to keep off it.
+  //
+  // Both polarities, because either alone passes against a router that sends
+  // every From-less message to one transport, which is the bug being fixed.
+  it("routes a message with no From by the default sender, Graph half", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build(null, GRAPH_PINNED_FROM);
+    await router.send(msg);
+    expect(graphStub.sent).toHaveLength(1);
+    expect(mailerooStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  it("routes a message with no From by the default sender, Maileroo half", async () => {
+    const { router, mailerooStub, graphStub, fallback } = build(null, MAILEROO_FROM);
+    await router.send(msg);
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  // The default is the FALLBACK for a From, never an override of one. A row that
+  // named its own address must keep reaching the transport that address routes
+  // to, or configuring a per-category sender would stop meaning anything the
+  // moment a default existed.
+  it("lets a message's own From win over the default sender", async () => {
+    const { router, mailerooStub, graphStub } = build(null, GRAPH_PINNED_FROM);
+    await router.send({ ...msg, from: MAILEROO_FROM });
+    expect(mailerooStub.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
+  // Same treatment MailerooTransport and GraphTransport give a blank From
+  // (`message.from?.trim() || this.sender`). A router that read "   " as a real
+  // address would resolve no decision and fall back, while the transport below
+  // it sent as the default anyway -- the identical disagreement, one layer down.
+  it("treats a whitespace-only From as no From at all", async () => {
+    const { router, graphStub, fallback } = build(null, GRAPH_PINNED_FROM);
+    await router.send({ ...msg, from: "   " });
+    expect(graphStub.sent).toHaveLength(1);
+    expect(fallback.sent).toHaveLength(0);
+  });
+
+  // Unchanged behaviour with no default configured, which is what a caller that
+  // pins nothing still gets.
+  it("sends a message with no From to the fallback when no default is configured", async () => {
+    const { router, graphStub, fallback } = build(null, null);
+    await router.send(msg);
+    expect(fallback.sent).toHaveLength(1);
+    expect(graphStub.sent).toHaveLength(0);
+  });
+
+  // The note has to name the address the rule matched. "GRAPH_SENDER_ADDRESSES
+  // names undefined" would send an operator looking for a rule about a From that
+  // was never on the message.
+  it("names the default sender in the routing note when the message had no From", async () => {
+    const router = new SigningDomainRouter({
+      fallback: { send: async () => { throw new Error("wrong transport"); } },
+      signers: { graph: { send: async () => { throw new Error("graph exploded"); } } },
+      defaultFrom: GRAPH_PINNED_FROM,
+    });
+    const err = await router.send(msg).catch((e) => e);
+    expect(err.message).toContain(`GRAPH_SENDER_ADDRESSES names ${GRAPH_PINNED_FROM}`);
+    expect(err.message).not.toContain("undefined");
   });
 
   it("sends a From on an unlisted domain to the fallback", async () => {
@@ -1266,6 +1340,40 @@ describe("resolveEmailTransport", () => {
       );
       // Only the Graph transport asks Entra for a delegated token, so reaching
       // login.microsoftonline proves the message was not handed to Maileroo.
+      const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(String(url)).toContain("login.microsoftonline.com");
+    });
+
+    // THE FACTORY'S OTHER WIRING LINE, and the one the production incident came
+    // down to. The router tests above inject defaultFrom directly, so all of them
+    // would still pass if resolveEmailTransport stopped passing email.sender.
+    // This is the only test that says the drain routes a From-less row by the
+    // address it is actually going to leave carrying.
+    it("passes email.sender to the router, so a From-less row routes by it", async () => {
+      await connectGraphMailbox();
+      // email.sender is overridden for this test to an address the fixture list
+      // pins to Graph. That is the shape production was in -- hfc.it@yale.edu was
+      // both the global sender and a GRAPH_SENDER_ADDRESSES entry -- and the
+      // shape under which a null fromEmail went out through Maileroo anyway.
+      await prisma.setting.update({
+        where: { key: "email.sender" },
+        data: { value: GRAPH_PINNED_FROM },
+      });
+      _resetSettingsCache();
+      expect(GRAPH_SENDER_ADDRESSES.has(GRAPH_PINNED_FROM)).toBe(true);
+
+      const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+      vi.stubGlobal("fetch", fetchMock);
+      await withApiKey("test-key", () =>
+        withGraphOAuth(true, async () => {
+          const t = await resolveEmailTransport();
+          // No From at all, exactly as drainEmailQueue hands over a row whose
+          // sender rule chose no address (`from: row.fromEmail ?? undefined`).
+          await t.send(msg).catch(() => undefined);
+        })
+      );
+      // Only the Graph transport asks Entra for a delegated token, so reaching
+      // login.microsoftonline proves this was not handed to Maileroo.
       const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(String(url)).toContain("login.microsoftonline.com");
     });

@@ -43,8 +43,14 @@ describe("notification registry", () => {
         "volunteers.self_withdrawal",
       ].sort()
     );
+    // Email is the default for every type EXCEPT the ones deliberately quieted,
+    // named here one by one. An allowlist rather than a loosened assertion,
+    // because the failure this guards against is a type going quiet by accident:
+    // a notification nobody receives and nobody notices is indistinguishable
+    // from one that was never sent.
+    const QUIET: Record<string, "inbox"> = { "volunteers.language_assessed": "inbox" };
     for (const t of NOTIFICATION_TYPES) {
-      expect(t.defaultChannel).toBe("email");
+      expect(t.defaultChannel).toBe(QUIET[t.key] ?? "email");
     }
   });
 
@@ -55,18 +61,22 @@ describe("notification registry", () => {
   });
 
   it("registers a channel select setting per type in the settings registry", () => {
+    const OPTIONS = [
+      { value: "email", label: "Email" },
+      { value: "teams", label: "Teams DM" },
+      { value: "both", label: "Email + Teams DM" },
+      { value: "inbox", label: "In-app only (no email or DM)" },
+    ];
     for (const t of NOTIFICATION_TYPES) {
       const def = getSettingDef(channelSettingKey(t.key));
       expect(def.category).toBe("Notifications");
-      expect(def.input).toEqual({
-        type: "select",
-        options: [
-          { value: "email", label: "Email" },
-          { value: "teams", label: "Teams DM" },
-          { value: "both", label: "Email + Teams DM" },
-        ],
-      });
-      expect(def.envDefault()).toBe("email");
+      expect(def.input).toEqual({ type: "select", options: OPTIONS });
+      // The registry's own default, whatever it is, must be one the picker can
+      // actually offer. A type defaulting to a value absent from the options
+      // renders as a select with nothing selected, and saving the form silently
+      // moves it to the first option.
+      expect(def.envDefault()).toBe(t.defaultChannel);
+      expect(OPTIONS.map((o) => o.value)).toContain(t.defaultChannel);
     }
   });
 });

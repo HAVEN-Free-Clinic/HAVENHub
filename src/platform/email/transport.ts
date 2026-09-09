@@ -622,14 +622,38 @@ export class MailerooTransport implements EmailTransport {
  * ~30 messages/minute submission cap, which is the reason MailerooTransport
  * exists at all. A roster-wide campaign sent from a Graph-routed identity paces
  * out over hours; the same campaign from a Maileroo-signed one does not.
+ *
+ * IT ROUTES ON THE ADDRESS THAT WILL ACTUALLY LEAVE, which for a message with no
+ * From of its own is `defaultFrom`, not nothing. This is the correction that
+ * `defaultFrom` exists for, and the bug it fixes was invisible because both
+ * halves looked right on their own.
+ *
+ * A row whose sender rule chose no address carries `fromEmail: null` all the way
+ * here (see EnqueueSender in sender-rules.ts, where that null is load-bearing and
+ * means "no rule chose an address"). Routing on `message.from` alone therefore
+ * resolved no decision at all and handed every such message to the fallback --
+ * and then MailerooTransport put the SAME `email.sender` on it as its pinned
+ * From. So the address the recipient saw was one the operator had listed in
+ * GRAPH_SENDER_ADDRESSES, delivered by the transport that list exists to steer it
+ * away from. Nothing failed and nothing logged; the only trace was the Received
+ * header on a message nobody was reading. It took a member asking why one email
+ * came from a different place than the rest to surface it.
+ *
+ * The two layers each did what they said: the router routes what it is given,
+ * and the transport pins what it is handed. The defect was that the pin happened
+ * AFTER the routing, so the router was deciding about an address that was not the
+ * one going out. Resolving the same default here, before the decision, is what
+ * makes "which transport will carry this message" a question this class can
+ * actually answer.
  */
 export class SigningDomainRouter implements EmailTransport {
   private readonly fallback: EmailTransport;
   private readonly signers: Partial<Record<SigningTransport, EmailTransport>>;
   private readonly graphMailbox: string | null;
+  private readonly defaultFrom: string | null;
 
   constructor(opts: {
-    /** Used for a From no rule claims, and for a message with no From. */
+    /** Used for a From no rule claims. */
     fallback: EmailTransport;
     /** The transport to use for each signing capability that is available here. */
     signers: Partial<Record<SigningTransport, EmailTransport>>;
@@ -638,14 +662,33 @@ export class SigningDomainRouter implements EmailTransport {
      * Optional: a deployment with no Graph mailbox has nothing to name here.
      */
     graphMailbox?: string | null;
+    /**
+     * The From a message with none of its own leaves as -- the `email.sender`
+     * setting, which is the pinned sender of BOTH transports below it
+     * (MailerooTransport.sender and GraphTransport.sender are handed the same
+     * value). That is what makes routing on it correct rather than a guess: it is
+     * not a preference about where such a message should go, it is the address it
+     * is going to carry whichever way this class sends it.
+     *
+     * Optional so a caller that pins nothing -- a test, or a deployment whose
+     * fallback needs no default From -- keeps the old behaviour of routing a
+     * From-less message straight to the fallback.
+     */
+    defaultFrom?: string | null;
   }) {
     this.fallback = opts.fallback;
     this.signers = opts.signers;
     this.graphMailbox = opts.graphMailbox ?? null;
+    this.defaultFrom = opts.defaultFrom?.trim() || null;
   }
 
   async send(message: EmailMessage): Promise<void> {
-    const decision = signingDecisionFor(message.from, this.graphMailbox);
+    // The EFFECTIVE From, resolved the same way both transports below resolve it
+    // (`message.from?.trim() || this.sender`), so the address this decision is
+    // made about is the address that ends up in the header. Deliberately falls
+    // through on a whitespace-only From for the same reason they do.
+    const from = message.from?.trim() || this.defaultFrom;
+    const decision = signingDecisionFor(from, this.graphMailbox);
     // A capability with no transport wired for it falls back rather than
     // failing: the rules describe what the ADDRESSES and DOMAINS support, and a
     // given deployment may not have every transport configured.
@@ -660,7 +703,10 @@ export class SigningDomainRouter implements EmailTransport {
     try {
       await chosen.send(message);
     } catch (err) {
-      throw annotateRoutedFailure(err, message.from, decision);
+      // `from`, not `message.from`: the note names the address the routing rule
+      // actually matched, which for a From-less message is the default. Naming an
+      // absent From would send an operator looking for a rule about "undefined".
+      throw annotateRoutedFailure(err, from, decision);
     }
   }
 }
@@ -688,7 +734,7 @@ export class SigningDomainRouter implements EmailTransport {
  */
 function annotateRoutedFailure(
   err: unknown,
-  from: string | undefined,
+  from: string | null | undefined,
   decision: SigningDecision
 ): unknown {
   if (!(err instanceof Error) || err instanceof TransientEmailError) return err;
@@ -755,10 +801,12 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
     // reach rather than one it was in; a configured GRAPH_SENDER_ADDRESSES now
     // puts it in that state for real.
     //
-    // GraphTransport's `sender` is only its default for a message that carries no
-    // From, and the router never hands it one: a message reaches the graph signer
-    // precisely because its own From is Graph-routed. It is passed to honor the
-    // constructor's contract, not because this path reads it.
+    // GraphTransport's `sender` IS read on this path, for the one case the
+    // router used to get wrong: a message with no From of its own now routes on
+    // `defaultFrom`, which is this same `sender`, so a From-less message whose
+    // effective address is Graph-routed reaches the graph signer and is sent as
+    // that address. Handing all three the one value is what keeps the routing
+    // decision and the header in agreement.
     //
     // Deliberately one-directional: the graph branch below does NOT gain a
     // Maileroo signer for havenfreeclinic.org. email.transport is an explicit
@@ -770,6 +818,7 @@ export async function resolveEmailTransport(): Promise<EmailTransport> {
       fallback: maileroo,
       signers: { maileroo, graph: await resolveGraphSigner(sender, mailbox.connected) },
       graphMailbox: mailbox.account,
+      defaultFrom: sender,
     });
   }
   if (transport === "graph") {

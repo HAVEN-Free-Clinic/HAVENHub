@@ -245,7 +245,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
                 // it opens.
                 <nav
                   aria-label={`${m.title} sub-page links`}
-                  className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+                  className="glass-panel absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl p-1.5"
                 >
                   {m.nav.map((item) => (
                     <Link
@@ -282,7 +282,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
               // is a <nav> of links rather than role="menu"/"menuitem".
               <nav
                 aria-label="More modules"
-                className="absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+                className="glass-panel absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-1 rounded-xl p-1.5"
               >
                 {overflow.map((m) => {
                   const active = isModuleActive(pathname, m.href);

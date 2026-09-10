@@ -1,6 +1,8 @@
 import type { TechRequestCategory, TechRequestPriority, EpicRequestKind, EpicRequestStatus } from "@prisma/client";
+import type { Tone } from "@/platform/ui/badge";
 
-export type SupportTone = "default" | "brand" | "success" | "warning" | "critical";
+/** Badge's tone union under support's own name, kept for the one map below. */
+export type SupportTone = Tone;
 
 /** Friendly category text (never the raw enum) for the submit form, list rows, and ticket detail headers. */
 export const CATEGORY_LABELS: Record<TechRequestCategory, string> = {

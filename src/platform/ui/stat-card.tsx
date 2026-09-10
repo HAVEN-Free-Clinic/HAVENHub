@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cardClasses } from "./card";
+import type { Tone } from "./badge";
 import { cx } from "./cx";
-
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const valueTone: Record<Tone, string> = {
   default: "text-foreground",

@@ -1,6 +1,7 @@
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { findMemberRecordByClaim } from "@/platform/auth/match-person";
+import { splitPersonName } from "@/platform/person-name";
 
 /** The Entra claims behind a Yale SSO sign-in. Null for every other portal path
  *  (the applicant magic-link cookie, which proves only mailbox control). */
@@ -132,19 +133,21 @@ export function resolveRenewalPrefill(
 
   // Read from the stored parts, and fall back to splitting the display name only
   // for a context that carries no parts (the ineligible branch above, and any
-  // hand-built ctx in a test). The split is what used to prefill "Jonathan
-  // (Jack)" into a first-name box, and it still cannot read a compound surname.
+  // hand-built ctx in a test). The fallback goes through splitPersonName, the
+  // same reader the backfill and every other derivation use, so it drops a
+  // middle name out of the surname box and lifts a parenthetical nickname into
+  // the preferred-name field instead of prefilling "Jonathan (Jack)" as a first
+  // name -- which is the exact string this feature exists to stop sending to
+  // YNHH.
   if (ctx.legalFirstName || ctx.lastName) {
     values.first_name = (ctx.legalFirstName ?? "").trim();
     values.last_name = (ctx.lastName ?? "").trim();
     if (ctx.preferredFirstName) values.preferred_first_name = ctx.preferredFirstName.trim();
-  } else {
-    const name = (ctx.name ?? "").trim();
-    if (name) {
-      const sp = name.indexOf(" ");
-      values.first_name = sp === -1 ? name : name.slice(0, sp);
-      values.last_name = sp === -1 ? "" : name.slice(sp + 1).trim();
-    }
+  } else if ((ctx.name ?? "").trim()) {
+    const parts = splitPersonName(ctx.name);
+    values.first_name = parts.legalFirstName;
+    values.last_name = parts.lastName;
+    if (parts.preferredFirstName) values.preferred_first_name = parts.preferredFirstName;
   }
 
   for (const f of fields) {

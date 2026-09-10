@@ -103,7 +103,7 @@ export function ReadinessPanel({
   const { readiness, clinic, directors } = rhd;
 
   return (
-    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-4`}>
+    <section className={`${cardClasses({ pad: "tight" })} flex flex-col gap-4`}>
       <SectionHeader as="h2" level="title" className="text-sm">RHD Clinic Readiness</SectionHeader>
 
       {/* Who is covering. Read-only: /schedule/attendings owns this row now, for

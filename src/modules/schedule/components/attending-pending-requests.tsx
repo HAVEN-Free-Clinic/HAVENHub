@@ -41,7 +41,7 @@ export function AttendingPendingRequests({ rows, approveAction, denyAction, toda
   const decidedRows = rows.filter((r) => r.status !== "PENDING");
 
   return (
-    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
+    <section className={`${cardClasses({ pad: "tight" })} flex flex-col gap-3`}>
       <div className="flex items-center gap-2">
         <SectionHeader as="h2" level="title" className="text-sm">Attending requests</SectionHeader>
         {pendingRows.length > 0 && <Badge tone="warning" count>{pendingRows.length}</Badge>}

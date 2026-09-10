@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
@@ -120,8 +121,8 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
         </div>
 
         {pending.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No dual-role offers are waiting.
+          <Card pad={false}>
+            <EmptyState title="No dual-role offers are waiting." />
           </Card>
         ) : (
           <Table>
@@ -174,8 +175,8 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Already decided</h2>
           {decided.length === 0 ? (
-            <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-              Nothing decided yet this term.
+            <Card pad={false}>
+              <EmptyState title="Nothing decided yet this term." />
             </Card>
           ) : (
             <Table>

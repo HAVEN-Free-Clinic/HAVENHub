@@ -13,15 +13,30 @@ const interactiveClasses =
  * nested sub-panels. Use this directly on a Link/button/a when the surface must
  * be a clickable element; use the Card component for the common div case.
  */
+/**
+ * How much room the surface leaves around its content.
+ *
+ * `"tight"` is the dense panel inset the schedule sidebars use. It is NOT the
+ * same axis as `size: "compact"`, which changes the RADIUS -- six panels wanted
+ * the tighter inset on a full-radius card and each spelled it out by hand as
+ * `cardClasses({ pad: false })} px-4 py-3`.
+ */
+export type CardPad = boolean | "tight";
+
 export function cardClasses({
   size = "default",
   pad = true,
   interactive = false,
-}: { size?: CardSize; pad?: boolean; interactive?: boolean } = {}): string {
+}: { size?: CardSize; pad?: CardPad; interactive?: boolean } = {}): string {
+  // An explicit ladder, not `pad && (...)`. "tight" is truthy, so an && chain
+  // would fall through to the boolean branch and quietly emit p-5.
+  const inset =
+    pad === "tight" ? "px-4 py-3" : pad ? (size === "compact" ? "p-3" : "p-5") : false;
+
   return cx(
     "border border-border bg-surface",
     size === "compact" ? "rounded-xl" : "rounded-2xl shadow-sm",
-    pad && (size === "compact" ? "p-3" : "p-5"),
+    inset,
     interactive && interactiveClasses,
   );
 }
@@ -31,8 +46,9 @@ type CardProps = ComponentProps<"div"> & {
   size?: CardSize;
   /** Adds the hover-lift used on clickable tiles (translateY + stronger shadow/border). */
   interactive?: boolean;
-  /** Toggles the default inset (p-5 default, p-3 compact). Set false to manage padding via className. */
-  pad?: boolean;
+  /** The inset: true for the default (p-5, or p-3 when compact), "tight" for the
+   *  dense panel inset, false to manage padding via className. */
+  pad?: CardPad;
 };
 
 /**

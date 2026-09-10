@@ -42,3 +42,31 @@ describe("Card", () => {
     expect(el.props.className).toContain("px-4 py-3");
   });
 });
+
+describe("cardClasses pad", () => {
+  it("gives 'tight' the dense panel inset", () => {
+    expect(cardClasses({ pad: "tight" })).toContain("px-4 py-3");
+  });
+
+  it("does not fall through to the boolean branch", () => {
+    // "tight" is TRUTHY, so `pad && (size === "compact" ? "p-3" : "p-5")` would
+    // match it as well and quietly emit p-5 alongside. The ladder is explicit
+    // for this reason, and these two assertions are what catch it: the string
+    // "px-4 py-3" contains neither "p-5" nor "p-3" as a substring.
+    expect(cardClasses({ pad: "tight" })).not.toContain("p-5");
+    expect(cardClasses({ pad: "tight" })).not.toContain("p-3");
+  });
+
+  it("keeps tight on the full radius, since inset and radius are different axes", () => {
+    // `size: "compact"` is a RADIUS change. Six panels wanted the tighter inset
+    // on a full-radius card, which is why this is a pad value and not a size.
+    expect(cardClasses({ pad: "tight" })).toContain("rounded-2xl");
+    expect(cardClasses({ size: "compact" })).toContain("rounded-xl");
+  });
+
+  it("still pads and un-pads on the boolean", () => {
+    expect(cardClasses({ pad: true })).toContain("p-5");
+    expect(cardClasses({ pad: false })).not.toContain("p-5");
+    expect(cardClasses({ pad: false })).not.toContain("px-4 py-3");
+  });
+});

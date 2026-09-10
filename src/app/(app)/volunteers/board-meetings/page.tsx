@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { requirePermission } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getWorkingTerm } from "@/platform/terms/working-term";
@@ -50,8 +51,8 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
     return (
       <div className="space-y-6">
         <PageHeader title="Board meetings" />
-        <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No active term, so there is no director roster to record attendance against.
+        <Card pad={false}>
+          <EmptyState title="No active term, so there is no director roster to record attendance against." />
         </Card>
       </div>
     );
@@ -152,8 +153,8 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
       <section className="space-y-3">
         <SectionHeader level="title">Meetings</SectionHeader>
         {meetings.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No board meetings recorded for this term.
+          <Card pad={false}>
+            <EmptyState title="No board meetings recorded for this term." />
           </Card>
         ) : (
           <Table>
@@ -190,8 +191,8 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
       <section className="space-y-3">
         <SectionHeader level="title">Unexcused absences this term</SectionHeader>
         {flagged.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No unexcused absences recorded.
+          <Card pad={false}>
+            <EmptyState title="No unexcused absences recorded." />
           </Card>
         ) : (
           <Card>

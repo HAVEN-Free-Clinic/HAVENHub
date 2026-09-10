@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { canManageAttendings } from "@/modules/schedule/services/attendings";
 import {
@@ -113,8 +114,8 @@ export default async function CredentialingPage() {
           In progress {inProgress.length > 0 && `(${inProgress.length})`}
         </SectionHeader>
         {inProgress.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            Nobody is mid-credentialing. Start someone from the not-started list below.
+          <Card pad={false}>
+            <EmptyState title="Nobody is mid-credentialing. Start someone from the not-started list below." />
           </Card>
         ) : (
           <div>
@@ -200,8 +201,8 @@ export default async function CredentialingPage() {
           On the roster with no credentialing recorded. Saving any stage starts tracking them.
         </p>
         {notStarted.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            Everyone on the roster has credentialing recorded.
+          <Card pad={false}>
+            <EmptyState title="Everyone on the roster has credentialing recorded." />
           </Card>
         ) : (
           <div>
@@ -253,8 +254,8 @@ export default async function CredentialingPage() {
       <section className="space-y-3">
         <SectionHeader level="title">Approved ({approved.length})</SectionHeader>
         {approved.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            Nobody has completed credentialing yet.
+          <Card pad={false}>
+            <EmptyState title="Nobody has completed credentialing yet." />
           </Card>
         ) : (
           <Card className="text-sm text-foreground-soft">

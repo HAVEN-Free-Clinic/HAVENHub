@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { redirect } from "next/navigation";
 import { prisma } from "@/platform/db";
 import { requireModuleAccess } from "@/platform/auth/session";
@@ -111,10 +112,14 @@ export default async function CoveragePage({ searchParams }: PageProps) {
       </div>
 
       {schedule.rows.length === 0 ? (
-        <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-          {schedule.emptyReason === "no-clinic-dates"
-            ? `${workingTerm.name} has no clinic dates yet.`
-            : "No schedule columns are defined yet, so there is no coverage to show."}
+        <Card pad={false}>
+          <EmptyState
+            title={
+              schedule.emptyReason === "no-clinic-dates"
+                ? `${workingTerm.name} has no clinic dates yet.`
+                : "No schedule columns are defined yet, so there is no coverage to show."
+            }
+          />
         </Card>
       ) : (
         <AttendingCoverageView

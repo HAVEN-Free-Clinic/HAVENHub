@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/platform/auth/session";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -398,7 +399,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
           </FilterBar>
 
           {history.rows.length === 0 ? (
-            <EmptyCard>No assessment records match that filter.</EmptyCard>
+            <EmptyCard title="No assessment records match that filter." />
           ) : (
             <>
               <Table>
@@ -553,10 +554,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
             </p>
           </Card>
           {mismatches.length === 0 ? (
-            <EmptyCard>
-              Every verified Spanish flag is backed by an assessment at or above the clinic-wide
-              bar.
-            </EmptyCard>
+            <EmptyCard title="Every verified Spanish flag is backed by an assessment at or above the clinic-wide bar." />
           ) : (
             <Table>
               <THead>
@@ -626,10 +624,13 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
 // ---------------------------------------------------------------------------
 
 
-function EmptyCard({ children }: { children: React.ReactNode }) {
+/** A card-surfaced empty state. `title`, not children: EmptyState draws the
+ *  sentence as the title, which is what makes these read like every other empty
+ *  list in the app rather than like a stray line of muted text. */
+function EmptyCard({ title }: { title: string }) {
   return (
-    <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-      {children}
+    <Card pad={false}>
+      <EmptyState title={title} />
     </Card>
   );
 }

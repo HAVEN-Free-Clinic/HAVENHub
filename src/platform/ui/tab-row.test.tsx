@@ -67,4 +67,19 @@ describe("TabRow", () => {
     );
     expect(underline).not.toBe(segmented);
   });
+
+  it("hugs the segmented track to its labels, but runs the underline row full width", () => {
+    // A segmented track stretched to the page is a long empty grey bar with a
+    // few labels at one end. An underline row is the opposite: its baseline is
+    // the rule under the whole section, so it must span the width.
+    const hug = /^<div class="[^"]*\bw-fit\b[^"]*\bmax-w-full\b/;
+    const segmented = renderToStaticMarkup(
+      <TabRow items={ITEMS} isActive={() => false} label="X" variant="segmented" />,
+    );
+    const underline = renderToStaticMarkup(
+      <TabRow items={ITEMS} isActive={() => false} label="X" variant="underline" />,
+    );
+    expect(segmented).toMatch(hug);
+    expect(underline).not.toMatch(hug);
+  });
 });

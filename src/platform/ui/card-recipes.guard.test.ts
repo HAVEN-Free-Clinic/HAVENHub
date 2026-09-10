@@ -13,9 +13,10 @@ import { execSync } from "node:child_process";
  * thirteen and reports clean invites more confidence than it earns. This fences
  * the exact string, all thirteen of them.
  */
-function hits(pattern: string): string[] {
+function hits(pattern: string, fixed = true): string[] {
+  const mode = fixed ? "-F" : "-E";
   try {
-    return execSync(`grep -rn --include='*.tsx' -F ${JSON.stringify(pattern)} src`, {
+    return execSync(`grep -rn --include='*.tsx' ${mode} ${JSON.stringify(pattern)} src`, {
       encoding: "utf8",
     })
       .split("\n")
@@ -40,6 +41,14 @@ describe("hand-rolled Card recipes", () => {
     // Thirteen sites rendered a sentence as centered muted text inside a
     // padless Card, so "no rows" read as a stray line rather than as the empty
     // state every other list in the app shows.
-    expect(hits('pad={false} className="px-6 py-10 text-center')).toEqual([]);
+    //
+    // The vertical padding is a pattern, not a literal. The first pass fenced
+    // `py-10` exactly, and a fourteenth site
+    // (src/modules/support/components/comment-thread.tsx, the ticket
+    // conversation's "No replies yet.") sat one step down the scale at `py-8`
+    // and stayed green: same recipe, same drift, invisible to the fence. Any
+    // padless Card whose className opens with a centered horizontal-plus-
+    // vertical inset is the recipe, whichever numbers it uses.
+    expect(hits('pad=\\{false\\} className="px-[0-9]+ py-[0-9]+ text-center', false)).toEqual([]);
   });
 });

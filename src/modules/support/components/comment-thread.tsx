@@ -11,6 +11,7 @@
  */
 
 import { Card } from "@/platform/ui/card";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Textarea } from "@/platform/ui/input";
 import { Radio, RadioGroup } from "@/platform/ui/radio";
@@ -61,8 +62,8 @@ export function CommentThread({ comments, canManage, action, showReplyForm = tru
       <section>
         <SectionHeader className="mb-2">Conversation</SectionHeader>
         {publicComments.length === 0 ? (
-          <Card pad={false} className="px-6 py-8 text-center text-sm text-muted-foreground">
-            No replies yet.
+          <Card pad={false}>
+            <EmptyState title="No replies yet." />
           </Card>
         ) : (
           <div className="space-y-3">

@@ -60,19 +60,20 @@ import type { DisciplinaryAction } from "@prisma/client";
 import { StrikeRow } from "./strike-row";
 import { formatCalendarDate } from "@/platform/dates";
 import { getSetting } from "@/platform/settings/service";
+import { SHARED_ERROR_TEXT } from "@/platform/error-text";
 
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
 
 const ERROR_MESSAGES: Record<string, string> = {
-  forbidden: "You do not have permission for that action.",
+  forbidden: SHARED_ERROR_TEXT.forbidden,
   "not-found": "The disciplinary action could not be found.",
   "bad-category": "Invalid category. Please select a valid category.",
   "blank-description": "Description must not be blank.",
   "future-date": "Occurred date must not be in the future.",
   "person-not-found": "Person not found. Search and select a person from the list, then try again.",
-  "validation": "Please check your input and try again.",
+  "validation": SHARED_ERROR_TEXT.validation,
 };
 
 // ---------------------------------------------------------------------------

@@ -1417,3 +1417,93 @@ describe("grantPermission fixture", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// masterCompliance sort override
+//
+// The roster's default order is status-first, which scatters names across every
+// page: a manager hunting one person on a 200-row roster paged 25 at a time had
+// no way to get to them but to page through. `sort` overrides that ordering and
+// nothing else.
+//
+// The load-bearing assertion is the paging one. Sorting inside a page would look
+// right on screen and still be wrong, because the slice is taken from the sorted
+// array -- so the test concatenates two pages and asserts the whole order.
+// ---------------------------------------------------------------------------
+
+describe("masterCompliance sort", () => {
+  /** Five people whose default (status-first) order is deliberately NOT their
+   *  name order: Alice is the only compliant one, so she sorts last by default
+   *  and first under name-ascending. */
+  async function seedRoster() {
+    const term = await createTerm();
+    const dept = await createDepartment("ITCM");
+    const people = [];
+    for (const name of ["Alice", "Bob", "Carol", "Dave", "Erin"]) {
+      const p = await createPerson(name, name.toLowerCase());
+      await createMembership(p.id, term.id, dept.id, "VOLUNTEER");
+      people.push(p);
+    }
+    // Alice alone is COMPLIANT; the other four have no certificate.
+    await createCert(people[0].id, daysFromNow(-30), undefined, new Date());
+    return { term, dept };
+  }
+
+  it("orders every page by the requested column, not just the rows within one page", async () => {
+    await seedRoster();
+
+    const page1 = await masterCompliance({ pageSize: 2, page: 1, sort: { key: "name", dir: "desc" } });
+    const page2 = await masterCompliance({ pageSize: 2, page: 2, sort: { key: "name", dir: "desc" } });
+    const page3 = await masterCompliance({ pageSize: 2, page: 3, sort: { key: "name", dir: "desc" } });
+
+    expect([...page1.rows, ...page2.rows, ...page3.rows].map((r) => r.person.name)).toEqual([
+      "Erin",
+      "Dave",
+      "Carol",
+      "Bob",
+      "Alice",
+    ]);
+    expect(page1.pageCount).toBe(3);
+    expect(page1.total).toBe(5);
+  });
+
+  it("sorts ascending by name, putting the compliant member the default order buries first", async () => {
+    await seedRoster();
+
+    const result = await masterCompliance({ sort: { key: "name", dir: "asc" } });
+
+    expect(result.rows.map((r) => r.person.name)).toEqual(["Alice", "Bob", "Carol", "Dave", "Erin"]);
+  });
+
+  it("sorts by the departments column, tie-breaking on name so paging stays stable", async () => {
+    const term = await createTerm();
+    const itcm = await createDepartment("ITCM");
+    const srr = await createDepartment("SRR");
+
+    // Zoe and Adam share a department, so the tiebreaker is what orders them.
+    const zoe = await createPerson("Zoe", "zoe");
+    const adam = await createPerson("Adam", "adam");
+    const beth = await createPerson("Beth", "beth");
+    await createMembership(zoe.id, term.id, srr.id, "VOLUNTEER");
+    await createMembership(adam.id, term.id, srr.id, "VOLUNTEER");
+    await createMembership(beth.id, term.id, itcm.id, "VOLUNTEER");
+
+    const asc = await masterCompliance({ sort: { key: "departments", dir: "asc" } });
+    expect(asc.rows.map((r) => r.person.name)).toEqual(["Beth", "Adam", "Zoe"]);
+
+    const desc = await masterCompliance({ sort: { key: "departments", dir: "desc" } });
+    expect(desc.rows.map((r) => r.person.name)).toEqual(["Adam", "Zoe", "Beth"]);
+  });
+
+  it("leaves the non-compliant-first default order alone when no sort is asked for", async () => {
+    await seedRoster();
+
+    const result = await masterCompliance({});
+
+    // Alice is compliant, so she goes last however alphabetical she is. This
+    // case passes before and after the change by design: its job is to pin that
+    // the default -- which is what puts people needing action on page 1 -- did
+    // not move.
+    expect(result.rows.map((r) => r.person.name)).toEqual(["Bob", "Carol", "Dave", "Erin", "Alice"]);
+  });
+});

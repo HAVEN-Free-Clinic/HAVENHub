@@ -99,11 +99,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
       )}
 
       {pageCount > 1 && (
-        <Pagination
-          page={page}
-          pageCount={pageCount}
-          hrefFor={(p: number) => `/notifications?page=${p}`}
-        />
+        <Pagination page={page} pageCount={pageCount} basePath="/notifications" params={sp} />
       )}
     </div>
   );

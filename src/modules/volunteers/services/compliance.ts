@@ -19,6 +19,7 @@ import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { notifyCertVerified } from "@/platform/compliance/review-notifications";
+import type { Sort } from "@/platform/lists/sort";
 import { log, errorAttrs } from "@/platform/logging";
 
 export type { ComplianceStatus };
@@ -241,12 +242,27 @@ export async function departmentCompliance(
   return result;
 }
 
+/**
+ * Columns the master roster can be ordered by.
+ *
+ * Only the two high-cardinality columns. The compliance columns beside them
+ * render two- and three-valued badges, and the page already carries a Status
+ * select directly above the table, so sorting them would produce blocks rather
+ * than an order and duplicate a filter that is right there.
+ */
+export const MASTER_SORT_KEYS = ["name", "departments"] as const;
+
+export type MasterSortKey = (typeof MASTER_SORT_KEYS)[number];
+
 export type MasterQuery = {
   status?: ComplianceStatus;
   departmentId?: string;
   q?: string;
   page?: number;
   pageSize?: number;
+  /** Overrides the default non-compliant-first order. Applied before paging, so
+   *  page boundaries follow the requested order. */
+  sort?: Sort<MasterSortKey>;
 };
 
 /**
@@ -297,11 +313,15 @@ const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
  * narrows which rows are returned and what total/pageCount reflect.
  *
  * Pagination uses pageSize 25 by default. Page is 1-based.
+ *
+ * `sort` overrides the row order and nothing else. The default order is
+ * load-bearing -- it is what puts the people needing action on page 1 -- so it
+ * stays exactly as it was whenever no sort is asked for.
  */
 export async function masterCompliance(
   query: MasterQuery
 ): Promise<MasterComplianceResult> {
-  const { status, departmentId, q, page = 1, pageSize = 25 } = query;
+  const { status, departmentId, q, page = 1, pageSize = 25, sort } = query;
 
   // 1. Find the active term.
   const activeTerm = await getActiveTerm();
@@ -458,8 +478,20 @@ export async function masterCompliance(
     ? scopeRows.filter((row) => row.status === status)
     : scopeRows;
 
-  // 9. Sort: non-compliant first then name alphabetically.
+  // 9. Sort. Default: non-compliant first then name alphabetically. A requested
+  //    sort replaces the leading term only -- name stays the tiebreaker either
+  //    way, so rows never swap places between two renders of the same page and
+  //    paging cannot repeat or drop somebody.
   filteredRows.sort((a, b) => {
+    if (sort) {
+      const sign = sort.dir === "asc" ? 1 : -1;
+      const primary =
+        sort.key === "departments"
+          ? a.departments.join(", ").localeCompare(b.departments.join(", "))
+          : a.person.name.localeCompare(b.person.name);
+      if (primary !== 0) return primary * sign;
+      return a.person.name.localeCompare(b.person.name);
+    }
     const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
     if (statusDiff !== 0) return statusDiff;
     return a.person.name.localeCompare(b.person.name);

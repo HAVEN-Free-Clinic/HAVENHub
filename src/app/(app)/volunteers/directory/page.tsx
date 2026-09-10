@@ -70,7 +70,8 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
   // grant means holding a directorship -- but a hand-made role assignment could
   // manage it, and /no-access explains itself where a blank roster does not.
   if (scope && scope.departmentIds.length === 0) redirect("/no-access");
-  const { q, departmentId, kind: kindParam, page: pageParam } = await searchParams;
+  const sp = await searchParams;
+  const { q, departmentId, kind: kindParam, page: pageParam } = sp;
 
   // Validated before it reaches a Prisma enum filter; anything else is "no
   // role filter" rather than an error, since it can only arrive by hand-editing
@@ -125,16 +126,6 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
   const headerDescription = activeTerm
     ? `Headcount and contact details ${scopeLabel}, ${activeTerm.name}.`
     : `Headcount and contact details ${scopeLabel}.`;
-
-  function hrefFor(targetPage: number): string {
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (departmentId) params.set("departmentId", departmentId);
-    if (kind) params.set("kind", kind);
-    if (targetPage > 1) params.set("page", String(targetPage));
-    const s = params.toString();
-    return `/volunteers/directory${s ? `?${s}` : ""}`;
-  }
 
   return (
     <div className="space-y-6">
@@ -392,7 +383,12 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           </Table>
         </div>
 
-        <Pagination page={people.page} pageCount={people.pageCount} hrefFor={hrefFor} />
+        <Pagination
+          page={people.page}
+          pageCount={people.pageCount}
+          basePath="/volunteers/directory"
+          params={sp}
+        />
       </Card>
 
       {/* Clinic-wide only. Attendings are faculty: they hold no membership and

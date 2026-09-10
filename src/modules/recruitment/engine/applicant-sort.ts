@@ -1,3 +1,4 @@
+import { nextDirection, parseSort, type Sort, type SortDirection } from "@/platform/lists/sort";
 import { APPLICATION_STAGE_ORDER, applicationStage } from "./application-stage";
 import { ROSTER_DECISION_ORDER, rosterDecision, type Decision } from "./decision-summary";
 import { scoreAverage } from "./scoring";
@@ -14,8 +15,8 @@ export const APPLICANT_SORT_KEYS = [
 ] as const;
 
 export type ApplicantSortKey = (typeof APPLICANT_SORT_KEYS)[number];
-export type SortDirection = "asc" | "desc";
-export type ApplicantSort = { key: ApplicantSortKey; dir: SortDirection };
+export type { SortDirection };
+export type ApplicantSort = Sort<ApplicantSortKey>;
 
 /** The narrow shape the comparator needs. ReviewApplication satisfies this
  *  structurally, which keeps this module free of Prisma types and testable with
@@ -44,21 +45,18 @@ export const DEFAULT_SORT_DIRECTION: Record<ApplicantSortKey, SortDirection> = {
   decision: "asc",
 };
 
-const SORT_KEYS = new Set<string>(APPLICANT_SORT_KEYS);
-
 /** Reads the roster's sort query params. Returns null for anything unrecognised
- *  so a hand-edited URL falls back to the default order instead of erroring. */
+ *  so a hand-edited URL falls back to the default order instead of erroring.
+ *  The roster's own name for @/platform/lists/sort's parseSort, bound to this
+ *  list's key set; kept so every call site and its tests read unchanged. */
 export function parseApplicantSort(sort: string | undefined, dir: string | undefined): ApplicantSort | null {
-  if (!sort || !SORT_KEYS.has(sort)) return null;
-  if (dir !== "asc" && dir !== "desc") return null;
-  return { key: sort as ApplicantSortKey, dir };
+  return parseSort(sort, dir, APPLICANT_SORT_KEYS);
 }
 
 /** Two-state toggle: re-clicking the active column flips it, a new column opens
  *  in that column's default direction. */
 export function nextSortDirection(current: ApplicantSort | null, key: ApplicantSortKey): SortDirection {
-  if (current?.key === key) return current.dir === "asc" ? "desc" : "asc";
-  return DEFAULT_SORT_DIRECTION[key];
+  return nextDirection(current, key, DEFAULT_SORT_DIRECTION);
 }
 
 /** Text a column sorts on, for the columns that compare as text. */

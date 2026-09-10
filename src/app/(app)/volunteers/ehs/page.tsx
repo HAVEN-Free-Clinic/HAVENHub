@@ -42,7 +42,6 @@ export default async function EhsDashboardPage({
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, parseInt(sp.page ?? "1", 10) || 1), pageCount);
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const buildHref = (targetPage: number) => `/volunteers/ehs?page=${targetPage}`;
 
   return (
     <>
@@ -162,7 +161,7 @@ export default async function EhsDashboardPage({
               )}
             </tbody>
           </Table>
-          <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+          <Pagination page={page} pageCount={pageCount} basePath="/volunteers/ehs" params={sp} />
           </>
         )}
       </div>

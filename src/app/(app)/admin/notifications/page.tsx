@@ -112,15 +112,6 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
 
   const pageCount = Math.max(1, Math.ceil(total / TEAMS_PAGE_SIZE));
 
-  function hrefFor(p: number): string {
-    const params = new URLSearchParams();
-    if (validatedStatus) params.set("status", validatedStatus);
-    if (validatedType) params.set("type", validatedType);
-    if (q) params.set("q", q);
-    params.set("page", String(p));
-    return `/admin/notifications?${params.toString()}`;
-  }
-
   // ---------------------------------------------------------------------------
   // Server action
   // ---------------------------------------------------------------------------
@@ -262,7 +253,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
             }))}
           />
 
-          <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
+          <Pagination page={page} pageCount={pageCount} basePath="/admin/notifications" params={sp} />
         </>
       )}
     </div>

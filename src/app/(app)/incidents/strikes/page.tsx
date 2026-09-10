@@ -199,15 +199,6 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
     forwardsByAction(canManageAll ? rows.map((r) => r.action.id) : []),
   ]);
 
-  function buildHref(targetPage: number): string {
-    const params = new URLSearchParams();
-    if (qSearch) params.set("q", qSearch);
-    if (departmentId) params.set("departmentId", departmentId);
-    if (categoryFilter) params.set("category", categoryFilter);
-    params.set("page", String(targetPage));
-    return `/incidents/strikes?${params.toString()}`;
-  }
-
   // Compute report options once for all strike rows.
   const reportComboOptions = reportOptions.map((r) => ({ value: r.id, label: r.label }));
 
@@ -616,7 +607,16 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
 
             {rows.length > 0 && (
               <div className="mt-4">
-                <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+                {/* `params={sp}` is safe here even though this page's searchParams
+                    carry `error`/`message` from its action redirects: pageHref
+                    strips those, so the banner does not follow the reader down
+                    the list. */}
+                <Pagination
+                  page={page}
+                  pageCount={pageCount}
+                  basePath="/incidents/strikes"
+                  params={sp}
+                />
               </div>
             )}
           </>

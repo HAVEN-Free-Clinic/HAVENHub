@@ -36,8 +36,9 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TH, TD, TableEmpty } from "@/platform/ui/table";
+import { Table, THead, TR, TH, TD, TableEmpty, SortableTH } from "@/platform/ui/table";
 import { ListEmpty } from "@/platform/ui/list-empty";
+import { nextDirection, parseSort, type Sort, type SortDirection } from "@/platform/lists/sort";
 import {
   COMPLIANCE_COLUMN_COUNT,
   ComplianceHeaderCells,
@@ -55,6 +56,8 @@ import {
   verifyCertificate,
   ComplianceForbiddenError,
   CertificateNotFoundError,
+  MASTER_SORT_KEYS,
+  type MasterSortKey,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { revalidatePath } from "next/cache";
@@ -73,7 +76,16 @@ type PageProps = {
     departmentId?: string;
     status?: string;
     page?: string;
+    sort?: string;
+    dir?: string;
   }>;
+};
+
+/** Direction each sortable column opens in on its first click. Both are people
+ *  columns read alphabetically, so both open ascending. */
+const MASTER_SORT_DEFAULTS: Record<MasterSortKey, SortDirection> = {
+  name: "asc",
+  departments: "asc",
 };
 
 /** Above this, a roster load is worth a log line. Chosen off the measured
@@ -105,12 +117,20 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
     rawStatus && (ALL_STATUSES as string[]).includes(rawStatus)
       ? (rawStatus as ComplianceStatus)
       : undefined;
+  const sort = parseSort(sp.sort, sp.dir, MASTER_SORT_KEYS);
 
   // Keying the boundary on the filters is what makes applying a filter feel
   // like it did something. Without it React holds the resolved roster on screen
   // while the new one loads, which is how a "Filter" click reads as dead for the
-  // ten seconds the query takes.
-  const filterKey = [q ?? "", departmentId ?? "", statusFilter ?? "", page].join("|");
+  // ten seconds the query takes. A sort click reorders the same slow query, so
+  // it belongs in the key for the same reason.
+  const filterKey = [
+    q ?? "",
+    departmentId ?? "",
+    statusFilter ?? "",
+    page,
+    sort ? `${sort.key}:${sort.dir}` : "",
+  ].join("|");
 
   return (
     <div>
@@ -125,6 +145,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
           departmentId={departmentId}
           statusFilter={statusFilter}
           page={page}
+          sort={sort}
         />
       </Suspense>
     </div>
@@ -137,6 +158,7 @@ type BodyProps = {
   departmentId: string | undefined;
   statusFilter: ComplianceStatus | undefined;
   page: number;
+  sort: Sort<MasterSortKey> | null;
 };
 
 /** Active departments for the filter select. Its own function so it can run
@@ -166,10 +188,10 @@ async function activeDepartments() {
  * a query instead of a hunch. Gated on the threshold because a healthy render is
  * not worth a log line.
  */
-async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, page }: BodyProps) {
+async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, page, sort }: BodyProps) {
   const startedAt = Date.now();
   const [result, departments, isAdmin, isManager] = await Promise.all([
-    masterCompliance({ q, departmentId, status: statusFilter, page, pageSize: 25 }),
+    masterCompliance({ q, departmentId, status: statusFilter, page, pageSize: 25, sort: sort ?? undefined }),
     activeDepartments(),
     // Admin access links person names to admin pages.
     can(viewerPersonId, "admin.access"),
@@ -195,7 +217,7 @@ async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, pag
 }
 
 async function MasterComplianceBody(props: BodyProps) {
-  const { q, departmentId, statusFilter } = props;
+  const { q, departmentId, statusFilter, sort } = props;
   // One boolean for the Clear link AND the empty state, so the roster cannot
   // offer to clear a filter while claiming there is nothing to find.
   const filtered = Boolean(q || departmentId || statusFilter);
@@ -234,15 +256,28 @@ async function MasterComplianceBody(props: BodyProps) {
     return {};
   }
 
-  // Build filter-preserving hrefs for pagination
-  function buildHref(targetPage: number): string {
+  // Every roster link carries the full state, so neither a filter nor the sort
+  // is dropped by navigating. Page is left implicit for page 1, which is also
+  // how a header link asks for "sorted, from the top".
+  function buildHref(parts: { page: number | null; sort: Sort<MasterSortKey> | null }): string {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (departmentId) params.set("departmentId", departmentId);
     if (statusFilter) params.set("status", statusFilter);
-    params.set("page", String(targetPage));
-    return `/volunteers/master?${params.toString()}`;
+    if (parts.sort) {
+      params.set("sort", parts.sort.key);
+      params.set("dir", parts.sort.dir);
+    }
+    if (parts.page && parts.page > 1) params.set("page", String(parts.page));
+    const query = params.toString();
+    return query ? `/volunteers/master?${query}` : "/volunteers/master";
   }
+
+  // Re-sorting returns to page 1: the row a manager was looking at on page 4 is
+  // not on page 4 of a different order, so holding the page number there would
+  // land them somewhere arbitrary. Matches the applicants roster.
+  const sortHref = (key: MasterSortKey) =>
+    buildHref({ page: null, sort: { key, dir: nextDirection(sort, key, MASTER_SORT_DEFAULTS) } });
 
   return (
     <>
@@ -269,6 +304,11 @@ async function MasterComplianceBody(props: BodyProps) {
         resultCount={{ total: result.total, noun: "member" }}
         className="mt-6"
       >
+        {/* Hidden, so filtering a sorted roster keeps the order the manager
+            chose instead of silently snapping back to the default. Same shape
+            the applicants roster uses. */}
+        {sort && <input type="hidden" name="sort" value={sort.key} />}
+        {sort && <input type="hidden" name="dir" value={sort.dir} />}
         <FilterField label="Search" width="grow">
           <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email..." />
         </FilterField>
@@ -301,8 +341,16 @@ async function MasterComplianceBody(props: BodyProps) {
             <Table>
               <THead>
                 <TR>
-                  <TH>Name</TH>
-                  <TH>Departments</TH>
+                  {/* Only these two are sortable, and only these two are worth
+                      it: the eight compliance headers beside them hold two- and
+                      three-valued badges that the Status select above the table
+                      already filters on. */}
+                  <SortableTH columnKey="name" active={sort} hrefFor={sortHref}>
+                    Name
+                  </SortableTH>
+                  <SortableTH columnKey="departments" active={sort} hrefFor={sortHref}>
+                    Departments
+                  </SortableTH>
                   <ComplianceHeaderCells />
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -350,7 +398,7 @@ async function MasterComplianceBody(props: BodyProps) {
                 <Pagination
                   page={result.page}
                   pageCount={result.pageCount}
-                  hrefFor={buildHref}
+                  hrefFor={(targetPage) => buildHref({ page: targetPage, sort })}
                 />
               </div>
             )}

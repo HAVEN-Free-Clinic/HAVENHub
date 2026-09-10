@@ -157,15 +157,6 @@ export default async function EmailPage({ searchParams }: PageProps) {
 
   const pageCount = Math.max(1, Math.ceil(total / EMAIL_PAGE_SIZE));
 
-  function hrefFor(p: number): string {
-    const params = new URLSearchParams();
-    if (validatedStatus) params.set("status", validatedStatus);
-    if (validatedTemplate) params.set("template", validatedTemplate);
-    if (q) params.set("q", q);
-    params.set("page", String(p));
-    return `/admin/email?${params.toString()}`;
-  }
-
   // ---------------------------------------------------------------------------
   // Server action
   // ---------------------------------------------------------------------------
@@ -476,7 +467,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
             }))}
           />
 
-          <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
+          <Pagination page={page} pageCount={pageCount} basePath="/admin/email" params={sp} />
         </>
       )}
     </div>

@@ -5,7 +5,7 @@ import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { getModule } from "@/platform/modules/registry";
 import { filterNavItems, canAccessModule } from "@/platform/modules/access";
 import { ModuleNav } from "@/platform/ui/module-nav";
-import { DUAL_ROLE_QUEUE_PATH, directsADualRoleDepartment } from "@/platform/dual-roles";
+import { DUAL_ROLE_QUEUE_PATH, resolvedVolunteersNavHrefs } from "@/modules/volunteers/nav";
 import { moduleMetadata } from "@/platform/branding/metadata";
 
 export function generateMetadata() {
@@ -19,17 +19,21 @@ export default async function VolunteersLayout({ children }: { children: ReactNo
   // their page. Each page still enforces its own permission.
   const { personId } = await requirePersonSession();
   const mod = getModule("volunteers")!;
-  const [perms, hasDualRoleQueue] = await Promise.all([
+  const [perms, volunteersGates] = await Promise.all([
     getEffectivePermissions(personId),
-    directsADualRoleDepartment(personId),
+    // The same resolver the (app) layout feeds to the global nav, not a second
+    // copy of the condition. Two independent spellings of one gate is how a tab
+    // ends up offered in the dropdown and missing from the tab row.
+    resolvedVolunteersNavHrefs(personId),
   ]);
   if (!canAccessModule(mod, perms)) redirect("/no-access");
   // Permission gate first, then the data-driven one. Dual roles is marked
   // dynamicGate in the registry precisely because every director holds the
-  // permission while only the departments that ask the question have a queue,
-  // so the global nav omits it and this is the one place that can decide.
+  // permission while only the departments that ask the question have a queue.
+  // The global nav now offers it too, from the same resolver used here (see
+  // (app)/nav-gates.ts), so this row and that dropdown cannot disagree.
   const items = filterNavItems(mod.nav, perms).filter(
-    (item) => item.href !== DUAL_ROLE_QUEUE_PATH || hasDualRoleQueue,
+    (item) => item.href !== DUAL_ROLE_QUEUE_PATH || volunteersGates.has(DUAL_ROLE_QUEUE_PATH),
   );
   return (
     <>

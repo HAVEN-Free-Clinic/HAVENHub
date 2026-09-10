@@ -13,6 +13,10 @@
  * tab. This resolves the gates once, so the global nav and the palette can
  * offer exactly the tabs the tab row would.
  *
+ * One of three such resolvers now (recruitment's Events and volunteers' Dual
+ * roles are the others), all listed in src/app/(app)/nav-gates.ts, which is
+ * what the (app) layout iterates.
+ *
  * ## Cost
  *
  * Every one of these funnels into `getEffectivePermissions` /

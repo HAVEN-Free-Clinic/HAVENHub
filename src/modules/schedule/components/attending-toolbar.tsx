@@ -10,13 +10,12 @@
  * Server component: no "use client" directive.
  */
 
-import Link from "next/link";
 import { Select } from "@/platform/ui/select";
 import { Button } from "@/platform/ui/button";
 import { NavForm } from "@/platform/ui/nav-form";
 import { TermSwitcher } from "@/platform/ui/term-switcher";
 import type { TermOption } from "@/platform/terms/term-options";
-import { cx } from "@/platform/ui/cx";
+import { ViewSwitcher } from "./view-switcher";
 import type { ClinicSlotView } from "@/modules/schedule/services/attendings";
 
 export type AttendingView = "grid" | "day";
@@ -92,24 +91,11 @@ export function AttendingToolbar({
         hrefForTerm={hrefForTerm}
       />
 
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">View</span>
-        <nav aria-label="View" className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
-          {VIEW_LABELS.map(({ value, label }) => (
-            <Link
-              key={value}
-              href={attendingViewHref(base, hrefParams, value)}
-              aria-current={view === value ? "page" : undefined}
-              className={cx(
-                "inline-flex items-center min-h-11 px-3 py-1.5 text-sm font-medium transition-colors border-l border-border first:border-l-0",
-                view === value ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground-soft",
-              )}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
-      </div>
+      <ViewSwitcher
+        options={VIEW_LABELS}
+        current={view}
+        hrefFor={(value) => attendingViewHref(base, hrefParams, value)}
+      />
 
       {view === "grid" && (
         <div className="flex flex-col gap-1.5">

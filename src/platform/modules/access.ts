@@ -85,12 +85,18 @@ function moduleHref(
  *
  * `resolvedGates` is the way back in. A caller that HAS evaluated a gate passes
  * the hrefs it resolved to true, and those items survive in their registry
- * position. Without it, six real tabs were reachable from nowhere but the
- * module's own tab row: a director whose whole job is /schedule/builder could
- * not get there from the toolbar or from Cmd+K, and had to land on /schedule
- * first and find the tab. (`extraNavItems` cannot do this job: it appends, so
- * the four schedule tabs would arrive after Specialties and Triage chats
- * instead of in the order the tab row uses.)
+ * position. Without it, real tabs were reachable from nowhere but the module's
+ * own tab row: a director whose whole job is /schedule/builder could not get
+ * there from the toolbar or from Cmd+K, and had to land on /schedule first and
+ * find the tab. (`extraNavItems` cannot do this job: it appends, so the four
+ * schedule tabs would arrive after Specialties and Triage chats instead of in
+ * the order the tab row uses.)
+ *
+ * Every `dynamicGate` tab except /schedule/check-in now has a resolver, and the
+ * (app) layout runs all of them: src/modules/schedule/nav.ts,
+ * src/modules/recruitment/nav.ts and src/modules/volunteers/nav.ts, listed in
+ * src/app/(app)/nav-gates.ts. Check-in is the deliberate holdout on cost; that
+ * exclusion is asserted in src/app/(app)/nav-dynamic-gates.test.ts.
  */
 export function filterAccessibleModules(
   modules: ModuleManifest[],

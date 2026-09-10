@@ -1,4 +1,5 @@
 import type { ModuleNavItem } from "@/platform/modules/types";
+import { canRecordAttendance } from "./services/attendance-events";
 
 /**
  * The panelist-facing "My interviews" tab. It lives here rather than in the
@@ -18,6 +19,29 @@ export const MY_INTERVIEWS_NAV_ITEM: ModuleNavItem = {
  * review scope and so cannot be expressed in the registry.
  */
 export const EVENTS_HREF = "/recruitment/events";
+
+/**
+ * The dynamically-gated recruitment hrefs this person may open.
+ *
+ * The global nav drops `dynamicGate` items rather than offer a link that
+ * bounces, so until this existed the Events tab was reachable from nowhere but
+ * /recruitment's own tab row: a recruitment director running info sessions
+ * could not get to it from the Recruitment dropdown or from Cmd+K (which
+ * matches nav labels), and had to land on /recruitment first and spot the tab.
+ *
+ * Mirrors the page's own gate exactly (recruitment/events/page.tsx redirects on
+ * `!canRecordAttendance`), because a resolver that offers a link the page then
+ * refuses is worse than a hidden tab.
+ *
+ * ## Cost
+ *
+ * canRecordAttendance is two `can()` calls plus `reviewScope`, and all three
+ * read the request-cached assignment context / review scope the (app) layout
+ * already loads. Wiring this in adds no database round trip.
+ */
+export async function resolvedRecruitmentNavHrefs(personId: string): Promise<Set<string>> {
+  return (await canRecordAttendance(personId)) ? new Set([EVENTS_HREF]) : new Set();
+}
 
 /**
  * Assemble the recruitment module's nav tabs for a viewer. `staffNav` is the

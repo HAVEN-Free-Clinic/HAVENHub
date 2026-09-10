@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { invitedEmailsFor } from "./invites";
@@ -16,8 +17,17 @@ export type ReviewScope = { all: boolean; departmentCodes: string[] };
 
 /** A reviewer's scope: SRR (review_all) sees everything; a director sees the
  *  departments they direct (active-term DIRECTOR memberships + one-hop delegation,
- *  via manageableDepartmentIds), mapped from ids to codes. */
-export async function reviewScope(personId: string): Promise<ReviewScope> {
+ *  via manageableDepartmentIds), mapped from ids to codes.
+ *
+ *  Memoized per request via React cache(), the same way getEffectivePermissions
+ *  is (rbac/engine.ts). Its own `department.findMany` is the one part of this
+ *  that no lower cache covers, and it is called repeatedly in a single render:
+ *  the (app) layout reads it directly to decide the Recruitment module row AND
+ *  again underneath canRecordAttendance for the Events nav gate, and the
+ *  recruitment layout does exactly the same pair. Uncached, wiring the Events
+ *  gate into the global nav would have added a query to every authenticated
+ *  page. Scope changes still apply on the next request. */
+export const reviewScope = cache(async (personId: string): Promise<ReviewScope> => {
   const all = await can(personId, "recruitment.review_all");
   const deptIds = await manageableDepartmentIds(personId);
   let departmentCodes: string[] = [];
@@ -26,7 +36,7 @@ export async function reviewScope(personId: string): Promise<ReviewScope> {
     departmentCodes = depts.map((d) => d.code);
   }
   return { all, departmentCodes };
-}
+});
 
 /** The minimal application shape needed to decide viewer access. */
 export type ViewableApplication = {

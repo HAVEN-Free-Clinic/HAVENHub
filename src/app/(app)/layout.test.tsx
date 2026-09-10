@@ -40,6 +40,9 @@ const mocks = vi.hoisted(() => ({
   mintMessengerTokenForSession: vi.fn(),
   resolveSupportAppId: vi.fn(),
   logError: vi.fn(),
+  resolvedScheduleNavHrefs: vi.fn(),
+  resolvedRecruitmentNavHrefs: vi.fn(),
+  resolvedVolunteersNavHrefs: vi.fn(),
 }));
 
 vi.mock("@/platform/auth/session", () => ({
@@ -49,6 +52,23 @@ vi.mock("@/platform/terms/active-term", () => ({ getActiveTerm: mocks.getActiveT
 vi.mock("@/modules/recruitment/services/review", () => ({ reviewScope: mocks.reviewScope }));
 vi.mock("@/modules/recruitment/services/interviews", () => ({
   isInterviewPanelist: mocks.isInterviewPanelist,
+}));
+// The three nav-gate resolvers, stubbed so the union the layout hands AppShell
+// is readable without a database. recruitment/nav also exports
+// recruitmentGlobalNav, which the layout calls directly, so that factory must
+// spread the real module -- a bare factory makes it undefined and every test in
+// this file dies on "recruitmentGlobalNav is not a function".
+vi.mock("@/modules/schedule/nav", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/modules/schedule/nav")>()),
+  resolvedScheduleNavHrefs: mocks.resolvedScheduleNavHrefs,
+}));
+vi.mock("@/modules/recruitment/nav", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/modules/recruitment/nav")>()),
+  resolvedRecruitmentNavHrefs: mocks.resolvedRecruitmentNavHrefs,
+}));
+vi.mock("@/modules/volunteers/nav", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/modules/volunteers/nav")>()),
+  resolvedVolunteersNavHrefs: mocks.resolvedVolunteersNavHrefs,
 }));
 vi.mock("@/platform/branding/support", () => ({ getSupportContact: mocks.getSupportContact }));
 vi.mock("@/platform/settings/service", () => ({ getSetting: mocks.getSetting }));
@@ -71,6 +91,7 @@ vi.mock("@/platform/intercom/blocker-gate", () => ({ BlockerGate: () => null }))
 import AppGroupLayout from "./layout";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
+import { AppShell } from "@/platform/ui/app-shell";
 
 const PERSON = {
   personId: "person-1",
@@ -113,6 +134,46 @@ beforeEach(() => {
   mocks.getSetting.mockResolvedValue(false);
   mocks.resolveSupportAppId.mockReturnValue("abc123");
   mocks.mintMessengerTokenForSession.mockResolvedValue({ ok: false, reason: "not_configured" });
+  mocks.resolvedScheduleNavHrefs.mockResolvedValue(new Set(["/schedule/builder"]));
+  mocks.resolvedRecruitmentNavHrefs.mockResolvedValue(new Set(["/recruitment/events"]));
+  mocks.resolvedVolunteersNavHrefs.mockResolvedValue(new Set(["/volunteers/dual-roles"]));
+});
+
+/**
+ * A `dynamicGate` tab is invisible to the module dropdown and to Cmd+K unless
+ * this layout resolves it and hands the href to AppShell. Only the schedule
+ * module ever did, which is what kept recruitment's Events and volunteers' Dual
+ * roles reachable from nowhere but their own tab row.
+ */
+describe("(app) layout dynamic nav gates", () => {
+  async function resolvedNavGates(): Promise<Set<string>> {
+    const shell = (await renderLayout()).find((el) => el.type === AppShell);
+    expect(shell, "AppShell was not rendered").toBeDefined();
+    return shell!.props.resolvedNavGates as Set<string>;
+  }
+
+  it("hands the global nav the recruitment Events gate, so the dropdown and Cmd+K can offer it", async () => {
+    expect([...(await resolvedNavGates())]).toContain("/recruitment/events");
+  });
+
+  it("hands the global nav the volunteers Dual roles gate", async () => {
+    expect([...(await resolvedNavGates())]).toContain("/volunteers/dual-roles");
+  });
+
+  it("unions the modules' gates rather than letting a later resolver replace an earlier one", async () => {
+    expect([...(await resolvedNavGates())].sort()).toEqual([
+      "/recruitment/events",
+      "/schedule/builder",
+      "/volunteers/dual-roles",
+    ]);
+  });
+
+  it("offers nothing when no module resolves a gate, rather than falling open", async () => {
+    mocks.resolvedScheduleNavHrefs.mockResolvedValue(new Set());
+    mocks.resolvedRecruitmentNavHrefs.mockResolvedValue(new Set());
+    mocks.resolvedVolunteersNavHrefs.mockResolvedValue(new Set());
+    expect([...(await resolvedNavGates())]).toEqual([]);
+  });
 });
 
 describe("(app) layout Messenger + gate wiring", () => {

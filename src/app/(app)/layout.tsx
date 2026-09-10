@@ -4,7 +4,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { recruitmentGlobalNav } from "@/modules/recruitment/nav";
-import { resolvedScheduleNavHrefs } from "@/modules/schedule/nav";
+import { resolveNavGates } from "./nav-gates";
 import { AppShell } from "@/platform/ui/app-shell";
 import { PostHogIdentify } from "@/platform/posthog/posthog-identify";
 import { resolveSupportAppId } from "@/platform/intercom/config";
@@ -29,12 +29,16 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
     activeTerm,
     scope,
     isPanelist,
-    // Five schedule tabs gate on a data-driven capability, so the registry marks
-    // them dynamicGate and the global nav drops them. Resolving them here is
-    // what puts the Builder, Approvals, Attendings, Credentialing and Coverage
-    // back in the Schedule dropdown and in Cmd+K. It costs no extra database
-    // round trip: they all read the request-cached assignment context the nav
-    // already loads to decide which modules to show at all.
+    // Seven tabs across three modules gate on a data-driven capability, so the
+    // registry marks them dynamicGate and the global nav drops them. Resolving
+    // them here is what puts the schedule Builder, Approvals, Attendings,
+    // Credentialing and Coverage, recruitment's Events and volunteers' Dual
+    // roles back in their module dropdowns and in Cmd+K. Which resolvers run is
+    // NAV_GATE_RESOLVERS' business, so a module cannot declare a gate resolver
+    // and then forget to have it called. Six of the seven cost no extra
+    // database round trip (they read the request-cached assignment context and
+    // review scope the nav already loads); Dual roles adds one
+    // `department.count`, and only for holders of volunteers.manage_dual_roles.
     resolvedNavGates,
     supportContact,
     blockerGateEnabled,
@@ -44,7 +48,7 @@ export default async function AppGroupLayout({ children }: { children: ReactNode
       getActiveTerm(),
       reviewScope(person.personId),
       isInterviewPanelist(person.personId),
-      resolvedScheduleNavHrefs(person.personId),
+      resolveNavGates(person.personId),
       getSupportContact(),
       getSetting<boolean>("support.blockerGateEnabled"),
       // mintMessengerTokenForSession only converts a recognized DB-unreachable

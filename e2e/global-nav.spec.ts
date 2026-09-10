@@ -45,6 +45,23 @@ test("schedule dropdown reaches the Builder, whose gate the global nav cannot ru
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
 });
 
+test("recruitment dropdown reaches Events, whose gate the global nav cannot run", async ({ page }) => {
+  // Same shape as the Builder above, for the tab the schedule work left behind.
+  // Events gates on canRecordAttendance, which is recruitment.record_attendance
+  // OR manage_cycles OR review_all OR a department director's review scope --
+  // the last of which is data, not a permission, so the registry marks it
+  // dynamicGate and the global nav dropped it. A recruitment director running
+  // info sessions could reach the sign-in sheet only by landing on /recruitment
+  // and spotting the tab; Cmd+K, which matches nav labels, had nothing to
+  // offer. (j.carney can open the page -- event-attendance.spec.ts drives it as
+  // this same user.)
+  await devSignIn(page);
+  await page.goto("/admin");
+  await chevron(page, "Recruitment").click();
+  await panel(page, "Recruitment").getByRole("link", { name: "Events", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/recruitment/events");
+});
+
 test("account menu reaches Training, which has no other nav entry", async ({ page }) => {
   await devSignIn(page);
   await page.goto("/schedule");

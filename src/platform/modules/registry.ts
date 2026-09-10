@@ -252,12 +252,16 @@ export const MODULES: ModuleManifest[] = [
         permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
       },
       // Maintaining the list of trainings, as opposed to reading who has done
-      // them. It had no tab, no dropdown entry and no Cmd+K hit: a compliance
-      // manager had to remember that the button lives on /volunteers/ehs.
+      // them. It once had no nav entry at all, so a compliance manager had to
+      // remember that the button lives on /volunteers/ehs. The entry keeps it in
+      // the dropdown and Cmd+K; folding it under EHS training keeps it out of
+      // the tab row, where it was a second tab for the same subject. Its
+      // permission implies EHS training's, so the parent is always drawn.
       {
         label: "Manage trainings",
         href: "/volunteers/ehs/manage",
         permission: "volunteers.manage_compliance",
+        underTab: "/volunteers/ehs",
       },
       // Label says Language; the href and permission keep their historical
       // spanish names because renaming a route breaks bookmarks and renaming a

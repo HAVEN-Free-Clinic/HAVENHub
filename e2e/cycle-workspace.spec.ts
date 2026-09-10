@@ -25,6 +25,16 @@ function cycleNav(page: import("@playwright/test").Page) {
   return page.getByRole("navigation", { name: "Cycle sections" });
 }
 
+/**
+ * The stage row above it (Setup, Review, Accepted, Settings). The tab row
+ * shows only the current stage's tabs, and is not drawn at all on a stage with
+ * a single page -- Settings, which is the overview -- so the overview is
+ * navigated through this row.
+ */
+function cycleStages(page: import("@playwright/test").Page) {
+  return page.getByRole("navigation", { name: "Cycle stages" });
+}
+
 /** Creates a minimal DRAFT volunteer cycle and returns its id, landing in the Form tab. */
 async function createCycle(page: import("@playwright/test").Page, title: string): Promise<string> {
   await page.goto("/recruitment/cycles/new");
@@ -43,8 +53,8 @@ test("cycle nav renders on the overview and persists on the Applicants sub-page"
   const cycleId = await createCycle(page, "Cycle Workspace Nav E2E");
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
-  await expect(cycleNav(page)).toBeVisible();
-  await expect(cycleNav(page).getByRole("link", { name: "Applicants" })).toBeVisible();
+  await expect(cycleStages(page)).toBeVisible();
+  await expect(cycleStages(page).getByRole("link", { name: "Review", exact: true })).toBeVisible();
 
   // This is the whole point of the stage: the nav is not overview-only chrome,
   // it is workspace chrome that survives navigating into a sub-page.
@@ -59,13 +69,25 @@ test("clicking a tab navigates and marks it current", async ({ page }) => {
   const cycleId = await createCycle(page, "Cycle Workspace Tab Click E2E");
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
-  await expect(cycleNav(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+  // The overview is the Settings stage.
+  await expect(cycleStages(page).getByRole("link", { name: "Settings", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 
-  await cycleNav(page).getByRole("link", { name: "Applicants" }).click();
+  // A stage opens its first tab: Review opens Applicants.
+  await cycleStages(page).getByRole("link", { name: "Review", exact: true }).click();
   await page.waitForURL((url) => url.pathname === `/recruitment/cycles/${cycleId}/applicants`);
   await expect(cycleNav(page).getByRole("link", { name: "Applicants" })).toHaveAttribute("aria-current", "page");
-  // The previously-current tab is no longer marked current now that we navigated away.
-  await expect(cycleNav(page).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current", "page");
+  await expect(cycleStages(page).getByRole("link", { name: "Review", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  // The previously-current stage is no longer marked current now that we navigated away.
+  await expect(cycleStages(page).getByRole("link", { name: "Settings", exact: true })).not.toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 });
 
 test("a sub-page is reachable from another sub-page without returning to the overview", async ({ page }) => {
@@ -90,7 +112,9 @@ test("the overview renders the nav landmark but no duplicate button-wall links o
   const cycleId = await createCycle(page, "Cycle Workspace No Button Wall E2E");
 
   await page.goto(`/recruitment/cycles/${cycleId}`);
-  const nav = cycleNav(page);
+  // On the overview the workspace nav is the stage row (Settings holds a single
+  // page, so no tab row is drawn under it).
+  const nav = cycleStages(page);
   await expect(nav).toBeVisible();
 
   const labels = await nav.getByRole("link").allTextContents();

@@ -114,6 +114,25 @@ describe("cycleNavItems", () => {
     ]);
   });
 
+  it("files every tab under its workflow stage", () => {
+    // The stage row is built from these, so a tab with the wrong stage would
+    // appear under the wrong heading and a stage with none would vanish.
+    const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: true, canManage: true, canReviewAll: true });
+    const byGroup = (g: string) => items.filter((i) => i.group === g).map((i) => i.label);
+    expect(byGroup("setup")).toEqual(["Form", "Contract", "Emails", "Quiz"]);
+    expect(byGroup("review")).toEqual(["Applicants", "Speed route", "Waitlist", "Decisions"]);
+    expect(byGroup("accepted")).toEqual(["Subcommittees", "Onboarding", "Training"]);
+    expect(byGroup("settings")).toEqual(["Overview"]);
+
+    const director = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: true, canManage: true, canReviewAll: true });
+    expect(director.filter((i) => i.group === "review").map((i) => i.label)).toEqual([
+      "Applicants",
+      "Waitlist",
+      "Decisions",
+      "Interviews",
+    ]);
+  });
+
   describe("committee scorer (recruitment.score only, no recruitment.access)", () => {
     it("gets ONLY Applicants when holding neither manage nor review permission", () => {
       const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false });

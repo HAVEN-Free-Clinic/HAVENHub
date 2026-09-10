@@ -90,7 +90,7 @@ type Props = {
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
-  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (requestId: string, formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ function TrackerTable({
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
-  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (requestId: string, formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const now = new Date(nowIso);
@@ -397,8 +397,7 @@ function TrackerTable({
                     )}
 
                     {(r.status === "PENDING" || r.status === "SUBMITTED") && (
-                      <form action={cancelEpicRequestAction}>
-                        <input type="hidden" name="requestId" value={r.id} />
+                      <form action={cancelEpicRequestAction.bind(null, r.id)}>
                         <input type="hidden" name="tab" value="tracker" />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">
                           Cancel
@@ -649,7 +648,7 @@ export function PendingTab({
 }: {
   pending: PendingEpicRequestRow[];
   action: (formData: FormData) => Promise<void>;
-  cancelAction: (formData: FormData) => Promise<void>;
+  cancelAction: (requestId: string, formData: FormData) => Promise<void>;
 }) {
   // Hooks before the early return: an empty queue must not change the hook order.
   const selection = useBulkSelection({ rows: pending, idOf: (r) => r.id });
@@ -716,19 +715,19 @@ export function PendingTab({
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
               {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
-              {/* Discard a stale pending request (e.g. a promotion-origin one for
-                  someone who already has an Epic ID or withdrew). formAction
-                  submits this row's id to the cancel action within the same form,
-                  so it needs no nested form. Only the clicked button's requestId
-                  enters the FormData, so it does not interfere with the create
-                  checkboxes above. */}
+              {/* Discard a stale pending request (e.g. a promotion-origin one
+                  for someone who already has an Epic ID or withdrew). A nested
+                  <form> is not legal here, so this submits the surrounding one
+                  and overrides the action -- with the row id BOUND rather than
+                  carried as name/value, which react-dom drops from a submitter
+                  it takes an action off. Binding also makes each row's action a
+                  distinct reference, so the spinner lands on the row clicked
+                  instead of on all of them. */}
               <SubmitButton
                 size="sm"
                 variant="ghost"
                 pendingLabel="Cancelling…"
-                formAction={cancelAction}
-                name="requestId"
-                value={r.id}
+                formAction={cancelAction.bind(null, r.id)}
                 className="ml-auto"
               >
                 Cancel

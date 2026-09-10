@@ -244,9 +244,11 @@ export function OnboardingTable({
         <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled={counts.promote === 0}>
           Promote ({counts.promote})
         </SubmitButton>
-        {/* No formAction: this rides the form's default action (withdraw). See the
-            per-row comment above for why a button with its own name/value pair
-            cannot also carry a formAction. name="bulkWithdraw" value="1" marks this
+        {/* No formAction: this rides the form's default action (withdraw). A
+            button with its own name/value pair cannot also carry a formAction --
+            react-dom drops the submitter when it takes an action off it, so the
+            name/value reaches nothing; `submit-button.guard.test.ts` fences the
+            pairing repo-wide after it shipped once on /support/epic. name="bulkWithdraw" value="1" marks this
             as a deliberate bulk-withdraw click; withdrawAction refuses any
             submission carrying neither this marker nor onlyAcceptanceId, so a
             future submit button added to this form without its own formAction is

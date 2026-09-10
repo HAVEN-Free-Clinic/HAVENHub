@@ -121,7 +121,7 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
                       {p.isLead && <Badge tone="brand" className="ml-2">lead</Badge>}
                     </span>
                     <form action={removePanelistAction.bind(null, interviewId, p.id)}>
-                      <ConfirmButton label="Remove" size="sm" />
+                      <ConfirmButton label="Remove" confirmLabel="Remove this panelist?" size="sm" />
                     </form>
                   </li>
                 ))}

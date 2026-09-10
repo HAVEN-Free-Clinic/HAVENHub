@@ -74,7 +74,7 @@ export function TimingActions({
             <Field label="Confirm count (required for >25 recipients)">
               <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
             </Field>
-            <SubmitButton pendingLabel="Scheduling..." disabled={dirty}>
+            <SubmitButton pendingLabel="Scheduling…" disabled={dirty}>
               Schedule
             </SubmitButton>
           </FormRow>
@@ -93,7 +93,7 @@ export function TimingActions({
             <Field label="Confirm count (required for >25 recipients)">
               <Input name="confirmCount" type="number" min={1} placeholder="e.g. 42" className="w-24" />
             </Field>
-            <SubmitButton pendingLabel="Starting..." disabled={dirty}>
+            <SubmitButton pendingLabel="Starting…" disabled={dirty}>
               Start recurring
             </SubmitButton>
           </FormRow>

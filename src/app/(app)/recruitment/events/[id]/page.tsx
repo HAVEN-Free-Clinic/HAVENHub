@@ -139,7 +139,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                       </form>
                     )}
                     <form action={removeCheckInAction.bind(null, event.id, a.id)}>
-                      <ConfirmButton label="Remove" size="sm" />
+                      <ConfirmButton label="Remove" confirmLabel="Remove this attendee?" size="sm" />
                     </form>
                   </div>
                 </TD>
@@ -193,7 +193,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               leave a Delete button that silently submits the edit instead. */}
           {attendees.length === 0 && (
             <form action={deleteEventAction.bind(null, event.id)} className="mt-4">
-              <ConfirmButton label="Delete event" size="sm" />
+              <ConfirmButton label="Delete event" confirmLabel="Delete this event and its attendance?" size="sm" />
             </form>
           )}
         </Card>

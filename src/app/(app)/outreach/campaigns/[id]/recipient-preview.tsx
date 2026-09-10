@@ -244,7 +244,7 @@ export function RecipientPreview({
                     excluded people would echo back a name for any id posted to
                     this page; see clearExcludedAction in actions.ts. */}
                 <form action={clearExcludedAction}>
-                  <SubmitButton variant="ghost" pendingLabel="Restoring..." disabled={navigatingDisabled}>
+                  <SubmitButton variant="ghost" pendingLabel="Restoring…" disabled={navigatingDisabled}>
                     Restore all
                   </SubmitButton>
                 </form>
@@ -293,7 +293,7 @@ export function RecipientPreview({
                     <TD>
                       <form action={excludeAction}>
                         <input type="hidden" name="personId" value={r.personId} />
-                        <SubmitButton variant="ghost" pendingLabel="Excluding..." disabled={navigatingDisabled}>
+                        <SubmitButton variant="ghost" pendingLabel="Excluding…" disabled={navigatingDisabled}>
                           Exclude
                         </SubmitButton>
                       </form>
@@ -345,7 +345,7 @@ export function RecipientPreview({
             disabled={dirty || searching || query.trim().length < MIN_SEARCH_LENGTH}
             onClick={runSearch}
           >
-            {searching ? "Searching..." : "Search"}
+            {searching ? "Searching…" : "Search"}
           </Button>
         </FormRow>
 
@@ -365,7 +365,7 @@ export function RecipientPreview({
                 </span>
                 <form action={includeAction}>
                   <input type="hidden" name="personId" value={p.personId} />
-                  <SubmitButton variant="outline" pendingLabel="Adding..." disabled={navigatingDisabled}>
+                  <SubmitButton variant="outline" pendingLabel="Adding…" disabled={navigatingDisabled}>
                     Add
                   </SubmitButton>
                 </form>
@@ -394,7 +394,7 @@ export function RecipientPreview({
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2">
-            <SubmitButton variant="outline" pendingLabel="Saving..." disabled={dirty}>
+            <SubmitButton variant="outline" pendingLabel="Saving…" disabled={dirty}>
               Save addresses
             </SubmitButton>
             {pastedUnsaved && (

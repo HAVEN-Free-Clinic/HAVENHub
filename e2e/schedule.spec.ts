@@ -166,7 +166,7 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
   await expect(page.getByRole("heading", { name: "Full schedule" })).toBeVisible();
 
   // Date tab strip: links inside the nav[aria-label="Schedule dates"]
-  // displayDate("2026-05-30") = "May 30th", etc.
+  // displayDate("2026-05-30") = "May 30", etc.
   const dateNav = page.locator('nav[aria-label="Schedule dates"]');
   await expect(dateNav).toBeVisible();
 
@@ -176,9 +176,9 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
   const pillCount = await datePills.count();
   expect(pillCount).toBeGreaterThanOrEqual(10);
 
-  // Each pill must match the displayDate format: "Month Dth/st/nd/rd"
+  // Each pill must match the CLINIC_DATE_SHORT format: "Mon D"
   const pillTexts = await datePills.allTextContents();
-  const datePattern = /^[A-Z][a-z]+ \d+(st|nd|rd|th)$/;
+  const datePattern = /^[A-Z][a-z]{2} \d+$/;
   const validPills = pillTexts.filter((t) => datePattern.test(t.trim()));
   expect(validPills.length).toBeGreaterThanOrEqual(10);
 

@@ -57,7 +57,7 @@ export function SubjectPicker({
               key={comboKey}
               name="subjectSearch"
               ariaLabel="Link the people involved (optional)"
-              placeholder="Search by name..."
+              placeholder="Search by name…"
               options={people
                 .filter((p) => !addedIds.has(p.id))
                 .map((p) => ({ value: p.id, label: p.hint ? `${p.name} (${p.hint})` : p.name }))}

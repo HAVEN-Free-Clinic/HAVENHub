@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatDateTime, formatDateOnly, formatTimeOnly, formatCalendarDate,
   zoneAbbrev, parseZonedInput, formatForDateTimeInput,
+  CLINIC_DATE_LONG, CLINIC_DATE_SHORT,
 } from "./format";
 
 const ET = "America/New_York";
@@ -74,5 +75,23 @@ describe("parseZonedInput <-> formatForDateTimeInput round-trip", () => {
   });
   it("returns null for a malformed string", () => {
     expect(parseZonedInput("not-a-date", ET)).toBeNull();
+  });
+});
+
+/**
+ * The clinic date's whole vocabulary. Pinned as rendered strings rather than as
+ * option objects: what matters is what a member reads, and an options object
+ * can be "right" while the text is not the one the emails and the grid agreed
+ * on. February 7, 2026 is a real clinic Saturday.
+ */
+describe("clinic date constants", () => {
+  const saturday = new Date("2026-02-07T12:00:00Z");
+
+  it("renders the long form for a date stated once", () => {
+    expect(formatCalendarDate(saturday, CLINIC_DATE_LONG)).toBe("Saturday, February 7, 2026");
+  });
+
+  it("renders the short form for a date among many", () => {
+    expect(formatCalendarDate(saturday, CLINIC_DATE_SHORT)).toBe("Feb 7");
   });
 });

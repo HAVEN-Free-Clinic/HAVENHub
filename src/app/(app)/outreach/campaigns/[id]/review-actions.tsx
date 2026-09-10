@@ -60,12 +60,12 @@ export function ReviewActions({
       <div className="flex flex-wrap gap-3">
         {/* Preview audience. Resolves the saved audience and lists who it hits. */}
         <Button type="button" variant="outline" disabled={dirty || previewing} onClick={runPreview}>
-          {previewing ? "Previewing..." : "Preview audience"}
+          {previewing ? "Previewing…" : "Preview audience"}
         </Button>
 
         {/* Test send */}
         <form action={testAction}>
-          <SubmitButton variant="outline" pendingLabel="Sending test..." disabled={dirty}>
+          <SubmitButton variant="outline" pendingLabel="Sending test…" disabled={dirty}>
             Send test to me
           </SubmitButton>
         </form>
@@ -80,7 +80,7 @@ export function ReviewActions({
               Button, two different component types at one position, so arming
               unmounted the focused node and dropped a keyboard user to <body>
               with no way to reach the confirm step (#12). */}
-          <ConfirmButton label="Send now" confirmLabel="Confirm send" disabled={dirty} />
+          <ConfirmButton label="Send now" confirmLabel="Send this campaign now?" disabled={dirty} />
           </FormRow>
         </form>
       </div>

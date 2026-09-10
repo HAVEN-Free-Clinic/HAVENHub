@@ -17,7 +17,7 @@ import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
 import { CapabilityBadges } from "@/platform/ui/capability-badges";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate } from "@/platform/dates";
 import { loadClearedSet } from "@/platform/clearance";
 import { PersonName } from "@/platform/ui/person-name";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -145,7 +145,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   }
 
   const selectedDisplay = selectedDate
-    ? formatCalendarDate(selectedDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    ? formatCalendarDate(selectedDate, CLINIC_DATE_LONG)
     : null;
 
   /**

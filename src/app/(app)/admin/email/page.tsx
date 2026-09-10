@@ -449,7 +449,7 @@ export default async function EmailPage({ searchParams }: PageProps) {
           </Select>
         </FilterField>
         <FilterField label="Recipient" width="grow">
-          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Recipient email..." />
+          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Recipient email…" />
         </FilterField>
       </FilterBar>
 

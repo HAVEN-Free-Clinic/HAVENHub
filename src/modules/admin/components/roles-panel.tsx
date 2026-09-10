@@ -156,7 +156,7 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               <Input
                 type="text"
                 name="roleDescription"
-                placeholder="Short description..."
+                placeholder="Short description…"
                 className="w-72"
               />
             </Field>

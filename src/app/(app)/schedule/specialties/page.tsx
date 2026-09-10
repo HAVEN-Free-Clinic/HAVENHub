@@ -14,7 +14,7 @@ export default async function AttendingSpecialtiesListPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Attending specialties"
+        title="Specialties"
         description="The clinical specialties attendings work in, and which of them can run a date's rotating Specialty Clinic."
         action={
           <Link href="/schedule/specialties/new" className={buttonClasses("primary", "sm")}>

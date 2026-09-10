@@ -126,9 +126,9 @@ export function CheckInPanel({
       {error && <Alert tone="warning">{error}</Alert>}
       <Button onClick={onClick} disabled={busy}>
         {locating
-          ? "Finding your location..."
+          ? "Finding your location…"
           : pending
-            ? "Checking you in..."
+            ? "Checking you in…"
             : mode === "remote"
               ? "Check in (telehealth)"
               : "Check in"}

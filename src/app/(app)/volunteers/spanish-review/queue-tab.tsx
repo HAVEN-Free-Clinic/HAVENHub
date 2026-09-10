@@ -131,10 +131,10 @@ function AssessForm({
         </div>
       )}
       <div className="flex gap-2">
-        <SubmitButton variant="primary" size="sm" name="verified" value="true" pendingLabel="Saving...">
+        <SubmitButton variant="primary" size="sm" name="verified" value="true" pendingLabel="Saving…">
           Verify
         </SubmitButton>
-        <SubmitButton variant="outline" size="sm" name="verified" value="false" pendingLabel="Saving...">
+        <SubmitButton variant="outline" size="sm" name="verified" value="false" pendingLabel="Saving…">
           Not verified
         </SubmitButton>
       </div>

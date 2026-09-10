@@ -324,7 +324,7 @@ function GroupCard({
           disabled={disabled || selectedCount === 0}
           onClick={onSubmit}
         >
-          {busy ? "Submitting..." : `Submit ${EPIC_KIND_LABELS[group].toLowerCase()} batch`}
+          {busy ? "Submitting…" : `Submit ${EPIC_KIND_LABELS[group].toLowerCase()} batch`}
         </Button>
         <span className="text-xs text-subtle-foreground">{selectedCount} selected</span>
       </div>

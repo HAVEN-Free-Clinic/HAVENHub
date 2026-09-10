@@ -118,4 +118,4 @@ export function recoverBoundaryError(error: unknown): boolean {
  */
 export const BOUNDARY_RECOVERING_TITLE = "One moment";
 export const BOUNDARY_RECOVERING_MESSAGE =
-  "We hit a hiccup and are reloading the page to get you back on track...";
+  "We hit a hiccup and are reloading the page to get you back on track…";

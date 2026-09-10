@@ -142,7 +142,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="People directory" description={headerDescription} />
+      <PageHeader title="Directory" description={headerDescription} />
 
       {!activeTerm && (
         <Alert tone="warning">
@@ -245,7 +245,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
               type="search"
               name="q"
               defaultValue={q ?? ""}
-              placeholder="Name, NetID, or email..."
+              placeholder="Name, NetID, or email…"
             />
           </FilterField>
           <FilterField label="Department" width="wide">

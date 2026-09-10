@@ -92,7 +92,7 @@ export default async function SubmitPage() {
   if (isIntercomConfigured()) {
     return (
       <>
-        <PageHeader title="Get help" description="Chat with IT Support to get help or ask a question." />
+        <PageHeader title="Submit a request" description="Chat with IT Support to get help or ask a question." />
         <div className="mt-8">
           <Card className="flex flex-col items-start gap-4">
             <p className="text-sm text-muted-foreground">

@@ -31,7 +31,7 @@ import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate } from "@/platform/dates";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { displayTodayKey } from "@/platform/dates/today";
@@ -1056,7 +1056,7 @@ export async function countPendingAttendingRequests(personId: string): Promise<n
 // ---------------------------------------------------------------------------
 
 function fmtEmailDate(d: Date): string {
-  return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
+  return formatCalendarDate(d, CLINIC_DATE_LONG);
 }
 
 async function sendAttendingEmail(

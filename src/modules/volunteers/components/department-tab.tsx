@@ -73,7 +73,7 @@ export function DepartmentTab({
                           <input type="hidden" name="personId" value={m.person.id} />
                           {/* Tells unflagAction which tab to redirect back to on error. */}
                           <input type="hidden" name="tab" value="departments" />
-                          <ConfirmButton label="Unflag" confirmLabel="Confirm?" />
+                          <ConfirmButton label="Unflag" confirmLabel="Remove this offboarding flag?" />
                         </form>
                       ) : (
                         <form action={flagAction} className="flex items-center gap-2">
@@ -84,7 +84,7 @@ export function DepartmentTab({
                             aria-label="Note (optional)"
                             className="w-40 text-xs py-1"
                           />
-                          <ConfirmButton label="Flag" confirmLabel="Confirm?" />
+                          <ConfirmButton label="Flag" confirmLabel="Flag this member for offboarding?" />
                         </form>
                       )}
                     </div>

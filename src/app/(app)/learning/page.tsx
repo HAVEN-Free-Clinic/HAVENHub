@@ -9,7 +9,7 @@ export default async function LearningPage() {
 
   return (
     <>
-      <PageHeader title="Learning" description="Complete the training courses assigned to your department." />
+      <PageHeader title="My courses" description="Complete the training courses assigned to your department." />
       <div className="mt-6 max-w-2xl space-y-3">
         {courses.length === 0 && (
           <p className="text-sm text-muted-foreground">You have no assigned courses right now.</p>

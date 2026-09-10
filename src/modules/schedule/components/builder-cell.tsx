@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClasses } from "@/platform/ui/button";
+import { Spinner } from "@/platform/ui/spinner";
 import { cx } from "@/platform/ui/cx";
 import type { BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import {
@@ -97,7 +98,7 @@ function GridFilledButton({
         title="Click again to remove"
       >
         <span className="text-xs font-semibold leading-none">
-          {pending ? "..." : "Remove?"}
+          {pending ? <Spinner size="sm" /> : "Remove?"}
         </span>
       </button>
     );
@@ -134,8 +135,11 @@ function GridFilledButton({
       style={fillTag ? tagCellStyle(fillTag) : undefined}
       title={ariaLabel ?? label}
     >
+      {/* Spinner, not the "..." this used to print: three dots in a grid cell read
+          as truncated content rather than as work in flight, and ConfirmButton
+          already uses Spinner for exactly this meaning. */}
       {pending ? (
-        <span className="text-xs">...</span>
+        <Spinner size="sm" />
       ) : (
         <>
           <span className="text-xs font-semibold leading-none">{label}</span>
@@ -183,7 +187,7 @@ function SubmitButton({
         // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
         className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        {pending ? "..." : "+"}
+        {pending ? <Spinner size="sm" /> : "+"}
       </button>
     );
   }
@@ -219,7 +223,7 @@ function SubmitButton({
       aria-pressed={pressed}
       aria-label={ariaLabel}
     >
-      {pending ? "..." : label}
+      {pending ? <Spinner size="sm" /> : label}
     </button>
   );
 }

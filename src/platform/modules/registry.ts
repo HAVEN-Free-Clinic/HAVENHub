@@ -12,7 +12,28 @@ import {
 } from "lucide-react";
 import type { ModuleManifest } from "./types";
 
-/** The single wiring point for modules (spec §8). Hub tiles render from this. */
+/**
+ * The single wiring point for modules (spec §8). Hub tiles render from this.
+ *
+ * Rule for every `nav` item below, enforced by nav-title.guard.test.ts: the
+ * label IS the H1 of the page it points at (or the module-qualified form of
+ * it, "<module title> <label>", which search/match.ts already composes). Two
+ * surfaces make that load-bearing. buildBreadcrumbs in
+ * platform/ui/breadcrumb-trail.ts renders this label as the current crumb, so
+ * a divergence prints two names for one page a single line apart. And
+ * matchPages in platform/search/match.ts scores only the label, so a page
+ * whose H1 shares no words with its label cannot be found in Cmd+K by the
+ * name printed on it.
+ *
+ * Which side moves is a width question, because the module tab row scrolls:
+ * rows with headroom promote the longer name into the label, rows already at
+ * their limit (Schedule, Volunteers, Admin) keep the label and shorten the
+ * H1, leaving the dropped qualifier in the page description.
+ *
+ * Carve-out at a module ROOT (a nav href equal to the module href): the crumb
+ * there is the MODULE title, not the label, so aligning label and H1 buys the
+ * Cmd+K and dropdown axis only.
+ */
 export const MODULES: ModuleManifest[] = [
   {
     id: "schedule",
@@ -263,7 +284,7 @@ export const MODULES: ModuleManifest[] = [
       // report is not where a reviewer stepping back from a case wants to be.
       { label: "Report a concern", href: "/incidents/new" },
       { label: "My reports", href: "/incidents/mine" },
-      { label: "Review", href: "/incidents/review", permission: "incidents.manage" },
+      { label: "Review queue", href: "/incidents/review", permission: "incidents.manage" },
       { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },
     ],
   },
@@ -355,7 +376,7 @@ export const MODULES: ModuleManifest[] = [
       // "outreach.send_unrestricted"]), so gate the tab on the same pair --
       // otherwise a manage_scopes-only holder (admitted via
       // additionalAccessPermissions) sees a tab that bounces to /no-access.
-      { label: "Campaigns", href: "/outreach/campaigns", permission: ["outreach.send", "outreach.send_unrestricted"] },
+      { label: "Email campaigns", href: "/outreach/campaigns", permission: ["outreach.send", "outreach.send_unrestricted"] },
       { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
       // Same gate as the page (see the comment at the top of identities/page.tsx
       // for why issuing an address reuses manage_scopes rather than minting a
@@ -394,7 +415,7 @@ export const MODULES: ModuleManifest[] = [
       // The real gate is "may record attendance on ANY scope", which stacks a
       // permission check on a data-driven one (a director's review scope), so the
       // module layout resolves it and drops the tab itself.
-      { label: "Events", href: "/recruitment/events", dynamicGate: true },
+      { label: "Attendance events", href: "/recruitment/events", dynamicGate: true },
       // /recruitment/history hard-gates on recruitment.access (no committee-scorer
       // carve-out like the Cycles index has), so gate the tab the same way --
       // otherwise a score-only reviewer (admitted via additionalAccessPermissions
@@ -420,7 +441,7 @@ export const MODULES: ModuleManifest[] = [
       // My courses gates on learning.access (= module access).
       { label: "My courses", href: "/learning" },
       { label: "Manage courses", href: "/learning/manage", permission: "learning.manage_courses" },
-      { label: "Completion", href: "/learning/dashboard", permission: "learning.view_progress" },
+      { label: "Course completion", href: "/learning/dashboard", permission: "learning.view_progress" },
     ],
   },
   {
@@ -434,7 +455,7 @@ export const MODULES: ModuleManifest[] = [
     // support.view_all_requests is the read-only half of manage_requests: it
     // opens the cross-clinic queue to someone who needs to answer "where is my
     // request?" without being able to work a ticket. It reaches ONLY the "All
-    // requests" tab -- never Epic / YNHH tools, which submits real access
+    // requests" tab -- never Epic requests, which submits real access
     // requests.
     permissions: ["support.manage_requests", "support.view_all_requests"],
     status: "active",
@@ -446,7 +467,7 @@ export const MODULES: ModuleManifest[] = [
         href: "/support/all",
         permission: ["support.manage_requests", "support.view_all_requests"],
       },
-      { label: "Epic / YNHH tools", href: "/support/epic", permission: "support.manage_requests" },
+      { label: "Epic requests", href: "/support/epic", permission: "support.manage_requests" },
     ],
   },
 ];

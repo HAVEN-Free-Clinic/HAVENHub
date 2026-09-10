@@ -218,12 +218,12 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                           : clearApplicantExcuseAction.bind(null, id, r.applicantId)
                       }
                     >
-                      <ConfirmButton label="Clear excuse" size="sm" />
+                      <ConfirmButton label="Clear excuse" confirmLabel="Clear this excuse?" size="sm" />
                     </form>
                   )}
                   {r.kind === "member" && r.locked && (
                     <form action={resetTrainingAction.bind(null, id, r.personId)}>
-                      <ConfirmButton label="Reset" size="sm" />
+                      <ConfirmButton label="Reset" confirmLabel="Reset this member's quiz lockout?" size="sm" />
                     </form>
                   )}
                 </div>

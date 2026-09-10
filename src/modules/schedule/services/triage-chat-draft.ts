@@ -16,7 +16,7 @@ import {
 } from "@/platform/teams/channel-link";
 import { resolveMemberIds, type ResolvedMember } from "@/platform/teams/member-ids";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
-import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { renderTemplate } from "@/platform/email/render/render";
 import { esc } from "@/platform/email/render/escape";
 import { resolveTriageRoster, type TriageRoster, type TriageRosterMember } from "./triage-chats";
@@ -192,12 +192,7 @@ export async function loadTriageChatDraft(
   const channelLink = await getCurrentClinicChannelLink({ now });
 
   const context = {
-    clinicDate: formatCalendarDate(clinicDate, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }),
+    clinicDate: formatCalendarDate(clinicDate, CLINIC_DATE_LONG),
     clinicDateShort: formatClinicDate(clinicDate).replace(/-/g, "."),
     sessionCoordinators: roster.sessionCoordinators.join(", "),
     clinicalAdvisors: roster.clinicalAdvisors.join(", "),

@@ -29,7 +29,7 @@ import { prisma } from "@/platform/db";
 import { esc } from "@/platform/email/render/escape";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
-import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { selectCurrentClinicDate } from "@/platform/teams/channel-link";
 import { renderEmail } from "./templates/renderEmail";
 import { queueEmail } from "./send";
@@ -205,12 +205,7 @@ export async function runAttendingReminders(
   if (coverage.length === 0) return result;
 
   const context = attendingReminderContext({
-    clinicDateLabel: formatCalendarDate(targetDate, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }),
+    clinicDateLabel: formatCalendarDate(targetDate, CLINIC_DATE_LONG),
     scheduleTable: renderScheduleTable(coverage),
     onCallAttending: day.onCallAttending?.isActive ? day.onCallAttending.scheduleName : "",
     signOffName: await getSetting<string>("branding.orgName"),

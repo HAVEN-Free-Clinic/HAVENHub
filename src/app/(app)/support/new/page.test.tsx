@@ -31,18 +31,23 @@ describe("SubmitPage", () => {
   it("renders the intake form (unchanged) when Intercom is not configured", async () => {
     const html = renderToStaticMarkup(await SubmitPage());
     expect(html).toContain("Submit a request");
+    // The form itself, not just the heading: the two branches are told apart by
+    // what they render below the header, so each branch pins its own marker.
+    expect(html).toContain('name="subject"');
     expect(html).toContain("Submit request");
     expect(html).not.toContain("Ask in Messenger");
-    expect(html).not.toContain("Get help");
   });
 
   it("renders only the Messenger CTA, no form, when Intercom is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
     const html = renderToStaticMarkup(await SubmitPage());
-    expect(html).toContain("Get help");
+    // Both branches now carry the nav label as their H1. This branch used to
+    // title itself "Get help", so the tab promised a request form and the page
+    // announced something else; these two assertions are what hold that shut.
+    expect(html).toContain("Submit a request");
+    expect(html).not.toContain("Get help");
     expect(html).toContain("Ask in Messenger");
-    expect(html).not.toContain("Submit a request");
     expect(html).not.toContain('name="subject"');
   });
 });

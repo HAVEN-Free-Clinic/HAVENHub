@@ -66,7 +66,7 @@ describe("PendingRequests: recent decisions", () => {
 
   it("says what the request actually asked for", () => {
     const html = render([row()]);
-    expect(html).toContain("Drop: September 5th");
+    expect(html).toContain("Drop: Sep 5");
   });
 
   it("names the swap partner and both dates on a swap", () => {
@@ -79,7 +79,7 @@ describe("PendingRequests: recent decisions", () => {
         targetName: "Tyger Lin",
       }),
     ]);
-    expect(html).toContain("Swap: September 5th with Tyger Lin (September 19th)");
+    expect(html).toContain("Swap: Sep 5 with Tyger Lin (Sep 19)");
   });
 
   // cancelRequest sets CANCELLED and never stamps decidedAt, so a cancelled row
@@ -109,8 +109,8 @@ describe("PendingRequests: recent decisions", () => {
       row({ request: request({ id: "r1", requesterDate: new Date("2026-09-05T12:00:00Z") }) }),
       row({ request: request({ id: "r2", requesterDate: new Date("2026-09-19T12:00:00Z") }) }),
     ]);
-    expect(html).toContain("Drop: September 5th");
-    expect(html).toContain("Drop: September 19th");
+    expect(html).toContain("Drop: Sep 5");
+    expect(html).toContain("Drop: Sep 19");
   });
 
   // A decidedAt is a real instant, unlike the noon-UTC clinic dates beside it.

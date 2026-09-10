@@ -29,6 +29,7 @@ import { Select } from "@/platform/ui/select";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { StatCard } from "@/platform/ui/stat-card";
 import { CalendarDate } from "@/platform/dates/display";
+import { CLINIC_DATE_SHORT } from "@/platform/dates";
 import { isoDateKey } from "../engine/map";
 import { AVAILABILITY_PILL_CLASS } from "./availability-pill";
 import { displayDate } from "../engine/display";
@@ -74,7 +75,7 @@ export function AttendingPortalSection({
       <Card key={cardKey} pad={false} className={emphasised ? "px-5 py-4 border-brand" : "px-5 py-4"}>
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <span className="text-base font-bold text-foreground tabular-nums">
-            <CalendarDate value={shift.clinicDate} />
+            <CalendarDate value={shift.clinicDate} opts={CLINIC_DATE_SHORT} />
           </span>
           <Badge>{shift.slot.label}</Badge>
           <span className="text-sm text-muted-foreground tabular-nums">
@@ -151,7 +152,7 @@ export function AttendingPortalSection({
                         <input type="hidden" name="kind" value="swap" />
                         <div className={ROW_WIDTH.grow}>
                           <Select name="partner" aria-label="Swap partner">
-                            <option value="">Select swap partner...</option>
+                            <option value="">Select swap partner…</option>
                             {partners.map((p) => (
                               <option
                                 key={`${p.attendingId}|${p.clinicDayId}`}

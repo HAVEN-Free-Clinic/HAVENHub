@@ -4,7 +4,7 @@ import { devLogin } from "./auth";
 test("platform admin reaches the admin overview", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   // exact:true avoids strict-mode collision with the global "Modules" nav aria-label
   await expect(page.getByRole("navigation", { name: "Module", exact: true })).toBeVisible();
 });

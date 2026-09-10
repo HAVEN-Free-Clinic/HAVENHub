@@ -77,7 +77,7 @@ export default async function AssignSubcommitteesPage({ params }: PageProps) {
                     <option value="">Unassigned</option>
                     {subcommittees.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </Select>
-                  <SubmitButton size="sm" pendingLabel="Saving...">Save</SubmitButton>
+                  <SubmitButton size="sm" pendingLabel="Saving…">Save</SubmitButton>
                 </form>
               </TD>
             </TR>

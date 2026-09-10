@@ -7,7 +7,7 @@ import { ListEmpty } from "@/platform/ui/list-empty";
 
 function truncate(s: string | null | undefined, max = 12): string {
   if (!s) return "";
-  return s.length > max ? s.slice(0, max) + "..." : s;
+  return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
 export function AuditTable({

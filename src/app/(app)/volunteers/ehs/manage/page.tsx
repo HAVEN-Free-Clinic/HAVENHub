@@ -17,7 +17,7 @@ export default async function ManageEhsPage() {
   return (
     <>
       <PageHeader
-        title="Manage EHS trainings"
+        title="Manage trainings"
         description="Add, edit, and scope EHS training requirements."
       />
       <div className="mt-6 max-w-2xl space-y-6">

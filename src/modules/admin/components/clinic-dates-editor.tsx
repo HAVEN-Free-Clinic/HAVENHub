@@ -20,17 +20,12 @@ import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_SHORT, formatCalendarDate } from "@/platform/dates";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { FormRow, RowField } from "@/platform/ui/form";
 
 function formatClinicDate(d: Date): string {
-  return formatCalendarDate(d, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatCalendarDate(d, CLINIC_DATE_SHORT);
 }
 
 function toIsoDate(d: Date): string {

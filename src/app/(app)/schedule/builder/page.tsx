@@ -29,7 +29,7 @@ import { cardClasses } from "@/platform/ui/card";
 import { cx } from "@/platform/ui/cx";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate } from "@/platform/dates";
 import { redirect } from "next/navigation";
 import { runAction } from "@/platform/actions";
 import {
@@ -490,12 +490,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   // among ~18 in the date strip says which date is being edited, and the Day-view
   // cell aria-labels carry no date either.
   const selectedDisplay = selectedDateKey
-    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
+    ? formatCalendarDate(new Date(selectedDateKey + "T12:00:00Z"), CLINIC_DATE_LONG)
     : null;
 
   return (

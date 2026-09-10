@@ -29,7 +29,7 @@ export function PersonSearchPanel({
   action,
   paramName,
   label,
-  placeholder = "Name or netID...",
+  placeholder = "Name or netID…",
   query,
   clearHref,
   results,

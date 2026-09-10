@@ -35,7 +35,7 @@ export function RetryMessageForm({ triageChatId }: { triageChatId: string }) {
   return (
     <form action={onSubmit} className="space-y-2">
       {error && <Alert tone="error">{error}</Alert>}
-      <SubmitButton pendingLabel="Posting...">Post the message</SubmitButton>
+      <SubmitButton pendingLabel="Posting…">Post the message</SubmitButton>
     </form>
   );
 }

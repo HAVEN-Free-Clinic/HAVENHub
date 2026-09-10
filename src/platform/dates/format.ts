@@ -11,6 +11,26 @@ const DATE_TIME: Opts = {
 const DATE_ONLY: Opts = { year: "numeric", month: "short", day: "numeric" };
 const TIME_ONLY: Opts = { hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" };
 
+/**
+ * The two ways the clinic date is allowed to be written.
+ *
+ * One Saturday used to be spoken about eight different ways: the shift card
+ * headline said "Feb 7, 2026" while the swap partner two lines below said
+ * "February 7th", the reminder email said "February 7, 2026", the check-in page
+ * "Saturday, February 7", the full schedule "Saturday, February 7, 2026". These
+ * two constants are the whole vocabulary now, and
+ * src/platform/dates/clinic-date-format.guard.test.ts holds the line.
+ *
+ * LONG for a date stated ONCE, in prose or in an email with no surrounding
+ * context. SHORT for a date that is one item among many (a grid column, a date
+ * pill, an option in a list), where the weekday is noise because every clinic
+ * day is a Saturday and the year is carried by the term heading above.
+ */
+export const CLINIC_DATE_LONG: Opts = {
+  weekday: "long", month: "long", day: "numeric", year: "numeric",
+};
+export const CLINIC_DATE_SHORT: Opts = { month: "short", day: "numeric" };
+
 /** Instant rendered in `zone` as date + time + zone abbreviation. */
 export function formatDateTime(d: Date | null | undefined, zone: string, opts?: Opts, fallback = "-"): string {
   if (!d) return fallback;

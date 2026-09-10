@@ -185,7 +185,7 @@ export function CertificateViewer({
                     size="sm"
                     disabled={isPending}
                   >
-                    {isPending ? "Saving..." : isOverwrite ? "Update and verify" : "Save and verify"}
+                    {isPending ? "Saving…" : isOverwrite ? "Update and verify" : "Save and verify"}
                   </Button>
                   {isOverwrite && (
                     <Button
@@ -225,7 +225,7 @@ export function CertificateViewer({
                       disabled={isPending}
                       onClick={handleVerify}
                     >
-                      {isPending ? "Verifying..." : "Verify"}
+                      {isPending ? "Verifying…" : "Verify"}
                     </Button>
                   )}
                 </div>

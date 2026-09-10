@@ -67,7 +67,7 @@ export default async function AdminOverviewPage() {
   return (
     <div>
       <PageHeader
-        title="Admin"
+        title="Overview"
         description={`${appName} operations: people, terms, roles, and audit.`}
       />
 

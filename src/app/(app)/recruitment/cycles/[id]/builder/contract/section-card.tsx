@@ -69,7 +69,7 @@ export function SectionCard({
           />
           <div className="flex justify-end">
             <form action={() => onRemove()}>
-              <ConfirmButton label="Remove section" size="sm" />
+              <ConfirmButton label="Remove section" confirmLabel="Remove this section?" size="sm" />
             </form>
           </div>
         </div>

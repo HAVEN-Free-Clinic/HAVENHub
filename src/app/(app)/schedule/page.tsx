@@ -51,6 +51,7 @@ import { termGroup } from "@/platform/posthog/groups";
 import { isoDateKey } from "@/modules/schedule/engine/map";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
+import { CLINIC_DATE_SHORT } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
@@ -462,7 +463,7 @@ export default async function MySchedulePage({
                 className={emphasised ? "px-5 py-4 border-brand" : "px-5 py-4"}
               >
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} /></span>
+                  <span className="text-base font-bold text-foreground tabular-nums"><CalendarDate value={shift.clinicDate} opts={CLINIC_DATE_SHORT} /></span>
                   <Badge>{shift.department.code}</Badge>
                   <Badge tone={roleBadgeTone[shift.role] ?? "default"}>
                     {shift.role === "DIRECTOR" ? "Director" : shift.role === "VOLUNTEER" ? "Volunteer" : "Shadow"}
@@ -587,7 +588,7 @@ export default async function MySchedulePage({
                                 <input type="hidden" name="kind" value="swap" />
                                 <div className={ROW_WIDTH.grow}>
                                   <Select name="partner" aria-label="Swap partner">
-                                    <option value="">Select swap partner...</option>
+                                    <option value="">Select swap partner…</option>
                                     {swapPartners.map((p) => (
                                       <option key={`${p.personId}|${p.dateKey}`} value={`${p.personId}|${p.dateKey}`}>
                                         {p.name} ({displayDate(p.dateKey)})

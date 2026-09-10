@@ -68,6 +68,58 @@ const noAdhocEmptyState = {
   },
 };
 
+// One ellipsis character in user-visible copy, not three dots. The SubmitButton
+// primitive already defaults its pending label to "Saving\u2026", so every
+// three-dot override contradicted the default it was overriding, and a search
+// box using "..." sat beside one using "\u2026" on the same page.
+//
+// AST-scoped, unlike no-em-dash, which scans raw text. "..." is also spread
+// syntax, so a raw-text scan would fire on every rest spread. Three shapes
+// carry the copy: JSXText between tags (an <option> label), a JSXAttribute
+// string literal (placeholder=, pendingLabel=, aria-label=), and a string
+// inside a JSX expression container, which is where the in-flight ternaries
+// live ({busy ? "Generating..." : "Generate PDF"}). Missing the third would
+// have left about twenty pending labels three-dotted beside the swept ones.
+//
+// Deliberately blind to plain .ts and to non-JSX helpers: `{...rest}` is a
+// JSXSpreadAttribute rather than an expression container, so no rest spread is
+// reachable from here, but a truncation helper or a status string set in a
+// handler is, and neither is safe to rewrite by rule.
+const noAsciiEllipsis = {
+  meta: {
+    type: "problem",
+    docs: { description: "Use the ellipsis character in user-visible copy, not three dots." },
+    schema: [],
+  },
+  create(context) {
+    const MESSAGE =
+      "Use the \u2026 character, not three dots; the SubmitButton default is \"Saving\u2026\". Add an eslint-disable-next-line local/no-ascii-ellipsis with a reason if this is a truncation marker rather than copy.";
+    // One visitor per node kind, walking UP to decide, rather than a descendant
+    // selector: `JSXExpressionContainer Literal` also matches a plain
+    // placeholder= inside any element rendered from a .map() callback, and
+    // reported every one of those twice.
+    const insideJsx = (node) => {
+      for (let p = node.parent; p; p = p.parent) {
+        if (p.type === "JSXAttribute" || p.type === "JSXExpressionContainer") return true;
+      }
+      return false;
+    };
+    return {
+      JSXText(node) {
+        if (node.value.includes("...")) context.report({ node, message: MESSAGE });
+      },
+      Literal(node) {
+        if (typeof node.value !== "string" || !node.value.includes("...")) return;
+        if (insideJsx(node)) context.report({ node, message: MESSAGE });
+      },
+      TemplateElement(node) {
+        if (!node.value.raw.includes("...")) return;
+        if (insideJsx(node)) context.report({ node, message: MESSAGE });
+      },
+    };
+  },
+};
+
 const MODULE_IDS = [
   "schedule",
   "my-info",
@@ -177,7 +229,13 @@ const eslintConfig = [
   {
     files: ["src/**/*.{ts,tsx}"],
     plugins: {
-      local: { rules: { "no-em-dash": noEmDash, "no-adhoc-empty-state": noAdhocEmptyState } },
+      local: {
+        rules: {
+          "no-em-dash": noEmDash,
+          "no-adhoc-empty-state": noAdhocEmptyState,
+          "no-ascii-ellipsis": noAsciiEllipsis,
+        },
+      },
     },
     rules: { "local/no-em-dash": "error" },
   },
@@ -187,6 +245,15 @@ const eslintConfig = [
   {
     files: ["src/app/**/*.tsx", "src/modules/**/*.tsx"],
     rules: { "local/no-adhoc-empty-state": "error" },
+  },
+
+  // Ellipsis character, not three dots. tsx only: the rule is AST-scoped to JSX
+  // nodes, so it has nothing to say about a plain .ts file. The handful of
+  // user-visible strings that live in .ts (platform/posthog's reload copy) are
+  // therefore outside its reach and are held by review, not lint.
+  {
+    files: ["src/**/*.tsx"],
+    rules: { "local/no-ascii-ellipsis": "error" },
   },
 
   // Resolved-path enforcement (catches relative-path evasion the specifier

@@ -153,7 +153,7 @@ export default async function ScheduleRequestsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader
-        title="Shift request approvals"
+        title="Approvals"
         description={
           managesAttendings && deptIds.length > 0
             ? "Approve or deny drop and swap requests for your departments and for the attending schedule."

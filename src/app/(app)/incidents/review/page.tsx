@@ -136,7 +136,7 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
             type="search"
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Subject, reporter, or report #..."
+            placeholder="Subject, reporter, or report #…"
           />
         </FilterField>
         <FilterField label="Status">

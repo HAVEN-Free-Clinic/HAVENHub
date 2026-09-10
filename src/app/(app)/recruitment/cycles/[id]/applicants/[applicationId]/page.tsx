@@ -559,7 +559,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               />
               {excuse && (
                 <form action={clearApplicantExcuseAction.bind(null, id, applicationId, app.applicant.id)}>
-                  <ConfirmButton label="Clear excuse" size="sm" />
+                  <ConfirmButton label="Clear excuse" confirmLabel="Clear this excuse?" size="sm" />
                 </form>
               )}
             </div>

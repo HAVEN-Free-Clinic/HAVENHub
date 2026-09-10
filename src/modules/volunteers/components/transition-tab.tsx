@@ -131,7 +131,7 @@ export function TransitionTab({
             className="w-72 text-xs py-1"
           />
           <Button type="submit" disabled={flagPending || selectedIds.length === 0}>
-            {flagPending ? "Flagging..." : `Flag ${selectedIds.length} for offboarding`}
+            {flagPending ? "Flagging…" : `Flag ${selectedIds.length} for offboarding`}
           </Button>
         </form>
 

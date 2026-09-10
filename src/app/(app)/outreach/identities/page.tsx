@@ -463,7 +463,7 @@ export default async function SendingIdentitiesPage({
                           {/* Retires the ADDRESS for every holder at once, which
                               is why it is the confirmed one and "Remove" beside
                               a single holder is not. */}
-                          <ConfirmButton label="Revoke address" />
+                          <ConfirmButton label="Revoke address" confirmLabel="Revoke this sending address?" />
                         </form>
                       </div>
                     )}

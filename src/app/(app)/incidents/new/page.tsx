@@ -117,7 +117,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
               name="description"
               rows={5}
               required
-              placeholder="Describe what happened, in as much detail as you can..."
+              placeholder="Describe what happened, in as much detail as you can…"
             />
           </Field>
 
@@ -140,7 +140,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 5: patient impact */}
           <Field label="5. Was a patient directly impacted?">
             <Select name="patientImpact" defaultValue="">
-              <option value="">Select...</option>
+              <option value="">Select…</option>
               <option value="YES">Yes</option>
               <option value="NO">No</option>
               <option value="UNSURE">Unsure</option>
@@ -170,7 +170,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 7: issue nature */}
           <Field label="7. Is this primarily a workflow/system failure rather than individual conduct?">
             <Select name="issueNature" defaultValue="">
-              <option value="">Select...</option>
+              <option value="">Select…</option>
               <option value="SYSTEM">Yes - workflow or system gap</option>
               <option value="INDIVIDUAL">No - individual conduct</option>
               <option value="BOTH_UNSURE">Both / Unsure</option>
@@ -180,7 +180,7 @@ export default async function ReportConcernPage({ searchParams }: PageProps) {
           {/* Section 8: prior occurrence */}
           <Field label="8. Has this type of incident occurred before, to your knowledge?">
             <Select name="priorOccurrence" defaultValue="">
-              <option value="">Select...</option>
+              <option value="">Select…</option>
               <option value="YES">Yes - aware of prior similar incidents</option>
               <option value="NO">No - appears to be a first occurrence</option>
               <option value="UNSURE">Unsure</option>

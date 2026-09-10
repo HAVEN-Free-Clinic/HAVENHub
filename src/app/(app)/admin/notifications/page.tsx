@@ -226,7 +226,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
           </Select>
         </FilterField>
         <FilterField label="Recipient" width="grow">
-          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Recipient name..." />
+          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Recipient name…" />
         </FilterField>
       </FilterBar>
 

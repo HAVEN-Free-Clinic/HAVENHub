@@ -2,7 +2,7 @@ import { requireModuleAccess } from "@/platform/auth/session";
 import { Card } from "@/platform/ui/card";
 import { PageHeader } from "@/platform/ui/page-header";
 import { revalidatePath } from "next/cache";
-import { formatCalendarDate, formatTimeOnly } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { getCheckInState, checkInSelf } from "@/modules/schedule/services/attendance";
 import {
@@ -105,11 +105,7 @@ export default async function CheckInPage() {
     );
   }
 
-  const dateLabel = formatCalendarDate(state.clinicDate, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const dateLabel = formatCalendarDate(state.clinicDate, CLINIC_DATE_LONG);
 
   if (state.existing) {
     // checkedInAt is a real instant (not a calendar marker like clinicDate), so

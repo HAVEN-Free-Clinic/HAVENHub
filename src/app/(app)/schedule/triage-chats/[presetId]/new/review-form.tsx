@@ -103,7 +103,7 @@ export function ReviewForm({
         <Textarea name="messageBody" defaultValue={draft.messageBody} rows={16} required />
       </label>
 
-      <SubmitButton pendingLabel="Creating..." disabled={disabled}>
+      <SubmitButton pendingLabel="Creating…" disabled={disabled}>
         Create chat and post message
       </SubmitButton>
     </form>

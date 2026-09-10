@@ -189,7 +189,7 @@ export function StrikeRow({
                         <Combobox
                           name="reportId"
                           ariaLabel={`Link ${personName}'s strike to an incident report`}
-                          placeholder="Search reports..."
+                          placeholder="Search reports…"
                           emptyLabel="No matching reports"
                           options={reportOptions}
                         />

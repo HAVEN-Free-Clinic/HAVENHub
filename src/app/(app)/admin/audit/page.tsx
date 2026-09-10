@@ -44,7 +44,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
           the controls that change it -- the same move admin/people made. What
           is left here is what the page IS. */}
       <PageHeader
-        title="Audit log"
+        title="Audit"
         description="Every recorded change, newest first. Filter by action, actor or entity."
       />
 
@@ -58,7 +58,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
             type="search"
             name="action"
             defaultValue={action ?? ""}
-            placeholder="action contains..."
+            placeholder="action contains…"
           />
         </FilterField>
         <FilterField label="Entity type">

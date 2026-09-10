@@ -268,7 +268,7 @@ test("support: a view-only auditor sees every request and a ticket's status, but
 
   // The Epic / YNHH tab is the module's one destructive surface (it submits real
   // access requests) and must never be offered to a read-only viewer.
-  await expect(page.getByRole("link", { name: "Epic / YNHH tools" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Epic requests", exact: true })).toHaveCount(0);
 
   await page.getByPlaceholder("Subject, requester, or ticket #").fill(subject);
   await page.getByRole("button", { name: "Search", exact: true }).click();

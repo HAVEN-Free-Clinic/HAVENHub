@@ -152,7 +152,7 @@ export function ServiceRecordCard({
       ) : null}
       <div className="mt-4">
         <Button onClick={download} disabled={busy}>
-          {busy ? "Preparing..." : "Download certificate"}
+          {busy ? "Preparing…" : "Download certificate"}
         </Button>
       </div>
 
@@ -175,7 +175,7 @@ export function ServiceRecordCard({
               search engines.
             </p>
             <Button className="mt-3" variant="outline" onClick={doUnpublish} disabled={publishBusy}>
-              {publishBusy ? "Working..." : "Unpublish"}
+              {publishBusy ? "Working…" : "Unpublish"}
             </Button>
           </>
         ) : (
@@ -184,7 +184,7 @@ export function ServiceRecordCard({
               Publishing creates a shareable link that verifies this record. Off by default.
             </p>
             <Button className="mt-3" onClick={doPublish} disabled={publishBusy}>
-              {publishBusy ? "Working..." : "Publish a shareable link"}
+              {publishBusy ? "Working…" : "Publish a shareable link"}
             </Button>
           </>
         )}
@@ -228,7 +228,7 @@ export function ServiceRecordCard({
           ) : (
             <>
               <Button className="mt-3" variant="outline" onClick={addToWallet} disabled={walletBusy}>
-                {walletBusy ? "Working..." : "Add to wallet"}
+                {walletBusy ? "Working…" : "Add to wallet"}
               </Button>
               {walletUnavailable ? (
                 <p className="mt-2 text-sm text-muted-foreground">

@@ -15,7 +15,7 @@ import { Card } from "@/platform/ui/card";
 import { buttonClasses } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import { TextLink } from "@/platform/ui/text-link";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_SHORT, formatCalendarDate } from "@/platform/dates";
 
 export async function generateMetadata() {
   return buildPageMetadata({
@@ -58,7 +58,7 @@ export default async function TriageChatsPage() {
                   {preset.departmentNames.length} department
                   {preset.departmentNames.length === 1 ? "" : "s"}
                   {clinicDate
-                    ? ` - clinic ${formatCalendarDate(clinicDate, { month: "long", day: "numeric" })}`
+                    ? ` - clinic ${formatCalendarDate(clinicDate, CLINIC_DATE_SHORT)}`
                     : ""}
                 </p>
               </div>

@@ -21,7 +21,7 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { Select } from "@/platform/ui/select";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate } from "@/platform/dates";
 import type {
   AttendingScheduleRow,
   ClinicSlotView,
@@ -71,12 +71,7 @@ export function AttendingDayView({
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-base font-bold text-foreground tabular-nums">
-            {formatCalendarDate(row.clinicDate, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
+            {formatCalendarDate(row.clinicDate, CLINIC_DATE_LONG)}
           </h3>
           {row.isClosed ? (
             // Read-only: closure is a calendar fact owned by admin.manage_terms and set

@@ -2,7 +2,7 @@ import { prisma } from "@/platform/db";
 import { resolveOpenClinicDate } from "@/platform/attendings/open-clinic-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
-import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { firstNameOf } from "@/platform/person-name";
 import { notify } from "@/platform/notifications/notify";
@@ -83,11 +83,7 @@ export async function runCheckInInvites(now: Date = new Date()): Promise<CheckIn
   }
 
   const baseUrl = await getSetting<string>("app.baseUrl");
-  const clinicDateLabel = formatCalendarDate(clinicDate, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const clinicDateLabel = formatCalendarDate(clinicDate, CLINIC_DATE_LONG);
   const checkInUrl = `${baseUrl}/schedule/check-in`;
   const clinicDateKey = isoDateKey(clinicDate);
 

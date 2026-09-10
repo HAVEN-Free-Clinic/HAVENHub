@@ -35,7 +35,7 @@ import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
-import { isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
+import { CLINIC_DATE_LONG, isoDateKey, formatCalendarDate, formatForDateInput, formatTimeOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { firstNameOf } from "@/platform/person-name";
 import { buildPageMetadata } from "@/platform/branding/metadata";
@@ -75,13 +75,14 @@ function timeGreeting(now = new Date()): string {
   return "Good evening";
 }
 
-/** "Saturday, June 13" (clinic dates are stored at noon UTC, so format in UTC). */
+/** "Saturday, June 13, 2026" (clinic dates are stored at noon UTC, so format in UTC). */
 function fmtLongDate(d: Date): string {
-  return formatCalendarDate(d, { weekday: "long", month: "long", day: "numeric" });
+  return formatCalendarDate(d, CLINIC_DATE_LONG);
 }
 
-/** "Aug 2026" */
+/** "Aug 2026", for a HIPAA certificate's expiry month. */
 function fmtMonthYear(d: Date): string {
+  // A certificate expiry, not a clinic date: neither clinic constant fits a month.
   return formatCalendarDate(d, { month: "short", year: "numeric" });
 }
 

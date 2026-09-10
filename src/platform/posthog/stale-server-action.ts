@@ -37,7 +37,7 @@ import type { SelfHeal } from "./client-self-heal";
  * same dead action id from the same stale bundle.
  */
 export const STALE_DEPLOY_MESSAGE =
-  "A new version of the Hub was just released. Reloading to catch up...";
+  "A new version of the Hub was just released. Reloading to catch up…";
 
 /** True when a rejection is Next refusing an action id the running deploy no longer has. */
 export function isStaleServerActionError(error: unknown): boolean {

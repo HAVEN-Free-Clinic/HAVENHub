@@ -63,6 +63,9 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
   const rows = await listDualRoleQueue(session.personId, { includeDecided });
   const pending = rows.filter((r) => r.status === "PENDING");
   const decided = rows.filter((r) => r.status !== "PENDING");
+  // A term chip only earns its place when the queue spans two terms, which it
+  // does between promoting next term's cohort and the flip.
+  const showTermName = new Set(rows.map((r) => r.termName)).size > 1;
 
   async function acceptAction(formData: FormData) {
     "use server";
@@ -96,7 +99,7 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Dual roles"
-        description="Volunteers serving another department who offered to also help yours. Accepting puts them on your roster for this term; it does not change the department they were accepted into."
+        description="Volunteers serving another department who offered to also help yours. Accepting puts them on your roster for the term they applied for; it does not change the department they were accepted into."
       />
 
       {/* No inline Alert: FlashReader claims this param, toasts it, and strips it
@@ -151,7 +154,7 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
                     )}
                   </TD>
                   <TD>
-                    <Badge>{r.departmentCode}</Badge>
+                    <OfferedTo row={r} showTermName={showTermName} />
                   </TD>
                   <TD>
                     <LanguageCell row={r} />
@@ -176,7 +179,7 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
           <h2 className="text-sm font-semibold text-foreground">Already decided</h2>
           {decided.length === 0 ? (
             <Card pad={false}>
-              <EmptyState title="Nothing decided yet this term." />
+              <EmptyState title="Nothing decided yet." />
             </Card>
           ) : (
             <Table>
@@ -194,7 +197,7 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
                   <TR key={r.id}>
                     <TD className="font-medium">{r.personName}</TD>
                     <TD>
-                      <Badge>{r.departmentCode}</Badge>
+                      <OfferedTo row={r} showTermName={showTermName} />
                     </TD>
                     <TD>
                       <Badge tone={r.status === "ACCEPTED" ? "success" : "default"}>
@@ -214,6 +217,16 @@ export default async function DualRolesPage({ searchParams }: PageProps) {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+/** The department the offer is to, plus its term when the queue spans two. */
+function OfferedTo({ row, showTermName }: { row: DualRoleQueueRow; showTermName: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <Badge>{row.departmentCode}</Badge>
+      {showTermName && <Badge>{row.termName}</Badge>}
     </div>
   );
 }

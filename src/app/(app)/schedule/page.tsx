@@ -615,7 +615,7 @@ export default async function MySchedulePage({
             <div key={t.term.id} className="mb-12 last:mb-0">
               {showTermHeadings && (
                 <div className="mb-5 flex items-center gap-2">
-                  <SectionHeader as="h2" level="title" className="text-xl">{t.term.name}</SectionHeader>
+                  <SectionHeader as="h2" level="group">{t.term.name}</SectionHeader>
                   <Badge tone={t.isLive ? "brand" : "default"}>{t.isLive ? "Live" : "Next term"}</Badge>
                 </div>
               )}

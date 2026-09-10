@@ -185,7 +185,7 @@ export function AttendingPortalSection({
   return (
     <section className="mb-12">
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <SectionHeader as="h2" level="title" className="text-xl">
+        <SectionHeader as="h2" level="group">
           My attending schedule
         </SectionHeader>
         {attending.specialty && <Badge>{attending.specialty.name}</Badge>}

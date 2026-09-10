@@ -39,3 +39,24 @@ describe("SectionHeader levels", () => {
     expect(out).toContain("text-foreground-soft");
   });
 });
+
+describe("the group level", () => {
+  it("is a rung on the ladder, not a caller's text-xl", () => {
+    // Three pages reached this size by passing className="text-xl" to a
+    // `title`. A caller class fighting a primitive's own class is
+    // emission-order roulette here: this repo has no tailwind-merge, so
+    // whichever of text-base and text-xl Tailwind emits later wins, not
+    // whichever the caller wrote last.
+    expect(render(<SectionHeader level="group">Term</SectionHeader>)).toContain(
+      'class="text-xl font-semibold text-foreground"',
+    );
+  });
+
+  it("is a step above title, which is what makes it a level", () => {
+    const group = render(<SectionHeader level="group">x</SectionHeader>);
+    const title = render(<SectionHeader level="title">x</SectionHeader>);
+    expect(group).not.toBe(title);
+    expect(group).toContain("text-xl");
+    expect(title).toContain("text-base");
+  });
+});

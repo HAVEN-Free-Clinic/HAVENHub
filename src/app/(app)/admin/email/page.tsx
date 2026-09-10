@@ -50,7 +50,8 @@ import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
 import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
-import { TextLink } from "@/platform/ui/text-link";
+import Link from "next/link";
+import { buttonClasses } from "@/platform/ui/button";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -280,16 +281,23 @@ export default async function EmailPage({ searchParams }: PageProps) {
         description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
         action={
           canCampaigns || canTemplates ? (
-            <div className="flex gap-4">
+            // Button-shaped, like the action slot on the other thirteen pages
+            // that use it. Two underlined words in the top right read as prose
+            // that happens to be clickable, not as the controls a reader has
+            // learned to look for there.
+            //
+            // Outline, not primary: these navigate to sibling surfaces, they
+            // are not this page's own action.
+            <div className="flex gap-2">
               {canCampaigns && (
-                <TextLink href="/outreach/campaigns" size="sm" className="font-medium">
+                <Link href="/outreach/campaigns" className={buttonClasses("outline", "sm")}>
                   Campaigns
-                </TextLink>
+                </Link>
               )}
               {canTemplates && (
-                <TextLink href="/admin/email/templates" size="sm" className="font-medium">
+                <Link href="/admin/email/templates" className={buttonClasses("outline", "sm")}>
                   Manage templates
-                </TextLink>
+                </Link>
               )}
             </div>
           ) : undefined

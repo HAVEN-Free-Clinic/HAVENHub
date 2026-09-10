@@ -1267,6 +1267,48 @@ describe("params that used to be pinned to the URL forever", () => {
     expect(roster.toasts).toEqual([{ tone: "success", message: "Training reset." }]);
   });
 
+  it("gives a plain saved=1 the cycle's own wording on a cycle email editor page", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "1" }),
+      "/recruitment/cycles/cy1/emails/acceptance",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Cycle email saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=reset on a cycle email editor page, apart from the other two scopes", () => {
+    // Three disjoint scopes now share `saved|saved=reset`: the training roster,
+    // the admin template editor, and this. resolveScoped picks per path, and the
+    // cycle email route is five segments deep under /recruitment/cycles/*, which
+    // is where a widened admin scope would have gone wrong.
+    const cycle = classifyFlashParams(
+      paramsOf({ saved: "reset" }),
+      "/recruitment/cycles/cy1/emails/acceptance",
+    );
+    expect(cycle.toasts).toEqual([{ tone: "success", message: "Reverted to the default." }]);
+    expect(cycle.stripParams).toEqual(["saved"]);
+
+    const template = classifyFlashParams(
+      paramsOf({ saved: "reset" }),
+      "/admin/email/templates/strike_issued",
+    );
+    expect(template.toasts).toEqual([
+      { tone: "success", message: "Reverted to the built-in template." },
+    ]);
+  });
+
+  it("does not spread the cycle email wording to the cycle's email index", () => {
+    // /recruitment/cycles/*/emails is four segments and only lists the
+    // templates. `*` matches exactly one segment, so the five-segment editor
+    // scope must not reach it; it falls through to the group's unscoped default.
+    //
+    // This one passes against the pre-change registry too -- it is a containment
+    // invariant, not evidence the entries were added. The two tests above are
+    // the ones that go red without them.
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/recruitment/cycles/cy1/emails");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+  });
+
   it("claims senderSaved on a template editor page, not just on /admin/email", () => {
     const result = classifyFlashParams(
       paramsOf({ senderSaved: "1" }),
@@ -1300,6 +1342,10 @@ describe("params that used to be pinned to the URL forever", () => {
   it("does not stretch the template scope over the template index or /admin/email", () => {
     // Five segments vs four vs three: `*` matches exactly one segment, so the
     // list page keeps the generic text and /admin/email keeps its own entries.
+    //
+    // Like the leak guard above, this passes against the pre-change registry as
+    // well -- both are containment invariants. The positive conversions are the
+    // cases that go red without their entries.
     const index = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/email/templates");
     expect(index.toasts).toEqual([{ tone: "success", message: "Saved." }]);
 

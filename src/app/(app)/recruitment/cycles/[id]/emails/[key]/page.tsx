@@ -51,7 +51,10 @@ export default async function EditCycleEmailPage({ params }: Props) {
       throw err;
     }
     revalidatePath(base);
-    redirect(base);
+    // ?saved=1, not a bare redirect: this route re-renders the editor with the
+    // same text in it, so a save that landed and a save that never ran looked
+    // identical. FlashReader toasts the param and strips it from the URL.
+    redirect(`${base}?saved=1`);
   }
 
   async function resetAction() {
@@ -59,7 +62,7 @@ export default async function EditCycleEmailPage({ params }: Props) {
     const actor = await requirePermission("recruitment.manage_cycles");
     await resetCycleEmail(id, decodedKey as CycleEmailKey, actor.personId);
     revalidatePath(base);
-    redirect(base);
+    redirect(`${base}?saved=reset`);
   }
 
   return (

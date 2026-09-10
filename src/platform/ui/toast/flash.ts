@@ -390,6 +390,11 @@ const SCOPE_DETAIL_PATHNAME = "/outreach/scopes/*";
  *  at platform/email/templates/registry.ts is a closed list and none of its keys
  *  has one (they are hyphen- and dot-cased). */
 const EMAIL_TEMPLATE_PATHNAME = "/admin/email/templates/*";
+/** recruitment/cycles/[id]/emails/[key]/page.tsx's own route. Same editor
+ *  component as the admin template route above, and the same two actions, but a
+ *  cycle override rather than the app-wide template -- so it needs its own two
+ *  entries and its own words, not a widening of the admin scope. */
+const CYCLE_EMAIL_PATHNAME = "/recruitment/cycles/*/emails/*";
 
 /**
  * Explicit entries for flash shapes the `error`/`*Error` convention cannot express: a flag
@@ -544,6 +549,16 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Reverted to the built-in template.",
   },
   {
+    // recruitment/cycles/[id]/emails/[key]/page.tsx (resetAction). Same group
+    // again, third disjoint scope. The page's own header calls the un-overridden
+    // state "Using the default", so that is the word the toast uses.
+    params: ["saved"],
+    matchValues: { saved: "reset" },
+    pathnames: [CYCLE_EMAIL_PATHNAME],
+    tone: "success",
+    message: () => "Reverted to the default.",
+  },
+  {
     params: ["saved"],
     matchValues: { saved: "excused" },
     pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
@@ -655,6 +670,17 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [EMAIL_TEMPLATE_PATHNAME],
     tone: "success",
     message: () => "Template saved.",
+  },
+  {
+    // recruitment/cycles/[id]/emails/[key]/page.tsx (saveAction). The editor
+    // re-renders byte-identically after a save -- the only thing that moves is
+    // the PageHeader description, from "Using the default" to "Customized for
+    // this cycle", and only on the FIRST save. Without this the second save and
+    // every one after it looked like nothing happened.
+    params: ["saved"],
+    pathnames: [CYCLE_EMAIL_PATHNAME],
+    tone: "success",
+    message: () => "Cycle email saved.",
   },
 
   {

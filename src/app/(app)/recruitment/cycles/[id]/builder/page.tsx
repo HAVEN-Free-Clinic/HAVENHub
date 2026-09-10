@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
@@ -56,7 +57,7 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
     }));
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <PageBody width="content">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -79,6 +80,6 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
         sections={sections}
         acceptsRenewals={cycle.acceptsRenewals}
       />
-    </div>
+    </PageBody>
   );
 }

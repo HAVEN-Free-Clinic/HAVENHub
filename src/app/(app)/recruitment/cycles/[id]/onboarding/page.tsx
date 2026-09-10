@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboardingRows } from "@/modules/recruitment/services/onboarding";
@@ -19,7 +20,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
   const hasConflicts = rows.some((r) => r.state === "CONFLICT");
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <PageBody width="wide">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -50,6 +51,6 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
           page.
         </p>
       )}
-    </div>
+    </PageBody>
   );
 }

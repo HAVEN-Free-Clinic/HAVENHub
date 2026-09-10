@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import {
   getCycleEmailForEdit,
@@ -63,7 +64,7 @@ export default async function EditCycleEmailPage({ params }: Props) {
   }
 
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -88,6 +89,6 @@ export default async function EditCycleEmailPage({ params }: Props) {
         layoutSource={t.layoutSource}
         brandColor={brandColor}
       />
-    </div>
+    </PageBody>
   );
 }

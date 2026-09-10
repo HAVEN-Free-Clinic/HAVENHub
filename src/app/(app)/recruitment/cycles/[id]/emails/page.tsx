@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { listCycleEmails } from "@/modules/recruitment/services/cycle-emails";
@@ -15,7 +16,7 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
   if (!cycle) notFound();
   const emails = await listCycleEmails(cycle.id);
   return (
-    <div className="space-y-6">
+    <PageBody>
       <PageHeader
         title="Cycle emails"
         description={`Customize the emails sent for ${cycle.title}. Unset emails use the global default.`}
@@ -47,6 +48,6 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
           ))}
         </tbody>
       </Table>
-    </div>
+    </PageBody>
   );
 }

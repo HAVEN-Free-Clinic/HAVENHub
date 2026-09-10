@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { DateTime } from "@/platform/dates/display";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -18,7 +19,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
   if (!cycle) notFound();
   const interviews = await listInterviewsForReview(id, person.personId);
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -78,6 +79,6 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
           )}
         </tbody>
       </Table>
-    </div>
+    </PageBody>
   );
 }

@@ -6,14 +6,13 @@
  * certs via include, then cert selection is done in JS.
  */
 
-import type { Department, HipaaCertificate, Person } from "@prisma/client";
+import type { HipaaCertificate, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { complianceStatus } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState } from "@/platform/compliance/rules";
-import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -64,12 +63,6 @@ export type MemberCompliance = {
   clearance: ClearanceSummary;
 };
 
-type DepartmentCompliance = {
-  department: Department;
-  members: MemberCompliance[];
-  counts: Record<ComplianceStatus, number>;
-};
-
 // ---------------------------------------------------------------------------
 // Status sort order: non-compliant first
 // ---------------------------------------------------------------------------
@@ -82,167 +75,6 @@ const STATUS_ORDER: Record<ComplianceStatus, number> = {
   EXPIRING_SOON: 4,
   COMPLIANT: 5,
 };
-
-/**
- * Returns compliance data for all departments the viewer manages: departments
- * where they hold an ACTIVE DIRECTOR membership in the active term, plus the
- * departments those manage via DepartmentDelegation (one hop). A PCAR director
- * therefore sees PCAR + SCTP + JCTP cards. Delegation is one-way.
- *
- * For each department:
- *   - members: ALL ACTIVE memberships (both DIRECTOR and VOLUNTEER), each with
- *     their newest cert and computed compliance status.
- *   - counts: per-status totals.
- *   - members are sorted: non-compliant statuses first (NO_CERTIFICATE, EXPIRED,
- *     UNKNOWN_DATE, EXPIRING_SOON, COMPLIANT), then alphabetically by name.
- */
-export async function departmentCompliance(
-  viewerPersonId: string
-): Promise<DepartmentCompliance[]> {
-  // 1. Find the active term.
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return [];
-
-  // 2. Departments the viewer manages: own active directorships PLUS one-hop
-  //    delegations. Returns [] when there is no active term or no directorships.
-  const deptIds = await manageableDepartmentIds(viewerPersonId);
-  if (deptIds.length === 0) return [];
-
-  // Resolve the Department rows (used for card headings + stable ordering).
-  const departments = await prisma.department.findMany({
-    where: { id: { in: deptIds } },
-    orderBy: { code: "asc" },
-  });
-
-  // 3. Fetch all ACTIVE memberships in those departments (both kinds), with
-  //    person + their certs, in one query.
-  const memberships = await prisma.termMembership.findMany({
-    where: {
-      termId: activeTerm.id,
-      departmentId: { in: deptIds },
-      status: "ACTIVE",
-    },
-    include: {
-      person: {
-        include: {
-          hipaaCertificates: {
-            orderBy: { uploadedAt: "desc" },
-          },
-        },
-      },
-    },
-  });
-
-  // 4. Collect distinct non-null verifiedById values and resolve to names in one query.
-  const verifierIds = Array.from(
-    new Set(
-      memberships.flatMap((m) =>
-        m.person.hipaaCertificates
-          .slice(0, 1) // only the newest cert per person
-          .map((c) => c.verifiedById)
-          .filter((id): id is string => id !== null)
-      )
-    )
-  );
-
-  const verifierNameMap = new Map<string, string>();
-  if (verifierIds.length > 0) {
-    const verifiers = await prisma.person.findMany({
-      where: { id: { in: verifierIds } },
-      select: { id: true, name: true },
-    });
-    for (const v of verifiers) {
-      if (v.name) verifierNameMap.set(v.id, v.name);
-    }
-  }
-
-  // 5. Fetch the set of people with COMPLETE training for the active term once.
-  const completedTraining = new Set(
-    (await prisma.training.findMany({
-      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
-      select: { personId: true },
-    })).map((t) => t.personId)
-  );
-
-  // 6. Group by department and compute per-member compliance.
-  const deptMap = new Map<string, { department: Department; members: MemberCompliance[] }>();
-
-  // Ensure we have an entry for every manageable department, in code order.
-  for (const d of departments) {
-    if (!deptMap.has(d.id)) {
-      deptMap.set(d.id, { department: d, members: [] });
-    }
-  }
-
-  for (const m of memberships) {
-    const entry = deptMap.get(m.departmentId);
-    if (!entry) continue; // should never happen given the query filter
-
-    const certs = m.person.hipaaCertificates;
-    // Newest cert = first in the descending-uploadedAt list.
-    const newestCert: HipaaCertificate | null = certs.length > 0 ? certs[0] : null;
-
-    const status = complianceStatus(
-      newestCert
-        ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt }
-        : null,
-      activeTerm.endDate
-    );
-
-    const verifiedByName = newestCert?.verifiedById
-      ? (verifierNameMap.get(newestCert.verifiedById) ?? null)
-      : null;
-
-    const trainingState: TrainingState = completedTraining.has(m.person.id) ? "COMPLETE" : "PENDING";
-    entry.members.push({
-      person: m.person,
-      kind: m.kind,
-      cert: newestCert,
-      status,
-      verifiedByName,
-      trainingState,
-      clearance: EMPTY_CLEARANCE,
-    });
-  }
-
-  // Attach full clearance (profile + HIPAA + training + learning + EHS) per member.
-  const allMemberIds = [...deptMap.values()].flatMap((e) => e.members.map((m) => m.person.id));
-  const clearanceMap = await loadClearanceMap(allMemberIds, activeTerm.id);
-  for (const entry of deptMap.values()) {
-    for (const m of entry.members) {
-      m.clearance = clearanceMap.get(m.person.id) ?? EMPTY_CLEARANCE;
-    }
-  }
-
-  // 6. Sort members and build counts per department.
-  const result: DepartmentCompliance[] = [];
-
-  for (const { department, members } of deptMap.values()) {
-    // Sort: status order first, then name alphabetically.
-    members.sort((a, b) => {
-      const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      if (statusDiff !== 0) return statusDiff;
-      return comparePersonName(a.person, b.person);
-    });
-
-    // Build counts.
-    const counts: Record<ComplianceStatus, number> = {
-      COMPLIANT: 0,
-      EXPIRING_SOON: 0,
-      EXPIRED: 0,
-      PENDING_VERIFICATION: 0,
-      UNKNOWN_DATE: 0,
-      NO_CERTIFICATE: 0,
-    };
-    for (const m of members) {
-      counts[m.status]++;
-    }
-
-    result.push({ department, members, counts });
-  }
-
-  return result;
-}
 
 /**
  * Columns the master roster can be ordered by.
@@ -301,8 +133,7 @@ function rosterDepartmentWhere(
  * membership in the active term. Director-only members train on the DIRECTOR
  * track, so volunteer-track training does not apply to them; the master view
  * uses this flag to render "-" for Training/Overall instead of flagging them
- * as Pending/Not Cleared (mirroring the department view's per-membership
- * kind-gating).
+ * as Pending/Not Cleared.
  */
 export type MasterComplianceRow = Omit<MemberCompliance, "kind"> & {
   departments: string[];

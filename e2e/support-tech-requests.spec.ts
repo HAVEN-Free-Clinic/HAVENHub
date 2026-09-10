@@ -237,18 +237,19 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   // because this test cancelled from the ticket page, whose Cancel is an
   // ordinary per-row <form> with a hidden input.
   //
-  // The queue is shared, so scope to this person's row rather than the first
-  // Cancel in the list.
+  // Scoped by the per-row select checkbox, which only the QUEUE's rows carry.
+  // Filtering on the person's name alone matched the "Epic tickets with no
+  // request attached" card above it too -- that card lists the same person's
+  // ticket and renders first, so `.first()` picked a row with no Cancel button.
   await page.goto("/support/epic?tab=pending");
   await page.waitForLoadState("networkidle");
-  const pendingRow = page.locator("li").filter({ hasText: "Dev Volunteer" }).first();
-  await expect(pendingRow).toBeVisible();
-  await pendingRow.getByRole("button", { name: "Cancel" }).click();
+  const queuedRow = () =>
+    page.locator("li").filter({ has: page.getByRole("checkbox", { name: "Select Dev Volunteer" }) });
+  await expect(queuedRow()).toHaveCount(1);
+  await queuedRow().getByRole("button", { name: "Cancel" }).click();
   await page.waitForURL((url) => url.pathname === "/support/epic");
   await page.waitForLoadState("networkidle");
-  await expect(
-    page.locator("li").filter({ hasText: "Dev Volunteer" }),
-  ).toHaveCount(0);
+  await expect(queuedRow()).toHaveCount(0);
 
   // And the ticket agrees: no open request, epicId never set. The shared
   // dev.volunteer persona is left exactly as clean as before.

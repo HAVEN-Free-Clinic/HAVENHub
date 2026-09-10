@@ -236,6 +236,92 @@ describe("applyIntercomTicketStateChange", () => {
   });
 
   // ---------------------------------------------------------------------
+  // The one outcome this sync can produce that loses a member's request.
+  //
+  // Epic intake never happens in chat by design (it needs a government id), so
+  // the handoff is "Fin links you to the Hub form". If that second half never
+  // happened, resolving the conversation is the moment the ask disappears:
+  // /support/epic never knew about it, and a terminal ticket drops off the
+  // orphan list too. Not refused -- Intercom owns status here, and blocking the
+  // write would put the two sides permanently out of step -- but never silent.
+  // ---------------------------------------------------------------------
+  describe("an EPIC ticket resolved with no Epic request attached", () => {
+    async function epicTicket(ticketId: string) {
+      const person = await createPerson("Epic Asker");
+      const { ticket } = await createTechRequestFromConversation(person.id, {
+        intercomConversationId: `conv_${ticketId}`,
+        intercomTicketId: ticketId,
+        category: "EPIC",
+        subject: "Need Epic access",
+        description: "Asked Fin in the messenger.",
+      });
+      return { person, ticket };
+    }
+
+    async function orphanAudits() {
+      return prisma.auditLog.findMany({
+        where: { action: "intercom_ticket_sync.epic_ticket_closed_without_request" },
+      });
+    }
+
+    it("records an audit entry naming the ticket", async () => {
+      const { ticket } = await epicTicket("ticket_epic_1");
+
+      await applyIntercomTicketStateChange("ticket_epic_1", "Resolved");
+
+      const rows = await orphanAudits();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].entityId).toBe(ticket.id);
+      expect(rows[0].actorPersonId).toBeNull();
+      expect((rows[0].after as Record<string, unknown>).number).toBe(ticket.number);
+      // The status write still lands: this observes, it does not refuse.
+      const reloaded = await prisma.techRequest.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(reloaded.status).toBe("RESOLVED");
+    });
+
+    it("stays quiet when a request IS attached", async () => {
+      const { person, ticket } = await epicTicket("ticket_epic_2");
+      const mgr = await createPerson("Manager");
+      await prisma.epicRequest.create({
+        data: {
+          personId: person.id,
+          kind: "NEW",
+          status: "PENDING",
+          requestedById: mgr.id,
+          techRequestId: ticket.id,
+        },
+      });
+
+      await applyIntercomTicketStateChange("ticket_epic_2", "Resolved");
+
+      expect(await orphanAudits()).toEqual([]);
+    });
+
+    it("stays quiet on a non-terminal state, which loses nothing", async () => {
+      await epicTicket("ticket_epic_3");
+
+      await applyIntercomTicketStateChange("ticket_epic_3", "In progress");
+
+      expect(await orphanAudits()).toEqual([]);
+    });
+
+    it("stays quiet for a resolved ticket of another category", async () => {
+      const person = await createPerson("Wifi Asker");
+      await createTechRequestFromConversation(person.id, {
+        intercomConversationId: "conv_ticket_epic_4",
+        intercomTicketId: "ticket_epic_4",
+        category: "GENERAL_IT",
+        subject: "Wifi",
+        description: "d",
+      });
+
+      await applyIntercomTicketStateChange("ticket_epic_4", "Resolved");
+
+      expect(await orphanAudits()).toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Staleness: Intercom guarantees no delivery ORDER and retries a failed
   // delivery for hours, so "arrived later" is not "happened later". Status
   // equality, the only guard there used to be, says nothing about age.

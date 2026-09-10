@@ -5,6 +5,7 @@ import {
   authorizerInitials,
   listEpicAuthorizers,
   listPendingDeactivations,
+  listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
   reconcileDeactivationRequests,
   submitEpicRequests,
@@ -250,6 +251,89 @@ describe("listPendingEpicRequests", () => {
     });
 
     expect(await listPendingEpicRequests()).toEqual([]);
+  });
+});
+
+describe("listEpicTicketsWithoutRequest", () => {
+  beforeEach(resetDb);
+
+  it("returns an EPIC ticket that has no Epic request attached", async () => {
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+
+    const rows = await listEpicTicketsWithoutRequest();
+    expect(rows.map((r) => r.id)).toEqual([t.id]);
+    expect(rows[0]).toMatchObject({ number: t.number, subject: t.subject, fromIntercom: false });
+  });
+
+  it("drops the ticket once a request is attached", async () => {
+    // The whole point of the list: it is a to-do, and attaching is what does it.
+    const mgr = await createPerson("Manager");
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    expect((await listEpicTicketsWithoutRequest()).map((r) => r.id)).toEqual([t.id]);
+
+    await prisma.epicRequest.create({
+      data: {
+        personId: requester.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: mgr.id,
+        techRequestId: t.id,
+      },
+    });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("ignores tickets of any other category", async () => {
+    const requester = await createPerson("Requester");
+    await createTechRequest(requester.id, {
+      category: "GENERAL_IT",
+      subject: "Laptop",
+      description: "d",
+    });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("drops a terminal ticket, so the list drains instead of accruing", async () => {
+    // A manager has no status controls on an Intercom-linked ticket, so a list
+    // that kept resolved rows could never be emptied from the Hub. The moment of
+    // loss is covered by the audit entry in intercom-sync instead.
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({ where: { id: t.id }, data: { status: "RESOLVED" } });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("marks a chat-origin ticket, which is the case this list exists for", async () => {
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({
+      where: { id: t.id },
+      data: { intercomConversationId: "conv_1" },
+    });
+
+    const rows = await listEpicTicketsWithoutRequest();
+    expect(rows.map((r) => r.fromIntercom)).toEqual([true]);
   });
 });
 

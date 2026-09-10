@@ -82,6 +82,7 @@ import { Select } from "@/platform/ui/select";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { ExternalLinkButton } from "@/platform/ui/external-link-button";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -428,6 +429,20 @@ export async function TicketDetail({
                   </li>
                 ))}
               </ul>
+            ) : showEpicMutations ? (
+              // Not the neutral empty state, because on an EPIC ticket this is
+              // not a neutral fact. The ticket is categorised Epic access and
+              // reads as in-hand, but with no request attached it is in no Epic
+              // queue and no YNHH batch will ever include it -- and Intercom,
+              // which owns status on a linked ticket, can resolve it from under
+              // you. Say the consequence, not just the absence.
+              <Alert tone="warning">
+                No Epic request attached, so this is not in the Epic queue and no YNHH
+                submission will include it.
+                {isOpen && attachEpicAction
+                  ? " Attach one below to put it in the workflow."
+                  : " The ticket is closed to changes here; raise the request from /support/epic instead."}
+              </Alert>
             ) : (
               <EmptyState inline>No Epic requests attached yet.</EmptyState>
             )}

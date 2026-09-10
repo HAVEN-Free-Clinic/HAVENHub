@@ -18,7 +18,7 @@
  * mutate data.
  */
 
-import type { Person, Department, YnhhTicket, EpicRequestKind } from "@prisma/client";
+import type { Person, Department, YnhhTicket, EpicRequestKind, TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
@@ -886,6 +886,75 @@ export async function submitEpicRequests(
   await onEpicSubmitted(actorPersonId, ticket.id);
 
   return ticket;
+}
+
+// ---------------------------------------------------------------------------
+// listEpicTicketsWithoutRequest
+// ---------------------------------------------------------------------------
+
+export type OrphanEpicTicketRow = {
+  id: string;
+  number: number;
+  subject: string;
+  createdAt: Date;
+  status: TechRequestStatus;
+  /** True when the ticket came in from a Messenger conversation rather than a Hub form. */
+  fromIntercom: boolean;
+  requester: { id: string; name: string | null; epicId: string | null };
+};
+
+/**
+ * EPIC-category support tickets that have no EpicRequest attached.
+ *
+ * This is the hole an Intercom-origin Epic ask falls into. The inbound sync
+ * deliberately creates only a TechRequest -- the ingest route takes none of the
+ * Epic intake fields, because that intake needs a government id and a date of
+ * birth and no part of it may be collected in chat (see the Intercom ticket-sync
+ * design doc, "The category is chosen, not inferred"). The intended handoff is
+ * that Fin links the member to the Hub form. Nothing checked that the second
+ * half ever happened: the ticket sat as a plain EPIC ticket, absent from every
+ * Epic surface, and Intercom -- which owns status -- could resolve it with no
+ * Epic request ever raised. In production all three Intercom-origin EPIC tickets
+ * reached RESOLVED this way; the members were only covered because each had also
+ * gone through the Hub form independently.
+ *
+ * Non-terminal only, so the list drains by itself as tickets close rather than
+ * accruing a backlog nobody can clear -- a manager has no status controls on an
+ * Intercom-linked ticket (ticket-detail.tsx gates them on intercomTicketId), so
+ * a list that kept resolved rows would have no way to be emptied from the Hub.
+ * The moment of loss is covered separately: resolving one of these records its
+ * own audit entry rather than passing silently (intercom-sync.ts).
+ */
+export async function listEpicTicketsWithoutRequest(): Promise<OrphanEpicTicketRow[]> {
+  const rows = await prisma.techRequest.findMany({
+    where: {
+      category: "EPIC",
+      status: { notIn: TERMINAL_STATUSES },
+      // Relation filter, not a null check on a column: an EpicRequest points AT
+      // the ticket (EpicRequest.techRequestId), so "has none" is the only way to
+      // ask this.
+      epicRequests: { none: {} },
+    },
+    orderBy: { number: "desc" },
+    select: {
+      id: true,
+      number: true,
+      subject: true,
+      createdAt: true,
+      status: true,
+      intercomConversationId: true,
+      requester: { select: { id: true, name: true, epicId: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    subject: r.subject,
+    createdAt: r.createdAt,
+    status: r.status,
+    fromIntercom: r.intercomConversationId !== null,
+    requester: { id: r.requester.id, name: r.requester.name, epicId: r.requester.epicId },
+  }));
 }
 
 // ---------------------------------------------------------------------------

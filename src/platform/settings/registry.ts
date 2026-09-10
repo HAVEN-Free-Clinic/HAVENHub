@@ -87,7 +87,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     // regardless of the app's own limit. A larger value is accepted here but every
     // upload over the platform cap still fails opaquely at the edge, before any app
     // code runs -- so the setting must never promise more than the platform allows (#75).
-    help: "Largest allowed file upload, in megabytes (max 4 -- the platform request-body cap for uploads). Applies to all file uploads across the app.",
+    help: "Largest allowed file upload, in megabytes. The maximum is 4, which is the platform's own limit for uploads. Applies to all file uploads across the app.",
     input: { type: "number", min: 1, max: 4 },
     schema: z.number().int().min(1).max(4),
     envDefault: () => config.MAX_UPLOAD_MB,
@@ -497,7 +497,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "maintenance.enabled",
     category: "Maintenance",
     label: "Maintenance mode",
-    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Anyone who can reach this page keeps using the hub normally, so whoever turns it on can always turn it back off. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running -- this stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
+    help: "Turns the hub off. Everyone is sent to a maintenance page instead of the site, including signed-in members, and every write stops with them. Anyone who can reach this page keeps using the hub normally, so whoever turns it on can always turn it back off. Three things stay up: sign-in, the public volunteer-passport pages, and every /api route, which means cron email delivery, the calendar feed, and health checks all keep running. This stops people, not background work. It applies within 30 seconds of saving, with no deploy, and turning it back off is the same switch. If you are ever locked out with it on, clear it straight from the database: UPDATE \"Setting\" SET value='false' WHERE key='maintenance.enabled';",
     input: { type: "boolean" },
     schema: z.boolean(),
     envDefault: () => false,
@@ -517,7 +517,7 @@ export const SETTINGS: SettingDef<unknown>[] = [
     key: "maintenance.until",
     category: "Maintenance",
     label: "Expected back by",
-    help: "Free text, shown under the message as \"Expected back: ...\" -- for example \"9:00 PM Eastern\" or \"Monday morning\". Written out rather than picked from a calendar so it can stay vague; leave it blank to promise nothing, which is better than missing a time you published.",
+    help: "Free text, shown under the message as \"Expected back: ...\", for example \"9:00 PM Eastern\" or \"Monday morning\". Written out rather than picked from a calendar so it can stay vague; leave it blank to promise nothing, which is better than missing a time you published.",
     input: { type: "text" },
     schema: z.string().max(120, "Keep this under 120 characters."),
     envDefault: () => "",

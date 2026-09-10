@@ -95,6 +95,11 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     select: { title: true, publicSlug: true },
     orderBy: { createdAt: "desc" },
   });
+  // A cycle this person already has a live application for is listed once, under
+  // "Your applications". Offering "Start application" beside it as well read as a
+  // second, separate application. A withdrawn one is still offered.
+  const appliedSlugs = new Set(myApps.filter((a) => a.state !== "WITHDRAWN").map((a) => a.slug));
+  const startableCycles = openCycles.filter((c) => !appliedSlugs.has(c.publicSlug));
 
   // Cycles with a future open date, so someone who finds nothing open learns
   // WHEN to come back instead of being told to keep checking. Which cycles
@@ -157,7 +162,11 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
 
       <section className="space-y-3">
         <SectionHeader>Open applications</SectionHeader>
-        {openCycles.length === 0 ? (
+        {startableCycles.length === 0 && openCycles.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            You already have an application in for every open cycle.
+          </p>
+        ) : startableCycles.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center">
             <p className="text-sm font-medium text-foreground">No applications are open right now</p>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
@@ -168,7 +177,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
           </div>
         ) : (
           <ul className="space-y-2">
-            {openCycles.map((c) => (
+            {startableCycles.map((c) => (
               <li key={c.publicSlug}>
                 <Link href={`/apply/${c.publicSlug}`} className={actionRow}>
                   <span className="truncate text-sm font-medium text-foreground">{c.title}</span>

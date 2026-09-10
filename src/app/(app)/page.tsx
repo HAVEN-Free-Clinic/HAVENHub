@@ -6,7 +6,8 @@ import {
   ClipboardList,
   Stethoscope,
   ArrowRight,
-  Repeat,
+  Tag,
+  CalendarX,
   Check,
   Clock,
   ChevronRight,
@@ -255,6 +256,8 @@ export default async function HubPage() {
     where: string;
     /** The role line: "Volunteer", "Director", or "Attending". */
     role: string;
+    /** A closed clinic date. Its own line, never one of the tags. */
+    closed: boolean;
     /** Tags for a volunteer shift; who they cover with for an attending date. */
     detail: string[];
     /** The attending covering a volunteer's own department that day. */
@@ -266,14 +269,13 @@ export default async function HubPage() {
         clinicDate: upcoming[0].clinicDate,
         where: upcoming[0].department.name,
         role: roleLabel(upcoming[0].role),
-        // "Clinic closed" leads, ahead of the tags: it changes what the day
-        // is, where the tags only describe the post held on it. A closed date
-        // still counts as the next commitment -- someone is scheduled for it,
-        // and the shift card below explains the rest.
-        detail: [
-          ...(upcoming[0].clinicClosed ? ["Clinic closed"] : []),
-          ...shiftTags(upcoming[0].tags),
-        ],
+        // A closed date still counts as the next commitment -- someone is
+        // scheduled for it, and the shift card on /schedule explains the rest.
+        // "Clinic closed" is its own line rather than the first tag: it changes
+        // what the day is, where the tags only describe the post held on it,
+        // and joined to the tags it sat behind their icon as if it were one.
+        closed: upcoming[0].clinicClosed,
+        detail: shiftTags(upcoming[0].tags),
         attendings: upcoming[0].attendings.map((a) => a.name),
       }
     : null;
@@ -288,6 +290,8 @@ export default async function HubPage() {
         clinicDate: attendingUpcoming[0].clinicDate,
         where: `${attendingUpcoming[0].slot.label} · ${attendingUpcoming[0].slot.startTime}-${attendingUpcoming[0].slot.endTime}`,
         role: "Attending",
+        // Closed Saturdays are filtered out of attendingUpcoming above.
+        closed: false,
         detail:
           attendingUpcoming[0].alongside.length > 0
             ? [`With ${attendingUpcoming[0].alongside.join(", ")}`]
@@ -537,9 +541,19 @@ export default async function HubPage() {
                 <span className="inline-flex items-center gap-2">
                   <Stethoscope aria-hidden className="h-4 w-4 text-white/70" /> {next.role}
                 </span>
+                {next.closed && (
+                  <span className="inline-flex items-center gap-2">
+                    <CalendarX aria-hidden className="h-4 w-4 text-white/70" /> Clinic closed
+                  </span>
+                )}
                 {nextTags.length > 0 && (
                   <span className="inline-flex items-center gap-2">
-                    <Repeat aria-hidden className="h-4 w-4 text-white/70" /> {nextTags.join(" · ")}
+                    {next.role === "Attending" ? (
+                      <UserRound aria-hidden className="h-4 w-4 text-white/70" />
+                    ) : (
+                      <Tag aria-hidden className="h-4 w-4 text-white/70" />
+                    )}{" "}
+                    {nextTags.join(" · ")}
                   </span>
                 )}
                 {/* The attending covering THIS member's department that day.

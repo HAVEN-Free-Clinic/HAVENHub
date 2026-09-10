@@ -608,7 +608,7 @@ async function sendClearanceDigests(
       email: { subject: rendered.subject, html: rendered.html },
       teams: {
         title: "Weekly clearance digest",
-        summary: `${members.length} member${members.length === 1 ? "" : "s"} in ${departmentNames} are not cleared.`,
+        summary: `${members.length} member${members.length === 1 ? "" : "s"} in ${departmentNames} ${members.length === 1 ? "is" : "are"} not cleared.`,
         // /volunteers gates on volunteers.view, which the seeded Director baseline
         // holds, and it is the compliance surface itself. /admin gates on admin.access,
         // which Director does NOT hold, so linking there resolves to /no-access for

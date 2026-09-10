@@ -483,7 +483,10 @@ export default async function MySchedulePage({
                 {shift.clinicClosed && (
                   <p className="mb-2 text-sm text-foreground-soft">
                     <span className="text-muted-foreground">The clinic is closed this date. </span>
-                    {shift.closedNote ? `${shift.closedNote} ` : ""}
+                    {/* The note is an admin's free text ("Fall Training"), usually
+                        with no full stop, so give it one or it runs into the next
+                        sentence. */}
+                    {shift.closedNote ? `${shift.closedNote.trim().replace(/([^.!?])$/, "$1.")} ` : ""}
                     You are still scheduled, and there is no clinic-day check-in. Check with
                     your director if you are not sure whether to come in.
                   </p>

@@ -24,9 +24,8 @@ import { Button } from "@/platform/ui/button";
 import { STATUS_LABELS } from "./status-badge";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
 import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
-import { FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
+import { FormRow, RowField } from "@/platform/ui/form";
 import { ResultCount } from "@/platform/ui/result-count";
-import { cx } from "@/platform/ui/cx";
 import { useNavFilter } from "@/platform/ui/nav-form";
 
 type RequestFiltersProps = {
@@ -132,10 +131,13 @@ export function RequestFilters({ counts, total, assignees }: RequestFiltersProps
       </RowField>
 
       {/* A nested form so Enter submits the search without submitting the
-          selects, which navigate on change. It is one grow item of the row
-          around it, so it takes the row's own grow width rather than a
-          hand-picked one. */}
-      <form onSubmit={submitSearch} className={cx(ROW_WIDTH.grow, "flex items-end gap-2")}>
+          selects, which navigate on change. It grows like ROW_WIDTH.grow, but
+          its minimum has to hold the field's own min-w-48 AND the Search
+          button: at ROW_WIDTH.grow's min-w-48 the pair overflowed the form,
+          truncating the placeholder and pushing the button into the result
+          count. min-w-72 makes the row wrap the search onto its own line
+          instead. */}
+      <form onSubmit={submitSearch} className="flex min-w-72 flex-1 items-end gap-2">
         <RowField label="Search" width="grow">
           <Input
             type="search"

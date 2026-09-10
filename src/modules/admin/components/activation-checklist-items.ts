@@ -114,7 +114,7 @@ export function activationChecklistItems(
       key: "gate",
       tone: "warning",
       text: `${inc.heldAtGate} of ${inc.members} ${incoming.code} members would be held at onboarding as soon as it is active. Missing: ${steps}.`,
-      link: { href: `/volunteers/master?term=${incoming.id}`, label: "Review in the master view" },
+      link: { href: `/volunteers?term=${incoming.id}`, label: "Review in the compliance roster" },
     });
   } else {
     items.push({

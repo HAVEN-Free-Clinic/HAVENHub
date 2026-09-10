@@ -32,17 +32,20 @@ async function confirmButtonClick(
   await container.getByRole("button").filter({ hasText: /\?/ }).first().click();
 }
 
-test("Jack (ITCM director) opens /volunteers and sees the ITCM department card", async ({ page }) => {
+// /volunteers is the one compliance roster (the master view merged into it),
+// so the roster assertions below are made there. /volunteers/master is a
+// redirect, covered further down.
+const ROSTER_RESOLVED = /^([\d,]+ members?|No members yet|No members match these filters)$/;
+
+test("Jack opens /volunteers and sees the one compliance roster", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/volunteers");
   await page.waitForURL((url) => url.pathname === "/volunteers");
 
-  // Page heading must be present (exact match to avoid matching ITCM department h2)
   await expect(page.getByRole("heading", { name: "Compliance", exact: true })).toBeVisible();
-
-  // ITCM department section heading must be visible
-  const itcmHeading = page.locator("h2").filter({ hasText: /ITCM/ });
-  await expect(itcmHeading).toBeVisible();
+  // The count line (or empty state) renders only once the streamed body has
+  // resolved, so this proves the roster loaded rather than its skeleton.
+  await expect(page.getByText(ROSTER_RESOLVED)).toBeVisible();
 });
 
 test("Jack sees at least one status Badge on the ITCM compliance page", async ({ page }) => {
@@ -71,13 +74,13 @@ test("dev.volunteer is bounced from /volunteers to the hub", async ({ page }) =>
   await page.waitForURL((url) => url.pathname !== "/volunteers");
 });
 
-test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards", async ({ page }) => {
+test("Jack (Platform Admin) opens /volunteers and sees the summary cards", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/volunteers/master");
-  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+  await page.goto("/volunteers");
+  await page.waitForURL((url) => url.pathname === "/volunteers");
 
   // Page heading must be visible
-  await expect(page.getByRole("heading", { name: "Master view" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Compliance", exact: true })).toBeVisible();
 
   // Wait out the Suspense fallback before asserting on the cards. The skeleton
   // carries the real card LABELS (so the swap does not shift the layout), which
@@ -87,9 +90,7 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   // ListEmpty instead, whose wording depends on whether a filter is set. Accept
   // any of the three, so this stays a "body resolved" signal rather than an
   // assertion about how many members the seed happens to have.
-  await expect(
-    page.getByText(/^([\d,]+ members?|No members yet|No members match these filters)$/),
-  ).toBeVisible();
+  await expect(page.getByText(ROSTER_RESOLVED)).toBeVisible();
 
   // Summary stat cards are rendered as plain <p> elements (no aria-label).
   // The beforeEach seeds a COMPLIANT ITCM member, so "Compliant" will always be present.
@@ -98,21 +99,29 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   await expect(page.locator("p").filter({ hasText: /^No certificate$/ }).first()).toBeVisible();
 });
 
-test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
+test("Jack sees the filter bar on /volunteers", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/volunteers/master");
-  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+  await page.goto("/volunteers");
+  await page.waitForURL((url) => url.pathname === "/volunteers");
 
   // Filter bar inputs must be present
   await expect(page.getByPlaceholder("Name, NetID, or email…")).toBeVisible();
 });
 
-test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
+test("the old /volunteers/master URL lands on the roster with its filters", async ({ page }) => {
+  // Bookmarks and the review links already in inboxes point here.
+  await devLogin(page, "j.carney@yale.edu");
+  await page.goto("/volunteers/master?q=zz-no-such-member");
+  await page.waitForURL((url) => url.pathname === "/volunteers");
+  expect(new URL(page.url()).searchParams.get("q")).toBe("zz-no-such-member");
+});
+
+test("dev.volunteer is bounced from the old /volunteers/master URL too", async ({ page }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
   await page.goto("/volunteers/master");
-  // dev.volunteer lacks volunteers access, so the guard redirects them away from the
-  // protected route (to /no-access). Assert only that they did not remain on /volunteers/master.
-  await page.waitForURL((url) => url.pathname !== "/volunteers/master");
+  // The redirect lands on /volunteers, whose guard then sends a viewer without
+  // any roster permission away. Assert they end up on neither.
+  await page.waitForURL((url) => url.pathname !== "/volunteers/master" && url.pathname !== "/volunteers");
 });
 
 // ---------------------------------------------------------------------------
@@ -196,22 +205,22 @@ test("Jack opens a member's per-person compliance view and sees the clearance de
   await page.goto(`/volunteers/compliance/${member.person.id}`);
   await page.waitForURL((url) => url.pathname === `/volunteers/compliance/${member.person.id}`);
 
-  // The dedicated view (not /admin/people) still offers the way back to the
-  // master list, now as the breadcrumb rather than a bespoke link above the
-  // title. The trail is role-aware and applied after hydration, so this waits
-  // on the crumb rather than asserting synchronously.
+  // The dedicated view (not /admin/people) offers the way back to the roster
+  // as the breadcrumb. There is one roster now, at the module root, so the
+  // crumb is "Volunteers" for everyone. The trail is applied after hydration,
+  // so this waits on the crumb rather than asserting synchronously.
   const crumbs = page.locator('nav[aria-label="Breadcrumb"]');
-  await expect(crumbs.getByRole("link", { name: "Master compliance" })).toBeVisible();
+  await expect(crumbs.getByRole("link", { name: "Volunteers", exact: true })).toHaveAttribute("href", "/volunteers");
   // ...and the leaf names the member, so two open tabs are told apart.
   await expect(crumbs.getByText(member.person.name)).toBeVisible();
   // And it is titled with the member's name.
   await expect(page.getByRole("heading", { name: member.person.name })).toBeVisible();
 });
 
-test("master view links a member's name to their per-person compliance view", async ({ page }) => {
+test("the roster links a member's name to their per-person compliance view", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
-  await page.goto("/volunteers/master");
-  await page.waitForURL((url) => url.pathname === "/volunteers/master");
+  await page.goto("/volunteers");
+  await page.waitForURL((url) => url.pathname === "/volunteers");
 
   // Filter to the seeded member so their row is on the current page regardless of roster size.
   await page.getByPlaceholder("Name, NetID, or email…").fill(member.person.name);

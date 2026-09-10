@@ -206,19 +206,21 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Compliance (/volunteers) and Offboarding both enforce requirePermission("volunteers.view"),
-      // so gate their nav items on the same permission -- otherwise a Spanish-review-only
-      // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
-      { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
-      // EITHER permission opens these two: both pages are clinic-wide compliance
-      // READS that call requireAnyPermission with this exact pair. A view-only
-      // holder gets the tables without the verify / date-entry / EHS-management
-      // controls, which each page drops for them.
+      // The one compliance roster. ANY of the three opens it, mirroring the page:
+      // the clinic-wide pair sees every member, volunteers.view (a director) sees
+      // the departments they direct. It was two tabs -- "Compliance" for
+      // directors and "Master view" for the clinic-wide pair -- over the same
+      // people, and they disagreed (the directors' copy dropped Learning). The
+      // old /volunteers/master URL now redirects here. A Spanish-review-only
+      // reviewer holds none of the three, so still sees no tab that would bounce.
       {
-        label: "Master view",
-        href: "/volunteers/master",
-        permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
+        label: "Compliance",
+        href: "/volunteers",
+        permission: ["volunteers.view", "volunteers.view_compliance", "volunteers.manage_compliance"],
       },
+      // EITHER permission opens EHS training: a clinic-wide compliance READ that
+      // calls requireAnyPermission with this exact pair. A view-only holder gets
+      // the table without the verify / date-entry / EHS-management controls.
       // EITHER permission opens it, and the page itself decides how much of the
       // clinic the holder sees. Gating on the clinic-wide permission alone
       // would hide the tab from exactly the directors this scoped grant exists

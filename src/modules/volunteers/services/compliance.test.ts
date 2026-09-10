@@ -861,6 +861,30 @@ describe("masterCompliance", () => {
     expect(result.total).toBe(1);
   });
 
+  it("holds the roster to scopeDepartmentIds, and a filter outside the scope matches nothing", async () => {
+    // /volunteers is one roster for two audiences: a director sees only the
+    // departments they direct. The scope must bound the rows AND the counts, and
+    // a departmentId filter can narrow inside it but never reach past it.
+    const term = await createTerm();
+    const itcm = await createDepartment("ITCM");
+    const srr = await createDepartment("SRR");
+
+    const alice = await createPerson("Alice", "a01");
+    const bob = await createPerson("Bob", "b01");
+    await createMembership(alice.id, term.id, itcm.id, "VOLUNTEER");
+    await createMembership(bob.id, term.id, srr.id, "VOLUNTEER");
+
+    const scoped = await masterCompliance({ scopeDepartmentIds: [itcm.id] });
+    expect(scoped.rows.map((r) => r.person.id)).toEqual([alice.id]);
+    expect(scoped.total).toBe(1);
+    expect(scoped.summary.NO_CERTIFICATE).toBe(1);
+
+    const outside = await masterCompliance({ scopeDepartmentIds: [itcm.id], departmentId: srr.id });
+    expect(outside.rows).toHaveLength(0);
+    expect(outside.total).toBe(0);
+    expect(outside.summary.NO_CERTIFICATE).toBe(0);
+  });
+
   it("status filter narrows rows but summary counts the full pre-status scope", async () => {
     const term = await createTerm();
     const dept = await createDepartment("ITCM");

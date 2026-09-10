@@ -74,7 +74,7 @@ describe("activationChecklistItems", () => {
     expect(item?.text).toBe(
       "46 of 240 FA26 members would be held at onboarding as soon as it is active. Missing: Volunteer training (40), HIPAA certificate (12).",
     );
-    expect(item?.link?.href).toBe("/volunteers/master?term=fa26");
+    expect(item?.link?.href).toBe("/volunteers?term=fa26");
   });
 
   it("lists unpromoted acceptances per cycle, and unpublished drafts", () => {

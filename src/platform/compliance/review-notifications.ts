@@ -37,7 +37,7 @@ export async function notifyDatelessCertReview(
   }
 
   const baseUrl = await getSetting<string>("app.baseUrl");
-  const reviewLink = `${baseUrl}/volunteers/master`;
+  const reviewLink = `${baseUrl}/volunteers`;
   const rendered = await renderEmail(
     "compliance-date-review",
     complianceDateReviewContext({ volunteerName: volunteer.name, reviewLink }),
@@ -90,7 +90,7 @@ export async function notifyCertNeedsVerification(
   }
 
   const baseUrl = await getSetting<string>("app.baseUrl");
-  const reviewLink = `${baseUrl}/volunteers/master`;
+  const reviewLink = `${baseUrl}/volunteers`;
   const rendered = await renderEmail(
     "compliance-verification-review",
     complianceVerificationReviewContext({ volunteerName: volunteer.name, reviewLink }),

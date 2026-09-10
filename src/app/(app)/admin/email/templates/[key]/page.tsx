@@ -181,10 +181,12 @@ export default async function EditTemplatePage({ params }: Props) {
               aria-label="From display name"
             />
           </div>
-          {/* Same two-actions-one-form rule as the send-from rows on
-              /admin/email: useFormStatus is form-wide, so "Saving…" would appear
-              on this button while a test send is what is actually running. Each
-              button keeps its own label; the spinner says something is in flight. */}
+          {/* Same two-actions-one-form shape as the send-from rows on
+              /admin/email, and the same reading: `pending` is form-wide, so a
+              plain pendingLabel would show "Saving…" here while a test send is
+              what is running. Each button keeps its own label; the spinner says
+              something is in flight. See that page for why this is a choice
+              rather than a limit of useFormStatus. */}
           <SubmitButton variant="outline" pendingLabel="Save sender">Save sender</SubmitButton>
           <SubmitButton formAction={testSenderAction} variant="ghost" pendingLabel="Send test">Send test</SubmitButton>
         </FormRow>

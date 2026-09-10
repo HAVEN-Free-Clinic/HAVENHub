@@ -375,12 +375,19 @@ export default async function EmailPage({ searchParams }: PageProps) {
                 />
               </div>
               {/* Both buttons post this one form (Send test overrides the action
-                  via formAction), and useFormStatus reports the FORM's pending
-                  state, not the clicked button's. So neither may swap to a verb:
-                  "Saving…" sitting next to an in-flight test send states the
-                  wrong thing about what the server is doing. Each button keeps
-                  its own word as its pendingLabel, and the spinner, the disabled
-                  state and aria-busy carry the feedback instead. */}
+                  via formAction), and `pending` from useFormStatus is the FORM's,
+                  not the clicked button's -- so a plain pendingLabel would put
+                  "Saving…" next to an in-flight test send, stating the wrong
+                  thing about what the server is doing. Each button therefore
+                  keeps its own word as its pendingLabel, and the spinner, the
+                  disabled state and aria-busy carry the feedback.
+
+                  Not a hard limit of the hook: useFormStatus also returns
+                  `action`, the function that actually initiated the submit, so a
+                  button given a reference to its own action could tell whether
+                  it is the one running and swap to a verb. Doing that means
+                  handing SubmitButton that reference at every call site, which
+                  is a bigger change than these two rows are worth. */}
               <SubmitButton variant="outline" size="sm" pendingLabel="Save">
                 Save
               </SubmitButton>

@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import { cx } from "./cx";
 
-type Variant = "primary" | "outline" | "danger" | "ghost";
+type Variant = "primary" | "outline" | "danger" | "ghost" | "inverse";
 type Size = "sm" | "md" | "lg";
 
 const variantClasses: Record<Variant, string> = {
@@ -13,6 +13,11 @@ const variantClasses: Record<Variant, string> = {
     "bg-critical text-white hover:bg-critical-hover",
   ghost:
     "text-muted-foreground hover:text-foreground",
+  // The call to action ON a filled brand surface -- the one place in the app
+  // where white-on-brand is the correct direction rather than an inversion of
+  // the palette. It exists because the dashboard hero hand-rolled exactly this.
+  inverse:
+    "bg-white text-brand hover:bg-white/90",
 };
 
 const sizeClasses: Record<Size, string> = {

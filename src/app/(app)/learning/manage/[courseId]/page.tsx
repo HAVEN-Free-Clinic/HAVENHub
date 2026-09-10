@@ -61,7 +61,12 @@ export default async function EditCoursePage({
             not count toward onboarding. Upload a package below to make it visible and required.
           </Alert>
         )}
-        <Card>
+        {/* space-y-4 and a heading, matching the Assignment peer below. Three
+            sections stacked here: this one was an unlabelled Card, Assignment a
+            labelled Card, and SCORM a labelled bare div. Same rank, three
+            containers. */}
+        <Card className="space-y-4">
+          <SectionHeader level="title">Course</SectionHeader>
           <form action={updateCourseAction}>
             <input type="hidden" name="courseId" value={course.id} />
             <div className="space-y-4">
@@ -128,7 +133,7 @@ export default async function EditCoursePage({
           </form>
         </Card>
 
-        <div className="space-y-2">
+        <Card className="space-y-4">
           <SectionHeader level="title">SCORM package</SectionHeader>
           <p className="text-sm text-muted-foreground">
             {course.scormEntryHref
@@ -136,7 +141,7 @@ export default async function EditCoursePage({
               : "No package uploaded yet."}
           </p>
           <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} supportsPresignedUpload={supportsPresignedUpload} />
-        </div>
+        </Card>
       </div>
     </>
   );

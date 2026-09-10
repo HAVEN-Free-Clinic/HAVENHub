@@ -200,7 +200,16 @@ export default async function SettingsPage() {
                         )}
                       </Field>
                       <FormActions>
-                        <Button type="submit" variant="primary" size="sm">Save</Button>
+                        {/* Outline, not primary. This button renders once per
+                            setting and the registry defines roughly 65 of them
+                            (35 explicit, plus one per notification channel), so
+                            a brand fill here stacked ~65 identical Yale-blue
+                            calls to action down one page and stopped meaning
+                            "the thing to do here". FilterBar's doc comment
+                            already wrote this rule down for the Filter button:
+                            a repeated, non-leading control is not a page's
+                            primary action. */}
+                        <Button type="submit" variant="outline" size="sm">Save</Button>
                         {s.isOverridden && (
                           <span className="text-xs text-muted-foreground">Currently overriding the default</span>
                         )}
@@ -209,7 +218,9 @@ export default async function SettingsPage() {
                     {s.isOverridden && (
                       <form action={resetAction} className="pt-2">
                         <input type="hidden" name="__key" value={s.key} />
-                        <Button type="submit" variant="outline" size="sm">Reset to default</Button>
+                        {/* Ghost, so Save stays the louder of the two now that
+                            it is outline as well. */}
+                        <Button type="submit" variant="ghost" size="sm">Reset to default</Button>
                       </form>
                     )}
                   </>

@@ -27,6 +27,7 @@ import {
   setPersonStatusField,
 } from "@/platform/people";
 import type { PersonInput, SetPersonStatusOptions } from "@/platform/people";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // Re-export the mutation-core types/errors so callers that import from this
 // module (the historical home of these symbols) keep working unchanged.
@@ -36,6 +37,8 @@ export type { PersonInput };
 export type PeopleQuery = {
   search?: string;
   status?: "ACTIVE" | "OFFBOARDED";
+  /** The review queue: only people whose name split was guessed at. */
+  needsNameReview?: boolean;
   page?: number;
   pageSize?: number;
 };
@@ -45,6 +48,12 @@ export async function searchPeople(q: PeopleQuery): Promise<{
   total: number;
   page: number;
   pageCount: number;
+  /**
+   * How many people in the whole table carry a guessed name split, independent
+   * of the current filter. Drives the review-queue banner, which has to be
+   * visible from the unfiltered list or nobody would find the queue.
+   */
+  needsNameReviewCount: number;
 }> {
   const page = q.page ?? 1;
   const pageSize = q.pageSize ?? 25;
@@ -56,6 +65,11 @@ export async function searchPeople(q: PeopleQuery): Promise<{
   if (term) {
     where.OR = [
       { name: { contains: term, mode: "insensitive" } },
+      // `name` holds the PREFERRED display name, so a legal first name is no
+      // longer a substring of it: without this clause, searching the name on
+      // somebody's Epic request or transcript finds nobody.
+      { legalFirstName: { contains: term, mode: "insensitive" } },
+      { lastName: { contains: term, mode: "insensitive" } },
       { netId: { contains: term, mode: "insensitive" } },
       { contactEmail: { contains: term, mode: "insensitive" } },
     ];
@@ -65,23 +79,28 @@ export async function searchPeople(q: PeopleQuery): Promise<{
     where.status = q.status;
   }
 
-  const [rows, total] = await Promise.all([
+  if (q.needsNameReview) {
+    where.nameNeedsReview = true;
+  }
+
+  const [rows, total, needsNameReviewCount] = await Promise.all([
     prisma.person.findMany({
       where,
       // Total order: name is non-unique with no index, so two people with the
       // same name tie on the whole sort key and Postgres may order them
       // differently across page boundaries, dropping one and repeating the other.
       // The id tiebreaker makes paging stable.
-      orderBy: [{ name: "asc" }, { id: "asc" }],
+      orderBy: PERSON_NAME_ORDER,
       skip,
       take: pageSize,
     }),
     prisma.person.count({ where }),
+    prisma.person.count({ where: { nameNeedsReview: true } }),
   ]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
-  return { rows, total, page, pageCount };
+  return { rows, total, page, pageCount, needsNameReviewCount };
 }
 
 export async function getPerson(

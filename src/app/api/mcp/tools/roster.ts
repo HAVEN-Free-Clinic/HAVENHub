@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can, hasPlatformScope, permissionDepartmentIds } from "@/platform/rbac/engine";
+import { splitPersonName } from "@/platform/person-name";
 import type { McpTool } from "./index";
 
 /**
@@ -141,8 +142,26 @@ async function resolvePerson(input: string): Promise<PersonCandidate | null> {
   // Unlike the department fallback above, guessing wrong about a PERSON is
   // the exact oracle this tool exists to avoid, so an ambiguous name is
   // treated identically to no match at all (see CANNOT_CONFIRM_MEMBERSHIP).
+  //
+  // Matched against the DISPLAY name and the LEGAL name both, because they
+  // diverge: someone stored as "Jack Carney" is asked about as "Jonathan
+  // Carney" by anyone reading a transcript or an Epic request. Still exact on
+  // each, so this widens which spelling resolves, never how loosely it matches.
+  const asParts = splitPersonName(trimmed);
+  const legalMatch =
+    asParts.legalFirstName !== "" && asParts.lastName !== ""
+      ? [
+          {
+            legalFirstName: { equals: asParts.legalFirstName, mode: "insensitive" as const },
+            legalMiddleName: asParts.legalMiddleName,
+            lastName: { equals: asParts.lastName, mode: "insensitive" as const },
+          },
+        ]
+      : [];
   const byName = await prisma.person.findMany({
-    where: { name: { equals: trimmed, mode: "insensitive" } },
+    where: {
+      OR: [{ name: { equals: trimmed, mode: "insensitive" } }, ...legalMatch],
+    },
     select,
     take: 2,
   });

@@ -15,7 +15,10 @@ export default async function NewPersonPage() {
     let person;
     try {
       person = await createPerson(actorSession.personId, {
-        name: (formData.get("name") as string) ?? "",
+        legalFirstName: (formData.get("legalFirstName") as string) ?? "",
+        legalMiddleName: (formData.get("legalMiddleName") as string) || null,
+        lastName: (formData.get("lastName") as string) ?? "",
+        preferredFirstName: (formData.get("preferredFirstName") as string) || null,
         netId: (formData.get("netId") as string) || null,
         contactEmail: (formData.get("contactEmail") as string) || null,
         phone: (formData.get("phone") as string) || null,

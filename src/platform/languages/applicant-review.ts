@@ -12,16 +12,9 @@
  * queue on its own with no cleanup path to maintain.
  */
 
-import type { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import {
-  LanguageValidationError,
-  SPANISH,
-  isLanguageCode,
-  isSpanishScore,
-  languageLabel,
-} from "./catalog";
+import { LanguageValidationError, SPANISH, isLanguageCode, isSpanishScore, languageLabel } from "./catalog";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -545,7 +538,7 @@ export async function recordApplicationLanguageAssessment(
 export async function carryForwardApplicationAssessments(
   personId: string,
   applicationId: string,
-  client: Prisma.TransactionClient,
+  client: TransactionClient,
 ): Promise<Array<{ language: string; verified: boolean; score: number | null; written: boolean }>> {
   const assessments = await client.applicationLanguageAssessment.findMany({
     where: { applicationId },

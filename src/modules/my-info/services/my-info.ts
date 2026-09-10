@@ -51,14 +51,16 @@ export class CertificateValidationError extends Error {
 // Input types
 // ---------------------------------------------------------------------------
 
-/** The four fields a member is allowed to update for themselves via self-service.
- * epicId is intentionally excluded: it is IT-managed only. */
+/** The fields a member is allowed to update for themselves via self-service.
+ * epicId is intentionally excluded: it is IT-managed only. So is the legal name;
+ * see the whitelist in updateMyInfo for why preferredFirstName is not. */
 export type MyInfoInput = {
   phone?: string | null;
   contactEmail?: string | null;
   yaleAffiliation?: string | null;
   gradYear?: string | null;
   dietaryRestrictions?: string | null;
+  preferredFirstName?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -156,6 +158,11 @@ export async function updateMyInfo(personId: string, input: MyInfoInput): Promis
     "yaleAffiliation",
     "gradYear",
     "dietaryRestrictions",
+    // What the member goes by, and the ONLY part of their name they own.
+    // legalFirstName / legalMiddleName / lastName are deliberately absent: they
+    // are what goes to YNHH on an Epic request and onto the signed contract, so
+    // they stay IT-managed, matching the read-only Name row on the form.
+    "preferredFirstName",
   ];
 
   const clean: MyInfoInput = {};

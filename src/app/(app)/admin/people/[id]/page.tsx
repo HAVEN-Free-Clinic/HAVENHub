@@ -122,7 +122,13 @@ export default async function PersonDetailPage({ params }: PageProps) {
     const actorSession = await requirePermission("admin.manage_people");
     try {
       await updatePerson(actorSession.personId, id, {
-        name: (formData.get("name") as string) ?? "",
+        legalFirstName: (formData.get("legalFirstName") as string) ?? "",
+        legalMiddleName: (formData.get("legalMiddleName") as string) || null,
+        lastName: (formData.get("lastName") as string) ?? "",
+        preferredFirstName: (formData.get("preferredFirstName") as string) || null,
+        // Saving the form IS the confirmation: an admin has now looked at the
+        // parts, so a split this migration guessed at stops being a guess.
+        nameNeedsReview: false,
         netId: (formData.get("netId") as string) || null,
         contactEmail: (formData.get("contactEmail") as string) || null,
         phone: (formData.get("phone") as string) || null,

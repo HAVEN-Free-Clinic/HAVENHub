@@ -13,6 +13,7 @@
 
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import { formatCalendarDate } from "@/platform/dates";
+import { firstNameOf } from "@/platform/person-name";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,9 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
 
   return {
     personName: p.personName,
+    // Derived here rather than asked of the caller: personName is already the
+    // DISPLAY name ("Jack Carney"), so its leading token is what to greet by.
+    personFirstName: firstNameOf(p.personName),
     statusLine,
     actionLine,
     showCta,
@@ -173,6 +177,11 @@ export const complianceDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
       {
+        name: "personFirstName",
+        label: "What the volunteer goes by, for the greeting",
+        sampleValue: "Jane",
+      },
+      {
         name: "statusLine",
         label: "Status sentence (pre-computed from status + expiry date)",
         sampleValue: "Your HIPAA certification expires on January 15, 2026.",
@@ -199,7 +208,7 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       },
     ],
     defaultSubject: "[HAVEN] HIPAA certification reminder",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p>{{ statusLine }}</p>
 

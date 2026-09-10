@@ -1,8 +1,11 @@
 /**
  * MyInfoForm: editable contact fields for the signed-in member.
  *
- * Editable: phone, contactEmail, yaleAffiliation, gradYear.
- * Read-only display rows: name, netId, epicId (IT-managed; not self-service).
+ * Editable: preferredFirstName, phone, contactEmail, yaleAffiliation, gradYear.
+ * Read-only display rows: legal name, netId, epicId (IT-managed; not self-service).
+ *
+ * The name split: a member owns what they GO BY, and IT owns their legal name,
+ * because that is what reaches YNHH on an Epic request and the signed contract.
  *
  * Accepts a server action so the parent page owns the action closure
  * (and the session/auth check lives there).
@@ -15,12 +18,17 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { affiliationOptionsWith } from "@/platform/affiliation";
+import { legalNameOf } from "@/platform/person-name";
 
 type MyInfoFormProps = {
   action: (formData: FormData) => Promise<void>;
   person: Pick<
     Person,
     | "name"
+    | "legalFirstName"
+    | "legalMiddleName"
+    | "lastName"
+    | "preferredFirstName"
     | "netId"
     | "contactEmail"
     | "phone"
@@ -45,11 +53,15 @@ export function MyInfoForm({ action, person, requireContact }: MyInfoFormProps) 
       <Card className="space-y-6">
         {/* Read-only identity rows (IT-managed) */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <ReadonlyField label="Name" value={person.name} />
+          <ReadonlyField
+            label="Legal name"
+            value={legalNameOf(person)}
+            hint="Used for your Epic account and your signed contract."
+          />
           <ReadonlyField
             label="NetID"
             value={person.netId}
-            hint="Contact the IT team to correct your name or NetID."
+            hint="Contact the IT team to correct your legal name or NetID."
           />
           <ReadonlyField
             label="Epic ID"
@@ -65,6 +77,17 @@ export function MyInfoForm({ action, person, requireContact }: MyInfoFormProps) 
 
         {/* Editable fields */}
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Goes by"
+            hint="The name used on rosters, badges, and every email we send you. Leave blank to use your legal first name."
+          >
+            <Input
+              name="preferredFirstName"
+              defaultValue={person.preferredFirstName ?? ""}
+              placeholder={person.legalFirstName}
+            />
+          </Field>
+
           <Field label="Phone" required={requireContact}>
             <Input
               name="phone"

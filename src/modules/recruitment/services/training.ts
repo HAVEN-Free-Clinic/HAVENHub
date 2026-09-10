@@ -1,7 +1,7 @@
 import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
 import { effectiveComplianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
-import { prisma } from "@/platform/db";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
@@ -99,7 +99,7 @@ export async function updateQuizSettings(
   return updated;
 }
 
-type Tx = Prisma.TransactionClient;
+type Tx = TransactionClient;
 
 /** PENDING unless the person has a COMPLETE Training row for the term and track. */
 export async function resolveTrainingState(personId: string, termId: string, track: Track): Promise<TrainingState> {

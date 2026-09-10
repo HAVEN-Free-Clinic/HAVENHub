@@ -15,6 +15,7 @@
 
 import { esc } from "@/platform/email/render/escape";
 import { itemsToHtml } from "./clearance";
+import { firstNameOf } from "@/platform/person-name";
 import type { TemplateDescriptor } from "./types";
 
 export type AttendanceNudgeParams = {
@@ -34,6 +35,7 @@ export function attendanceNudgeContext(p: AttendanceNudgeParams): Record<string,
   const count = p.items.length;
   return {
     personName: p.personName,
+    personFirstName: firstNameOf(p.personName),
     eventTitle: p.eventTitle,
     eventDate: p.eventDate,
     itemsHtml: itemsToHtml(p.items),
@@ -55,6 +57,7 @@ export const attendanceDescriptors: TemplateDescriptor[] = [
     group: "compliance",
     variables: [
       { name: "personName", label: "Attendee name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the attendee goes by, for the greeting", sampleValue: "Jane" },
       { name: "eventTitle", label: "Event title", sampleValue: "Fall 2026 volunteer training" },
       { name: "eventDate", label: "Event date and time, already formatted", sampleValue: "September 3, 2026 at 6:00 PM" },
       {
@@ -74,7 +77,7 @@ export const attendanceDescriptors: TemplateDescriptor[] = [
       { name: "brandColor", label: "Brand color for the call-to-action button background (hex)", sampleValue: "#00356b" },
     ],
     defaultSubject: "[HAVEN] We recorded your attendance, but {{ itemCount }} {{ itemNoun }} {{ itemVerb }} outstanding",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p>Your attendance at <strong>{{ eventTitle }}</strong> on {{ eventDate }} has been recorded. Thank you for coming.</p>
 

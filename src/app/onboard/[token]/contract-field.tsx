@@ -23,7 +23,7 @@ type Ctx = {
   department: string | null; track: Track; epicRequirement: EpicRequirement;
   storedEpicId: string | null;
 };
-type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
+type Prefill = { firstName: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
 
 function renderVars(text: string, ctx: Ctx): string {
   // Escaped-text output only; substitutes {{firstName}} / {{orgName}} /
@@ -280,6 +280,17 @@ export function ContractField({
             </Field>
             <Field label="Last name" required error={err("lastName")}>
               <Input name="lastName" defaultValue={prefill.lastName} required />
+            </Field>
+            <Field
+              label="Goes by"
+              hint="Leave blank if your first name is what you go by. This is the name we will use on rosters, badges, and email."
+              error={err("preferredFirstName")}
+            >
+              <Input
+                name="preferredFirstName"
+                defaultValue={prefill.preferredFirstName}
+                placeholder={prefill.firstName}
+              />
             </Field>
           </div>
         );

@@ -14,6 +14,11 @@ const noopAction = async () => {};
 
 const BASE_PERSON = {
   name: "Managed Laptop Member",
+  legalFirstName: "Managed",
+  legalMiddleName: null,
+  lastName: "Member",
+  preferredFirstName: null,
+  nameNeedsReview: false,
   netId: "mgd1",
   contactEmail: null,
   phone: null,

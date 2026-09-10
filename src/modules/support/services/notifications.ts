@@ -35,15 +35,8 @@
  * which YNHH ticket, and an agent acting on an AWAITING_YNHH hold needs both.
  */
 
-import type {
-  Prisma,
-  PrismaClient,
-  TechRequest,
-  TechRequestComment,
-  TechRequestStatus,
-  Person,
-  EpicRequestKind,
-} from "@prisma/client";
+import type { TechRequest, TechRequestComment, TechRequestStatus, Person, EpicRequestKind } from "@prisma/client";
+import { type Db } from "@/platform/db";
 import { notify } from "@/platform/notifications/notify";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
@@ -56,7 +49,6 @@ import { CATEGORY_LABELS, EPIC_KIND_LABELS } from "../labels";
 import { STATUS_LABELS } from "../components/status-badge";
 import { mapStatusToIntercomTicketState } from "./intercom-sync";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 function ticketLink(baseUrl: string, id: string): string {
   return `${baseUrl}/support/${id}`;

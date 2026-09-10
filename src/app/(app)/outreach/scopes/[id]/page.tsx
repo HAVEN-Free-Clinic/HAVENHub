@@ -27,6 +27,7 @@ import { ScopeIdentityFields } from "./identity-fields";
 import type { SendingDomainMap } from "../../sender-identity-notes";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export default async function ScopeDetailPage({
   params,
@@ -45,7 +46,7 @@ export default async function ScopeDetailPage({
   const roster = await prisma.person.findMany({
     where: { status: "ACTIVE" },
     select: { id: true, name: true, contactEmail: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
   const roles = await prisma.role.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
 

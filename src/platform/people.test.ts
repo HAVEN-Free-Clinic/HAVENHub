@@ -79,6 +79,104 @@ describe("createPersonRecord", () => {
   });
 });
 
+describe("person name parts", () => {
+  beforeEach(resetDb);
+
+  it("accepts the parts directly and derives the display name", async () => {
+    const person = await createPersonRecord(ACTOR, {
+      legalFirstName: "Jonathan",
+      lastName: "Carney",
+      preferredFirstName: "Jack",
+      contactEmail: "jack@example.com",
+    });
+
+    expect(person.name).toBe("Jack Carney");
+    expect(person.nameNeedsReview).toBe(false);
+  });
+
+  // The reason people.ts owns this: the client extension refuses a partial
+  // parts write, because it cannot derive a display name from one column. The
+  // service already reads the row inside its transaction, so it is the natural
+  // place to fill the rest in.
+  it("sets a preferred name on its own, filling the other parts from the row", async () => {
+    const created = await createPersonRecord(ACTOR, {
+      legalFirstName: "Jonathan",
+      lastName: "Carney",
+      contactEmail: "jc@example.com",
+    });
+    expect(created.name).toBe("Jonathan Carney");
+
+    const updated = await updatePersonFields(ACTOR, created.id, {
+      preferredFirstName: "Jack",
+    });
+
+    expect(updated.preferredFirstName).toBe("Jack");
+    expect(updated.name).toBe("Jack Carney");
+    expect(updated.legalFirstName).toBe("Jonathan");
+  });
+
+  it("clears a preferred name back to the legal one", async () => {
+    const created = await createPersonRecord(ACTOR, {
+      legalFirstName: "Jonathan",
+      lastName: "Carney",
+      preferredFirstName: "Jack",
+      contactEmail: "jc2@example.com",
+    });
+
+    const updated = await updatePersonFields(ACTOR, created.id, {
+      preferredFirstName: null,
+    });
+
+    expect(updated.preferredFirstName).toBeNull();
+    expect(updated.name).toBe("Jonathan Carney");
+  });
+
+  it("clears the review flag when a human confirms the parts", async () => {
+    const created = await createPersonRecord(ACTOR, {
+      name: "Maria de la Cruz",
+      contactEmail: "maria@example.com",
+    });
+    expect(created.nameNeedsReview).toBe(true);
+
+    const updated = await updatePersonFields(ACTOR, created.id, {
+      legalFirstName: "Maria",
+      lastName: "de la Cruz",
+      nameNeedsReview: false,
+    });
+
+    expect(updated.nameNeedsReview).toBe(false);
+    expect(updated.name).toBe("Maria de la Cruz");
+  });
+
+  it("trims the parts, like every other identity value", async () => {
+    const person = await createPersonRecord(ACTOR, {
+      legalFirstName: "  Jonathan  ",
+      lastName: "  Carney  ",
+      preferredFirstName: "  Jack  ",
+      contactEmail: "jc3@example.com",
+    });
+
+    expect(person.legalFirstName).toBe("Jonathan");
+    expect(person.name).toBe("Jack Carney");
+  });
+
+  it("treats a preferred name blanked in a form as cleared, not as empty", async () => {
+    const created = await createPersonRecord(ACTOR, {
+      legalFirstName: "Jonathan",
+      lastName: "Carney",
+      preferredFirstName: "Jack",
+      contactEmail: "jc4@example.com",
+    });
+
+    const updated = await updatePersonFields(ACTOR, created.id, {
+      preferredFirstName: "   ",
+    });
+
+    expect(updated.preferredFirstName).toBeNull();
+    expect(updated.name).toBe("Jonathan Carney");
+  });
+});
+
 describe("updatePersonFields", () => {
   beforeEach(resetDb);
 

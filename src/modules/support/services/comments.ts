@@ -24,16 +24,8 @@
  * would leave Intercom reading Resolved forever.
  */
 
-import type {
-  Prisma,
-  PrismaClient,
-  TechRequest,
-  TechRequestComment,
-  TechRequestAttachment,
-  CommentVisibility,
-  Person,
-} from "@prisma/client";
-import { prisma } from "@/platform/db";
+import type { TechRequest, TechRequestComment, TechRequestAttachment, CommentVisibility, Person } from "@prisma/client";
+import { prisma, type Db } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { notify } from "@/platform/notifications/notify";
@@ -43,7 +35,6 @@ import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
 import { pushIntercomTicketState } from "./notifications";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 // ---------------------------------------------------------------------------
 // addComment

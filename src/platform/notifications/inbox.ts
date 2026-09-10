@@ -1,7 +1,6 @@
-import type { Prisma, PrismaClient, Notification } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import type { Notification } from "@prisma/client";
+import { prisma, type Db } from "@/platform/db";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 export const NOTIFICATIONS_PAGE_SIZE = 20;
 

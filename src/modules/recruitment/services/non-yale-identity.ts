@@ -19,7 +19,7 @@
  * admin has customised is left alone.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { ExtendedPrismaClient } from "@/platform/db";
 import { prisma } from "@/platform/db";
 import { NON_YALE_AFFILIATION } from "@/platform/affiliation";
 
@@ -79,7 +79,7 @@ export function reorderedFieldOrders(
 }
 
 export async function backfillNonYaleIdentity(
-  opts: { dryRun: boolean; cycleIds?: string[]; db?: PrismaClient } = { dryRun: true },
+  opts: { dryRun: boolean; cycleIds?: string[]; db?: ExtendedPrismaClient } = { dryRun: true },
 ): Promise<NonYaleIdentityReport[]> {
   const db = opts.db ?? prisma;
   const cycles = await db.recruitmentCycle.findMany({

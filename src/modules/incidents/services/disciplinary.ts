@@ -18,12 +18,14 @@
  */
 
 import type { DisciplinaryAction, Prisma } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import { prisma, isUniqueConstraintError, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { isStrikeSubject, isReportSubject } from "./self-exclusion";
+import { personNameSearchClauses } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -156,7 +158,7 @@ async function actorCanManageTarget(
 export async function issueAction(
   actorPersonId: string,
   input: DisciplinaryInput,
-  client: Prisma.TransactionClient = prisma
+  client: TransactionClient = prisma
 ): Promise<DisciplinaryAction> {
   // --- Validation first (fail fast) ---
   if (!(DISCIPLINARY_CATEGORIES as readonly string[]).includes(input.category)) {
@@ -544,7 +546,7 @@ async function buildCentralWhere(
   if (q.category) where.category = q.category;
 
   if (q.q) {
-    where.person = { name: { contains: q.q, mode: "insensitive" } };
+    where.person = { OR: personNameSearchClauses(q.q) };
   }
 
   if (q.departmentId) {
@@ -584,7 +586,7 @@ function buildDirectorWhere(
   if (q.category) where.category = q.category;
 
   if (q.q) {
-    where.person = { name: { contains: q.q, mode: "insensitive" } };
+    where.person = { OR: personNameSearchClauses(q.q) };
   }
 
   return where;
@@ -929,7 +931,7 @@ export async function strikeablePeople(actorPersonId: string): Promise<
   const [persons, memberships] = await Promise.all([
     prisma.person.findMany({
       select: { id: true, name: true, status: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     }),
     activeTerm
       ? prisma.termMembership.findMany({

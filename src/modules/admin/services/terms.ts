@@ -14,7 +14,7 @@
 
 import type { Term } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import { prisma, isUniqueConstraintError, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { assertActiveAdminRemainsTx, hasEffectiveActiveAdminTx } from "@/platform/rbac/last-admin";
 
@@ -113,7 +113,7 @@ function toNoonUtc(iso: string): Date {
  * where only requests on the dropped dates are stale. Returns the number cancelled.
  */
 async function cancelStalePendingRequests(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   termId: string,
   removedDateKeys?: Set<number>
 ): Promise<number> {

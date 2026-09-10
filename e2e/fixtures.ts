@@ -74,7 +74,7 @@ export async function seedComplianceMember(
   const department = await dept(deptCode);
   const t = tag();
   const person = await prisma.person.create({
-    data: { name: `E2E Member ${t}`, contactEmail: `${t}@example.test` },
+    data: { name: `E2E-Member ${t}`, contactEmail: `${t}@example.test` },
   });
   await prisma.termMembership.create({
     data: { personId: person.id, termId: term.id, departmentId: department.id, kind, status: "ACTIVE" },
@@ -225,7 +225,7 @@ export async function seedUnclearedVolunteer(opts: { deptCode?: string } = {}) {
   const term = await activeTerm();
   const department = await dept(opts.deptCode ?? "VADM");
   const person = await prisma.person.create({
-    data: { name: `E2E Uncleared ${t}`, contactEmail: `uncleared-${t}@yale.edu` },
+    data: { name: `E2E-Uncleared ${t}`, contactEmail: `uncleared-${t}@yale.edu` },
   });
   await prisma.termMembership.create({
     data: { personId: person.id, termId: term.id, departmentId: department.id, kind: "VOLUNTEER", status: "ACTIVE" },
@@ -250,7 +250,7 @@ export async function seedActiveMember(opts: { name?: string } = {}) {
   const t = tag();
   const person = await prisma.person.create({
     data: {
-      name: opts.name ?? `E2E Member ${t}`,
+      name: opts.name ?? `E2E-Member ${t}`,
       contactEmail: `e2e-member-${t}@example.org`,
       status: "ACTIVE",
     },
@@ -455,7 +455,7 @@ export async function seedOnboardedVolunteer(
   const email = `e2e-checkin-${t}@yale.edu`;
   const person = await prisma.person.create({
     data: {
-      name: `E2E Volunteer ${t}`,
+      name: `E2E-Volunteer ${t}`,
       contactEmail: email,
       phone: "203-555-0199",
     },

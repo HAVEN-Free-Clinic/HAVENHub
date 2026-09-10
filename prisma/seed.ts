@@ -1,5 +1,7 @@
 // Dev fixture seed. Run via `npm run db:seed` (after `npm run db:migrate`; a stale Prisma client errors with P2011).
-import { PrismaClient } from "@prisma/client";
+// Through the factory, not `new PrismaClient()`: a bare client skips the Person
+// name reconciliation, and the seed would plant rows with empty name parts.
+import { makePrismaClient } from "../src/platform/db";
 // Canonical system-role grants live in one importable, side-effect-free module
 // so the seed, the backfill migrations, and tests all share one source of truth.
 import { SYSTEM_ROLES } from "../src/platform/rbac/system-roles";
@@ -9,7 +11,7 @@ import { SYSTEM_ROLES } from "../src/platform/rbac/system-roles";
 // pulling in this file's top-level seed execution.
 import { DEPARTMENTS } from "./department-catalog";
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 /**
  * Compliance oversight edges: a director of `manager` also oversees `managed`,

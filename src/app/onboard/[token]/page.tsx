@@ -107,6 +107,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   const prefill = {
     firstName: contract.firstName,
     lastName: contract.lastName,
+    preferredFirstName: contract.preferredFirstName ?? "",
     email: contract.email,
     netId: contract.netId ?? "",
     phone: contract.phone ?? "",

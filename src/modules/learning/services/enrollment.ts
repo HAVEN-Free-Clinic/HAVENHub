@@ -1,16 +1,10 @@
-import type { CourseRecurrence, Prisma } from "@prisma/client";
-import { prisma, runSerializable } from "@/platform/db";
+import type { CourseRecurrence } from "@prisma/client";
+import { prisma, runSerializable, type TransactionClient } from "@/platform/db";
 import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import {
-  coursesForMember,
-  coursesSatisfiableInTerm,
-  splitByRecurrence,
-  type AssignableCourse,
-  type MemberMembership,
-} from "../engine/assignment";
+import { coursesForMember, coursesSatisfiableInTerm, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -107,7 +101,7 @@ function courseScos(course: { scormScos: unknown; scormEntryHref: string | null;
 }
 
 /** Either the singleton client or an open transaction: whichever the caller has in hand. */
-type ProgressClient = typeof prisma | Prisma.TransactionClient;
+type ProgressClient = typeof prisma | TransactionClient;
 
 /**
  * Resolve which term's CourseProgress/ScoProgress row a SCORM commit belongs to, given

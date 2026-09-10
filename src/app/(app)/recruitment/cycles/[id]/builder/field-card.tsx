@@ -9,7 +9,9 @@ import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./ac
 import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
 import { DEFAULT_ACKNOWLEDGE_LABEL, isDisplayOnlyNotice, noticeAcknowledgeLabel, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
-import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
+// From availability-key, NOT incoming-roster: this is a client component, and
+// that module imports prisma. See availability-key.ts.
+import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/availability-key";
 import type { SortableHandleProps } from "./sortable-list";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";

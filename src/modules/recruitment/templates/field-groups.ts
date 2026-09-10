@@ -41,6 +41,12 @@ export function identitySection(): TemplateSection {
   return sec("Personal details", "NEW", [
     { key: "first_name", label: "First name", type: "SHORT_TEXT", required: true },
     { key: "last_name", label: "Last name", type: "SHORT_TEXT", required: true },
+    // Optional on purpose: most people go by their first name, and asking as a
+    // required question implies otherwise. Carried to the onboarding contract
+    // and then to Person, so somebody who answers it is addressed correctly from
+    // their decision email onward rather than having to fix it after joining.
+    { key: "preferred_first_name", label: "Preferred first name", type: "SHORT_TEXT", required: false,
+      helpText: "If you go by something other than your first name, tell us here." },
     { key: "pronouns", label: "Pronouns", type: "SHORT_TEXT", required: false },
     { key: "yale_affiliation", label: "Yale affiliation", type: "SINGLE_SELECT", required: true, options: YALE_AFFILIATION },
     { key: "yale_affiliation_other", label: "If other or staff, please specify your school/title and department", type: "SHORT_TEXT", required: false,

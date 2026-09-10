@@ -1,5 +1,4 @@
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { effectivePermissionHolderIds } from "./permission-holders";
 
@@ -42,7 +41,7 @@ export class LastAdminError extends Error {
  * version of it.
  */
 async function effectiveActiveAdminPersonIds(
-  client: Prisma.TransactionClient,
+  client: TransactionClient,
   activeTerm: { id: string } | null,
   opts: { excludeAssignmentId?: string } = {}
 ): Promise<Set<string>> {
@@ -92,7 +91,7 @@ export async function assertNotLastActiveAdmin(personId: string): Promise<void> 
  * read and leaving zero admins (write skew). Throws LastAdminError.
  */
 export async function assertNotLastActiveAdminTx(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   personId: string
 ): Promise<void> {
   const activeTerm = await getActiveTerm();
@@ -129,14 +128,14 @@ export async function isEffectiveActiveAdmin(personId: string): Promise<boolean>
  * does not seed RBAC) into one that cannot activate or archive a term either.
  */
 export async function hasEffectiveActiveAdminTx(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   term: { id: string } | null
 ): Promise<boolean> {
   return (await effectiveActiveAdminPersonIds(tx, term)).size > 0;
 }
 
 export async function assertActiveAdminRemainsTx(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   /**
    * The term to evaluate against, when the caller is the thing CHANGING which
    * term is active (activateTerm, archiveTerm). Omit to resolve it normally.
@@ -169,7 +168,7 @@ export async function assertActiveAdminRemainsTx(
  * LastAdminError.
  */
 export async function assertDeletingAssignmentKeepsAdminTx(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   activeTerm: { id: string } | null,
   assignmentId: string
 ): Promise<void> {

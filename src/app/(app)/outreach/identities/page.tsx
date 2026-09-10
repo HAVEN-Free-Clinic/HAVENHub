@@ -54,6 +54,7 @@ import { SenderIdentityNotes, type SendingDomainMap } from "../sender-identity-n
 import { IssueIdentityForm } from "./issue-form";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 const PATH = "/outreach/identities";
 
@@ -78,7 +79,7 @@ export default async function SendingIdentitiesPage({
     prisma.person.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     }),
     // Every role, not only the ones already holding something: the same list the
     // scope grant form offers, for the same reason.

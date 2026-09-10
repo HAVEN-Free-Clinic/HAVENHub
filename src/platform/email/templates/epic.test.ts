@@ -65,9 +65,10 @@ describe("epic-onboarding", () => {
     expect(out.html).toBeTruthy();
   });
 
-  it("html contains the person name", async () => {
+  // The BODY greets by first name; the full name is in the subject line.
+  it("html greets by the name the person goes by", async () => {
     const out = await renderEmail("epic-onboarding", epicOnboardingContext(baseline()));
-    expect(out.html).toContain("Alice Smith");
+    expect(out.html).toContain("Hello Alice,");
   });
 
   // -- kind=RENEW (default when kind is missing) --
@@ -214,9 +215,10 @@ describe("epic-activation", () => {
     expect(out.subject).toBe("[HAVEN] New Epic Account Set-up");
   });
 
-  it("html contains the person name", async () => {
+  // The BODY greets by first name; the full name is in the subject line.
+  it("html greets by the name the person goes by", async () => {
     const out = await renderEmail("epic-activation", epicActivationContext(baseline()));
-    expect(out.html).toContain("Alice Smith");
+    expect(out.html).toContain("Hello Alice,");
   });
 
   it("renders epicId when present", async () => {
@@ -259,9 +261,10 @@ describe("epic-password-reset", () => {
     expect(out.subject).toBe("[HAVEN] Epic Account Reset");
   });
 
-  it("html contains the person name", async () => {
+  // The BODY greets by first name; the full name is in the subject line.
+  it("html greets by the name the person goes by", async () => {
     const out = await renderEmail("epic-password-reset", epicPasswordResetContext(baseline()));
-    expect(out.html).toContain("Alice Smith");
+    expect(out.html).toContain("Hello Alice,");
   });
 
   it("renders epicId when present", async () => {

@@ -116,8 +116,11 @@ test("admin opens Jack Carney detail and sees memberships and name field", async
   // Click through to the detail page.
   await page.getByRole("link", { name: "Jack Carney" }).first().click();
   await page.waitForURL((url) => url.pathname.startsWith("/admin/people/"));
-  // The form should have a Name field pre-filled with the person's name.
-  await expect(page.locator('input[name="name"]')).toHaveValue(/Jack Carney/i);
+  // The form holds the name in PARTS now. The legal name is what an admin
+  // edits; "Goes by" is what the roster shows, and is empty unless set.
+  await expect(page.locator('input[name="legalFirstName"]')).toHaveValue(/Jack/i);
+  await expect(page.locator('input[name="lastName"]')).toHaveValue(/Carney/i);
+  await expect(page.locator('input[name="preferredFirstName"]')).toBeVisible();
   // The detail page always renders the Details section heading.
   await expect(page.getByRole("heading", { name: /details/i })).toBeVisible();
 });

@@ -23,7 +23,7 @@ describe("OnboardForm", () => {
   // quirk.
   it("shows staffTitle on first render when prefill.yaleAffiliation is staff", () => {
     const prefill = {
-      firstName: "Ada", lastName: "L", email: "ada@example.com",
+      firstName: "Ada", lastName: "L", preferredFirstName: "", email: "ada@example.com",
       netId: "abl2", phone: "203-555-0100", yaleAffiliation: "staff", gradYear: "2026",
     };
     const html = renderToStaticMarkup(
@@ -34,7 +34,7 @@ describe("OnboardForm", () => {
 
   it("does not show staffTitle when prefill.yaleAffiliation is not staff", () => {
     const prefill = {
-      firstName: "Ada", lastName: "L", email: "ada@example.com",
+      firstName: "Ada", lastName: "L", preferredFirstName: "", email: "ada@example.com",
       netId: "abl2", phone: "203-555-0100", yaleAffiliation: "undergrad", gradYear: "2026",
     };
     const html = renderToStaticMarkup(
@@ -47,7 +47,7 @@ describe("OnboardForm", () => {
   // including every signature. Until draft save exists the only mitigation is
   // to say so before someone starts. See the audit's B2.
   const basePrefill = {
-    firstName: "Ada", lastName: "L", email: "ada@example.com",
+    firstName: "Ada", lastName: "L", preferredFirstName: "", email: "ada@example.com",
     netId: "abl2", phone: "203-555-0100", yaleAffiliation: "undergrad", gradYear: "2026",
   };
 

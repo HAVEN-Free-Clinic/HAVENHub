@@ -23,6 +23,7 @@ import { prisma } from "@/platform/db";
 import { toCsv } from "@/platform/csv";
 import { accountEmailForPerson } from "@/platform/auth/match-person";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export type ExportRequest =
   | { scope: "selection"; personIds: string[] }
@@ -86,7 +87,7 @@ export async function buildOffboardingCsv(
           select: { kind: true, department: { select: { code: true } } },
         },
       },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     });
   } else if (input.scope === "selection") {
     // No active term means there is no term-scoped membership to describe, but
@@ -98,7 +99,7 @@ export async function buildOffboardingCsv(
     const basePeople = await prisma.person.findMany({
       where: { id: { in: input.personIds } },
       select: { id: true, name: true, netId: true, contactEmail: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     });
     people = basePeople.map((p) => ({ ...p, memberships: [] }));
   }

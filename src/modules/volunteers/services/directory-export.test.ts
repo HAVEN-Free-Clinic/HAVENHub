@@ -163,7 +163,13 @@ describe("buildDirectoryCsv, people scope", () => {
     );
 
     // Prefixed with an apostrophe, so Excel and Sheets read it as text.
-    expect(csv).toContain("\"'=HYPERLINK");
+    //
+    // Asserted without the surrounding quotes the escaper used to add. A stored
+    // name can no longer contain a comma: person-name.ts splits every name into
+    // parts and rebuilds `name` as "first last", so the payload above reaches
+    // this export as "=HYPERLINK" and needs no quoting. The apostrophe prefix is
+    // the neutralization, and it is what this test is for.
+    expect(csv).toContain("'=HYPERLINK");
     expect(csv).not.toContain("\r\n=HYPERLINK");
   });
 

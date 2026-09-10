@@ -25,6 +25,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
 import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
 import { resolveCustomAnswers } from "../contract/custom-answers";
+import { applicantFirstName } from "@/platform/person-name";
 
 /**
  * How long an onboarding link stays usable after a send. The link is a standing
@@ -173,6 +174,7 @@ export async function createOrResendContract(
         token: randomUUID(),
         firstName: applicant.firstName,
         lastName: applicant.lastName,
+        preferredFirstName: applicant.preferredFirstName,
         email: applicant.email,
         netId: applicant.netId,
         phone: applicant.phone,
@@ -191,7 +193,7 @@ export async function createOrResendContract(
   }
   const url = `${baseUrl}/onboard/${contract.token}`;
   const email = await renderCycleEmail(cycle.id, "recruitment.onboarding", {
-    firstName: contract.firstName || "there",
+    firstName: applicantFirstName(contract) || "there",
     cycleTitle: cycle.title,
     contractUrl: url,
   });
@@ -298,6 +300,8 @@ export async function lookupHasAccount(
 export type ContractSubmission = {
   firstName: string;
   lastName: string;
+  /** What they go by, if not their first name. Reaches Person at promotion. */
+  preferredFirstName?: string;
   email: string;
   netId?: string;
   phone?: string;
@@ -571,6 +575,7 @@ export async function submitContract(
       data: {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
+        preferredFirstName: input.preferredFirstName?.trim() || null,
         // Pin the identity keys to the values the SRR-created contract was seeded
         // with (from the accepted Applicant record); ignore a freely-typed
         // netId/email in the submission (#49). Otherwise an applicant could type

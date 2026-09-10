@@ -7,7 +7,7 @@ test.describe("public credential page", () => {
 
   test.beforeAll(async () => {
     token = `e2e-token-${tag()}`;
-    const person = await prisma.person.create({ data: { name: `Credential Member ${tag()}` } });
+    const person = await prisma.person.create({ data: { name: `Credential-Member ${tag()}` } });
     personId = person.id;
     await prisma.serviceCredential.create({
       data: {

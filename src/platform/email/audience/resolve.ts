@@ -11,6 +11,8 @@ import type { AudienceCtx } from "./person-fields";
 import { personVariables } from "./variables";
 import { asArray } from "./operators";
 import { APPLICANT_TYPE_VALUES, COUNT_LOADERS } from "./person-fields";
+import { personNameSearchClauses } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export type Recipient = {
   email: string;
@@ -432,7 +434,7 @@ export async function resolveAudience(
   const people = await prisma.person.findMany({
     where,
     select: { id: true, name: true, contactEmail: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 
   const recipients: Recipient[] = [];
@@ -515,7 +517,7 @@ export async function searchPeople(
     // the search would only be offering a person the send path will drop.
     contactEmail: { contains: "@" },
     OR: [
-      { name: { contains: q, mode: "insensitive" } },
+      ...personNameSearchClauses(q),
       { contactEmail: { contains: q, mode: "insensitive" } },
     ],
   };
@@ -523,7 +525,7 @@ export async function searchPeople(
   const people = await prisma.person.findMany({
     where: scopeWhere ? { AND: [scopeWhere, matches] } : matches,
     select: { id: true, name: true, contactEmail: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
     take: PERSON_SEARCH_LIMIT,
   });
 

@@ -332,12 +332,12 @@ describe("member_status", () => {
     const f = await fixture();
     const caller = await createPerson("Caller NetId");
     await addMembership(caller.id, f.term.id, f.nursing.id, "DIRECTOR");
-    const target = await createPerson("Net Id Target", { netId: "abc123" });
+    const target = await createPerson("NetId Target", { netId: "abc123" });
     await addMembership(target.id, f.term.id, f.nursing.id, "VOLUNTEER");
 
     const text = await memberStatusTool.run({ personId: caller.id }, { name: "ABC123" });
 
-    expect(text).toContain("Net Id Target");
+    expect(text).toContain("NetId Target");
   });
 
   it("refuses rather than guesses when a name matches more than one active person", async () => {

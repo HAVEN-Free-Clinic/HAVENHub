@@ -1,8 +1,50 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { personNameWriteExtension } from "./person-name-write";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+/**
+ * The Person name extension is applied here rather than at each call site
+ * because `Person.name` is a DERIVED column: it must always equal
+ * `displayNameOf` of the parts beside it. Applying it to the one client covers
+ * services, scripts, seeds, tests, and writes inside a `$transaction` alike, so
+ * there is no eleventh write path that quietly forgets. See
+ * platform/person-name-write.ts.
+ */
+/**
+ * Build a client with the extensions applied.
+ *
+ * Exported for the two places that legitimately own their own connection rather
+ * than sharing the app singleton below: prisma/seed.ts and the standalone import
+ * scripts. `new PrismaClient()` on its own is a Person write path with no name
+ * reconciliation, so construct through here instead.
+ */
+export function makePrismaClient() {
+  return new PrismaClient().$extends(personNameWriteExtension());
+}
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+function client() {
+  return makePrismaClient();
+}
+
+/**
+ * The client type, extension included. Import these rather than naming
+ * `PrismaClient` or `Prisma.TransactionClient` directly: an extended client is a
+ * structurally different type, and a signature written against the bare one
+ * silently stops accepting `prisma`.
+ */
+export type ExtendedPrismaClient = ReturnType<typeof client>;
+
+/** What `$transaction` hands its callback: the client minus the lifecycle methods. */
+export type TransactionClient = Omit<
+  ExtendedPrismaClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
+/** Either, for the many helpers that work the same inside a transaction or out. */
+export type Db = ExtendedPrismaClient | TransactionClient;
+
+const globalForPrisma = globalThis as unknown as { prisma?: ExtendedPrismaClient };
+
+export const prisma = globalForPrisma.prisma ?? client();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
@@ -63,7 +105,7 @@ export function isSerializationError(err: unknown): err is Prisma.PrismaClientKn
  * external side effects, since it may run more than once.
  */
 export async function runSerializable<T>(
-  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  fn: (tx: TransactionClient) => Promise<T>,
   attempts = 3,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {

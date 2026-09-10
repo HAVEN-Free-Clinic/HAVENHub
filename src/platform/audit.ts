@@ -1,9 +1,6 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import type { Prisma } from "@prisma/client";
+import { prisma, type Db } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
-
-/** Either the singleton client or a transaction client, so a caller mid-transaction can record on the same connection. */
-type Db = PrismaClient | Prisma.TransactionClient;
 
 export type AuditEntry = {
   actorPersonId?: string | null;

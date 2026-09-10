@@ -28,6 +28,7 @@
  * {{#each}}, only {{ var }}, {{#if}}/{{else}}/{{/if}}, and {{{ raw }}}.
  */
 
+import { firstNameOf } from "@/platform/person-name";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,7 @@ export function strikeIssuedDirectorsContext(
 ): Record<string, unknown> {
   return {
     directorName: p.directorName,
+    directorFirstName: firstNameOf(p.directorName),
     subjectName: p.subjectName,
     category: p.category,
     occurredDate: p.occurredDate,
@@ -365,6 +367,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
     group: "incidents",
     variables: [
       { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "directorFirstName", label: "What the director goes by, for the greeting", sampleValue: "Alex" },
       { name: "subjectName", label: "Name of the person the strike is against", sampleValue: "Alex Rivera" },
       { name: "category", label: "Strike category", sampleValue: "Attendance" },
       { name: "occurredDate", label: "Date of incident", sampleValue: "July 15, 2026" },
@@ -373,7 +376,7 @@ export const incidentsDescriptors: TemplateDescriptor[] = [
       { name: "ledgerLink", label: "Link to the strikes ledger", sampleValue: "https://hub.havenfreeclinic.org/incidents/strikes" },
     ],
     defaultSubject: "Disciplinary action recorded for {{ subjectName }}",
-    defaultBody: `<p>Hello {{ directorName }},</p>
+    defaultBody: `<p>Hello {{ directorFirstName }},</p>
 <p>A disciplinary action was recorded against {{ subjectName }}, a member of a department you direct. They now have {{ strikeCount }} on file.</p>
 <table role="presentation" style="border-collapse:collapse;margin:16px 0">
   <tr><td style="font-weight:600;padding-right:12px">Category</td><td>{{ category }}</td></tr>

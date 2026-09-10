@@ -143,7 +143,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // A returning applicant's identity comes from their matched record, not the
   // form: the identity section (first_name/last_name/net_id) is NEW-only, so it is
   // never rendered for them and their answers carry none of it. Capture it here.
-  let returningIdentity: { name: string | null; netId: string | null; phone: string | null } | null = null;
+  let returningIdentity: { name: string | null; legalFirstName: string | null; lastName: string | null; preferredFirstName: string | null; netId: string | null; phone: string | null } | null = null;
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
@@ -159,7 +159,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
-    returningIdentity = { name: renewalCtx.name, netId: renewalCtx.netId, phone: renewalCtx.phone };
+    returningIdentity = { name: renewalCtx.name, legalFirstName: renewalCtx.legalFirstName, lastName: renewalCtx.lastName, preferredFirstName: renewalCtx.preferredFirstName, netId: renewalCtx.netId, phone: renewalCtx.phone };
     if (input.applicantType === "RENEWAL") {
       renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
     } else {
@@ -331,18 +331,25 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // NEW-only, so answers.first_name/last_name are absent for them). New applicants:
   // read the form. The template key is net_id (snake_case, like first_name), not
   // "netid" -- reading answers.netid always yielded null, dropping every NetID.
-  const returningName = (returningIdentity?.name ?? "").trim();
-  const returningNameSplit = returningName.indexOf(" ");
+  // A returning applicant's name is READ from their Person record, never split
+  // out of the display string. That split is what put "Jonathan (Jack)" in the
+  // first-name column before Person held real parts, and it still could not tell
+  // "Maria de la Cruz" apart from a middle name.
   const firstName = (
     isReturning
-      ? returningNameSplit === -1 ? returningName : returningName.slice(0, returningNameSplit)
+      ? returningIdentity?.legalFirstName ?? ""
       : String(input.answers.first_name ?? "")
   ).trim();
   const lastName = (
     isReturning
-      ? returningNameSplit === -1 ? "" : returningName.slice(returningNameSplit + 1)
+      ? returningIdentity?.lastName ?? ""
       : String(input.answers.last_name ?? "")
   ).trim();
+  const preferredFirstName = (
+    isReturning
+      ? returningIdentity?.preferredFirstName ?? ""
+      : String(input.answers.preferred_first_name ?? "")
+  ).trim() || null;
   const identityNetId = isReturning
     ? returningIdentity?.netId ?? null
     : matchedRecordNetId ?? (typeof input.answers.net_id === "string" ? input.answers.net_id : null);
@@ -522,12 +529,12 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
             // Never downgrade a link the draft already established: erasing it
             // would silently disable the self-dealing guards that key on it.
             applicantPersonId: applicantPersonId ?? existingApplicant?.applicantPersonId ?? null,
-            firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone,
+            firstName, lastName, preferredFirstName, email, emailLower, netId: identityNetId, phone: identityPhone,
           },
         });
       } else {
         const created = await tx.applicant.create({
-          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, email, emailLower, netId: identityNetId, phone: identityPhone },
+          data: { cycleId: cycle.id, applicantPersonId, firstName, lastName, preferredFirstName, email, emailLower, netId: identityNetId, phone: identityPhone },
         });
         applicantId = created.id;
       }

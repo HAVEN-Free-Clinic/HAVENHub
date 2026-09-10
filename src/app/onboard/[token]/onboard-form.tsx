@@ -11,7 +11,7 @@ import { FormActions } from "@/platform/ui/form";
 import { visibleOnboardingBlocks } from "@/modules/recruitment/contract/visibility";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
-type Prefill = { firstName: string; lastName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
+type Prefill = { firstName: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
 type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;

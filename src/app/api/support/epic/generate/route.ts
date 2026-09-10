@@ -94,17 +94,27 @@ const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Splits a stored full name into first/last for the PDF and spreadsheet name
- * fields. The Person model has only a single `name`, so this is a heuristic:
- * the final whitespace-separated token is the last name, everything before it
- * is the first/middle name. A single-token name (mononym) yields an empty last
- * name rather than duplicating the first name into both fields.
+ * The name fields on the PDF and the spreadsheet, read from the Person's stored
+ * parts rather than guessed from a string.
+ *
+ * LEGAL, deliberately. This document goes to YNHH IT to provision an Epic
+ * account against a real identity, so it must carry the name on the person's
+ * record, never the one the clinic calls them: "Jonathan Carney", not "Jack
+ * Carney". `Person.name` holds the display name, so reading it here would put a
+ * nickname on a hospital access request.
+ *
+ * The middle name rides with the first, which is what the Epic form expects.
+ * A mononym yields an empty last name rather than duplicating the first.
  */
-function splitName(full: string): { firstName: string; lastName: string } {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
+function splitName(person: {
+  legalFirstName: string;
+  legalMiddleName: string | null;
+  lastName: string;
+}): { firstName: string; lastName: string } {
+  return {
+    firstName: [person.legalFirstName, person.legalMiddleName].filter(Boolean).join(" "),
+    lastName: person.lastName,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +314,7 @@ export async function POST(req: Request) {
 
   // Build person shape for individual requests.
   const firstPerson = people[0];
-  const { firstName, lastName } = splitName(firstPerson.name);
+  const { firstName, lastName } = splitName(firstPerson);
 
   const personArg = isBulk ? null : {
     firstName,
@@ -379,7 +389,7 @@ export async function POST(req: Request) {
 
   if (isBulk) {
     const peopleRows = people.map((p) => {
-      const { firstName: rowFirst, lastName: rowLast } = splitName(p.name);
+      const { firstName: rowFirst, lastName: rowLast } = splitName(p);
       return {
         firstName: rowFirst,
         lastName: rowLast,

@@ -5,7 +5,7 @@ import { RecruitmentAuthError } from "./review";
 import { promoteContracts } from "./promotion";
 import { languageReviewWhere } from "@/platform/languages";
 
-async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[] } = {}) {
+async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[]; preferredFirstName?: string } = {}) {
   const term = await prisma.term.create({ data: {
     code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE",
     // Keep the calendar consistent with the availability the test seeded, so
@@ -22,7 +22,7 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
   const contract = await prisma.onboardingContract.create({ data: {
     acceptanceId: acceptance.id, token: `t-${Math.random()}`, status: "SUBMITTED",
-    firstName: "Ada", lastName: "Lovelace", email: opts.email ?? "ada@yale.edu", netId: opts.netId ?? "al99",
+    firstName: "Ada", lastName: "Lovelace", preferredFirstName: opts.preferredFirstName ?? null, email: opts.email ?? "ada@yale.edu", netId: opts.netId ?? "al99",
     agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: opts.epicNeeded ?? false, hasEpic: !!opts.existingEpicId, existingEpicId: opts.existingEpicId,
     hipaaStoredName: "hipaa-x.pdf", hipaaFileName: "c.pdf", hipaaMimeType: "application/pdf", hipaaSize: 10, hipaaCompletedAt: new Date("2026-01-01"),
@@ -494,5 +494,31 @@ describe("promotion carries the new contract fields (pronouns, staffTitle)", () 
     const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
     expect(person.pronouns).toBe("they/them");
     expect(person.staffTitle).toBe("Program Manager");
+  });
+});
+
+describe("the name a promoted member lands with", () => {
+  it("carries the contract's preferred first name onto the new Person", async () => {
+    const { contract, srr } = await seedSubmitted({ preferredFirstName: "Addy" });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.legalFirstName).toBe("Ada");
+    expect(person.lastName).toBe("Lovelace");
+    expect(person.preferredFirstName).toBe("Addy");
+    expect(person.name).toBe("Addy Lovelace");
+    // Read from the contract's own columns, so nothing had to be guessed.
+    expect(person.nameNeedsReview).toBe(false);
+  });
+
+  it("leaves the preferred name null when the contract has none", async () => {
+    const { contract, srr } = await seedSubmitted();
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.preferredFirstName).toBeNull();
+    expect(person.name).toBe("Ada Lovelace");
   });
 });

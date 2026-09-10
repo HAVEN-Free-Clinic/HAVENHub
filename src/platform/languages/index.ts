@@ -18,7 +18,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -503,7 +503,7 @@ async function notifyLanguageAssessed(
 export async function claimLanguage(
   personId: string,
   language: string,
-  client: Prisma.TransactionClient | typeof prisma = prisma,
+  client: TransactionClient | typeof prisma = prisma,
 ): Promise<{ created: boolean }> {
   if (!isLanguageCode(language)) {
     throw new LanguageValidationError(`Unknown language "${language}".`);
@@ -616,7 +616,7 @@ async function sendPendingClaimDigest(
  */
 export async function verifiedLanguagesByPerson(
   personIds: string[],
-  client: Prisma.TransactionClient | typeof prisma = prisma,
+  client: TransactionClient | typeof prisma = prisma,
 ): Promise<Map<string, string[]>> {
   if (personIds.length === 0) return new Map();
   const rows = await client.personLanguage.findMany({
@@ -641,7 +641,7 @@ export async function verifiedLanguagesByPerson(
  */
 export async function spanishScoresByPerson(
   personIds: string[],
-  client: Prisma.TransactionClient | typeof prisma = prisma,
+  client: TransactionClient | typeof prisma = prisma,
 ): Promise<Map<string, number>> {
   if (personIds.length === 0) return new Map();
   const rows = await client.personLanguage.findMany({

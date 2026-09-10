@@ -19,14 +19,14 @@
  * director dropped from the sheet is still a director who sat on that board.
  */
 
-import type { Prisma, PrismaClient, BoardAttendanceStatus } from "@prisma/client";
+import type { BoardAttendanceStatus } from "@prisma/client";
+import { type Db } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import type { SheetParse } from "./parse";
 import { resolveBoardDepartmentCode } from "./departments";
 import { buildPersonIndex, matchName, type NameMatch } from "./names";
 import { HISTORICAL_TERMS, resolveTermForDate, type TermWindow } from "./terms";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 export type BoardImportOptions = {
   /**

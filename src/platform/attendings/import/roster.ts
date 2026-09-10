@@ -17,6 +17,7 @@
 
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { preferredFromParenthetical } from "@/platform/person-name";
 
 /** A row as the sheet holds it, before any database lookup. */
 export type ParsedAttending = {
@@ -69,11 +70,19 @@ export function deriveScheduleName(fullName: string): string {
   return `${given} ${parts[parts.length - 1]}`.trim();
 }
 
-/** "Bo (Jack)" -> "Jack"; "Margaret" -> "Margaret". */
+/**
+ * "Bo (Jack)" -> "Jack"; "Margaret" -> "Margaret".
+ *
+ * Routed through the shared parser rather than matching the parentheses here,
+ * because the contact sheet puts other things in them: this used to return
+ * "she/her" for "Margaret (she/her)" and "RN" for "Jane (RN)", and put that on
+ * the clinic schedule. When no group reads as a name, the parenthetical is
+ * dropped rather than carried into the schedule name.
+ */
 function preferredGiven(given: string): string {
-  const nickname = given.match(/\(([^)]+)\)/);
-  if (nickname) return nickname[1].trim();
-  return given.trim();
+  const preferred = preferredFromParenthetical(given);
+  if (preferred) return preferred;
+  return given.replace(/\([^)]*\)/g, " ").trim().replace(/\s+/g, " ");
 }
 
 /**

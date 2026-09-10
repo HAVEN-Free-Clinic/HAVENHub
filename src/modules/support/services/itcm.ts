@@ -27,6 +27,7 @@ import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundErr
 import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { TERMINAL_STATUSES } from "./manage";
 import { normalizeServiceRequestNumber } from "./identifiers";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -265,7 +266,7 @@ export async function resolveMirrorsByPerson(
 export async function getPeopleByIds(ids: string[]): Promise<Person[]> {
   return prisma.person.findMany({
     where: { id: { in: ids } },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 }
 
@@ -592,7 +593,7 @@ export async function listIncidentPeople(): Promise<{ id: string; name: string }
   return prisma.person.findMany({
     where: { status: "ACTIVE" },
     select: { id: true, name: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 }
 

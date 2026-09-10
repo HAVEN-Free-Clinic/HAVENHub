@@ -27,7 +27,11 @@ import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundErr
 import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { TERMINAL_STATUSES } from "./manage";
 import { normalizeServiceRequestNumber } from "./identifiers";
-import { PERSON_NAME_ORDER, personNameOrderVia } from "@/platform/person-name";
+import {
+  PERSON_NAME_ORDER,
+  personNameOrderVia,
+  type PersonNameParts,
+} from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,7 +62,7 @@ export type EpicAuthorizer = {
   /** Person id: the stable key the form submits and the route re-resolves. */
   id: string;
   name: string;
-  /** First+last name initials, used for PDF filenames and email subjects. */
+  /** Legal first + surname initials, for PDF filenames and email subjects. */
   initials: string;
   /** From Person.phone; "" when unset rather than a stale hardcoded number. */
   phone: string;
@@ -76,15 +80,19 @@ const ITCM_DEPARTMENT_CODE = "ITCM";
 // ---------------------------------------------------------------------------
 
 /**
- * Initials from a full name: the first letter of the first and last
- * whitespace-separated tokens, uppercased. "Caprice Culkin" -> "CC",
- * "Mary Jane Watson" -> "MW", "Cher" -> "C", "" -> "".
+ * An authorizer's initials, for the Epic PDF filename and the email subject.
+ *
+ * The LEGAL first name and the surname: these go to YNHH IT, who hold the name
+ * of record, so a director who goes by Peggy is still "MB" and not "PB".
+ * Reading the stored parts rather than tokenising the display name also keeps a
+ * compound surname whole -- "Ponce Terashima" initials as P, not T.
+ *
+ * A mononym has an empty lastName and initials as one letter.
  */
-export function authorizerInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "";
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+export function authorizerInitials(person: PersonNameParts): string {
+  const first = person.legalFirstName.trim()[0] ?? "";
+  const last = person.lastName.trim()[0] ?? "";
+  return `${first}${last}`.toUpperCase();
 }
 
 /**
@@ -106,7 +114,18 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
       kind: "DIRECTOR",
       department: { code: ITCM_DEPARTMENT_CODE },
     },
-    include: { person: { select: { id: true, name: true, phone: true, contactEmail: true } } },
+    include: {
+      person: {
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          phone: true,
+          contactEmail: true,
+        },
+      },
+    },
     orderBy: personNameOrderVia("person"),
   });
 
@@ -118,7 +137,7 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
     byId.set(m.person.id, {
       id: m.person.id,
       name: m.person.name,
-      initials: authorizerInitials(m.person.name),
+      initials: authorizerInitials(m.person),
       phone: m.person.phone ?? "",
       email: m.person.contactEmail ?? "",
     });

@@ -52,20 +52,41 @@ async function grantPermission(personId: string, permission: string) {
 }
 
 describe("authorizerInitials", () => {
-  it("returns the first and last token initials, uppercased", () => {
-    expect(authorizerInitials("Caprice Culkin")).toBe("CC");
-    expect(authorizerInitials("Renee Tracey")).toBe("RT");
-    expect(authorizerInitials("Jack Carney")).toBe("JC");
+  it("returns the legal first and surname initials, uppercased", () => {
+    expect(authorizerInitials({ legalFirstName: "Caprice", lastName: "Culkin" })).toBe("CC");
+    expect(authorizerInitials({ legalFirstName: "Renee", lastName: "Tracey" })).toBe("RT");
   });
 
-  it("uses the first and final token for multi-part names", () => {
-    expect(authorizerInitials("Mary Jane Watson")).toBe("MW");
+  it("skips the middle name", () => {
+    expect(
+      authorizerInitials({ legalFirstName: "Mary", legalMiddleName: "Jane", lastName: "Watson" }),
+    ).toBe("MW");
   });
 
-  it("handles a single-token name and stray whitespace", () => {
-    expect(authorizerInitials("Cher")).toBe("C");
-    expect(authorizerInitials("  Ada   Lovelace  ")).toBe("AL");
-    expect(authorizerInitials("")).toBe("");
+  // These go in the subject line of a request to YNHH, who hold the name of
+  // record. A nickname there is a subject line about somebody they cannot find.
+  it("ignores a preferred first name", () => {
+    expect(
+      authorizerInitials({
+        legalFirstName: "Margaret",
+        lastName: "Bia",
+        preferredFirstName: "Peggy",
+      }),
+    ).toBe("MB");
+  });
+
+  // The old token split took the FINAL token, so a two-word surname was
+  // initialled on its second half: "JT" for a man whose surname starts with P.
+  it("takes the first letter of a compound surname, not its last word", () => {
+    expect(authorizerInitials({ legalFirstName: "Javier", lastName: "Ponce Terashima" })).toBe(
+      "JP",
+    );
+  });
+
+  it("handles a mononym, stray whitespace, and an empty record", () => {
+    expect(authorizerInitials({ legalFirstName: "Cher", lastName: "" })).toBe("C");
+    expect(authorizerInitials({ legalFirstName: "  Ada ", lastName: " Lovelace  " })).toBe("AL");
+    expect(authorizerInitials({ legalFirstName: "", lastName: "" })).toBe("");
   });
 });
 

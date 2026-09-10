@@ -66,7 +66,9 @@ it("resolveRenewalPrefill splits name, locks email and netid, maps phone, skips 
     ctx,
   );
   expect(values.first_name).toBe("Mary");
-  expect(values.last_name).toBe("Jane Watson");
+  // "Jane" is a middle name, not half of the surname. The old split took
+  // everything after the first space and put it in the last-name box.
+  expect(values.last_name).toBe("Watson");
   expect(values.email).toBe("mjw@yale.edu");
   expect(values.phone).toBe("555");
   expect(values.net_id).toBe("mjw1");
@@ -74,6 +76,35 @@ it("resolveRenewalPrefill splits name, locks email and netid, maps phone, skips 
   // A person with an existing record cannot edit their NetID: it is locked like
   // the verified email. Phone stays editable.
   expect(lockedKeys).toEqual(["email", "net_id"]);
+});
+
+// The parenthetical form this whole feature exists to retire. On the fallback
+// branch it used to prefill the first-name box with "Jonathan (Jack)", which is
+// what an applicant then submitted and what an Epic request carried to YNHH.
+it("resolveRenewalPrefill reads a parenthetical nickname out of the fallback name", async () => {
+  const ctx = {
+    personId: "p2",
+    name: "Jonathan (Jack) Carney",
+    legalFirstName: null,
+    lastName: null,
+    preferredFirstName: null,
+    email: "jc@yale.edu",
+    netId: "jc99",
+    phone: null,
+    currentDepartments: ["SRHD"],
+    eligible: true,
+  };
+  const { values } = resolveRenewalPrefill(
+    [
+      { key: "first_name", type: "SHORT_TEXT" },
+      { key: "last_name", type: "SHORT_TEXT" },
+      { key: "preferred_first_name", type: "SHORT_TEXT" },
+    ],
+    ctx,
+  );
+  expect(values.first_name).toBe("Jonathan");
+  expect(values.last_name).toBe("Carney");
+  expect(values.preferred_first_name).toBe("Jack");
 });
 
 it("resolveRenewalPrefill does not lock net_id when the record has no NetID", async () => {

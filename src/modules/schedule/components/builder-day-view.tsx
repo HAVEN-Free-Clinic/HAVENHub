@@ -18,6 +18,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Button } from "@/platform/ui/button";
 import { PersonName } from "@/platform/ui/person-name";
 import { Card } from "@/platform/ui/card";
@@ -295,9 +296,7 @@ export function BuilderDayView({
             member.person.id,
             <PersonName name={member.person.name} cleared={clearedIds.has(member.person.id)} className="text-sm font-semibold text-foreground" />,
           )}
-          <Badge tone={isDirectorKind ? "brand" : "default"}>
-            {isDirectorKind ? "Director" : "Volunteer"}
-          </Badge>
+          <MembershipKindBadge kind={member.kind} />
           {incoming && (
             <>
               <Badge tone="warning">{PROVISIONAL_BADGE_LABEL}</Badge>

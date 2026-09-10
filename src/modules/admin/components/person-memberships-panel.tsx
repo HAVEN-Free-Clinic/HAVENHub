@@ -24,6 +24,7 @@ import {
 } from "@/modules/admin/services/roster";
 import { LastAdminError } from "@/platform/rbac/last-admin";
 import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Field } from "@/platform/ui/input";
@@ -161,7 +162,7 @@ export async function PersonMembershipsPanel({
                   className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
                 >
                   <span className="text-sm font-medium text-foreground">{m.department.code}</span>
-                  {m.kind === "DIRECTOR" ? <Badge tone="brand">Director</Badge> : <Badge tone="default">Volunteer</Badge>}
+                  <MembershipKindBadge kind={m.kind} />
                   {canManage && (
                     <div className="ml-auto flex items-center gap-2">
                       <form action={changeKindAction} className="flex items-center gap-1">
@@ -236,7 +237,7 @@ export async function PersonMembershipsPanel({
                 <TR key={m.id}>
                   <TD>{m.term.code}</TD>
                   <TD>{m.department.code}</TD>
-                  <TD>{m.kind === "DIRECTOR" ? <Badge tone="brand">Director</Badge> : <Badge tone="default">Volunteer</Badge>}</TD>
+                  <TD><MembershipKindBadge kind={m.kind} /></TD>
                   <TD>{m.status === "ACTIVE" ? <Badge tone="success">Active</Badge> : <Badge tone="default">Removed</Badge>}</TD>
                 </TR>
               ))}

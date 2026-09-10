@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BuilderAvailabilityView } from "./builder-availability-view";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import type { BuilderMember } from "@/modules/schedule/services/builder";
 
 /** Noon-UTC anchored calendar date, matching how the schema stores clinicDate. */
@@ -88,5 +89,24 @@ describe("BuilderAvailabilityView", () => {
       />,
     );
     expect(outOfOrder).toEqual(originalOrder);
+  });
+
+  it("draws a director the same chip the Day view of this same page draws", () => {
+    // The defect this closes: this view rendered `<Badge tone="default">` for a
+    // director while builder-day-view.tsx rendered the same person's chip
+    // brand-toned, so toggling the tab recoloured them. Both now render
+    // MembershipKindBadge, and this asserts the markup matches rather than
+    // trusting it.
+    const out = renderToStaticMarkup(
+      <BuilderAvailabilityView
+        members={[{ ...member, kind: "DIRECTOR" }]}
+        clinicDates={OUT_OF_ORDER}
+        editable
+        saveOverrideAction={noop}
+        clearOverrideAction={noop}
+        acknowledgeAction={noop}
+      />,
+    );
+    expect(out).toContain(renderToStaticMarkup(<MembershipKindBadge kind="DIRECTOR" />));
   });
 });

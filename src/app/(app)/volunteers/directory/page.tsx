@@ -31,11 +31,15 @@ import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Badge } from "@/platform/ui/badge";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Alert } from "@/platform/ui/alert";
 import { EmailList } from "@/platform/ui/email-list";
 import { TextLink } from "@/platform/ui/text-link";
+import { PersonNameCell } from "@/modules/volunteers/components/person-name-cell";
+import {
+  MembershipKindBadge,
+  membershipKindLabel,
+} from "@/platform/ui/membership-kind-badge";
 import { DirectoryExportButton } from "@/modules/volunteers/components/directory-export-button";
 import {
   directorySummary,
@@ -337,29 +341,19 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                 // matched seats, so this line is the only place a Nursing
                 // director's Triage volunteering survives a Nursing filter.
                 const alsoIn = p.otherSeats.map(
-                  (s) =>
-                    `${s.departmentCode} (${s.kind === "DIRECTOR" ? "Director" : "Volunteer"})`,
+                  (s) => `${s.departmentCode} (${membershipKindLabel(s.kind)})`,
                 );
                 const isDirector = p.seats.some((s) => s.kind === "DIRECTOR");
                 const isVolunteer = p.seats.some((s) => s.kind === "VOLUNTEER");
                 return (
                   <TR key={p.id}>
                     {/* NetID, email and phone sit under the name rather than in
-                        columns of their own, matching /volunteers/master, which
-                        already presents a clinic-wide roster this way. */}
-                    <TD className="font-medium">
-                      {canOpenProfile ? (
-                        <TextLink href={`/volunteers/compliance/${p.id}`}>
-                          {p.name}
-                        </TextLink>
-                      ) : (
-                        p.name
-                      )}
-                      <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
-                        {[p.netId, p.contactEmail, p.phone].filter(Boolean).join(" · ") ||
-                          "No contact details on file"}
-                      </span>
-                    </TD>
+                        columns of their own, matching /volunteers and
+                        /volunteers/master, which now share this exact cell. */}
+                    <PersonNameCell
+                      person={p}
+                      href={canOpenProfile ? `/volunteers/compliance/${p.id}` : null}
+                    />
                     <TD className="text-sm text-foreground-soft">
                       {codes.join(", ")}
                       {alsoIn.length > 0 && (
@@ -370,8 +364,8 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                     </TD>
                     <TD>
                       <div className="flex flex-wrap gap-1">
-                        {isDirector && <Badge tone="brand">Director</Badge>}
-                        {isVolunteer && <Badge>Volunteer</Badge>}
+                        {isDirector && <MembershipKindBadge kind="DIRECTOR" />}
+                        {isVolunteer && <MembershipKindBadge kind="VOLUNTEER" />}
                       </div>
                     </TD>
                   </TR>

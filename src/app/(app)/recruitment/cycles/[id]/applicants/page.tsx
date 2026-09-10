@@ -41,6 +41,7 @@ import {
 } from "@/modules/recruitment/engine/applicant-sort";
 import { FORM_ROW, FormRow } from "@/platform/ui/form";
 import { FilterField } from "@/platform/ui/filter-bar";
+import { ResultCount } from "@/platform/ui/result-count";
 import { ListEmpty } from "@/platform/ui/list-empty";
 
 const PAGE_SIZE = 50;
@@ -230,9 +231,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
         </FormRow>
-        <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
-          {filtered.length.toLocaleString()} {filtered.length === 1 ? "applicant" : "applicants"}
-        </span>
+        <ResultCount total={filtered.length} noun="applicant" />
       </div>
       <Table>
         <THead>

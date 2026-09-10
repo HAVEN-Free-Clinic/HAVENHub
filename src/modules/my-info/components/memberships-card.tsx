@@ -12,7 +12,7 @@
 
 import type { TermMembership, Department, Term } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
-import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
@@ -49,11 +49,7 @@ export function MembershipsCard({
           {memberships.map((m) => (
             <li key={m.id} className="flex items-center gap-2 text-sm">
               <span className="font-medium text-foreground-soft">{m.department.code}</span>
-              {m.kind === "DIRECTOR" ? (
-                <Badge tone="brand">Director</Badge>
-              ) : (
-                <Badge tone="default">Volunteer</Badge>
-              )}
+              <MembershipKindBadge kind={m.kind} />
             </li>
           ))}
         </ul>

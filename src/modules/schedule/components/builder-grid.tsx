@@ -27,6 +27,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
@@ -617,7 +618,6 @@ export function BuilderGrid({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isDirector = row.kind === "DIRECTOR";
               return (
                 <tr key={row.personId} className="hover:bg-muted/60">
                   {/* Pinned member name column */}
@@ -626,10 +626,10 @@ export function BuilderGrid({
                       <span className="text-xs font-medium text-foreground">
                         {row.name}
                       </span>
-                      {row.status === "member" && (
-                        <Badge tone={isDirector ? "brand" : "default"}>
-                          {isDirector ? "Dir" : "Vol"}
-                        </Badge>
+                      {/* `kind` is null for a former-member assignee, and the
+                          sibling status check does not narrow it, so guard it here. */}
+                      {row.status === "member" && row.kind && (
+                        <MembershipKindBadge kind={row.kind} abbreviated />
                       )}
                       {row.status === "incoming" && (
                         // Accepted into this department but not built onto the

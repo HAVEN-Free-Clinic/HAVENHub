@@ -45,8 +45,20 @@ test("event attendance: create an info session and check in a walk-up", async ({
   await createForm.locator('button:has-text("Create event")').click();
 
   // createEventAction redirects straight to the new event.
-  await page.waitForURL((url) => /\/recruitment\/events\/[^/]+$/.test(url.pathname));
+  //
+  // The `/new` exclusion is load-bearing now that the form has its own route:
+  // /recruitment/events/new ALSO satisfies `/events/[^/]+$`, so without it this
+  // predicate is already true at the moment of the click, waitForURL returns
+  // immediately, and eventId is captured as the literal string "new". The
+  // heading assertion below still passes -- Playwright auto-waits, so the
+  // redirect lands before it resolves -- and the failure surfaces much later at
+  // /check-in/new, which is not an event.
+  await page.waitForURL(
+    (url) =>
+      /\/recruitment\/events\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"),
+  );
   const eventId = page.url().split("/events/")[1].split("?")[0];
+  expect(eventId).not.toBe("new");
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
   await expect(page.getByText("Nobody checked in yet.")).toBeVisible();
 

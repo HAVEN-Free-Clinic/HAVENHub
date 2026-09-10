@@ -5,8 +5,7 @@ import { getModule } from "@/platform/modules/registry";
 import { canAccessModule, filterNavItems } from "@/platform/modules/access";
 import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
-import { canRecordAttendance } from "@/modules/recruitment/services/attendance-events";
-import { recruitmentNavItems, EVENTS_HREF } from "@/modules/recruitment/nav";
+import { recruitmentNavItems, EVENTS_HREF, resolvedRecruitmentNavHrefs } from "@/modules/recruitment/nav";
 import { ModuleNav } from "@/platform/ui/module-nav";
 import { moduleMetadata } from "@/platform/branding/metadata";
 
@@ -27,11 +26,14 @@ export default async function RecruitmentLayout({ children }: { children: ReactN
   // the registry's permission-based filterNavItems and is resolved here.
   const person = await requirePersonSession();
   const mod = getModule("recruitment")!;
-  const [perms, isPanelist, scope, canTakeAttendance] = await Promise.all([
+  const [perms, isPanelist, scope, recruitmentGates] = await Promise.all([
     getEffectivePermissions(person.personId),
     isInterviewPanelist(person.personId),
     reviewScope(person.personId),
-    canRecordAttendance(person.personId),
+    // The same resolver the (app) layout feeds to the global nav, not a second
+    // copy of the condition. Two independent spellings of one gate is how a tab
+    // ends up offered in the dropdown and missing from the tab row.
+    resolvedRecruitmentNavHrefs(person.personId),
   ]);
   // A department director is a recruitment reviewer by scope (manageableDepartmentIds),
   // not by a recruitment permission, so canAccessModule misses them. Treat a scope
@@ -45,7 +47,7 @@ export default async function RecruitmentLayout({ children }: { children: ReactN
   // it dynamicGate and the check lands here.
   const staffNav = isStaff
     ? filterNavItems(mod.nav, perms).filter(
-        (item) => item.href !== EVENTS_HREF || canTakeAttendance,
+        (item) => item.href !== EVENTS_HREF || recruitmentGates.has(EVENTS_HREF),
       )
     : [];
   const items = recruitmentNavItems({ staffNav, isPanelist });

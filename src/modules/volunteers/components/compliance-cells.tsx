@@ -48,22 +48,37 @@ export function taskState(
   return clearance.tasks.find((t) => t.key === key)?.state ?? null;
 }
 
-/** Header cells for everything between the name/second column and Actions. */
-/** How many <TH>s ComplianceHeaderCells emits. Exported so a caller computing a
- *  colSpan for an empty row cannot drift from the header it has to span. */
-export const COMPLIANCE_COLUMN_COUNT = 8;
+/**
+ * The compliance block's column headings, in order: everything between the
+ * name/second column and Actions.
+ *
+ * Exported as data, not just rendered, because two other things must agree with
+ * it and cannot read JSX: a caller computing an empty row's colSpan, and
+ * volunteers/master/master-skeleton.tsx, whose whole job is to reserve these
+ * exact column widths so the Suspense swap does not shift the layout (that page
+ * has measured CLS). The skeleton used to retype all eight.
+ */
+export const COMPLIANCE_COLUMN_LABELS = [
+  "Status",
+  "Training",
+  "Learning",
+  "EHS",
+  "Cleared",
+  "Completed",
+  "Expires",
+  "Verified",
+] as const;
 
+/** How many <TH>s ComplianceHeaderCells emits. */
+export const COMPLIANCE_COLUMN_COUNT = COMPLIANCE_COLUMN_LABELS.length;
+
+/** Header cells for everything between the name/second column and Actions. */
 export function ComplianceHeaderCells() {
   return (
     <>
-      <TH>Status</TH>
-      <TH>Training</TH>
-      <TH>Learning</TH>
-      <TH>EHS</TH>
-      <TH>Cleared</TH>
-      <TH>Completed</TH>
-      <TH>Expires</TH>
-      <TH>Verified</TH>
+      {COMPLIANCE_COLUMN_LABELS.map((label) => (
+        <TH key={label}>{label}</TH>
+      ))}
     </>
   );
 }

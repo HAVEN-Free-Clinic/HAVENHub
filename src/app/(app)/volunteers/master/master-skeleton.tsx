@@ -1,3 +1,4 @@
+import { COMPLIANCE_COLUMN_LABELS } from "@/modules/volunteers/components/compliance-cells";
 import { ChevronsUpDown } from "lucide-react";
 import { Skeleton } from "@/platform/ui/skeleton";
 import { cardClasses } from "@/platform/ui/card";
@@ -20,14 +21,10 @@ import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 const COLUMNS: { label: string; sortable?: boolean }[] = [
   { label: "Name", sortable: true },
   { label: "Departments", sortable: true },
-  { label: "Status" },
-  { label: "Training" },
-  { label: "Learning" },
-  { label: "EHS" },
-  { label: "Cleared" },
-  { label: "Completed" },
-  { label: "Expires" },
-  { label: "Verified" },
+  // The eight compliance headings come from the component that renders them on
+  // the real table, not retyped. Reserving the right widths is this file's only
+  // job, and it can only do it while the two lists are the same list.
+  ...COMPLIANCE_COLUMN_LABELS.map((label) => ({ label })),
   { label: "" },
 ];
 

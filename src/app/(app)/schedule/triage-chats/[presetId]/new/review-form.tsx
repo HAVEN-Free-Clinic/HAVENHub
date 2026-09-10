@@ -82,8 +82,16 @@ export function ReviewForm({
                   label={entry.member.name}
                   // The primitive's hint IS this block span, and it brings the
                   // items-start the hand-rolled row was setting by hand.
+                  //
+                  // Composed as nodes rather than a template literal because
+                  // `reason` is optional (member-ids.ts:40). The JSX this
+                  // replaced interpolated {entry.reason}, which React drops when
+                  // it is undefined; a template literal would print the string
+                  // "undefined" to a director instead.
                   hint={
-                    unresolved ? `Cannot be added automatically: ${entry.reason}` : undefined
+                    unresolved ? (
+                      <>Cannot be added automatically{entry.reason ? `: ${entry.reason}` : "."}</>
+                    ) : undefined
                   }
                 />
               );

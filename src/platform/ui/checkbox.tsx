@@ -157,17 +157,18 @@ export function Checkbox({
  *
  * The gap between the legend and the first option lives in exactly ONE place,
  * the fieldset's `space-y-2`, and never on the legend as a margin-bottom. Both
- * at once would double it: `space-y-*` is `> :not([hidden]) ~ :not([hidden])`,
- * and the legend is the first child, so the first option is already a sibling
- * it targets. That single ownership is also what makes this class-for-class
- * identical to the fieldset roster-panel.tsx hand-rolled, so adopting it there
- * is a pure de-duplication with no visual diff.
+ * at once would double it. That single ownership is also what makes this
+ * class-for-class identical to the fieldset roster-panel.tsx hand-rolled, so
+ * adopting it there is a pure de-duplication with no visual diff.
  *
- * `space-y-2` is deliberately absent when the legend is hidden: `sr-only` takes
- * the legend out of flow, but the sibling selector does not care, so it would
- * still hand the first real child 8px of margin-top the wrapped markup does not
- * have today. Every hidden-legend caller passes a single child that owns its
- * own spacing, so dropping it there makes the wrapper genuinely inert.
+ * `space-y-2` is unconditional, including when the legend is hidden. This repo
+ * is on Tailwind 4, where the utility compiles to
+ * `:where(& > :not(:last-child))` with margin-BLOCK-END -- not v3's
+ * `> :not([hidden]) ~ :not([hidden])` with margin-top. So the margin lands on
+ * every child except the last, which with a hidden legend means it lands on the
+ * legend itself, and `sr-only` is position: absolute, so it has no visual
+ * effect. Skipping the class there would be guarding against a v3 behaviour
+ * this repo does not have.
  *
  * Server-safe: no hook and no ref, because this file carries no "use client"
  * and server components render it (see the Checkbox note above).
@@ -187,7 +188,7 @@ export function CheckboxGroup({
   children: ReactNode;
 }) {
   return (
-    <fieldset className={cx("m-0 border-0 p-0", !hideLegend && "space-y-2")}>
+    <fieldset className="m-0 border-0 p-0 space-y-2">
       <legend
         className={cx("p-0", hideLegend ? "sr-only" : "text-xs font-medium text-muted-foreground")}
       >

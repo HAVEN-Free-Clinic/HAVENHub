@@ -235,17 +235,20 @@ describe("CheckboxGroup", () => {
     expect(legendClass(out)).not.toMatch(/\bmb-/);
   });
 
-  it("adds no spacing at all when the legend is hidden", () => {
-    // sr-only takes the legend out of flow, but the sibling selector does not
-    // care: space-y-2 would still hand the single wrapped child 8px of
-    // margin-top that the markup does not have today, so the wrapper would not
-    // be inert after all.
+  it("keeps its spacing when the legend is hidden, because Tailwind 4 puts it elsewhere", () => {
+    // This repo is on Tailwind 4, where space-y-2 compiles to
+    // `:where(& > :not(:last-child))` with margin-block-END -- not v3's
+    // `> :not([hidden]) ~ :not([hidden])` with margin-top. With a hidden legend
+    // the margin therefore lands on the LEGEND, which sr-only has already taken
+    // out of flow, so it changes nothing. Dropping the class here would be
+    // guarding against a version of Tailwind this repo does not run.
     const out = render(
       <CheckboxGroup legend="Members to add" hideLegend>
         <div>rows</div>
       </CheckboxGroup>,
     );
-    expect(groupClass(out)).not.toContain("space-y-2");
+    expect(groupClass(out)).toContain("space-y-2");
+    expect(legendClass(out)).toContain("sr-only");
   });
 });
 

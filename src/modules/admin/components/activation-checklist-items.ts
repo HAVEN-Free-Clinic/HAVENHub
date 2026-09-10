@@ -1,4 +1,5 @@
 import type { ActivationReadiness } from "@/modules/admin/services/term-readiness";
+import { CLINIC_DATE_SHORT, formatCalendarDate } from "@/platform/dates";
 
 export type ChecklistItem = {
   key: string;
@@ -7,9 +8,9 @@ export type ChecklistItem = {
   link?: { href: string; label: string };
 };
 
-/** Clinic dates are anchored at 12:00 UTC and must render in UTC (terms.ts). */
+/** Clinic dates and term bounds are calendar markers, so they render in UTC. */
 function day(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return formatCalendarDate(d, CLINIC_DATE_SHORT);
 }
 
 function count(n: number, one: string, many = `${one}s`): string {

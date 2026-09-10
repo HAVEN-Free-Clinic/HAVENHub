@@ -61,6 +61,7 @@ import { CalendarDate } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { hubTrail } from "@/platform/ui/breadcrumb-trail";
+import { formatPhone } from "@/platform/phone";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
@@ -220,7 +221,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                     </a>
                   )}
                 </DetailRow>
-                <DetailRow label="Phone" empty="Not set">{person.phone}</DetailRow>
+                <DetailRow label="Phone" empty="Not set">{formatPhone(person.phone)}</DetailRow>
                 <DetailRow label="NetID" empty="Not set">{person.netId}</DetailRow>
                 <DetailRow label="Pronouns" empty="Not set">{person.pronouns}</DetailRow>
                 <DetailRow label="Yale affiliation" empty="Not set">{person.yaleAffiliation}</DetailRow>

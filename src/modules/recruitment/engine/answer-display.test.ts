@@ -72,6 +72,12 @@ describe("formatAnswer", () => {
     expect(formatAnswer(field({ type: "DATE" }), "sometime")).toBe("sometime");
   });
 
+  it("renders a phone answer in the app's one phone format", () => {
+    expect(formatAnswer(field({ type: "PHONE" }), "3126473228")).toBe("(312) 647-3228");
+    // An unrecognised shape is shown as typed, never guessed at.
+    expect(formatAnswer(field({ type: "PHONE" }), "+44 20 7946 0958")).toBe("+44 20 7946 0958");
+  });
+
   it("names a stored file rather than rendering [object Object]", () => {
     const f = field({ type: "FILE" });
     expect(formatAnswer(f, { storedName: "abc.pdf", fileName: "Resume.pdf" })).toBe("Resume.pdf");

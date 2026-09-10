@@ -22,6 +22,7 @@
  */
 
 import { toCsv } from "@/platform/csv";
+import { formatPhone } from "@/platform/phone";
 import { accountEmailForPerson } from "@/platform/auth/match-person";
 import {
   directoryPeopleAll,
@@ -73,7 +74,8 @@ function peopleRows(
       accountEmailForPerson(p),
       p.netId ?? "",
       p.contactEmail ?? "",
-      p.phone ?? "",
+      // The same format the directory screen shows, not whatever was typed.
+      formatPhone(p.phone) ?? "",
       codes.join(";"),
       role,
     ];
@@ -120,7 +122,7 @@ export async function buildDirectoryCsv(
       a.credentials ?? "",
       a.specialty ?? "",
       a.email ?? "",
-      a.phone ?? "",
+      formatPhone(a.phone) ?? "",
     ]);
     return {
       filename: `haven-attendings-${day}.csv`,

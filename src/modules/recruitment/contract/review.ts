@@ -4,6 +4,7 @@ import type { ContractBlock, ContractLayout, SystemFieldBlock, CustomQuestionBlo
 import type { ContractContext } from "./visibility";
 import { buildContractAnswers, visibleContractBlocks } from "./visibility";
 import { SYSTEM_FIELDS, systemFieldOptions } from "./system-fields";
+import { formatPhone } from "@/platform/phone";
 import {
   buildContractSignatureView,
   type ContractSignatureRow,
@@ -107,7 +108,7 @@ function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): Revi
     case "netId":
       return [{ label, value: c.netId }];
     case "phone":
-      return [{ label, value: c.phone }];
+      return [{ label, value: formatPhone(c.phone) }];
     case "dob":
       return [{ label, value: c.dateOfBirth ? formatCalendarDate(c.dateOfBirth) : null }];
     case "dietary":

@@ -1,5 +1,6 @@
 import { TD } from "@/platform/ui/table";
 import { TextLink } from "@/platform/ui/text-link";
+import { formatPhone } from "@/platform/phone";
 
 /**
  * The name cell shared by the three staff rosters that list people.
@@ -38,7 +39,7 @@ export function PersonNameCell({
    */
   href?: string | null;
 }) {
-  const contact = [person.netId, person.contactEmail, person.phone].filter(Boolean).join(" · ");
+  const contact = [person.netId, person.contactEmail, formatPhone(person.phone)].filter(Boolean).join(" · ");
   return (
     <TD className="font-medium">
       {href ? <TextLink href={href}>{person.name}</TextLink> : person.name}

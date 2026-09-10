@@ -67,10 +67,10 @@ describe("buildDirectoryCsv, people scope", () => {
     expect(rowCount).toBe(1);
     const body = lines(csv);
     expect(body[0]).toBe("Name,Email,NetID,Contact email,Phone,Departments,Role");
-    // Yale address from the NetID, both departments in one cell, and DIRECTOR
-    // winning the role tie-break.
+    // Yale address from the NetID, the phone in the screen's one format, both
+    // departments in one cell, and DIRECTOR winning the role tie-break.
     expect(body[1]).toBe(
-      "Bo Both,bb333@yale.edu,bb333,bo@example.com,203-555-0101,NURS;TRIA,DIRECTOR",
+      "Bo Both,bb333@yale.edu,bb333,bo@example.com,(203) 555-0101,NURS;TRIA,DIRECTOR",
     );
   });
 
@@ -219,7 +219,7 @@ describe("buildDirectoryCsv, attendings scope", () => {
     expect(body[0]).toBe("Name,Credentials,Specialty,Email,Phone");
     // "MD, MPH" holds a comma, so RFC 4180 quoting has to survive the round trip.
     expect(body[1]).toBe(
-      'Dr. Casey Chen,"MD, MPH",Reproductive Health,casey@example.com,203-555-0199',
+      'Dr. Casey Chen,"MD, MPH",Reproductive Health,casey@example.com,(203) 555-0199',
     );
     expect(filename).toBe("haven-attendings-2026-09-01.csv");
   });

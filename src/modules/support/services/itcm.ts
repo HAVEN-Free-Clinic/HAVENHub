@@ -27,6 +27,7 @@ import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundErr
 import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { TERMINAL_STATUSES } from "./manage";
 import { normalizeServiceRequestNumber } from "./identifiers";
+import { formatPhone } from "@/platform/phone";
 import {
   PERSON_NAME_ORDER,
   personNameOrderVia,
@@ -138,7 +139,9 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
       id: m.person.id,
       name: m.person.name,
       initials: authorizerInitials(m.person),
-      phone: m.person.phone ?? "",
+      // Formatted here, once, so the authorizer line on the form and the YNHH
+      // PDF built from it print the same number the same way.
+      phone: formatPhone(m.person.phone) ?? "",
       email: m.person.contactEmail ?? "",
     });
   }

@@ -1,6 +1,11 @@
 import type { Term } from "@prisma/client";
 
-export type TermOption = { value: string; label: string };
+export type TermOption = {
+  value: string;
+  label: string;
+  /** Set on an ARCHIVED term offered via `includeArchived`, so a picker can fold them away. */
+  archived?: boolean;
+};
 
 /**
  * Options for the role-assignment Term <select>, restricted to scopes the RBAC
@@ -29,7 +34,7 @@ export function buildTermOptions(
   const options: TermOption[] = [{ value: "", label: "Global" }];
   for (const t of terms) {
     if (t.status === "ARCHIVED") {
-      if (opts.includeArchived) options.push({ value: t.id, label: `${t.code} (archived)` });
+      if (opts.includeArchived) options.push({ value: t.id, label: `${t.code} (archived)`, archived: true });
       continue;
     }
     const label = t.status === "PLANNING" ? `${t.code} (not yet active)` : t.code;

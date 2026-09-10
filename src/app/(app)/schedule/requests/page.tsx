@@ -84,7 +84,19 @@ export default async function ScheduleRequestsPage() {
             rows: await listDepartmentRequests(session.personId, dept.id, term.id),
           })),
         );
-        return { term, isLive, perDept: perDept.filter((p) => p.rows.length > 0) };
+        // Departments with something to decide lead. A department is listed at
+        // all if it has recent decisions, so an approver with one pending request
+        // among many quiet departments had to scroll past every "No pending
+        // requests" card to find it. Array.sort is stable, so ties keep code order.
+        const pendingCount = (p: (typeof perDept)[number]) =>
+          p.rows.filter((r) => r.request.status === "PENDING").length;
+        return {
+          term,
+          isLive,
+          perDept: perDept
+            .filter((p) => p.rows.length > 0)
+            .sort((a, b) => Number(pendingCount(b) > 0) - Number(pendingCount(a) > 0)),
+        };
       }),
     )
   ).filter((g) => g.perDept.length > 0);

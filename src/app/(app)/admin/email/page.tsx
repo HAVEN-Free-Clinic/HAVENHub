@@ -46,6 +46,7 @@ import { DeliveryLogTable } from "@/modules/admin/components/delivery-log-table"
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { getCronHealth } from "@/platform/cron-heartbeat";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
 import { DateTime } from "@/platform/dates/display";
@@ -93,6 +94,11 @@ type PageProps = {
 
 export default async function EmailPage({ searchParams }: PageProps) {
   const { personId } = await requirePermission("admin.manage_sync");
+  // Externally-scheduled jobs whose last success is stale (schedule dropped,
+  // secret rotated). They feed the delivery logs on this page and on the
+  // notification log, and admin.manage_sync is who can act on them. This used to
+  // be the one thing on the Admin "Overview", which is gone.
+  const staleCrons = (await getCronHealth()).filter((c) => c.stale);
   const sp = await searchParams;
 
   // The header links target pages with their own, independently-grantable
@@ -280,29 +286,41 @@ export default async function EmailPage({ searchParams }: PageProps) {
         title="Email"
         description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
         action={
-          canCampaigns || canTemplates ? (
-            // Button-shaped, like the action slot on the other thirteen pages
-            // that use it. Two underlined words in the top right read as prose
-            // that happens to be clickable, not as the controls a reader has
-            // learned to look for there.
-            //
-            // Outline, not primary: these navigate to sibling surfaces, they
-            // are not this page's own action.
-            <div className="flex gap-2">
-              {canCampaigns && (
-                <Link href="/outreach/campaigns" className={buttonClasses("outline", "sm")}>
-                  Campaigns
-                </Link>
-              )}
-              {canTemplates && (
-                <Link href="/admin/email/templates" className={buttonClasses("outline", "sm")}>
-                  Manage templates
-                </Link>
-              )}
-            </div>
-          ) : undefined
+          // Button-shaped, like the action slot on the other thirteen pages
+          // that use it. Two underlined words in the top right read as prose
+          // that happens to be clickable, not as the controls a reader has
+          // learned to look for there.
+          //
+          // Outline, not primary: these navigate to sibling surfaces, they
+          // are not this page's own action. The notification log and the
+          // templates are folded under this tab (registry underTab), so these
+          // buttons are their way in from here.
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/notifications" className={buttonClasses("outline", "sm")}>
+              Notification log
+            </Link>
+            {canTemplates && (
+              <Link href="/admin/email/templates" className={buttonClasses("outline", "sm")}>
+                Manage templates
+              </Link>
+            )}
+            {canCampaigns && (
+              <Link href="/outreach/campaigns" className={buttonClasses("outline", "sm")}>
+                Campaigns
+              </Link>
+            )}
+          </div>
         }
       />
+
+      {staleCrons.length > 0 && (
+        <Alert tone="error">
+          {/* Admin-facing copy, so no repo paths. The runbook for this alert is
+              docs/DEPLOY.md. */}
+          Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. They are
+          started by an outside scheduler, so check that it is still set up and running.
+        </Alert>
+      )}
 
       {/* Mailer connection panel */}
       <Card className="flex flex-wrap items-center justify-between gap-3">

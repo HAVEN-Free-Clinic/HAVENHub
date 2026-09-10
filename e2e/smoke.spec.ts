@@ -24,7 +24,8 @@ const ROUTES: RouteCase[] = [
   // Admin module: requireModuleAccess("admin") = admin.access on the layout.
   // All sub-pages additionally check a finer permission; admin (*) passes both.
   // Volunteer has no admin.* grants and is denied at the layout.
-  { path: "/admin", allowed: "admin", denied: "volunteer" },
+  // /admin opens the viewer's first admin tab rather than a page of its own.
+  { path: "/admin", allowed: "admin", denied: "volunteer", finalPath: "/admin/people" },
   { path: "/admin/people", allowed: "admin", denied: "volunteer" },
   { path: "/admin/roles", allowed: "admin", denied: "volunteer" },
   { path: "/admin/terms", allowed: "admin", denied: "volunteer" },

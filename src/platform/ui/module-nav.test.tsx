@@ -158,4 +158,22 @@ describe("ModuleNav with folded pages (underTab)", () => {
     expect(activeHrefs(renderAt("/schedule/specialties/abc"))).toEqual(["/schedule/attendings"]);
     expect(activeHrefs(renderAt("/schedule/attendings/credentialing"))).toEqual(["/schedule/attendings"]);
   });
+
+  it("draws a folded page as its own tab when the viewer cannot see its parent", () => {
+    // A role granted admin.manage_email_templates but not admin.manage_sync:
+    // Email (the parent) was filtered out of their items, so folding the
+    // templates under it would leave them a module with no tab to click.
+    const items = [
+      { label: "People", href: "/admin/people" },
+      { label: "Email templates", href: "/admin/email/templates", underTab: "/admin/email" },
+    ];
+    pathname = "/admin/email/templates";
+    try {
+      const out = renderToStaticMarkup(<ModuleNav items={items} />);
+      expect(out).toContain('href="/admin/email/templates"');
+      expect(activeHrefs(out)).toEqual(["/admin/email/templates"]);
+    } finally {
+      pathname = "/admin/people";
+    }
+  });
 });

@@ -1,96 +1,38 @@
-import { prisma } from "@/platform/db";
+import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
-import { getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
-import { getSetting } from "@/platform/settings/service";
-import { getActiveTerm } from "@/platform/terms/active-term";
+import { getEffectivePermissions } from "@/platform/rbac/engine";
+import { getModule } from "@/platform/modules/registry";
+import { filterNavItems } from "@/platform/modules/access";
 import { PageHeader } from "@/platform/ui/page-header";
-import { StatCard } from "@/platform/ui/stat-card";
-import { emailHealthCounts } from "@/modules/admin/services/email";
-import { getCronHealth } from "@/platform/cron-heartbeat";
-import { Alert } from "@/platform/ui/alert";
 
-// requirePermission already ran in the admin layout; this page is reachable by
-// any admin.access holder. Each stat card below targets a page with its OWN
-// sub-permission, so we filter them to what the viewer can actually open
-// (mirroring the nav filtering in the layout) -- otherwise a scoped admin sees
-// cards that dead-end at /no-access.
-
-export default async function AdminOverviewPage() {
+/**
+ * /admin has no page of its own any more: it opens the first Admin tab the
+ * viewer can use.
+ *
+ * It was an "Overview" of six stat cards, each a link to a tab already in the
+ * row directly above it, plus the stale-cron alert, which now sits on
+ * /admin/email beside the delivery logs those jobs feed. The module root is
+ * still where the tile, the toolbar chip and the "Admin" crumb point, so it has
+ * to resolve somewhere real.
+ *
+ * "First tab" means the first item the tab row would draw for this viewer: a
+ * folded page (underTab) counts only when its parent is hidden from them. That
+ * is how a role granted only admin.manage_email_templates still lands on the
+ * templates it exists to grant, rather than on a tab it cannot open.
+ */
+export default async function AdminRoot() {
   const { personId } = await requirePersonSession();
-  const [appName, perms] = await Promise.all([
-    getSetting<string>("branding.appName"),
-    getEffectivePermissions(personId),
-  ]);
+  const perms = await getEffectivePermissions(personId);
+  const items = filterNavItems(getModule("admin")!.nav, perms);
+  const visible = new Set(items.map((item) => item.href));
+  const first = items.find((item) => !item.underTab || !visible.has(item.underTab));
+  if (first) redirect(first.href);
 
-  // Find the active term first so we can scope membership counts.
-  const activeTerm = await getActiveTerm();
-
-  const now = new Date();
-  now.setDate(now.getDate() - 7);
-  const sevenDaysAgo = now;
-
-  // Run all counts in parallel for performance.
-  const [
-    activePersonCount,
-    activeDeptCount,
-    activeMembershipCount,
-    roleCount,
-    recentAuditCount,
-    emailCounts,
-  ] = await Promise.all([
-    prisma.person.count({ where: { status: "ACTIVE" } }),
-    prisma.department.count({ where: { isActive: true } }),
-    activeTerm
-      ? prisma.termMembership.count({
-          where: { termId: activeTerm.id, status: "ACTIVE" },
-        })
-      : Promise.resolve(0),
-    prisma.role.count(),
-    prisma.auditLog.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-    emailHealthCounts(),
-  ]);
-
-  // Flag any externally-scheduled cron job whose last success is stale (schedule
-  // dropped / secret rotated). Dead enqueue-only jobs otherwise leave no signal.
-  const cronHealth = await getCronHealth();
-  const staleCrons = cronHealth.filter((c) => c.stale);
-
-  const statCards = [
-    { label: "Active People", value: activePersonCount, href: "/admin/people", permission: "admin.manage_people" },
-    { label: activeTerm ? `${activeTerm.name} Memberships` : "Memberships", value: activeMembershipCount, href: "/admin/terms", permission: "admin.manage_terms" },
-    { label: "Active Departments", value: activeDeptCount, href: "/admin/departments", permission: "admin.manage_departments" },
-    { label: "Roles", value: roleCount, href: "/admin/roles", permission: "admin.manage_roles" },
-    { label: "Audit Events (7 days)", value: recentAuditCount, href: "/admin/audit", permission: "admin.view_audit" },
-    // The value is the FAILED count, so the label has to say so: "Email (0 queued,
-    // 0 failed)" over a big 0 read as "no email at all".
-    { label: emailCounts.queued > 0 ? `Failed emails (${emailCounts.queued} queued)` : "Failed emails", value: emailCounts.failed, href: "/admin/email", permission: "admin.manage_sync" },
-  ].filter((c) => hasPermission(perms, c.permission));
-
+  // admin.access with no sub-permission opens the module but none of its tools.
   return (
     <div>
-      <PageHeader
-        title="Overview"
-        description={`${appName} operations: people, terms, roles, and audit.`}
-      />
-
-      {staleCrons.length > 0 && (
-        <div className="mt-6">
-          <Alert tone="error">
-            {/* Admin-facing copy, so no repo paths. The runbook for this alert is
-                docs/DEPLOY.md. */}
-            Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. They are
-            started by an outside scheduler, so check that it is still set up and running.
-          </Alert>
-        </div>
-      )}
-
-      {statCards.length > 0 && (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {statCards.map((c) => (
-            <StatCard key={c.href} label={c.label} value={c.value} href={c.href} />
-          ))}
-        </div>
-      )}
+      <PageHeader title="Admin" description="Your role opens the Admin module, but none of its tools yet." />
+      <p className="mt-6 text-sm text-muted-foreground">Ask the IT team for the access you need.</p>
     </div>
   );
 }

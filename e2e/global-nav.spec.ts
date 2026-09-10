@@ -39,7 +39,10 @@ test("schedule dropdown reaches the Builder, whose gate the global nav cannot ru
   // away from anywhere. (j.carney manages schedule departments in the seed --
   // schedule.spec.ts drives the Builder as this same user.)
   await devSignIn(page);
-  await page.goto("/admin");
+  // A real Admin tab, not /admin: the module root now redirects to its first
+  // tab, and under admin/loading.tsx that redirect lands client-side AFTER goto
+  // resolves, remounting the header and detaching the dropdown mid-click.
+  await page.goto("/admin/people");
   await chevron(page, "Schedule").click();
   await panel(page, "Schedule").getByRole("link", { name: "Builder", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/schedule/builder");
@@ -56,7 +59,7 @@ test("recruitment dropdown reaches Events, whose gate the global nav cannot run"
   // offer. (j.carney can open the page -- event-attendance.spec.ts drives it as
   // this same user.)
   await devSignIn(page);
-  await page.goto("/admin");
+  await page.goto("/admin/people"); // not /admin; see the Builder test above
   await chevron(page, "Recruitment").click();
   // "Attendance events", not "Events": the nav-title alignment moved this label
   // to match the page's own H1, and `exact` means the old short form no longer

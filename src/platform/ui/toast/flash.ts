@@ -998,6 +998,33 @@ function groupRegistry(
 const FLASH_REGISTRY_GROUPS = groupRegistry(FLASH_REGISTRY);
 
 /**
+ * Every param name this module treats as action feedback, derived from the
+ * registry rather than restated.
+ *
+ * Exported for platform/lists/page-href.ts, which must strip these from a
+ * pagination link: they describe a one-shot event, so carrying one forward
+ * re-fires its toast on every Prev/Next click. That file used to name four of
+ * them by hand with a comment claiming they were "the ones flash.ts already
+ * treats as action feedback". They were not -- there are thirty-one, and
+ * `retried` (admin/email, admin/notifications) leaked through onto two lists
+ * that page their results.
+ *
+ * A Set of strings, not the message registry: a caller needs to know a param IS
+ * feedback, not what it says.
+ */
+export const FLASH_PARAM_NAMES: ReadonlySet<string> = new Set([
+  ERROR_PARAM,
+  MESSAGE_PARAM,
+  ...FLASH_REGISTRY.flatMap((entry) => entry.params),
+]);
+
+/** True for any param that carries action feedback, including the `*Error`
+ *  family the registry does not enumerate. */
+export function isFlashParamName(name: string): boolean {
+  return FLASH_PARAM_NAMES.has(name) || ERROR_SUFFIX.test(name);
+}
+
+/**
  * Classifies the params on a URL into the toasts they should pop and the param names to strip.
  *
  * Pure: takes the params and the current pathname, returns data, touches nothing. Callers (a

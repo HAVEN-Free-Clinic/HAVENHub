@@ -16,6 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { FLASH_PARAM_NAMES } from "@/platform/ui/toast/flash";
 import { pageHref } from "./page-href";
 
 describe("pageHref", () => {
@@ -85,5 +86,31 @@ describe("pageHref", () => {
     expect(pageHref("/admin/audit", { action: "login", newFilterAddedLater: "x" }, 2)).toBe(
       "/admin/audit?action=login&newFilterAddedLater=x&page=2",
     );
+  });
+});
+
+describe("flash params never ride a pagination link", () => {
+  it("strips every param name flash.ts treats as feedback, not a hand-picked four", () => {
+    // The four this file used to name were error/message/ok/saved. flash.ts
+    // knows thirty-one, and two of the missing ones were live on pages that
+    // page their results: /admin/email and /admin/notifications both redirect
+    // to `?retried=1` and both render <Pagination params={sp} />, so a retry
+    // toast rode every Prev/Next click down the list.
+    for (const name of FLASH_PARAM_NAMES) {
+      const href = pageHref("/admin/email", { status: "FAILED", [name]: "1" }, 2);
+      expect(href, name).not.toContain(`${name}=`);
+      expect(href, name).toContain("status=FAILED");
+    }
+  });
+
+  it("still strips the *Error family the registry does not enumerate", () => {
+    expect(pageHref("/x", { uploadError: "too big", q: "a" }, 2)).not.toContain("uploadError");
+  });
+
+  it("keeps ordinary filters, including ones whose names look like flash", () => {
+    // `count` is a registry param name AND a plausible filter, so this pins that
+    // the rule is name-based and deliberate rather than an accident nobody meant.
+    expect(pageHref("/x", { q: "ada", dept: "ITCM" }, 3)).toContain("q=ada");
+    expect(pageHref("/x", { q: "ada", dept: "ITCM" }, 3)).toContain("dept=ITCM");
   });
 });

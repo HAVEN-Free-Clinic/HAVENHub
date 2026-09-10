@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { TabRow, scrollActiveTabIntoView, type TabItem } from "./tab-row";
 
-/** Inline to avoid a platform->platform/modules import under the lint rule. */
-type NavItem = { label: string; href: string };
+/** Inline to avoid a platform->platform/modules import under the lint rule.
+ *  `underTab` mirrors ModuleNavItem.underTab (src/platform/modules/types.ts). */
+type NavItem = { label: string; href: string; underTab?: string };
 
 /**
  * Horizontal tab bar rendered under the page header area for module navigation.
@@ -33,18 +34,27 @@ type NavItem = { label: string; href: string };
  *
  * The prefix test is `href + "/"` rather than a bare startsWith, so
  * /schedule/attendings does not claim a hypothetical /schedule/attendings-old.
+ *
+ * ## Folded pages
+ *
+ * An item with `underTab` is matched like any other but never drawn: when it
+ * wins, the tab it names is marked instead. So /schedule/specialties lights
+ * Attendings, though the two hrefs share no path, and a page can leave the row
+ * without leaving the dropdown or Cmd+K, which read the same items.
  */
 export function ModuleNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
 
-  const activeHref = items
+  const match = items
     .filter((item) => {
       if (pathname === item.href) return true;
       const segments = item.href.replace(/^\//, "").split("/");
       return segments.length > 1 && pathname.startsWith(`${item.href}/`);
     })
-    .reduce<string | null>((best, item) => (best && best.length >= item.href.length ? best : item.href), null);
+    .reduce<NavItem | null>((best, item) => (best && best.href.length >= item.href.length ? best : item), null);
+  const activeHref = match ? (match.underTab ?? match.href) : null;
+  const tabs = items.filter((item) => !item.underTab);
 
   function isActive(item: TabItem): boolean {
     return item.href === activeHref;
@@ -67,7 +77,7 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
     <TabRow
       variant="underline"
       label="Module"
-      items={items}
+      items={tabs}
       isActive={isActive}
       navRef={navRef}
     />

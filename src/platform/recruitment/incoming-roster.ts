@@ -22,17 +22,13 @@
 
 import { prisma } from "@/platform/db";
 import { isoDateKey } from "@/platform/dates";
+// Re-exported so the four server-side callers that have always imported it from
+// here keep working. It is DEFINED in its own module because a client component
+// needs it too, and must not reach platform/db.ts through this one.
+import { AVAILABILITY_FIELD_KEY } from "./availability-key";
 
-/**
- * The one application field whose options are owned by the term's clinic
- * calendar rather than by the form builder.
- *
- * Read by the form templates (to swap in the live calendar), by submission (to
- * normalize the answer), by promotion (to seed baselineAvailability), and by
- * {@link listIncomingMembers} below. It is one literal because those four must
- * agree about which answer holds availability.
- */
-export const AVAILABILITY_FIELD_KEY = "availability";
+export { AVAILABILITY_FIELD_KEY };
+
 
 /**
  * Parse an applicant's availability answer -- an array of YYYY-MM-DD clinic-date

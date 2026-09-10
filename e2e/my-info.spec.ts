@@ -13,8 +13,9 @@ test("admin login: hub My info tile links to /my-info and page renders read-only
   await tile.click();
   await page.waitForURL((url) => url.pathname === "/my-info");
 
-  // The Name read-only row must be present (label text "Name").
-  await expect(page.getByText("Name", { exact: true })).toBeVisible();
+  // The read-only row shows the LEGAL name; "Goes by" beside it is editable.
+  await expect(page.getByText("Legal name", { exact: true })).toBeVisible();
+  await expect(page.getByText("Goes by", { exact: true })).toBeVisible();
 
   // The HIPAA certificate section heading must be present.
   await expect(
@@ -35,8 +36,9 @@ test("volunteer login: /my-info renders the profile form", async ({ page }) => {
   // The Profile section must render (editable form is present).
   await expect(page.getByText("Profile", { exact: true })).toBeVisible();
 
-  // The Name read-only row must be present.
-  await expect(page.getByText("Name", { exact: true })).toBeVisible();
+  // The read-only row shows the LEGAL name; "Goes by" beside it is editable.
+  await expect(page.getByText("Legal name", { exact: true })).toBeVisible();
+  await expect(page.getByText("Goes by", { exact: true })).toBeVisible();
 });
 
 test("Jack's HIPAA panel shows a real compliance status now that the backfill has populated his completionDate", async ({ page }) => {

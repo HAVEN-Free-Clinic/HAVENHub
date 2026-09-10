@@ -136,15 +136,6 @@ export function reconcilePersonNameWrite(
 }
 
 /**
- * The Prisma client extension that applies the above to every Person write.
- * Applied once, in platform/db.ts, so it covers services, scripts, seeds, tests,
- * and anything inside a `$transaction` alike.
- *
- * `createMany` and `updateMany` take an array or a single object; both shapes
- * are handled. `upsert` carries a create branch and an update branch, each
- * reconciled under its own rules.
- */
-/**
  * Reconcile one write payload in place, preserving the caller's static type.
  * The cast is contained here: `reconcilePersonNameWrite` works on a plain record
  * because Prisma's create and update input types differ per operation, and this
@@ -160,7 +151,23 @@ function applyEach<T>(operation: "create" | "update", data: T | T[]): T | T[] {
     : apply(operation, data);
 }
 
-export const personNameWriteExtension = Prisma.defineExtension({
+/**
+ * A FUNCTION, not a module-scope constant, and that is load-bearing.
+ *
+ * `Prisma.defineExtension` throws the moment it is CALLED in a browser
+ * ("unable to run in this browser environment"). `platform/db.ts` is reachable
+ * from the client bundle today: a builder client component imports one constant
+ * from platform/recruitment/incoming-roster.ts, which imports `prisma`. That
+ * leak was survivable while db.ts only ever constructed a PrismaClient, whose
+ * browser build defers its error until a query runs. Calling defineExtension at
+ * module scope turned it fatal, and took the whole form builder down with it:
+ * server-rendered 200, then a client error boundary, which only e2e sees.
+ *
+ * Deferring the call to `makePrismaClient()` keeps module evaluation harmless in
+ * any bundle, so the extension can never be the thing that breaks a page.
+ */
+export function personNameWriteExtension() {
+  return Prisma.defineExtension({
   name: "person-name-write",
   query: {
     person: {
@@ -191,4 +198,5 @@ export const personNameWriteExtension = Prisma.defineExtension({
       },
     },
   },
-});
+  });
+}

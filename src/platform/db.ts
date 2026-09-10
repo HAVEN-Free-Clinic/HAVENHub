@@ -18,7 +18,7 @@ import { personNameWriteExtension } from "./person-name-write";
  * reconciliation, so construct through here instead.
  */
 export function makePrismaClient() {
-  return new PrismaClient().$extends(personNameWriteExtension);
+  return new PrismaClient().$extends(personNameWriteExtension());
 }
 
 function client() {

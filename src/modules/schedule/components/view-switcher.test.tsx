@@ -12,8 +12,7 @@
  * guard, not a behaviour test: two files in this directory carried the copied
  * nav class string.
  */
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { execSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ViewSwitcher } from "./view-switcher";
@@ -92,16 +91,26 @@ describe("ViewSwitcher", () => {
    * Source-text guard, not a behaviour test. Before this component existed the
    * literal below appeared in builder-toolbar.tsx and attending-toolbar.tsx as
    * two independently maintained copies; this is what stops a third.
+   *
+   * Walks all of src, not just this directory. Scoped to the directory it could
+   * only ever see siblings of the component, which is not where a third copy
+   * would come from -- the page files that USE the row live under src/app, and
+   * one of them already holds the string.
    */
-  it("is the only file in this directory that spells the View row's own classes", () => {
-    const dir = join(process.cwd(), "src/modules/schedule/components");
-    const offenders = readdirSync(dir)
-      .filter((f) => f.endsWith(".tsx") && f !== "view-switcher.tsx" && !f.endsWith(".test.tsx"))
-      .filter((f) =>
-        readFileSync(join(dir, f), "utf8").includes(
-          "inline-flex overflow-hidden rounded-lg border border-border bg-surface",
-        ),
-      );
+  it("is the only View row in the app that spells its own classes", () => {
+    const CONTAINER = "inline-flex overflow-hidden rounded-lg border border-border bg-surface";
+    const offenders = execSync(
+      `grep -rln --include='*.tsx' -F ${JSON.stringify(CONTAINER)} src`,
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean)
+      .filter((f) => !f.endsWith("view-switcher.tsx") && !f.endsWith("view-switcher.test.tsx"))
+      // Not a View row: the builder's "Clicks assign" mode selector, a different
+      // control that happens to sit in the same segmented container. Named here
+      // rather than left invisible by a narrow scope -- if it is ever unified
+      // with the View row, this line is what has to be deleted to do it.
+      .filter((f) => f !== "src/app/(app)/schedule/builder/page.tsx");
     expect(offenders).toEqual([]);
   });
 });

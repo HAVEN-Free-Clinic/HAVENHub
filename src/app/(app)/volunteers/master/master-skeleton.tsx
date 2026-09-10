@@ -1,3 +1,4 @@
+import { ChevronsUpDown } from "lucide-react";
 import { Skeleton } from "@/platform/ui/skeleton";
 import { cardClasses } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -10,19 +11,24 @@ import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 
 /** The roster's column headings, in render order. Kept beside the real table so
  *  the placeholder reserves the same column widths and the swap does not shift
- *  the layout -- this page has measured CLS as high as 0.8. */
-const COLUMNS = [
-  "Name",
-  "Departments",
-  "Status",
-  "Training",
-  "Learning",
-  "EHS",
-  "Cleared",
-  "Completed",
-  "Expires",
-  "Verified",
-  "",
+ *  the layout -- this page has measured CLS as high as 0.8.
+ *
+ *  `sortable` mirrors the real header's SortableTH, which renders the label
+ *  followed by a 14px chevron. Without it the first two placeholder cells are
+ *  narrower than the cells they stand in for, which is the shift this file
+ *  exists to prevent. */
+const COLUMNS: { label: string; sortable?: boolean }[] = [
+  { label: "Name", sortable: true },
+  { label: "Departments", sortable: true },
+  { label: "Status" },
+  { label: "Training" },
+  { label: "Learning" },
+  { label: "EHS" },
+  { label: "Cleared" },
+  { label: "Completed" },
+  { label: "Expires" },
+  { label: "Verified" },
+  { label: "" },
 ];
 
 /** Read from the shared vocabulary, not retyped: the skeleton carries the REAL
@@ -98,7 +104,20 @@ export function MasterComplianceSkeleton() {
           <THead>
             <TR>
               {COLUMNS.map((c, i) => (
-                <TH key={i}>{c}</TH>
+                <TH key={i}>
+                  {c.sortable ? (
+                    // The same shape SortableTH emits: label, gap-1, a 3.5
+                    // chevron. Not the component itself -- it renders a Link and
+                    // a LinkPendingReporter, and a placeholder must not be
+                    // clickable or report pending navigation.
+                    <span className="inline-flex items-center gap-1">
+                      {c.label}
+                      <ChevronsUpDown aria-hidden className="h-3.5 w-3.5 opacity-40" />
+                    </span>
+                  ) : (
+                    c.label
+                  )}
+                </TH>
               ))}
             </TR>
           </THead>

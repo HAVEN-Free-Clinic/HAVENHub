@@ -1,5 +1,4 @@
 import { StatusBadge } from "@/platform/ui/status-badge";
-import { TextLink } from "@/platform/ui/text-link";
 import { TH, TD } from "@/platform/ui/table";
 import { CalendarDate, DateOnly } from "@/platform/dates/display";
 import { certExpiresAt } from "@/platform/compliance/rules";
@@ -66,22 +65,6 @@ export function ComplianceHeaderCells() {
       <TH>Expires</TH>
       <TH>Verified</TH>
     </>
-  );
-}
-
-/**
- * The name cell, with the contact identity underneath rather than in columns of
- * its own: the table already runs eleven wide, and "how do I reach this person"
- * is the question that follows "are they cleared".
- */
-export function ComplianceNameCell({ person }: { person: ComplianceRowData["person"] }) {
-  return (
-    <TD className="font-medium">
-      <TextLink href={`/volunteers/compliance/${person.id}`}>{person.name}</TextLink>
-      <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
-        {[person.netId, person.contactEmail, person.phone].filter(Boolean).join(" · ")}
-      </span>
-    </TD>
   );
 }
 

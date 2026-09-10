@@ -1,4 +1,5 @@
 import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -88,7 +89,7 @@ export function BuilderAvailabilityView({
           <Card key={member.membershipId ?? member.person.id} pad={false} className="px-4 py-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-sm font-bold text-foreground">{member.person.name}</span>
-              <Badge tone="default">{member.kind === "DIRECTOR" ? "Director" : "Volunteer"}</Badge>
+              <MembershipKindBadge kind={member.kind} />
               {member.provisional ? (
                 <>
                   <Badge tone="warning">{PROVISIONAL_BADGE_LABEL}</Badge>

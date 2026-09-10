@@ -25,6 +25,7 @@ import { STATUS_LABELS } from "./status-badge";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/modules/support/labels";
 import { ALL_STATUSES, ALL_CATEGORIES, ALL_PRIORITIES } from "@/modules/support/filter-options";
 import { FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
+import { ResultCount } from "@/platform/ui/result-count";
 import { cx } from "@/platform/ui/cx";
 import { useNavFilter } from "@/platform/ui/nav-form";
 
@@ -149,9 +150,7 @@ export function RequestFilters({ counts, total, assignees }: RequestFiltersProps
         </Button>
       </form>
 
-      <span className="pb-2 text-sm whitespace-nowrap text-muted-foreground">
-        {total.toLocaleString()} {total === 1 ? "request" : "requests"}
-      </span>
+      <ResultCount total={total} noun="request" />
     </FormRow>
   );
 }

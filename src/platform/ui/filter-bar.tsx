@@ -4,6 +4,7 @@ import { NavForm } from "./nav-form";
 import { Button, buttonClasses } from "./button";
 import { Field } from "./input";
 import { FORM_ROW, ROW_WIDTH, type RowWidth } from "./form";
+import { ResultCount } from "./result-count";
 import { cx } from "./cx";
 
 /**
@@ -60,7 +61,8 @@ export function FilterBar({
    * roster -- so the number a manager is watching jumped as they moved between
    * lists. Here it sits next to the controls that changed it.
    *
-   * Always formatted with a thousands separator; two queues were missing one.
+   * Rendered by `ResultCount`, which is also what the two rows that cannot use
+   * a FilterBar render, so the slot has one implementation.
    */
   resultCount?: { total: number; noun: string; pluralNoun?: string };
   /** Outer spacing only. The row's own flex classes are not overridable. */
@@ -82,17 +84,7 @@ export function FilterBar({
           Clear
         </Link>
       )}
-      {resultCount && (
-        // ml-auto, so the count sits on the trailing edge however many controls
-        // precede it. pb-2 lines its baseline up with the labelled fields
-        // beside it rather than with the buttons.
-        <span className="ml-auto pb-2 text-sm whitespace-nowrap text-muted-foreground">
-          {resultCount.total.toLocaleString()}{" "}
-          {resultCount.total === 1
-            ? resultCount.noun
-            : (resultCount.pluralNoun ?? `${resultCount.noun}s`)}
-        </span>
-      )}
+      {resultCount && <ResultCount {...resultCount} />}
     </NavForm>
   );
 }

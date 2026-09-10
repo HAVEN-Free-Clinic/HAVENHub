@@ -3,14 +3,15 @@ import { requirePermission, requirePersonSession } from "@/platform/auth/session
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import {
   ComplianceHeaderCells,
-  ComplianceNameCell,
   ComplianceCells,
   asComplianceRow,
 } from "@/modules/volunteers/components/compliance-cells";
+import { PersonNameCell } from "@/modules/volunteers/components/person-name-cell";
+import { StatusCountChips } from "@/modules/volunteers/components/status-count-chips";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   departmentCompliance,
@@ -20,30 +21,11 @@ import {
   CertificateNotFoundError,
 } from "@/modules/volunteers/services/compliance";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
-import type { StatusTone } from "@/platform/compliance/labels";
 import { revalidatePath } from "next/cache";
 import { VOLUNTEER_ENTRY_FALLBACKS } from "./module-entry";
 
 // requireModuleAccess("volunteers") is already enforced by the layout.
 // We additionally require the same permission here in the server action for defense in depth.
-
-// ---------------------------------------------------------------------------
-// Status badge helper
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Count chips helper
-// ---------------------------------------------------------------------------
-
-type CountChipProps = {
-  label: string;
-  count: number;
-  tone: StatusTone;
-};
-
-function CountChip({ label, count, tone }: CountChipProps) {
-  return <Badge tone={tone}>{`${count} ${label}`}</Badge>;
-}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -150,32 +132,13 @@ export default async function VolunteersPage() {
 
       <div className="mt-8 flex flex-col gap-10">
         {departments.map(({ department, members, counts }) => {
-          // Build chips: only show non-zero categories
-          const chips: CountChipProps[] = [];
-          if (counts.COMPLIANT > 0)
-            chips.push({ label: "compliant", count: counts.COMPLIANT, tone: "success" });
-          if (counts.EXPIRING_SOON > 0)
-            chips.push({ label: "expiring", count: counts.EXPIRING_SOON, tone: "warning" });
-          if (counts.EXPIRED > 0)
-            chips.push({ label: "expired", count: counts.EXPIRED, tone: "critical" });
-          if (counts.PENDING_VERIFICATION > 0)
-            chips.push({ label: "needs verification", count: counts.PENDING_VERIFICATION, tone: "warning" });
-          if (counts.UNKNOWN_DATE > 0)
-            chips.push({ label: "date unknown", count: counts.UNKNOWN_DATE, tone: "default" });
-          if (counts.NO_CERTIFICATE > 0)
-            chips.push({ label: "no certificate", count: counts.NO_CERTIFICATE, tone: "default" });
-
           return (
             <section key={department.id}>
               <div className="mb-3 flex flex-wrap items-baseline gap-3">
                 <SectionHeader level="title">
                   {department.code} · {department.name}
                 </SectionHeader>
-                <span className="flex flex-wrap gap-1.5">
-                  {chips.map((c) => (
-                    <CountChip key={c.label} {...c} />
-                  ))}
-                </span>
+                <StatusCountChips counts={counts} />
               </div>
 
               <Table>
@@ -195,11 +158,12 @@ export default async function VolunteersPage() {
                           Every row here is by construction in a department the
                           viewer manages, which is exactly the profile page's
                           own scope, so no link on this table can bounce. */}
-                      <ComplianceNameCell person={m.person} />
+                      <PersonNameCell
+                        person={m.person}
+                        href={`/volunteers/compliance/${m.person.id}`}
+                      />
                       <TD>
-                        <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
-                          {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}
-                        </Badge>
+                        <MembershipKindBadge kind={m.kind} />
                       </TD>
                       <ComplianceCells row={asComplianceRow(m)} />
                       <TD>

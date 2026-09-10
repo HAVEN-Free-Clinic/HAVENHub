@@ -22,7 +22,7 @@ import { termRoster, addMembership, removeMembership, copyRosterFromTerm, member
 import { searchPeople } from "@/modules/admin/services/people";
 import { listTerms, TermNotFoundError } from "@/modules/admin/services/terms";
 import { LastAdminError } from "@/platform/rbac/last-admin";
-import { Badge } from "@/platform/ui/badge";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Button } from "@/platform/ui/button";
 import { PersonSearchPanel } from "./person-search-panel";
 import { Card } from "@/platform/ui/card";
@@ -70,11 +70,7 @@ function MemberChip({
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5">
       <span className="text-sm font-medium text-foreground">{person.name}</span>
-      {kind === "DIRECTOR" ? (
-        <Badge tone="brand">Director</Badge>
-      ) : (
-        <Badge tone="default">Volunteer</Badge>
-      )}
+      <MembershipKindBadge kind={kind} />
       {canManage && (
         <form action={removeAction} className="ml-auto">
           <input type="hidden" name="membershipId" value={membershipId} />

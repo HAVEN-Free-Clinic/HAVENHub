@@ -41,9 +41,9 @@ import { ListEmpty } from "@/platform/ui/list-empty";
 import {
   COMPLIANCE_COLUMN_COUNT,
   ComplianceHeaderCells,
-  ComplianceNameCell,
   ComplianceCells,
 } from "@/modules/volunteers/components/compliance-cells";
+import { PersonNameCell } from "@/modules/volunteers/components/person-name-cell";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -311,7 +311,10 @@ async function MasterComplianceBody(props: BodyProps) {
                 {result.rows.map((row) => {
                   return (
                     <TR key={row.person.id}>
-                      <ComplianceNameCell person={row.person} />
+                      <PersonNameCell
+                        person={row.person}
+                        href={`/volunteers/compliance/${row.person.id}`}
+                      />
                       <TD className="text-foreground-soft text-sm">
                         {row.departments.join(", ")}
                       </TD>

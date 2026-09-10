@@ -97,20 +97,44 @@ describe("splitPersonName", () => {
     });
   });
 
-  // Nothing distinguishes "(Jack)" from "(inactive)" lexically, and reading the
-  // second one as a name puts "inactive Carney" on a roster and a wallet pass.
-  // A lifted nickname is therefore always a guess, however plausible.
-  it("lifts a parenthetical into preferredFirstName, and flags it", () => {
+  // A nickname on this roster is written like a name: "(Jack)", "(Betty)",
+  // "(Christina)". An annotation is not: "(inactive)", "(LOA)", "(do not
+  // schedule)". Capitalisation is the only signal separating them, so it is what
+  // decides whether the lift is trusted or queued for a human.
+  it("trusts a capitalised parenthetical as the name it looks like", () => {
     expect(splitPersonName("Jonathan (Jack) Carney")).toEqual({
       legalFirstName: "Jonathan",
       legalMiddleName: null,
       lastName: "Carney",
       preferredFirstName: "Jack",
-      needsReview: true,
+      needsReview: false,
     });
+    expect(splitPersonName("YuXuan (Christina) Ma")).toMatchObject({
+      preferredFirstName: "Christina",
+      needsReview: false,
+    });
+  });
+
+  it("flags a lifted parenthetical that does not read as a given name", () => {
+    // Lowercase: an annotation, not a nickname.
     expect(splitPersonName("Jane Doe (inactive)")).toMatchObject({
       preferredFirstName: "inactive",
       needsReview: true,
+    });
+    // ALL-CAPS that is not a known credential. "RN" is in NAME_SUFFIXES and is
+    // discarded outright; "LOA" is not, so it lifts and gets queued.
+    expect(splitPersonName("Jane Doe (LOA)")).toMatchObject({
+      preferredFirstName: "LOA",
+      needsReview: true,
+    });
+  });
+
+  // The documented hole in the rule, pinned so it is a known limit rather than a
+  // surprise: a capitalised annotation is indistinguishable from a nickname.
+  it("cannot tell a capitalised annotation from a nickname", () => {
+    expect(splitPersonName("Jane Doe (Inactive)")).toMatchObject({
+      preferredFirstName: "Inactive",
+      needsReview: false,
     });
   });
 

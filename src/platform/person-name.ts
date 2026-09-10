@@ -74,6 +74,20 @@ function isInitial(token: string): boolean {
 }
 
 /**
+ * Is this written the way a given name is written?
+ *
+ * One leading uppercase letter, then at least one lowercase. That accepts Jack,
+ * Betty, Christina, Mary-Kate and O'Neill, and rejects the two shapes an
+ * annotation actually takes: lowercase ("inactive") and ALL-CAPS ("LOA"). It is
+ * a spelling test, not a dictionary, which is the whole reason it has a hole:
+ * "Inactive" passes. Used only to decide whether a lifted parenthetical is
+ * trusted or queued, never to reject a name outright.
+ */
+function looksLikeGivenName(token: string): boolean {
+  return /^\p{Lu}[\p{L}'’-]*\p{Ll}[\p{L}'’-]*$/u.test(token);
+}
+
+/**
  * The first parenthetical group that reads as a given name, or null.
  *
  * Scans every group rather than only the first, so "Bo (Jack) Peng (he/him)"
@@ -133,14 +147,15 @@ export type SplitName = {
  * visible rather than silent. That matters because `lastName` is NOT NULL, and
  * a migration that threw on "Cher" would block on the first mononym.
  *
- * Confident only where nothing was interpreted: "Jonathan Carney", "Jane Q Doe",
- * and a parenthetical drawn from the closed pronoun and credential lists
- * ("Peggy (she/her) Bia", "Jane Doe (RN)").
+ * Confident where nothing was interpreted ("Jonathan Carney", "Jane Q Doe", and
+ * a parenthetical drawn from the closed pronoun and credential lists like
+ * "Peggy (she/her) Bia"), and where a lifted parenthetical is spelled like a
+ * given name ("Jonathan (Jack) Carney").
  *
  * Flagged everywhere else, and the list is deliberately long, because this runs
  * once and is not reversible:
- *   - a LIFTED parenthetical ("Jonathan (Jack) Carney"), since nothing separates
- *     a nickname from an annotation like "(inactive)"
+ *   - a lifted parenthetical that is NOT spelled like a given name, which is
+ *     what an annotation looks like: "(inactive)", "(LOA)"
  *   - particle surnames ("Maria de la Cruz")
  *   - the "Last, First" comma form, and stripped credentials ("Jane Doe, RN")
  *   - mononyms ("Cher"), which leave lastName empty
@@ -160,13 +175,18 @@ export function splitPersonName(raw: string | null | undefined): SplitName {
   };
   if (text === "") return empty;
 
-  // A parenthetical we LIFT is always a guess. The pronoun and credential lists
-  // are closed, so discarding a match from them interprets nothing; but nothing
-  // lexical separates "Jonathan (Jack) Carney" from "Jane Doe (inactive)", and
-  // reading the second as a name puts "inactive Doe" on a roster and a wallet
-  // pass. So the lift happens, and a human confirms it.
+  // A parenthetical we LIFT is trusted only when it is written like a name.
+  //
+  // The pronoun and credential lists are closed, so discarding a match from them
+  // interprets nothing and stays confident. A lift does interpret, and the two
+  // things that end up in these parentheses look different: a nickname is
+  // capitalised ("(Jack)", "(Betty)", "(Christina)") and an annotation is not
+  // ("(inactive)", "(LOA)", "(do not schedule)"). Capitalisation is the only
+  // signal separating them, so it decides whether the lift ships or goes to the
+  // review queue. Known limit: a capitalised annotation, "(Inactive)", reads as a
+  // nickname and always will. It is pinned in the tests as a limit, not a bug.
   const preferredFirstName = preferredFromParenthetical(text);
-  let needsReview = preferredFirstName !== null;
+  let needsReview = preferredFirstName !== null && !looksLikeGivenName(preferredFirstName);
 
   // Every parenthetical is consumed here: the usable one became the preferred
   // name, and the rest were pronouns or credentials that are not part of a name.

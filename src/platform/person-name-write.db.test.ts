@@ -24,8 +24,8 @@ describe("the person name write extension", () => {
     expect(person.legalFirstName).toBe("Jonathan");
     expect(person.lastName).toBe("Carney");
     expect(person.preferredFirstName).toBe("Jack");
-    // Flagged: a lifted parenthetical is a guess, however plausible.
-    expect(person.nameNeedsReview).toBe(true);
+    // Not flagged: "Jack" is spelled like a given name, so the lift is trusted.
+    expect(person.nameNeedsReview).toBe(false);
     // The parenthetical never reaches the column every roster renders.
     expect(person.name).toBe("Jack Carney");
   });

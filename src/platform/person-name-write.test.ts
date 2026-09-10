@@ -13,13 +13,21 @@ describe("reconcilePersonNameWrite on create", () => {
     });
   });
 
-  it("lifts a parenthetical out of the display name, flagging the guess", () => {
+  it("lifts a parenthetical out of the display name", () => {
     expect(reconcilePersonNameWrite("create", { name: "Jonathan (Jack) Carney" })).toEqual({
       name: "Jack Carney",
       legalFirstName: "Jonathan",
       legalMiddleName: null,
       lastName: "Carney",
       preferredFirstName: "Jack",
+      // "Jack" is spelled like a name, so the lift is trusted.
+      nameNeedsReview: false,
+    });
+  });
+
+  it("flags a lifted parenthetical that reads as an annotation", () => {
+    expect(reconcilePersonNameWrite("create", { name: "Jane Doe (inactive)" })).toMatchObject({
+      preferredFirstName: "inactive",
       nameNeedsReview: true,
     });
   });

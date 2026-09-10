@@ -29,7 +29,7 @@ describe("backfillPersonNames", () => {
     const report = await backfillPersonNames({ dryRun: true });
 
     expect(report.rows).toHaveLength(1);
-    expect(report.rows[0]).toMatchObject({ outcome: "flagged", preferredFirstName: "Jack" });
+    expect(report.rows[0]).toMatchObject({ outcome: "split", preferredFirstName: "Jack" });
     const after = await prisma.person.findUniqueOrThrow({ where: { id } });
     expect(after.name).toBe("Jonathan (Jack) Carney");
     expect(after.preferredFirstName).toBeNull();
@@ -45,8 +45,8 @@ describe("backfillPersonNames", () => {
     expect(after.lastName).toBe("Carney");
     expect(after.preferredFirstName).toBe("Jack");
     expect(after.name).toBe("Jack Carney");
-    // Left flagged: the lift is a guess, and this is the irreversible pass.
-    expect(after.nameNeedsReview).toBe(true);
+    // "Jack" is spelled like a given name, so the lift is trusted.
+    expect(after.nameNeedsReview).toBe(false);
   });
 
   it("leaves an ambiguous name flagged, with its best guess written", async () => {

@@ -58,6 +58,26 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `FilterField` | `@/platform/ui/filter-bar` | One labelled control inside a `FilterBar`. Props: `label` and `width` (`grow` for the search box, then `sm` / `md` / `lg`). |
 | `TabRow` | `@/platform/ui/tab-row` | Horizontal tab bar. Two variants: `underline` (a bordered row of page-level tabs) and `segmented` (a pill-style row for a tab row nested under another tab row, so two identical underline rows never stack). `ModuleNav` and the `/support/epic` tabs both render through it. |
 
+#### What a module root is called
+
+Three names meet at a module's root page and they are not meant to agree:
+
+| Where | What it names | `/schedule` | `/admin` |
+|---|---|---|---|
+| Breadcrumb | the module | `Hub / Schedule` | `Hub / Admin` |
+| `ModuleNav` first tab | the page, among its siblings | `My schedule` | `Overview` |
+| `PageHeader` `title` | the page | `My schedule` | `Overview` |
+
+The crumb is built from the registry's `title` (`buildBreadcrumbs`, at a module
+root the module IS the current page), so it says the module's name. The `<h1>`
+says what this particular page is, and matches the tab that leads to it --
+otherwise clicking "Overview" lands on a page headed "Admin".
+
+Restating the module name in the `<h1>` reads as `Hub / Admin` over a page
+headed "Admin", which is why `/schedule`, `/learning`, `/support` and
+`/recruitment` all title their root page rather than their module. `/admin` was
+the last one still repeating itself.
+
 ### Filtering a list
 
 Every list filter row goes through `FilterBar`, so the eleven of them stop each

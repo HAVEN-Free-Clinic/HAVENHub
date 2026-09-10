@@ -1,5 +1,6 @@
 "use client";
 
+import type { Tone } from "@/platform/ui/badge";
 import { useMemo, useState } from "react";
 import { TextLink } from "@/platform/ui/text-link";
 import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
@@ -18,8 +19,6 @@ import {
   countEligible, filterRows, isSelectable,
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
 } from "@/modules/recruitment/engine/onboarding-rows";
-
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = {
   NO_CONTRACT: { label: "No contract", tone: "default" },

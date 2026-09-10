@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -165,15 +166,22 @@ async function sendDualRoleDigest(
  * ever have a queue, so gating the tab on the permission alone would show it to
  * every director in the clinic and lead nearly all of them to an empty page.
  * A capability like this is what ModuleNavItem.dynamicGate is for.
+ *
+ * Request-cached, like everything in rbac/engine.ts, because it has two callers
+ * on the same render: the app shell resolves every module's gated hrefs
+ * (app/(app)/nav-gates.ts) and the volunteers layout resolves this one again for
+ * its own sub-nav. `permissionDepartmentIds` was already cached, so only the
+ * `department.count` was repeating -- one wasted query on every volunteers page
+ * view, for every director who holds the permission.
  */
-export async function directsADualRoleDepartment(personId: string): Promise<boolean> {
+export const directsADualRoleDepartment = cache(async (personId: string): Promise<boolean> => {
   const departmentIds = await permissionDepartmentIds(personId, DUAL_ROLE_PERMISSION);
   if (departmentIds.length === 0) return false;
   const count = await prisma.department.count({
     where: { id: { in: departmentIds }, code: { in: [...DUAL_ROLE_DEPARTMENT_CODES] } },
   });
   return count > 0;
-}
+});
 
 export type DualRoleQueueRow = {
   id: string;

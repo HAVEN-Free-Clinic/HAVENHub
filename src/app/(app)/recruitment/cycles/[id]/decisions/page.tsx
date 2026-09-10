@@ -33,8 +33,11 @@ export default async function DecisionsPage({ params }: {
     rejectionSummary(id),
   ]);
 
+  // wide, not form: this holds a four-up StatCard grid over a conflicts list,
+  // which 42rem was cramping. Not `full` either -- four stat cards stretched
+  // across 72rem read as four thin bars, and the list below is prose-width.
   return (
-    <PageBody width="form">
+    <PageBody width="wide">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,

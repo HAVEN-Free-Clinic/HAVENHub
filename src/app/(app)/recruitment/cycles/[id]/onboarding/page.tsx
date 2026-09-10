@@ -19,8 +19,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
   const rows = await listOnboardingRows(id);
   const hasConflicts = rows.some((r) => r.state === "CONFLICT");
 
+  // full: this tab's body is OnboardingTable -- checkbox, name, department,
+  // status, plus a per-row action -- and 56rem squeezed it while the tab beside
+  // it ran full width.
   return (
-    <PageBody width="wide">
+    <PageBody width="full">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,

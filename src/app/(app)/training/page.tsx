@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
+import { StatusBanner } from "@/platform/ui/status-banner";
 import { buttonClasses } from "@/platform/ui/button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -43,87 +44,65 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
 
   if (my.state === "COMPLETE") {
     return (
-      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
-        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-success text-white">
-          <Award aria-hidden className="h-6 w-6" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-success-foreground">Cleared for the term</p>
-          <p className="mt-0.5 text-lg font-bold tracking-tight text-foreground">You&apos;re all set for {term}</p>
-          <p className="mt-1 text-sm leading-snug text-foreground-soft">
+      <StatusBanner
+        className="mb-6"
+        tone="success"
+        icon={Award}
+        eyebrow="Cleared for the term"
+        title={<>You&apos;re all set for {term}</>}
+        description={
+          <>
             Training complete{my.completedVia ? ` via ${viaLabel(my.completedVia)}` : ""}. You meet the training
             requirement and can be scheduled for shifts.
-          </p>
-        </div>
-        {my.completedAt && (
-          <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
-            Completed {formatDateOnly(my.completedAt, zone)}
-          </span>
-        )}
-      </Card>
+          </>
+        }
+        trailing={my.completedAt ? <>Completed {formatDateOnly(my.completedAt, zone)}</> : undefined}
+      />
     );
   }
 
   if (my.locked) {
     return (
-      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
-        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-critical text-white">
-          <Lock aria-hidden className="h-6 w-6" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-critical-foreground">Quiz locked</p>
-          <p className="mt-0.5 text-lg font-bold tracking-tight text-foreground">
-            You&apos;ve used all {my.maxAttempts} quiz attempts
-          </p>
-          <p className="mt-1 text-sm leading-snug text-foreground-soft">
-            Your makeup quiz is locked. Contact your recruitment director to reset it, or attend a live session to
-            complete training.
-          </p>
-        </div>
-        <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
-          Action needed
-        </span>
-      </Card>
+      <StatusBanner
+        className="mb-6"
+        tone="critical"
+        icon={Lock}
+        eyebrow="Quiz locked"
+        title={<>You&apos;ve used all {my.maxAttempts} quiz attempts</>}
+        description="Your makeup quiz is locked. Contact your recruitment director to reset it, or attend a live session to complete training."
+        trailing="Action needed"
+      />
     );
   }
 
   if (!my.cycle) {
     return (
-      <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
-        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-muted-strong text-muted-foreground">
-          <Clock aria-hidden className="h-6 w-6" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <SectionHeader>Not open yet</SectionHeader>
-          <p className="mt-0.5 text-lg font-bold tracking-tight text-foreground">Training opens soon</p>
-          <p className="mt-1 text-sm leading-snug text-foreground-soft">
+      <StatusBanner
+        className="mb-6"
+        tone="neutral"
+        icon={Clock}
+        eyebrow="Not open yet"
+        title="Training opens soon"
+        description={
+          <>
             Volunteer training for {term} isn&apos;t open yet. You&apos;ll get an email when it&apos;s ready, check back
             here to complete it.
-          </p>
-        </div>
-      </Card>
+          </>
+        }
+      />
     );
   }
 
   return (
-    <Card pad={false} className="mb-6 flex flex-wrap items-center gap-4 px-5 py-5">
-      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-warning text-white">
-        <AlertTriangle aria-hidden className="h-6 w-6" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-bold uppercase tracking-wider text-warning-foreground">Not yet cleared</p>
-        <p className="mt-0.5 text-lg font-bold tracking-tight text-foreground">
-          Complete training to be cleared for {term}
-        </p>
-        <p className="mt-1 text-sm leading-snug text-foreground-soft">
-          Finish one of the two paths below. Most volunteers attend the live session; the makeup quiz is here if you
-          miss it.
-        </p>
-      </div>
-      <span className="shrink-0 basis-full sm:basis-auto whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground-soft">
-        Due before your first shift
-      </span>
-    </Card>
+    <StatusBanner
+      className="mb-6"
+      tone="warning"
+      icon={AlertTriangle}
+      eyebrow="Not yet cleared"
+      title={<>Complete training to be cleared for {term}</>}
+      description="Finish one of the two paths below. Most volunteers attend the live session; the makeup quiz is here if you miss it."
+      trailing="Due before your first shift"
+    />
   );
 }
 

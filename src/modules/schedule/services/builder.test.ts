@@ -2581,7 +2581,7 @@ describe("builderView", () => {
     expect(view.rhd).toBeNull();
   });
 
-  it("members list is sorted by name", async () => {
+  it("members list is sorted by surname, then legal given name", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
     const dept = await createDepartment("PCAR");
@@ -2594,7 +2594,12 @@ describe("builderView", () => {
 
     const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const names = view.members.map((m) => m.person.name);
-    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    // Surname order, matching the rest of the app and the recruitment half that
+    // always did this. Note "Director": a mononym has an empty lastName and so
+    // sorts FIRST, which is the documented wart on PERSON_NAME_ORDER rather than
+    // a bug here. Person cannot hold a nameless row, so it is only ever the
+    // handful of people who genuinely have one name.
+    expect(names).toEqual(["Director", "Adam Anderson", "Zara Zimmerman"]);
   });
 
   it("builderView loads the working (next) term's roster and dates", async () => {

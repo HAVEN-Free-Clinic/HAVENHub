@@ -22,6 +22,7 @@ import {
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
+  listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
   listLinkableTechRequests,
   closeTicket,
@@ -303,7 +304,16 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   const historyLimit = activeTab === "history" ? EPIC_HISTORY_LIMIT : undefined;
   const needsGenerate = activeTab === "generate";
   const needsTracker = activeTab === "tracker";
-  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
+  const [
+    departments,
+    history,
+    pendingDeactivations,
+    authorizers,
+    incidentPeople,
+    pending,
+    orphanEpicTickets,
+    linkableTickets,
+  ] =
     await Promise.all([
       needsGenerate ? listDepartmentsWithMembers() : [],
       needsHistory
@@ -318,6 +328,9 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
       needsGenerate || activeTab === "term-batch" ? listEpicAuthorizers() : [],
       needsTracker ? listIncidentPeople() : [],
       activeTab === "pending" ? listPendingEpicRequests() : [],
+      // Same tab, same reason: an EPIC ticket nobody attached a request to is a
+      // hole in this queue, so it is loaded and shown beside it.
+      activeTab === "pending" ? listEpicTicketsWithoutRequest() : [],
       needsTracker ? listLinkableTechRequests() : [],
     ]);
 
@@ -351,6 +364,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
+        orphanEpicTickets={orphanEpicTickets}
         linkableTickets={linkableTickets}
         rollup={rollup}
         termOptions={termOptions}

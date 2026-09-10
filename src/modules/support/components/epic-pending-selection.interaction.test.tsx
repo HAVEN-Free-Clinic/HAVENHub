@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PendingTab } from "./epic-request-tabs";
-import type { PendingEpicRequestRow } from "@/modules/support/services/itcm";
+import type { OrphanEpicTicketRow, PendingEpicRequestRow } from "@/modules/support/services/itcm";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,11 +35,23 @@ const ROWS = [row("r1", "Ada Lovelace"), row("r2", "Grace Hopper"), row("r3", "K
 
 let mounted: { container: HTMLDivElement; root: Root } | null = null;
 
-function mount(rows: PendingEpicRequestRow[] = ROWS) {
+function orphan(id: string, number: number, name: string): OrphanEpicTicketRow {
+  return {
+    id,
+    number,
+    subject: "Need Epic access",
+    createdAt: new Date("2026-09-01T12:00:00Z"),
+    status: "SUBMITTED",
+    fromIntercom: true,
+    requester: { id: `p-${id}`, name, epicId: null },
+  };
+}
+
+function mount(rows: PendingEpicRequestRow[] = ROWS, orphans: OrphanEpicTicketRow[] = []) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(<PendingTab pending={rows} action={noop} cancelAction={noop} />));
+  act(() => root.render(<PendingTab pending={rows} orphans={orphans} action={noop} cancelAction={noop} />));
   mounted = { container, root };
   return container;
 }
@@ -108,5 +120,40 @@ describe("the pending Epic queue", () => {
     click(selectAll(c));
     expect(selectAll(c).indeterminate).toBe(false);
     expect(selectAll(c).checked).toBe(true);
+  });
+});
+
+/**
+ * The orphan list is rendered OUTSIDE the queue's empty state, and that is the
+ * whole point of it. "Nothing pending" and "three Epic tickets nobody attached a
+ * request to" are the exact pair this page used to show as an empty page, which
+ * is how three chat-origin Epic asks reached RESOLVED without ever entering the
+ * workflow.
+ */
+describe("Epic tickets with no request attached", () => {
+  it("renders on an EMPTY queue, where the old empty state hid them", () => {
+    const c = mount([], [orphan("t1", 154, "Ada Lovelace")]);
+    expect(c.textContent).toContain("Epic tickets with no request attached");
+    expect(c.textContent).toContain("#154");
+    expect(c.textContent).toContain("Ada Lovelace");
+    // The queue's own empty state still shows -- both facts are true at once.
+    expect(c.textContent).toContain("No pending Epic requests");
+  });
+
+  it("renders above a non-empty queue too", () => {
+    const c = mount(ROWS, [orphan("t1", 154, "Ada Lovelace")]);
+    expect(c.textContent).toContain("Epic tickets with no request attached");
+    expect(c.textContent).toContain("#154");
+  });
+
+  it("says nothing at all when there are none", () => {
+    const c = mount(ROWS, []);
+    expect(c.textContent).not.toContain("Epic tickets with no request attached");
+  });
+
+  it("links each ticket so the attach form is one click away", () => {
+    const c = mount([], [orphan("t1", 154, "Ada Lovelace")]);
+    const href = c.querySelector('a[href="/support/t1"]');
+    expect(href).not.toBeNull();
   });
 });

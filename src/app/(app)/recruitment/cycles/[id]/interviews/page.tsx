@@ -8,33 +8,7 @@ import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { EvalProgress } from "@/modules/recruitment/components/interview-cells";
-import { Badge } from "@/platform/ui/badge";
-import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
-import type { Decision } from "@/modules/recruitment/engine/decision-summary";
-
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
-
-
-function status(iv: {
-  scheduledAt: Date | null;
-  // The Decision enum, not a bare string: a loose type here is what let the
-  // raw constant fall through the `?? iv.decision` escape hatch below.
-  decision: Decision;
-  application: { status: string };
-}): { label: string; tone: Tone } {
-  // Withdrawal outranks both the decision and the schedule, and it is the one
-  // fact this list used to omit: the panelist's own list badges it (and the
-  // service deliberately keeps a withdrawn applicant's row precisely so nobody
-  // dials into a cancelled call), while the lead running the cycle saw
-  // "Scheduled" and had no idea the candidate had gone.
-  if (iv.application.status === "WITHDRAWN") return { label: "Withdrawn", tone: "warning" };
-  if (iv.decision !== "PENDING") {
-    const tone: Tone = iv.decision === "ACCEPT" ? "success" : iv.decision === "REJECT" ? "critical" : "warning";
-    return { label: DECISION_LABELS[iv.decision], tone };
-  }
-  return iv.scheduledAt ? { label: "Scheduled", tone: "brand" } : { label: "Offered", tone: "default" };
-}
+import { EvalProgress, InterviewStatusBadge } from "@/modules/recruitment/components/interview-cells";
 
 export default async function InterviewsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -71,7 +45,6 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
         </THead>
         <tbody>
           {interviews.map((iv) => {
-            const s = status(iv);
             const panelistCount = iv.panelists.length;
             const evaluationCount = iv.evaluations.length;
             return (
@@ -86,7 +59,7 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 </TD>
                 <TD className="text-foreground-soft">{iv.departmentCode}</TD>
                 <TD>
-                  <Badge tone={s.tone}>{s.label}</Badge>
+                  <InterviewStatusBadge interview={iv} />
                 </TD>
                 <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></TD>
                 <TD className="text-foreground-soft">{panelistCount}</TD>

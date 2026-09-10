@@ -114,16 +114,3 @@ export async function listCourses(): Promise<CourseListRow[]> {
 export async function getCourseForEdit(id: string) {
   return prisma.course.findUnique({ where: { id }, include: { departments: true } });
 }
-
-/**
- * Recurrence per course id, for annotating a learner-facing course list with
- * "Retake each term" without touching enrollment.ts's assignment/progress reads.
- */
-export async function getCourseRecurrenceById(courseIds: string[]): Promise<Record<string, CourseRecurrence>> {
-  if (courseIds.length === 0) return {};
-  const rows = await prisma.course.findMany({
-    where: { id: { in: courseIds } },
-    select: { id: true, recurrence: true },
-  });
-  return Object.fromEntries(rows.map((r) => [r.id, r.recurrence]));
-}

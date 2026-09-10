@@ -51,6 +51,15 @@
   --color-border: #e2e8f0;           /* slate-200 */
   --color-border-strong: #cbd5e1;    /* slate-300 */
   --color-border-subtle: #f1f5f9;    /* slate-100 */
+
+  /* Schedule builder availability cells: a person's free dates against the ones
+     they are not. They used to be white against slate-50 (#f8fafc), which a
+     director could not tell apart at a glance. Available is now a clear green
+     and unavailable the darkest neutral that still carries the cell's
+     subtle-foreground glyphs ("+", "-") at AA, which is why neither is a darker
+     named step. Guarded by theme-contrast.test.ts. */
+  --color-available: #dcfce7;        /* green-100; 4.72:1 under subtle-foreground */
+  --color-unavailable: #eef1f5;      /* = canvas; 4.57:1 under subtle-foreground */
   /* Brand used as text/icon color. Light = brand; lifted in dark for legibility. */
   --color-brand-fg: var(--color-brand);
 
@@ -233,6 +242,13 @@ html.dark {
   --color-brand-light: color-mix(in srgb, var(--color-brand) 30%, #0b1220);
   /* Faint danger tint tracks the critical hue on a dark base (mirrors brand-faint). */
   --color-critical-faint: color-mix(in srgb, var(--color-critical) 22%, #0b1220);
+
+  /* Builder availability cells. Hex rather than color-mix so the contrast test
+     can measure them: available is success 22% over the dark base (the same mix
+     critical-faint uses), resolved by hand. Unavailable is `muted`, NOT
+     muted-strong: subtle-foreground only reaches 3.4:1 on muted-strong. */
+  --color-available: #0d3229;         /* 4.54:1 under subtle-foreground */
+  --color-unavailable: #1e293b;       /* = muted; 4.76:1 under subtle-foreground */
 }
 
 /* Tell the UA which native scheme to use (form controls, scrollbars). */

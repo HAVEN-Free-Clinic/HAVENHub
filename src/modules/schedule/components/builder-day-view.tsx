@@ -26,11 +26,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Input } from "@/platform/ui/input";
 import { AlertTriangle } from "lucide-react";
 import { IntakeNotes } from "./intake-notes";
-import {
-  PROVISIONAL_BADGE_LABEL,
-  PROVISIONAL_STAGE_LABEL,
-  provisionalBlockedReason,
-} from "./provisional-labels";
+import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_STAGE_LABEL } from "./provisional-labels";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
@@ -277,13 +273,11 @@ export function BuilderDayView({
   function assignCard(member: (typeof unassignedMembers)[number], available: boolean) {
     const isDirectorKind = member.kind === "DIRECTOR";
     const incoming = member.provisional;
-    const blockedReason = incoming ? provisionalBlockedReason(incoming) : null;
-    // An incoming applicant with no Hub account has no person for a shift to
-    // point at, so the card names them and their availability but offers no
-    // buttons. Everyone else incoming is assignable exactly like a member: the
-    // shift is real, and simply stays inert until roster build gives them the
-    // membership every outbound path filters on.
-    const canAssign = editable && blockedReason === null && selectedDateKey !== null;
+    // Everyone incoming is assignable exactly like a member, first-time
+    // applicants included: their draft is kept against the acceptance until
+    // roster build creates their account, and every draft stays inert until the
+    // membership every outbound path filters on exists.
+    const canAssign = editable && selectedDateKey !== null;
     const busy = board.isBusy(dateKey, member.person.id);
     return (
       <Card
@@ -306,9 +300,6 @@ export function BuilderDayView({
           {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>
-        {blockedReason && (
-          <p className="mb-2 text-xs text-subtle-foreground">{blockedReason}</p>
-        )}
         {canAssign && (
           <div className="flex flex-wrap gap-2">
             {isDirectorKind && (

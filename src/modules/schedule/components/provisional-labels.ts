@@ -24,12 +24,10 @@ export const PROVISIONAL_STAGE_LABEL: Record<BuilderProvisional["stage"], string
 };
 
 /**
- * Why an incoming row cannot be assigned, or null when it can be.
+ * What a draft shift on an incoming member means, for the chip's tooltip.
  *
- * A first-time applicant has no Hub account until roster build creates one, and a
- * shift is keyed on a person, so there is nothing to assign a shift to. Said out
- * loud on the row rather than left as a cell that silently does nothing.
+ * True of everyone incoming, returner or first-timer: nothing reaches them and
+ * nothing shows clinic-wide until roster build, and then the drafts simply count.
  */
-export function provisionalBlockedReason(p: BuilderProvisional): string | null {
-  return p.placeable ? null : "No Hub account until they are added to the roster";
-}
+export const PROVISIONAL_BADGE_TITLE =
+  "Accepted; not on the roster yet. Shifts drafted now carry over when they are added to it.";

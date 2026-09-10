@@ -47,7 +47,6 @@ function assignment(
 function incomingMember(overrides: {
   id: string;
   name: string;
-  placeable: boolean;
   availability?: Date[];
 }): BuilderMember {
   return {
@@ -55,12 +54,16 @@ function incomingMember(overrides: {
     membershipId: null,
     person: { ...member.person, id: overrides.id, name: overrides.name },
     availability: { tier: "BASELINE", dates: overrides.availability ?? [] },
-    provisional: {
-      acceptanceId: "acc-1",
-      stage: "ACCEPTED",
-      placeable: overrides.placeable,
-    },
+    provisional: { acceptanceId: "acc-1", stage: "ACCEPTED" },
   };
+}
+
+/** The class list on the <td> carrying this accessible label, on itself or a child. */
+function cellClassFor(markup: string, label: string): string | undefined {
+  for (const m of markup.matchAll(/<td class="([^"]*)"[^>]*>.*?<\/td>/g)) {
+    if (m[0].includes(`aria-label="${label}"`)) return m[1];
+  }
+  return undefined;
 }
 
 /**
@@ -426,7 +429,7 @@ describe("BuilderGrid incoming rows", () => {
 
   it("offers a cell on an incoming member who has a Hub account", () => {
     const out = renderGrid(dates, [], {
-      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner" })],
     });
     expect(out).toContain("Rita Returner");
     expect(out).toContain("Incoming");
@@ -436,23 +439,32 @@ describe("BuilderGrid incoming rows", () => {
     expect(out).toContain("Assign Rita Returner as volunteer on Sep 5");
   });
 
-  // A first-time applicant has no Person until roster build, and a shift is keyed
-  // on one. The grid must not offer a "+" that setAssignment would then refuse.
-  it("renders an inert cell for an incoming applicant with no Hub account", () => {
+  // A first-time applicant has no Person until roster build. Their row carries
+  // the synthetic acceptance id, which the service routes to the draft table, so
+  // the cell offers exactly what a returner's does. It used to be a row of dashes.
+  it("offers a cell on a first-time applicant with no Hub account", () => {
     const out = renderGrid(dates, [], {
-      members: [
-        incomingMember({ id: "acceptance:acc-1", name: "Nora Newcomer", placeable: false }),
-      ],
+      members: [incomingMember({ id: "acceptance:acc-1", name: "Nora Newcomer" })],
     });
     expect(out).toContain("Nora Newcomer");
     expect(out).toContain("Incoming");
-    expect(out).not.toContain("Assign Nora Newcomer");
-    expect(out).toContain("cannot be scheduled yet");
+    expect(out).toContain("Assign Nora Newcomer as volunteer on Sep 5");
+    expect(out).not.toContain("cannot be scheduled yet");
+  });
+
+  it("renders a first-time applicant's draft on their own row, removable", () => {
+    const out = renderGrid(dates, [], {
+      members: [incomingMember({ id: "acceptance:acc-1", name: "Nora Newcomer" })],
+      assignmentsByDate: { "2026-09-05": { "acceptance:acc-1": assignment("VOLUNTEER") } },
+    });
+    expect(out).toContain("Unassign Nora Newcomer (volunteer) from Sep 5");
+    // On their row, not a stray row of its own.
+    expect(out).not.toContain("Former");
   });
 
   it("distinguishes an incoming row from a former member's", () => {
     const out = renderGrid(dates, [], {
-      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner" })],
       assignmentsByDate: { "2026-09-05": { "p-gone": assignment("VOLUNTEER") } },
     });
     expect(out).toContain("Incoming");
@@ -462,8 +474,42 @@ describe("BuilderGrid incoming rows", () => {
   // The state must not be carried by the chip's colour alone.
   it("names the incoming state in the cell's accessible label", () => {
     const out = renderGrid(dates, [], {
-      members: [incomingMember({ id: "p-returner", name: "Rita Returner", placeable: true })],
+      members: [incomingMember({ id: "p-returner", name: "Rita Returner" })],
     });
     expect(out).toContain("incoming");
+  });
+});
+
+describe("BuilderGrid availability colors", () => {
+  const dates = [d(2026, 9, 5), d(2026, 9, 12)];
+  const ava: BuilderMember = { ...member, availability: { tier: "SELF", dates: [d(2026, 9, 5)] } };
+
+  // White against slate-50 was too close to tell apart across a term of cells.
+  it("paints a date the person is free green, and one they are not grey", () => {
+    const out = renderGrid(dates, [], { members: [ava] });
+    expect(cellClassFor(out, "Assign Alice Volunteer as volunteer on Sep 5")).toContain(
+      "bg-available",
+    );
+    expect(
+      cellClassFor(out, "Assign Alice Volunteer as volunteer on Sep 12, unavailable"),
+    ).toContain("bg-unavailable");
+  });
+
+  // The ground stays under a shift, so one placed on a day they said they are
+  // not free still reads as such.
+  it("keeps the ground under an assigned shift", () => {
+    const out = renderGrid(dates, [], {
+      members: [ava],
+      assignmentsByDate: { "2026-09-12": { p1: assignment("VOLUNTEER") } },
+    });
+    expect(
+      cellClassFor(out, "Unassign Alice Volunteer (volunteer) from Sep 12, unavailable"),
+    ).toContain("bg-unavailable");
+  });
+
+  it("explains both grounds in the legend", () => {
+    const out = renderGrid(dates);
+    expect(out).toContain("Available");
+    expect(out).toContain("Not available");
   });
 });

@@ -6,7 +6,7 @@
  * not import another module. Recruitment owns the acceptance and turns it into a
  * TermMembership at roster build (promoteContracts); schedule needs to see the
  * same people BEFORE that, so a director can draft next term's schedule against
- * the returners who have already applied, been accepted, and given availability
+ * the people who have already applied, been accepted, and given availability
  * rather than waiting for the whole class to finish onboarding.
  *
  * The availability parser lives here for the same reason, and it matters more
@@ -18,9 +18,16 @@
  * used by both, is the only way that cannot happen. AVAILABILITY_FIELD_KEY moved
  * here for the same reason: it used to be a literal in the recruitment templates
  * carrying a comment that promotion.ts had to be kept "in step" with it by hand.
+ *
+ * Draft shifts for first-time applicants live here too. A returner has a Person,
+ * so their draft is an ordinary ShiftAssignment. A first-time applicant has none
+ * until roster build, so theirs is an IncomingShiftAssignment keyed on the
+ * acceptance, which the schedule builder writes and promotion adopts. Both halves
+ * go through this file so they agree on which acceptances are still live.
  */
 
-import { prisma } from "@/platform/db";
+import type { Prisma } from "@prisma/client";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { isoDateKey } from "@/platform/dates";
 // Re-exported so the four server-side callers that have always imported it from
 // here keep working. It is DEFINED in its own module because a client component
@@ -89,8 +96,8 @@ export type IncomingMember = {
    * Only an applicant who was SIGNED IN when they applied carries a link
    * (Applicant.applicantPersonId), which in practice means returning members
    * renewing or transferring. A first-time applicant has no Hub account until
-   * roster build mints one, and nothing keyed on a person -- a ShiftAssignment
-   * above all -- can reference them until then.
+   * roster build mints one, so their draft shifts are kept against the
+   * acceptance instead (see {@link listIncomingShiftDrafts}).
    */
   personId: string | null;
   name: string;
@@ -109,9 +116,30 @@ function stageFor(contractStatus: "PENDING" | "SUBMITTED" | "PROMOTED" | undefin
   return "ACCEPTED";
 }
 
+/** The membership kind roster build will give an acceptance off this cycle track. */
+function kindFor(track: string): "DIRECTOR" | "VOLUNTEER" {
+  return track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER";
+}
+
 /**
- * Everyone accepted into `departmentCode` for `termId` who is not on the roster
- * yet, ordered by name.
+ * The name an incoming member goes by. The Person name wins when there is one: it
+ * is the name the rest of the roster shows this human by, and an application can
+ * be years old. Shared by the member list and the draft read so a draft always
+ * renders under the same name as the row it sits in.
+ */
+function incomingName(applicant: {
+  firstName: string;
+  lastName: string;
+  applicantPerson: { name: string } | null;
+}): string {
+  return applicant.applicantPerson?.name ?? `${applicant.firstName} ${applicant.lastName}`.trim();
+}
+
+/**
+ * Whether an acceptance still puts someone on an incoming roster. ONE predicate
+ * for the list, both write-side lookups, and the draft read, so the builder can
+ * never offer a cell the write then refuses, or show a draft for someone the
+ * list has dropped.
  *
  * Excluded:
  *   - a PROMOTED contract, because roster build already gave them a real
@@ -120,6 +148,17 @@ function stageFor(contractStatus: "PENDING" | "SUBMITTED" | "PROMOTED" | undefin
  *     contract intact (tearing them down would cascade away signatures, DOB, and
  *     the HIPAA cert), so the acceptance still looks live and nothing else here
  *     would catch it. promoteContracts skips these for the same reason.
+ */
+function liveAcceptanceWhere(): Prisma.AcceptanceWhereInput {
+  return {
+    application: { status: { not: "WITHDRAWN" } },
+    OR: [{ contract: { is: null } }, { contract: { status: { not: "PROMOTED" } } }],
+  };
+}
+
+/**
+ * Everyone accepted into `departmentCode` for `termId` who is not on the roster
+ * yet, ordered by name. See {@link liveAcceptanceWhere} for who is excluded.
  *
  * NOT excluded: an application accepted by more than one department. Both
  * directors see the person, which is the honest picture while SRR has yet to
@@ -134,12 +173,10 @@ export async function listIncomingMembers(opts: {
 }): Promise<IncomingMember[]> {
   const rows = await prisma.acceptance.findMany({
     where: {
-      departmentCode: opts.departmentCode,
-      application: {
-        status: { not: "WITHDRAWN" },
-        cycle: { termId: opts.termId },
-      },
-      OR: [{ contract: { is: null } }, { contract: { status: { not: "PROMOTED" } } }],
+      AND: [
+        liveAcceptanceWhere(),
+        { departmentCode: opts.departmentCode, application: { cycle: { termId: opts.termId } } },
+      ],
     },
     select: {
       id: true,
@@ -171,11 +208,9 @@ export async function listIncomingMembers(opts: {
         acceptanceId: row.id,
         applicationId: application.id,
         personId: person?.id ?? null,
-        // The Person name wins when there is one: it is the name the rest of the
-        // roster shows this human by, and an application can be years old.
-        name: person?.name ?? `${applicant.firstName} ${applicant.lastName}`.trim(),
+        name: incomingName(applicant),
         licensedRN: person?.licensedRN ?? false,
-        kind: application.cycle.track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER",
+        kind: kindFor(application.cycle.track),
         stage: stageFor(row.contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
       };
@@ -198,19 +233,157 @@ export async function findIncomingMember(opts: {
 }): Promise<{ acceptanceId: string; kind: "DIRECTOR" | "VOLUNTEER" } | null> {
   const row = await prisma.acceptance.findFirst({
     where: {
-      departmentCode: opts.departmentCode,
-      application: {
-        status: { not: "WITHDRAWN" },
-        cycle: { termId: opts.termId },
-        applicant: { applicantPersonId: opts.personId },
-      },
-      OR: [{ contract: { is: null } }, { contract: { status: { not: "PROMOTED" } } }],
+      AND: [
+        liveAcceptanceWhere(),
+        {
+          departmentCode: opts.departmentCode,
+          application: {
+            cycle: { termId: opts.termId },
+            applicant: { applicantPersonId: opts.personId },
+          },
+        },
+      ],
     },
     select: { id: true, application: { select: { cycle: { select: { track: true } } } } },
   });
   if (!row) return null;
-  return {
-    acceptanceId: row.id,
-    kind: row.application.cycle.track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER",
-  };
+  return { acceptanceId: row.id, kind: kindFor(row.application.cycle.track) };
+}
+
+/**
+ * The same question as {@link findIncomingMember}, asked by acceptance rather
+ * than by person: is this acceptance still live for this department and term?
+ *
+ * What the builder asks before writing a draft for a first-time applicant, whose
+ * row carries the acceptance because there is no person to carry.
+ */
+export async function findIncomingAcceptance(opts: {
+  acceptanceId: string;
+  termId: string;
+  departmentCode: string;
+}): Promise<{ acceptanceId: string; kind: "DIRECTOR" | "VOLUNTEER" } | null> {
+  const row = await prisma.acceptance.findFirst({
+    where: {
+      AND: [
+        liveAcceptanceWhere(),
+        {
+          id: opts.acceptanceId,
+          departmentCode: opts.departmentCode,
+          application: { cycle: { termId: opts.termId } },
+        },
+      ],
+    },
+    select: { id: true, application: { select: { cycle: { select: { track: true } } } } },
+  });
+  if (!row) return null;
+  return { acceptanceId: row.id, kind: kindFor(row.application.cycle.track) };
+}
+
+/** One first-time applicant's draft shift, as the schedule builder renders it. */
+export type IncomingShiftDraft = {
+  acceptanceId: string;
+  clinicDate: Date;
+  role: "DIRECTOR" | "VOLUNTEER" | "SHADOW";
+  triage: boolean;
+  walkin: boolean;
+  cc: boolean;
+  remote: boolean;
+  specialty: boolean;
+  /** Same name the applicant's member row shows, via {@link incomingName}. */
+  name: string;
+  licensedRN: boolean;
+};
+
+/**
+ * Every draft shift on a live acceptance in one (term, department).
+ *
+ * A draft on a WITHDRAWN applicant is left in place (withdrawal never tears down
+ * the acceptance) but dropped here, so it disappears from the board along with
+ * the person's row and stops counting toward the day. Promotion skips a withdrawn
+ * applicant too, so it never becomes a real shift.
+ */
+export async function listIncomingShiftDrafts(opts: {
+  termId: string;
+  departmentId: string;
+}): Promise<IncomingShiftDraft[]> {
+  const rows = await prisma.incomingShiftAssignment.findMany({
+    where: {
+      termId: opts.termId,
+      departmentId: opts.departmentId,
+      acceptance: liveAcceptanceWhere(),
+    },
+    select: {
+      acceptanceId: true,
+      clinicDate: true,
+      role: true,
+      triage: true,
+      walkin: true,
+      cc: true,
+      remote: true,
+      specialty: true,
+      acceptance: {
+        select: {
+          application: {
+            select: {
+              applicant: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  applicantPerson: { select: { name: true, licensedRN: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  return rows.map(({ acceptance, ...draft }) => {
+    const { applicant } = acceptance.application;
+    return {
+      ...draft,
+      name: incomingName(applicant),
+      licensedRN: applicant.applicantPerson?.licensedRN ?? false,
+    };
+  });
+}
+
+/**
+ * Move an acceptance's draft shifts onto the real schedule for the person roster
+ * build just resolved. Returns how many became ShiftAssignments.
+ *
+ * Runs inside promoteContracts' transaction, beside the membership write, so a
+ * promotion that rolls back leaves the drafts exactly where they were.
+ *
+ * skipDuplicates is ON CONFLICT DO NOTHING, not a caught error: a unique
+ * violation inside a Postgres transaction aborts it whatever a try/catch says,
+ * and would roll back the whole promotion. A conflict means the person already
+ * holds a shift that Saturday in that department (an alum matched by email who
+ * was scheduled another way), and the shift they already have wins.
+ */
+export async function adoptIncomingShiftsTx(
+  tx: TransactionClient,
+  opts: { acceptanceId: string; personId: string },
+): Promise<number> {
+  const drafts = await tx.incomingShiftAssignment.findMany({
+    where: { acceptanceId: opts.acceptanceId },
+  });
+  if (drafts.length === 0) return 0;
+  const { count } = await tx.shiftAssignment.createMany({
+    data: drafts.map((d) => ({
+      termId: d.termId,
+      departmentId: d.departmentId,
+      personId: opts.personId,
+      clinicDate: d.clinicDate,
+      role: d.role,
+      triage: d.triage,
+      walkin: d.walkin,
+      cc: d.cc,
+      remote: d.remote,
+      specialty: d.specialty,
+    })),
+    skipDuplicates: true,
+  });
+  await tx.incomingShiftAssignment.deleteMany({ where: { acceptanceId: opts.acceptanceId } });
+  return count;
 }

@@ -27,10 +27,18 @@ describe("MembershipKindBadge", () => {
   it("gives the two kinds different tones, which is the drift that started this", () => {
     // The schedule builder's Day view drew this chip brand and its Availability
     // view drew it default, for the same person on the same page.
-    expect(BADGE_TONE_CLASSES.brand).not.toBe(BADGE_TONE_CLASSES.default);
-    expect(render(<MembershipKindBadge kind="DIRECTOR" />)).not.toContain(
-      `class="${BADGE_TONE_CLASSES.default}"`,
-    );
+    //
+    // Asserted by RENDERING both kinds and comparing them. The version this
+    // replaces compared two entries of BADGE_TONE_CLASSES to each other and then
+    // looked for `class="<default>"`, which no Badge ever emits: Badge composes
+    // its base classes in front of the tone, so the literal never appears at any
+    // tone. Collapsing the component to a single tone left it green.
+    const director = render(<MembershipKindBadge kind="DIRECTOR" />);
+    const volunteer = render(<MembershipKindBadge kind="VOLUNTEER" />);
+    expect(director).toContain(BADGE_TONE_CLASSES.brand);
+    expect(volunteer).toContain(BADGE_TONE_CLASSES.default);
+    expect(director).not.toContain(BADGE_TONE_CLASSES.default);
+    expect(volunteer).not.toContain(BADGE_TONE_CLASSES.brand);
   });
 
   it("abbreviates the word only, never the tone", () => {

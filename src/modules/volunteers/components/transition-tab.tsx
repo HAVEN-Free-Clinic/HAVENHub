@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -232,9 +233,7 @@ export function TransitionTab({
                       {row.departments.map((d) => d.code).join(", ") || "-"}
                     </TD>
                     <TD>
-                      <Badge tone={row.role === "DIRECTOR" ? "brand" : "default"}>
-                        {row.role === "DIRECTOR" ? "Director" : "Volunteer"}
-                      </Badge>
+                      <MembershipKindBadge kind={row.role} />
                     </TD>
                     <TD>
                       <div className="flex flex-wrap items-center gap-1">

@@ -45,10 +45,12 @@ describe("ResultCount", () => {
     );
   });
 
-  it("sits on the trailing edge, which both hand-rolled copies had dropped", () => {
-    // The applicants roster and the support request filters had each copied the
-    // slot's class string without `ml-auto`, so their count sat wherever the
-    // controls before it happened to end.
+  it("carries its own trailing-edge placement", () => {
+    // Not a repair of the two hand-rolled copies: neither was mispositioned.
+    // The applicants roster already sat in a justify-between row of two, and the
+    // request filters put flex-1 on the form before it. This is so the slot
+    // holds its placement in whatever row the NEXT caller builds, and when
+    // either of these rows wraps.
     expect(render(<ResultCount total={3} noun="request" />)).toContain("ml-auto");
   });
 

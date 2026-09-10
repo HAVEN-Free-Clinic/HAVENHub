@@ -58,7 +58,14 @@ test("recruitment dropdown reaches Events, whose gate the global nav cannot run"
   await devSignIn(page);
   await page.goto("/admin");
   await chevron(page, "Recruitment").click();
-  await panel(page, "Recruitment").getByRole("link", { name: "Events", exact: true }).click();
+  // "Attendance events", not "Events": the nav-title alignment moved this label
+  // to match the page's own H1, and `exact` means the old short form no longer
+  // resolves. The label and the H1 agreeing is the point of that change -- see
+  // nav-title.guard.test.ts -- so the spec follows the label rather than the
+  // label being kept short for the spec.
+  await panel(page, "Recruitment")
+    .getByRole("link", { name: "Attendance events", exact: true })
+    .click();
   await page.waitForURL((url) => url.pathname === "/recruitment/events");
 });
 

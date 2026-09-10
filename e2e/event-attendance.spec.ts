@@ -32,6 +32,11 @@ test("event attendance: create an info session and check in a walk-up", async ({
   await page.goto("/recruitment/events");
   await expect(page.getByRole("heading", { name: "Attendance events" })).toBeVisible();
 
+  // The create form is its own route now, reached from the list header, rather
+  // than a permanently expanded panel under the table.
+  await page.getByRole("link", { name: "New event" }).click();
+  await page.waitForURL((url) => url.pathname === "/recruitment/events/new");
+
   const createForm = page.locator('form:has(button:has-text("Create event"))');
   await createForm.locator('input[name="title"]').fill(title);
   await createForm.locator('select[name="kind"]').selectOption("INFO_SESSION");

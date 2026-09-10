@@ -57,6 +57,11 @@ export async function updateCourseAction(formData: FormData): Promise<void> {
     domainErrors: [LearningValidationError],
     errorRedirect: (m) => `/learning/manage/${id}?error=${encodeURIComponent(m)}`,
     revalidate: `/learning/manage/${id}`,
+    // Revalidating alone left the browser sitting on the POST result and redrew
+    // the page byte-identical, so a successful "Save course" was indistinguishable
+    // from a dropped one. Redirecting makes this POST-then-GET like every other
+    // editor in the app, which is what lets a flash param exist at all.
+    successRedirect: `/learning/manage/${id}?saved=course`,
   });
 }
 
@@ -68,6 +73,10 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
   const audience: CourseAudience = raw === "DIRECTORS" || raw === "VOLUNTEERS" ? raw : "EVERYONE";
   await setCourseAssignment(courseId, { departmentIds, assignToAll: formData.get("assignToAll") === "on", audience }, person.personId);
   revalidatePath(`/learning/manage/${courseId}`);
+  // Same reason as updateCourseAction above: the assignment picker redraws
+  // identically, so "Save assignment" reported nothing at all. Its own `saved`
+  // value, not the course one, because both forms live on this one page.
+  redirect(`/learning/manage/${courseId}?saved=assignment`);
 }
 
 /** useActionState result: an error message to show inline, or null on success. */

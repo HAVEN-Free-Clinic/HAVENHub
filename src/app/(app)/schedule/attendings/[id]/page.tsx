@@ -65,7 +65,12 @@ export default async function EditAttendingPage({ params }: PageProps) {
       }
       throw err;
     }
-    redirect("/schedule/attendings");
+    // Most of what this form edits (credentials, email, phone, notes,
+    // capabilities) is not a column on the roster it lands you back on, so a
+    // bare redirect looked identical to having changed nothing. `notice` is
+    // already registered for this subtree in ui/toast/flash.ts and echoes its
+    // own value.
+    redirect(`/schedule/attendings?notice=${encodeURIComponent("Attending saved.")}`);
   }
 
   async function enableAccessAction() {

@@ -375,6 +375,16 @@ const APPLICANT_ROSTER_PATHNAME = "/recruitment/cycles/*/applicants";
 const INTERVIEW_DETAIL_PATHNAME = "/recruitment/interviews/*";
 /** recruitment/cycles/[id]/training/page.tsx's own route. */
 const TRAINING_ROSTER_PATHNAME = "/recruitment/cycles/*/training";
+/** learning/manage/[courseId]/page.tsx's own route. */
+const COURSE_MANAGE_PATHNAME = "/learning/manage/*";
+/** outreach/scopes/[id]/page.tsx's own route. */
+const SCOPE_DETAIL_PATHNAME = "/outreach/scopes/*";
+/** admin/email/templates/[key]/page.tsx's own route. Five segments, so it cannot
+ *  collide with the four-segment template index or with `/admin/email` itself.
+ *  A template key containing a slash would fall out of this scope; the registry
+ *  at platform/email/templates/registry.ts is a closed list and none of its keys
+ *  has one (they are hyphen- and dot-cased). */
+const EMAIL_TEMPLATE_PATHNAME = "/admin/email/templates/*";
 
 /**
  * Explicit entries for flash shapes the `error`/`*Error` convention cannot express: a flag
@@ -518,6 +528,17 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Training reset.",
   },
   {
+    // admin/email/templates/[key]/page.tsx (resetAction). NOT a new group: it
+    // shares `saved|saved=reset` with the training entry directly above, which is
+    // exactly right -- the two are scoped to disjoint pathnames, so resolveScoped
+    // picks per path and neither can ever be reached from the other's page.
+    params: ["saved"],
+    matchValues: { saved: "reset" },
+    pathnames: [EMAIL_TEMPLATE_PATHNAME],
+    tone: "success",
+    message: () => "Reverted to the built-in template.",
+  },
+  {
     params: ["saved"],
     matchValues: { saved: "excused" },
     pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
@@ -530,6 +551,43 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [TRAINING_ROSTER_PATHNAME, APPLICANT_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Excuse cleared.",
+  },
+
+  // learning/manage/actions.ts. Two forms live on one course page (the course
+  // fields and the assignment picker) and neither moves the user anywhere, so
+  // "Saved." would leave a manager unable to tell which of the two they just
+  // submitted. Scoped, with no unscoped sibling.
+  {
+    params: ["saved"],
+    matchValues: { saved: "course" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Course saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "assignment" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Assignment saved.",
+  },
+
+  // outreach/scopes/[id]/page.tsx (grantAction, revokeAction). Both land back on
+  // the same page as the scope edit itself, so the generic "Scope saved." below
+  // would report the wrong thing entirely: a grant edits nobody's scope.
+  {
+    params: ["saved"],
+    matchValues: { saved: "granted" },
+    pathnames: [SCOPE_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Access granted.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "revoked" },
+    pathnames: [SCOPE_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Access revoked.",
   },
 
   // ---------------------------------------------------------------------------
@@ -577,6 +635,21 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: ["/outreach/campaigns/*"],
     tone: "success",
     message: () => "Campaign saved.",
+  },
+  {
+    // outreach/scopes/[id]/page.tsx (updateAction). The audience builder
+    // re-renders identically after a save, so "Saved." is the whole feedback.
+    params: ["saved"],
+    pathnames: [SCOPE_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Scope saved.",
+  },
+  {
+    // admin/email/templates/[key]/page.tsx (saveAction).
+    params: ["saved"],
+    pathnames: [EMAIL_TEMPLATE_PATHNAME],
+    tone: "success",
+    message: () => "Template saved.",
   },
 
   {
@@ -691,16 +764,22 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Mailbox connected.",
   },
   {
-    // admin/email/page.tsx:315-317 (saveSenderAction).
+    // admin/email/page.tsx:315-317 (saveSenderAction) and the per-template
+    // saveSenderAction one route down, which is the same control saying the same
+    // thing. Neither group has an unscoped sibling, so before the template
+    // pathname was listed here resolveScoped returned null on it and the param
+    // was neither toasted nor stripped.
     params: ["senderSaved"],
-    pathnames: ["/admin/email"],
+    pathnames: ["/admin/email", EMAIL_TEMPLATE_PATHNAME],
     tone: "success",
     message: () => "Sender address saved.",
   },
   {
-    // admin/email/page.tsx:318-320 (testSenderAction).
+    // admin/email/page.tsx:318-320 (testSenderAction) and its per-template twin.
+    // This button actually SENDS mail, so silence on the template page was the
+    // worst of the set: the same button one route up already said this.
     params: ["senderTested"],
-    pathnames: ["/admin/email"],
+    pathnames: ["/admin/email", EMAIL_TEMPLATE_PATHNAME],
     tone: "success",
     message: () => "Test message sent. Check the inbox to confirm.",
   },

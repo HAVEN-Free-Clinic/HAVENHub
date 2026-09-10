@@ -61,7 +61,9 @@ export default async function EditTemplatePage({ params }: Props) {
       throw err;
     }
     revalidatePath(`/admin/email/templates/${key}`);
-    redirect(`/admin/email/templates/${key}`);
+    // The editor redraws with exactly the text just submitted, so a bare
+    // redirect could not be told apart from a save that never landed.
+    redirect(`/admin/email/templates/${key}?saved=1`);
   }
 
   async function resetAction() {
@@ -69,7 +71,10 @@ export default async function EditTemplatePage({ params }: Props) {
     const actor = await requirePermission("admin.manage_email_templates");
     await resetTemplateOverride(actor.personId, decodedKey);
     revalidatePath(`/admin/email/templates/${key}`);
-    redirect(`/admin/email/templates/${key}`);
+    // Its own value: reverting to the built-in text is a different outcome from
+    // saving an override, and the header's Customized/Using default line is the
+    // only other place it shows.
+    redirect(`/admin/email/templates/${key}?saved=reset`);
   }
 
   async function saveSenderAction(formData: FormData) {
@@ -90,7 +95,9 @@ export default async function EditTemplatePage({ params }: Props) {
       throw err;
     }
     revalidatePath(`/admin/email/templates/${key}`);
-    redirect(`/admin/email/templates/${key}`);
+    // Same param the identical control on /admin/email uses; its registry entry
+    // is scoped to this route too.
+    redirect(`/admin/email/templates/${key}?senderSaved=1`);
   }
 
   async function testSenderAction(formData: FormData) {
@@ -122,7 +129,9 @@ export default async function EditTemplatePage({ params }: Props) {
       redirect(`/admin/email/templates/${key}?error=${encodeURIComponent(message)}`);
     }
     revalidatePath(`/admin/email/templates/${key}`);
-    redirect(`/admin/email/templates/${key}`);
+    // This button SENDS a real message and said nothing about it, while the same
+    // button one route up on /admin/email has always confirmed.
+    redirect(`/admin/email/templates/${key}?senderTested=1`);
   }
 
   return (

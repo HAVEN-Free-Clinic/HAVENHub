@@ -59,7 +59,11 @@ function text(form: FormData, key: string): string | null {
 
 export async function createEventAction(form: FormData) {
   const person = await requirePersonSession();
-  const path = "/recruitment/events";
+  // The form lives at /recruitment/events/new, not under the list any more, so
+  // every failure below has to land back on the page that still has the fields.
+  // Bouncing to the list would toast the reason at somebody with nothing to
+  // correct and no copy of what they typed.
+  const path = "/recruitment/events/new";
   const cycleId = text(form, "cycleId");
   const kind = (text(form, "kind") ?? "OTHER") as AttendanceEventKind;
   const startsAt = await parseDateTime(form.get("startsAt"));

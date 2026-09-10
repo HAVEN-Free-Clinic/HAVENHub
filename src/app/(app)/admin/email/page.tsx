@@ -374,24 +374,17 @@ export default async function EmailPage({ searchParams }: PageProps) {
                   aria-label={`${cat.label} display name`}
                 />
               </div>
-              {/* Both buttons post this one form (Send test overrides the action
-                  via formAction), and `pending` from useFormStatus is the FORM's,
-                  not the clicked button's -- so a plain pendingLabel would put
-                  "Saving…" next to an in-flight test send, stating the wrong
-                  thing about what the server is doing. Each button therefore
-                  keeps its own word as its pendingLabel, and the spinner, the
-                  disabled state and aria-busy carry the feedback.
-
-                  Not a hard limit of the hook: useFormStatus also returns
-                  `action`, the function that actually initiated the submit, so a
-                  button given a reference to its own action could tell whether
-                  it is the one running and swap to a verb. Doing that means
-                  handing SubmitButton that reference at every call site, which
-                  is a bigger change than these two rows are worth. */}
-              <SubmitButton variant="outline" size="sm" pendingLabel="Save">
+              {/* Save carries an explicit formAction even though it is already
+                  the form's, because that is what tells SubmitButton which
+                  button is running: `pending` is form-wide, but `action` is the
+                  submitter's own formAction, compared by reference. Drop it and
+                  Save claims every submit and says "Saving…" through a test
+                  send. Neither button takes a name/value, which is the one thing
+                  a formAction may not be paired with. */}
+              <SubmitButton formAction={saveSenderAction} variant="outline" size="sm" pendingLabel="Saving…">
                 Save
               </SubmitButton>
-              <SubmitButton formAction={testSenderAction} variant="ghost" size="sm" pendingLabel="Send test">
+              <SubmitButton formAction={testSenderAction} variant="ghost" size="sm" pendingLabel="Sending…">
                 Send test
               </SubmitButton>
               </FormRow>

@@ -268,8 +268,13 @@ function DecideForm({
           className="w-44"
           aria-label={`Note about ${row.personName}`}
         />
-        <SubmitButton size="sm">Add to roster</SubmitButton>
-        <SubmitButton size="sm" variant="outline" formAction={declineAction}>
+        {/* Both submits name their own action, so the spinner and the verb land
+            on the one that is running rather than on the pair. Without the
+            formAction on Accept it would claim a decline as "Adding…". */}
+        <SubmitButton size="sm" formAction={acceptAction} pendingLabel="Adding…">
+          Add to roster
+        </SubmitButton>
+        <SubmitButton size="sm" variant="outline" formAction={declineAction} pendingLabel="Declining…">
           Decline
         </SubmitButton>
       </form>

@@ -265,6 +265,21 @@ export function firstNameOf(input: PersonNameParts | string | null | undefined):
 }
 
 /**
+ * The greeting name for an Applicant or an OnboardingContract.
+ *
+ * Those two name their columns `firstName` / `lastName` rather than
+ * `legalFirstName` / `lastName`, because they predate the Person split and
+ * describe someone who may have no Person row at all. Same rule, different
+ * shape: what they go by, else their first name.
+ */
+export function applicantFirstName(applicant: {
+  firstName: string;
+  preferredFirstName?: string | null;
+}): string {
+  return (applicant.preferredFirstName ?? "").trim() || applicant.firstName.trim();
+}
+
+/**
  * How a person is shown everywhere that is not an identity document: "Jack
  * Carney". This is the value written to the derived `Person.name` column, so
  * every surface reading that column shows it without changing.

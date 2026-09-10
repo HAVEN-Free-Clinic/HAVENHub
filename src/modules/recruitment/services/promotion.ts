@@ -193,6 +193,10 @@ export async function promoteContracts(
               // contract already holds the answer.
               legalFirstName: contract.firstName.trim(),
               lastName: contract.lastName.trim(),
+              // The last leg of the journey from the application form. Without
+              // it, somebody who told us they go by Jack on day one lands on
+              // the roster as Jonathan and has to correct it themselves.
+              preferredFirstName: contract.preferredFirstName?.trim() || null,
               netId: writableNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",

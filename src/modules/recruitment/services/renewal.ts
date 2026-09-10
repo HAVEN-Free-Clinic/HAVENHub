@@ -60,6 +60,16 @@ export async function resolveReturningPersonId(
 export type RenewalContext = {
   personId: string;
   name: string | null;
+  /**
+   * The stored name PARTS, so a returning applicant's Applicant row is filled
+   * from what the Person record actually holds. Splitting `name` at the first
+   * space (what this used to do) turned "Maria de la Cruz" into "Maria" / "de la
+   * Cruz" only by luck and "Jack Carney" into a first name of Jack with the
+   * legal one lost. Null when there is no Person.
+   */
+  legalFirstName: string | null;
+  lastName: string | null;
+  preferredFirstName: string | null;
   email: string | null;
   netId: string | null;
   phone: string | null;
@@ -86,7 +96,7 @@ export async function getRenewalContext(personId: string, sessionEmail: string |
     },
   });
   if (!person) {
-    return { personId, name: null, email: sessionEmail, netId: null, phone: null, currentDepartments: [], eligible: false };
+    return { personId, name: null, legalFirstName: null, lastName: null, preferredFirstName: null, email: sessionEmail, netId: null, phone: null, currentDepartments: [], eligible: false };
   }
   let latest = 0;
   for (const m of person.memberships) latest = Math.max(latest, m.term.startDate.getTime());
@@ -96,6 +106,9 @@ export async function getRenewalContext(personId: string, sessionEmail: string |
   return {
     personId,
     name: person.name,
+    legalFirstName: person.legalFirstName,
+    lastName: person.lastName,
+    preferredFirstName: person.preferredFirstName,
     email: sessionEmail,
     netId: person.netId,
     phone: person.phone,
@@ -117,11 +130,21 @@ export function resolveRenewalPrefill(
   const values: Record<string, string> = {};
   const lockedKeys: string[] = [];
 
-  const name = (ctx.name ?? "").trim();
-  if (name) {
-    const sp = name.indexOf(" ");
-    values.first_name = sp === -1 ? name : name.slice(0, sp);
-    values.last_name = sp === -1 ? "" : name.slice(sp + 1).trim();
+  // Read from the stored parts, and fall back to splitting the display name only
+  // for a context that carries no parts (the ineligible branch above, and any
+  // hand-built ctx in a test). The split is what used to prefill "Jonathan
+  // (Jack)" into a first-name box, and it still cannot read a compound surname.
+  if (ctx.legalFirstName || ctx.lastName) {
+    values.first_name = (ctx.legalFirstName ?? "").trim();
+    values.last_name = (ctx.lastName ?? "").trim();
+    if (ctx.preferredFirstName) values.preferred_first_name = ctx.preferredFirstName.trim();
+  } else {
+    const name = (ctx.name ?? "").trim();
+    if (name) {
+      const sp = name.indexOf(" ");
+      values.first_name = sp === -1 ? name : name.slice(0, sp);
+      values.last_name = sp === -1 ? "" : name.slice(sp + 1).trim();
+    }
   }
 
   for (const f of fields) {

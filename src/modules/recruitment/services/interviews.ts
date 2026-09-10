@@ -13,6 +13,7 @@ import { esc } from "@/platform/email/render/escape";
 import { firstNameOf } from "@/platform/person-name";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
+import { applicantFirstName } from "@/platform/person-name";
 
 export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
@@ -124,7 +125,7 @@ async function buildPanelistAssignmentNotify(
 export async function addPanelist(interviewId: string, personId: string, isLead: boolean, actorId: string): Promise<InterviewPanelist> {
   const iv = await prisma.interview.findUnique({
     where: { id: interviewId },
-    include: { application: { include: { applicant: { select: { firstName: true, lastName: true } } } } },
+    include: { application: { include: { applicant: { select: { firstName: true, lastName: true, preferredFirstName: true } } } } },
   });
   if (!iv) throw new InterviewError("Interview not found.");
   await assertCanManage(iv.departmentCode, actorId);
@@ -189,7 +190,7 @@ export async function sendInterviewInvite(interviewId: string, actorId: string):
   const interviewTime = formatDateTime(iv.scheduledAt, zone, { dateStyle: "full", timeStyle: "short" });
   const joinLink = iv.zoomLink ? `<a href="${esc(iv.zoomLink)}">${esc(iv.zoomLink)}</a>` : "link to follow";
   const email = await renderCycleEmail(iv.application.cycle.id, "recruitment.interview_invite", {
-    firstName: applicant.firstName || "there",
+    firstName: applicantFirstName(applicant) || "there",
     departmentName: dept?.name ?? iv.departmentCode,
     interviewTime,
     joinLink,

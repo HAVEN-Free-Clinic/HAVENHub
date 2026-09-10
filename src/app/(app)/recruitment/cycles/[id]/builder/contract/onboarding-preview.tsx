@@ -35,7 +35,7 @@ export type OnboardingPreviewContext = {
   fixedTrack: Track | null;
 };
 
-const EMPTY_PREFILL = { firstName: "", lastName: "", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
+const EMPTY_PREFILL = { firstName: "", lastName: "", preferredFirstName: "", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
 const noErr = () => undefined;
 
 function trackLabel(t: Track): string {

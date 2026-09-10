@@ -57,8 +57,10 @@ it("returns currentDepartments from the most-recent term only when memberships s
   expect(ctx.currentDepartments).toEqual(["EXEC"]);
 });
 
+// The fallback branch: a context with no stored parts (an ineligible person, or
+// a hand-built ctx) still splits the display name rather than prefilling nothing.
 it("resolveRenewalPrefill splits name, locks email and netid, maps phone, skips off-convention keys", async () => {
-  const ctx = { personId: "p1", name: "Mary Jane Watson", email: "mjw@yale.edu", netId: "mjw1", phone: "555", currentDepartments: ["SRHD"], eligible: true };
+  const ctx = { personId: "p1", name: "Mary Jane Watson", legalFirstName: null, lastName: null, preferredFirstName: null, email: "mjw@yale.edu", netId: "mjw1", phone: "555", currentDepartments: ["SRHD"], eligible: true };
   const { values, lockedKeys } = resolveRenewalPrefill(
     [{ key: "first_name", type: "SHORT_TEXT" }, { key: "last_name", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }, { key: "phone", type: "PHONE" }, { key: "net_id", type: "SHORT_TEXT" }, { key: "favorite_color", type: "SHORT_TEXT" }],
     ctx,
@@ -75,7 +77,7 @@ it("resolveRenewalPrefill splits name, locks email and netid, maps phone, skips 
 });
 
 it("resolveRenewalPrefill does not lock net_id when the record has no NetID", async () => {
-  const ctx = { personId: "p1", name: "No Net", email: "nn@yale.edu", netId: null, phone: null, currentDepartments: ["SRHD"], eligible: true };
+  const ctx = { personId: "p1", name: "No Net", legalFirstName: null, lastName: null, preferredFirstName: null, email: "nn@yale.edu", netId: null, phone: null, currentDepartments: ["SRHD"], eligible: true };
   const { values, lockedKeys } = resolveRenewalPrefill([{ key: "net_id", type: "SHORT_TEXT" }, { key: "email", type: "EMAIL" }], ctx);
   expect(values.net_id).toBeUndefined();
   expect(lockedKeys).not.toContain("net_id");
@@ -147,4 +149,31 @@ it("never matches a stored personal address from a non-Yale claim", async () => 
   // that turns a claim into someone's membership history.
   await offboardedAlum({ netId: null, contactEmail: "alum@gmail.com" });
   expect(await resolveReturningPersonId(null, { upn: "alum@gmail.com", email: "alum@gmail.com" })).toBeNull();
+});
+
+it("resolveRenewalPrefill reads the stored name parts rather than splitting the display name", () => {
+  const ctx = {
+    personId: "p1",
+    name: "Lupe Zavala",
+    legalFirstName: "Guadalupe",
+    lastName: "Hernandez Zavala",
+    preferredFirstName: "Lupe",
+    email: "lz@yale.edu",
+    netId: "lz1",
+    phone: null,
+    currentDepartments: ["SRHD"],
+    eligible: true,
+  };
+  const { values } = resolveRenewalPrefill(
+    [
+      { key: "first_name", type: "SHORT_TEXT" },
+      { key: "last_name", type: "SHORT_TEXT" },
+      { key: "preferred_first_name", type: "SHORT_TEXT" },
+    ],
+    ctx,
+  );
+  // The compound surname survives, which the first-space split could never do.
+  expect(values.first_name).toBe("Guadalupe");
+  expect(values.last_name).toBe("Hernandez Zavala");
+  expect(values.preferred_first_name).toBe("Lupe");
 });

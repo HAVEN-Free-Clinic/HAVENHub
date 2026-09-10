@@ -20,6 +20,7 @@ export default async function OnboardingProfilePage() {
     const s = await requirePersonSession();
     try {
       await updateMyInfo(s.personId, {
+        preferredFirstName: (formData.get("preferredFirstName") as string) || null,
         phone: (formData.get("phone") as string) || null,
         contactEmail: (formData.get("contactEmail") as string) || null,
         yaleAffiliation: (formData.get("yaleAffiliation") as string) || null,

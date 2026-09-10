@@ -118,7 +118,8 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     [...formData.entries()].filter(([, v]) => typeof v === "string") as [string, string][],
   );
   const input: ContractSubmission = {
-    firstName: str("firstName"), lastName: str("lastName"), email: str("email"), netId: str("netId") || undefined, phone: str("phone") || undefined,
+    firstName: str("firstName"), lastName: str("lastName"), preferredFirstName: str("preferredFirstName") || undefined,
+    email: str("email"), netId: str("netId") || undefined, phone: str("phone") || undefined,
     dateOfBirth: dob || undefined, dietaryRestrictions: str("dietaryRestrictions") || undefined,
     yaleAffiliation: str("yaleAffiliation") || undefined, gradYear: str("gradYear") || undefined,
     pronouns: str("pronouns") || undefined, staffTitle: str("staffTitle") || undefined,

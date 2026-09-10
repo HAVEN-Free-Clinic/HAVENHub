@@ -178,6 +178,48 @@ describe("updateMyInfo", () => {
     expect(updated.epicId).toBe("ORIGINAL-EPIC");
   });
 
+  // The one part of their own name a member owns. The legal name stays with IT,
+  // matching the read-only row on the form, because it is what goes to YNHH on
+  // an Epic request and onto the signed contract.
+  it("lets a member set what they go by, and updates the name everyone sees", async () => {
+    const person = await createPerson({ name: "Jonathan Carney", netId: "jc001" });
+
+    await updateMyInfo(person.id, { preferredFirstName: "Jack" });
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.preferredFirstName).toBe("Jack");
+    expect(updated.name).toBe("Jack Carney");
+    expect(updated.legalFirstName).toBe("Jonathan");
+  });
+
+  it("lets a member clear it, falling back to their legal first name", async () => {
+    const person = await createPerson({ name: "Jonathan Carney", netId: "jc002" });
+    await updateMyInfo(person.id, { preferredFirstName: "Jack" });
+
+    await updateMyInfo(person.id, { preferredFirstName: "" });
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.preferredFirstName).toBeNull();
+    expect(updated.name).toBe("Jonathan Carney");
+  });
+
+  it("refuses a smuggled legal name, which is not self-service", async () => {
+    const person = await createPerson({ name: "Jonathan Carney", netId: "jc003" });
+
+    const smuggled: unknown = {
+      preferredFirstName: "Jack",
+      legalFirstName: "Hacked",
+      lastName: "Smuggled",
+      nameNeedsReview: false,
+    };
+    await updateMyInfo(person.id, smuggled as Parameters<typeof updateMyInfo>[1]);
+
+    const updated = await prisma.person.findUniqueOrThrow({ where: { id: person.id } });
+    expect(updated.legalFirstName).toBe("Jonathan");
+    expect(updated.lastName).toBe("Carney");
+    expect(updated.name).toBe("Jack Carney");
+  });
+
   it("lets a member set their dietary restrictions", async () => {
     const person = await createPerson({ name: "Dee Eater", netId: "dee001" });
     await updateMyInfo(person.id, { dietaryRestrictions: "Vegan, shellfish allergy" });

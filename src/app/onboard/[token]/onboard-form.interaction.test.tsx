@@ -27,7 +27,7 @@ const ctx = {
   storedEpicId: null,
 };
 const prefill = {
-  firstName: "Ada", lastName: "L", email: "ada@example.com",
+  firstName: "Ada", lastName: "L", preferredFirstName: "", email: "ada@example.com",
   netId: "abl2", phone: "203-555-0100", yaleAffiliation: "undergrad", gradYear: "2026",
 };
 

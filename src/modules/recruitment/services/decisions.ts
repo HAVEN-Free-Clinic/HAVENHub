@@ -6,13 +6,14 @@ import { findAcceptanceConflicts } from "../engine/conflicts";
 import { rosterDecision } from "../engine/decision-summary";
 import { resolveCycleEmail, renderResolvedEmail } from "../email/render";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
+import { applicantFirstName } from "@/platform/person-name";
 
 export type Conflict = { applicationId: string; applicantName: string; departments: string[] };
 
 export async function listConflicts(cycleId: string): Promise<Conflict[]> {
   const acceptances = await prisma.acceptance.findMany({
     where: { application: { cycleId } },
-    include: { application: { include: { applicant: { select: { firstName: true, lastName: true } } } } },
+    include: { application: { include: { applicant: { select: { firstName: true, lastName: true, preferredFirstName: true } } } } },
   });
   const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
   const byApp = new Map<string, Conflict>();
@@ -102,7 +103,7 @@ export async function sendAcceptanceEmail(
   const dept = await prisma.department.findUnique({ where: { code: departmentCode }, select: { name: true } });
   const sources = await resolveCycleEmail(acc.application.cycle.id, "recruitment.acceptance");
   const email = renderResolvedEmail(sources, {
-    firstName: acc.application.applicant.firstName || "there",
+    firstName: applicantFirstName(acc.application.applicant) || "there",
     cycleTitle: acc.application.cycle.title,
     departmentName: dept?.name ?? departmentCode,
   });
@@ -158,7 +159,7 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
     if (conflictIds.has(acc.applicationId)) { skippedApps.add(acc.applicationId); continue; }
     const applicant = acc.application.applicant;
     const email = renderResolvedEmail(acceptanceSources, {
-      firstName: applicant.firstName || "there",
+      firstName: applicantFirstName(applicant) || "there",
       cycleTitle: cycle.title,
       departmentName: deptName.get(acc.departmentCode) ?? acc.departmentCode,
     });

@@ -2556,6 +2556,11 @@ model Applicant {
   applicantPersonId String?
   firstName         String
   lastName          String
+  /// What the applicant goes by, when it is not their first name. Carried to the
+  /// onboarding contract and then to Person at promotion, so a decision email
+  /// and a first roster both address them correctly. Null means "my first name
+  /// is fine", which is the common case.
+  preferredFirstName String?
   email             String
   /// Must equal lower(email); set by the submission service. Backs the (cycleId, emailLower) dedup unique.
   emailLower        String
@@ -2835,6 +2840,9 @@ model OnboardingContract {
   status                   ContractStatus @default(PENDING)
   firstName                String
   lastName                 String
+  /// Seeded from the Applicant and editable on the contract form, like the legal
+  /// name beside it. Becomes Person.preferredFirstName at promotion.
+  preferredFirstName       String?
   email                    String
   netId                    String?
   phone                    String?

@@ -8,7 +8,7 @@ const ctx = {
   department: "BVHD", track: "DIRECTOR" as const, epicRequirement: "ALL" as const,
   storedEpicId: null,
 };
-const prefill = { firstName: "Ada", lastName: "L", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
+const prefill = { firstName: "Ada", lastName: "L", preferredFirstName: "", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
 const noop = () => {};
 const noErr = () => undefined;
 

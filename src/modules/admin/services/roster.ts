@@ -21,6 +21,7 @@ import { TermNotFoundError } from "./terms";
 // changeMembershipKind below applies the same offboard-convergence guard, so it
 // needs the class as a value, not only as a re-export.
 import { OffboardedPersonError } from "@/platform/memberships/add";
+import { comparePersonName } from "@/platform/person-name";
 
 /**
  * addMembership and its two typed errors moved to platform when the dual-role
@@ -102,11 +103,11 @@ export async function termRoster(
     }
   }
 
-  // Sort each kind list by name, then sort departments by code
+  // Surname order within each kind, then departments by code.
   const groups = Array.from(byDept.values());
   for (const group of groups) {
-    group.directors.sort((a, b) => a.name.localeCompare(b.name));
-    group.volunteers.sort((a, b) => a.name.localeCompare(b.name));
+    group.directors.sort(comparePersonName);
+    group.volunteers.sort(comparePersonName);
   }
   groups.sort((a, b) => a.department.code.localeCompare(b.department.code));
 

@@ -9,7 +9,7 @@ import { notify } from "@/platform/notifications/notify";
 import { dualRoleRequestedContext, type PendingDualRoleOffer } from "@/platform/email/templates/volunteers";
 import { verifiedLanguagesByPerson, spanishScoresByPerson } from "@/platform/languages";
 import { languageLabel } from "@/platform/languages/catalog";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, comparePersonName } from "@/platform/person-name";
 import { addMembership } from "@/platform/memberships/add";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
@@ -78,7 +78,7 @@ async function sendDualRoleDigest(
     getSetting<string>("app.baseUrl"),
     prisma.person.findMany({
       where: { id: { in: [...new Set(offers.map((o) => o.personId))] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, legalFirstName: true, lastName: true },
     }),
     prisma.department.findMany({
       where: { code: { in: codes } },
@@ -88,12 +88,21 @@ async function sendDualRoleDigest(
   if (holders.length === 0) return;
 
   const nameById = new Map(people.map((p) => [p.id, p.name]));
+  const personById = new Map(people.map((p) => [p.id, p]));
   const deptByCode = new Map(departments.map((d) => [d.code, d]));
   const reviewUrl = `${baseUrl}${DUAL_ROLE_QUEUE_PATH}`;
 
   // Group the offers by the department that has to decide on them.
   const byDepartment = new Map<string, PendingDualRoleOffer[]>();
-  for (const offer of offers) {
+  // Ordered ONCE, here, by the person each offer concerns. Every department's
+  // list then comes out in the app's surname order without the row shape having
+  // to carry name parts it does not otherwise need.
+  const orderedOffers = [...offers].sort((a, b) => {
+    const pa = personById.get(a.personId);
+    const pb = personById.get(b.personId);
+    return pa && pb ? comparePersonName(pa, pb) : 0;
+  });
+  for (const offer of orderedOffers) {
     const name = nameById.get(offer.personId);
     if (!name) continue;
     const rows = byDepartment.get(offer.departmentCode) ?? [];
@@ -107,8 +116,6 @@ async function sendDualRoleDigest(
   for (const [departmentCode, rows] of byDepartment) {
     const department = deptByCode.get(departmentCode);
     if (!department) continue;
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-
     // The grant is department-scoped, so the recipients are the holders whose
     // grant actually reaches THIS department -- not everyone who holds the
     // permission. That is what keeps VADM's offers out of INTP's inbox without

@@ -45,7 +45,7 @@ import type {
   ProcedureStatus,
 } from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
-import { personNameOrderVia } from "@/platform/person-name";
+import { comparePersonName, personNameOrderVia } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -1290,6 +1290,9 @@ export type BuilderMember = {
   person: {
     id: string;
     name: string;
+    /** The sort key. See comparePersonName: the roster orders by surname. */
+    legalFirstName: string;
+    lastName: string;
     verifiedLanguages: string[];
     /** INTP proficiency, for the below-bar mark on the Spanish badge. Null when unscored. */
     spanishScore: number | null;
@@ -1348,6 +1351,8 @@ export type BuilderAssignmentEntry = {
    */
   person: {
     name: string;
+    legalFirstName: string;
+    lastName: string;
     verifiedLanguages: string[];
     spanishScore: number | null;
     licensedRN: boolean;
@@ -1371,7 +1376,7 @@ type AssignmentRow = {
   cc: boolean;
   remote: boolean;
   specialty: boolean;
-  person: { name: string; licensedRN: boolean };
+  person: { name: string; legalFirstName: string; lastName: string; licensedRN: boolean };
 };
 
 /**
@@ -1396,6 +1401,8 @@ function buildAssignmentsByDate(
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       person: {
         name: a.person.name,
+        legalFirstName: a.person.legalFirstName,
+        lastName: a.person.lastName,
         verifiedLanguages: languageMap.get(a.personId) ?? [],
         spanishScore: spanishScores.get(a.personId) ?? null,
         licensedRN: a.person.licensedRN,
@@ -1423,7 +1430,15 @@ function draftAssignmentRow(d: IncomingShiftDraft) {
     cc: d.cc,
     remote: d.remote,
     specialty: d.specialty,
-    person: { id: rowId, name: d.name, licensedRN: d.licensedRN, contactEmail: null, netId: null },
+    person: {
+      id: rowId,
+      name: d.name,
+      legalFirstName: d.legalFirstName,
+      lastName: d.lastName,
+      licensedRN: d.licensedRN,
+      contactEmail: null,
+      netId: null,
+    },
   };
 }
 
@@ -1455,7 +1470,7 @@ export async function assignmentsFor(
         cc: true,
         remote: true,
         specialty: true,
-        person: { select: { name: true, licensedRN: true } },
+        person: { select: { name: true, legalFirstName: true, lastName: true, licensedRN: true } },
       },
     }),
     listIncomingShiftDrafts({ termId, departmentId }),
@@ -1737,7 +1752,7 @@ export async function builderView(
         // netId feeds the shift email list's fallback address (see shiftEmails
         // below); it is never displayed from here.
         person: {
-          select: { id: true, name: true, licensedRN: true, contactEmail: true, netId: true },
+          select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true, contactEmail: true, netId: true },
         },
       },
     }),
@@ -1855,6 +1870,8 @@ export async function builderView(
       person: {
         id: m.person.id,
         name: m.person.name,
+        legalFirstName: m.person.legalFirstName,
+        lastName: m.person.lastName,
         verifiedLanguages: languageMap.get(m.person.id) ?? [],
         spanishScore: spanishScores.get(m.person.id) ?? null,
         licensedRN: m.person.licensedRN,
@@ -1889,6 +1906,8 @@ export async function builderView(
     person: {
       id: i.personId ?? provisionalRowId(i.acceptanceId),
       name: i.name,
+      legalFirstName: i.legalFirstName,
+      lastName: i.lastName,
       verifiedLanguages: i.personId ? languageMap.get(i.personId) ?? [] : [],
       // A provisional row has no personId yet, so it has no score to look up.
       // The badge degrades to a plain verified one, which is correct: nothing
@@ -2219,7 +2238,14 @@ async function buildRhdBlock(
     personIds.length > 0
       ? prisma.person.findMany({
           where: { id: { in: personIds } },
-          select: { id: true, name: true, contactEmail: true, licensedRN: true },
+          select: {
+            id: true,
+            name: true,
+            legalFirstName: true,
+            lastName: true,
+            contactEmail: true,
+            licensedRN: true,
+          },
         })
       : Promise.resolve([]),
     verifiedLanguagesByPerson(personIds),
@@ -2233,9 +2259,20 @@ async function buildRhdBlock(
     ...new Map(
       selectedRhdAssignments
         .filter((a) => a.role === "DIRECTOR")
-        .map((a) => [a.personId, { id: a.personId, name: personMap.get(a.personId)?.name ?? "Unknown" }]),
+        .map((a) => {
+          const p = personMap.get(a.personId);
+          return [
+            a.personId,
+            {
+              id: a.personId,
+              name: p?.name ?? "Unknown",
+              legalFirstName: p?.legalFirstName ?? "",
+              lastName: p?.lastName ?? "",
+            },
+          ] as const;
+        }),
     ).values(),
-  ].sort((a, b) => a.name.localeCompare(b.name));
+  ].sort(comparePersonName);
 
   function toRhdPerson(personId: string): RhdPersonLite {
     const p = personMap.get(personId);

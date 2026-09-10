@@ -17,6 +17,7 @@
  */
 
 import type { BoardAttendanceStatus } from "@prisma/client";
+import { comparePersonName } from "@/platform/person-name";
 import type { StatusLabel } from "@/platform/compliance/labels";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -113,6 +114,8 @@ export async function createMeeting(
 export type BoardRosterRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   departmentNames: string[];
   /** null when nobody has recorded this person for this meeting yet. */
   status: BoardAttendanceStatus | null;
@@ -145,7 +148,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       where: { termId: meeting.termId, kind: "DIRECTOR", status: "ACTIVE" },
       select: {
         personId: true,
-        person: { select: { name: true } },
+        person: { select: { name: true, legalFirstName: true, lastName: true } },
         department: { select: { name: true } },
       },
     }),
@@ -170,6 +173,8 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
     rows.set(m.personId, {
       personId: m.personId,
       name: m.person.name,
+      legalFirstName: m.person.legalFirstName,
+      lastName: m.person.lastName,
       departmentNames: [m.department.name],
       status: rec?.status ?? null,
       note: rec?.note ?? null,
@@ -183,6 +188,8 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       select: {
         id: true,
         name: true,
+        legalFirstName: true,
+        lastName: true,
         // Any membership in this term, not just an ACTIVE DIRECTOR one: the
         // point is to label the row, and a REMOVED membership still says which
         // department the person was marked under.
@@ -197,6 +204,8 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       rows.set(person.id, {
         personId: person.id,
         name: person.name,
+        legalFirstName: person.legalFirstName,
+        lastName: person.lastName,
         departmentNames: [...new Set(person.memberships.map((m) => m.department.name))],
         status: rec?.status ?? null,
         note: rec?.note ?? null,
@@ -206,7 +215,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
 
   return [...rows.values()]
     .map((r) => ({ ...r, departmentNames: r.departmentNames.sort() }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(comparePersonName);
 }
 
 /**

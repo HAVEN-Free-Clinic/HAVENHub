@@ -43,7 +43,7 @@ import { completeTraining } from "./training";
 import { resolveAttendanceBlockers, isAcceptedApplicantEmail, ACCEPTED_APPLICANT_BLOCKERS, WALK_UP_BLOCKERS, NO_BLOCKERS, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
 import type { OutstandingItemKey } from "@/platform/compliance/outstanding-items";
 import { sendAttendanceNudge } from "@/platform/email/attendance-nudges";
-import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import { PERSON_NAME_ORDER, comparePersonName } from "@/platform/person-name";
 
 export class AttendanceEventError extends Error {
   constructor(message: string) {
@@ -447,6 +447,10 @@ export type CheckInCandidate = {
   /** Person id, or acceptance id for an `applicant`. Unique within the list. */
   id: string;
   name: string;
+  /** Surname order, the same as everywhere else. An `applicant` has no Person
+   *  row yet, so their own firstName/lastName columns fill these. */
+  legalFirstName: string;
+  lastName: string;
   email: string | null;
   /** From Person.netId, or Applicant.netId. Lowercased; the exact-match key. */
   netId: string | null;
@@ -555,7 +559,14 @@ export async function listCheckInCandidates(
               },
             },
           },
-      select: { id: true, name: true, netId: true, contactEmail: true },
+      select: {
+        id: true,
+        name: true,
+        legalFirstName: true,
+        lastName: true,
+        netId: true,
+        contactEmail: true,
+      },
       orderBy: PERSON_NAME_ORDER,
     }),
     // The whole accepted list, promoted or not. The promoted ones never become
@@ -620,6 +631,8 @@ export async function listCheckInCandidates(
       kind: "person" as const,
       id: p.id,
       name: p.name,
+      legalFirstName: p.legalFirstName,
+      lastName: p.lastName,
       email: p.contactEmail,
       netId: p.netId?.toLowerCase() ?? null,
       departmentCodes,
@@ -665,6 +678,8 @@ export async function listCheckInCandidates(
       kind: "applicant",
       id: a.id,
       name: `${applicant.firstName} ${applicant.lastName}`.trim(),
+      legalFirstName: applicant.firstName,
+      lastName: applicant.lastName,
       email: applicant.email,
       netId: applicant.netId?.toLowerCase() ?? null,
       departmentCodes: [a.departmentCode],
@@ -677,7 +692,7 @@ export async function listCheckInCandidates(
   }
   const applicantRows = [...byEmail.values()];
 
-  return [...personRows, ...applicantRows].sort((a, b) => a.name.localeCompare(b.name));
+  return [...personRows, ...applicantRows].sort(comparePersonName);
 }
 
 /**

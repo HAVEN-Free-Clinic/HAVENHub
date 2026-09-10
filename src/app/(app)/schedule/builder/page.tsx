@@ -262,6 +262,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
   for (const m of members) {
     boardPeople[m.person.id] = {
       name: m.person.name,
+      legalFirstName: m.person.legalFirstName,
+      lastName: m.person.lastName,
       verifiedLanguages: m.person.verifiedLanguages,
       licensedRN: m.person.licensedRN,
     };

@@ -6,6 +6,7 @@ import {
   splitPersonName,
   sortKeyOf,
   personNameSearchClauses,
+  comparePersonName,
 } from "./person-name";
 
 describe("firstNameOf", () => {
@@ -459,5 +460,42 @@ describe("personNameSearchClauses", () => {
         ],
       },
     });
+  });
+});
+
+describe("comparePersonName", () => {
+  const p = (legalFirstName: string, lastName: string, preferredFirstName: string | null = null) => ({
+    legalFirstName,
+    lastName,
+    preferredFirstName,
+  });
+
+  it("orders by surname, then by the legal given name", () => {
+    const rows = [p("Zoe", "Adams"), p("Al", "Baker"), p("Bea", "Adams")];
+    expect([...rows].sort(comparePersonName).map((r) => `${r.legalFirstName} ${r.lastName}`)).toEqual([
+      "Bea Adams",
+      "Zoe Adams",
+      "Al Baker",
+    ]);
+  });
+
+  // The same reason PERSON_NAME_ORDER keys on the legal name: a list that
+  // reorders itself because somebody set a nickname is a list that moved under
+  // a reader who did nothing.
+  it("ignores the preferred name, so setting one does not reshuffle a list", () => {
+    const before = [p("Al", "Baker"), p("Zoe", "Adams")];
+    const after = [p("Al", "Baker", "Zzz"), p("Zoe", "Adams")];
+    const key = (r: { legalFirstName: string; lastName: string }) => `${r.legalFirstName} ${r.lastName}`;
+    expect([...after].sort(comparePersonName).map(key)).toEqual([...before].sort(comparePersonName).map(key));
+  });
+
+  it("folds accents, so Peña sorts beside Pena", () => {
+    const rows = [p("Ana", "Perez"), p("Ana", "Peña"), p("Ana", "Perry")];
+    expect([...rows].sort(comparePersonName).map((r) => r.lastName)).toEqual(["Peña", "Perez", "Perry"]);
+  });
+
+  it("puts a mononym first, which is the documented wart", () => {
+    const rows = [p("Ada", "Lovelace"), p("Cher", "")];
+    expect([...rows].sort(comparePersonName).map((r) => r.legalFirstName)).toEqual(["Cher", "Ada"]);
   });
 });

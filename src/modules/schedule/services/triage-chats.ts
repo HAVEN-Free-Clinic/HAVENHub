@@ -1,4 +1,5 @@
 import type { ShiftRole } from "@prisma/client";
+import { comparePersonName } from "@/platform/person-name";
 
 /** A department as the resolver needs it: identity plus the label it prints. */
 export type TriageDepartment = { id: string; code: string; name: string };
@@ -12,6 +13,9 @@ export type TriageRosterAssignment = {
   person: {
     id: string;
     name: string;
+    /** The sort key: this list orders by surname, like every other. */
+    legalFirstName: string;
+    lastName: string;
     netId: string | null;
     contactEmail: string | null;
     entraObjectId: string | null;
@@ -97,7 +101,7 @@ export function resolveTriageRoster(input: {
   // relying on query order) is what makes the chosen department stable.
   const ordered = [...assignments].filter(qualifies).sort((a, b) => {
     const byDept = a.department.name.localeCompare(b.department.name);
-    return byDept !== 0 ? byDept : a.person.name.localeCompare(b.person.name);
+    return byDept !== 0 ? byDept : comparePersonName(a.person, b.person);
   });
 
   const byDepartment = new Map<string, { personId: string; name: string }[]>();

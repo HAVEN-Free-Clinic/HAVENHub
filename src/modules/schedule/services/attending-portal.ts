@@ -510,6 +510,9 @@ export async function eligibleAttendingSwapPartners(
       slotId: r.slot.id,
       slotLabel: r.slot.label,
     }))
+    // Not comparePersonName: an Attending has no legal name parts, only
+    // fullName and the scheduleName shown here ("Dr. Ponce"), so the display
+    // string is the only key there is.
     .sort(
       (a, b) =>
         a.clinicDate.getTime() - b.clinicDate.getTime() || a.name.localeCompare(b.name),

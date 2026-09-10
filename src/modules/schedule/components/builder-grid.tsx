@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { comparePersonName } from "@/platform/person-name";
 import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
 import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
@@ -83,6 +84,8 @@ type GridRow = {
    */
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   /** Membership kind, or null for a former-member assignee. */
   kind: "DIRECTOR" | "VOLUNTEER" | null;
   status: "member" | "incoming" | "former";
@@ -538,6 +541,8 @@ export function BuilderGrid({
     .map((m) => ({
       personId: m.person.id,
       name: m.person.name,
+      legalFirstName: m.person.legalFirstName,
+      lastName: m.person.lastName,
       kind: m.kind,
       status: m.provisional ? ("incoming" as const) : ("member" as const),
       // Members and incoming people alike, first-time applicants included: the
@@ -556,6 +561,8 @@ export function BuilderGrid({
       formerRowByPerson.set(pid, {
         personId: pid,
         name: entry.person.name,
+        legalFirstName: entry.person.legalFirstName,
+        lastName: entry.person.lastName,
         kind: null,
         status: "former",
         assignable: false,
@@ -563,9 +570,7 @@ export function BuilderGrid({
       });
     }
   }
-  const formerRows = [...formerRowByPerson.values()].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  const formerRows = [...formerRowByPerson.values()].sort(comparePersonName);
 
   const rows: GridRow[] = [...memberRows, ...formerRows];
 

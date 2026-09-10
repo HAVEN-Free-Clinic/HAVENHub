@@ -17,7 +17,7 @@ import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, comparePersonName } from "@/platform/person-name";
 import { departmentDirectorPersonIds, manageableDepartmentIds } from "@/platform/departments";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import {
@@ -1141,7 +1141,7 @@ export async function eligibleSwapPartners(
       select: {
         personId: true,
         clinicDate: true,
-        person: { select: { name: true } },
+        person: { select: { name: true, legalFirstName: true, lastName: true } },
       },
     }),
     prisma.shiftAssignment.findMany({
@@ -1191,10 +1191,10 @@ export async function eligibleSwapPartners(
     )
     .map((p) => ({
       personId: p.personId,
-      name: p.person.name,
+      ...p.person,
       dateKey: isoDateKey(p.clinicDate),
     }))
-    .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.name.localeCompare(b.name));
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || comparePersonName(a, b));
 }
 
 // ---------------------------------------------------------------------------

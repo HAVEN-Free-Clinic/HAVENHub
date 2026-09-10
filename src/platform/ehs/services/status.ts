@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { comparePersonName } from "@/platform/person-name";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
   isStudentAffiliation,
@@ -16,6 +17,8 @@ export type EhsDashboardCell = {
 export type EhsDashboardRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   departmentCodes: string[];
   addedToEhs: boolean;
   cells: EhsDashboardCell[];
@@ -64,6 +67,8 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
       person: {
         select: {
           name: true,
+          legalFirstName: true,
+          lastName: true,
           addedToEhs: true,
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true, completedAt: true } },
@@ -76,6 +81,8 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
     departmentId: string;
     person: {
       name: string;
+      legalFirstName: string;
+      lastName: string;
       addedToEhs: boolean;
       yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string; completedAt: Date | null }[];
@@ -88,6 +95,8 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
     string,
     {
       name: string;
+      legalFirstName: string;
+      lastName: string;
       addedToEhs: boolean;
       yaleAffiliation: string | null;
       departmentIds: Set<string>;
@@ -101,6 +110,8 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
     if (!agg) {
       agg = {
         name: m.person.name,
+        legalFirstName: m.person.legalFirstName,
+        lastName: m.person.lastName,
         addedToEhs: m.person.addedToEhs,
         yaleAffiliation: m.person.yaleAffiliation,
         departmentIds: new Set(),
@@ -137,12 +148,14 @@ export async function getEhsDashboard(): Promise<EhsDashboard> {
       return {
         personId,
         name: agg.name,
+        legalFirstName: agg.legalFirstName,
+        lastName: agg.lastName,
         departmentCodes: [...agg.departmentCodes].sort(),
         addedToEhs: agg.addedToEhs,
         cells,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(comparePersonName);
 
   return { trainings: catalog.map((t) => ({ id: t.id, name: t.name })), rows };
 }

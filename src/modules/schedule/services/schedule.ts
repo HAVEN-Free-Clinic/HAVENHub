@@ -27,6 +27,7 @@ import { publishedDepartmentIds } from "./publication";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { attendanceForDate, type AttendanceRow } from "./attendance";
+import { comparePersonName } from "@/platform/person-name";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -137,7 +138,10 @@ export type MyShift = {
   attendings: ShiftAttending[];
 };
 
-export type PersonLite = { id: string; name: string };
+/** `legalFirstName`/`lastName` are the sort key: every list of people in this
+ *  app orders by surname, and doing that needs the parts, not the rendered
+ *  string. See comparePersonName. */
+export type PersonLite = { id: string; name: string; legalFirstName: string; lastName: string };
 
 /** Per-assignment shift flags. Set on EVERY role, not just volunteers: a
  *  director can hold the triage post or work the day remotely just as a
@@ -478,7 +482,7 @@ export async function fullSchedule(
         cc: true,
         remote: true,
         specialty: true,
-        person: { select: { id: true, name: true, licensedRN: true } },
+        person: { select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true } },
         department: { select: { id: true, name: true, code: true, minInterpreterScore: true } },
       },
     }),
@@ -548,6 +552,8 @@ export async function fullSchedule(
     const person: TaggedPerson = {
       id: a.person.id,
       name: a.person.name,
+      legalFirstName: a.person.legalFirstName,
+      lastName: a.person.lastName,
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
       spanishScore: spanishScores.get(a.personId) ?? null,
@@ -562,11 +568,11 @@ export async function fullSchedule(
     }
   }
 
-  // Sort people by name within each group.
+  // Surname order within each group, like every other list of people.
   for (const bucket of byDept.values()) {
-    bucket.directors.sort((a, b) => a.name.localeCompare(b.name));
-    bucket.volunteers.sort((a, b) => a.name.localeCompare(b.name));
-    bucket.shadows.sort((a, b) => a.name.localeCompare(b.name));
+    bucket.directors.sort(comparePersonName);
+    bucket.volunteers.sort(comparePersonName);
+    bucket.shadows.sort(comparePersonName);
   }
 
   // Compute per-department conflict maps for the selected date.

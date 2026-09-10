@@ -1,3 +1,4 @@
+import { comparePersonName } from "@/platform/person-name";
 /**
  * Ordering for the builder's member lists.
  *
@@ -12,7 +13,9 @@
 /** Just the fields {@link compareBuilderMembers} needs; any BuilderMember satisfies it. */
 export type BuilderMemberOrder = {
   kind: "DIRECTOR" | "VOLUNTEER";
-  person: { name: string };
+  // The name PARTS, not the rendered string: this orders by surname like the
+  // rest of the app, and a preferred name must not reshuffle the roster.
+  person: { legalFirstName: string; lastName: string };
   /** Present and non-null for an incoming (accepted, pre-roster) row. */
   provisional?: unknown | null;
 };
@@ -33,5 +36,5 @@ export function compareBuilderMembers(a: BuilderMemberOrder, b: BuilderMemberOrd
   const bIncoming = b.provisional != null;
   if (aIncoming !== bIncoming) return aIncoming ? 1 : -1;
   if (a.kind !== b.kind) return a.kind === "DIRECTOR" ? -1 : 1;
-  return a.person.name.localeCompare(b.person.name);
+  return comparePersonName(a.person, b.person);
 }

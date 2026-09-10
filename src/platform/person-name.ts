@@ -424,6 +424,28 @@ export const PERSON_NAME_ORDER: Prisma.PersonOrderByWithRelationInput[] = [
 ];
 
 /**
+ * The in-memory half of PERSON_NAME_ORDER, for a list the database did not
+ * order: rows built from an aggregation, a Map, or several queries stitched
+ * together.
+ *
+ *   rows.sort(comparePersonName)
+ *
+ * Keyed on the LEGAL name for the same reason the Prisma constant is. Sorting
+ * on the display name means the list jumps the moment somebody sets a preferred
+ * name, reordering itself under a reader who did nothing.
+ *
+ * The row has to carry `legalFirstName` and `lastName`, which usually means
+ * widening a `select`. That is the cost of ordering people the same way
+ * everywhere; sorting the rendered string instead is what leaves half the app
+ * filed under given names and the other half under surnames.
+ */
+export function comparePersonName(a: PersonNameParts, b: PersonNameParts): number {
+  const [aLast, aFirst] = sortKeyOf(a);
+  const [bLast, bFirst] = sortKeyOf(b);
+  return aLast.localeCompare(bLast) || aFirst.localeCompare(bFirst);
+}
+
+/**
  * The same order, for a query that reaches Person through a relation.
  *
  * `PERSON_NAME_ORDER` is typed as a Person orderBy and cannot nest, so a query

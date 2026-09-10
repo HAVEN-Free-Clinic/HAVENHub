@@ -2,7 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can, hasPlatformScope, permissionDepartmentIds } from "@/platform/rbac/engine";
-import { splitPersonName } from "@/platform/person-name";
+import { splitPersonName, comparePersonName } from "@/platform/person-name";
 import type { McpTool } from "./index";
 
 /**
@@ -202,17 +202,20 @@ export const departmentRosterTool: McpTool = {
 
     const memberships = await prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: department.id, status: "ACTIVE" },
-      select: { kind: true, person: { select: { name: true } } },
+      select: {
+        kind: true,
+        person: { select: { name: true, legalFirstName: true, lastName: true } },
+      },
     });
 
-    const directors = memberships
-      .filter((m) => m.kind === "DIRECTOR")
-      .map((m) => m.person.name)
-      .sort((a, b) => a.localeCompare(b));
-    const volunteers = memberships
-      .filter((m) => m.kind === "VOLUNTEER")
-      .map((m) => m.person.name)
-      .sort((a, b) => a.localeCompare(b));
+    const namesOfKind = (kind: "DIRECTOR" | "VOLUNTEER") =>
+      memberships
+        .filter((m) => m.kind === kind)
+        .map((m) => m.person)
+        .sort(comparePersonName)
+        .map((p) => p.name);
+    const directors = namesOfKind("DIRECTOR");
+    const volunteers = namesOfKind("VOLUNTEER");
 
     // A platform-scoped caller can legitimately land here for a department
     // with nobody in it this term -- hasPlatformScope clears them for every

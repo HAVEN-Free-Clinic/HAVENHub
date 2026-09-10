@@ -29,6 +29,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, type TransactionClient } from "@/platform/db";
 import { isoDateKey } from "@/platform/dates";
+import { comparePersonName } from "@/platform/person-name";
 // Re-exported so the four server-side callers that have always imported it from
 // here keep working. It is DEFINED in its own module because a client component
 // needs it too, and must not reach platform/db.ts through this one.
@@ -101,6 +102,13 @@ export type IncomingMember = {
    */
   personId: string | null;
   name: string;
+  /**
+   * The sort key, so an incoming row orders beside a confirmed one by surname.
+   * From the Person when there is one, else from the Applicant's own columns,
+   * which is the only name a first-time applicant has.
+   */
+  legalFirstName: string;
+  lastName: string;
   licensedRN: boolean;
   /** Membership kind they are inbound to, from the cycle's track. */
   kind: "DIRECTOR" | "VOLUNTEER";
@@ -191,7 +199,7 @@ export async function listIncomingMembers(opts: {
               firstName: true,
               lastName: true,
               applicantPersonId: true,
-              applicantPerson: { select: { id: true, name: true, licensedRN: true } },
+              applicantPerson: { select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true } },
             },
           },
         },
@@ -209,13 +217,15 @@ export async function listIncomingMembers(opts: {
         applicationId: application.id,
         personId: person?.id ?? null,
         name: incomingName(applicant),
+        legalFirstName: person?.legalFirstName ?? applicant.firstName,
+        lastName: person?.lastName ?? applicant.lastName,
         licensedRN: person?.licensedRN ?? false,
         kind: kindFor(application.cycle.track),
         stage: stageFor(row.contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(comparePersonName);
 }
 
 /**
@@ -291,6 +301,8 @@ export type IncomingShiftDraft = {
   specialty: boolean;
   /** Same name the applicant's member row shows, via {@link incomingName}. */
   name: string;
+  legalFirstName: string;
+  lastName: string;
   licensedRN: boolean;
 };
 
@@ -329,7 +341,9 @@ export async function listIncomingShiftDrafts(opts: {
                 select: {
                   firstName: true,
                   lastName: true,
-                  applicantPerson: { select: { name: true, licensedRN: true } },
+                  applicantPerson: {
+                    select: { name: true, legalFirstName: true, lastName: true, licensedRN: true },
+                  },
                 },
               },
             },
@@ -343,6 +357,8 @@ export async function listIncomingShiftDrafts(opts: {
     return {
       ...draft,
       name: incomingName(applicant),
+      legalFirstName: applicant.applicantPerson?.legalFirstName ?? applicant.firstName,
+      lastName: applicant.applicantPerson?.lastName ?? applicant.lastName,
       licensedRN: applicant.applicantPerson?.licensedRN ?? false,
     };
   });

@@ -34,6 +34,10 @@ import { Suspense } from "react";
 import { requireAnyPermission, requirePermission } from "@/platform/auth/session";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
+import { buildTermOptions } from "@/platform/terms/term-options";
+import { TermSwitcher } from "@/platform/ui/term-switcher";
+import { Alert } from "@/platform/ui/alert";
 import { can } from "@/platform/rbac/engine";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD, TableEmpty, SortableTH } from "@/platform/ui/table";
@@ -78,6 +82,7 @@ type PageProps = {
     page?: string;
     sort?: string;
     dir?: string;
+    term?: string;
   }>;
 };
 
@@ -119,12 +124,19 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
       : undefined;
   const sort = parseSort(sp.sort, sp.dir, MASTER_SORT_KEYS);
 
+  // Whose roster: the live term, or the next one before it goes live, which is
+  // when the certificates promotion collected need verifying. Only the next
+  // term is accepted, so a stale or hand-typed ?term= reads as the live roster.
+  const [liveTerm, nextTerm] = await Promise.all([getActiveTerm(), getNextTerm()]);
+  const termId = nextTerm && sp.term === nextTerm.id ? nextTerm.id : undefined;
+
   // Keying the boundary on the filters is what makes applying a filter feel
   // like it did something. Without it React holds the resolved roster on screen
   // while the new one loads, which is how a "Filter" click reads as dead for the
   // ten seconds the query takes. A sort click reorders the same slow query, so
   // it belongs in the key for the same reason.
   const filterKey = [
+    termId ?? "",
     q ?? "",
     departmentId ?? "",
     statusFilter ?? "",
@@ -138,9 +150,27 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
         title="Master view"
         description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
       />
+      {liveTerm && nextTerm && (
+        <div className="mt-4 space-y-3">
+          <TermSwitcher
+            options={buildTermOptions([liveTerm, nextTerm])}
+            selectedId={termId ?? liveTerm.id}
+            liveTermId={liveTerm.id}
+            hrefForTerm={(id) => (id ? `/volunteers/master?term=${id}` : "/volunteers/master")}
+          />
+          {termId && (
+            <Alert tone="info">
+              Showing {nextTerm.name}, which is not active yet: everyone promoted onto its roster.
+              Verify their certificates here before it goes live. From that moment the onboarding
+              gate holds anyone without a verified one.
+            </Alert>
+          )}
+        </div>
+      )}
       <Suspense key={filterKey} fallback={<MasterComplianceSkeleton />}>
         <MasterComplianceBody
           viewerPersonId={viewer.personId}
+          termId={termId}
           q={q}
           departmentId={departmentId}
           statusFilter={statusFilter}
@@ -154,6 +184,8 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
 
 type BodyProps = {
   viewerPersonId: string;
+  /** The next term's id when that roster was asked for; undefined means live. */
+  termId: string | undefined;
   q: string | undefined;
   departmentId: string | undefined;
   statusFilter: ComplianceStatus | undefined;
@@ -161,14 +193,15 @@ type BodyProps = {
   sort: Sort<MasterSortKey> | null;
 };
 
-/** Active departments for the filter select. Its own function so it can run
- *  alongside the roster query instead of after it; getActiveTerm is request-
- *  cached, so resolving it here costs nothing masterCompliance has not paid. */
-async function activeDepartments() {
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return [];
+/** Departments on the shown roster, for the filter select. Its own function so
+ *  it can run alongside the roster query instead of after it; getActiveTerm is
+ *  request-cached, so resolving it here costs nothing masterCompliance has not
+ *  paid. */
+async function rosterDepartments(termId: string | undefined) {
+  const id = termId ?? (await getActiveTerm())?.id;
+  if (!id) return [];
   return prisma.department.findMany({
-    where: { memberships: { some: { termId: activeTerm.id, status: "ACTIVE" } } },
+    where: { memberships: { some: { termId: id, status: "ACTIVE" } } },
     orderBy: { code: "asc" },
   });
 }
@@ -188,11 +221,11 @@ async function activeDepartments() {
  * a query instead of a hunch. Gated on the threshold because a healthy render is
  * not worth a log line.
  */
-async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, page, sort }: BodyProps) {
+async function loadBodyData({ viewerPersonId, termId, q, departmentId, statusFilter, page, sort }: BodyProps) {
   const startedAt = Date.now();
   const [result, departments, isAdmin, isManager] = await Promise.all([
-    masterCompliance({ q, departmentId, status: statusFilter, page, pageSize: 25, sort: sort ?? undefined }),
-    activeDepartments(),
+    masterCompliance({ termId, q, departmentId, status: statusFilter, page, pageSize: 25, sort: sort ?? undefined }),
+    rosterDepartments(termId),
     // Admin access links person names to admin pages.
     can(viewerPersonId, "admin.access"),
     // Attesting is manage-only. A view_compliance holder was admitted by the
@@ -217,7 +250,7 @@ async function loadBodyData({ viewerPersonId, q, departmentId, statusFilter, pag
 }
 
 async function MasterComplianceBody(props: BodyProps) {
-  const { q, departmentId, statusFilter, sort } = props;
+  const { termId, q, departmentId, statusFilter, sort } = props;
   // One boolean for the Clear link AND the empty state, so the roster cannot
   // offer to clear a filter while claiming there is nothing to find.
   const filtered = Boolean(q || departmentId || statusFilter);
@@ -261,6 +294,7 @@ async function MasterComplianceBody(props: BodyProps) {
   // how a header link asks for "sorted, from the top".
   function buildHref(parts: { page: number | null; sort: Sort<MasterSortKey> | null }): string {
     const params = new URLSearchParams();
+    if (termId) params.set("term", termId);
     if (q) params.set("q", q);
     if (departmentId) params.set("departmentId", departmentId);
     if (statusFilter) params.set("status", statusFilter);
@@ -300,7 +334,9 @@ async function MasterComplianceBody(props: BodyProps) {
       {/* Filter bar - GET form so filters are in the URL */}
       <FilterBar
         action="/volunteers/master"
-        clearHref={filtered ? "/volunteers/master" : undefined}
+        clearHref={
+          filtered ? (termId ? `/volunteers/master?term=${termId}` : "/volunteers/master") : undefined
+        }
         resultCount={{ total: result.total, noun: "member" }}
         className="mt-6"
       >
@@ -309,6 +345,8 @@ async function MasterComplianceBody(props: BodyProps) {
             the applicants roster uses. */}
         {sort && <input type="hidden" name="sort" value={sort.key} />}
         {sort && <input type="hidden" name="dir" value={sort.dir} />}
+        {/* Filtering the next term's roster must not snap back to the live one. */}
+        {termId && <input type="hidden" name="term" value={termId} />}
         <FilterField label="Search" width="grow">
           <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email…" />
         </FilterField>

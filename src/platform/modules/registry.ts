@@ -345,10 +345,10 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Overview gates on admin.access (= module access); the rest each
-      // require a distinct sub-permission, mirrored here from the page gates.
-      // Email and Notifications enforce admin.manage_sync (not the email perms).
-      { label: "Overview", href: "/admin" },
+      // Each tab requires a distinct sub-permission, mirrored here from the page
+      // gates. Email and Notifications enforce admin.manage_sync (not the email
+      // perms). There is no "Overview": /admin opens the viewer's first tab (see
+      // admin/page.tsx). It was six stat cards linking to the tabs above them.
       { label: "People", href: "/admin/people", permission: "admin.manage_people" },
       { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
       { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
@@ -361,12 +361,20 @@ export const MODULES: ModuleManifest[] = [
       // them: the only way in was a text link on /admin/email, which is gated
       // on a DIFFERENT permission (admin.manage_sync). A holder of the template
       // permission alone was locked out of the pages it exists to grant.
+      //
+      // Folded under Email, which links to both. ModuleNav draws a folded page
+      // as its own tab whenever its parent is hidden from the viewer, so that
+      // templates-only holder still gets a tab: the lockout cannot come back.
       {
         label: "Email templates",
         href: "/admin/email/templates",
         permission: "admin.manage_email_templates",
+        underTab: "/admin/email",
       },
-      { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
+      // The Teams/in-app delivery log, the Email log's twin. Folded under Email,
+      // which also ends the row's "Notifications" reading like the member's own
+      // notification inbox.
+      { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync", underTab: "/admin/email" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
     ],
   },

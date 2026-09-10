@@ -1,10 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { devLogin } from "./auth";
 
-test("platform admin reaches the admin overview", async ({ page }) => {
+test("platform admin lands on the first admin tab", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  // /admin has no page of its own (the stat-card Overview is gone): it opens the
+  // first tab the viewer can use, which is People for a platform admin.
+  await page.waitForURL((url) => url.pathname === "/admin/people");
+  await expect(page.getByRole("heading", { name: "People", exact: true })).toBeVisible();
   // exact:true avoids strict-mode collision with the global "Modules" nav aria-label
   await expect(page.getByRole("navigation", { name: "Module", exact: true })).toBeVisible();
 });

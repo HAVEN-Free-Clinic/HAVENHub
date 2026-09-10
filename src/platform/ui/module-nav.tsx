@@ -41,10 +41,18 @@ type NavItem = { label: string; href: string; underTab?: string };
  * wins, the tab it names is marked instead. So /schedule/specialties lights
  * Attendings, though the two hrefs share no path, and a page can leave the row
  * without leaving the dropdown or Cmd+K, which read the same items.
+ *
+ * Folding holds only while the parent is in THIS viewer's items. When their
+ * permissions filtered the parent out (a role granted email templates but not
+ * the Email log), the folded page is drawn as its own tab and lights itself:
+ * folding must never leave a viewer with a page they can open and no tab for it.
  */
 export function ModuleNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
+
+  const hrefs = new Set(items.map((item) => item.href));
+  const isFolded = (item: NavItem) => Boolean(item.underTab && hrefs.has(item.underTab));
 
   const match = items
     .filter((item) => {
@@ -53,8 +61,8 @@ export function ModuleNav({ items }: { items: NavItem[] }) {
       return segments.length > 1 && pathname.startsWith(`${item.href}/`);
     })
     .reduce<NavItem | null>((best, item) => (best && best.href.length >= item.href.length ? best : item), null);
-  const activeHref = match ? (match.underTab ?? match.href) : null;
-  const tabs = items.filter((item) => !item.underTab);
+  const activeHref = match ? (isFolded(match) ? match.underTab! : match.href) : null;
+  const tabs = items.filter((item) => !isFolded(item));
 
   function isActive(item: TabItem): boolean {
     return item.href === activeHref;

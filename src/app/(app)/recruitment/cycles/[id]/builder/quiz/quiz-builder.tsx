@@ -73,9 +73,10 @@ export function QuizBuilder({
     <div className="space-y-4">
       {status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}. Applicants may have already
-          submitted. Changes take effect for new submissions
-          immediately; existing answers are kept as-is and may no longer match the updated form.
+          {/* Quiz-specific: a QuizAttempt stores its own score, total and pass
+              result, so an edit never regrades an attempt already taken. */}
+          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}. Quiz changes apply to attempts
+          from now on; attempts already taken keep the score they were given.
         </Alert>
       )}
       {error && <Alert tone="error">{error}</Alert>}

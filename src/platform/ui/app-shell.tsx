@@ -85,7 +85,7 @@ export async function AppShell({
         <div className="glass-bar mx-auto flex max-w-6xl items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6">
           <div className="flex shrink-0 items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
-              <HavenLogo className="h-8 text-brand-fg" />
+              <HavenLogo className="h-8 text-logo" />
             </Link>
             {/* The active-term label used to sit here. It moved to the account menu: the
                 toolbar had 9px of spare width and the search trigger needs roughly 48px.

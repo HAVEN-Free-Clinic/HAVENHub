@@ -152,9 +152,11 @@ export function ContractEditor({
 
       {mode === "cycle" && status !== undefined && status !== "DRAFT" && (
         <Alert tone="warning">
-          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}. Applicants may have already
-          submitted. Changes take effect for new submissions
-          immediately; existing answers are kept as-is and may no longer match the updated form.
+          {/* Contract-specific. This used to repeat the form builder's warning
+              about "submissions" and "existing answers", which is not how a
+              contract works and contradicted the paragraph above it. */}
+          This cycle is {CYCLE_STATUS_LABELS[status].toLowerCase()}, so some applicants may already
+          have an onboarding link. They keep the contract they were sent.
         </Alert>
       )}
 

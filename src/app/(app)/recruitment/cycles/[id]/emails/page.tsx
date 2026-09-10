@@ -7,6 +7,8 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { TextLink } from "@/platform/ui/text-link";
+import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
+import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 
 export default async function CycleEmailsPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermission("recruitment.access");
@@ -17,6 +19,13 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
   const emails = await listCycleEmails(cycle.id);
   return (
     <PageBody>
+      <SetBreadcrumb
+        trail={cycleTrail({
+          cycleId: cycle.id,
+          cycleTitle: cycle.title,
+          section: { label: "Emails", slug: "emails" },
+        })}
+      />
       <PageHeader
         title="Cycle emails"
         description={`Customize the emails sent for ${cycle.title}. Unset emails use the global default.`}

@@ -61,7 +61,9 @@ export default async function AdminOverviewPage() {
     { label: "Active Departments", value: activeDeptCount, href: "/admin/departments", permission: "admin.manage_departments" },
     { label: "Roles", value: roleCount, href: "/admin/roles", permission: "admin.manage_roles" },
     { label: "Audit Events (7 days)", value: recentAuditCount, href: "/admin/audit", permission: "admin.view_audit" },
-    { label: `Email (${emailCounts.queued} queued, ${emailCounts.failed} failed)`, value: emailCounts.failed, href: "/admin/email", permission: "admin.manage_sync" },
+    // The value is the FAILED count, so the label has to say so: "Email (0 queued,
+    // 0 failed)" over a big 0 read as "no email at all".
+    { label: emailCounts.queued > 0 ? `Failed emails (${emailCounts.queued} queued)` : "Failed emails", value: emailCounts.failed, href: "/admin/email", permission: "admin.manage_sync" },
   ].filter((c) => hasPermission(perms, c.permission));
 
   return (
@@ -74,8 +76,10 @@ export default async function AdminOverviewPage() {
       {staleCrons.length > 0 && (
         <div className="mt-6">
           <Alert tone="error">
-            Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. These run
-            on an external scheduler; confirm it is provisioned and still calling the cron endpoints (see docs/DEPLOY.md).
+            {/* Admin-facing copy, so no repo paths. The runbook for this alert is
+                docs/DEPLOY.md. */}
+            Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. They are
+            started by an outside scheduler, so check that it is still set up and running.
           </Alert>
         </div>
       )}

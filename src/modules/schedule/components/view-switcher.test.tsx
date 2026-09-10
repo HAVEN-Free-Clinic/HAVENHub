@@ -12,8 +12,8 @@
  * guard, not a behaviour test: two files in this directory carried the copied
  * nav class string.
  */
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ViewSwitcher } from "./view-switcher";
@@ -92,16 +92,40 @@ describe("ViewSwitcher", () => {
    * Source-text guard, not a behaviour test. Before this component existed the
    * literal below appeared in builder-toolbar.tsx and attending-toolbar.tsx as
    * two independently maintained copies; this is what stops a third.
+   *
+   * Scoped to the whole repo, not to this directory. A directory walk reported
+   * clean while a third live copy sat one folder away in the schedule ROUTES,
+   * which is the one thing a guard must never do.
    */
-  it("is the only file in this directory that spells the View row's own classes", () => {
-    const dir = join(process.cwd(), "src/modules/schedule/components");
-    const offenders = readdirSync(dir)
-      .filter((f) => f.endsWith(".tsx") && f !== "view-switcher.tsx" && !f.endsWith(".test.tsx"))
-      .filter((f) =>
-        readFileSync(join(dir, f), "utf8").includes(
-          "inline-flex overflow-hidden rounded-lg border border-border bg-surface",
-        ),
-      );
+  const CONTAINER = "inline-flex overflow-hidden rounded-lg border border-border bg-surface";
+
+  /** Files that spell the container but are NOT a copy of this switcher. */
+  const EXEMPT: Record<string, string> = {
+    // The builder's "Clicks assign" mode switcher. Same container, genuinely
+    // different control: its second option is warning-toned with its own border
+    // and background (assigning a Shadow is a different act from assigning a
+    // volunteer, and the row says so), where ViewSwitcher's options are a
+    // uniform brand/muted pair. Folding it in would need a per-option tone prop
+    // that exactly one caller would ever pass.
+    "src/app/(app)/schedule/builder/page.tsx": "mode switcher, per-option tone",
+  };
+
+  it("is the only file in the repo that spells the View row's own classes", () => {
+    const offenders = execSync("git ls-files 'src/**/*.tsx'", { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean)
+      .filter((f) => !f.endsWith(".test.tsx"))
+      .filter((f) => f !== "src/modules/schedule/components/view-switcher.tsx")
+      .filter((f) => !EXEMPT[f])
+      .filter((f) => existsSync(f) && readFileSync(f, "utf8").includes(CONTAINER));
     expect(offenders).toEqual([]);
+  });
+
+  it("still sees the exempted file, so the exemption cannot go stale", () => {
+    // If the builder ever stops spelling the container, the entry above is dead
+    // and should go rather than sit there implying a copy still exists.
+    for (const f of Object.keys(EXEMPT)) {
+      expect(readFileSync(f, "utf8"), f).toContain(CONTAINER);
+    }
   });
 });

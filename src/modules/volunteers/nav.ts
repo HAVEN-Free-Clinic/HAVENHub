@@ -27,6 +27,10 @@ export { DUAL_ROLE_QUEUE_PATH };
  * One `prisma.department.count` per authenticated page render, and only for
  * holders of volunteers.manage_dual_roles. `directsADualRoleDepartment`
  * short-circuits to false with zero queries for everyone else.
+ *
+ * Per RENDER, not per call: a volunteers page asks this twice, once for the
+ * global nav dropdown and once for the tab row, and the gate is request-cached
+ * so the second ask is free.
  */
 export async function resolvedVolunteersNavHrefs(personId: string): Promise<Set<string>> {
   return (await directsADualRoleDepartment(personId)) ? new Set([DUAL_ROLE_QUEUE_PATH]) : new Set();

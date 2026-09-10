@@ -100,11 +100,25 @@ export function reconcilePersonNameWrite(
       lastName,
       preferredFirstName: scalar(data.preferredFirstName, "preferredFirstName"),
     };
+    const flagged = data.nameNeedsReview === true;
+    // The ONE case where `name` may disagree with the parts beside it.
+    //
+    // A flagged row is one nobody has split correctly yet: its parts are a
+    // PROPOSAL for a human to confirm, and the display name it already carries
+    // is the authority. Deriving over that is how the backfill would have
+    // renamed 44 real people from a correct compound surname to a wrong guess.
+    // So when the caller marks the row for review AND hands over a name, the
+    // name is kept and the parts are recorded underneath it.
+    //
+    // Clearing the flag restores the derivation, which is exactly what an admin
+    // saving the review form does.
+    const supplied = scalar(data.name, "name");
+    const keepSupplied = flagged && supplied !== null && supplied.trim() !== "";
     return {
       ...data,
       ...parts,
-      name: displayNameOf(parts),
-      nameNeedsReview: data.nameNeedsReview === true,
+      name: keepSupplied ? supplied : displayNameOf(parts),
+      nameNeedsReview: flagged,
     };
   }
 

@@ -14,7 +14,7 @@ export default async function ClinicLayout({ children }: { children: ReactNode }
   return (
     <>
       <ModuleNav items={mod.nav} />
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </>
   );
 }

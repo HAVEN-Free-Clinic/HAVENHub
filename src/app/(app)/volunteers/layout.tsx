@@ -38,7 +38,7 @@ export default async function VolunteersLayout({ children }: { children: ReactNo
   return (
     <>
       <ModuleNav items={items} />
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </>
   );
 }

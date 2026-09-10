@@ -114,14 +114,24 @@ describe("compliance-reminder via renderEmail", () => {
     expect(html).not.toContain("upload or renew");
   });
 
-  it("html contains the escaped person name", async () => {
+  // The greeting reads the FIRST name now, so that is what has to reach the
+  // HTML, and what has to be escaped on the way. A name is user-supplied: the
+  // apply wizard takes it from anonymous applicants.
+  it("greets by the name the person goes by, escaped", async () => {
     const params: ComplianceReminderParams = {
       personName: "Alice Smith",
       status: "EXPIRING_SOON",
       expiresAt: new Date("2026-07-04T00:00:00Z"),
     };
     const { html } = await renderEmail("compliance-reminder", complianceReminderContext(params));
-    expect(html).toContain("Alice Smith");
+    expect(html).toContain("Hello Alice,");
+
+    const hostile = await renderEmail(
+      "compliance-reminder",
+      complianceReminderContext({ ...params, personName: "<script>alert(1)</script> Smith" }),
+    );
+    expect(hostile.html).not.toContain("<script>alert(1)</script>");
+    expect(hostile.html).toContain("&lt;script&gt;");
   });
 
   it("actionable status links 'HAVEN Hub' to My Info and renders a brand-colored CTA button", async () => {

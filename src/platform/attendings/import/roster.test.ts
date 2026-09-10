@@ -28,6 +28,23 @@ describe("deriveScheduleName", () => {
     expect(deriveScheduleName("Qiu, Xiaoliang (Shawn)")).toBe("Shawn Qiu");
   });
 
+  // The contact sheet puts other things in parentheses too, and reading one as
+  // a given name puts "she/her Bia" on the clinic schedule.
+  it("ignores a parenthetical that is a pronoun set or a credential", () => {
+    expect(deriveScheduleName("Bia, Margaret (she/her)")).toBe("Margaret Bia");
+    expect(deriveScheduleName("Doe, Jane (RN)")).toBe("Jane Doe");
+    expect(deriveScheduleName("Smith, John (M.D.)")).toBe("John Smith");
+    expect(deriveScheduleName("Wilson, Madeline (she)")).toBe("Madeline Wilson");
+  });
+
+  it("keeps scanning past an unusable group to a real nickname", () => {
+    expect(deriveScheduleName("Peng, Bo (he/him) (Jack)")).toBe("Jack Peng");
+  });
+
+  it("takes only the first token of a multi-word parenthetical", () => {
+    expect(deriveScheduleName("Ryan, Jonathan (Jack Ryan)")).toBe("Jack Ryan");
+  });
+
   it("leaves an already-forename-first name alone", () => {
     expect(deriveScheduleName("Madeline Wilson")).toBe("Madeline Wilson");
     expect(deriveScheduleName("Daniel Guevara-Pineda")).toBe("Daniel Guevara-Pineda");

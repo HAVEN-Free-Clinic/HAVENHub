@@ -22,10 +22,15 @@ const APP_URL = "https://hub.example.org";
 const BRAND = "#00356b";
 const CTA_URL = `${APP_URL}/my-info`;
 
-/** The exact rendered body for an actionable status (linked sentence + CTA button). */
-function actionableBody(personName: string, statusLine: string): string {
+/**
+ * The exact rendered body for an actionable status (linked sentence + CTA button).
+ *
+ * `greetingName` is the FIRST name: the template greets by what somebody goes by,
+ * not by their whole roster entry. See platform/person-name.ts.
+ */
+function actionableBody(greetingName: string, statusLine: string): string {
   return [
-    `<p>Hello ${personName},</p>`,
+    `<p>Hello ${greetingName},</p>`,
     ``,
     `<p>${statusLine}</p>`,
     ``,
@@ -61,7 +66,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
-      actionableBody("Jane Doe", "Your HIPAA certification expired on January 15, 2026."),
+      actionableBody("Jane", "Your HIPAA certification expired on January 15, 2026."),
     );
   });
 
@@ -78,7 +83,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
-      actionableBody("Jane Doe", "Your HIPAA certification expires on January 15, 2026."),
+      actionableBody("Jane", "Your HIPAA certification expires on January 15, 2026."),
     );
   });
 
@@ -95,7 +100,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
-      actionableBody("Jane Doe", "We do not have a current HIPAA certificate on file for you."),
+      actionableBody("Jane", "We do not have a current HIPAA certificate on file for you."),
     );
   });
 
@@ -112,7 +117,7 @@ describe("compliance templates via renderEmail (body inside branded layout)", ()
     );
     expect(out.subject).toBe("[HAVEN] HIPAA certification reminder");
     expect(out.html).toContain(
-      "<p>Hello Jane Doe,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
+      "<p>Hello Jane,</p>\n\n<p>Your HIPAA certificate is on file, and our compliance team is confirming the completion date.</p>\n\n<p>No action is needed from you right now. A coordinator will record the completion date before your certificate counts toward your clearance.</p>\n\n<p>Thank you,<br>HAVEN Free Clinic</p>",
     );
     // No-action statuses must not get the upgrade prompt or the button.
     expect(out.html).not.toContain("Open HAVEN Hub");

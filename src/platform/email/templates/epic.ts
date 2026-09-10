@@ -13,6 +13,7 @@
  */
 
 import { esc } from "../render/escape";
+import { firstNameOf } from "@/platform/person-name";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,7 @@ export function epicOnboardingContext(params: EpicEmailParams): Record<string, u
   return {
     subject,
     personName,
+    personFirstName: firstNameOf(personName),
     firstSentence,
     returningPermissionsSentence,
     noRetrainingSentence,
@@ -135,6 +137,7 @@ export function epicActivationContext(params: EpicEmailParams): Record<string, u
   const epicIdDisplay = epicId ? esc(epicId) : "pending assignment";
   return {
     personName,
+    personFirstName: firstNameOf(personName),
     epicIdDisplay,
     // Trimmed so a setting left as whitespace reads as "unset" to the {{#if}}
     // guard rather than rendering "the temporary password:  ".
@@ -150,6 +153,7 @@ export function epicPasswordResetContext(params: EpicEmailParams): Record<string
   const epicIdDisplay = epicId ? esc(epicId) : "pending assignment";
   return {
     personName,
+    personFirstName: firstNameOf(personName),
     epicIdDisplay,
     // See epicActivationContext: trimmed so a whitespace-only setting reads as
     // unset to the {{#if}} guards rather than announcing an empty password.
@@ -170,13 +174,14 @@ export const epicDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "subject", label: "Full subject line (pre-computed from kind + personName)", sampleValue: "[HAVEN] Epic Account Request for Jane Doe" },
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the volunteer goes by, for the greeting", sampleValue: "Jane" },
       { name: "firstSentence", label: "Opening sentence describing the request type", sampleValue: "we have submitted a request to create your new Epic account with YNHH for the coming term." },
       { name: "returningPermissionsSentence", label: "RENEW-only permissions sentence (empty for NEW/MODIFY)", sampleValue: "" },
       { name: "noRetrainingSentence", label: "RENEW-only no-retraining sentence (empty for NEW/MODIFY)", sampleValue: "" },
       { name: "detailHtml", label: "HTML block of detail lines (email, NetID, Epic ID, departments)", sampleValue: "<p>Your email: jane@yale.edu</p>\n<p>Your Epic ID: JDOE</p>" },
     ],
     defaultSubject: "{{{ subject }}}",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p>We're reaching out to let you know that {{{ firstSentence }}}{{{ returningPermissionsSentence }}}</p>
 
@@ -195,6 +200,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
     group: "epic",
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the volunteer goes by, for the greeting", sampleValue: "Jane" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
       {
         name: "temporaryPassword",
@@ -203,7 +209,7 @@ export const epicDescriptors: TemplateDescriptor[] = [
       },
     ],
     defaultSubject: "[HAVEN] New Epic Account Set-up",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p><strong>Your new Epic account has been successfully activated by YNHH.</strong></p>
 
@@ -244,6 +250,7 @@ ${EPIC_DOWNLOAD_AND_NOTES_HTML}
     group: "epic",
     variables: [
       { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the volunteer goes by, for the greeting", sampleValue: "Jane" },
       { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
       {
         name: "temporaryPassword",
@@ -252,7 +259,7 @@ ${EPIC_DOWNLOAD_AND_NOTES_HTML}
       },
     ],
     defaultSubject: "[HAVEN] Epic Account Reset",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p>Your Epic account has been successfully re-activated by YNHH.</p>
 

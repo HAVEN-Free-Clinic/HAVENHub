@@ -13,6 +13,7 @@
  */
 
 import { esc } from "@/platform/email/render/escape";
+import { firstNameOf } from "@/platform/person-name";
 import type { TemplateDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,7 @@ export function onboardingReminderContext(p: OnboardingReminderParams): Record<s
   const count = p.items.length;
   return {
     personName: p.personName,
+    personFirstName: firstNameOf(p.personName),
     itemsHtml: itemsToHtml(p.items),
     itemCount: count,
     itemNoun: count === 1 ? "item" : "items",
@@ -91,6 +93,7 @@ export function clearanceDigestContext(p: ClearanceDigestParams): Record<string,
   const count = p.members.length;
   return {
     directorName: p.directorName,
+    directorFirstName: firstNameOf(p.directorName),
     departmentNames: p.departmentNames,
     memberCount: count,
     memberNoun: count === 1 ? "member" : "members",
@@ -114,6 +117,7 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
     group: "compliance",
     variables: [
       { name: "personName", label: "Member name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the member goes by, for the greeting", sampleValue: "Jane" },
       {
         name: "itemsHtml",
         label: "Pre-rendered <li> rows, one per outstanding requirement",
@@ -133,7 +137,7 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
       },
     ],
     defaultSubject: "[HAVEN] Outstanding onboarding requirements",
-    defaultBody: `<p>Hello {{ personName }},</p>
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
 
 <p>You have {{ itemCount }} {{ itemNoun }} left to finish before you are cleared to volunteer:</p>
 
@@ -158,6 +162,7 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
     group: "compliance",
     variables: [
       { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "directorFirstName", label: "What the director goes by, for the greeting", sampleValue: "Alex" },
       { name: "departmentNames", label: "Comma-joined department names this digest covers", sampleValue: "Cardiology" },
       { name: "memberCount", label: "How many members are not cleared", sampleValue: "2" },
       { name: "memberNoun", label: "\"member\" or \"members\", matched to the count", sampleValue: "members" },
@@ -170,7 +175,7 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
       { name: "reviewUrl", label: "Absolute link to the volunteers surface", sampleValue: "https://hub.havenfreeclinic.org/volunteers" },
     ],
     defaultSubject: "[HAVEN] {{ memberCount }} {{ memberNoun }} {{ memberVerb }} not cleared",
-    defaultBody: `<p>Hello {{ directorName }},</p>
+    defaultBody: `<p>Hello {{ directorFirstName }},</p>
 
 <p>{{ memberCount }} {{ memberNoun }} in {{ departmentNames }} {{ memberVerb }} not yet cleared to volunteer. Longest outstanding first:</p>
 

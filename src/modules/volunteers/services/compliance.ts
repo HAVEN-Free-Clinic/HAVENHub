@@ -17,6 +17,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { can } from "@/platform/rbac/engine";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { notifyCertVerified } from "@/platform/compliance/review-notifications";
 import type { Sort } from "@/platform/lists/sort";
@@ -263,6 +264,14 @@ export type MasterQuery = {
   /** Overrides the default non-compliant-first order. Applied before paging, so
    *  page boundaries follow the requested order. */
   sort?: Sort<MasterSortKey>;
+  /**
+   * Whose roster: the live term (the default) or the next one. Anything else
+   * reads as live. The next term is what lets a compliance manager verify the
+   * certificates promotion collected BEFORE the flip. The roster used to read
+   * the live term only, so people promoted onto next term alone could not be
+   * found to verify until the onboarding gate was already holding them.
+   */
+  termId?: string;
 };
 
 /**
@@ -303,9 +312,18 @@ const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
   NO_CERTIFICATE: 0,
 };
 
+/** The live term, or the next one when that is what `termId` names. */
+async function masterTerm(termId: string | undefined) {
+  const live = await getActiveTerm();
+  if (!termId || termId === live?.id) return live;
+  const next = await getNextTerm();
+  return next && next.id === termId ? next : live;
+}
+
 /**
  * Returns compliance data for ALL active people with at least one ACTIVE
- * membership in the active term. One row per PERSON (not per membership).
+ * membership in the shown term: the live one, or the next one when
+ * `query.termId` asks for it. One row per PERSON (not per membership).
  *
  * The summary counts are computed over the FULL filtered-by-q/departmentId
  * scope BEFORE the status filter, so the count chips always show the whole
@@ -323,10 +341,10 @@ export async function masterCompliance(
 ): Promise<MasterComplianceResult> {
   const { status, departmentId, q, page = 1, pageSize = 25, sort } = query;
 
-  // 1. Find the active term.
-  const activeTerm = await getActiveTerm();
+  // 1. Find the term being shown: live by default, next when asked for.
+  const shownTerm = await masterTerm(query.termId);
 
-  if (!activeTerm) {
+  if (!shownTerm) {
     return {
       rows: [],
       total: 0,
@@ -342,7 +360,7 @@ export async function masterCompliance(
   //    departmentId), with person + their certs, in one query.
   const memberships = await prisma.termMembership.findMany({
     where: {
-      termId: activeTerm.id,
+      termId: shownTerm.id,
       status: "ACTIVE",
       ...(departmentId ? { departmentId } : {}),
     },
@@ -358,10 +376,10 @@ export async function masterCompliance(
     },
   });
 
-  // 2b. Fetch the set of people with COMPLETE training for the active term once.
+  // 2b. Fetch the set of people with COMPLETE training for the shown term once.
   const completedTraining = new Set(
     (await prisma.training.findMany({
-      where: { termId: activeTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
+      where: { termId: shownTerm.id, track: "VOLUNTEER", status: "COMPLETE" },
       select: { personId: true },
     })).map((t) => t.personId)
   );
@@ -437,7 +455,7 @@ export async function masterCompliance(
 
     const computedStatus = complianceStatus(
       newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
-      activeTerm.endDate
+      shownTerm.endDate
     );
 
     const verifiedByName = newestCert?.verifiedById
@@ -460,7 +478,7 @@ export async function masterCompliance(
 
   // Full clearance for the whole scope (matches how summary is computed pre-pagination).
   const scopeIds = scopeRows.map((r) => r.person.id);
-  const clearanceMap = await loadClearanceMap(scopeIds, activeTerm.id);
+  const clearanceMap = await loadClearanceMap(scopeIds, shownTerm.id);
   for (const row of scopeRows) {
     row.clearance = clearanceMap.get(row.person.id) ?? EMPTY_CLEARANCE;
   }

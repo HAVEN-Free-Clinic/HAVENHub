@@ -12,6 +12,8 @@ import {
   TermConflictError,
   TermDateError,
 } from "@/modules/admin/services/terms";
+import { activationReadiness } from "@/modules/admin/services/term-readiness";
+import { ActivationChecklist } from "@/modules/admin/components/activation-checklist";
 import {
   setClinicDayClosure,
   BuilderValidationError,
@@ -94,6 +96,13 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
 
   // Effective onboarding steps for the editor (defaults + this term's overrides).
   const stepConfig = canManageTerms ? await listStepConfig(id) : [];
+
+  // What activating would change, for the checklist above the Activate button.
+  // Only for a PLANNING term with a term to displace, and only for someone who
+  // can press the button: it resolves onboarding clearance for the whole
+  // incoming roster, which is not free.
+  const readiness =
+    canManageTerms && term.status === "PLANNING" && currentActive ? await activationReadiness(id) : null;
 
   // ---------------------------------------------------------------------------
   // Server actions
@@ -264,15 +273,23 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
       <Badge tone="warning">Archived</Badge>
     );
 
-  const activateLabel =
-    currentActive
-      ? `Activate (archives ${currentActive.code} and makes ${term.code} the active term)`
-      : `Activate ${term.code}`;
+  // The swap archives the current term only once it has ended; before that it
+  // moves it back to Planning (displacedStatusFor). This used to promise
+  // "archives" either way, which was wrong exactly when it matters: an early flip.
+  const demotes = readiness?.outgoing?.becomes === "PLANNING";
+  const displacedPhrase = currentActive
+    ? demotes
+      ? `moves ${currentActive.code} back to Planning, since it has not ended,`
+      : `archives ${currentActive.code}`
+    : null;
 
-  const activateConfirmLabel =
-    currentActive
-      ? `Archives ${currentActive.code} and makes ${term.code} active. Confirm?`
-      : `Make ${term.code} the active term. Confirm?`;
+  const activateLabel = displacedPhrase
+    ? `Activate (${displacedPhrase} and makes ${term.code} the active term)`
+    : `Activate ${term.code}`;
+
+  const activateConfirmLabel = currentActive
+    ? `${demotes ? `Moves ${currentActive.code} back to Planning` : `Archives ${currentActive.code}`} and makes ${term.code} active. Confirm?`
+    : `Make ${term.code} the active term. Confirm?`;
 
   return (
     <div className="space-y-10">
@@ -310,10 +327,19 @@ export default async function TermDetailPage({ params, searchParams }: PageProps
               <ConfirmButton label="Archive" confirmLabel="Archive this term?" />
             </form>
           ) : term.status === "PLANNING" ? (
-            <form action={activateAction}>
-              <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
-              <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
-            </form>
+            <div>
+              {readiness && (
+                <ActivationChecklist
+                  readiness={readiness}
+                  incoming={{ id: term.id, code: term.code }}
+                  stepLabels={Object.fromEntries(stepConfig.map((s) => [s.kind, s.label]))}
+                />
+              )}
+              <form action={activateAction}>
+                <p className="mb-3 text-sm text-muted-foreground">{activateLabel}</p>
+                <ConfirmButton label="Activate" confirmLabel={activateConfirmLabel} />
+              </form>
+            </div>
           ) : (
             // ARCHIVED: terminal. Activation is refused server-side, so offer no
             // button; a mis-flipped term is recovered by re-activating the one

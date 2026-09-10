@@ -75,7 +75,7 @@ export function CapacityPanel({
 
   return (
     <section className={`${cardClasses({ pad: "tight" })} flex flex-col gap-3`}>
-      <SectionHeader as="h2" level="title" className="text-sm">Capacity</SectionHeader>
+      <SectionHeader as="h2" level="card">Capacity</SectionHeader>
 
       {/* Headcount */}
       <div className="flex flex-wrap items-center gap-2 text-sm">

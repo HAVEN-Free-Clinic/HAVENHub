@@ -159,10 +159,19 @@ test("email page renders heading, stat cards, and table or empty state", async (
   await page.goto("/admin/email");
   // Page heading must be visible.
   await expect(page.getByRole("heading", { name: "Email" })).toBeVisible();
-  // All three health-stat card labels must be present (deterministic -- counts from DB, no seeding needed).
-  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
-  await expect(page.getByText("Failed", { exact: true })).toBeVisible();
-  await expect(page.getByText("Sent today", { exact: true })).toBeVisible();
+  // All three health-stat card labels must be present (deterministic -- counts
+  // from DB, no seeding needed).
+  //
+  // Scoped to the stat cards. An unscoped getByText("Queued") ALSO matches every
+  // "Queued" status chip in the delivery-log table below, so this passed only
+  // while the log happened to be empty and threw a strict-mode violation the
+  // moment it was not. The card's label is the <p> carrying the uppercase
+  // tracking StatCard gives it, which no row chip has.
+  const statLabel = (text: string) =>
+    page.locator("p.uppercase.tracking-wider").filter({ hasText: new RegExp(`^${text}$`) });
+  await expect(statLabel("Queued")).toBeVisible();
+  await expect(statLabel("Failed")).toBeVisible();
+  await expect(statLabel("Sent today")).toBeVisible();
   // Either the table (at least one row) or the empty-state message must be present.
   // No trailing period: the empty state is an <EmptyState> whose title is a bare
   // sentence and whose punctuation lives in the description below it.

@@ -178,9 +178,16 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           section: { label: "Applicants", slug: "applicants" },
         })}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Applicants" description={cycle.title} />
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Through PageHeader's own action slot rather than a flex row wrapping
+          it. The wrapper made the h1, the description and these launchers three
+          siblings competing for one line, so the description wrapped under a
+          heading that was no longer above it. The slot is what every other page
+          puts its controls in. */}
+      <PageHeader
+        title="Applicants"
+        description={cycle.title}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
           {scope.all && (
             <ScoringAssignmentLauncher
               cycleId={id}
@@ -195,8 +202,9 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
               onLoad={loadReviewApplicationAction}
             />
           )}
-        </div>
-      </div>
+          </div>
+        }
+      />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <FormRow>
           {/* The other filters are selects that navigate on change; a search box

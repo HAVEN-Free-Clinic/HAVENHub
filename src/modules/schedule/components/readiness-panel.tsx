@@ -104,7 +104,7 @@ export function ReadinessPanel({
 
   return (
     <section className={`${cardClasses({ pad: "tight" })} flex flex-col gap-4`}>
-      <SectionHeader as="h2" level="title" className="text-sm">RHD Clinic Readiness</SectionHeader>
+      <SectionHeader as="h2" level="card">RHD Clinic Readiness</SectionHeader>
 
       {/* Who is covering. Read-only: /schedule/attendings owns this row now, for
           every service line, so there is exactly one form that writes it. */}

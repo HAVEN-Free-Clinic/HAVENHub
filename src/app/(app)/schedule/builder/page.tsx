@@ -659,7 +659,7 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     this in its readiness panel for a while; every department
                     mails its own Saturday, so every department gets it. */}
                 {selectedDateKey && (
-                  <section className={cardClasses({ pad: false }) + " px-4 py-3"}>
+                  <section className={cardClasses({ pad: "tight" })}>
                     <EmailList
                       emails={data.shiftEmails}
                       label={`${dept.code} shift emails`}

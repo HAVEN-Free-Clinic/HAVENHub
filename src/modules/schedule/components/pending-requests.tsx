@@ -66,7 +66,7 @@ export function PendingRequests({
 
   if (rows.length === 0) {
     return (
-      <section className={`${cardClasses({ pad: false })} px-4 py-3`}>
+      <section className={`${cardClasses({ pad: "tight" })}`}>
         <SectionHeader as="h2" level="title" className="text-sm mb-2">Pending requests</SectionHeader>
         <EmptyState inline>{SHIFT_REQUEST_COPY.noPending}</EmptyState>
       </section>
@@ -74,7 +74,7 @@ export function PendingRequests({
   }
 
   return (
-    <section className={`${cardClasses({ pad: false })} px-4 py-3 flex flex-col gap-3`}>
+    <section className={`${cardClasses({ pad: "tight" })} flex flex-col gap-3`}>
       <div className="flex items-center gap-2">
         <SectionHeader as="h2" level="title" className="text-sm">Pending requests</SectionHeader>
         {pendingRows.length > 0 && (

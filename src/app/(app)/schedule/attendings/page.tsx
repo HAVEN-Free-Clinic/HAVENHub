@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/platform/db";
@@ -392,10 +393,14 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
         </p>
 
         {schedule.rows.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            {schedule.emptyReason === "no-clinic-dates"
-              ? `${workingTerm.name} has no clinic dates yet. Add them in Admin > Terms.`
-              : "No schedule columns are defined yet, so there is nowhere to put an attending."}
+          <Card pad={false}>
+            <EmptyState
+              title={
+                schedule.emptyReason === "no-clinic-dates"
+                  ? `${workingTerm.name} has no clinic dates yet. Add them in Admin > Terms.`
+                  : "No schedule columns are defined yet, so there is nowhere to put an attending."
+              }
+            />
           </Card>
         ) : (
           <>
@@ -492,8 +497,8 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
           </div>
         </div>
         {roster.length === 0 ? (
-          <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No attendings on the roster yet.
+          <Card pad={false}>
+            <EmptyState title="No attendings on the roster yet." />
           </Card>
         ) : (
           <div>

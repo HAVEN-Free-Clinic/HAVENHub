@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { requirePermission } from "@/platform/auth/session";
 import {
   meetingRoster,
@@ -86,8 +87,8 @@ export default async function BoardMeetingPage({ params }: PageProps) {
           value on the router.replace. Error toasts do not auto-dismiss. */}
 
       {roster.length === 0 ? (
-        <Card pad={false} className="px-6 py-10 text-center text-sm text-muted-foreground">
-          Nobody was recorded at this meeting, and this term has no active directors to record.
+        <Card pad={false}>
+          <EmptyState title="Nobody was recorded at this meeting, and this term has no active directors to record." />
         </Card>
       ) : (
         <>

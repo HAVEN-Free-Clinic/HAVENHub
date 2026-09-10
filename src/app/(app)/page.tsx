@@ -1,4 +1,5 @@
 import { Suspense, type CSSProperties } from "react";
+import { buttonClasses } from "@/platform/ui/button";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -494,7 +495,7 @@ export default async function HubPage() {
           {/* Greeting */}
           <div className="mb-6">
             <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-muted-foreground">{eyebrow}</p>
-            <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-foreground">
+            <h1 className="mt-2 text-2xl font-bold leading-tight tracking-tight text-foreground">
               <TimeGreeting initial={timeGreeting()} />
               {firstName ? (
                 <>
@@ -558,7 +559,7 @@ export default async function HubPage() {
                 <div className="mt-5 flex flex-wrap gap-2.5">
                   <Link
                     href="/schedule"
-                    className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-white/90"
+                    className={buttonClasses("inverse", "md", "gap-2")}
                   >
                     View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
@@ -580,7 +581,7 @@ export default async function HubPage() {
                 <div className="mt-4">
                   <Link
                     href="/schedule"
-                    className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+                    className={buttonClasses("primary", "md", "gap-2")}
                   >
                     View my schedule <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
@@ -616,7 +617,7 @@ export default async function HubPage() {
                   </div>
                   <Link
                     href="/schedule/check-in"
-                    className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover"
+                    className={buttonClasses("primary", "md", "gap-2")}
                   >
                     Check in <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { Card } from "@/platform/ui/card";
 import { requirePermission } from "@/platform/auth/session";
 import {
   getScope,
@@ -177,6 +178,11 @@ export default async function ScopeDetailPage({
           from the URL, so an inline branch reported it twice and then lost its
           value on the router.replace. Error toasts do not auto-dismiss. */}
 
+      {/* Cards, not hairlines. Three peer sections on this page were a bare
+          form and two hairline-ruled divs, while every comparable detail page in
+          the app cards its peers. A rule reads as "and also", a Card as "a
+          separate thing". */}
+      <Card>
       <form action={saveAction} className="space-y-6">
         <div className="max-w-sm">
           <Field label="Scope name">
@@ -201,8 +207,9 @@ export default async function ScopeDetailPage({
         />
         <Button type="submit">Save scope</Button>
       </form>
+      </Card>
 
-      <div className="space-y-4 border-t border-border pt-6">
+      <Card className="space-y-4">
         <SectionHeader level="title">Granted to</SectionHeader>
         {grants.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -228,16 +235,16 @@ export default async function ScopeDetailPage({
           </ul>
         )}
         <GrantForm action={grantAction} people={people} roles={roles} />
-      </div>
+      </Card>
 
-      <div className="border-t border-border pt-6">
+      <Card>
         <form action={deleteAction}>
           {/* Both of these shipped as bare one-click submits while every
               comparable act (delete a role, delete a specialty, revoke a
               credential) confirms. Deleting a scope is not recoverable. */}
           <ConfirmButton label="Delete scope" confirmLabel="Delete this audience scope?" />
         </form>
-      </div>
+      </Card>
     </div>
   );
 }

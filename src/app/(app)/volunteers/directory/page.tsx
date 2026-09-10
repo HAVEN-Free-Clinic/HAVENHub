@@ -41,6 +41,7 @@ import {
   membershipKindLabel,
 } from "@/platform/ui/membership-kind-badge";
 import { DirectoryExportButton } from "@/modules/volunteers/components/directory-export-button";
+import { formatPhone } from "@/platform/phone";
 import {
   directorySummary,
   departmentBreakdown,
@@ -427,7 +428,7 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-sm text-foreground-soft">{a.specialty ?? "-"}</TD>
                     <TD className="text-sm text-foreground-soft break-words [overflow-wrap:anywhere]">
-                      {[a.email, a.phone].filter(Boolean).join(" · ") || "-"}
+                      {[a.email, formatPhone(a.phone)].filter(Boolean).join(" · ") || "-"}
                     </TD>
                   </TR>
                 ))}

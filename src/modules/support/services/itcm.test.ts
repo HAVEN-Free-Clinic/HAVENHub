@@ -115,7 +115,9 @@ describe("listEpicAuthorizers", () => {
     expect(rows[0]).toMatchObject({
       id: cc.id,
       name: "Caprice Culkin",
-      phone: "720-254-2589",
+      // Stored "720-254-2589"; the authorizer line and the YNHH PDF both print
+      // the app's one phone format.
+      phone: "(720) 254-2589",
       email: "caprice.culkin@yale.edu",
       initials: "CC",
     });

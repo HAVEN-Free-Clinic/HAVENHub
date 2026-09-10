@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 /**
  * Two surfaces kept drifting away from SubmitButton, and both drifts were
@@ -28,6 +29,47 @@ const NO_BARE_SUBMIT = [
   "src/app/(app)/incidents/[id]/page.tsx",
   "src/app/(app)/admin/email/page.tsx",
 ];
+
+/**
+ * A submit button may not carry BOTH `formAction` and `name`/`value`.
+ *
+ * react-dom nulls the submitter as soon as it takes an action off it -- see the
+ * submit dispatch in react-dom-client, `null !== domEventName && ((action =
+ * domEventName), (submitter = null))` -- so `createFormDataWithSubmitter` never
+ * runs and the button's own name/value reaches nothing. Verified against
+ * react-dom 19.2.4 with a probe page: a plain submit contributed
+ * `["plain","p1"]`, the same button with a `formAction` contributed nothing.
+ *
+ * It fails silently and looks like a backend bug. `/support/epic`'s Pending tab
+ * shipped this pairing: every Cancel posted an empty `requestId`, the service
+ * threw EpicNotFoundError, and the user got "not found" on a row plainly on
+ * screen. Bind the id instead -- `formAction={cancelAction.bind(null, row.id)}`
+ * -- which also gives each row its own pending state.
+ */
+const BUTTON_WITH_PROPS = /<(?:SubmitButton|ConfirmButton|Button)\b[^>]*>/gs;
+
+function buttonsPairingFormActionWithName(): string[] {
+  const files = execSync("git ls-files 'src/**/*.tsx'", { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)
+    .filter((f) => existsSync(f));
+  const offenders: string[] = [];
+  for (const file of files) {
+    for (const tag of readFileSync(file, "utf8").matchAll(BUTTON_WITH_PROPS)) {
+      const props = tag[0];
+      if (/\bformAction=/.test(props) && /\bname=/.test(props)) {
+        offenders.push(`${file}: ${props.replace(/\s+/g, " ").slice(0, 90)}`);
+      }
+    }
+  }
+  return offenders;
+}
+
+describe("a submit button's own name/value", () => {
+  it("is never paired with a formAction, which silently discards it", () => {
+    expect(buttonsPairingFormActionWithName()).toEqual([]);
+  });
+});
 
 describe("server-action submits use the SubmitButton primitive", () => {
   for (const file of NO_BARE_SUBMIT) {

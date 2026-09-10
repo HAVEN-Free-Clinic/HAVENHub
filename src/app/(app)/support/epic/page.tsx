@@ -213,10 +213,18 @@ async function sendEpicEmailFromTrackerAction(formData: FormData) {
   redirect("/support/epic?tab=tracker");
 }
 
-async function cancelEpicRequestAction(formData: FormData) {
+/**
+ * `requestId` arrives bound, not through the FormData, because the Pending tab
+ * cancels from a button inside the create-ticket form. react-dom drops the
+ * submitter when it takes a `formAction` off it, so that button's `name`/`value`
+ * reached nothing and every cancel from that tab failed with "not found".
+ * Binding also gives each row its own pending state, since each bound reference
+ * is distinct. The Tracker tab, which has a real per-row form, binds the same
+ * way so there is one shape rather than two.
+ */
+async function cancelEpicRequestAction(requestId: string, formData: FormData) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  const requestId = String(formData.get("requestId") ?? "");
   // Return to whichever tab initiated the cancel (Tracker or Pending).
   const tab = String(formData.get("tab") ?? "tracker") === "pending" ? "pending" : "tracker";
   try {

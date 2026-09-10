@@ -27,7 +27,7 @@ import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundErr
 import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { TERMINAL_STATUSES } from "./manage";
 import { normalizeServiceRequestNumber } from "./identifiers";
-import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import { PERSON_NAME_ORDER, personNameOrderVia } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,7 +107,7 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
       department: { code: ITCM_DEPARTMENT_CODE },
     },
     include: { person: { select: { id: true, name: true, phone: true, contactEmail: true } } },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
 
   // De-dupe by person (the membership unique constraint already prevents a
@@ -143,7 +143,7 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
       person: true,
       department: true,
     },
-    orderBy: [{ department: { code: "asc" } }, { person: { name: "asc" } }],
+    orderBy: [{ department: { code: "asc" } }, ...personNameOrderVia("person")],
   });
 
   // Group by department.
@@ -211,7 +211,7 @@ export async function findMirrorPerson(
       person: { epicId: { not: null } },
     },
     include: { person: { select: { name: true, epicId: true } } },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
 
   if (!membership?.person.epicId) return null;
@@ -644,7 +644,7 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
         },
       },
     },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
 
   // De-duplicate by person (a person should have at most one open DEACTIVATE,

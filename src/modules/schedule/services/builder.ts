@@ -45,6 +45,7 @@ import type {
   ProcedureStatus,
 } from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
+import { personNameOrderVia } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -1743,7 +1744,7 @@ export async function builderView(
     prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: selectedDept.id, status: "ACTIVE" },
       include: { person: true },
-      orderBy: { person: { name: "asc" } },
+      orderBy: personNameOrderVia("person"),
     }),
     selectedDate
       ? prisma.scheduleDay.findFirst({

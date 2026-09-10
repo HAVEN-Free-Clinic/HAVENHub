@@ -24,7 +24,7 @@ import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { languageClaimedContext } from "@/platform/email/templates/volunteers";
 import { getSetting } from "@/platform/settings/service";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, personNameOrderVia } from "@/platform/person-name";
 import { log, errorAttrs } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
@@ -100,7 +100,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     listApplicantLanguageQueue(),
     prisma.personLanguage.findMany({
       where: languageReviewWhere(),
-      orderBy: [{ person: { name: "asc" } }, { language: "asc" }],
+      orderBy: [...personNameOrderVia("person"), { language: "asc" }],
       select: {
         id: true,
         personId: true,

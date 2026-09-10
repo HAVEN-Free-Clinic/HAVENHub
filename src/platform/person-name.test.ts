@@ -5,6 +5,7 @@ import {
   legalNameOf,
   splitPersonName,
   sortKeyOf,
+  personNameSearchClauses,
 } from "./person-name";
 
 describe("firstNameOf", () => {
@@ -259,6 +260,30 @@ describe("splitPersonName", () => {
     });
   });
 
+  // From the attendings contact sheet: "Ponce Terashima, Javier". Everything
+  // before the comma IS the surname; re-tokenising it threw "Ponce" away and
+  // filed him under Terashima.
+  it("keeps a compound surname whole in the Last, First form", () => {
+    expect(splitPersonName("Ponce Terashima, Javier")).toMatchObject({
+      legalFirstName: "Javier",
+      legalMiddleName: null,
+      lastName: "Ponce Terashima",
+      needsReview: true,
+    });
+    expect(splitPersonName("Hernandez Castillo, Carlos")).toMatchObject({
+      legalFirstName: "Carlos",
+      lastName: "Hernandez Castillo",
+    });
+  });
+
+  it("still reads a middle name after the comma", () => {
+    expect(splitPersonName("Doe, Jane Q")).toMatchObject({
+      legalFirstName: "Jane",
+      legalMiddleName: "Q",
+      lastName: "Doe",
+    });
+  });
+
   it("strips a trailing credential rather than reading it as a surname, and flags it", () => {
     expect(splitPersonName("Jane Doe, RN")).toEqual({
       legalFirstName: "Jane",
@@ -398,5 +423,41 @@ describe("sortKeyOf", () => {
         preferredFirstName: null,
       }),
     ).toEqual(["pena", "jose"]);
+  });
+});
+
+describe("personNameSearchClauses", () => {
+  /**
+   * legalMiddleName is NULLABLE, and that makes it dangerous in a clause that
+   * might be negated. `"middle" LIKE '%x%'` is NULL for a row with no middle
+   * name, NULL survives an OR, and NOT(NULL) is NULL, so every person without a
+   * middle name silently disappears from a "does not contain" filter or a NONE
+   * group. Same shape as #224.
+   *
+   * The explicit IS NOT NULL guard turns that NULL into a false, which negates
+   * correctly.
+   */
+  it("guards the nullable middle name so a negated search cannot drop null rows", () => {
+    const clauses = personNameSearchClauses("Rivera");
+    expect(clauses).toContainEqual({
+      AND: [
+        { legalMiddleName: { not: null } },
+        { legalMiddleName: { contains: "Rivera", mode: "insensitive" } },
+      ],
+    });
+    // The NOT NULL columns need no guard.
+    expect(clauses).toContainEqual({ name: { contains: "Rivera", mode: "insensitive" } });
+  });
+
+  it("prefixes every clause, guard included, when searching across a relation", () => {
+    const clauses = personNameSearchClauses("Rivera", "person");
+    expect(clauses).toContainEqual({
+      person: {
+        AND: [
+          { legalMiddleName: { not: null } },
+          { legalMiddleName: { contains: "Rivera", mode: "insensitive" } },
+        ],
+      },
+    });
   });
 });

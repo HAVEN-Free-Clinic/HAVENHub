@@ -324,12 +324,12 @@ export function ApplyWizard({
     // other field by handleValueChange's controllingKeys check.
     handleValueChange(fieldKey, file ? "attached" : "");
     if (!file) return;
-    setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading..." }));
+    setFileStatus((prev) => ({ ...prev, [fieldKey]: "Uploading…" }));
     const fd = new FormData();
     fd.set("file", file);
     // Same hazard as scheduleSave: a Blob putObject / transport failure REJECTS rather
     // than returning {ok:false}, which without this catch leaves the field stuck on
-    // "Uploading..." forever (#34).
+    // "Uploading…" forever (#34).
     try {
       const res = await uploadDraftFileAction(def.slug, fieldKey, fd);
       setFileStatus((prev) => ({ ...prev, [fieldKey]: res.ok && res.fileName ? `Attached: ${res.fileName}` : res.error ?? "Upload failed." }));

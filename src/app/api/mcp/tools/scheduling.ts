@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { mySchedule } from "@/modules/schedule/services/schedule";
-import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import type { McpTool } from "./index";
 
@@ -51,6 +51,6 @@ export const myNextShiftTool: McpTool = {
     // America/New_York would render UTC midnight as 8pm the previous evening
     // and report the wrong day, which on a shift reminder is the whole answer
     // being wrong.
-    return `Your next shift is on ${formatCalendarDate(next.clinicDate)} with ${next.department.name}.`;
+    return `Your next shift is on ${formatCalendarDate(next.clinicDate, CLINIC_DATE_LONG)} with ${next.department.name}.`;
   },
 };

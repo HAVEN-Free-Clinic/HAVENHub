@@ -68,7 +68,7 @@ import {
   type DigestEntry,
 } from "@/modules/schedule/engine/request-digest";
 import { departmentDirectorPersonIds } from "@/platform/departments";
-import { isoDateKey, formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, isoDateKey, formatCalendarDate } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
 import { firstNameOf } from "@/platform/person-name";
 import { claimReminderDispatch, releaseReminderDispatch } from "@/platform/email/reminder-dispatch";
@@ -96,7 +96,7 @@ const EXEC_DEPARTMENT_CODE = "EXEC";
 
 /** The long form every date in these emails uses. */
 function longDate(d: Date): string {
-  return formatCalendarDate(d, { month: "long", day: "numeric", year: "numeric" });
+  return formatCalendarDate(d, CLINIC_DATE_LONG);
 }
 
 export async function GET(req: Request): Promise<Response> {

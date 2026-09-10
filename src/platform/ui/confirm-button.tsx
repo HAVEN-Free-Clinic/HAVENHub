@@ -9,8 +9,21 @@ import { Spinner } from "./spinner";
 type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"> & {
   /** Label shown in the idle state (e.g. "Remove"). */
   label: string;
-  /** Label shown in the armed/confirm state. Defaults to "Confirm?". */
-  confirmLabel?: string;
+  /**
+   * Label shown in the armed/confirm state, naming what is about to happen
+   * (e.g. "Remove this field?").
+   *
+   * Required, and deliberately has no default. It used to default to
+   * "Confirm?", and 18 destructive controls took that default: the armed step
+   * named nothing, so a screen reader announced "Confirm?" into the aria-live
+   * region with no object, and a sighted user re-reading the button learned
+   * only that something was about to happen. Making it required moves the
+   * enforcement into tsc, where a new call site cannot skip it.
+   *
+   * End it with "?". e2e/volunteers.spec.ts drives this control by filtering
+   * buttons on /\?/ to find the armed one.
+   */
+  confirmLabel: string;
   /**
    * Non-form use: run this on the confirm click instead of submitting a form.
    *
@@ -38,8 +51,8 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
 /**
  * Destructive-action button that requires two separate clicks.
  *
- * First click arms the button (danger styling, "Confirm?" label). A second click
- * submits the surrounding form.
+ * First click arms the button (danger styling, the caller's required `confirmLabel`,
+ * e.g. "Remove this field?"). A second click submits the surrounding form.
  *
  * Implemented as ONE stable <Button> whose type/variant/label change between the
  * idle and armed states, rather than swapping between two different component
@@ -56,7 +69,7 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  *
  * The armed state used to auto-reset on a 3s timer. That timer was removed in audit
  * 14: 3s is shorter than a screen reader takes to finish speaking the aria-live
- * "Confirm?" announcement, let alone to then move to the control and activate it, so
+ * confirmLabel announcement, let alone to then move to the control and activate it, so
  * the button had always disarmed itself again by the time an AT user could reach the
  * confirm step. The result was that NO destructive action anywhere in the app was
  * completable by screen reader, since every one of them routes through this button.
@@ -79,7 +92,7 @@ type ConfirmButtonProps = Omit<ComponentProps<typeof Button>, "type" | "variant"
  */
 export function ConfirmButton({
   label,
-  confirmLabel = "Confirm?",
+  confirmLabel,
   className,
   onClick,
   onBlur,

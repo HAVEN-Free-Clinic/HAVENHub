@@ -143,7 +143,7 @@ export default async function BoardMeetingPage({ params }: PageProps) {
                         aria-label={`Note for ${r.name}`}
                         className="min-w-32 flex-1"
                       />
-                      <SubmitButton size="sm" variant="outline" pendingLabel="Saving...">Save</SubmitButton>
+                      <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save</SubmitButton>
                     </form>
                   </TD>
                 </TR>

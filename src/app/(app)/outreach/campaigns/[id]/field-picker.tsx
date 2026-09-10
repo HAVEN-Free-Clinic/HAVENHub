@@ -242,7 +242,7 @@ export function FieldPicker({
             aria-activedescendant={flat.length > 0 ? optionId(activeIndex) : undefined}
             aria-label="Search fields"
             autoComplete="off"
-            placeholder="Search fields or groups..."
+            placeholder="Search fields or groups…"
             // eslint-disable-next-line no-restricted-syntax -- combobox search input with aria-activedescendant wiring inside a custom popover, not a plain Input
             className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-subtle-foreground"
             value={query}

@@ -23,8 +23,8 @@ import { TermSwitcher } from "@/platform/ui/term-switcher";
 // `metadata` export.
 export function generateMetadata() {
   return buildPageMetadata({
-    title: "Attending coverage",
-    description: "Who is covering every column of the clinic schedule, for the whole term.",
+    title: "Coverage",
+    description: "Which attending is covering every column of the clinic schedule, for the whole term.",
   });
 }
 
@@ -60,7 +60,7 @@ export default async function CoveragePage({ searchParams }: PageProps) {
   if (!workingTerm) {
     return (
       <div className="space-y-8">
-        <PageHeader title="Attending coverage" description="No active term" />
+        <PageHeader title="Coverage" description="No active term" />
         <p className="text-sm text-muted-foreground">
           There is no term to show coverage for yet.
         </p>
@@ -90,8 +90,8 @@ export default async function CoveragePage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Attending coverage"
-        description={`Who is covering each column of the clinic schedule · ${workingTerm.name}`}
+        title="Coverage"
+        description={`Which attending is covering each column of the clinic schedule · ${workingTerm.name}`}
       />
 
       <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-border bg-muted px-4 py-3">

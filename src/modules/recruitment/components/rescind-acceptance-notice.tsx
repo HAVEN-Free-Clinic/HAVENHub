@@ -26,7 +26,7 @@ export function RescindAcceptanceNotice({
       </Alert>
       {canRescind && (
         <form action={action}>
-          <ConfirmButton label="Rescind acceptance" size="sm" />
+          <ConfirmButton label="Rescind acceptance" confirmLabel="Rescind this acceptance?" size="sm" />
         </form>
       )}
     </div>

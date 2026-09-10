@@ -84,7 +84,7 @@ export function CustomQuestionCard({
               label="Required"
             />
             <form action={() => onRemove()}>
-              <ConfirmButton label="Remove question" size="sm" />
+              <ConfirmButton label="Remove question" confirmLabel="Remove this question?" size="sm" />
             </form>
           </div>
         </div>

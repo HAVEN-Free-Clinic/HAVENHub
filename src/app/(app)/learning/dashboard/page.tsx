@@ -91,7 +91,7 @@ export default async function LearningDashboardPage({
                     <form action={resetCourseProgressAction} className="inline ml-2">
                       <input type="hidden" name="personId" value={r.personId} />
                       <input type="hidden" name="courseId" value={selected} />
-                      <ConfirmButton label="Reset" size="sm" />
+                      <ConfirmButton label="Reset" confirmLabel="Reset this member's progress in this course?" size="sm" />
                     </form>
                   )}
                 </TD>

@@ -130,7 +130,7 @@ describe("useFocusTrap focusable set (audit 14)", () => {
     mount(
       true,
       <button type="button" disabled data-testid="only">
-        Saving...
+        Saving…
       </button>,
     );
     (document.activeElement as HTMLElement | null)?.blur();

@@ -241,7 +241,7 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
                 onClick={() => void recheck()}
                 disabled={checking}
               >
-                {checking ? "Checking..." : "I've turned it off"}
+                {checking ? "Checking…" : "I've turned it off"}
               </Button>
             </div>
           </div>

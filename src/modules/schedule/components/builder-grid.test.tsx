@@ -115,8 +115,8 @@ describe("BuilderGrid", () => {
   it("marks a closed date's column while keeping every column", () => {
     const dates = [d(2026, 8, 7), d(2026, 9, 12)];
     const out = renderGrid(dates, ["2026-08-07"]);
-    expect(out).toContain("August 7th");
-    expect(out).toContain("September 12th");
+    expect(out).toContain("Aug 7");
+    expect(out).toContain("Sep 12");
     expect(out).toContain("Closed");
     // One closed date, one marker: the open column must not pick it up too.
     expect(out.split("Closed").length - 1).toBe(1);
@@ -133,11 +133,11 @@ describe("BuilderGrid", () => {
     // end regardless of where it falls chronologically.
     const outOfOrder = [d(2026, 9, 12), d(2026, 9, 26), d(2026, 8, 7)];
     const out = renderGrid(outOfOrder);
-    // displayDate renders "August 7th" / "September 12th" / "September 26th"
+    // displayDate renders "Aug 7" / "Sep 12" / "Sep 26"
     // with no year, which is unique enough within this single-year fixture.
-    const augustIdx = out.indexOf("August 7th");
-    const sept12Idx = out.indexOf("September 12th");
-    const sept26Idx = out.indexOf("September 26th");
+    const augustIdx = out.indexOf("Aug 7");
+    const sept12Idx = out.indexOf("Sep 12");
+    const sept26Idx = out.indexOf("Sep 26");
     expect(augustIdx).toBeGreaterThan(-1);
     expect(sept12Idx).toBeGreaterThan(-1);
     expect(sept26Idx).toBeGreaterThan(-1);
@@ -153,9 +153,9 @@ describe("BuilderGrid", () => {
     // Each empty grid cell names its own column in its accessible label
     // ("Assign <member> as volunteer on <date>"), so the cell order can be read
     // off those positions independent of the header row.
-    const augustCellIdx = out.indexOf("as volunteer on August 7th");
-    const sept12CellIdx = out.indexOf("as volunteer on September 12th");
-    const sept26CellIdx = out.indexOf("as volunteer on September 26th");
+    const augustCellIdx = out.indexOf("as volunteer on Aug 7");
+    const sept12CellIdx = out.indexOf("as volunteer on Sep 12");
+    const sept26CellIdx = out.indexOf("as volunteer on Sep 26");
     expect(augustCellIdx).toBeGreaterThan(-1);
     expect(sept12CellIdx).toBeGreaterThan(-1);
     expect(sept26CellIdx).toBeGreaterThan(-1);
@@ -433,7 +433,7 @@ describe("BuilderGrid incoming rows", () => {
     // The row is assignable exactly like a member's: the shift is real and simply
     // stays inert until roster build gives them the membership every outbound
     // path filters on.
-    expect(out).toContain("Assign Rita Returner as volunteer on September 5th");
+    expect(out).toContain("Assign Rita Returner as volunteer on Sep 5");
   });
 
   // A first-time applicant has no Person until roster build, and a shift is keyed

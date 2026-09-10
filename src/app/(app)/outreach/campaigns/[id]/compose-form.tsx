@@ -55,7 +55,7 @@ export function ComposeForm({
             )}
           </Alert>
         )}
-        <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
+        <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
       </div>
     </form>
   );

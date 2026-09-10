@@ -6,7 +6,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
-import { formatCalendarDate, isoDateKey } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
 import { firstNameOf } from "@/platform/person-name";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
@@ -119,12 +119,7 @@ function onShiftLeadership(assignments: ReminderAssignment[]): {
 export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedReminder[] {
   const { assignments, targetDate, teamsChannelUrl, baseUrl, attendingNamesByDepartmentId, clinicClosed } = input;
 
-  const clinicDateLabel = formatCalendarDate(targetDate, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const clinicDateLabel = formatCalendarDate(targetDate, CLINIC_DATE_LONG);
 
   const hipaaComplianceUrl = `${baseUrl}/my-info`;
   // Lands on the request form itself, open, rather than the top of the shift
@@ -324,12 +319,7 @@ export type PreparedRoleReminder = {
 export function buildRoleReminders(input: BuildShiftRemindersInput): PreparedRoleReminder[] {
   const { assignments, targetDate, baseUrl, attendingNamesByDepartmentId } = input;
 
-  const clinicDateLabel = formatCalendarDate(targetDate, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const clinicDateLabel = formatCalendarDate(targetDate, CLINIC_DATE_LONG);
   const { edsOnShift, clinicalAdvisorsOnShift } = onShiftLeadership(assignments);
 
   const prepared: PreparedRoleReminder[] = [];

@@ -25,6 +25,10 @@ export function clinicDateOptions(clinicDates: Date[]): TemplateOption[] {
     .sort((a, b) => a.getTime() - b.getTime())
     .map((d) => ({
       value: isoDateKey(d),
+      // Keeps the weekday, unlike CLINIC_DATE_SHORT: an applicant is ticking
+      // which dates they can attend, and a clinic date is not always a
+      // Saturday. clinic-dates.test.ts pins that. Exempted in
+      // src/platform/dates/clinic-date-format.guard.test.ts for that reason.
       label: formatCalendarDate(d, { weekday: "short", month: "short", day: "numeric" }),
     }));
 }

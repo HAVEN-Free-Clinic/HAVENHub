@@ -93,7 +93,7 @@ export function PresetForm({ presetId, initial, departments }: PresetFormProps) 
         </div>
       </fieldset>
 
-      <SubmitButton pendingLabel="Saving...">Save preset</SubmitButton>
+      <SubmitButton pendingLabel="Saving…">Save preset</SubmitButton>
     </form>
   );
 }

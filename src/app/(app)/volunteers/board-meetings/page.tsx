@@ -142,7 +142,7 @@ export default async function BoardMeetingsPage({ searchParams }: PageProps) {
                   <Input name="title" placeholder="Board meeting" />
                 </RowField>
                 <FormActions>
-                  <SubmitButton pendingLabel="Adding...">Add meeting</SubmitButton>
+                  <SubmitButton pendingLabel="Adding…">Add meeting</SubmitButton>
                 </FormActions>
               </FormRow>
             </form>

@@ -212,7 +212,7 @@ export function FieldCard({
             onClick={() => { setError(null); startTransition(async () => { const r = await duplicateFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); }); }}
             aria-label="Duplicate field"><Copy className="h-4 w-4" aria-hidden /></Button>
           <form action={async () => { setError(null); const r = await deleteFieldAction(cycleId, field.id); if (r.ok) onChanged(); else setError(r.error); }}>
-            <ConfirmButton label="Remove" size="sm" disabled={!editable} />
+            <ConfirmButton label="Remove" confirmLabel="Remove this field?" size="sm" disabled={!editable} />
           </form>
         </div>
       </div>

@@ -42,7 +42,7 @@ function wrap(props: Partial<React.ComponentProps<typeof ConfirmButton>> = {}) {
         submits += 1;
       }}
     >
-      <ConfirmButton label="Remove" {...props} />
+      <ConfirmButton label="Remove" confirmLabel="Confirm?" {...props} />
       <button type="button" data-testid="elsewhere">
         Elsewhere
       </button>

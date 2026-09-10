@@ -135,7 +135,7 @@ export default async function MasterCompliancePage({ searchParams }: PageProps) 
   return (
     <div>
       <PageHeader
-        title="Master compliance view"
+        title="Master view"
         description="Full clearance status across all active clinic members: HIPAA, training, learning, and EHS."
       />
       <Suspense key={filterKey} fallback={<MasterComplianceSkeleton />}>
@@ -310,7 +310,7 @@ async function MasterComplianceBody(props: BodyProps) {
         {sort && <input type="hidden" name="sort" value={sort.key} />}
         {sort && <input type="hidden" name="dir" value={sort.dir} />}
         <FilterField label="Search" width="grow">
-          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email..." />
+          <Input type="search" name="q" defaultValue={q ?? ""} placeholder="Name, NetID, or email…" />
         </FilterField>
         <FilterField label="Department" width="wide">
           <Select name="departmentId" defaultValue={departmentId ?? ""}>

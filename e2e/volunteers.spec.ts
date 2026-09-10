@@ -24,7 +24,8 @@ async function confirmButtonClick(
   container: import("@playwright/test").Locator,
   label: string
 ) {
-  // First click: arm the button (it switches to danger variant with "Confirm?" text)
+  // First click: arm the button (it switches to danger variant and to the caller's
+  // confirmLabel, which always ends in "?" -- see confirm-label.guard.test.ts)
   await container.getByRole("button", { name: label, exact: true }).click();
   // Second click: the armed button text ends with "?" -- click whatever danger button
   // appeared in the same container.
@@ -76,7 +77,7 @@ test("Jack (Platform Admin) opens /volunteers/master and sees the summary cards"
   await page.waitForURL((url) => url.pathname === "/volunteers/master");
 
   // Page heading must be visible
-  await expect(page.getByRole("heading", { name: "Master Compliance View" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Master view" })).toBeVisible();
 
   // Wait out the Suspense fallback before asserting on the cards. The skeleton
   // carries the real card LABELS (so the swap does not shift the layout), which
@@ -103,7 +104,7 @@ test("Jack sees the filter bar on /volunteers/master", async ({ page }) => {
   await page.waitForURL((url) => url.pathname === "/volunteers/master");
 
   // Filter bar inputs must be present
-  await expect(page.getByPlaceholder("Name, NetID, or email...")).toBeVisible();
+  await expect(page.getByPlaceholder("Name, NetID, or email…")).toBeVisible();
 });
 
 test("dev.volunteer is bounced from /volunteers/master to the hub", async ({ page }) => {
@@ -154,11 +155,12 @@ test("offboarding: Jack flags an ITCM member and verifies the executor table, th
   const memberRow = itcmSection.locator("tr").filter({ hasText: personName }).first();
   await expect(memberRow).toBeVisible();
 
-  // Arm the Flag button (first click). After this the button text changes to "Confirm?".
+  // Arm the Flag button (first click). After this the button text changes to its
+  // confirmLabel, "Flag this member for offboarding?".
   await memberRow.getByRole("button", { name: "Flag", exact: true }).click();
 
   // Now locate the armed row by person name (not by "Flag" button, which is gone).
-  // The row still contains the person's name; find the "Confirm?" button within it.
+  // The row still contains the person's name; find the armed button within it.
   const rowByName = itcmSection.locator("tr").filter({ hasText: personName }).first();
   await rowByName.getByRole("button").filter({ hasText: /\?/ }).first().click();
 
@@ -212,7 +214,7 @@ test("master view links a member's name to their per-person compliance view", as
   await page.waitForURL((url) => url.pathname === "/volunteers/master");
 
   // Filter to the seeded member so their row is on the current page regardless of roster size.
-  await page.getByPlaceholder("Name, NetID, or email...").fill(member.person.name);
+  await page.getByPlaceholder("Name, NetID, or email…").fill(member.person.name);
   await page.getByRole("button", { name: "Filter", exact: true }).click();
   await page.waitForURL((url) => url.searchParams.get("q") !== null);
 

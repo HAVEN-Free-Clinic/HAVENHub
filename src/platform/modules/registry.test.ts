@@ -150,7 +150,7 @@ describe("module registry", () => {
       (i) => i.label
     );
     expect(labels).toContain("All requests");
-    expect(labels).not.toContain("Epic / YNHH tools");
+    expect(labels).not.toContain("Epic requests");
   });
 
   it("puts no permission on Approvals, whose real gate is wider than any permission", () => {

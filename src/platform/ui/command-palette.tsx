@@ -480,7 +480,7 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
                 ) : (
                   rows.length === 0 && (
                     <p role="status" className="px-3 py-6 text-center text-sm text-muted-foreground">
-                      {searching ? "Searching..." : `No results for "${trimmed}"`}
+                      {searching ? "Searching…" : `No results for "${trimmed}"`}
                     </p>
                   )
                 )}

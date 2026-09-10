@@ -364,7 +364,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                   <RowField label="Modifier">
                     <ModifierOptions name="modifier" />
                   </RowField>
-                  <SubmitButton variant="outline" pendingLabel="Adding...">
+                  <SubmitButton variant="outline" pendingLabel="Adding…">
                     Add assessment
                   </SubmitButton>
                 </FormRow>
@@ -382,7 +382,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
               <Input
                 type="search"
                 name="q"
-                placeholder="Name, email, or note..."
+                placeholder="Name, email, or note…"
                 defaultValue={search}
               />
             </FilterField>
@@ -467,7 +467,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                                   size="sm"
                                   name="verified"
                                   value="true"
-                                  pendingLabel="Saving..."
+                                  pendingLabel="Saving…"
                                 >
                                   Verify
                                 </SubmitButton>
@@ -478,7 +478,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                                   size="sm"
                                   name="verified"
                                   value="false"
-                                  pendingLabel="Saving..."
+                                  pendingLabel="Saving…"
                                 >
                                   <span className="whitespace-nowrap">Not verified</span>
                                 </SubmitButton>
@@ -501,10 +501,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                             <Input
                               name="notes"
                               defaultValue={r.notes ?? spanishProficiencyLabel(r.score)}
-                              placeholder="Notes..."
+                              placeholder="Notes…"
                               className="w-32 text-xs"
                             />
-                            <SubmitButton variant="outline" size="sm" pendingLabel="Saving...">
+                            <SubmitButton variant="outline" size="sm" pendingLabel="Saving…">
                               Save
                             </SubmitButton>
                           </form>
@@ -515,10 +515,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
                               <input type="hidden" name="returnPage" value={String(history.page)} />
                               <Input
                                 name="netIdOrEmail"
-                                placeholder="NetID or email..."
+                                placeholder="NetID or email…"
                                 className="w-36 text-xs"
                               />
-                              <SubmitButton variant="outline" size="sm" pendingLabel="Linking...">
+                              <SubmitButton variant="outline" size="sm" pendingLabel="Linking…">
                                 Link
                               </SubmitButton>
                             </form>

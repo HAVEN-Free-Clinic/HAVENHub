@@ -65,7 +65,7 @@ export default async function RecruitmentHistoryPage({ searchParams }: PageProps
             type="search"
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Name, NetID, or email..."
+            placeholder="Name, NetID, or email…"
           />
         </FilterField>
       </FilterBar>

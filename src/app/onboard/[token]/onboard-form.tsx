@@ -189,7 +189,7 @@ export function OnboardForm({
         ))}
 
         <FormActions>
-          <SubmitButton disabled={submitting}>{submitting ? "Submitting..." : "Submit onboarding"}</SubmitButton>
+          <SubmitButton disabled={submitting}>{submitting ? "Submitting…" : "Submit onboarding"}</SubmitButton>
         </FormActions>
       </Card>
     </form>

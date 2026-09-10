@@ -394,7 +394,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                   <Combobox
                     name="personId"
                     ariaLabel="Person"
-                    placeholder="Search by name..."
+                    placeholder="Search by name…"
                     required
                     options={searchablePeople.map((p) => ({
                       value: p.id,
@@ -405,7 +405,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               ) : (
                 <RowField label="Person" required width="wide">
                   <Select name="personId" required>
-                    <option value="">Select person...</option>
+                    <option value="">Select person…</option>
                     {issuable.people.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name ?? p.id}
@@ -424,7 +424,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
               {/* Category */}
               <RowField label="Category" required width="wide">
                 <Select name="category" required>
-                  <option value="">Select category...</option>
+                  <option value="">Select category…</option>
                   {DISCIPLINARY_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -438,7 +438,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 <Combobox
                   name="reportId"
                   ariaLabel="Related incident report"
-                  placeholder="Search reports..."
+                  placeholder="Search reports…"
                   emptyLabel="No matching reports"
                   options={reportOptions.map((r) => ({ value: r.id, label: r.label }))}
                 />
@@ -451,7 +451,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                     name="description"
                     rows={3}
                     required
-                    placeholder="Describe the incident..."
+                    placeholder="Describe the incident…"
                   />
                 </Field>
               </div>
@@ -462,7 +462,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                   <Textarea
                     name="followUpActions"
                     rows={2}
-                    placeholder="Optional follow-up actions..."
+                    placeholder="Optional follow-up actions…"
                   />
                 </Field>
               </div>
@@ -487,7 +487,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                   <Textarea
                     name="notes"
                     rows={2}
-                    placeholder="What the member should be told about this decision..."
+                    placeholder="What the member should be told about this decision…"
                   />
                 </Field>
               </div>
@@ -518,7 +518,7 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
         className="mt-10"
       >
         <FilterField label="Search" width="grow">
-          <Input type="search" name="q" defaultValue={qSearch ?? ""} placeholder="Person name..." />
+          <Input type="search" name="q" defaultValue={qSearch ?? ""} placeholder="Person name…" />
         </FilterField>
         <FilterField label="Department" width="wide">
           <Select name="departmentId" defaultValue={departmentId ?? ""}>

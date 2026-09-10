@@ -20,17 +20,21 @@ import { Input } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
-import { formatCalendarDate } from "@/platform/dates";
+import { CLINIC_DATE_LONG, formatCalendarDate } from "@/platform/dates";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { FormRow, RowField } from "@/platform/ui/form";
 
+/**
+ * LONG, not SHORT. CLINIC_DATE_SHORT drops the weekday and the year, which is
+ * right where the date is one item among many (a grid column, a date pill) and
+ * the surrounding context supplies both. Here the date IS the content: this is
+ * the editor where somebody enters a term's Saturdays and then checks that what
+ * they entered is right, and "May 30" cannot be checked -- the weekday is the
+ * whole confirmation that a clinic day landed on a Saturday, and the year is
+ * what tells you it landed in this term.
+ */
 function formatClinicDate(d: Date): string {
-  return formatCalendarDate(d, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatCalendarDate(d, CLINIC_DATE_LONG);
 }
 
 function toIsoDate(d: Date): string {

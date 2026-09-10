@@ -115,7 +115,7 @@ export function AvsTool({
               disabled={busy}
             />
             <Button type="button" onClick={handleGenerate} disabled={busy}>
-              {busy ? "Generating..." : "Generate PDF"}
+              {busy ? "Generating…" : "Generate PDF"}
             </Button>
           </div>
         }
@@ -316,7 +316,7 @@ export function AvsTool({
 
       <div className="flex justify-end">
         <Button type="button" onClick={handleGenerate} disabled={busy}>
-          {busy ? "Generating..." : "Generate PDF"}
+          {busy ? "Generating…" : "Generate PDF"}
         </Button>
       </div>
     </div>

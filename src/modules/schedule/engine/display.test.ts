@@ -1,53 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { displayDate } from "./display";
 
+/**
+ * These cases used to enumerate the ordinal suffix table ("July 4th", "July
+ * 21st", the 11/12/13 teens exception). That table is gone: displayDate now
+ * delegates to CLINIC_DATE_SHORT, so what is worth pinning is the shape of the
+ * output and the noon-UTC anchor that keeps it off the previous day.
+ */
 describe("displayDate", () => {
-  it("formats July 4th correctly", () => {
-    expect(displayDate("2026-07-04")).toBe("July 4th");
+  it("renders the clinic short form: abbreviated month, no ordinal, no year", () => {
+    expect(displayDate("2026-07-04")).toBe("Jul 4");
+    expect(displayDate("2026-09-12")).toBe("Sep 12");
+    expect(displayDate("2026-02-07")).toBe("Feb 7");
   });
 
-  it("uses 'th' suffix for 11 (teens exception)", () => {
-    expect(displayDate("2026-07-11")).toBe("July 11th");
-  });
-
-  it("uses 'th' suffix for 12 (teens exception)", () => {
-    expect(displayDate("2026-07-12")).toBe("July 12th");
-  });
-
-  it("uses 'th' suffix for 13 (teens exception)", () => {
-    expect(displayDate("2026-07-13")).toBe("July 13th");
-  });
-
-  it("uses 'st' suffix for August 1st", () => {
-    expect(displayDate("2026-08-01")).toBe("August 1st");
-  });
-
-  it("uses 'nd' suffix for August 22nd", () => {
-    expect(displayDate("2026-08-22")).toBe("August 22nd");
-  });
-
-  it("uses 'rd' suffix for August 23rd", () => {
-    expect(displayDate("2026-08-23")).toBe("August 23rd");
-  });
-
-  it("uses 'th' suffix for September 12th", () => {
-    expect(displayDate("2026-09-12")).toBe("September 12th");
-  });
-
-  it("uses 'st' suffix for 21st", () => {
-    expect(displayDate("2026-07-21")).toBe("July 21st");
-  });
-
-  it("uses 'nd' suffix for 2nd", () => {
-    expect(displayDate("2026-07-02")).toBe("July 2nd");
-  });
-
-  it("uses 'rd' suffix for 3rd", () => {
-    expect(displayDate("2026-07-03")).toBe("July 3rd");
-  });
-
-  it("uses 'th' suffix for 4th through 10th", () => {
-    expect(displayDate("2026-07-04")).toBe("July 4th");
-    expect(displayDate("2026-07-10")).toBe("July 10th");
+  it("does not slip to the previous day", () => {
+    // formatCalendarDate formats in UTC. A midnight anchor is one rounding away
+    // from December 31; the noon anchor inside displayDate is what prevents it.
+    expect(displayDate("2026-01-01")).toBe("Jan 1");
+    expect(displayDate("2026-12-31")).toBe("Dec 31");
   });
 });

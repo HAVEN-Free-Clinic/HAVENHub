@@ -15,7 +15,7 @@ import type { TemplateDescriptor } from "./types";
  */
 
 export type AttendingReminderParams = {
-  /** e.g. "Saturday, August 15th". */
+  /** e.g. "Saturday, August 15, 2026". */
   clinicDateLabel: string;
   /** Pre-rendered HTML, one line per staffed slot (raw). */
   scheduleTable: string;
@@ -48,7 +48,7 @@ export const attendingDescriptors: TemplateDescriptor[] = [
     category: "transactional",
     group: "shift",
     variables: [
-      { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, August 15th" },
+      { name: "clinicDateLabel", label: "Clinic date", sampleValue: "Saturday, August 15, 2026" },
       {
         name: "scheduleTable",
         label: "Slot-by-slot schedule (HTML)",
@@ -99,10 +99,10 @@ export const attendingDescriptors: TemplateDescriptor[] = [
       { name: "recipientName", label: "Recipient first name", sampleValue: "Haley" },
       { name: "requesterName", label: "Attending making the request", sampleValue: "Dr. Peggy Bia" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
-      { name: "requesterDate", label: "Date they are giving up", sampleValue: "July 15, 2026" },
+      { name: "requesterDate", label: "Date they are giving up", sampleValue: "Saturday, July 11, 2026" },
       { name: "slotLabel", label: "Schedule column", sampleValue: "9am-12pm" },
       { name: "partnerName", label: "Swap partner (swap only)", sampleValue: "Dr. Frank Bia" },
-      { name: "partnerDate", label: "Partner's date (swap only)", sampleValue: "July 22, 2026" },
+      { name: "partnerDate", label: "Partner's date (swap only)", sampleValue: "Saturday, July 18, 2026" },
       { name: "note", label: "Their note, if any", sampleValue: "Away at a conference that weekend." },
     ],
     defaultSubject: "Attending {{ requestType }} request: {{ requesterName }}",
@@ -123,10 +123,10 @@ export const attendingDescriptors: TemplateDescriptor[] = [
       { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "recipientName", label: "Recipient name", sampleValue: "Dr. Peggy Bia" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
-      { name: "requesterDate", label: "Date given up", sampleValue: "July 15, 2026" },
+      { name: "requesterDate", label: "Date given up", sampleValue: "Saturday, July 11, 2026" },
       { name: "slotLabel", label: "Schedule column", sampleValue: "9am-12pm" },
       { name: "otherName", label: "The other attending (swap only)", sampleValue: "Dr. Frank Bia" },
-      { name: "partnerDate", label: "The other date (swap only)", sampleValue: "July 22, 2026" },
+      { name: "partnerDate", label: "The other date (swap only)", sampleValue: "Saturday, July 18, 2026" },
     ],
     defaultSubject: "Your {{ requestType }} request has been approved",
     defaultBody: `<p>Dear {{ recipientName }},</p>
@@ -145,10 +145,10 @@ export const attendingDescriptors: TemplateDescriptor[] = [
       { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
       { name: "recipientName", label: "Recipient name", sampleValue: "Dr. Peggy Bia" },
       { name: "requestType", label: "Request type (swap or drop)", sampleValue: "swap" },
-      { name: "requesterDate", label: "Date requested", sampleValue: "July 15, 2026" },
+      { name: "requesterDate", label: "Date requested", sampleValue: "Saturday, July 11, 2026" },
       { name: "slotLabel", label: "Schedule column", sampleValue: "9am-12pm" },
       { name: "otherName", label: "The other attending (swap only)", sampleValue: "Dr. Frank Bia" },
-      { name: "partnerDate", label: "The other date (swap only)", sampleValue: "July 22, 2026" },
+      { name: "partnerDate", label: "The other date (swap only)", sampleValue: "Saturday, July 18, 2026" },
     ],
     defaultSubject: "Your {{ requestType }} request was not approved",
     defaultBody: `<p>Dear {{ recipientName }},</p>

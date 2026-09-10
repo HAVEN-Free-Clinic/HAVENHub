@@ -103,7 +103,7 @@ export function QuizBuilder({
                 />
                 <div className="mt-2 flex justify-end">
                   <form action={async () => { setError(null); const r = await deleteFieldAction(cycleId, q.id); if (r.ok) refresh(); else setError(r.error); }}>
-                    <ConfirmButton label="Remove question" size="sm" disabled={!editable} />
+                    <ConfirmButton label="Remove question" confirmLabel="Remove this question?" size="sm" disabled={!editable} />
                   </form>
                 </div>
               </Card>

@@ -63,11 +63,11 @@ describe("BuilderAvailabilityView", () => {
         acknowledgeAction={noop}
       />,
     );
-    // displayDate renders "August 7th" / "September 12th" / "September 26th"
+    // displayDate renders "Aug 7" / "Sep 12" / "Sep 26"
     // with no year, which is unique enough within this single-year fixture.
-    const augustIdx = out.indexOf("August 7th");
-    const sept12Idx = out.indexOf("September 12th");
-    const sept26Idx = out.indexOf("September 26th");
+    const augustIdx = out.indexOf("Aug 7");
+    const sept12Idx = out.indexOf("Sep 12");
+    const sept26Idx = out.indexOf("Sep 26");
     expect(augustIdx).toBeGreaterThan(-1);
     expect(sept12Idx).toBeGreaterThan(-1);
     expect(sept26Idx).toBeGreaterThan(-1);

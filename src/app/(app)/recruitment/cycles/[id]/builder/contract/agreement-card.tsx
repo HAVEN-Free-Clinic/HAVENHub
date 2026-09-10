@@ -88,7 +88,7 @@ export function AgreementCard({
           />
           <div className="flex justify-end">
             <form action={() => onRemove()}>
-              <ConfirmButton label="Remove agreement" size="sm" />
+              <ConfirmButton label="Remove agreement" confirmLabel="Remove this agreement?" size="sm" />
             </form>
           </div>
         </div>

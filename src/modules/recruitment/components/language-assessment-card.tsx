@@ -94,10 +94,10 @@ export function LanguageAssessmentCard({
                   {language === SPANISH && (
                     <ScoreOptions name="score" defaultValue={String(verdict.score ?? "")} />
                   )}
-                  <SubmitButton variant="ghost" size="sm" name="verified" value="true" pendingLabel="Saving...">
+                  <SubmitButton variant="ghost" size="sm" name="verified" value="true" pendingLabel="Saving…">
                     Verify
                   </SubmitButton>
-                  <SubmitButton variant="ghost" size="sm" name="verified" value="false" pendingLabel="Saving...">
+                  <SubmitButton variant="ghost" size="sm" name="verified" value="false" pendingLabel="Saving…">
                     Not verified
                   </SubmitButton>
                 </form>

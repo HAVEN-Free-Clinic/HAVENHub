@@ -55,8 +55,8 @@ describe("my_next_shift", () => {
 
     // clinicDate is stored at UTC midnight. Formatting it in America/New_York
     // would render "Sep 11" and quietly tell the member the wrong day.
-    expect(text).toContain("Sep 12");
-    expect(text).not.toContain("Sep 11");
+    expect(text).toContain("September 12, 2026");
+    expect(text).not.toContain("September 11");
   });
 
   it("ignores shifts in the past", async () => {

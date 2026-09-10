@@ -86,7 +86,7 @@ export function SectionCard({
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)} aria-label="Section settings"><Settings2 className="h-4 w-4" aria-hidden /></Button>
         <form action={async () => { setError(null); const r = await deleteSectionAction(cycleId, section.id); if (r.ok) onChanged(); else setError(r.error); }}>
-          <ConfirmButton label="Delete section" size="sm" disabled={!editable} />
+          <ConfirmButton label="Delete section" confirmLabel="Delete this section and its fields?" size="sm" disabled={!editable} />
         </form>
       </div>
 

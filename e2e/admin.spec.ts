@@ -4,7 +4,7 @@ import { devLogin } from "./auth";
 test("platform admin reaches the admin overview", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   // exact:true avoids strict-mode collision with the global "Modules" nav aria-label
   await expect(page.getByRole("navigation", { name: "Module", exact: true })).toBeVisible();
 });
@@ -77,8 +77,10 @@ test("admin opens SU26 term detail and sees Clinic dates section with dates", as
   await page.waitForURL((url) => url.pathname.startsWith("/admin/terms/"));
   // Clinic dates section heading must be visible.
   await expect(page.getByRole("heading", { name: /clinic dates/i })).toBeVisible();
-  // First Saturday of SU26 range: "Sat, May 30, 2026" should appear.
-  await expect(page.getByText("Sat, May 30, 2026")).toBeVisible();
+  // First Saturday of the SU26 range. The clinic-dates editor states the date in
+  // full (CLINIC_DATE_LONG): the weekday is the confirmation that a clinic day
+  // landed on a Saturday, which is the thing being checked on this screen.
+  await expect(page.getByText("Saturday, May 30, 2026")).toBeVisible();
 });
 
 test("admin opens SU26 term detail and sees the editable onboarding steps", async ({ page }) => {
@@ -135,8 +137,10 @@ test("admin opens /admin/roles and sees Platform Admin with system badge", async
 test("admin opens /admin/audit and sees the table and the entityType select", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/admin/audit");
-  // Page heading must be present.
-  await expect(page.getByRole("heading", { name: "Audit Log" })).toBeVisible();
+  // Page heading must be present. exact: true because the h1 now matches the nav
+  // tab that opens it ("Audit"), and a substring match on that word alone would
+  // also be satisfied by any other heading containing it.
+  await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
   // The entityType select must be present (filter bar).
   await expect(page.locator('select[name="entityType"]')).toBeVisible();
   // The filter action input must be present.

@@ -463,7 +463,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                         <input type="hidden" name="approve" value="yes" />
                         <Field label="Strike category" required>
                           <Select name="category" required defaultValue="">
-                            <option value="">Select category...</option>
+                            <option value="">Select category…</option>
                             {DISCIPLINARY_CATEGORIES.map((c) => (
                               <option key={c} value={c}>
                                 {c}
@@ -488,7 +488,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                           <Textarea
                             name="notes"
                             rows={2}
-                            placeholder="What this member should be told about the decision..."
+                            placeholder="What this member should be told about the decision…"
                           />
                         </Field>
                         <FormActions>
@@ -501,7 +501,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
                         <input type="hidden" name="reportSubjectId" value={s.id} />
                         <input type="hidden" name="approve" value="no" />
                         <Field label="Notes">
-                          <Textarea name="notes" rows={2} placeholder="Optional reason for declining..." />
+                          <Textarea name="notes" rows={2} placeholder="Optional reason for declining…" />
                         </Field>
                         <FormActions>
                           <SubmitButton variant="outline" size="sm" pendingLabel="Declining…">

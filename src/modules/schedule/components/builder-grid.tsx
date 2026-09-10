@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from "react";
 import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
 import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
+import { Spinner } from "@/platform/ui/spinner";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
@@ -205,7 +206,7 @@ function AssignCellButton({
       // eslint-disable-next-line no-restricted-syntax -- grid-cell action button, not a standard Button
       className="flex h-9 w-full min-w-[40px] touch-manipulation items-center justify-center rounded-lg border border-dashed border-border-strong text-subtle-foreground hover:border-brand hover:text-brand-fg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
-      {busy ? "..." : "+"}
+      {busy ? <Spinner size="sm" /> : "+"}
     </button>
   );
 }
@@ -267,7 +268,7 @@ function FilledCellButton({
         title="Click again to remove"
       >
         <span aria-live="polite" className="text-xs font-semibold leading-none">
-          {busy ? "..." : "Remove?"}
+          {busy ? <Spinner size="sm" /> : "Remove?"}
         </span>
       </button>
     );
@@ -299,7 +300,7 @@ function FilledCellButton({
       title={ariaLabel}
     >
       {busy ? (
-        <span className="text-xs">...</span>
+        <Spinner size="sm" />
       ) : (
         <>
           <span className="text-xs font-semibold leading-none">{label}</span>

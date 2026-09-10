@@ -114,3 +114,48 @@ describe("ModuleNav with a tab nested under another tab", () => {
     expect(activeHrefs(renderAt("/admin/email"))).not.toContain("/admin");
   });
 });
+
+describe("ModuleNav with folded pages (underTab)", () => {
+  const FOLDED = [
+    { label: "My schedule", href: "/schedule" },
+    { label: "Check in", href: "/schedule/check-in", underTab: "/schedule" },
+    { label: "Attendings", href: "/schedule/attendings" },
+    { label: "Credentialing", href: "/schedule/attendings/credentialing", underTab: "/schedule/attendings" },
+    { label: "Specialties", href: "/schedule/specialties", underTab: "/schedule/attendings" },
+  ];
+
+  function renderAt(at: string) {
+    pathname = at;
+    try {
+      return renderToStaticMarkup(<ModuleNav items={FOLDED} />);
+    } finally {
+      pathname = "/admin/people";
+    }
+  }
+
+  function activeHrefs(out: string): string[] {
+    return [...out.matchAll(/aria-current="page"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
+  }
+
+  it("draws only the unfolded items", () => {
+    const out = renderAt("/schedule");
+    expect(out).toContain('href="/schedule"');
+    expect(out).toContain('href="/schedule/attendings"');
+    for (const folded of ["/schedule/check-in", "/schedule/attendings/credentialing", "/schedule/specialties"]) {
+      expect(out).not.toContain(`href="${folded}"`);
+    }
+  });
+
+  it("lights the parent tab on a folded page that shares no path with it", () => {
+    expect(activeHrefs(renderAt("/schedule/specialties"))).toEqual(["/schedule/attendings"]);
+  });
+
+  it("lights the parent on a folded page below a module root, which otherwise never prefix-matches", () => {
+    expect(activeHrefs(renderAt("/schedule/check-in"))).toEqual(["/schedule"]);
+  });
+
+  it("still lights the parent on a folded page's own sub-route", () => {
+    expect(activeHrefs(renderAt("/schedule/specialties/abc"))).toEqual(["/schedule/attendings"]);
+    expect(activeHrefs(renderAt("/schedule/attendings/credentialing"))).toEqual(["/schedule/attendings"]);
+  });
+});

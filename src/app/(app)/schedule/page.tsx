@@ -57,6 +57,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
 import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { getCheckInState } from "@/modules/schedule/services/attendance";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
@@ -102,6 +103,12 @@ export default async function MySchedulePage({
   // Resolved once for the whole page (not per shift card) -- every shift's
   // "has this passed" check compares against this same key.
   const todayKey = await displayTodayKey(now);
+  // Check in is folded under this tab (see the registry), so on a clinic day its
+  // prompt lives here, as it does on the dashboard. The same gate as the
+  // dashboard banner: only someone scheduled today, or the check-in page answers
+  // NOT_ASSIGNED; and only until they have checked in.
+  const checkIn = await getCheckInState(session.personId);
+  const showCheckIn = checkIn.clinicDate !== null && checkIn.assignmentCount > 0 && !checkIn.existing;
 
   // mySchedule spans every term the member currently belongs to: their live
   // term plus any next term they are already an active roster member of. The
@@ -379,6 +386,18 @@ export default async function MySchedulePage({
           }
         />
       </div>
+
+      {showCheckIn && (
+        <Card className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-foreground">Clinic today</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">Check in when you arrive at the clinic.</p>
+          </div>
+          <Link href="/schedule/check-in" className={buttonClasses("primary", "md")}>
+            Check in
+          </Link>
+        </Card>
+      )}
 
       {/* Faculty first. An attending who is ONLY an attending sees this and the
           calendar card; the volunteer block below renders its own empty state

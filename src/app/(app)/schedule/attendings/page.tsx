@@ -486,6 +486,11 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                 Enable Hub access for all
               </Button>
             </form>
+            {/* Both folded under this tab (registry underTab), so the roster is
+                where they are reached from, alongside the dropdown and Cmd+K. */}
+            <Link href="/schedule/specialties" className={buttonClasses("outline", "sm")}>
+              Specialties
+            </Link>
             <Link
               href="/schedule/attendings/credentialing"
               className={buttonClasses("outline", "sm")}

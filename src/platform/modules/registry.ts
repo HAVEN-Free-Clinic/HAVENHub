@@ -66,7 +66,9 @@ export const MODULES: ModuleManifest[] = [
       // Data-driven: only meaningful on a clinic date, and schedule/layout.tsx
       // drops it otherwise. dynamicGate keeps it out of the global dropdown,
       // which cannot resolve "is today a clinic day".
-      { label: "Check in", href: "/schedule/check-in", dynamicGate: true },
+      // Folded under My schedule: a tab that exists about 30 days a year. /schedule
+      // and the dashboard both carry a check-in banner on a clinic day instead.
+      { label: "Check in", href: "/schedule/check-in", dynamicGate: true, underTab: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       // Builder, Approvals and Attendings all gate on a data-driven capability
       // (managing a schedule department / an RHD department / at least one
@@ -107,7 +109,11 @@ export const MODULES: ModuleManifest[] = [
       // (canManageAttendings), so the same dynamicGate treatment. It had no tab,
       // no dropdown entry and no Cmd+K hit, reachable only from a button on
       // /schedule/attendings -- and it is where every new attending is tracked.
-      { label: "Credentialing", href: "/schedule/attendings/credentialing", dynamicGate: true },
+      //
+      // Folded under Attendings (see ModuleNavItem.underTab): it keeps the
+      // dropdown entry and Cmd+K hit that fix gave it, and its button on the
+      // roster, without holding a permanent tab of its own.
+      { label: "Credentialing", href: "/schedule/attendings/credentialing", dynamicGate: true, underTab: "/schedule/attendings" },
       // Reference data for the roster above, so it lives beside it rather than in
       // Admin. Putting it under /admin would have made it unreachable by the one
       // role that owns attendings: Faculty Relations Manager holds
@@ -123,18 +129,28 @@ export const MODULES: ModuleManifest[] = [
         label: "Specialties",
         href: "/schedule/specialties",
         permission: "schedule.manage_attendings",
+        // Reference data for the roster, linked from it: folded under Attendings.
+        underTab: "/schedule/attendings",
       },
       {
         label: "Triage chats",
         href: "/schedule/triage-chats",
         permission: "schedule.manage_triage_chats",
+        // A weekly action rather than a place: folded under Full schedule, which
+        // carries a "Triage chats" button for the people who can use it.
+        underTab: "/schedule/full",
       },
       // Read-only view of the same schedule, for a WIDER audience than the
       // builder: anyone holding clinic-wide schedule rights runs a clinic day
       // and needs to look coverage up without being able to change it. Also
       // data-driven (schedule.edit_all OR schedule.manage_attendings), so the
       // layout resolves it and the global dropdown stays out of it.
-      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true },
+      //
+      // Folded under Attendings: it is the read-only view of the same grid, and
+      // Attendings links to it. (Its wider audience, schedule.edit_all, is held
+      // by no system role today; such a viewer would still reach it from the
+      // dropdown and Cmd+K, just with no tab lit.)
+      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true, underTab: "/schedule/attendings" },
     ],
   },
   {

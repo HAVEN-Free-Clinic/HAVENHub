@@ -59,7 +59,7 @@ const SURNAME_PARTICLES = new Set([
   "de", "del", "della", "di", "da", "do", "dos", "das", "du",
   "van", "von", "der", "den", "ter", "ten",
   "la", "las", "le", "les", "el", "al",
-  "bin", "ibn", "af", "av", "st", "san", "santa",
+  "bin", "ibn", "ben", "af", "av", "st", "san", "santa",
 ]);
 
 /** Lowercased with periods stripped, the form both suffix sets are keyed by. */
@@ -189,7 +189,13 @@ export function splitPersonName(raw: string | null | undefined): SplitName {
   // review queue. Known limit: a capitalised annotation, "(Inactive)", reads as a
   // nickname and always will. It is pinned in the tests as a limit, not a bug.
   const preferredFirstName = preferredFromParenthetical(text);
-  let needsReview = preferredFirstName !== null && !looksLikeGivenName(preferredFirstName);
+  // A parenthetical carrying more than one token has had part of itself thrown
+  // away: "Antonio Bolea (Tony Vega)" lifts "Tony" and drops "Vega", and nothing
+  // here can tell a second given name from the surname he actually goes by.
+  const multiWordParenthetical = /\([^)]*\p{L}[^)\s]*\s+\p{L}[^)]*\)/u.test(text);
+  let needsReview =
+    preferredFirstName !== null &&
+    (!looksLikeGivenName(preferredFirstName) || multiWordParenthetical);
 
   // Every parenthetical is consumed here: the usable one became the preferred
   // name, and the rest were pronouns or credentials that are not part of a name.

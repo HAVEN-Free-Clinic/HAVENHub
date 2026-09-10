@@ -21,6 +21,17 @@ describe("firstNameOf", () => {
     expect(firstNameOf("Carney, Jonathan (Jack)")).toBe("Jack");
   });
 
+  // From the production roster: "Antonio Bolea (Tony Vega)". Only "Tony" is
+  // lifted, so "Vega" is discarded, and we cannot know whether that was a second
+  // given name or the surname he actually goes by. Dropping part of a name is a
+  // guess like any other.
+  it("flags a parenthetical carrying more than one token", () => {
+    expect(splitPersonName("Antonio Bolea (Tony Vega)")).toMatchObject({
+      preferredFirstName: "Tony",
+      needsReview: true,
+    });
+  });
+
   it("takes only the first token inside the parenthetical", () => {
     expect(firstNameOf("Jonathan (Jack Ryan) Carney")).toBe("Jack");
   });
@@ -208,6 +219,16 @@ describe("splitPersonName", () => {
     });
     expect(splitPersonName("Piet van der Berg")).toMatchObject({
       lastName: "van der Berg",
+      needsReview: true,
+    });
+  });
+
+  // From the production roster: "Yasmine Ben Naceur". "ben" sits with bin/ibn,
+  // which were already here; it was simply missed.
+  it("treats ben as a surname particle", () => {
+    expect(splitPersonName("Yasmine Ben Naceur")).toMatchObject({
+      legalFirstName: "Yasmine",
+      lastName: "Ben Naceur",
       needsReview: true,
     });
   });

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
@@ -32,8 +33,11 @@ export default async function DecisionsPage({ params }: {
     rejectionSummary(id),
   ]);
 
+  // wide, not form: this holds a four-up StatCard grid over a conflicts list,
+  // which 42rem was cramping. Not `full` either -- four stat cards stretched
+  // across 72rem read as four thin bars, and the list below is prose-width.
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="wide">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -109,6 +113,6 @@ export default async function DecisionsPage({ params }: {
           </p>
         </form>
       </section>
-    </div>
+    </PageBody>
   );
 }

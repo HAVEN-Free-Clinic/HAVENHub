@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -26,10 +27,10 @@ export default async function QuizBuilderPage({ params }: { params: Promise<{ id
     }));
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <PageBody width="content">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title, section: { label: "Form builder", slug: "builder" }, leaf: "Training quiz" })} />
       <PageHeader title="Training quiz" description={cycle.title} />
       <QuizBuilder cycleId={id} cycleTitle={cycle.title} editable={cycle.status !== "ARCHIVED"} status={cycle.status} sections={sections} />
-    </div>
+    </PageBody>
   );
 }

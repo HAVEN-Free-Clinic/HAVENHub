@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { isDisplayOnlyNotice, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import { formatAnswer, storedFileRef } from "@/modules/recruitment/engine/answer-display";
@@ -176,7 +177,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="form">
       <SetBreadcrumb
         trail={cycleTrail({
           canOpenOverview,
@@ -566,6 +567,6 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           )}
         </Card>
       )}
-    </div>
+    </PageBody>
   );
 }

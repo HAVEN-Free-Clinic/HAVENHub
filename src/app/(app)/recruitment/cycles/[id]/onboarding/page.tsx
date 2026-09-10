@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboardingRows } from "@/modules/recruitment/services/onboarding";
@@ -18,8 +19,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
   const rows = await listOnboardingRows(id);
   const hasConflicts = rows.some((r) => r.state === "CONFLICT");
 
+  // full: this tab's body is OnboardingTable -- checkbox, name, department,
+  // status, plus a per-row action -- and 56rem squeezed it while the tab beside
+  // it ran full width.
   return (
-    <div className="max-w-4xl space-y-6">
+    <PageBody width="full">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -50,6 +54,6 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
           page.
         </p>
       )}
-    </div>
+    </PageBody>
   );
 }

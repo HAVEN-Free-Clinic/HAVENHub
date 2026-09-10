@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { getContractForReview } from "@/modules/recruitment/services/onboarding";
@@ -45,7 +46,7 @@ export default async function SignedContractPage({ params }: { params: Promise<{
   );
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="form">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -137,6 +138,6 @@ export default async function SignedContractPage({ params }: { params: Promise<{
           {review.signatureRows.length === 0 && <p className="text-sm text-muted-foreground">This contract has no signature blocks.</p>}
         </dl>
       </Card>
-    </div>
+    </PageBody>
   );
 }

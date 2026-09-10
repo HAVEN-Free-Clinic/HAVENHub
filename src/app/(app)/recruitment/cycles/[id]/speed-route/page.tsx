@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { loadSpeedRouteBoard } from "@/modules/recruitment/services/speed-route";
@@ -38,7 +39,7 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
   const canOpenOverview = await can(person.personId, "recruitment.access");
   const middlePercent = Math.max(0, 100 - board.topPercent - board.bottomPercent);
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({ canOpenOverview, cycleId: id, cycleTitle: board.title, section: { label: "Speed route", slug: "speed-route" } })}
       />
@@ -70,6 +71,6 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
         onApplyTop={applyTopTierAction}
         onApplyBottom={applyBottomTierAction}
       />
-    </div>
+    </PageBody>
   );
 }

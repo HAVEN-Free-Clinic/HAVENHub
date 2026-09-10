@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listApplicantsForReview, reviewScope, awaitingRoutingCount } from "@/modules/recruitment/services/review";
@@ -169,7 +170,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       page: null,
     })}`;
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           canOpenOverview,
@@ -363,6 +364,6 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}`
         }
       />
-    </div>
+    </PageBody>
   );
 }

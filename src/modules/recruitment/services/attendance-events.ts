@@ -43,6 +43,7 @@ import { completeTraining } from "./training";
 import { resolveAttendanceBlockers, isAcceptedApplicantEmail, ACCEPTED_APPLICANT_BLOCKERS, WALK_UP_BLOCKERS, NO_BLOCKERS, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
 import type { OutstandingItemKey } from "@/platform/compliance/outstanding-items";
 import { sendAttendanceNudge } from "@/platform/email/attendance-nudges";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export class AttendanceEventError extends Error {
   constructor(message: string) {
@@ -555,7 +556,7 @@ export async function listCheckInCandidates(
             },
           },
       select: { id: true, name: true, netId: true, contactEmail: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     }),
     // The whole accepted list, promoted or not. The promoted ones never become
     // applicant rows -- they are already in the roster half above -- but they are

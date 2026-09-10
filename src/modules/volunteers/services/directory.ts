@@ -45,6 +45,7 @@ import { prisma } from "@/platform/db";
 import { accountEmailForPerson, mailingEmailForPerson } from "@/platform/auth/match-person";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { personNameSearchClauses } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 /** Only ACTIVE people in ACTIVE memberships are on the roster. A REMOVED
  *  membership is a seat someone has left; an OFFBOARDED person has left the
@@ -401,7 +402,7 @@ export async function directoryPeople(
         phone: true,
         memberships: seatSelect(termId, scope),
       },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -432,7 +433,7 @@ export async function directoryPeopleAll(
       phone: true,
       memberships: seatSelect(termId, scope),
     },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
   return rows.map((r) => toDirectoryPerson(r, filters));
 }
@@ -467,7 +468,7 @@ export async function directoryEmails(
   const rows = await prisma.person.findMany({
     where: peopleWhere(termId, filters, scope),
     select: { netId: true, contactEmail: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
   return [...new Set(rows.map(mailingEmailForPerson).filter((email) => email !== ""))];
 }

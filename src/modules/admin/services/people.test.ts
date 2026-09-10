@@ -106,6 +106,52 @@ describe("searchPeople", () => {
   });
 });
 
+describe("the order a list of people comes back in", () => {
+  beforeEach(resetDb);
+
+  it("sorts by surname, then by the legal given name", async () => {
+    await seedPerson({ name: "Zoe Adams" });
+    await seedPerson({ name: "Al Baker" });
+    await seedPerson({ name: "Bea Adams" });
+
+    const { rows } = await searchPeople({});
+
+    expect(rows.map((r) => r.name)).toEqual(["Bea Adams", "Zoe Adams", "Al Baker"]);
+  });
+
+  // The reason the sort key is the LEGAL name: a roster ordered by the display
+  // name jumps every time somebody sets a preferred one, and a list that
+  // reorders under a reader who did nothing is worse than one sorted oddly.
+  it("does not reshuffle when someone sets a preferred name", async () => {
+    await seedPerson({ name: "Zoe Adams" });
+    const middle = await seedPerson({ name: "Al Baker" });
+    await seedPerson({ name: "Cy Croft" });
+
+    const before = (await searchPeople({})).rows.map((r) => r.id);
+    await updatePerson(ACTOR, middle.id, {
+      legalFirstName: "Al",
+      lastName: "Baker",
+      preferredFirstName: "Zzz",
+    });
+    const after = (await searchPeople({})).rows.map((r) => r.id);
+
+    expect(after).toEqual(before);
+    // The name shown did change; only the position did not.
+    expect((await searchPeople({})).rows[1].name).toBe("Zzz Baker");
+  });
+
+  it("keeps paging stable for two people who share a surname and given name", async () => {
+    const a = await seedPerson({ name: "Same Name", netId: "sn1" });
+    const b = await seedPerson({ name: "Same Name", netId: "sn2" });
+
+    const { rows } = await searchPeople({});
+
+    // Tied on both name columns, so the id tiebreaker is what orders them, and
+    // it must be the same order every time or paging drops and repeats rows.
+    expect(rows.map((r) => r.id)).toEqual([a.id, b.id].sort());
+  });
+});
+
 describe("searchPeople and the name review queue", () => {
   beforeEach(resetDb);
 

@@ -44,6 +44,7 @@ import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 import { notifyStrikeIssued } from "./strike-notifications";
 import { resolveReportAccess } from "./report-access";
 import { personNameSearchClauses } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -168,7 +169,7 @@ export async function listSubjectOptions(actorPersonId: string): Promise<{
     prisma.person.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     }),
     activeTerm
       ? prisma.termMembership.findMany({

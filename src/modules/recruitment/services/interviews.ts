@@ -14,6 +14,7 @@ import { firstNameOf } from "@/platform/person-name";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 import { applicantFirstName } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
@@ -168,7 +169,7 @@ export async function listPanelistCandidates(interviewId: string): Promise<{ id:
   return prisma.person.findMany({
     where: { status: "ACTIVE", ...(exclude.length ? { id: { notIn: exclude } } : {}) },
     select: { id: true, name: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 }
 

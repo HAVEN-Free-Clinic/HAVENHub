@@ -1240,11 +1240,14 @@ describe("recipient preview and the scoped person search", () => {
     });
 
     const preview = await previewAudience(c.id);
+    // Condition matches first, then the manual additions. Those come back in the
+    // app's people order, which is surname-first (PERSON_NAME_ORDER), so Both,
+    // Included, Pasted rather than Bea, Cal, Dee.
     expect(preview.sample).toEqual([
       { personId: matched.id, name: "Anna Matched", email: "matched@example.com", reason: "matched" },
+      { personId: both.id, name: "Dee Both", email: "both@example.com", reason: "pasted" },
       { personId: included.id, name: "Bea Included", email: "included@example.com", reason: "included" },
       { personId: pasted.id, name: "Cal Pasted", email: "pasted@example.com", reason: "pasted" },
-      { personId: both.id, name: "Dee Both", email: "both@example.com", reason: "pasted" },
     ]);
 
     // Drop the pasted half and the same person is now labelled "included": the

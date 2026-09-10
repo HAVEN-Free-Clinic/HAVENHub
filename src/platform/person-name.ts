@@ -18,6 +18,9 @@
  * Import from here; do not re-split a name at the call site.
  */
 
+// Type-only, so this module stays a runtime leaf that anything can import.
+import type { Prisma } from "@prisma/client";
+
 /**
  * Name suffixes and post-nominal credentials, so neither a trailing "Jane Doe,
  * RN" nor a parenthetical "Jane Doe (RN)" is mistaken for a given name.
@@ -347,6 +350,34 @@ export function personNameSearchClauses(
     path ? { [path]: { [column]: match } } : { [column]: match },
   );
 }
+
+/**
+ * The order every list of people is shown in.
+ *
+ * Surname, then the LEGAL given name, then id. Spread it into a Prisma
+ * `orderBy` instead of writing `{ name: "asc" }`, which orders by the display
+ * name and therefore has two problems: it sorts people under their given name
+ * while the recruitment half of this app already sorts them under their
+ * surname (see historical-applicants.ts and applicant-sort.ts), and it makes a
+ * roster JUMP the moment somebody sets a preferred name, reordering a list
+ * under a reader who did nothing.
+ *
+ * The id tiebreaker is load-bearing on any paginated query: two people tied on
+ * both name columns otherwise order arbitrarily, and Postgres may choose
+ * differently across page boundaries, dropping one row and repeating another.
+ *
+ * Known wart, and a smaller cousin of #534: a mononym has `lastName = ""`, and
+ * an ascending sort puts empty first, so Cher heads the list. Unlike the
+ * historical-applicant case, which had 151 nameless rows and needed two
+ * queries, Person cannot hold a nameless row at all (person-name-write.ts
+ * refuses one), so this is only ever the handful of people who genuinely have
+ * one name, and they are flagged for review anyway.
+ */
+export const PERSON_NAME_ORDER: Prisma.PersonOrderByWithRelationInput[] = [
+  { lastName: "asc" },
+  { legalFirstName: "asc" },
+  { id: "asc" },
+];
 
 /** Accent-folded and lowercased, so "Peña" collates beside "Pena". */
 function fold(value: string): string {

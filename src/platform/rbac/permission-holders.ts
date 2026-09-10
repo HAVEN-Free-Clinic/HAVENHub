@@ -1,6 +1,7 @@
 import { type Track } from "@prisma/client";
 import { prisma, type TransactionClient } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 /**
  * "Who effectively holds permission X right now?", resolved the way the RBAC
@@ -96,6 +97,6 @@ export async function peopleWithPermission(permission: string): Promise<
   return prisma.person.findMany({
     where: { id: { in: [...ids] } },
     select: { id: true, name: true, contactEmail: true, entraObjectId: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 }

@@ -28,6 +28,7 @@ import {
 } from "@/platform/email/sender-identity";
 import type { SenderIdentityOption } from "@/platform/email/sender-identity";
 import { log } from "@/platform/logging";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -419,7 +420,7 @@ export async function resolveCampaignAudience(campaign: {
         // manual block comes back in whatever order Postgres finds the rows,
         // so the preview (and the send order) would shuffle between calls for
         // no reason a sender could see.
-        orderBy: { name: "asc" },
+        orderBy: PERSON_NAME_ORDER,
       });
       const addedRecipients: Recipient[] = [];
       let addedExcludedNoEmail = 0;

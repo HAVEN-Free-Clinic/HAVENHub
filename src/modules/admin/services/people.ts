@@ -27,6 +27,7 @@ import {
   setPersonStatusField,
 } from "@/platform/people";
 import type { PersonInput, SetPersonStatusOptions } from "@/platform/people";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // Re-export the mutation-core types/errors so callers that import from this
 // module (the historical home of these symbols) keep working unchanged.
@@ -89,7 +90,7 @@ export async function searchPeople(q: PeopleQuery): Promise<{
       // same name tie on the whole sort key and Postgres may order them
       // differently across page boundaries, dropping one and repeating the other.
       // The id tiebreaker makes paging stable.
-      orderBy: [{ name: "asc" }, { id: "asc" }],
+      orderBy: PERSON_NAME_ORDER,
       skip,
       take: pageSize,
     }),

@@ -25,6 +25,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { isStrikeSubject, isReportSubject } from "./self-exclusion";
 import { personNameSearchClauses } from "@/platform/person-name";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -930,7 +931,7 @@ export async function strikeablePeople(actorPersonId: string): Promise<
   const [persons, memberships] = await Promise.all([
     prisma.person.findMany({
       select: { id: true, name: true, status: true },
-      orderBy: { name: "asc" },
+      orderBy: PERSON_NAME_ORDER,
     }),
     activeTerm
       ? prisma.termMembership.findMany({

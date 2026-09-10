@@ -1,6 +1,7 @@
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 /** A person who effectively holds a queried permission, shaped for notify(). */
 export type PermissionHolder = {
@@ -71,6 +72,6 @@ export async function peopleWithAnyPermission(permissions: string[]): Promise<Pe
   return prisma.person.findMany({
     where: { id: { in: allIds }, status: "ACTIVE" },
     select: { id: true, name: true, contactEmail: true, entraObjectId: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
 }

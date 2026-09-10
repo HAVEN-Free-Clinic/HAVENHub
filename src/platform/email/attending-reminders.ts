@@ -36,6 +36,7 @@ import { queueEmail } from "./send";
 import { attendingReminderContext } from "./templates/attending";
 import { FACULTY_RELATIONS_ROLE } from "@/platform/rbac/system-roles";
 import { log, errorAttrs } from "@/platform/logging";
+import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 export type AttendingReminderRunResult = {
   remindersSent: number;
@@ -131,7 +132,7 @@ async function facultyRelationsRecipients(
     // director with no contact address on file cannot be sent a copy.
     where: { id: { in: [...personIds] }, status: "ACTIVE", contactEmail: { not: null } },
     select: { id: true, name: true, contactEmail: true },
-    orderBy: { name: "asc" },
+    orderBy: PERSON_NAME_ORDER,
   });
   return people.map((p) => ({ ...p, contactEmail: p.contactEmail! }));
 }

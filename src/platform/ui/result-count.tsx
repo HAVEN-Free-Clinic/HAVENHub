@@ -9,9 +9,17 @@
  * filters build their row out of `FormRow`/`NavForm` directly, because they
  * need per-control behaviour FilterBar does not offer (a nested form so Enter
  * searches without submitting the selects beside it, selects that navigate on
- * change). Both had hand-copied the slot's class string -- and both had dropped
- * the `ml-auto` that puts it on the trailing edge, which is the whole point of
- * the placement.
+ * change). Both had hand-copied the slot's class string, which is the reason
+ * this exists: one implementation of the words, the ink and the separator, not
+ * three that agree today.
+ *
+ * The `ml-auto` is belt-and-braces at both of those two, not a repair. Neither
+ * count was mispositioned: the applicants roster already sat in a
+ * `justify-between` row with exactly two children, and the request filters put
+ * `ROW_WIDTH.grow` (`flex-1`) on the search form immediately before the count,
+ * which absorbs the free space and leaves `margin-left: auto` nothing to
+ * consume. It earns its place only when the row wraps, and it means the slot
+ * carries its own placement into whatever row a future caller builds.
  *
  * So the slot lives here, and FilterBar renders it too.
  *

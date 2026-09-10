@@ -1,4 +1,5 @@
 import { SectionHeader } from "@/platform/ui/section-header";
+import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
 import { Badge } from "@/platform/ui/badge";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
@@ -54,9 +55,7 @@ export function DepartmentTab({
                 <TR key={m.person.id}>
                   <TD className="font-medium">{m.person.name}</TD>
                   <TD>
-                    <Badge tone={m.kind === "DIRECTOR" ? "brand" : "default"}>
-                      {m.kind === "DIRECTOR" ? "Director" : "Volunteer"}
-                    </Badge>
+                    <MembershipKindBadge kind={m.kind} />
                   </TD>
                   <TD>
                     {m.flag ? (

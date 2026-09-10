@@ -65,9 +65,22 @@ export function BuilderAvailabilityView({
             ? "Self-reported"
             : "Application";
 
-        const tierTone: "brand" | "default" | "warning" =
+        // Where the availability came from, most authoritative to least. The
+        // DIRECTOR case used to be `brand`, which collided the moment the seat
+        // chip beside it became brand too: a director carrying a
+        // director-corrected availability got two adjacent brand chips both
+        // beginning with the word "Director", and colour was the only thing
+        // that had been separating "what this person IS" from "where this row
+        // came from".
+        //
+        // The seat chip keeps brand -- identity is what brand is for, and
+        // unifying that chip is why it is brand at all -- so this one moves.
+        // success/default/warning also states the ladder these three tiers
+        // already are: corrected by a director, stated by the person, inferred
+        // from their application.
+        const tierTone: "success" | "default" | "warning" =
           member.availability.tier === "DIRECTOR"
-            ? "brand"
+            ? "success"
             : member.availability.tier === "SELF"
             ? "default"
             : "warning";

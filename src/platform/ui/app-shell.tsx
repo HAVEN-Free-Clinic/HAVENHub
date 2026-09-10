@@ -18,6 +18,7 @@ import { resolvePreference } from "./theme";
 import { NotificationBell } from "./notification-bell";
 import { AccountMenu } from "./account-menu";
 import { CommandPalette } from "./command-palette";
+import { SHELL_WIDTH } from "./shell-width";
 
 export async function AppShell({
   userName,
@@ -82,7 +83,7 @@ export async function AppShell({
           that detaches from the top/sides so canvas shows around it and page
           content blurs beneath it on scroll. */}
       <header className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
-        <div className="glass-bar mx-auto flex max-w-6xl items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6">
+        <div className={`glass-bar mx-auto flex ${SHELL_WIDTH} items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6`}>
           <div className="flex shrink-0 items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-logo" />
@@ -119,7 +120,11 @@ export async function AppShell({
           <main
             id="main-content"
             tabIndex={-1}
-            className="mx-auto w-full max-w-6xl px-6 py-10 flex-1 outline-none"
+            // pt-6, not py-10: the breadcrumb row above already separates the
+            // toolbar from the page, and every module page stacks a tab row and a
+            // PageHeader before any content, so 40px here pushed the first real
+            // row of a table to ~600px on a 900px screen.
+            className={`mx-auto w-full ${SHELL_WIDTH} px-6 pt-6 pb-10 flex-1 outline-none`}
           >
             {children}
           </main>

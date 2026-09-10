@@ -112,7 +112,9 @@ test.describe("clinic check-in", () => {
       await page.goto("/");
       // Sanity that the dashboard actually rendered (not stuck on a gate/error),
       // so the missing-card assertion below isn't a false pass from a blank page.
-      await expect(page.getByRole("heading", { name: "Modules", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { level: 1, name: /Good (morning|afternoon|evening)/ }),
+      ).toBeVisible();
       // Check-in surfaces as a banner above the action feed, whose heading text is
       // exactly "Clinic today" in its own <p>. Assert on that, and on the button,
       // so a leak through either path is caught.

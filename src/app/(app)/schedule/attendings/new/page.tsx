@@ -52,7 +52,10 @@ export default async function NewAttendingPage({ searchParams }: PageProps) {
       }
       throw err;
     }
-    redirect("/schedule/attendings");
+    // The roster is long and sorted, so a new row does not necessarily land
+    // anywhere the eye is. `notice` is already registered for this subtree in
+    // ui/toast/flash.ts and echoes its own value.
+    redirect(`/schedule/attendings?notice=${encodeURIComponent("Attending added.")}`);
   }
 
   return (

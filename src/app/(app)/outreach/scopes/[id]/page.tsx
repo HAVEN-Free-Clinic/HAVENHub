@@ -111,7 +111,9 @@ export default async function ScopeDetailPage({
       }
       throw e;
     }
-    redirect(`/outreach/scopes/${id}`);
+    // The audience builder re-renders byte-identical after a save, so without a
+    // flash param a successful save and a no-op look the same.
+    redirect(`/outreach/scopes/${id}?saved=1`);
   }
 
   async function deleteAction() {
@@ -153,7 +155,7 @@ export default async function ScopeDetailPage({
       }
       throw e;
     }
-    redirect(`/outreach/scopes/${id}`);
+    redirect(`/outreach/scopes/${id}?saved=granted`);
   }
 
   async function revokeAction(formData: FormData) {
@@ -167,7 +169,7 @@ export default async function ScopeDetailPage({
       }
       throw e;
     }
-    redirect(`/outreach/scopes/${id}`);
+    redirect(`/outreach/scopes/${id}?saved=revoked`);
   }
 
   return (

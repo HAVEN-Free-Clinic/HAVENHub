@@ -101,6 +101,21 @@ render. The list dims through `ListPending`, which `NavForm` reports to.
 | `Skeleton` | `@/platform/ui/skeleton` | Shimmering placeholder block. Decorative (aria-hidden). Shape and size controlled via `className`. |
 | `EmptyState` | `@/platform/ui/empty-state` | The "there is nothing here" state. `inline` for a table cell or tight section; the default block for an empty page or card body. |
 
+#### Confirming a save
+
+A server action that mutates and then redirects carries a flash param: `?saved=...`,
+or another param registered in `src/platform/ui/toast/flash.ts`. `FlashReader`,
+mounted in the root layout, turns it into a toast and strips it from the URL, so
+nothing has to be rendered on the destination page for the save to be reported.
+
+A bare `redirect(path)` after a successful write is acceptable only when the
+destination visibly shows the change: a status badge flips, a row disappears, a
+panel swaps. It is not acceptable when the page redraws identically or when the
+user is bounced to a list that does not show the fields they just edited.
+
+A client-side action that never touches the URL has no param to register; call
+`useToast()` directly instead (see `modules/my-info/components/withdrawn-toast.tsx`).
+
 ### Empty states
 
 Every "nothing here yet" goes through `EmptyState`. Enforced by the
@@ -246,6 +261,28 @@ Key points:
 - `FormActions` holds the submit and any secondary actions.
 - Prefer `SubmitButton` for form submit actions so pending state is handled automatically.
 - Non-editable values use `ReadonlyField`, not a `disabled` input.
+
+### Creating a record
+
+A create form with more than two editable fields lives on its own `/new` route,
+reached from a primary action in the list page's `PageHeader` `action` slot. A one-
+or two-field quick-add may stay inline above the list.
+
+The rule is about what a list page opens as. A seven-field form parked under a
+table is permanently expanded whether or not anyone is creating anything, so the
+list, which is what the page is for, starts below the fold.
+
+| Own `/new` route | Inline quick-add |
+|---|---|
+| `/schedule/specialties/new`, `/admin/subcommittees/new`, `/outreach/campaigns/new`, `/recruitment/events/new` | `/learning/manage` (title), `/volunteers/ehs/manage` (name), `/outreach/scopes` (name), `/volunteers/board-meetings` (date and title) |
+
+Two things move with the form and are easy to leave behind:
+
+- **The gates.** The `/new` route repeats whatever the list page gated its form
+  on. Check whether the list page's own module or page gate already implies it
+  before copying both.
+- **The error redirects.** A server action that validates and bounces has to send
+  the user back to the page that still holds the form, not to the list.
 
 ---
 

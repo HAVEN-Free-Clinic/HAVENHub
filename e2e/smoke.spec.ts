@@ -72,6 +72,14 @@ const ROUTES: RouteCase[] = [
   // Recruitment: requireModuleAccess("recruitment") = recruitment.access.
   // Neither the Volunteer nor Director system role carries recruitment.access.
   { path: "/recruitment", allowed: "admin", denied: "volunteer" },
+  // The event create form, moved off the list page onto its own route.
+  // `director` rather than `volunteer` is the denial with teeth here: the
+  // recruitment layout gates on a bare session, and resolveAttendanceAuthority
+  // folds recruitment.manage_cycles into `all`, so a VADM director passes
+  // canRecordAttendance on review scope alone and is stopped only by this
+  // route's recruitment.manage_cycles gate. A volunteer is deflected by either
+  // gate and so proves nothing about which of the two the route actually ships.
+  { path: "/recruitment/events/new", allowed: "admin", denied: "director" },
 
   // Schedule: requireModuleAccess("schedule") = schedule.view.
   // All three seeded roles carry schedule.view, so the list pages have no

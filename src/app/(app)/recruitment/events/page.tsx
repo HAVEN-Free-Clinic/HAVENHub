@@ -7,22 +7,16 @@ import {
   canRecordAttendance,
   listEvents,
 } from "@/modules/recruitment/services/attendance-events";
-import { listCycles } from "@/modules/recruitment/services/cycles";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
 import { buildPageMetadata } from "@/platform/branding/metadata";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Card } from "@/platform/ui/card";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
-import { Alert } from "@/platform/ui/alert";
-import { Field, Input, Textarea } from "@/platform/ui/input";
-import { Select } from "@/platform/ui/select";
-import { SubmitButton } from "@/platform/ui/submit-button";
+import { buttonClasses } from "@/platform/ui/button";
 import { TextLink } from "@/platform/ui/text-link";
-import { createEventAction } from "./actions";
 import { KIND_LABELS, kindTone } from "./kind-labels";
 
 export function generateMetadata() {
@@ -66,20 +60,20 @@ export default async function EventsPage() {
   const events = await listEvents({ termIds });
   // Only worth naming the term per row when two of them are on screen at once.
   const showTermName = new Set(events.map((e) => e.termName)).size > 1;
-  const cycles = canManage ? await listCycles() : [];
 
   return (
     <div className="max-w-4xl space-y-6">
       <PageHeader
         title="Attendance events"
         description={`Training sessions, info sessions and other events${termsPhrase(term, nextTerm)}.`}
+        action={
+          canManage ? (
+            <Link href="/recruitment/events/new" className={buttonClasses("primary", "sm")}>
+              New event
+            </Link>
+          ) : undefined
+        }
       />
-
-      {!term && (
-        <Alert tone="warning">
-          No term is active, so new events have to be attached to a recruitment cycle.
-        </Alert>
-      )}
 
       <Table>
         <THead>
@@ -142,52 +136,6 @@ export default async function EventsPage() {
           )}
         </tbody>
       </Table>
-
-      {canManage && (
-        <Card>
-          <h2 className="text-base font-semibold">New event</h2>
-          <form action={createEventAction} className="mt-4 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Title" required>
-                <Input name="title" required placeholder="Fall 2026 info session" />
-              </Field>
-              <Field label="Kind" required>
-                <Select name="kind" required defaultValue="INFO_SESSION">
-                  <option value="INFO_SESSION">{KIND_LABELS.INFO_SESSION}</option>
-                  <option value="TRAINING">{KIND_LABELS.TRAINING}</option>
-                  <option value="OTHER">{KIND_LABELS.OTHER}</option>
-                </Select>
-              </Field>
-              <Field label="Starts" required>
-                <Input type="datetime-local" name="startsAt" required />
-              </Field>
-              <Field label="Ends" hint="Optional.">
-                <Input type="datetime-local" name="endsAt" />
-              </Field>
-              <Field
-                label="Recruitment cycle"
-                hint="Required for a training session: its cycle is what decides which track the attendance completes training for."
-              >
-                <Select name="cycleId" defaultValue="">
-                  <option value="">No cycle</option>
-                  {cycles.map((cycle) => (
-                    <option key={cycle.id} value={cycle.id}>
-                      {cycle.title}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Location">
-                <Input name="location" placeholder="SHM L110" />
-              </Field>
-            </div>
-            <Field label="Notes">
-              <Textarea name="notes" rows={2} />
-            </Field>
-            <SubmitButton pendingLabel="Creating…">Create event</SubmitButton>
-          </form>
-        </Card>
-      )}
     </div>
   );
 }

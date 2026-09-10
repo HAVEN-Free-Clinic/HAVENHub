@@ -1196,4 +1196,116 @@ describe("params that used to be pinned to the URL forever", () => {
       { tone: "success", message: "Reminder sent to your department directors." },
     ]);
   });
+
+  // -------------------------------------------------------------------------
+  // The silent-save conversions: pages whose success redirect used to carry no
+  // param at all, so the screen redrew identically and nothing was reported.
+  //
+  // Every positive case below fails against the pre-change registry. The four
+  // learning/outreach values fall through to the plain, value-agnostic `saved`
+  // group and come back as "Saved."; `saved=reset` on a template page does the
+  // same (the only `saved=reset` entry was scoped to the training roster); and
+  // both sender params were scoped to "/admin/email" with no unscoped sibling,
+  // so resolveScoped returned null on a template pathname and the params were
+  // neither toasted nor stripped.
+  // -------------------------------------------------------------------------
+
+  it("claims saved=course on a course management page", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "course" }), "/learning/manage/c1");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Course saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=assignment on a course management page", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "assignment" }), "/learning/manage/c1");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Assignment saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=granted on a scope detail page", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "granted" }), "/outreach/scopes/s1");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Access granted." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=revoked on a scope detail page", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "revoked" }), "/outreach/scopes/s1");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Access revoked." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("gives a plain saved=1 the scope's own wording on a scope detail page", () => {
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/outreach/scopes/s1");
+    expect(result.toasts).toEqual([{ tone: "success", message: "Scope saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("gives a plain saved=1 the template's own wording on a template editor page", () => {
+    const result = classifyFlashParams(
+      paramsOf({ saved: "1" }),
+      "/admin/email/templates/strike_issued",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Template saved." }]);
+    expect(result.stripParams).toEqual(["saved"]);
+  });
+
+  it("claims saved=reset on a template editor page without disturbing the training roster's", () => {
+    const template = classifyFlashParams(
+      paramsOf({ saved: "reset" }),
+      "/admin/email/templates/strike_issued",
+    );
+    expect(template.toasts).toEqual([
+      { tone: "success", message: "Reverted to the built-in template." },
+    ]);
+    expect(template.stripParams).toEqual(["saved"]);
+
+    // Same groupKey, disjoint scopes: resolveScoped must still pick per path.
+    const roster = classifyFlashParams(
+      paramsOf({ saved: "reset" }),
+      "/recruitment/cycles/cy1/training",
+    );
+    expect(roster.toasts).toEqual([{ tone: "success", message: "Training reset." }]);
+  });
+
+  it("claims senderSaved on a template editor page, not just on /admin/email", () => {
+    const result = classifyFlashParams(
+      paramsOf({ senderSaved: "1" }),
+      "/admin/email/templates/strike_issued",
+    );
+    expect(result.toasts).toEqual([{ tone: "success", message: "Sender address saved." }]);
+    expect(result.stripParams).toEqual(["senderSaved"]);
+  });
+
+  it("claims senderTested on a template editor page, not just on /admin/email", () => {
+    const result = classifyFlashParams(
+      paramsOf({ senderTested: "1" }),
+      "/admin/email/templates/strike_issued",
+    );
+    expect(result.toasts).toEqual([
+      { tone: "success", message: "Test message sent. Check the inbox to confirm." },
+    ]);
+    expect(result.stripParams).toEqual(["senderTested"]);
+  });
+
+  it("leaks none of the new literal values outside their own pathnames", () => {
+    // A leak guard, not evidence of the change: this case passes today too,
+    // because the plain group already answers "Saved." here. It fails only if a
+    // new entry above is left unscoped.
+    for (const value of ["course", "assignment", "granted", "revoked"]) {
+      const result = classifyFlashParams(paramsOf({ saved: value }), "/admin/settings");
+      expect(result.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+    }
+  });
+
+  it("does not stretch the template scope over the template index or /admin/email", () => {
+    // Five segments vs four vs three: `*` matches exactly one segment, so the
+    // list page keeps the generic text and /admin/email keeps its own entries.
+    const index = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/email/templates");
+    expect(index.toasts).toEqual([{ tone: "success", message: "Saved." }]);
+
+    const hub = classifyFlashParams(paramsOf({ senderTested: "1" }), "/admin/email");
+    expect(hub.toasts).toEqual([
+      { tone: "success", message: "Test message sent. Check the inbox to confirm." },
+    ]);
+  });
 });

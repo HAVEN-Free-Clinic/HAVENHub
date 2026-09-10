@@ -7,6 +7,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Field } from "@/platform/ui/input";
 import { FormActions } from "@/platform/ui/form";
+import { useToast } from "@/platform/ui/toast/toast";
 import { uploadPackageAction, ingestUploadedPackageAction, type UploadState } from "../actions";
 
 const MAX_UPLOAD_BYTES = 75 * 1024 * 1024; // 75 MB
@@ -88,6 +89,11 @@ export function UploadPackageForm({
 /** Direct-to-R2 path (Vercel). */
 function DirectUploadForm({ courseId, hasPackage }: FormProps) {
   const router = useRouter();
+  // The sanctioned direct-useToast carve-out (see toast/flash.ts and
+  // my-info/components/withdrawn-toast.tsx): this path never touches the URL, so
+  // there is no flash param for the classifier to claim. Without it a 75 MB
+  // upload ended by clearing the progress label and nothing else.
+  const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
@@ -137,6 +143,7 @@ function DirectUploadForm({ courseId, hasPackage }: FormProps) {
         return;
       }
       router.refresh();
+      toast({ tone: "success", message: hasPackage ? "Package replaced." : "Package uploaded." });
     } catch (err) {
       console.error("[learning] SCORM upload failed:", err);
       setError(err instanceof Error ? err.message : "Upload failed. Please check the file and try again, or contact support.");

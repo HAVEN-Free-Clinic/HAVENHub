@@ -9,6 +9,7 @@ import { log, errorAttrs } from "@/platform/logging";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import {
   AVAILABILITY_FIELD_KEY,
+  adoptIncomingShiftsTx,
   applicationAvailabilityDates,
   parseAvailabilityDates,
 } from "@/platform/recruitment/incoming-roster";
@@ -296,6 +297,13 @@ export async function promoteContracts(
             data: { status: "ACTIVE", ...(parsedAvailabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
           });
         }
+
+        // Draft shifts a director placed before this person existed. A first-time
+        // applicant has no Person until the lines above, so the schedule builder
+        // kept their drafts against the acceptance. Moved onto the real schedule
+        // in the same transaction as the membership, so there is no moment where
+        // someone is on the roster but their drafted Saturdays are not.
+        await adoptIncomingShiftsTx(tx, { acceptanceId: contract.acceptanceId, personId: person.id });
 
         // Dual-role offers: the applicant ticked "I will also serve VADM/INTP"
         // alongside the department they were accepted into.

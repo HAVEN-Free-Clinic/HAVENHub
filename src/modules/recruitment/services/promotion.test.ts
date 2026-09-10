@@ -522,3 +522,59 @@ describe("the name a promoted member lands with", () => {
     expect(person.name).toBe("Ada Lovelace");
   });
 });
+
+// A first-time applicant has no Person until promotion, so the schedule builder
+// keeps a director's drafts for them against the acceptance. Promotion is where
+// they become real shifts, in the same transaction as the membership.
+describe("draft shifts placed before the person existed", () => {
+  it("moves a first-time applicant's drafts onto the real schedule", async () => {
+    const { term, srhd, srr, contract } = await seedSubmitted({
+      availability: ["2026-09-05", "2026-09-12"],
+    });
+    const [first, second] = term.clinicDates;
+    await prisma.incomingShiftAssignment.createMany({
+      data: [
+        { acceptanceId: contract.acceptanceId, termId: term.id, departmentId: srhd.id, clinicDate: first, role: "VOLUNTEER", triage: true },
+        { acceptanceId: contract.acceptanceId, termId: term.id, departmentId: srhd.id, clinicDate: second, role: "SHADOW" },
+      ],
+    });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    const shifts = await prisma.shiftAssignment.findMany({
+      where: { personId: person.id },
+      orderBy: { clinicDate: "asc" },
+    });
+    expect(shifts.map((s) => [s.role, s.triage, s.termId, s.departmentId])).toEqual([
+      ["VOLUNTEER", true, term.id, srhd.id],
+      ["SHADOW", false, term.id, srhd.id],
+    ]);
+    // Moved, not copied: a second promotion path must not find them again.
+    expect(await prisma.incomingShiftAssignment.count()).toBe(0);
+  });
+
+  // An alum who applied signed out is matched to their old Person by NetID. If
+  // they already hold a shift that Saturday, a unique violation inside the
+  // promotion transaction would roll the whole promotion back.
+  it("keeps a shift the person already holds that day instead of failing the promotion", async () => {
+    const { term, srhd, srr, contract } = await seedSubmitted({ availability: ["2026-09-05"] });
+    const [day] = term.clinicDates;
+    const existing = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE" },
+    });
+    await prisma.shiftAssignment.create({
+      data: { termId: term.id, departmentId: srhd.id, personId: existing.id, clinicDate: day, role: "DIRECTOR" },
+    });
+    await prisma.incomingShiftAssignment.create({
+      data: { acceptanceId: contract.acceptanceId, termId: term.id, departmentId: srhd.id, clinicDate: day, role: "VOLUNTEER" },
+    });
+
+    const res = await promoteContracts([contract.id], srr.id);
+
+    expect(res.failed).toBe(0);
+    const shifts = await prisma.shiftAssignment.findMany({ where: { personId: existing.id } });
+    expect(shifts.map((s) => s.role)).toEqual(["DIRECTOR"]);
+    expect(await prisma.incomingShiftAssignment.count()).toBe(0);
+  });
+});

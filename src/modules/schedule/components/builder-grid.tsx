@@ -36,7 +36,7 @@ import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
-import { PROVISIONAL_BADGE_LABEL } from "./provisional-labels";
+import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_BADGE_TITLE } from "./provisional-labels";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { useBuilderBoard, type BoardApi } from "./builder-board";
 import {
@@ -77,8 +77,9 @@ type GridRow = {
   /**
    * Row identity, and the personId every cell writes against. For an incoming
    * applicant with no Person record this is the synthetic acceptance-scoped id
-   * from the service, which matches no assignment -- so the row is always empty,
-   * and `assignable` below keeps it that way.
+   * from the service. Their draft shifts are keyed on the same id, and the
+   * service routes a write carrying it to the draft table, so the row behaves
+   * exactly like anyone else's.
    */
   personId: string;
   name: string;
@@ -86,10 +87,10 @@ type GridRow = {
   kind: "DIRECTOR" | "VOLUNTEER" | null;
   status: "member" | "incoming" | "former";
   /**
-   * Whether an EMPTY cell on this row offers to assign. False for a former member
-   * (only their leftover shifts are actionable) and for an incoming applicant with
-   * no Hub account yet, where there is no person for a shift to point at. Either
-   * way the grid must not render a "+" that setAssignment would then refuse.
+   * Whether an EMPTY cell on this row offers to assign. False only for a former
+   * member: their leftover shifts are still actionable, but they hold no place to
+   * be given a new one, and the grid must not render a "+" that setAssignment
+   * would then refuse.
    */
   assignable: boolean;
   /** Resolved-available clinic dates; empty for former members. */
@@ -328,16 +329,17 @@ function FilledCellButton({
 // ---------------------------------------------------------------------------
 
 /**
- * Names every colour the grid below can paint, in the two channels it paints
- * them: the role rings a cell and letters it, the special shift fills it.
+ * Names every colour the grid below can paint, in the three channels it paints
+ * them: the cell's ground says whether the person is free that date, the role
+ * rings a shift and letters it, the special shift fills it.
  *
  * Colour coding nobody can decode is decoration, and the cells are far too small
  * to label themselves. Only the shifts this department actually uses are listed,
  * so a Nursing director is not told what a care-coordinator fill means.
  *
- * The swatches are drawn the way the cells are -- role swatches ringed and
- * lettered, shift swatches filled -- so the key is the thing itself rather than
- * a description of it.
+ * The swatches are drawn the way the cells are -- availability swatches in the
+ * cell grounds, role swatches ringed and lettered, shift swatches filled -- so
+ * the key is the thing itself rather than a description of it.
  */
 function GridLegend({ deptCode }: { deptCode: string }) {
   const roles = ["VOLUNTEER", "SHADOW", "DIRECTOR"] as const;
@@ -345,6 +347,24 @@ function GridLegend({ deptCode }: { deptCode: string }) {
     "inline-flex h-5 w-5 items-center justify-center rounded-md border text-[11px] font-semibold leading-none";
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold uppercase tracking-wider text-subtle-foreground">
+          Availability
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden="true" className={cx(swatch, "border-border bg-available")} />
+          Available
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span
+            aria-hidden="true"
+            className={cx(swatch, "border-border bg-unavailable text-subtle-foreground")}
+          >
+            &middot;
+          </span>
+          Not available
+        </span>
+      </span>
       <span className="flex flex-wrap items-center gap-2">
         <span className="font-semibold uppercase tracking-wider text-subtle-foreground">
           Role (ring)
@@ -405,8 +425,10 @@ function GridCell({
     (d) => isoDateKey(d) === dateKey,
   );
 
-  // Muted background when the person is not resolved-available on this date.
-  const availBg = isAvailable ? "" : "bg-muted";
+  // The cell's ground says whether the person is free that date: green when
+  // they are, grey when they are not. It used to be white against slate-50,
+  // which nobody could tell apart across a term of cells.
+  const availBg = isAvailable ? "bg-available" : "bg-unavailable";
   const selectedHighlight = isHighlightDate ? "ring-1 ring-inset ring-brand/40" : "";
   const cellClass = cx(CELL_BASE, availBg, selectedHighlight);
 
@@ -416,7 +438,7 @@ function GridCell({
     ? `${assignment.role.toLowerCase()} on ${displayD}`
     : `unassigned on ${displayD}`;
   // Encode availability in the accessible label so it is not conveyed by the
-  // muted background color alone. Same for the incoming state, which the row
+  // cell's color alone. Same for the incoming state, which the row
   // header otherwise carries only as a colored chip.
   const availLabel = isAvailable ? "" : ", unavailable";
   const incomingLabel = row.status === "incoming" ? ", incoming" : "";
@@ -433,18 +455,15 @@ function GridCell({
     </span>
   );
 
-  // A cell nothing can be done to: an archived term (read-only), a row nothing
-  // can be assigned to -- a former member, whose existing shifts are still
-  // actionable below, or an incoming applicant with no Hub account -- or a
-  // non-shadow assignment while the grid is in shadow mode, where role changes
-  // belong to the Day view. All four render the same inert cell; only the
-  // explanation in the label differs.
+  // A cell nothing can be done to: an archived term (read-only), an empty cell
+  // on a former member's row (their existing shifts are still actionable below),
+  // or a non-shadow assignment while the grid is in shadow mode, where role
+  // changes belong to the Day view. All three render the same inert cell; only
+  // the explanation in the label differs.
   const inertReason = !board.editable
     ? "read-only"
     : !row.assignable && !assignment
-      ? row.status === "former"
-        ? "former member"
-        : "cannot be scheduled yet"
+      ? "former member"
       : mode === "shadow" && assignment && assignment.role !== "SHADOW"
         ? "role change via Day view"
         : null;
@@ -521,8 +540,9 @@ export function BuilderGrid({
       name: m.person.name,
       kind: m.kind,
       status: m.provisional ? ("incoming" as const) : ("member" as const),
-      // An incoming applicant with no Hub account has nothing to hang a shift on.
-      assignable: m.provisional === null || m.provisional.placeable,
+      // Members and incoming people alike, first-time applicants included: the
+      // service keeps their drafts against the acceptance until roster build.
+      assignable: true,
       availabilityDates: m.availability.dates,
     }));
 
@@ -635,17 +655,9 @@ export function BuilderGrid({
                       {row.status === "incoming" && (
                         // Accepted into this department but not built onto the
                         // roster yet. The columns are ~52px, so the chip is the
-                        // short one and the detail (which stage, and why an
-                        // unlinked applicant cannot be scheduled) lives on the
-                        // Day and availability views, which have room for it.
-                        <Badge
-                          tone="warning"
-                          title={
-                            row.assignable
-                              ? "Accepted; not yet on the roster"
-                              : "Accepted; cannot be scheduled until they are added to the roster"
-                          }
-                        >
+                        // short one and the stage lives on the Day and
+                        // availability views, which have room for it.
+                        <Badge tone="warning" title={PROVISIONAL_BADGE_TITLE}>
                           {PROVISIONAL_BADGE_LABEL}
                         </Badge>
                       )}

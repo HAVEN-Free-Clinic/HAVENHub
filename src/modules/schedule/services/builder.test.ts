@@ -29,6 +29,8 @@ import {
   canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
+  assignmentsFor,
+  boardRevision,
   setPatientsBooked,
   setProceduresBooked,
   setAvailabilityOverride,
@@ -2728,7 +2730,6 @@ describe("incoming members", () => {
     expect(row?.provisional).toEqual({
       acceptanceId: expect.any(String),
       stage: "ACCEPTED",
-      placeable: true,
     });
     expect(row?.membershipId).toBeNull();
     // The tier the availability view labels "Application", which is the literal
@@ -2741,7 +2742,7 @@ describe("incoming members", () => {
     ]);
   });
 
-  it("shows a first-time accepted applicant as a row nothing can be assigned to", async () => {
+  it("keys a first-time accepted applicant's row on their acceptance", async () => {
     const { dates, next, dept, director } = await planningFixture();
     const { acceptance } = await createAcceptedApplicant({
       termId: next.id,
@@ -2758,7 +2759,7 @@ describe("incoming members", () => {
     });
 
     const row = view.members.find((m) => m.person.name === "Nora Newcomer");
-    expect(row?.provisional?.placeable).toBe(false);
+    expect(row?.provisional?.acceptanceId).toBe(acceptance.id);
     // No Person exists, so the row carries the synthetic acceptance-scoped id.
     // It must not collide with anything a shift could be keyed on.
     expect(row?.person.id).toBe(provisionalRowId(acceptance.id));
@@ -2950,5 +2951,173 @@ describe("incoming members", () => {
     });
     expect(JSON.stringify(view.banner)).not.toContain("Rita Returner");
     expect(view.clearedPersonIds).not.toContain(returner.id);
+  });
+
+  // A first-time applicant has no Person until roster build, so their drafts are
+  // kept against the acceptance (IncomingShiftAssignment) and adopted by
+  // promoteContracts. Everything a director does to a returner's row must work
+  // on theirs.
+  describe("first-time applicants", () => {
+    /** An accepted applicant who applied signed out, so has no Person. */
+    async function newcomerFixture() {
+      const fixture = await planningFixture();
+      const { acceptance, application } = await createAcceptedApplicant({
+        termId: fixture.next.id,
+        departmentCode: fixture.dept.code,
+        name: "Nora Newcomer",
+        approvedById: fixture.director.id,
+        availability: [isoDateKey(fixture.dates[0])],
+      });
+      return { ...fixture, acceptance, application, rowId: provisionalRowId(acceptance.id) };
+    }
+
+    it("drafts a shift on their row without touching the real schedule", async () => {
+      const { dates, next, dept, director, acceptance, rowId } = await newcomerFixture();
+      const dk = isoDateKey(dates[0]);
+
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: dk,
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+
+      expect(
+        await prisma.incomingShiftAssignment.count({ where: { acceptanceId: acceptance.id } }),
+      ).toBe(1);
+      // Inert until roster build: nothing any outbound path reads.
+      expect(await prisma.shiftAssignment.count({ where: { termId: next.id } })).toBe(0);
+
+      const view = await builderView(director.id, {
+        departmentId: dept.id,
+        termId: next.id,
+        dateKey: dk,
+        now: dates[0],
+      });
+      expect(view.assignmentsByDate[dk]?.[rowId]).toMatchObject({
+        role: "VOLUNTEER",
+        person: { name: "Nora Newcomer" },
+      });
+      // Counts toward "is this Saturday staffed", as a returner's draft does.
+      expect(view.capacity.headcount).toBe(1);
+      // Uncleared by definition, and no Hub account to mail yet.
+      expect(JSON.stringify(view.banner)).not.toContain("Nora Newcomer");
+      expect(view.shiftEmails).toEqual([]);
+    });
+
+    // A second director's screen learns about changes through boardRevision and
+    // assignmentsFor. Watching ShiftAssignment alone would leave it blind here.
+    it("serves the draft to the live board and moves its revision", async () => {
+      const { dates, next, dept, director, rowId } = await newcomerFixture();
+      const dk = isoDateKey(dates[0]);
+      const before = await boardRevision(next.id, dept.id);
+
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: dk,
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+
+      expect(await boardRevision(next.id, dept.id)).not.toBe(before);
+      expect((await assignmentsFor(next.id, dept.id))[dk]?.[rowId]?.role).toBe("VOLUNTEER");
+    });
+
+    it("toggles a tag on a draft and clears the draft again", async () => {
+      const { dates, next, dept, director, acceptance, rowId } = await newcomerFixture();
+      const cell = {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: rowId,
+      };
+
+      await setAssignment(director.id, { ...cell, role: "VOLUNTEER" });
+      await toggleTag(director.id, { ...cell, tag: "remote" });
+      const draft = await prisma.incomingShiftAssignment.findFirstOrThrow({
+        where: { acceptanceId: acceptance.id },
+      });
+      expect(draft.remote).toBe(true);
+
+      await setAssignment(director.id, { ...cell, role: null });
+      expect(
+        await prisma.incomingShiftAssignment.count({ where: { acceptanceId: acceptance.id } }),
+      ).toBe(0);
+    });
+
+    // Withdrawal leaves the acceptance in place, so the draft is still in the
+    // table. It must stop counting and stop showing along with the person's row.
+    it("refuses a new draft once the application is withdrawn, and hides the old one", async () => {
+      const { dates, next, dept, director, application, rowId } = await newcomerFixture();
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+      await prisma.application.update({
+        where: { id: application.id },
+        data: { status: "WITHDRAWN" },
+      });
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[1]),
+          personId: rowId,
+          role: "VOLUNTEER",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+
+      const view = await builderView(director.id, {
+        departmentId: dept.id,
+        termId: next.id,
+        dateKey: isoDateKey(dates[0]),
+        now: dates[0],
+      });
+      expect(view.assignmentsByDate[isoDateKey(dates[0])]?.[rowId]).toBeUndefined();
+      expect(view.capacity.headcount).toBe(0);
+    });
+
+    // Scope is checked against the department the write names, so the
+    // acceptance has to be into THAT department too, or a director could place
+    // another department's newcomer on their own board.
+    it("refuses an acceptance into a different department", async () => {
+      const { dates, next, dept, director } = await planningFixture();
+      const { acceptance } = await createAcceptedApplicant({
+        termId: next.id,
+        departmentCode: "JCTS",
+        name: "Olga Other",
+        approvedById: director.id,
+      });
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[0]),
+          personId: provisionalRowId(acceptance.id),
+          role: "VOLUNTEER",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+    });
+
+    it("refuses the DIRECTOR role on a volunteer-track acceptance", async () => {
+      const { dates, next, dept, director, rowId } = await newcomerFixture();
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[0]),
+          personId: rowId,
+          role: "DIRECTOR",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+    });
   });
 });

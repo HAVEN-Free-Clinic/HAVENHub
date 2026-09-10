@@ -414,6 +414,7 @@ model Term {
   /// Offboard flags raised for this term.
   offboardFlags         OffboardFlag[]
   shiftAssignments      ShiftAssignment[]
+  incomingShifts        IncomingShiftAssignment[]
   triageChats           TriageChat[]
   clinicAttendances     ClinicAttendance[]
   shiftRequests         ShiftRequest[]
@@ -471,6 +472,7 @@ model Department {
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations       DepartmentDelegation[]       @relation("delegationManaged")
   shiftAssignments           ShiftAssignment[]
+  incomingShifts             IncomingShiftAssignment[]
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
   schedulePublications       SchedulePublication[]
@@ -1676,6 +1678,43 @@ model ShiftAssignment {
   @@index([personId, termId])
 }
 
+/// A draft shift for someone accepted into a department who has no Person yet:
+/// a first-time applicant, whose Hub account is created at roster build.
+///
+/// ShiftAssignment is keyed on a person, so these are keyed on the ACCEPTANCE
+/// instead. promoteContracts moves them onto ShiftAssignment in the same
+/// transaction that creates the person and their membership, so there is no
+/// moment where someone is on the roster but their drafted Saturdays are not.
+///
+/// Inert by construction until then: shift reminders, check-in invites, the
+/// clinic-wide schedule, and the calendar feed all read ShiftAssignment and
+/// never this table. Only the schedule builder does.
+///
+/// Cascade on every relation: a draft is scaffolding, not history. A rescinded
+/// acceptance takes its drafts with it, which is the behavior a director wants.
+model IncomingShiftAssignment {
+  id           String     @id @default(cuid())
+  acceptanceId String
+  termId       String
+  departmentId String
+  /// Same anchoring as ShiftAssignment.clinicDate: 12:00 UTC, compare by day key.
+  clinicDate   DateTime
+  role         ShiftRole
+  triage       Boolean    @default(false)
+  walkin       Boolean    @default(false)
+  cc           Boolean    @default(false)
+  remote       Boolean    @default(false)
+  specialty    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  acceptance   Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
+  term         Term       @relation(fields: [termId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([acceptanceId, clinicDate])
+  @@index([termId, departmentId])
+}
+
 /// Swap/drop requests against the schedule. Drop when targetId/targetDate are
 /// null; named swap otherwise. Approval re-validates and applies transactionally.
 /// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a partial unique index
@@ -2710,6 +2749,8 @@ model Acceptance {
   application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   approvedBy  Person              @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   contract    OnboardingContract?
+  /// Draft shifts placed before roster build, for an applicant with no Person yet.
+  incomingShifts IncomingShiftAssignment[]
 
   @@unique([applicationId, departmentCode])
   @@index([applicationId])

@@ -239,10 +239,17 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
             {currentView && currentView.departmentChoices.length > 0 && (
               <span className="min-w-0 break-words [overflow-wrap:anywhere] text-muted-foreground">Prefs: {currentView.departmentChoices.join(", ")}</span>
             )}
-            <label className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <Checkbox checked={includeScored} onChange={(e) => toggleShowScored(e.target.checked)} />
-              Show scored
-            </label>
+            {/* Positioning and ink stay on a wrapper so the primitive owns the
+                row. text-muted-foreground still cascades in: the row sets no
+                colour of its own. */}
+            <span className="ml-auto shrink-0 text-muted-foreground">
+              <Checkbox
+                size="xs"
+                label="Show scored"
+                checked={includeScored}
+                onChange={(e) => toggleShowScored(e.target.checked)}
+              />
+            </span>
           </div>
 
           {saveError && <Alert tone="error">{saveError}</Alert>}

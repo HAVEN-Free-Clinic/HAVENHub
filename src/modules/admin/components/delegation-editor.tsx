@@ -1,5 +1,5 @@
 import { Button } from "@/platform/ui/button";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -34,15 +34,27 @@ export function DelegationEditor({
         {candidates.length === 0 ? (
           <EmptyState inline>No other active departments to delegate to.</EmptyState>
         ) : (
-          <div className="grid gap-1 sm:grid-cols-2">
-            {candidates.map((c) => (
-              <label key={c.id} className="flex items-center gap-2 text-sm">
-                <Checkbox name="managed" value={c.id} defaultChecked={selected.has(c.id)} />
-                <span className="font-medium">{c.code}</span>
-                <span className="text-muted-foreground">{c.name}</span>
-              </label>
-            ))}
-          </div>
+          // hideLegend: the two paragraphs above already carry the visible
+          // meaning, but neither is associated with the checkboxes, so a screen
+          // reader met an unnamed run of departments.
+          <CheckboxGroup legend="Managed departments" hideLegend>
+            <div className="grid gap-1 sm:grid-cols-2">
+              {candidates.map((c) => (
+                <Checkbox
+                  key={c.id}
+                  name="managed"
+                  value={c.id}
+                  defaultChecked={selected.has(c.id)}
+                  label={
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium">{c.code}</span>
+                      <span className="text-muted-foreground">{c.name}</span>
+                    </span>
+                  }
+                />
+              ))}
+            </div>
+          </CheckboxGroup>
         )}
         <FormActions>
           <Button type="submit" variant="outline">Save delegations</Button>

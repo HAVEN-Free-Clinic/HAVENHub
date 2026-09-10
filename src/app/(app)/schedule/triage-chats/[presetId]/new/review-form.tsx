@@ -73,25 +73,19 @@ export function ReviewForm({
             {entries.map((entry) => {
               const unresolved = !entry.userId;
               return (
-                <label
+                <Checkbox
                   key={entry.member.personId}
-                  className="flex items-start gap-2 text-sm"
-                >
-                  <Checkbox
-                    name="includePersonIds"
-                    value={entry.member.personId}
-                    defaultChecked={!unresolved}
-                    disabled={unresolved}
-                  />
-                  <span>
-                    {entry.member.name}
-                    {unresolved && (
-                      <span className="block text-xs text-muted-foreground">
-                        Cannot be added automatically: {entry.reason}
-                      </span>
-                    )}
-                  </span>
-                </label>
+                  name="includePersonIds"
+                  value={entry.member.personId}
+                  defaultChecked={!unresolved}
+                  disabled={unresolved}
+                  label={entry.member.name}
+                  // The primitive's hint IS this block span, and it brings the
+                  // items-start the hand-rolled row was setting by hand.
+                  hint={
+                    unresolved ? `Cannot be added automatically: ${entry.reason}` : undefined
+                  }
+                />
               );
             })}
           </div>

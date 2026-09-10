@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { X } from "lucide-react";
 import { cx } from "./cx";
 
 export type MultiComboboxOption = {
@@ -150,10 +151,21 @@ export function MultiCombobox({
               <button
                 type="button"
                 aria-label={`Remove ${label}`}
-                className="ml-0.5 text-base leading-none text-brand-fg/60 hover:text-brand-fg"
+                // The bare glyph's own box was ~16px, under WCAG 2.2 SC 2.5.8's
+                // 24px floor, and these chips sit shoulder to shoulder, so a
+                // mis-tap removed the NEIGHBOURING department. It also had no
+                // focus rule at all, so keyboard users got the browser default.
+                //
+                // -my-1, not -my-0.5: the chip's flex line is 16px (the label's
+                // text-xs line-height), so a 24px button needs 4px cancelled
+                // per side to keep its margin box at 16 and leave the chip at
+                // 20px. -my-0.5 would leave a 20px margin box and grow every
+                // chip by 4px, which on the wrapped chip rows of
+                // recruitment/cycles/[id] is a visible shift.
+                className="-my-1 ml-0.5 inline-flex min-h-6 min-w-6 items-center justify-center rounded-md text-brand-fg/60 hover:text-brand-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                 onClick={() => remove(v)}
               >
-                ×
+                <X aria-hidden className="h-3 w-3" />
               </button>
             </span>
           );

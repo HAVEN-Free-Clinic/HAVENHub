@@ -310,10 +310,14 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
 
       {handledInTiers > 0 && (
         <div className="flex justify-end">
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Checkbox checked={showHandled} onChange={(e) => setShowHandled(e.target.checked)} />
-            Show handled ({handledInTiers})
-          </label>
+          <span className="text-muted-foreground">
+            <Checkbox
+              size="xs"
+              label={`Show handled (${handledInTiers})`}
+              checked={showHandled}
+              onChange={(e) => setShowHandled(e.target.checked)}
+            />
+          </span>
         </div>
       )}
 

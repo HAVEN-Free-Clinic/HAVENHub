@@ -120,10 +120,12 @@ export function ApplyPreview({
             </span>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
               {departments.map((code) => (
-                <label key={code} className="flex items-center gap-2 text-sm text-foreground">
-                  <Checkbox checked={selectedDepartments.includes(code)} onChange={() => toggleDepartment(code)} />
-                  {code}
-                </label>
+                <Checkbox
+                  key={code}
+                  label={code}
+                  checked={selectedDepartments.includes(code)}
+                  onChange={() => toggleDepartment(code)}
+                />
               ))}
             </div>
           </div>

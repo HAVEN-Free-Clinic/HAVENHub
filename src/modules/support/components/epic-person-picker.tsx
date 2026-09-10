@@ -13,7 +13,7 @@ import { X } from "lucide-react";
 import type { DepartmentWithMembers, MemberLite } from "@/modules/support/services/itcm";
 import { Select } from "@/platform/ui/select";
 import { Field } from "@/platform/ui/input";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { Button } from "@/platform/ui/button";
 
 type QuickAdd = { id: string; name: string | null };
@@ -71,15 +71,29 @@ export function EpicPersonPicker({
       </Field>
 
       {members.length > 0 && (
-        <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-          {members.map((m) => (
-            <label key={m.id} className="flex items-center gap-2 text-sm">
-              <Checkbox checked={selected.has(m.id)} onChange={() => toggle(m.id, m.name)} />
-              <span>{m.name}</span>
-              {m.epicId && <span className="text-subtle-foreground text-xs">{m.epicId}</span>}
-            </label>
-          ))}
-        </div>
+        // hideLegend: the Department select above is the only thing on screen
+        // that hints at what this list is, and it names nothing to a screen
+        // reader. The styled scroll box stays the untouched child so none of
+        // its classes meet the primitive's.
+        <CheckboxGroup legend="Members to add" hideLegend>
+          <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+            {members.map((m) => (
+              <Checkbox
+                key={m.id}
+                checked={selected.has(m.id)}
+                onChange={() => toggle(m.id, m.name)}
+                label={
+                  <span className="flex items-center gap-2">
+                    {m.name}
+                    {m.epicId && (
+                      <span className="text-xs text-subtle-foreground">{m.epicId}</span>
+                    )}
+                  </span>
+                }
+              />
+            ))}
+          </div>
+        </CheckboxGroup>
       )}
 
       {selected.size > 0 && (

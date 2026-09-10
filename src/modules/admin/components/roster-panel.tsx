@@ -28,7 +28,7 @@ import { PersonSearchPanel } from "./person-search-panel";
 import { Card } from "@/platform/ui/card";
 import { Field } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { EmptyState } from "@/platform/ui/empty-state";
@@ -408,18 +408,18 @@ export async function RosterPanel({
                     ))}
                   </Select>
                 </Field>
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs font-medium text-muted-foreground">Kinds to copy</p>
-                  <div className="flex gap-4 pt-1">
+                {/* The <p> here named the pair on screen and to nobody else. */}
+                <CheckboxGroup legend="Kinds to copy">
+                  <div className="flex gap-4">
                     <Checkbox name="kinds" value="DIRECTOR" defaultChecked label="Directors" />
                     <Checkbox name="kinds" value="VOLUNTEER" defaultChecked label="Volunteers" />
                   </div>
-                </div>
+                </CheckboxGroup>
               </div>
 
-              {/* Departments fieldset */}
-              <fieldset className="space-y-2">
-                <legend className="text-xs font-medium text-muted-foreground">Departments</legend>
+              {/* Departments. This block hand-rolled the exact fieldset/legend
+                  recipe CheckboxGroup now owns, class for class. */}
+              <CheckboxGroup legend="Departments">
                 <Checkbox name="allDepartments" label="All departments" />
                 <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-4">
                   {allActiveDepts.map((dept) => (
@@ -427,7 +427,7 @@ export async function RosterPanel({
                   ))}
                 </div>
                 <p className="text-xs text-subtle-foreground">Check All departments, or pick specific ones.</p>
-              </fieldset>
+              </CheckboxGroup>
 
               <ConfirmButton label="Copy roster" confirmLabel="Copy the roster from the selected term?" />
             </form>

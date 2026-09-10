@@ -5,7 +5,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { FormActions } from "@/platform/ui/form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { notFound } from "next/navigation";
@@ -78,27 +78,39 @@ export default async function EditEhsTrainingPage({
           <SectionHeader level="title">Department scope</SectionHeader>
           <form action={setTrainingDepartmentsAction}>
             <input type="hidden" name="trainingId" value={training.id} />
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                When not required for all, choose the departments this training applies to.
-              </p>
-              <div className="grid grid-cols-2 gap-1 text-sm">
-                {departments.map((d) => (
-                  <Checkbox
-                    key={d.id}
-                    name="departmentIds"
-                    value={d.id}
-                    defaultChecked={assigned.has(d.id)}
-                    label={
-                      <>
-                        {d.name}
-                        {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
-                      </>
-                    }
-                  />
-                ))}
+            {/* hideLegend: the visible SectionHeader above already says
+                "Department scope" on screen, so a second visible copy reads as
+                a stutter. The legend is what names the group to a screen
+                reader, which the SectionHeader does not. */}
+            <CheckboxGroup legend="Department scope" hideLegend>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  When not required for all, choose the departments this training applies to.
+                </p>
+                {/* One column until sm: a full department name ("Care
+                    Coordination: Reproductive Health") does not fit in a ~170px
+                    column at 375px. Byte-identical to the same list on
+                    learning/manage/[courseId]. */}
+                <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+                  {departments.map((d) => (
+                    <Checkbox
+                      key={d.id}
+                      name="departmentIds"
+                      value={d.id}
+                      defaultChecked={assigned.has(d.id)}
+                      label={
+                        <>
+                          {d.name}
+                          {!d.isActive && (
+                            <span className="text-muted-foreground"> (inactive)</span>
+                          )}
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
+            </CheckboxGroup>
             <FormActions>
               <SubmitButton>Save departments</SubmitButton>
             </FormActions>

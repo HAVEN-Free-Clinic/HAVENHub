@@ -25,7 +25,8 @@ All primitives live under `src/platform/ui/`. Import from the aliased path `@/pl
 | `Field` | `@/platform/ui/input` | Wraps a control with an accessible label and optional hint. The label element wraps the child so no `id`/`htmlFor` pair is needed. |
 | `ReadonlyField` | `@/platform/ui/input` | Non-editable display row (computed values, IT-managed fields). Renders as styled plain text, not a disabled input. |
 | `Select` | `@/platform/ui/select` | Native `<select>` styled to match Input. |
-| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. Pass `label` (and optional `hint`) for a labelled row; it mirrors `Radio` exactly, so the two agree when they sit in one form. Unlabelled it returns a bare input, for a table cell or a row you compose yourself. `className` goes to the input, never the row. |
+| `Checkbox` | `@/platform/ui/checkbox` | Brand-tinted checkbox with a visible focus ring consistent with buttons. Pass `label` (and optional `hint`) for a labelled row; it mirrors `Radio` exactly, so the two agree when they sit in one form. `size="xs"` gives the denser 24px row for an inline director control strip; see Target size below. Unlabelled it returns a bare input, for a table cell or a row you compose yourself. `className` goes to the input, never the row. |
+| `CheckboxGroup` | `@/platform/ui/checkbox` | Names a set of `Checkbox` options with a real `<fieldset><legend>`. Required `legend` string, optional `hideLegend` when something visible on the page already says it. No `className`: nest a styled `<div>` as the child instead. |
 | `Radio` | `@/platform/ui/radio` | Brand-tinted radio, rendered inside a `<label>` for click-area and accessibility. |
 | `RadioGroup` | `@/platform/ui/radio` | Container for a set of `Radio` options. Accepts an optional `legend` string. |
 
@@ -210,6 +211,19 @@ focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/15
 ```
 
 Both are already baked into the primitives. You only need to add them manually when suppressing the rule for a raw control.
+
+### Target size
+
+WCAG 2.2 SC 2.5.8 sets a 24 by 24 CSS px floor for a pointer target. Two floors are in use here, and the choice between them is not free-form.
+
+| Context | Floor | How |
+|---|---|---|
+| Form rows a member taps: `Checkbox`/`Radio` with a `label`, the member availability pill | 44px | `min-h-11` plus `-my-1`, so the padding buys hit area rather than whitespace |
+| Inline chip and cell controls on dense director surfaces: a chip remove, a condition remove, `Checkbox size="xs"` | 24px | `inline-flex min-h-6 min-w-6 items-center justify-center`, plus a negative `-my-*` cancelling the row's own padding |
+
+A bare glyph is never a target: its own box is about 16px. Put a lucide icon inside a sized `inline-flex` box, and give the box the surface focus ring above.
+
+Size the negative margin against the line the control sits on, not by habit. A 24px box on a `text-xs` (16px line-height) chip needs `-my-1` to leave the chip's height alone; `-my-0.5` there still grows every chip by 4px.
 
 ### Semantic tokens only
 

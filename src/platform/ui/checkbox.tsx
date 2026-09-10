@@ -1,6 +1,11 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cx } from "./cx";
 
+const rowSize = {
+  sm: "-my-1 min-h-11 gap-2 py-1 text-sm",
+  xs: "-my-0.5 min-h-6 gap-1.5 py-0.5 text-xs",
+} as const;
+
 /**
  * Brand-tinted checkbox with the same visible focus ring as Input/Select, so
  * keyboard users get a consistent focus affordance across all form controls.
@@ -40,6 +45,7 @@ export function Checkbox({
   label,
   hint,
   indeterminate,
+  size = "sm",
   className,
   ref,
   ...rest
@@ -48,7 +54,25 @@ export function Checkbox({
   hint?: ReactNode;
   /** Some-but-not-all selected. Wins over `checked` in what the box displays. */
   indeterminate?: boolean;
-} & ComponentProps<"input">) {
+  /**
+   * Row density. `sm` (default) is the 44px member-facing row. `xs` is for a
+   * dense director control strip -- the "Show handled" / "Show scored" toggles
+   * that sit inline in a modal header, the campaign audience builder's Terms
+   * chips -- where a 44px row would restructure the header it sits in. It still
+   * clears SC 2.5.8's 24px floor at min-h-6; it is not a smaller default by
+   * accident, the same considered trade availability-pill.ts records for its
+   * builder pill.
+   *
+   * Checkbox-only for now because no radio group in the app runs at xs. The day
+   * one does, Radio must gain the same prop with the same `Omit` below, and
+   * "uses the same row shape as Radio" in checkbox.test.tsx is what stops the
+   * two quietly diverging in the meantime.
+   */
+  size?: keyof typeof rowSize;
+  // Omit<..., "size">: ComponentProps<"input"> already declares `size?: number`,
+  // and an intersection would collapse the property to `never`, so every
+  // size="xs" would be a tsc error. No call site passes a numeric size.
+} & Omit<ComponentProps<"input">, "size">) {
   // undefined unless there is work to do. TabRow already relies on this shape
   // (`ref={navRef}` with navRef undefined from its server callers), so a ref
   // prop that resolves to undefined is known to be server-safe here; an
@@ -97,10 +121,7 @@ export function Checkbox({
   // subject-picker.tsx use on their small controls.
   return (
     <label
-      className={cx(
-        "-my-1 flex min-h-11 gap-2 py-1 text-sm",
-        hint == null ? "items-center" : "items-start",
-      )}
+      className={cx("flex", rowSize[size], hint == null ? "items-center" : "items-start")}
     >
       {hint == null ? input : <span className="mt-0.5 flex">{input}</span>}
       <span>
@@ -110,5 +131,70 @@ export function Checkbox({
         )}
       </span>
     </label>
+  );
+}
+
+/**
+ * A named group of checkboxes: the shape `RadioGroup` already gives radios.
+ *
+ * Six lists in the app were a bare run of checkboxes under a `<p>`, a `<span>`,
+ * or nothing at all: the EHS department scope, the learning course assignment,
+ * the roster-copy "Kinds to copy" pair, the delegation checklist, the Epic
+ * member picker. A screen reader reached them and read the options with no idea
+ * what question they answered, because a visually adjacent `<p>` associates
+ * nothing.
+ *
+ * A real `<fieldset><legend>`, deliberately, and NOT RadioGroup's
+ * `role="group"` + `aria-labelledby`: fieldset/legend is the native shape for a
+ * checkbox question and needs no id at all, whereas RadioGroup derives its id
+ * from the legend text (radio.tsx) and would emit a DUPLICATE id the moment two
+ * groups shared a legend. "Departments" is exactly the legend two of these
+ * carry.
+ *
+ * The `m-0 border-0 p-0` reset mirrors FormSection in form.tsx. Tailwind's
+ * preflight already zeroes all three on every element, so they are belt and
+ * braces; the legend keeps its own `p-0` for the same reason.
+ *
+ * The gap between the legend and the first option lives in exactly ONE place,
+ * the fieldset's `space-y-2`, and never on the legend as a margin-bottom. Both
+ * at once would double it. That single ownership is also what makes this
+ * class-for-class identical to the fieldset roster-panel.tsx hand-rolled, so
+ * adopting it there is a pure de-duplication with no visual diff.
+ *
+ * `space-y-2` is unconditional, including when the legend is hidden. This repo
+ * is on Tailwind 4, where the utility compiles to
+ * `:where(& > :not(:last-child))` with margin-BLOCK-END -- not v3's
+ * `> :not([hidden]) ~ :not([hidden])` with margin-top. So the margin lands on
+ * every child except the last, which with a hidden legend means it lands on the
+ * legend itself, and `sr-only` is position: absolute, so it has no visual
+ * effect. Skipping the class there would be guarding against a v3 behaviour
+ * this repo does not have.
+ *
+ * Server-safe: no hook and no ref, because this file carries no "use client"
+ * and server components render it (see the Checkbox note above).
+ *
+ * No `className` prop on purpose. A caller class would fight `space-y-2` and
+ * `p-0` on emission order, and this repo has no tailwind-merge. Callers that
+ * need layout nest a styled `<div>` as the child.
+ */
+export function CheckboxGroup({
+  legend,
+  hideLegend,
+  children,
+}: {
+  legend: string;
+  /** Keep the accessible name, drop the visible text. */
+  hideLegend?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset className="m-0 border-0 p-0 space-y-2">
+      <legend
+        className={cx("p-0", hideLegend ? "sr-only" : "text-xs font-medium text-muted-foreground")}
+      >
+        {legend}
+      </legend>
+      {children}
+    </fieldset>
   );
 }

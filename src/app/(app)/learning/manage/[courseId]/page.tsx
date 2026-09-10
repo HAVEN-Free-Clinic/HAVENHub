@@ -6,7 +6,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
-import { Checkbox } from "@/platform/ui/checkbox";
+import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { FormActions } from "@/platform/ui/form";
@@ -110,22 +110,29 @@ export default async function EditCoursePage({
                   <option value="VOLUNTEERS">Volunteers only</option>
                 </Select>
               </Field>
-              <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
-                {departments.map((d) => (
-                  <Checkbox
-                    key={d.id}
-                    name="departmentIds"
-                    value={d.id}
-                    defaultChecked={assignedDeptIds.has(d.id)}
-                    label={
-                      <>
-                        {d.name}
-                        {!d.isActive && <span className="text-muted-foreground"> (inactive)</span>}
-                      </>
-                    }
-                  />
-                ))}
-              </div>
+              {/* Visible legend: this card's title is "Assignment" and it holds
+                  three unrelated controls, so the department list earns its own
+                  name on screen as well as in the accessibility tree. */}
+              <CheckboxGroup legend="Departments">
+                <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+                  {departments.map((d) => (
+                    <Checkbox
+                      key={d.id}
+                      name="departmentIds"
+                      value={d.id}
+                      defaultChecked={assignedDeptIds.has(d.id)}
+                      label={
+                        <>
+                          {d.name}
+                          {!d.isActive && (
+                            <span className="text-muted-foreground"> (inactive)</span>
+                          )}
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </CheckboxGroup>
             </div>
             <FormActions>
               <SubmitButton>Save assignment</SubmitButton>

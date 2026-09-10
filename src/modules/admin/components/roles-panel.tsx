@@ -228,15 +228,22 @@ export async function RolesPanel({ roles, pageHref }: RolesPanelProps): Promise<
               <div className="space-y-2">
                 <SectionHeader as="h4">Platform</SectionHeader>
                 <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                  <label className="flex items-center gap-2 text-sm text-foreground-soft">
-                    <Checkbox
-                      name="permissions"
-                      value="*"
-                      defaultChecked={grantedSet.has("*")}
-                    />
-                    <span className="font-mono text-xs">*</span>
-                    <span className="text-xs text-subtle-foreground">(superadmin: all permissions)</span>
-                  </label>
+                  <Checkbox
+                    name="permissions"
+                    value="*"
+                    defaultChecked={grantedSet.has("*")}
+                    // The inner flex span is load-bearing: the primitive wraps
+                    // `label` in ONE span, so two adjacent spans would lose the
+                    // gap-2 between the glyph and its gloss.
+                    label={
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-xs">*</span>
+                        <span className="text-xs text-subtle-foreground">
+                          (superadmin: all permissions)
+                        </span>
+                      </span>
+                    }
+                  />
                 </div>
               </div>
 

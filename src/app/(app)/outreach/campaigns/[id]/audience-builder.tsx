@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { PersonFieldKind, PersonFieldView } from "@/platform/email/audience/person-fields";
 import type {
   Audience,
@@ -367,6 +367,7 @@ function TermScopePicker({
   onChange: (next: AudienceCondition) => void;
 }) {
   const selected = cond.terms ?? [];
+  const termsLabelId = useId();
 
   function toggle(id: string) {
     const next = selected.includes(id) ? selected.filter((t) => t !== id) : [...selected, id];
@@ -376,13 +377,27 @@ function TermScopePicker({
   }
 
   return (
-    <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 pt-2">
-      <span className="text-xs font-medium text-foreground-soft">Terms</span>
+    // The one place CheckboxGroup is deliberately NOT used. This is a
+    // horizontal condition row where "Terms" is an inline item on the same wrap
+    // line as the boxes, so the primitive's stacked fieldset/legend would
+    // restyle it. role="group" + aria-labelledby names it in place instead,
+    // with no layout change.
+    <div
+      role="group"
+      aria-labelledby={termsLabelId}
+      className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 pt-2"
+    >
+      <span id={termsLabelId} className="text-xs font-medium text-foreground-soft">
+        Terms
+      </span>
       {terms.map((t) => (
-        <label key={t.id} className="flex items-center gap-1.5 text-xs">
-          <Checkbox checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
-          {t.label}
-        </label>
+        <Checkbox
+          key={t.id}
+          size="xs"
+          label={t.label}
+          checked={selected.includes(t.id)}
+          onChange={() => toggle(t.id)}
+        />
       ))}
       {selected.length === 0 && (
         <span className="text-xs text-subtle-foreground italic">

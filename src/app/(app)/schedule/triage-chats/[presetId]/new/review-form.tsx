@@ -73,25 +73,27 @@ export function ReviewForm({
             {entries.map((entry) => {
               const unresolved = !entry.userId;
               return (
-                <label
+                <Checkbox
                   key={entry.member.personId}
-                  className="flex items-start gap-2 text-sm"
-                >
-                  <Checkbox
-                    name="includePersonIds"
-                    value={entry.member.personId}
-                    defaultChecked={!unresolved}
-                    disabled={unresolved}
-                  />
-                  <span>
-                    {entry.member.name}
-                    {unresolved && (
-                      <span className="block text-xs text-muted-foreground">
-                        Cannot be added automatically: {entry.reason}
-                      </span>
-                    )}
-                  </span>
-                </label>
+                  name="includePersonIds"
+                  value={entry.member.personId}
+                  defaultChecked={!unresolved}
+                  disabled={unresolved}
+                  label={entry.member.name}
+                  // The primitive's hint IS this block span, and it brings the
+                  // items-start the hand-rolled row was setting by hand.
+                  //
+                  // Composed as nodes rather than a template literal because
+                  // `reason` is optional (member-ids.ts:40). The JSX this
+                  // replaced interpolated {entry.reason}, which React drops when
+                  // it is undefined; a template literal would print the string
+                  // "undefined" to a director instead.
+                  hint={
+                    unresolved ? (
+                      <>Cannot be added automatically{entry.reason ? `: ${entry.reason}` : "."}</>
+                    ) : undefined
+                  }
+                />
               );
             })}
           </div>

@@ -93,7 +93,6 @@ function assertLocalDevDatabase(): void {
 assertLocalDevDatabase();
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   /**
    * Files the build must ship that static tracing cannot discover on its own.
    *

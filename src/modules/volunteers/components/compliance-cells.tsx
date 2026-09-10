@@ -12,34 +12,22 @@ import type { OnboardingTaskKey, OnboardingTaskState } from "@/platform/complian
 import type { MemberCompliance } from "@/modules/volunteers/services/compliance";
 
 /**
- * The compliance columns shared by the two staff rosters.
+ * The compliance columns of the staff roster at /volunteers.
  *
- * /volunteers (a director's own departments) and /volunteers/master (the
- * clinic-wide view) answer the same question about the same people and were
- * built twice, cell for cell. The copies had already drifted: the department
- * roster shipped without the Learning column, so a director could read "Not
- * cleared" with no way to see that Learning was the thing blocking it. Both
- * pages compute `cleared` from the same loadClearanceMap, so the verdict was
- * never wrong; what was missing was the diagnostic beside it.
- *
- * The two pages still differ where they should: /volunteers shows a Role badge
- * (its rows are scoped to one department, so the useful fact is whether this
- * person directs it), /volunteers/master shows Departments (its rows span the
- * clinic). Those cells stay with their pages; everything between the name and
- * the actions comes from here.
+ * There were two rosters of the same people, a director's per-department cards
+ * and the clinic-wide /volunteers/master, built twice cell for cell. The copies
+ * drifted: the department roster shipped without the Learning column, so a
+ * director could read "Not cleared" with no way to see Learning was the
+ * blocker. They are one table now (scoped by viewer, see volunteers/page.tsx),
+ * and everything between its Name/Departments columns and its actions comes
+ * from here.
  */
 
-/** What both rosters carry. MasterComplianceRow already satisfies it; a
- *  MemberCompliance needs only its `kind` mapped to `isVolunteer`. */
+/** A roster row. MasterComplianceRow satisfies it; `isVolunteer` stands in for
+ *  a membership `kind`, which a one-row-per-person roster does not carry. */
 export type ComplianceRowData = Omit<MemberCompliance, "kind"> & {
   isVolunteer: boolean;
 };
-
-/** Adapt a department-roster row to the shared shape. */
-export function asComplianceRow(m: MemberCompliance): ComplianceRowData {
-  const { kind, ...rest } = m;
-  return { ...rest, isVolunteer: kind === "VOLUNTEER" };
-}
 
 export function taskState(
   clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
@@ -54,7 +42,7 @@ export function taskState(
  *
  * Exported as data, not just rendered, because two other things must agree with
  * it and cannot read JSX: a caller computing an empty row's colSpan, and
- * volunteers/master/master-skeleton.tsx, whose whole job is to reserve these
+ * volunteers/roster-skeleton.tsx, whose whole job is to reserve these
  * exact column widths so the Suspense swap does not shift the layout (that page
  * has measured CLS). The skeleton used to retype all eight.
  */

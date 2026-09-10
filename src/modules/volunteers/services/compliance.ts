@@ -273,7 +273,24 @@ export type MasterQuery = {
    * found to verify until the onboarding gate was already holding them.
    */
   termId?: string;
+  /**
+   * The departments the viewer may see, or undefined for the whole clinic. A
+   * department director's roster is this one restricted to the departments
+   * they direct (manageableDepartmentIds), which is what lets /volunteers be one
+   * table for both audiences. A `departmentId` filter outside the scope matches
+   * nothing: a filter narrows, it can never widen what the viewer may see.
+   */
+  scopeDepartmentIds?: string[];
 };
+
+/** The membership department clause: the filter, held inside the scope. */
+function rosterDepartmentWhere(
+  departmentId: string | undefined,
+  scope: string[] | undefined,
+): { departmentId?: string | { in: string[] } } {
+  if (!scope) return departmentId ? { departmentId } : {};
+  return { departmentId: { in: departmentId ? scope.filter((id) => id === departmentId) : scope } };
+}
 
 /**
  * The master view is one row per PERSON, not per membership, so it does not
@@ -340,7 +357,7 @@ async function masterTerm(termId: string | undefined) {
 export async function masterCompliance(
   query: MasterQuery
 ): Promise<MasterComplianceResult> {
-  const { status, departmentId, q, page = 1, pageSize = 25, sort } = query;
+  const { status, departmentId, q, page = 1, pageSize = 25, sort, scopeDepartmentIds } = query;
 
   // 1. Find the term being shown: live by default, next when asked for.
   const shownTerm = await masterTerm(query.termId);
@@ -358,12 +375,13 @@ export async function masterCompliance(
   }
 
   // 2. Fetch ALL ACTIVE memberships in the active term (optionally narrowed by
-  //    departmentId), with person + their certs, in one query.
+  //    departmentId, and held to the viewer's scope), with person + their certs,
+  //    in one query.
   const memberships = await prisma.termMembership.findMany({
     where: {
       termId: shownTerm.id,
       status: "ACTIVE",
-      ...(departmentId ? { departmentId } : {}),
+      ...rosterDepartmentWhere(departmentId, scopeDepartmentIds),
     },
     include: {
       department: true,

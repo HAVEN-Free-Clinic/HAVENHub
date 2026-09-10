@@ -47,8 +47,8 @@ function StatCardSkeleton({ label }: { label: string }) {
 }
 
 /**
- * Loading placeholder for everything below the master compliance page header:
- * the summary cards, the filter bar and the roster table.
+ * Loading placeholder for everything below the compliance roster's page header
+ * (/volunteers): the summary cards, the filter bar and the roster table.
  *
  * The whole point is that nothing in here is interactive. The route's dead
  * clicks cluster five to fifteen seconds after load, on controls that had
@@ -57,10 +57,10 @@ function StatCardSkeleton({ label }: { label: string }) {
  * control, visibly says "loading". So the filter fields are Skeleton blocks
  * rather than real <Input>/<Select> elements, and the rows carry no buttons.
  */
-export function MasterComplianceSkeleton() {
+export function ComplianceRosterSkeleton() {
   return (
-    <div role="status" aria-label="Loading the master compliance roster">
-      <span className="sr-only">Loading the master compliance roster</span>
+    <div role="status" aria-label="Loading the compliance roster">
+      <span className="sr-only">Loading the compliance roster</span>
 
       {/* Summary stat cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

@@ -19,7 +19,8 @@ type PageProps = {
 export default async function PeopleListPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_people");
 
-  const { q, status, page: pageStr } = await searchParams;
+  const sp = await searchParams;
+  const { q, status, page: pageStr } = sp;
 
   // "All statuses" uses a non-empty ALL sentinel, not "": NavForm strips empty
   // fields from the querystring, so an empty value read as "no param" (first load)
@@ -66,15 +67,6 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
     _membershipCount: membershipCountMap.get(r.id) ?? 0,
     verifiedLanguages: verifiedLanguages.get(r.id) ?? [],
   }));
-
-  function hrefFor(p: number): string {
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    // Preserve explicit empty status (All statuses) in pagination links.
-    if (status !== undefined) params.set("status", status);
-    params.set("page", String(p));
-    return `/admin/people?${params.toString()}`;
-  }
 
   const effectiveStatus = status ?? "ACTIVE";
   // One boolean for the Clear link AND the empty state, so the list can never
@@ -133,7 +125,9 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
 
       <PeopleTable rows={rowsWithCounts} filtered={filtered} />
 
-      <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
+      {/* A present-but-empty `status` is preserved by pageHref, which is what
+          keeps "All statuses" surviving a page change. */}
+      <Pagination page={page} pageCount={pageCount} basePath="/admin/people" params={sp} />
     </div>
   );
 }

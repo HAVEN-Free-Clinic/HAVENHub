@@ -104,17 +104,6 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  function buildHref(targetPage: number): string {
-    const params = new URLSearchParams();
-    if (status) params.set("status", status);
-    if (concernType) params.set("concernType", concernType);
-    if (immediateRisk) params.set("immediateRisk", "on");
-    if (strikePending) params.set("strikePending", "on");
-    if (q) params.set("q", q);
-    params.set("page", String(targetPage));
-    return `/incidents/review?${params.toString()}`;
-  }
-
   const hasFilters = Boolean(status || concernType || immediateRisk || strikePending || q);
 
   return (
@@ -236,7 +225,12 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
 
             {rows.length > 0 && (
               <div className="mt-4">
-                <Pagination page={page} pageCount={pageCount} hrefFor={buildHref} />
+                <Pagination
+                  page={page}
+                  pageCount={pageCount}
+                  basePath="/incidents/review"
+                  params={sp}
+                />
               </div>
             )}
           </>

@@ -74,17 +74,6 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
     ...(await loadClearedSet(canSeeClearance ? rows.map((r) => r.requester.id) : [])),
   ];
 
-  function hrefFor(targetPage: number): string {
-    const params = new URLSearchParams();
-    if (sp.status) params.set("status", sp.status);
-    if (sp.category) params.set("category", sp.category);
-    if (sp.priority) params.set("priority", sp.priority);
-    if (sp.assignee) params.set("assignee", sp.assignee);
-    if (sp.q) params.set("q", sp.q);
-    params.set("page", String(targetPage));
-    return `/support/all?${params.toString()}`;
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader title="All requests" description="Every IT Support request across the clinic." />
@@ -103,7 +92,7 @@ export default async function AllRequestsPage({ searchParams }: PageProps) {
         // linked row deep-links there instead of opening the Messenger.
         intercomAction={isIntercomConfigured() ? "inbox" : undefined}
       />
-      <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
+      <Pagination page={page} pageCount={pageCount} basePath="/support/all" params={sp} />
     </div>
   );
 }

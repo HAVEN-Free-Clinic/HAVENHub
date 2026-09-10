@@ -14,7 +14,8 @@ type PageProps = {
 export default async function AuditPage({ searchParams }: PageProps) {
   await requirePermission("admin.view_audit");
 
-  const { action, entityType, page: pageStr } = await searchParams;
+  const sp = await searchParams;
+  const { action, entityType, page: pageStr } = sp;
 
   const pageNum = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
   // One boolean for the Clear link and the empty state, so the log cannot offer
@@ -29,14 +30,6 @@ export default async function AuditPage({ searchParams }: PageProps) {
     }),
     distinctEntityTypes(),
   ]);
-
-  function hrefFor(p: number): string {
-    const params = new URLSearchParams();
-    if (action) params.set("action", action);
-    if (entityType) params.set("entityType", entityType);
-    params.set("page", String(p));
-    return `/admin/audit?${params.toString()}`;
-  }
 
   return (
     <div className="space-y-6">
@@ -75,7 +68,7 @@ export default async function AuditPage({ searchParams }: PageProps) {
 
       <AuditTable rows={rows} filtered={filtered} />
 
-      <Pagination page={page} pageCount={pageCount} hrefFor={hrefFor} />
+      <Pagination page={page} pageCount={pageCount} basePath="/admin/audit" params={sp} />
     </div>
   );
 }

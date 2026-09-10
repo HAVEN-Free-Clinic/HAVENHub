@@ -108,7 +108,11 @@ export default async function LearningDashboardPage({
           <Pagination
             page={page}
             pageCount={pageCount}
-            hrefFor={(p) => `/learning/dashboard?course=${encodeURIComponent(selected)}&page=${p}`}
+            basePath="/learning/dashboard"
+            // `course` is pinned rather than passed through: it defaults to the
+            // first course when absent, and a page link that dropped it would
+            // silently re-default if the course list ever reordered.
+            params={{ ...sp, course: selected }}
           />
         )}
       </div>

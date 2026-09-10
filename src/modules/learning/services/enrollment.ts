@@ -173,6 +173,15 @@ export type MyCourseRow = {
   title: string;
   description: string | null;
   status: LearnerStatus;
+  /**
+   * Whether the course has to be retaken every term. Already in the select
+   * below (splitByRecurrence needs it), and carried out to the caller so a
+   * learner-facing list can badge it without a second round trip. /learning used
+   * to fetch it in a separate query of its own (getCourseRecurrenceById, now
+   * gone), which is why the onboarding list at /get-started/learning, the one a
+   * member actually reads while taking the courses, silently went without it.
+   */
+  recurrence: CourseRecurrence;
 };
 
 export async function getMyCourses(personId: string, termId?: string): Promise<MyCourseRow[]> {
@@ -225,7 +234,7 @@ export async function getMyCourses(personId: string, termId?: string): Promise<M
     const status: LearnerStatus = !p
       ? "NOT_STARTED"
       : deriveStatus(p.lessonStatus).status;
-    return { id: c.id, title: c.title, description: c.description, status };
+    return { id: c.id, title: c.title, description: c.description, status, recurrence: c.recurrence };
   });
 }
 

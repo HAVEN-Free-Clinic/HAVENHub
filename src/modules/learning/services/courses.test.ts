@@ -8,7 +8,6 @@ import {
   setCourseAssignment,
   listCourses,
   getCourseForEdit,
-  getCourseRecurrenceById,
 } from "./courses";
 
 async function seed() {
@@ -94,17 +93,3 @@ it("updateCourse with omitted recurrence does not revert a course back to ONCE",
   expect(updated.recurrence).toBe("PER_TERM");
 });
 
-it("getCourseRecurrenceById maps recurrence per course id", async () => {
-  const { manager } = await seed();
-  const once = await createCourse({ title: "Once course" }, manager.id);
-  const perTerm = await createCourse({ title: "Per-term course" }, manager.id);
-  await updateCourse(perTerm.id, { title: "Per-term course", recurrence: "PER_TERM" }, manager.id);
-  const map = await getCourseRecurrenceById([once.id, perTerm.id]);
-  expect(map[once.id]).toBe("ONCE");
-  expect(map[perTerm.id]).toBe("PER_TERM");
-});
-
-it("getCourseRecurrenceById returns an empty map for no ids", async () => {
-  const map = await getCourseRecurrenceById([]);
-  expect(map).toEqual({});
-});

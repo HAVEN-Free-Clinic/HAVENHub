@@ -14,7 +14,11 @@ function training(trackLabel: string, termName: string, state: "COMPLETE" | "PEN
 }
 
 function course(title: string, status: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETE") {
-  return { id: title, title, description: null, status };
+  // `recurrence` rides along on MyCourseRow now. `mocked()` casts to an untyped
+  // Mock so tsc would not have caught its absence; the fake matches the real row
+  // anyway, because a fixture that has quietly stopped resembling the thing it
+  // stands in for is how a mocked test starts proving nothing.
+  return { id: title, title, description: null, status, recurrence: "ONCE" as const };
 }
 
 beforeEach(() => {

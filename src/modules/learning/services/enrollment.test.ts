@@ -522,3 +522,21 @@ it("getMyCourses still lists a ONCE course for a next term, where a completion d
   const rows = await getMyCourses(learner.id, next.id);
   expect(rows.find((r) => r.id === course.id)?.status).toBe("NOT_STARTED");
 });
+
+// --- Recurrence rides out on the row, so a list can badge it ---
+//
+// The badge is a pure function of this field. Before it was here, the only page
+// that showed "Retake each term" bought the fact with a second query of its own,
+// and the onboarding list at /get-started/learning simply did without.
+
+it("getMyCourses carries each course's recurrence out to the caller", async () => {
+  const { learner, course } = await seedAcrossTerms("PER_TERM");
+  const perTerm = (await getMyCourses(learner.id)).find((r) => r.id === course.id);
+  expect(perTerm?.recurrence).toBe("PER_TERM");
+});
+
+it("getMyCourses reports ONCE for a course that is not retaken", async () => {
+  const { learner, course } = await seedAcrossTerms("ONCE");
+  const once = (await getMyCourses(learner.id)).find((r) => r.id === course.id);
+  expect(once?.recurrence).toBe("ONCE");
+});

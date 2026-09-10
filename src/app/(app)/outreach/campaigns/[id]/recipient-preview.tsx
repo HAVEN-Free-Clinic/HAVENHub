@@ -9,7 +9,7 @@ import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
-import { SubmitButton } from "./submit-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { useFormDirty } from "./use-form-dirty";
 import type { FormProblems } from "./form-state";
 import { FormRow, ROW_WIDTH } from "@/platform/ui/form";

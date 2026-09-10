@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { Alert } from "@/platform/ui/alert";
-import { SubmitButton } from "./submit-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import type { FormProblems } from "./form-state";
 
 /**

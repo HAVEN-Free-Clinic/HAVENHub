@@ -37,7 +37,7 @@ import { getSetting } from "@/platform/settings/service";
 import type { EmailStatus, EmailSenderScope } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Input } from "@/platform/ui/input";
 import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
@@ -320,9 +320,9 @@ export default async function EmailPage({ searchParams }: PageProps) {
           )}
         </div>
         <form action={connectMailerAction}>
-          <Button type="submit" variant="outline">
+          <SubmitButton variant="outline" pendingLabel="Redirecting…">
             {mailConn.connected ? "Reconnect" : "Connect mailbox"}
-          </Button>
+          </SubmitButton>
         </form>
       </Card>
       {mailConn.connected && !mailConn.healthy && (
@@ -375,12 +375,19 @@ export default async function EmailPage({ searchParams }: PageProps) {
                   aria-label={`${cat.label} display name`}
                 />
               </div>
-              <Button type="submit" variant="outline" size="sm">
+              {/* Both buttons post this one form (Send test overrides the action
+                  via formAction), and useFormStatus reports the FORM's pending
+                  state, not the clicked button's. So neither may swap to a verb:
+                  "Saving…" sitting next to an in-flight test send states the
+                  wrong thing about what the server is doing. Each button keeps
+                  its own word as its pendingLabel, and the spinner, the disabled
+                  state and aria-busy carry the feedback instead. */}
+              <SubmitButton variant="outline" size="sm" pendingLabel="Save">
                 Save
-              </Button>
-              <Button type="submit" formAction={testSenderAction} variant="ghost" size="sm">
+              </SubmitButton>
+              <SubmitButton formAction={testSenderAction} variant="ghost" size="sm" pendingLabel="Send test">
                 Send test
-              </Button>
+              </SubmitButton>
               </FormRow>
             </form>
           );

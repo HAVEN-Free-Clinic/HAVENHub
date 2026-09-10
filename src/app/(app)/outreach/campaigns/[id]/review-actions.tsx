@@ -5,7 +5,7 @@ import type { AudiencePreview } from "@/platform/email/campaigns/service";
 import { Input } from "@/platform/ui/input";
 import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
-import { SubmitButton } from "./submit-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { AudiencePreviewPanel } from "./audience-preview";
 import { useFormDirty } from "./use-form-dirty";

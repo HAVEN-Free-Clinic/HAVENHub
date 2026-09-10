@@ -17,7 +17,13 @@ import type { RosterOrigin } from "@/modules/recruitment/services/training";
  * page that shows an interview outcome.
  */
 
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
+/**
+ * Badge's tone union, named here so recruitment's status vocabularies (this
+ * file's cycle + decision maps, and interviewStatus in interview-cells.tsx) all
+ * pick from one list. Consolidating the labels while each caller kept its own
+ * copy of the tone type would only move the fork.
+ */
+export type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 /** Short, friendly cycle status (never the raw enum). */
 export const CYCLE_STATUS_LABELS: Record<CycleStatus, string> = {
@@ -46,9 +52,11 @@ export function CycleStatusBadge({ status }: { status: CycleStatus }) {
  * through would be an unrequested copy change on three pages at once.
  *
  * PENDING has a label because two of those pages print it as text, but no tone
- * and no badge: the cycle interview list renders a RICHER state for pending
+ * and no badge: both interview lists render a RICHER state for pending
  * (Withdrawn / Scheduled / Offered) that carries more than "pending" does, and
- * flattening it into one chip would lose that.
+ * flattening it into one chip would lose that. That richer state is
+ * `interviewStatus` in interview-cells.tsx, which reads this map for the
+ * decided cases and adds the three PENDING ones.
  */
 export const DECISION_LABELS: Record<Decision, string> = {
   PENDING: "Pending",

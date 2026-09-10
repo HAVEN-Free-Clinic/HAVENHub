@@ -3,7 +3,7 @@
 import { Input, Field } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
-import { SubmitButton } from "./submit-button";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { CronPresets } from "./cron-presets";
 import { useFormDirty } from "./use-form-dirty";
 import { FormRow } from "@/platform/ui/form";

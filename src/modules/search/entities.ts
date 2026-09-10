@@ -36,6 +36,7 @@ import {
   looksLikeEmail,
 } from "@/platform/recruitment/historical-applicants";
 import type { EntityHit } from "@/platform/search/types";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 /**
  * Per-group cap. Keeps every query bounded. Every query below pairs it with an
@@ -103,7 +104,7 @@ export const searchEntities = cache(async function searchEntities(
   // the query below is never reached for them. When both qualify, admin wins.
   if (adminPeople || compliancePeople) {
     const people = await prisma.person.findMany({
-      where: { status: "ACTIVE", name: { contains: q, mode: "insensitive" } },
+      where: { status: "ACTIVE", OR: personNameSearchClauses(q) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
       take: LIMIT,

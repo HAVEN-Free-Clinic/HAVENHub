@@ -1,11 +1,10 @@
-import type { Prisma, PrismaClient, TeamsMessage } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import type { TeamsMessage } from "@prisma/client";
+import { prisma, type Db } from "@/platform/db";
 import { log } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { resolveTeamsTransport, type TeamsTransport } from "./teams-transport";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 export type QueueTeamsInput = {
   personId: string;

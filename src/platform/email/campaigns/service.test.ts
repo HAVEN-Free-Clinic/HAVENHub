@@ -1351,11 +1351,11 @@ describe("recipient preview and the scoped person search", () => {
         status: "ACTIVE" as const,
       })),
     });
-    const real = await activePerson("Zzz Rivera Sam", "sam@example.com");
+    const real = await activePerson("Zzz Rivera", "sam@example.com");
 
     const c = await createDraft(null, "Blank slots", { scopeId: null });
     expect(await searchAudiencePeople(c.id, "Rivera")).toEqual([
-      { personId: real.id, name: "Zzz Rivera Sam", email: "sam@example.com" },
+      { personId: real.id, name: "Zzz Rivera", email: "sam@example.com" },
     ]);
   });
 });
@@ -2017,7 +2017,7 @@ describe("the display name a campaign run sends under", () => {
 
     await prisma.person.update({
       where: { id: chooser.id },
-      data: { name: "J. R. Carney" },
+      data: { name: "Jonathan Rivers" },
     });
 
     // Already queued: unchanged.
@@ -2043,7 +2043,7 @@ describe("the display name a campaign run sends under", () => {
     const later = await createDraft(chooser.id, "Next", { scopeId: scope.id });
     await compose(chooser.id, later.id, "recruitment@havenfreeclinic.org");
     const second = await sendCampaignNow(chooser.id, later.id, {});
-    expect((await fromOf(second.runId)).names).toEqual(["J. R. Carney"]);
+    expect((await fromOf(second.runId)).names).toEqual(["Jonathan Rivers"]);
   });
 
   it("gives the sender test and the campaign test send the same From as a real run", async () => {

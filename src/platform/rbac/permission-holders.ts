@@ -1,5 +1,5 @@
-import { Prisma, type Track } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { type Track } from "@prisma/client";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 
 /**
@@ -25,7 +25,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
  * admin.access and is now one caller of it.
  */
 export async function effectivePermissionHolderIds(
-  client: Prisma.TransactionClient | typeof prisma,
+  client: TransactionClient | typeof prisma,
   permission: string,
   activeTerm: { id: string } | null,
   opts: { excludeAssignmentId?: string } = {},

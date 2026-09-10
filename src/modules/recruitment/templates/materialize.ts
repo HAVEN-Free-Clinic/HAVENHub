@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import { type TransactionClient } from "@/platform/db";
 import type { TemplateSection } from "./types";
 
-export async function materializeTemplate(tx: Prisma.TransactionClient, cycleId: string, sections: TemplateSection[]): Promise<void> {
+export async function materializeTemplate(tx: TransactionClient, cycleId: string, sections: TemplateSection[]): Promise<void> {
   for (const s of sections) {
     const section = await tx.formSection.create({
       data: { cycleId, title: s.title, description: s.description ?? null, order: s.order, appliesTo: s.appliesTo, departmentCode: s.departmentCode, purpose: s.purpose },

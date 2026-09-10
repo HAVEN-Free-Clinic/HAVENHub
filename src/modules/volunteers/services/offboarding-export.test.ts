@@ -139,9 +139,9 @@ describe("buildOffboardingCsv", () => {
   // no term to scope it to) and so builds its rows from bare person fields with
   // memberships defaulted to an empty array in code.
   it("exports a selection with blank departments and a VOLUNTEER role when there is no active term", async () => {
-    const withNetId = await prisma.person.create({ data: { name: "No Term A", netId: "nta01" } });
+    const withNetId = await prisma.person.create({ data: { name: "NoTerm Alpha", netId: "nta01" } });
     const withContact = await prisma.person.create({
-      data: { name: "No Term B", contactEmail: "b@example.com" },
+      data: { name: "NoTerm Beta", contactEmail: "b@example.com" },
     });
 
     const result = await buildOffboardingCsv(
@@ -151,7 +151,7 @@ describe("buildOffboardingCsv", () => {
 
     expect(result.rowCount).toBe(2);
     expect(result.filename).toBe("haven-offboarding-no-term-2026-08-07.csv");
-    expect(result.csv).toContain("No Term A,nta01@yale.edu,nta01,,,VOLUNTEER");
-    expect(result.csv).toContain("No Term B,b@example.com,,b@example.com,,VOLUNTEER");
+    expect(result.csv).toContain("NoTerm Alpha,nta01@yale.edu,nta01,,,VOLUNTEER");
+    expect(result.csv).toContain("NoTerm Beta,b@example.com,,b@example.com,,VOLUNTEER");
   });
 });

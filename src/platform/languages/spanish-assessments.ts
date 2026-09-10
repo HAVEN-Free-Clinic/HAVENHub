@@ -51,6 +51,7 @@ import {
   parseTermLabel,
   termRankOf,
 } from "./assessment-terms";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 export type SpanishAssessmentRow = {
   id: string;
@@ -178,7 +179,7 @@ export async function listSpanishAssessmentHistory(opts: {
             { email: { contains: search, mode: "insensitive" as const } },
             { name: { contains: search, mode: "insensitive" as const } },
             { notes: { contains: search, mode: "insensitive" as const } },
-            { person: { name: { contains: search, mode: "insensitive" as const } } },
+            ...personNameSearchClauses(search, "person"),
           ],
         }
       : {}),

@@ -33,27 +33,14 @@
  * EventAttendance (see the schema comment) is for.
  */
 
-import type {
-  AttendanceEvent,
-  AttendanceEventKind,
-  EventAttendance,
-  Prisma,
-  Track,
-} from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import type { AttendanceEvent, AttendanceEventKind, EventAttendance, Track } from "@prisma/client";
+import { prisma, isUniqueConstraintError, type TransactionClient } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { completeTraining } from "./training";
-import {
-  resolveAttendanceBlockers,
-  isAcceptedApplicantEmail,
-  ACCEPTED_APPLICANT_BLOCKERS,
-  WALK_UP_BLOCKERS,
-  NO_BLOCKERS,
-  type AttendanceBlockers,
-} from "@/platform/compliance/attendance-blockers";
+import { resolveAttendanceBlockers, isAcceptedApplicantEmail, ACCEPTED_APPLICANT_BLOCKERS, WALK_UP_BLOCKERS, NO_BLOCKERS, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
 import type { OutstandingItemKey } from "@/platform/compliance/outstanding-items";
 import { sendAttendanceNudge } from "@/platform/email/attendance-nudges";
 
@@ -1183,7 +1170,7 @@ export async function recordEventCheckIn(
  * asking them to sit through a session they already attended.
  */
 async function creditTrainingIfApplicable(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   event: { kind: AttendanceEventKind; termId: string; cycle: { id: string; track: Track } | null },
   personId: string | null,
   /** Null on the system path (auto-link at promotion), where there is no actor. */

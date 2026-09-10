@@ -11,6 +11,7 @@ import type { AudienceCtx } from "./person-fields";
 import { personVariables } from "./variables";
 import { asArray } from "./operators";
 import { APPLICANT_TYPE_VALUES, COUNT_LOADERS } from "./person-fields";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 export type Recipient = {
   email: string;
@@ -515,7 +516,7 @@ export async function searchPeople(
     // the search would only be offering a person the send path will drop.
     contactEmail: { contains: "@" },
     OR: [
-      { name: { contains: q, mode: "insensitive" } },
+      ...personNameSearchClauses(q),
       { contactEmail: { contains: q, mode: "insensitive" } },
     ],
   };

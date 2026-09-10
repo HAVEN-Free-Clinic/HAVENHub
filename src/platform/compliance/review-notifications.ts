@@ -1,16 +1,11 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { type Db } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import {
-  complianceDateReviewContext,
-  complianceVerificationReviewContext,
-  complianceCertVerifiedContext,
-} from "@/platform/email/templates/compliance";
+import { complianceDateReviewContext, complianceVerificationReviewContext, complianceCertVerifiedContext } from "@/platform/email/templates/compliance";
 import { log } from "@/platform/logging";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 /** Permissions that allow a person to set a certificate completion date
  *  (see compliance.setCompletionDateAsManager). "*" holders match implicitly. */

@@ -18,15 +18,9 @@
  * The one place this touches rows it did not create is the strict tracker
  * merge; see findMergeTarget for why that rule is deliberately narrow.
  */
-import type { Prisma, PrismaClient } from "@prisma/client";
-import {
-  transformTechRequests,
-  transformTrackerTickets,
-  resolveTrackerPersonName,
-  inferTrackerKind,
-  epicIntakeNote,
-  type MappedTechRequest,
-} from "./transform";
+import { type Db } from "@/platform/db";
+import { legalNameOf } from "@/platform/person-name";
+import { transformTechRequests, transformTrackerTickets, resolveTrackerPersonName, inferTrackerKind, epicIntakeNote, type MappedTechRequest } from "./transform";
 
 /** Widest window between an Airtable tracker row and a hub ticket for the same request. */
 const MERGE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -96,11 +90,17 @@ export type LoadOptions = {
   putObject?: (key: string, bytes: Buffer, contentType: string) => Promise<void>;
 };
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 /**
  * Resolves the people a run needs, up front and in bulk: requesters and
  * assignees by Airtable record id, tracker submitters and subjects by name.
+ *
+ * Indexed under BOTH the display name and the legal name, because they diverge:
+ * `Person.name` holds "Jack Carney" while the tracker spreadsheet, written by
+ * YNHH, says "Jonathan Carney". Indexing only the display name would silently
+ * stop resolving anyone who goes by a nickname. A person whose two names are the
+ * same lands in one bucket, not two, so the "exactly one hit" rule below still
+ * means one PERSON rather than one spelling.
  */
 export async function loadPeople(db: Db): Promise<{
   byAirtableId: Map<string, PersonRef>;
@@ -108,16 +108,29 @@ export async function loadPeople(db: Db): Promise<{
   names: string[];
 }> {
   const people = await db.person.findMany({
-    select: { id: true, name: true, airtableRecordId: true },
+    select: {
+      id: true,
+      name: true,
+      legalFirstName: true,
+      legalMiddleName: true,
+      lastName: true,
+      airtableRecordId: true,
+    },
   });
   const byAirtableId = new Map<string, PersonRef>();
   const byName = new Map<string, PersonRef[]>();
+  const names: string[] = [];
   for (const p of people) {
-    if (p.airtableRecordId) byAirtableId.set(p.airtableRecordId, p);
-    const key = p.name.toLowerCase();
-    byName.set(key, [...(byName.get(key) ?? []), p]);
+    const ref: PersonRef = { id: p.id, name: p.name, airtableRecordId: p.airtableRecordId };
+    if (p.airtableRecordId) byAirtableId.set(p.airtableRecordId, ref);
+    for (const spelling of new Set([p.name, legalNameOf(p)])) {
+      if (spelling === "") continue;
+      names.push(spelling);
+      const key = spelling.toLowerCase();
+      byName.set(key, [...(byName.get(key) ?? []), ref]);
+    }
   }
-  return { byAirtableId, byName, names: people.map((p) => p.name) };
+  return { byAirtableId, byName, names };
 }
 
 /** Resolves a name to exactly one Person, or null when absent or ambiguous. */

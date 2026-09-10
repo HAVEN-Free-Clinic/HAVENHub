@@ -17,8 +17,7 @@
  * regular volunteer flagging themselves.
  */
 
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { isUniqueConstraintError } from "@/platform/db";
+import { isUniqueConstraintError, type Db } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
@@ -29,7 +28,6 @@ import { selfWithdrawalContext } from "@/platform/email/templates/volunteers";
 import { log } from "@/platform/logging";
 import { OFFBOARDABLE_TERM } from "@/platform/people";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 /** Permissions that let a person execute an offboard (see offboarding.executeOffboard). */
 const CAN_OFFBOARD = ["volunteers.manage_offboarding", "admin.access"];

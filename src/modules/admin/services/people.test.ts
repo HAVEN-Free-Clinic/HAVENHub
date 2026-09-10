@@ -106,6 +106,51 @@ describe("searchPeople", () => {
   });
 });
 
+describe("searchPeople and the name review queue", () => {
+  beforeEach(resetDb);
+
+  // `name` now holds the PREFERRED display name, so the legal first name is no
+  // longer a substring of it. Without this clause an admin searching for the
+  // name on somebody's Epic request or transcript finds nobody.
+  it("finds a person by their legal first name, not just their display name", async () => {
+    await seedPerson({ name: "Jonathan (Jack) Carney" });
+
+    const byDisplay = await searchPeople({ search: "Jack" });
+    const byLegal = await searchPeople({ search: "Jonathan" });
+
+    expect(byDisplay.rows.map((r) => r.name)).toEqual(["Jack Carney"]);
+    expect(byLegal.rows.map((r) => r.name)).toEqual(["Jack Carney"]);
+  });
+
+  it("narrows to the rows whose split was guessed at", async () => {
+    await seedPerson({ name: "Jonathan Carney" });
+    await seedPerson({ name: "Maria de la Cruz" });
+    await seedPerson({ name: "Cher" });
+
+    const flagged = await searchPeople({ needsNameReview: true });
+
+    expect(flagged.rows.map((r) => r.name).sort()).toEqual(["Cher", "Maria de la Cruz"]);
+  });
+
+  it("reports how many names need review regardless of the current filter", async () => {
+    await seedPerson({ name: "Jonathan Carney" });
+    await seedPerson({ name: "Maria de la Cruz" });
+
+    const filtered = await searchPeople({ search: "Jonathan" });
+
+    expect(filtered.rows).toHaveLength(1);
+    expect(filtered.needsNameReviewCount).toBe(1);
+  });
+
+  it("reports zero once every name has been confirmed", async () => {
+    await seedPerson({ name: "Jonathan Carney" });
+
+    const result = await searchPeople({});
+
+    expect(result.needsNameReviewCount).toBe(0);
+  });
+});
+
 describe("getPerson", () => {
   beforeEach(resetDb);
 

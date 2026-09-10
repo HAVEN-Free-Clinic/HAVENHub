@@ -7,6 +7,7 @@
 import type { Person } from "@prisma/client";
 import type { ReactNode } from "react";
 import { Input, Field } from "@/platform/ui/input";
+import { Alert } from "@/platform/ui/alert";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
@@ -24,6 +25,11 @@ type PersonFormProps = {
   person?: Pick<
     Person,
     | "name"
+    | "legalFirstName"
+    | "legalMiddleName"
+    | "lastName"
+    | "preferredFirstName"
+    | "nameNeedsReview"
     | "netId"
     | "contactEmail"
     | "phone"
@@ -41,13 +47,55 @@ export function PersonForm({ action, mode, person, children }: PersonFormProps) 
   return (
     <form action={action}>
       <Card className="space-y-6">
+        {person?.nameNeedsReview ? (
+          <Alert tone="warning">
+            <strong>Check this name.</strong> It was split automatically from one
+            free-text field and could not be read with confidence. Correct the
+            parts below if they are wrong, then save. Saving clears the flag.
+          </Alert>
+        ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full name" required>
+          <Field
+            label="Legal first name"
+            required
+            hint="As it should appear on the Epic access request and the signed contract."
+          >
             <Input
-              name="name"
-              defaultValue={person?.name ?? ""}
+              name="legalFirstName"
+              defaultValue={person?.legalFirstName ?? ""}
               required
-              placeholder="Jane Smith"
+              placeholder="Jonathan"
+            />
+          </Field>
+
+          <Field label="Middle name">
+            <Input
+              name="legalMiddleName"
+              defaultValue={person?.legalMiddleName ?? ""}
+              placeholder="Peter"
+            />
+          </Field>
+
+          {/* Not required: a mononym is a real name, and the backfill flags
+              those for review. Demanding a surname here would leave the one
+              person who has none permanently stuck in the queue. */}
+          <Field label="Last name" hint="Leave blank for a mononym.">
+            <Input
+              name="lastName"
+              defaultValue={person?.lastName ?? ""}
+              placeholder="Carney"
+            />
+          </Field>
+
+          <Field
+            label="Goes by"
+            hint="Leave blank if the legal first name is what they go by. This is the name used on rosters, badges, and every email."
+          >
+            <Input
+              name="preferredFirstName"
+              defaultValue={person?.preferredFirstName ?? ""}
+              placeholder="Jack"
             />
           </Field>
 

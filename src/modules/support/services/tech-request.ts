@@ -27,6 +27,7 @@ import type { TechRequest, TechRequestCategory, TechRequestStatus, EpicRequestKi
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can, getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 export const MANAGE = "support.manage_requests";
 /**
@@ -491,7 +492,7 @@ export async function listAllRequests(
       Number.isFinite(asNum) && asNum >= 0 && asNum <= 2_147_483_647 ? [{ number: asNum }] : [];
     where.OR = [
       { subject: { contains: q, mode: "insensitive" } },
-      { requester: { name: { contains: q, mode: "insensitive" } } },
+      ...personNameSearchClauses(q, "requester"),
       ...numMatch,
     ];
   }

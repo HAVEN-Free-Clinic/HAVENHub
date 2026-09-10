@@ -346,7 +346,7 @@ async function seedOutcomeCycle() {
   ) {
     const email = `e2e-${label}-${stamp}@example.com`.toLowerCase();
     const p = await prisma.person.create({
-      data: { name: `E2E ${label} ${stamp}`, contactEmail: email, status: "ACTIVE" },
+      data: { name: `E2E-${label} ${stamp}`, contactEmail: email, status: "ACTIVE" },
     });
     personIds.push(p.id);
     const a = await prisma.applicant.create({

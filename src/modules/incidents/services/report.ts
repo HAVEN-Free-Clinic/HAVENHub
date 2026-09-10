@@ -43,6 +43,7 @@ import {
 import { issueAction, DISCIPLINARY_CATEGORIES } from "./disciplinary";
 import { notifyStrikeIssued } from "./strike-notifications";
 import { resolveReportAccess } from "./report-access";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -848,8 +849,10 @@ export async function listReviewQueue(
       Number.isFinite(asNumber) && asNumber >= 0 && asNumber <= MAX_INT4 ? [{ number: asNumber }] : [];
     and.push({
       OR: [
-        { subjects: { some: { person: { name: { contains: q, mode: "insensitive" } } } } },
-        { reporter: { name: { contains: q, mode: "insensitive" } } },
+        ...personNameSearchClauses(q, "person").map((clause) => ({
+          subjects: { some: clause },
+        })),
+        ...personNameSearchClauses(q, "reporter"),
         ...numMatch,
       ],
     });

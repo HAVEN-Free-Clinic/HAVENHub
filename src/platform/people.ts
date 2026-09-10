@@ -18,7 +18,7 @@
  */
 
 import { Prisma, type Person } from "@prisma/client";
-import { prisma, isUniqueConstraintError } from "@/platform/db";
+import { prisma, isUniqueConstraintError, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 // One sanctioned platform -> module import, the same shape as the onboarding
@@ -66,7 +66,7 @@ export const OFFBOARDABLE_TERM = {
  * Serializable so two concurrent offboards cannot both pass and lock everyone out.
  */
 export type SetPersonStatusOptions = {
-  assertInvariant?: (tx: Prisma.TransactionClient) => Promise<void>;
+  assertInvariant?: (tx: TransactionClient) => Promise<void>;
 };
 
 export class PersonConflictError extends Error {
@@ -94,7 +94,19 @@ function toConflictError(err: unknown): never {
 }
 
 export type PersonInput = {
-  name: string;
+  /**
+   * The whole name as one string. Accepted for importers and for callers that
+   * genuinely only have this (an Entra display name, a spreadsheet cell); it is
+   * split into the parts below on write. A form that has separate boxes should
+   * send the parts instead, so nothing has to be guessed.
+   */
+  name?: string;
+  legalFirstName?: string;
+  legalMiddleName?: string | null;
+  lastName?: string;
+  preferredFirstName?: string | null;
+  /** Only ever set to false, by a human confirming a guessed split. */
+  nameNeedsReview?: boolean;
   netId?: string | null;
   contactEmail?: string | null;
   phone?: string | null;
@@ -113,8 +125,14 @@ export type PersonInput = {
  * resolution compares with a case-insensitive but WHITESPACE-sensitive `equals`,
  * and the ci-unique indexes are on lower(netId)/lower(contactEmail), so an
  * untrimmed " jc123 " neither matches at login nor collides with the clean value,
- * silently locking the person out and defeating the unique constraint. name is
- * trimmed too (never lowercased, never nulled).
+ * silently locking the person out and defeating the unique constraint. The name
+ * and its parts are trimmed too (never lowercased).
+ *
+ * The two optional parts differ from the required ones on empty input: a form
+ * that submits a blank "Goes by" box means "I have no preferred name", so
+ * legalMiddleName and preferredFirstName collapse to null, while
+ * legalFirstName and lastName keep "" rather than becoming null on a column
+ * that is NOT NULL.
  */
 function normalize(input: PersonInput): PersonInput;
 function normalize(input: Partial<PersonInput>): Partial<PersonInput>;
@@ -122,10 +140,22 @@ function normalize(input: Partial<PersonInput>): Partial<PersonInput> {
   return {
     ...input,
     ...(input.name !== undefined && { name: input.name?.trim() ?? input.name }),
+    ...(input.legalFirstName !== undefined && { legalFirstName: input.legalFirstName?.trim() ?? "" }),
+    ...(input.lastName !== undefined && { lastName: input.lastName?.trim() ?? "" }),
+    ...(input.legalMiddleName !== undefined && { legalMiddleName: input.legalMiddleName?.trim() || null }),
+    ...(input.preferredFirstName !== undefined && { preferredFirstName: input.preferredFirstName?.trim() || null }),
     ...(input.netId !== undefined && { netId: input.netId?.trim().toLowerCase() || null }),
     ...(input.contactEmail !== undefined && { contactEmail: input.contactEmail?.trim().toLowerCase() || null }),
   };
 }
+
+/** The columns the client extension reconciles together. */
+const NAME_PART_FIELDS = [
+  "legalFirstName",
+  "legalMiddleName",
+  "lastName",
+  "preferredFirstName",
+] as const;
 
 export async function createPersonRecord(
   actorPersonId: string,
@@ -136,7 +166,14 @@ export async function createPersonRecord(
   try {
     const person = await prisma.person.create({
       data: {
-        name: data.name,
+        // Whichever the caller supplied. The client extension in
+        // person-name-write.ts derives the other side, and refuses a create
+        // that carries neither.
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.legalFirstName !== undefined && { legalFirstName: data.legalFirstName }),
+        ...(data.legalMiddleName !== undefined && { legalMiddleName: data.legalMiddleName }),
+        ...(data.lastName !== undefined && { lastName: data.lastName }),
+        ...(data.preferredFirstName !== undefined && { preferredFirstName: data.preferredFirstName }),
         netId: data.netId ?? null,
         contactEmail: data.contactEmail ?? null,
         phone: data.phone ?? null,
@@ -189,6 +226,8 @@ export async function updatePersonFields(
 
   const fields: Array<keyof PersonInput> = [
     "name",
+    ...NAME_PART_FIELDS,
+    "nameNeedsReview",
     "netId",
     "contactEmail",
     "phone",
@@ -233,6 +272,21 @@ export async function updatePersonFields(
       const updateData: Record<string, unknown> = {};
       for (const key of changedKeys) {
         updateData[key] = data[key] ?? null;
+      }
+
+      // The client extension refuses a partial parts write, because one column
+      // is not enough to recompute the derived `name`. Setting only "goes by",
+      // or only confirming a guessed split, is the common case on /my-info and
+      // in the admin review queue, so fill the rest of the parts from the row we
+      // already read inside this transaction.
+      //
+      // Skipped when `name` itself changed: that path re-splits the whole
+      // string, and echoing back stale parts would beat the split.
+      const nameTouching: readonly string[] = [...NAME_PART_FIELDS, "nameNeedsReview"];
+      if (!changedKeys.includes("name") && changedKeys.some((k) => nameTouching.includes(k))) {
+        for (const key of NAME_PART_FIELDS) {
+          if (!(key in updateData)) updateData[key] = current[key];
+        }
       }
       // Language capability is no longer a Person column: it lives in
       // PersonLanguage and is set through recordLanguageAssessment, which stamps
@@ -280,7 +334,7 @@ export async function updatePersonFields(
  * together. Returns the ids it cancelled, for audit snapshots.
  */
 export async function cancelOpenDeactivationRequestsTx(
-  tx: Prisma.TransactionClient,
+  tx: TransactionClient,
   personId: string
 ): Promise<string[]> {
   const openDeact = await tx.epicRequest.findMany({

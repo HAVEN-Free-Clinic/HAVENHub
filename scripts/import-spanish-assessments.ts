@@ -18,13 +18,17 @@
  * had recorded, every manual link, and every hand-added record.
  */
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+// Through the factory, not `new PrismaClient()`: a bare client skips the Person
+// name reconciliation. This script only reads people today, but the next one to
+// copy it may not.
+import { makePrismaClient } from "../src/platform/db";
 import * as path from "path";
 import * as fs from "fs";
 import { loadWorkbook, sheetToRows } from "../src/platform/attendings/import/workbook";
 import { normalizeTermLabel, termRankOf } from "../src/platform/languages/assessment-terms";
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 const DRY_RUN = process.argv.includes("--dry-run");
 

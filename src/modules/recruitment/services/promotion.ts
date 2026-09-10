@@ -187,7 +187,12 @@ export async function promoteContracts(
           isNew = true;
           person = await tx.person.create({
             data: {
-              name: `${contract.firstName} ${contract.lastName}`.trim(),
+              // The parts go across as parts. Joining them into one string and
+              // letting the client extension split it back would work for
+              // "Jane Doe" and quietly mis-split "Maria de la Cruz", when the
+              // contract already holds the answer.
+              legalFirstName: contract.firstName.trim(),
+              lastName: contract.lastName.trim(),
               netId: writableNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",

@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { type Db } from "@/platform/db";
 import { config } from "@/platform/config";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
@@ -6,7 +6,6 @@ import { createNotification } from "./inbox";
 import { renderTeamsBody } from "./render";
 import { queueTeamsMessage } from "./send";
 
-type Db = PrismaClient | Prisma.TransactionClient;
 
 export type NotifyPerson = {
   id: string;

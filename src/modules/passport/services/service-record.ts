@@ -22,8 +22,7 @@
  *      label them honestly.
  */
 
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, type Db } from "@/platform/db";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 import { todayMarker } from "./term-day";
 
@@ -38,7 +37,7 @@ import { todayMarker } from "./term-day";
  * back. The parameter exists for callers that already own a transaction and
  * want the snapshot to share it.
  */
-export type PrismaClientOrTx = PrismaClient | Prisma.TransactionClient;
+export type PrismaClientOrTx = Db;
 
 /**
  * The shape and the pure formatters live in ./service-record-format, which is

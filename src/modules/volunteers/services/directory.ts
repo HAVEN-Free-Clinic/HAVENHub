@@ -44,6 +44,7 @@
 import { prisma } from "@/platform/db";
 import { accountEmailForPerson, mailingEmailForPerson } from "@/platform/auth/match-person";
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 /** Only ACTIVE people in ACTIVE memberships are on the roster. A REMOVED
  *  membership is a seat someone has left; an OFFBOARDED person has left the
@@ -307,7 +308,7 @@ function peopleWhere(termId: string, filters: DirectoryFilters, scope: Directory
     ...(q
       ? {
           OR: [
-            { name: { contains: q, mode: "insensitive" as const } },
+            ...personNameSearchClauses(q),
             { netId: { contains: q, mode: "insensitive" as const } },
             { contactEmail: { contains: q, mode: "insensitive" as const } },
           ],

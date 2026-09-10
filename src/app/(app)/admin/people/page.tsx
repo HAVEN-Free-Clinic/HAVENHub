@@ -4,6 +4,7 @@ import { searchPeople } from "@/modules/admin/services/people";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { PeopleTable } from "@/modules/admin/components/people-table";
+import { Alert } from "@/platform/ui/alert";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Pagination } from "@/platform/ui/pagination";
 import { Input } from "@/platform/ui/input";
@@ -13,14 +14,22 @@ import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 type PageProps = {
-  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; page?: string; names?: string }>;
 };
 
 export default async function PeopleListPage({ searchParams }: PageProps) {
   await requirePermission("admin.manage_people");
 
+  // `sp` is kept whole for <Pagination params={sp}>, so paging inside the review
+  // queue below carries ?names=review with it rather than dropping back to the
+  // full list on page two.
   const sp = await searchParams;
-  const { q, status, page: pageStr } = sp;
+  const { q, status, page: pageStr, names } = sp;
+
+  // ?names=review is the review queue: the rows whose first/last split the
+  // backfill guessed at. It ignores the ACTIVE default, because an offboarded
+  // person's name still goes out on their volunteer passport.
+  const nameReviewOnly = names === "review";
 
   // "All statuses" uses a non-empty ALL sentinel, not "": NavForm strips empty
   // fields from the querystring, so an empty value read as "no param" (first load)
@@ -36,9 +45,10 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   // Get the active term so we can show membership counts.
   const activeTerm = await getActiveTerm();
 
-  const { rows, total, page, pageCount } = await searchPeople({
+  const { rows, total, page, pageCount, needsNameReviewCount } = await searchPeople({
     search: q?.trim() || undefined,
-    status: statusFilter,
+    status: nameReviewOnly ? undefined : statusFilter,
+    needsNameReview: nameReviewOnly || undefined,
     page: pageNum,
     pageSize: 25,
   });
@@ -71,7 +81,7 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
   const effectiveStatus = status ?? "ACTIVE";
   // One boolean for the Clear link AND the empty state, so the list can never
   // offer to clear a filter while claiming there is nothing to find.
-  const filtered = Boolean(q) || effectiveStatus !== "ACTIVE";
+  const filtered = Boolean(q) || effectiveStatus !== "ACTIVE" || nameReviewOnly;
 
   return (
     <div className="space-y-6">
@@ -86,6 +96,29 @@ export default async function PeopleListPage({ searchParams }: PageProps) {
           </Link>
         }
       />
+
+      {/* The review queue. Shown only while there is something in it, so it
+          disappears for good once the backfill's guesses have been confirmed. */}
+      {needsNameReviewCount > 0 && !nameReviewOnly ? (
+        <Alert tone="warning">
+          <strong>
+            {needsNameReviewCount} {needsNameReviewCount === 1 ? "name needs" : "names need"} review.
+          </strong>{" "}
+          These were split into first and last name automatically and could not be
+          read with confidence.{" "}
+          <Link href="/admin/people?names=review" className="underline">
+            Review them
+          </Link>
+          .
+        </Alert>
+      ) : null}
+
+      {nameReviewOnly ? (
+        <Alert tone="info">
+          Showing only names whose split was guessed at. Open a person, correct
+          the parts if they are wrong, and save. Saving clears the flag.
+        </Alert>
+      ) : null}
 
       {/* Search form (GET) */}
       <FilterBar

@@ -9,6 +9,7 @@
 import type { TeamsMessage, TeamsMessageStatus, Person } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { personNameSearchClauses } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -52,7 +53,7 @@ export async function listTeamsMessages(params: {
     ...(params.status ? { status: params.status } : {}),
     ...(params.type ? { type: params.type } : {}),
     ...(params.q
-      ? { person: { is: { name: { contains: params.q, mode: "insensitive" as const } } } }
+      ? { person: { is: { OR: personNameSearchClauses(params.q) } } }
       : {}),
   };
 

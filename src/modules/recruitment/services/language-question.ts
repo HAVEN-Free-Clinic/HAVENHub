@@ -12,15 +12,15 @@
  * The question itself is defined once, in @/platform/languages.
  */
 
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import type { Prisma } from "@prisma/client";
+import { prisma, type ExtendedPrismaClient, type TransactionClient } from "@/platform/db";
 import { LANGUAGES, LANGUAGE_QUESTION, LEGACY_LANGUAGE_FIELD_KEYS } from "@/platform/languages";
 
 /**
  * A full client, not a transaction client: this opens its own per-cycle
  * transaction, so it cannot be handed one.
  */
-type Db = PrismaClient;
+type Db = ExtendedPrismaClient;
 
 export type CycleBackfillOutcome =
   | "added"
@@ -184,7 +184,7 @@ export async function backfillLanguageQuestion(
     const legacyRemoved = canRemoveLegacy ? legacyFields.map((f) => f.key) : [];
 
     if (!opts.dryRun) {
-      await client.$transaction(async (tx: Prisma.TransactionClient) => {
+      await client.$transaction(async (tx: TransactionClient) => {
         if (outcome === "added") {
           // Sit where the legacy fields were when there were any, so the
           // question keeps its place in the applicant's reading order rather

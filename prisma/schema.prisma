@@ -120,7 +120,38 @@ model Person {
   id                             String                     @id @default(cuid())
   netId                          String?                    @unique
   entraObjectId                  String?                    @unique
-  name                           String
+  /// DERIVED display name ("Jack Carney"), recomputed from the parts below on
+  /// every write by platform/person-name.ts. Never hand-edited, and never the
+  /// source of truth. It survives the first/last split so the ~60 surfaces that
+  /// render it, the `orderBy: { name: "asc" }` queries, and the `contains`
+  /// searches all keep working; writing it directly is what the split exists to
+  /// stop, so go through platform/people.ts instead.
+  ///
+  /// Carries the same `@default("")` type affordance as the parts, for the
+  /// mirror-image reason: a caller that supplies the parts should not have to
+  /// hand-compute the display name too. The extension writes it either way.
+  name                           String                     @default("")
+  /// Name of record. Used for the Epic access request sent to YNHH IT, the
+  /// signed onboarding contract, and the admin person record. Never a roster.
+  ///
+  /// The `@default("")` is a TYPE affordance, not a real default: it lets a
+  /// caller write `{ name: "Jack Carney" }` alone, which the client extension in
+  /// platform/person-name-write.ts then splits into these columns before the
+  /// query runs. The default itself never reaches a row, because that extension
+  /// refuses a create that supplies neither a name nor both parts.
+  legalFirstName                 String                     @default("")
+  legalMiddleName                String?
+  /// Empty for a mononym: the backfill flags rather than blocks. See above for
+  /// why this carries a default.
+  lastName                       String                     @default("")
+  /// What the person actually goes by, when that is not their legal first name.
+  /// Member-editable on /my-info. Null means "my legal first name is fine".
+  preferredFirstName             String?
+  /// Set when the name parts were GUESSED rather than read: the backfill split a
+  /// free-text name it could not parse with confidence, or an importer had only
+  /// one undifferentiated string. Drives the review queue in /admin/people, and
+  /// is cleared the moment a human confirms the parts.
+  nameNeedsReview                Boolean                    @default(false)
   contactEmail                   String?                    @unique
   phone                          String?
   epicId                         String?
@@ -335,6 +366,14 @@ model Person {
   calendarFeedToken              CalendarFeedToken?
   serviceCredential              ServiceCredential?
   walletPasses                   WalletPass[]
+
+  /// Surname-first ordering, matching HistoricalApplicant's index.
+  @@index([lastName, legalFirstName])
+  /// A boolean index earns its keep only where one value is rare, which is the
+  /// steady state here: the review queue drains after the backfill and then
+  /// stays near-empty, so `where: { nameNeedsReview: true }` reads a handful of
+  /// rows out of the whole roster.
+  @@index([nameNeedsReview])
 }
 
 /// Uploaded HIPAA training certificates. One row per upload.

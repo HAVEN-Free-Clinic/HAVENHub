@@ -75,6 +75,24 @@ async function person(name: string, contactEmail: string | null) {
 }
 
 /**
+ * A Person whose name is whitespace, written with raw SQL because the ordinary
+ * path no longer allows one: platform/person-name-write.ts refuses a create that
+ * names nobody. Rows like this exist from before that guard, and the fallback
+ * order below still has to survive them, so the case is kept and only the way it
+ * is constructed changed.
+ */
+async function personWithBlankName(contactEmail: string) {
+  const id = `blank-${Math.random().toString(36).slice(2, 10)}`;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "Person" (id, name, "legalFirstName", "lastName", status, "createdAt", "updatedAt")
+     VALUES ($1, '   ', '', '', 'ACTIVE', now(), now())`,
+    id,
+  );
+  await prisma.$executeRawUnsafe(`UPDATE "Person" SET "contactEmail" = $1 WHERE id = $2`, contactEmail, id);
+  return { id };
+}
+
+/**
  * A role, with people assigned to it person-target and term-global.
  *
  * termId: null on purpose, matching scopes.test.ts: these cases are about the
@@ -859,11 +877,8 @@ describe("the display name in the From", () => {
   it("treats a blank name at any level as no name at that level", async () => {
     // Both identity write seams trim already (issueSendingIdentity and
     // updateScope each store null for a whitespace-only value), so this guards
-    // rows written before those existed, and a Person.name that is whitespace,
-    // which nothing trims anywhere.
-    const blank = await prisma.person.create({
-      data: { name: "   ", contactEmail: "blank@havenfreeclinic.org", status: "ACTIVE" },
-    });
+    // rows written before those existed, and a blank Person.name.
+    const blank = await personWithBlankName("blank@havenfreeclinic.org");
     // Blank identity name AND blank person name: through both, down to the org.
     expect(await senderDisplayName({ displayName: "   " }, blank.id)).toBe("HAVEN Free Clinic");
 
@@ -883,9 +898,7 @@ describe("the display name in the From", () => {
     // accepts "   ", so an admin can reach this through the ordinary settings
     // screen without meaning to.
     await setSetting("branding.orgName", "   ", null);
-    const blank = await prisma.person.create({
-      data: { name: "  ", contactEmail: "blank@havenfreeclinic.org", status: "ACTIVE" },
-    });
+    const blank = await personWithBlankName("blank@havenfreeclinic.org");
     expect(await senderDisplayName({ displayName: null }, null)).toBeNull();
     expect(await senderDisplayName({ displayName: "  " }, blank.id)).toBeNull();
   });

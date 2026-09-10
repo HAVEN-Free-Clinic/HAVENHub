@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Users } from "lucide-react";
-import { buildActionCards, type ActionCard, type ActionCardInput } from "./action-cards";
+import { buildActionCards, type ActionCardInput } from "./action-cards";
 
 const base: ActionCardInput = {
   hasScheduleAccess: true,
@@ -13,18 +12,7 @@ const base: ActionCardInput = {
   trainingIncomplete: 0,
   trainingHref: "/training",
   profileIncomplete: false,
-  backfill: [],
 };
-
-const shortcut = (key: string, href: string): ActionCard => ({
-  key,
-  href,
-  icon: Users,
-  hue: "volunteers",
-  label: key,
-  sub: "",
-  priority: 0,
-});
 
 describe("buildActionCards", () => {
   it("ranks approvals above an imminent schedule above swap", () => {
@@ -62,29 +50,20 @@ describe("buildActionCards", () => {
     expect(standing?.priority).toBe(20);
   });
 
-  it("backfills remaining slots after real actions, never before", () => {
-    const cards = buildActionCards({
-      ...base,
-      backfill: [shortcut("volunteers", "/volunteers"), shortcut("admin", "/admin")],
-    });
-    const keys = cards.map((c) => c.key);
-    expect(keys.slice(0, 2)).toEqual(["schedule", "my-info"]);
-    expect(keys).toContain("volunteers");
-    expect(keys.indexOf("volunteers")).toBeGreaterThan(keys.indexOf("my-info"));
+  it("shows only real actions, even when that is fewer than the limit", () => {
+    // No module shortcuts pad the feed out to four: the toolbar already lists
+    // every module, and a shortcut in this grid read as a thing to do.
+    expect(buildActionCards(base).map((c) => c.key)).toEqual(["schedule", "my-info"]);
   });
 
   it("never returns more than the limit", () => {
+    // Five real actions: approvals, training, my-info, schedule and swap.
     const cards = buildActionCards({
       ...base,
       pendingApprovals: 1,
       trainingIncomplete: 2,
       upcomingCount: 3,
       nextShiftDaysAway: 5,
-      backfill: [
-        shortcut("volunteers", "/volunteers"),
-        shortcut("recruitment", "/recruitment"),
-        shortcut("admin", "/admin"),
-      ],
     });
     expect(cards.length).toBe(4);
   });

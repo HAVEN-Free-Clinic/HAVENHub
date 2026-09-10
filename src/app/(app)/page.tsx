@@ -3,7 +3,6 @@ import { buttonClasses } from "@/platform/ui/button";
 import Link from "next/link";
 import {
   CalendarDays,
-  ClipboardList,
   Stethoscope,
   ArrowRight,
   Tag,
@@ -18,7 +17,6 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { getEffectivePermissions } from "@/platform/rbac/engine";
 import { MODULES } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
-import type { ModuleManifest } from "@/platform/modules/types";
 import { TimeGreeting } from "@/platform/ui/time-greeting";
 import { Card, cardClasses } from "@/platform/ui/card";
 import { ClinicChannelCard } from "./clinic-channel-card";
@@ -27,12 +25,11 @@ import { mySchedule } from "@/modules/schedule/services/schedule";
 import { myAttendingSchedule } from "@/modules/schedule/services/attending-portal";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { getCheckInState } from "@/modules/schedule/services/attendance";
-import { buildActionCards, type ActionCard } from "./action-cards";
+import { buildActionCards } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining } from "@/modules/recruitment/services/training";
-import { isInterviewPanelist } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { getSetting } from "@/platform/settings/service";
@@ -46,27 +43,12 @@ import { onboardingTaskLabel } from "@/platform/compliance/labels";
 // Presentation helpers (pure)
 // ---------------------------------------------------------------------------
 
-/** Per-module accent hue key; drives the colored icon tile + left swatch. */
-const HUE_BY_MODULE: Record<string, string> = {
-  schedule: "schedule",
-  "my-info": "info",
-  volunteers: "volunteers",
-  recruitment: "recruit",
-  "my-interviews": "recruit",
-  admin: "admin",
-};
-
 /** CSS vars for a given hue token key, so Tailwind's static scan never sees dynamic hues. */
 function hueVars(hue: string): CSSProperties {
   return {
     ["--mh" as string]: `var(--mod-${hue})`,
     ["--mhbg" as string]: `var(--mod-${hue}-bg)`,
   } as CSSProperties;
-}
-
-/** Module-tile hue, keyed by module id. */
-function hueStyle(id: string): CSSProperties {
-  return hueVars(HUE_BY_MODULE[id] ?? "schedule");
 }
 
 function timeGreeting(now = new Date()): string {
@@ -143,38 +125,6 @@ function clearanceRow(
 }
 
 // ---------------------------------------------------------------------------
-// Module tile
-// ---------------------------------------------------------------------------
-
-function ModuleTile({ m }: { m: ModuleManifest }) {
-  const Icon = m.icon;
-
-  return (
-    <Link
-      href={`/${m.id}`}
-      aria-label={`Open ${m.title}`}
-      style={hueStyle(m.id)}
-      className={cardClasses({ interactive: true, pad: false }) + " group relative flex items-start gap-4 overflow-hidden p-[18px]"}
-    >
-      <span
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
-        style={{ color: "var(--mh)", background: "var(--mhbg)" }}
-      >
-        <Icon aria-hidden className="h-[22px] w-[22px]" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-bold text-foreground">{m.title}</span>
-        <span className="mt-1 block text-[13px] leading-relaxed text-muted-foreground">{m.description}</span>
-      </span>
-      <ArrowRight
-        aria-hidden
-        className="mt-0.5 h-[18px] w-[18px] shrink-0 self-center text-subtle-foreground transition group-hover:translate-x-0.5 group-hover:text-muted-foreground"
-      />
-    </Link>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -188,18 +138,22 @@ export function generateMetadata() {
  * are redirected to /login by requirePersonSession.
  *
  * The home is a personalized dashboard: a greeting, the member's next shift,
- * a ranked action feed, color-coded module tiles, and a side rail with this
- * week's clinic channel and their real compliance status.
+ * a ranked action feed, and a side rail with this week's clinic channel and
+ * their real compliance status.
+ *
+ * There is no module tile grid. It repeated the toolbar, which lists every
+ * module the member can open (My info, the one personal module, is in the
+ * account menu and in the action feed), so a volunteer could reach /schedule
+ * six ways from this page alone.
  */
 export default async function HubPage() {
   const person = await requirePersonSession();
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, isPanelist, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule] = await Promise.all([
+  const [schedule, certificates, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
-    isInterviewPanelist(person.personId),
     getSetting<string>("branding.orgName"),
     getOnboardingStatus(person.personId),
     getMyOnboarding(person.personId),
@@ -429,22 +383,6 @@ export default async function HubPage() {
   const trainingHref = openTrainings.length > 0 ? "/training" : learningTask ? "/learning" : "/training";
   const profileTask = onboarding.tasks.find((t) => t.key === "profile");
 
-  // Navigational shortcuts, only shown when there aren't enough real actions.
-  const backfill: ActionCard[] = [];
-  for (const id of ["volunteers", "recruitment"] as const) {
-    const m = activeModules.find((mm) => mm.id === id);
-    if (m) {
-      backfill.push({ key: m.id, href: `/${m.id}`, icon: m.icon, hue: HUE_BY_MODULE[m.id] ?? "schedule", label: m.title, sub: m.description, priority: 0 });
-    }
-  }
-  if (isPanelist) {
-    backfill.push({ key: "my-interviews", href: "/recruitment/interviews", icon: ClipboardList, hue: "recruit", label: "My interviews", sub: "Panel assignments", priority: 0 });
-  }
-  const adminModule = activeModules.find((mm) => mm.id === "admin");
-  if (adminModule) {
-    backfill.push({ key: "admin", href: "/admin", icon: adminModule.icon, hue: HUE_BY_MODULE.admin, label: adminModule.title, sub: adminModule.description, priority: 0 });
-  }
-
   const cards = buildActionCards({
     hasScheduleAccess: accessible.has("schedule"),
     hasMyInfoAccess: accessible.has("my-info"),
@@ -469,7 +407,6 @@ export default async function HubPage() {
     // wrong claim as the clearance card above, on a different surface. The card
     // itself still appears; it just falls back to "View & update".
     suppressComplianceNudge: isFaculty,
-    backfill,
   });
 
   // Clinic check-in gets its own banner above the action feed rather than a tile
@@ -669,15 +606,6 @@ export default async function HubPage() {
             </div>
           )}
 
-          {/* Modules */}
-          <div className="mt-9 mb-3 flex items-baseline justify-between">
-            <h2 className="text-base font-bold tracking-tight text-foreground">Modules</h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {activeModules.map((m) => (
-              <ModuleTile key={m.id} m={m} />
-            ))}
-          </div>
         </div>
 
         {/* Side rail (real data only) */}

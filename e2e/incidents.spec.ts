@@ -235,6 +235,19 @@ test("strike request to approve: director requests a strike, admin approves it, 
   // The strike now appears on the strikes ledger, then clean it up.
   await page.goto("/incidents/strikes");
   await page.waitForURL((url) => url.pathname === "/incidents/strikes");
+
+  // The ten-field composer is collapsed, so a reviewer who came to READ the
+  // ledger meets rows rather than a wall of controls.
+  //
+  // The positive assertion goes FIRST and is load-bearing: this whole form is
+  // behind `{canManageAll && (`, and every spec logs in per test, so a
+  // toBeHidden() on its own would pass just as happily against a login redirect
+  // or a viewer without incidents.manage. Seeing the summary proves we are the
+  // admin, on the page, with the form present -- so the hidden submit can only
+  // be hidden because the <details> is closed.
+  await expect(page.getByText("Record disciplinary action")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record action" })).toBeHidden();
+
   const strikeRow = page.locator("tr").filter({ hasText: "Dev Volunteer" }).filter({ hasText: description });
   await expect(strikeRow).toBeVisible();
 

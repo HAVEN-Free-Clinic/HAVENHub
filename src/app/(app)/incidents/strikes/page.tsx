@@ -17,6 +17,7 @@
  */
 
 import { requirePermission } from "@/platform/auth/session";
+import { cx } from "@/platform/ui/cx";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { prisma } from "@/platform/db";
@@ -31,7 +32,7 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { FilterBar, FilterField } from "@/platform/ui/filter-bar";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
-import { Card } from "@/platform/ui/card";
+import { cardClasses } from "@/platform/ui/card";
 import { FormActions, FormRow, ROW_WIDTH, RowField } from "@/platform/ui/form";
 import { Combobox } from "@/platform/ui/combobox";
 import {
@@ -378,10 +379,21 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
           an incident report instead. Gate the form so they see the read-only
           ledger without a dead-end form. */}
       {canManageAll && (
-      <section className="mt-8">
-        <h2 className="mb-3 text-base font-semibold">Record disciplinary action</h2>
-        <form action={issueActionForm}>
-          <Card>
+      /* Collapsed by default. This composer is ten fields tall and sat between
+         the page header and the ledger, so a reviewer who came to READ the
+         strikes -- which is what nearly every visit is for -- scrolled past a
+         wall of controls to reach row one. Its sibling queue at
+         /incidents/review stacks five.
+
+         A <details>, not a modal or a separate route: the form posts a plain
+         server action and every field is unchanged, so the cheapest honest fix
+         is to stop it being open. */
+      <details className={cx(cardClasses({ pad: false }), "mt-8")}>
+        <summary className="cursor-pointer select-none px-5 py-3 text-base font-semibold text-foreground">
+          Record disciplinary action
+        </summary>
+        <div className="px-5 pb-5">
+          <form action={issueActionForm}>
             <FormRow>
 
               {/* Person picker: searchable combobox for central, select for directors */}
@@ -501,9 +513,9 @@ export default async function DisciplinaryPage({ searchParams }: PageProps) {
                 Record action
               </SubmitButton>
             </FormActions>
-          </Card>
-        </form>
-      </section>
+          </form>
+        </div>
+      </details>
       )}
 
       {/* Filter bar */}

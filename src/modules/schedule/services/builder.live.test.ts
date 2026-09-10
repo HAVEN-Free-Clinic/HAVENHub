@@ -88,6 +88,10 @@ describe("assignmentsFor", () => {
       // the roster -- INTP verified for years without always scoring.
       person: {
         name: "Vic Volunteer",
+        // The board carries the sort key, so the grid can order the
+        // former-member rows it builds out of these snapshots by surname.
+        legalFirstName: "Vic",
+        lastName: "Volunteer",
         verifiedLanguages: ["es"],
         spanishScore: null,
         licensedRN: true,

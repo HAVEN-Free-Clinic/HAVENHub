@@ -24,7 +24,7 @@ import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { languageClaimedContext } from "@/platform/email/templates/volunteers";
 import { getSetting } from "@/platform/settings/service";
-import { firstNameOf, personNameOrderVia } from "@/platform/person-name";
+import { firstNameOf, personNameOrderVia, comparePersonName } from "@/platform/person-name";
 import { log, errorAttrs } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
@@ -561,16 +561,19 @@ async function sendPendingClaimDigest(
     getSetting<string>("app.baseUrl"),
     prisma.person.findMany({
       where: { id: { in: [...new Set(claims.map((c) => c.personId))] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, legalFirstName: true, lastName: true },
     }),
   ]);
   if (reviewers.length === 0) return;
 
-  const nameById = new Map(claimants.map((p) => [p.id, p.name]));
+  const byId = new Map(claimants.map((p) => [p.id, p]));
   const lines = claims
-    .map((c) => ({ name: nameById.get(c.personId), language: languageLabel(c.language) }))
-    .filter((l): l is { name: string; language: string } => Boolean(l.name))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language));
+    .map((c) => {
+      const person = byId.get(c.personId);
+      return person && { ...person, language: languageLabel(c.language) };
+    })
+    .filter((l) => l !== undefined && l !== null)
+    .sort((a, b) => comparePersonName(a, b) || a.language.localeCompare(b.language));
   if (lines.length === 0) return;
 
   const reviewUrl = `${baseUrl}/volunteers/spanish-review`;

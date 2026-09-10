@@ -11,7 +11,7 @@ function d(year: number, month: number, day: number): Date {
 
 const member: BuilderMember = {
   membershipId: "mem-1",
-  person: { id: "p1", name: "Alice Volunteer", verifiedLanguages: [], spanishScore: null, licensedRN: false },
+  person: { id: "p1", name: "Alice Volunteer", legalFirstName: "Alice", lastName: "Volunteer", verifiedLanguages: [], spanishScore: null, licensedRN: false },
   kind: "VOLUNTEER",
   availability: { tier: "SELF", dates: [] },
   overrideActive: false,

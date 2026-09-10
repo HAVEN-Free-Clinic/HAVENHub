@@ -22,6 +22,7 @@ import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
 import { notifyCertVerified } from "@/platform/compliance/review-notifications";
 import type { Sort } from "@/platform/lists/sort";
 import { log, errorAttrs } from "@/platform/logging";
+import { comparePersonName } from "@/platform/person-name";
 
 export type { ComplianceStatus };
 export type { ClearanceSummary };
@@ -221,7 +222,7 @@ export async function departmentCompliance(
     members.sort((a, b) => {
       const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
       if (statusDiff !== 0) return statusDiff;
-      return a.person.name.localeCompare(b.person.name);
+      return comparePersonName(a.person, b.person);
     });
 
     // Build counts.
@@ -506,13 +507,13 @@ export async function masterCompliance(
       const primary =
         sort.key === "departments"
           ? a.departments.join(", ").localeCompare(b.departments.join(", "))
-          : a.person.name.localeCompare(b.person.name);
+          : comparePersonName(a.person, b.person);
       if (primary !== 0) return primary * sign;
-      return a.person.name.localeCompare(b.person.name);
+      return comparePersonName(a.person, b.person);
     }
     const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
     if (statusDiff !== 0) return statusDiff;
-    return a.person.name.localeCompare(b.person.name);
+    return comparePersonName(a.person, b.person);
   });
 
   // 10. Paginate.

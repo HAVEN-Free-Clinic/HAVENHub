@@ -63,7 +63,6 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
 import { Field, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
-import { Button } from "@/platform/ui/button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { FormActions } from "@/platform/ui/form";
@@ -441,9 +440,9 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               <Textarea name="reviewNotes" rows={3} defaultValue={report.reviewNotes ?? ""} />
             </Field>
             <FormActions>
-              <Button type="submit" variant="primary" size="sm">
+              <SubmitButton variant="primary" size="sm" pendingLabel="Saving…">
                 Save status
-              </Button>
+              </SubmitButton>
             </FormActions>
           </form>
 

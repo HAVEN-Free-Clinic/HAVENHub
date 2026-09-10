@@ -128,6 +128,8 @@
  *    code the pathname can produce.
  */
 
+import { SHARED_ERROR_TEXT } from "@/platform/error-text";
+
 /** Mirrors the tone vocabulary already established by `src/platform/ui/alert.tsx`. */
 export type ToastTone = "error" | "success" | "warning" | "info";
 
@@ -234,12 +236,15 @@ type ErrorCodeEntry = {
  * (harmlessly, since nothing ever sets it on a URL) claim it as raw text if it ever showed up
  * there, exactly like the other 85 sites.
  *
- * `validation`'s text is copied from the three incidents pages' `ERROR_MESSAGES["validation"]`
- * rather than `admin/notifications` / `admin/email`'s generic "An unexpected error occurred.".
- * This is a real, if practically unreachable, difference: every live redirect to `error=validation`
- * also sets `message` (confirmed by grep), so this table is only ever consulted for `validation`
- * on the one page that reaches it message-less (`incidents/strikes/page.tsx:223`, which is
- * INLINE-ruled but happens to carry byte-identical text to this entry regardless).
+ * `forbidden` and `validation` both read from `SHARED_ERROR_TEXT` (src/platform/error-text.ts),
+ * which the two incidents pages' own `ERROR_MESSAGES` dictionaries also read, so this table and
+ * those pages cannot say different things about the same code. `validation`'s wording is
+ * deliberately theirs rather than `admin/notifications` / `admin/email`'s generic "An unexpected
+ * error occurred.". This is a real, if practically unreachable, difference: every live redirect
+ * to `error=validation` also sets `message` (confirmed by grep), so this table is only ever
+ * consulted for `validation` on the one page that reaches it message-less
+ * (`incidents/strikes/page.tsx`, which is INLINE-ruled but happens to carry byte-identical text
+ * to this entry regardless).
  *
  * `not-found`'s only live producers redirect to `/incidents/review` (`incidents/actions.ts:134,162`)
  * or `/incidents/strikes` (`incidents/strikes/page.tsx:282,306`); nothing redirects to
@@ -263,8 +268,8 @@ type ErrorCodeEntry = {
  * call site.
  */
 const ERROR_CODE_TABLE: readonly ErrorCodeEntry[] = [
-  { code: "forbidden", text: "You do not have permission for that action." },
-  { code: "validation", text: "Please check your input and try again." },
+  { code: "forbidden", text: SHARED_ERROR_TEXT.forbidden },
+  { code: "validation", text: SHARED_ERROR_TEXT.validation },
   {
     code: "link",
     text: "That link has expired or was already used. Request a new one below.",

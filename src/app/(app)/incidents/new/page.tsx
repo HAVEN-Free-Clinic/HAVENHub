@@ -35,15 +35,16 @@ import { SubjectPicker } from "../subject-picker";
 import { AnonymityField } from "../anonymity-field";
 import { submitReportAction } from "../actions";
 import { formReviewerDisclosure } from "../disclosure";
+import { SHARED_ERROR_TEXT } from "@/platform/error-text";
 
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
 
 const ERROR_MESSAGES: Record<string, string> = {
-  forbidden: "You do not have permission for that action.",
+  forbidden: SHARED_ERROR_TEXT.forbidden,
   "subject-not-found": "The selected person could not be found.",
-  "validation": "Please check your input and try again.",
+  "validation": SHARED_ERROR_TEXT.validation,
 };
 
 // ---------------------------------------------------------------------------

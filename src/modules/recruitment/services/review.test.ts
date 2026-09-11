@@ -4,6 +4,7 @@ import { prisma } from "@/platform/db";
 import {
   reviewScope, listApplicantsForReview, awaitingRoutingCount, listReviewableCycles, revokeAcceptance, listAcceptances,
   canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError, recordApplicationView,
+  recordSpeedRouteView,
 } from "./review";
 
 async function seed() {
@@ -307,5 +308,22 @@ describe("recordApplicationView", () => {
     await recordApplicationView(srr.id, appSrhd.id, "cover_letter");
     expect(await count()).toBe(1);
     expect(await count("recruitment.application_file_view")).toBe(2);
+  });
+});
+
+describe("recordSpeedRouteView", () => {
+  it("logs one board view per reviewer per cycle inside the window, apart from record views", async () => {
+    const { srr, scorer, cycle, appSrhd } = await seed();
+    await recordSpeedRouteView(srr.id, cycle.id);
+    await recordSpeedRouteView(srr.id, cycle.id); // a re-render after a route or reject
+    await recordSpeedRouteView(scorer.id, cycle.id);
+    await recordApplicationView(srr.id, appSrhd.id);
+
+    const boardViews = await prisma.auditLog.findMany({ where: { action: "recruitment.speed_route_view" } });
+    expect(boardViews).toHaveLength(2);
+    for (const v of boardViews) expect(v).toMatchObject({ entityType: "RecruitmentCycle", entityId: cycle.id });
+    // The shared once-per-window check is keyed on the action, so the board and
+    // a record never swallow each other's entries.
+    expect(await prisma.auditLog.count({ where: { action: "recruitment.application_view" } })).toBe(1);
   });
 });

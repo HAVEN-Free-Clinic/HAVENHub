@@ -107,13 +107,48 @@ export async function recordApplicationView(
   applicationId: string,
   file?: string,
 ): Promise<void> {
-  const action = file ? "recruitment.application_file_view" : "recruitment.application_view";
+  await recordViewOnce({
+    actorId,
+    action: file ? "recruitment.application_file_view" : "recruitment.application_view",
+    entityType: "Application",
+    entityId: applicationId,
+    file,
+  });
+}
+
+/**
+ * Audit that a staff member opened a cycle's speed-route board.
+ *
+ * The board is a list, not a record: every applicant still in play, with their
+ * committee average, ranked departments and stage, and no answers. So it is one
+ * entry for the cycle rather than one per row. Speed SCORING is per applicant,
+ * because it loads each application's answers in turn; that goes through
+ * recordApplicationView from the loader, like opening the full record.
+ */
+export async function recordSpeedRouteView(actorId: string, cycleId: string): Promise<void> {
+  await recordViewOnce({
+    actorId,
+    action: "recruitment.speed_route_view",
+    entityType: "RecruitmentCycle",
+    entityId: cycleId,
+  });
+}
+
+/** Write a view entry unless this person logged the same one inside the window. */
+async function recordViewOnce(entry: {
+  actorId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  file?: string;
+}): Promise<void> {
+  const { actorId, action, entityType, entityId, file } = entry;
   const recent = await prisma.auditLog.findFirst({
     where: {
       action,
       actorPersonId: actorId,
-      entityType: "Application",
-      entityId: applicationId,
+      entityType,
+      entityId,
       createdAt: { gte: new Date(Date.now() - VIEW_DEDUPE_MS) },
       ...(file ? { after: { path: ["file"], equals: file } } : {}),
     },
@@ -123,8 +158,8 @@ export async function recordApplicationView(
   await recordAudit({
     actorPersonId: actorId,
     action,
-    entityType: "Application",
-    entityId: applicationId,
+    entityType,
+    entityId,
     ...(file ? { after: { file } } : {}),
   });
 }

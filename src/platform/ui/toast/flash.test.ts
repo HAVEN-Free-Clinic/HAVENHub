@@ -845,7 +845,7 @@ describe("classifyFlashParams", () => {
   });
 
   it("claims saved=1 on a subcommittee edit page as Changes saved. too", () => {
-    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/admin/subcommittees/abc123");
+    const result = classifyFlashParams(paramsOf({ saved: "1" }), "/recruitment/subcommittees/abc123");
     expect(result.toasts).toEqual([{ tone: "success", message: "Changes saved." }]);
     expect(result.stripParams).toEqual(["saved"]);
   });

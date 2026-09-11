@@ -187,8 +187,9 @@ describe("module registry", () => {
   });
 
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {
-    const admin = MODULES.find((m) => m.id === "admin")!;
-    expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");
+    // In Recruitment now, beside the cycles whose contracts start from it.
+    const recruitment = MODULES.find((m) => m.id === "recruitment")!;
+    expect(recruitment.nav.map((n) => n.href)).toContain("/recruitment/contract");
   });
 
   // The guard that used to live here -- "never nest one tab's href under

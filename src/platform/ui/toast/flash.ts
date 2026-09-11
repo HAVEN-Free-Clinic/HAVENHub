@@ -638,7 +638,7 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     // admin/departments/[id]/page.tsx (via department-form.tsx:32) and
     // admin/subcommittees/[id]/page.tsx (via subcommittee-form.tsx:21). Byte-identical text.
     params: ["saved"],
-    pathnames: ["/admin/departments/*", "/admin/subcommittees/*"],
+    pathnames: ["/admin/departments/*", "/recruitment/subcommittees/*"],
     tone: "success",
     message: () => "Changes saved.",
   },

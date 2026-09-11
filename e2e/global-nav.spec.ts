@@ -22,12 +22,13 @@ function chevron(page: import("@playwright/test").Page, moduleTitle: string) {
 
 test("module dropdown reaches a sub-page in one hop from another module", async ({ page }) => {
   await devSignIn(page);
-  // Start somewhere that is NOT admin, to prove the hop is global.
+  // Start somewhere that is NOT recruitment, to prove the hop is global.
+  // (Onboarding contract moved from Admin to Recruitment.)
   await page.goto("/schedule");
-  await chevron(page, "Admin").click();
-  await panel(page, "Admin").getByRole("link", { name: "Onboarding contract" }).click();
-  await page.waitForURL((url) => url.pathname === "/admin/contract");
-  await expect(page).toHaveURL(/\/admin\/contract$/);
+  await chevron(page, "Recruitment").click();
+  await panel(page, "Recruitment").getByRole("link", { name: "Onboarding contract" }).click();
+  await page.waitForURL((url) => url.pathname === "/recruitment/contract");
+  await expect(page).toHaveURL(/\/recruitment\/contract$/);
 });
 
 test("schedule dropdown reaches the Builder, whose gate the global nav cannot run", async ({ page }) => {
@@ -185,7 +186,7 @@ test("Escape closes an open dropdown and returns focus to its chevron", async ({
   await page.goto("/schedule");
   const adminChevron = chevron(page, "Admin");
   await adminChevron.click();
-  await expect(panel(page, "Admin").getByRole("link", { name: "Onboarding contract" })).toBeVisible();
+  await expect(panel(page, "Admin").getByRole("link", { name: "Audit", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel(page, "Admin")).toHaveCount(0);
   await expect(adminChevron).toBeFocused();
@@ -197,7 +198,7 @@ test("opening one dropdown closes any other", async ({ page }) => {
   // are on screen here, so each assertion is about the panel and nothing else.
   await page.goto("/schedule");
   await chevron(page, "Admin").click();
-  await expect(panel(page, "Admin").getByRole("link", { name: "Onboarding contract" })).toBeVisible();
+  await expect(panel(page, "Admin").getByRole("link", { name: "Audit", exact: true })).toBeVisible();
   await chevron(page, "Volunteers").click();
   await expect(panel(page, "Admin")).toHaveCount(0);
   await expect(panel(page, "Volunteers").getByRole("link", { name: "Offboarding" })).toBeVisible();

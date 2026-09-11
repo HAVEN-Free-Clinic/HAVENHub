@@ -8,7 +8,7 @@ import type { BlockPatch } from "@/modules/recruitment/contract/block-ops";
 import type { ContractBlock, ContractLayout } from "@/modules/recruitment/contract/layout";
 import type { Track } from "@prisma/client";
 import { saveContractAction, resetContractAction } from "./actions";
-import { saveGlobalContractAction, resetGlobalContractAction } from "@/app/(app)/admin/contract/actions";
+import { saveGlobalContractAction, resetGlobalContractAction } from "@/app/(app)/recruitment/contract/actions";
 import { SortableList } from "../sortable-list";
 import { TypePicker } from "../type-picker";
 import { SystemFieldCard } from "./system-field-card";

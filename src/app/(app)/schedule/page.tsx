@@ -644,8 +644,11 @@ export default async function MySchedulePage({
 
               {/* Quick-scan stats for this term: shift count, availability progress,
                   and pending request count. Each also gets a full readout in its own
-                  section below; this row is just the at-a-glance summary. */}
-              <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  section below; this row is just the at-a-glance summary.
+                  Not on a phone: there the three cards stacked full width and
+                  pushed a volunteer's own shifts below the fold on a clinic day,
+                  to repeat numbers the sections below already give. */}
+              <div className="mb-8 hidden gap-4 sm:grid sm:grid-cols-3">
                 <StatCard label="Shifts this term" value={t.shifts.length} />
                 <StatCard
                   label="Dates available"

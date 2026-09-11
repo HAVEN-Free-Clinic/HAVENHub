@@ -170,14 +170,18 @@ for (const r of ROUTES) {
       // spots: /no-access (permission denied), /get-started (onboarding gate),
       // or / (hub fallback). The important invariant is that the user is NOT
       // left on the protected route.
-      await page.waitForURL((url) => url.pathname !== r.path, { timeout: 10_000 });
-      const deflected = new URL(page.url()).pathname;
-      expect(
-        deflected === "/no-access" ||
-          deflected === "/" ||
-          deflected.startsWith("/get-started"),
-        `expected denial from ${r.path}, but landed on ${deflected}`,
-      ).toBe(true);
+      //
+      // Waits for a DENIAL landing, not merely for the URL to leave r.path. A
+      // path that redirects before render (/clinic -> /clinic/avs, a config
+      // redirect) leaves r.path at once, and the layout's denial of the
+      // destination then streams in client-side a moment later; "left r.path"
+      // read the URL in between and saw /clinic/avs.
+      await expect
+        .poll(() => new URL(page.url()).pathname, {
+          timeout: 15_000,
+          message: `expected denial from ${r.path} (to /no-access, /get-started or /)`,
+        })
+        .toMatch(/^\/(?:no-access|get-started.*)?$/);
     });
   }
 }

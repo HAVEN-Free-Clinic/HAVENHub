@@ -162,6 +162,17 @@ const nextConfig: NextConfig = {
     turbopackFileSystemCacheForBuild: false,
   },
   supportsImmutableAssets: false,
+  async redirects() {
+    return [
+      // /clinic has one page. Its page.tsx redirect ran under clinic/loading.tsx,
+      // so the loading shell streamed first and the redirect happened in the
+      // browser afterwards: a flash of skeleton for every visitor, and on a busy
+      // CI runner slow enough to time out e2e/smoke.spec.ts. A config redirect
+      // fires before any render. Temporary (307), since it is only where the
+      // module's one page lives today; the page.tsx redirect stays as a fallback.
+      { source: "/clinic", destination: "/clinic/avs", permanent: false },
+    ];
+  },
   async rewrites() {
     return [
       {

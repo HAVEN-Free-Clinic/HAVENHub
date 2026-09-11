@@ -380,7 +380,7 @@ export const MODULES: ModuleManifest[] = [
       // The Teams/in-app delivery log, the Email log's twin. Folded under Email,
       // which also ends the row's "Notifications" reading like the member's own
       // notification inbox.
-      { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync", underTab: "/admin/email" },
+      { label: "Notification log", href: "/admin/notifications", permission: "admin.manage_sync", underTab: "/admin/email" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
     ],
   },

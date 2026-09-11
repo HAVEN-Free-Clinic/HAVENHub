@@ -110,10 +110,13 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
       <TD>
         <StatusBadge {...clearanceLabel(row.clearance.cleared ? "CLEARED" : "NOT_CLEARED")} />
       </TD>
-      <TD className="text-foreground-soft tabular-nums">
+      {/* One line each: on production every Expires date and most Completed
+          dates wrapped to "Sep 11, / 2025" in 104px columns, doubling each
+          row's height for a date. */}
+      <TD className="whitespace-nowrap text-foreground-soft tabular-nums">
         <CalendarDate value={row.cert?.completionDate} />
       </TD>
-      <TD className="text-foreground-soft tabular-nums">
+      <TD className="whitespace-nowrap text-foreground-soft tabular-nums">
         <CalendarDate value={expiresAt} />
       </TD>
       <TD className="text-foreground-soft text-xs">

@@ -72,8 +72,7 @@ describe("checkInSelf", () => {
       { coords: CLINIC, accuracyMeters: 20 },
       SATURDAY_MORNING,
     );
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.method).toBe("SELF_GEO");
+    expect(res).toMatchObject({ ok: true, method: "SELF_GEO", distanceMeters: 0, accuracyMeters: 20 });
 
     const row = await prisma.clinicAttendance.findFirst({ where: { personId: person.id } });
     expect(row?.method).toBe("SELF_GEO");
@@ -95,14 +94,16 @@ describe("checkInSelf", () => {
   it("rejects a fix outside the radius and writes nothing", async () => {
     const { person } = await seed();
     const res = await checkInSelf(person.id, { coords: FAR_AWAY, accuracyMeters: 20 }, SATURDAY_MORNING);
-    expect(res).toEqual({ ok: false, reason: "OUT_OF_RANGE" });
+    expect(res).toMatchObject({ ok: false, reason: "OUT_OF_RANGE", accuracyMeters: 20 });
+    // Reported so the radius can be tuned from near misses, not only from passes.
+    if (!res.ok) expect(res.distanceMeters).toBeGreaterThan(100_000);
     expect(await prisma.clinicAttendance.count()).toBe(0);
   });
 
   it("rejects an imprecise fix and writes nothing", async () => {
     const { person } = await seed();
     const res = await checkInSelf(person.id, { coords: CLINIC, accuracyMeters: 900 }, SATURDAY_MORNING);
-    expect(res).toEqual({ ok: false, reason: "TOO_IMPRECISE" });
+    expect(res).toEqual({ ok: false, reason: "TOO_IMPRECISE", distanceMeters: 0, accuracyMeters: 900 });
     expect(await prisma.clinicAttendance.count()).toBe(0);
   });
 
@@ -110,6 +111,26 @@ describe("checkInSelf", () => {
     const { person } = await seed();
     const res = await checkInSelf(person.id, null, SATURDAY_MORNING);
     expect(res).toEqual({ ok: false, reason: "POSITION_UNAVAILABLE" });
+  });
+
+  // The payload is whatever a caller sends the server action. NaN fails every
+  // comparison, so a NaN accuracy used to slip past the TOO_IMPRECISE check and
+  // NaN coordinates produced a NaN distance that slipped past the radius.
+  it.each([
+    ["a NaN accuracy", { coords: CLINIC, accuracyMeters: NaN }],
+    ["a negative accuracy", { coords: CLINIC, accuracyMeters: -1 }],
+    ["an infinite latitude", { coords: { ...CLINIC, latitude: Infinity }, accuracyMeters: 20 }],
+    ["a latitude past the pole", { coords: { ...CLINIC, latitude: 91 }, accuracyMeters: 20 }],
+    ["NaN coordinates", { coords: { latitude: NaN, longitude: NaN }, accuracyMeters: 20 }],
+    [
+      "a coordinate sent as a string",
+      { coords: { latitude: "41.3025" as unknown as number, longitude: CLINIC.longitude }, accuracyMeters: 20 },
+    ],
+  ])("treats %s as POSITION_UNAVAILABLE and writes nothing", async (_label, position) => {
+    const { person } = await seed();
+    const res = await checkInSelf(person.id, position, SATURDAY_MORNING);
+    expect(res).toEqual({ ok: false, reason: "POSITION_UNAVAILABLE" });
+    expect(await prisma.clinicAttendance.count()).toBe(0);
   });
 
   it("waives the fence when every assignment that day is remote", async () => {
@@ -179,7 +200,7 @@ describe("checkInSelf", () => {
     // default, warning but never propagating the bad value to the caller (see
     // platform/settings/service.ts). Verified directly: upserting that same
     // corrupt row and reading it back through getSetting still yields the
-    // valid default 41.3025, so the resulting check-in actually SUCCEEDS
+    // valid env default, so the resulting check-in actually SUCCEEDS
     // instead of failing closed -- the opposite of what the brief's test
     // asserts. Stubbing getSetting itself is the only way to exercise
     // resolveFence's fail-closed branch as things stand today.

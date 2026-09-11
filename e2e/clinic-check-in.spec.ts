@@ -8,10 +8,12 @@ import {
 
 // Must match the seeded clinic.checkIn* settings. The test DB never has a
 // Setting row for these (prisma/seed.ts writes none), so they resolve to the
-// env defaults in src/platform/config.ts: latitude 41.3025, longitude
-// -72.937, radius 250m, max accuracy 200m. Boston is ~100 miles away, far
-// outside that radius regardless of GPS error.
-const CLINIC = { latitude: 41.3025, longitude: -72.937 };
+// env defaults in src/platform/config.ts: latitude 41.302599, longitude
+// -72.936326, radius 250m, max accuracy 200m. Boston is ~100 miles away, far
+// outside that radius regardless of GPS error. Playwright reports an accuracy
+// of 0 m unless told otherwise, so the panel's location sampler accepts the
+// first fix instead of waiting out its settle window.
+const CLINIC = { latitude: 41.302599, longitude: -72.936326 };
 const BOSTON = { latitude: 42.3601, longitude: -71.0589 };
 
 test.describe("clinic check-in", () => {
@@ -64,6 +66,35 @@ test.describe("clinic check-in", () => {
       await volunteer.cleanup();
       await clinic.cleanup();
     }
+  });
+
+  test.describe("with location blocked", () => {
+    // No grant: headless Chromium answers the request with PERMISSION_DENIED,
+    // the failure that dominated production (79 of the first 104 attempts).
+    test.use({ permissions: [] });
+
+    test("a volunteer is shown how to unblock location, not just told it failed", async ({ page }) => {
+      const clinic = await seedTodayClinicDate();
+      const volunteer = await seedOnboardedVolunteer("VADM", {
+        assignment: { clinicDate: clinic.clinicDate },
+      });
+      try {
+        await devLogin(page, volunteer.email);
+        await page.goto("/schedule/check-in");
+
+        await page.getByRole("button", { name: "Check in", exact: true }).click();
+
+        const status = page.getByRole("status");
+        await expect(status).toContainText("Your device would not share its location", { timeout: 10_000 });
+        // The steps for this device render inside the same alert, ending with
+        // the reload a blocked browser needs before it will ask again.
+        await expect(status.getByRole("listitem").last()).toContainText("reload this page");
+        await expect(page.getByRole("heading", { name: "You are checked in", exact: true })).toHaveCount(0);
+      } finally {
+        await volunteer.cleanup();
+        await clinic.cleanup();
+      }
+    });
   });
 
   test("a director can mark someone present from the full schedule", async ({ page }) => {

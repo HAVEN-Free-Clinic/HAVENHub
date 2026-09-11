@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requirePersonSession, requirePermission } from "@/platform/auth/session";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
-import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
@@ -253,7 +253,12 @@ export async function loadReviewApplicationAction(
   applicationId: string,
 ): Promise<{ view: ReviewApplicationView } | { error: string }> {
   const person = await requirePersonSession();
-  return loadReviewApplication(applicationId, person.personId);
+  const result = await loadReviewApplication(applicationId, person.personId);
+  // Speed scoring shows this applicant's answers, so it is a view of the record
+  // like opening the detail page. Logged only when the load succeeded, i.e. the
+  // access check inside loadReviewApplication passed; a refusal returns an error.
+  if ("view" in result) await recordApplicationView(person.personId, applicationId);
+  return result;
 }
 
 export async function reopenDecisionAction(cycleId: string, applicationId: string) {

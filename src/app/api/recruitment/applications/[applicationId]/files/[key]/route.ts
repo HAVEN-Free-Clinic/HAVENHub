@@ -4,7 +4,7 @@ import { getObject } from "@/platform/storage";
 import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { getApplication } from "@/modules/recruitment/services/submissions";
-import { reviewScope, canViewApplication } from "@/modules/recruitment/services/review";
+import { reviewScope, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
 import { INLINE_SAFE_MIME_TYPES } from "@/modules/recruitment/services/file-preview";
 
@@ -95,6 +95,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     });
     return Response.json({ error: "Not found" }, { status: 404 });
   }
+  // Logged only once the file is really about to be served, so a 404 (missing
+  // object, bad storedName) is not recorded as someone having read it.
+  await recordApplicationView(activePerson.id, applicationId, key);
+
   // Copy into a standalone Uint8Array (a valid BodyInit) so the Response owns
   // bytes independent of the source Buffer's backing store.
   const fileBytes = new Uint8Array(buf);

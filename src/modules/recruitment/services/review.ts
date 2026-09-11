@@ -85,6 +85,50 @@ export async function canViewerOpenApplication(
   return canViewApplication(app, { scope, managesCycles, canScore });
 }
 
+/** Repeat opens of one record by one person inside this window are one view. */
+const VIEW_DEDUPE_MS = 10 * 60 * 1000;
+
+/**
+ * Audit that a staff member opened an applicant's record, or one of its files.
+ *
+ * Call only once canViewApplication has passed: this is a log of permitted
+ * access, which is what an access log is read for. Before it existed, reading
+ * an applicant's full application (identity, answers, uploaded resume) left no
+ * trace at all; only revoking an acceptance was audited.
+ *
+ * Repeat opens by the same person within ten minutes count once, because the
+ * detail page re-renders after every score, route and decision made on it, and
+ * one sitting would otherwise log a dozen times. A file is its own entry, keyed
+ * on the answer, since downloading a resume is a different act from reading the
+ * page.
+ */
+export async function recordApplicationView(
+  actorId: string,
+  applicationId: string,
+  file?: string,
+): Promise<void> {
+  const action = file ? "recruitment.application_file_view" : "recruitment.application_view";
+  const recent = await prisma.auditLog.findFirst({
+    where: {
+      action,
+      actorPersonId: actorId,
+      entityType: "Application",
+      entityId: applicationId,
+      createdAt: { gte: new Date(Date.now() - VIEW_DEDUPE_MS) },
+      ...(file ? { after: { path: ["file"], equals: file } } : {}),
+    },
+    select: { id: true },
+  });
+  if (recent) return;
+  await recordAudit({
+    actorPersonId: actorId,
+    action,
+    entityType: "Application",
+    entityId: applicationId,
+    ...(file ? { after: { file } } : {}),
+  });
+}
+
 export type ReviewApplication = Application & {
   applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
   /**

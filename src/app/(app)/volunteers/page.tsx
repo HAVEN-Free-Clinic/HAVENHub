@@ -348,8 +348,11 @@ async function RosterBody(props: BodyProps) {
   return (
     <>
       {/* One tile per status, labelled and toned from the shared vocabulary so a
-          tile, the badge in its row and the filter option below all agree. */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          tile, the badge in its row and the filter option below all agree.
+          Not on a phone: six tiles plus the two below stacked into four rows
+          of two before the first person, and the Status filter right under
+          them carries the same breakdown. The clearance pair stays. */}
+      <div className="mt-6 hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
         {ALL_STATUSES.map((s) => {
           const { label, tone } = complianceStatusLabel(s, "staff");
           return <StatCard key={s} label={label} value={result.summary[s]} tone={tone} />;
@@ -400,7 +403,14 @@ async function RosterBody(props: BodyProps) {
         </FilterField>
       </FilterBar>
 
-      <div className="mt-4">
+      {/* On production every row read "-" under Training and Learning, which
+          looked like missing data. It is not: the item does not apply to that
+          person this term (no designated training, no required course). */}
+      <p className="mt-4 text-xs text-subtle-foreground">
+        A dash under Training, Learning or EHS means that item is not required for that person this term.
+      </p>
+
+      <div className="mt-2">
         <Table>
           <THead>
             <TR>

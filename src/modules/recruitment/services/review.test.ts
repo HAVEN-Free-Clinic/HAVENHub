@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
   reviewScope, listApplicantsForReview, awaitingRoutingCount, listReviewableCycles, revokeAcceptance, listAcceptances,
-  canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError,
+  canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError, recordApplicationView,
 } from "./review";
 
 async function seed() {
@@ -265,5 +265,47 @@ describe("canViewApplication (pure, mirrors listApplicantsForReview)", () => {
   it("director-track cycle: a director sees an app that RANKED their dept", () => {
     expect(canViewApplication(dirApp(["SRHD"]), { scope: dirScope, ...flags() })).toBe(true);
     expect(canViewApplication(dirApp(["MDIC"]), { scope: dirScope, ...flags() })).toBe(false);
+  });
+});
+
+describe("recordApplicationView", () => {
+  const count = (action = "recruitment.application_view") => prisma.auditLog.count({ where: { action } });
+
+  it("logs a reviewer opening a record once, however often the page re-renders", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(srr.id, appSrhd.id);
+    expect(await count()).toBe(1);
+    const row = await prisma.auditLog.findFirstOrThrow({ where: { action: "recruitment.application_view" } });
+    expect(row).toMatchObject({ actorPersonId: srr.id, entityType: "Application", entityId: appSrhd.id });
+  });
+
+  it("logs another reviewer, and another record, separately", async () => {
+    const { srr, scorer, appSrhd, appMdic } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(scorer.id, appSrhd.id);
+    await recordApplicationView(srr.id, appMdic.id);
+    expect(await count()).toBe(3);
+  });
+
+  it("logs again once the ten-minute window has passed", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await prisma.auditLog.updateMany({
+      where: { action: "recruitment.application_view" },
+      data: { createdAt: new Date(Date.now() - 11 * 60 * 1000) },
+    });
+    await recordApplicationView(srr.id, appSrhd.id);
+    expect(await count()).toBe(2);
+  });
+
+  it("logs each file as its own entry, apart from the page view", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(srr.id, appSrhd.id, "resume");
+    await recordApplicationView(srr.id, appSrhd.id, "resume");
+    await recordApplicationView(srr.id, appSrhd.id, "cover_letter");
+    expect(await count()).toBe(1);
+    expect(await count("recruitment.application_file_view")).toBe(2);
   });
 });

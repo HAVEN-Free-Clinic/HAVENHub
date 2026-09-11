@@ -8,7 +8,7 @@ import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
-import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
+import { reviewScope, listAcceptances, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
@@ -72,6 +72,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // director's queue on volunteer cycles; ranking on director-track cycles).
   const canView = canViewApplication(app, { scope, managesCycles, canScore: canScorePerm });
   if (!canView) notFound();
+  // Past the access check, so this logs a permitted view. Repeats by the same
+  // person inside ten minutes (every action on this page re-renders it) count once.
+  await recordApplicationView(person.personId, applicationId);
   const eligible = seeAll
     ? app.cycle.departments
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));

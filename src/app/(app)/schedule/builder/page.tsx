@@ -698,7 +698,13 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     proceduresBookedAction={proceduresBookedAction}
                   />
                 )}
-                {canManageRequests && (
+                {/* Only when there is something to show. An empty "No pending
+                    requests" card in every sidebar was the Builder's third copy
+                    of the approvals queue with nothing in it. Deliberately NOT
+                    hidden at zero pending: the recent decisions stay, so a
+                    request approved here does not vanish the moment it is
+                    decided (schedule.spec's round trip asserts exactly that). */}
+                {canManageRequests && requestRows.length > 0 && (
                   <PendingRequests
                     rows={requestRows}
                     approveAction={approveRequestAction}

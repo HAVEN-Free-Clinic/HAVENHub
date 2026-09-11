@@ -45,6 +45,26 @@ export function haversineMeters(a: Coords, b: Coords): number {
 }
 
 /**
+ * Whether a client-reported fix is a reading at all. The position reaches the
+ * server through a server action, so it is whatever the caller sent. NaN fails
+ * every comparison in evaluateFence, which let a NaN accuracy past the
+ * precision check and a NaN distance past the radius; a string or an
+ * out-of-range degree is no better. Callers check this first so "not a
+ * reading" is never judged as one.
+ */
+export function isPlausibleFix(position: Coords, accuracyMeters: number): boolean {
+  const { latitude, longitude } = position;
+  return (
+    Number.isFinite(latitude) &&
+    Math.abs(latitude) <= 90 &&
+    Number.isFinite(longitude) &&
+    Math.abs(longitude) <= 180 &&
+    Number.isFinite(accuracyMeters) &&
+    accuracyMeters >= 0
+  );
+}
+
+/**
  * Apply the pass rule: near enough AND precise enough.
  *
  * The precision half is load-bearing. Indoors, coords.accuracy is routinely in

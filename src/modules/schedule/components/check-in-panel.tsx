@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
 import type { ClientDetectedFailureReason } from "./check-in-client-reasons";
+import { DEFAULT_SAMPLER_OPTIONS, sampleBestFix } from "./location-sampler";
+import { detectLocationPlatform, locationUnblockSteps, type LocationPlatform } from "./location-help";
 
 export type GeoPayload = { latitude: number; longitude: number; accuracyMeters: number };
 
@@ -45,6 +47,13 @@ const FAILURE_COPY: Record<string, string> = {
   UNAVAILABLE: "Check-in could not be recorded right now. Ask a director to check you in.",
 };
 
+const BLOCKED_ON_ARRIVAL =
+  "Location is turned off for this site on this device. Check-in uses it to confirm you are at the clinic, so turn it on first, or ask a director to check you in.";
+
+function currentPlatform(): LocationPlatform {
+  return detectLocationPlatform(navigator.userAgent, navigator.maxTouchPoints ?? 0);
+}
+
 export function CheckInPanel({
   mode,
   action,
@@ -65,6 +74,28 @@ export function CheckInPanel({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  // The best accuracy seen so far while sampling, shown on the button.
+  const [accuracy, setAccuracy] = useState<number | null>(null);
+  // Set while location is blocked: the steps for this device render under the
+  // message, because a blocked browser never asks again on its own.
+  const [unblock, setUnblock] = useState<LocationPlatform | null>(null);
+
+  // A volunteer who blocked location on an earlier visit would otherwise learn
+  // it only by tapping. Where the browser can say so up front, show the steps
+  // before they try. Nothing is reported: no attempt has been made yet.
+  useEffect(() => {
+    if (mode !== "geo" || !("permissions" in navigator)) return;
+    let live = true;
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((status) => {
+        if (live && status.state === "denied") setUnblock(currentPlatform());
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [mode]);
 
   function submit(payload: GeoPayload | null) {
     startTransition(async () => {
@@ -82,35 +113,30 @@ export function CheckInPanel({
     }
 
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setError(FAILURE_COPY.POSITION_UNAVAILABLE);
-      report("POSITION_UNAVAILABLE");
+      fail("POSITION_UNAVAILABLE");
       return;
     }
 
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocating(false);
-        submit({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          accuracyMeters: pos.coords.accuracy,
-        });
-      },
-      (err) => {
-        setLocating(false);
-        // Map the browser's own codes so the message is specific.
-        const reason: ClientDetectedFailureReason =
-          err.code === err.PERMISSION_DENIED
-            ? "PERMISSION_DENIED"
-            : err.code === err.TIMEOUT
-              ? "TIMEOUT"
-              : "POSITION_UNAVAILABLE";
-        setError(FAILURE_COPY[reason]);
-        report(reason);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    setAccuracy(null);
+    void sampleBestFix(navigator.geolocation, {
+      ...DEFAULT_SAMPLER_OPTIONS,
+      onProgress: (best) => setAccuracy(Math.round(best.accuracyMeters)),
+    }).then((outcome) => {
+      setLocating(false);
+      if (!outcome.ok) {
+        fail(outcome.reason);
+        return;
+      }
+      setUnblock(null);
+      submit(outcome.fix);
+    });
+  }
+
+  function fail(reason: ClientDetectedFailureReason) {
+    setError(FAILURE_COPY[reason]);
+    setUnblock(reason === "PERMISSION_DENIED" ? currentPlatform() : null);
+    report(reason);
   }
 
   // Best-effort: never awaited, never lets an analytics hiccup surface as a
@@ -120,13 +146,27 @@ export function CheckInPanel({
   }
 
   const busy = pending || locating;
+  const steps = unblock ? locationUnblockSteps(unblock) : null;
 
   return (
     <div className="flex flex-col gap-4">
-      {error && <Alert tone="warning">{error}</Alert>}
+      {(error || steps) && (
+        <Alert tone="warning">
+          <p>{error ?? BLOCKED_ON_ARRIVAL}</p>
+          {steps && (
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              {steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          )}
+        </Alert>
+      )}
       <Button onClick={onClick} disabled={busy}>
         {locating
-          ? "Finding your location…"
+          ? accuracy === null
+            ? "Finding your location…"
+            : `Finding your location… ±${accuracy} m`
           : pending
             ? "Checking you in…"
             : mode === "remote"

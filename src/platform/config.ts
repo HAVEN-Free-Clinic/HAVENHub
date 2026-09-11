@@ -261,12 +261,15 @@ const schema = z
           }
         })
       ),
-    // Clinic check-in geofence centre latitude. MUST be confirmed against the
-    // actual clinic entrance before production use: a centre fifty metres off is
-    // a fence that fails people at the door.
+    // Clinic check-in geofence centre latitude: the Yale Physicians Building,
+    // 800 Howard Ave. The first default (41.3025, -72.937) sat about 27 m
+    // outside the building's west wall, so every on-site fix measured 54-96 m
+    // from it (production, Aug-Sep 2026). Re-confirm against the building if the
+    // clinic moves: a centre fifty metres off is a fence that fails people at
+    // the door.
     CLINIC_CHECKIN_LATITUDE: z
       .string()
-      .default("41.3025")
+      .default("41.302599")
       .transform(Number)
       .pipe(
         z.number().superRefine((val, ctx) => {
@@ -282,7 +285,7 @@ const schema = z
     // Clinic check-in geofence centre longitude. See CLINIC_CHECKIN_LATITUDE.
     CLINIC_CHECKIN_LONGITUDE: z
       .string()
-      .default("-72.937")
+      .default("-72.936326")
       .transform(Number)
       .pipe(
         z.number().superRefine((val, ctx) => {

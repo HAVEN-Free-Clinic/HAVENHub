@@ -5,7 +5,7 @@ import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getSetting } from "@/platform/settings/service";
 import { displayTodayKey } from "@/platform/dates/today";
-import { evaluateFence, type Coords } from "@/modules/schedule/engine/geofence";
+import { evaluateFence, isPlausibleFix, type Coords } from "@/modules/schedule/engine/geofence";
 
 export type CheckInFailureReason =
   | "PERMISSION_DENIED"
@@ -18,9 +18,16 @@ export type CheckInFailureReason =
   | "NOT_ELIGIBLE"
   | "FENCE_UNCONFIGURED";
 
+/**
+ * The fence reading behind a result, for analytics: rounded metres only, never
+ * coordinates. Present on a fresh SELF_GEO write and on OUT_OF_RANGE and
+ * TOO_IMPRECISE, the failures the thresholds get tuned from.
+ */
+type FenceReading = { distanceMeters?: number; accuracyMeters?: number };
+
 export type CheckInResult =
-  | { ok: true; alreadyCheckedIn: boolean; checkedInAt: Date; method: CheckInMethod }
-  | { ok: false; reason: CheckInFailureReason };
+  | ({ ok: true; alreadyCheckedIn: boolean; checkedInAt: Date; method: CheckInMethod } & FenceReading)
+  | ({ ok: false; reason: CheckInFailureReason } & FenceReading);
 
 export type CheckInState = {
   clinicDate: Date | null;
@@ -159,6 +166,9 @@ export async function checkInSelf(
     method = "SELF_REMOTE";
   } else {
     if (!position) return { ok: false, reason: "POSITION_UNAVAILABLE" };
+    if (!isPlausibleFix(position.coords, position.accuracyMeters)) {
+      return { ok: false, reason: "POSITION_UNAVAILABLE" };
+    }
 
     const fence = await resolveFence();
     if (!fence) return { ok: false, reason: "FENCE_UNCONFIGURED" };
@@ -170,14 +180,21 @@ export async function checkInSelf(
       radiusMeters: fence.radiusMeters,
       maxAccuracyMeters: fence.maxAccuracyMeters,
     });
-    if (!verdict.ok) return { ok: false, reason: verdict.reason };
+    if (!verdict.ok) {
+      return {
+        ok: false,
+        reason: verdict.reason,
+        distanceMeters: verdict.distanceMeters,
+        accuracyMeters: Math.round(position.accuracyMeters),
+      };
+    }
 
     method = "SELF_GEO";
     distanceMeters = verdict.distanceMeters;
     accuracyMeters = Math.round(position.accuracyMeters);
   }
 
-  return writeAttendance({
+  const result = await writeAttendance({
     termId: state.termId,
     clinicDate: state.clinicDate,
     personId,
@@ -187,6 +204,14 @@ export async function checkInSelf(
     recordedById: null,
     note: null,
   });
+
+  // Only a fresh write gets this attempt's reading. On alreadyCheckedIn the row
+  // that stands is an earlier tap's or a director's, and these numbers would
+  // misdescribe it.
+  if (result.ok && !result.alreadyCheckedIn && distanceMeters !== null && accuracyMeters !== null) {
+    return { ...result, distanceMeters, accuracyMeters };
+  }
+  return result;
 }
 
 /**

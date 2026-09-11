@@ -300,8 +300,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     )}
                   </span>
                 </TD>
-                <TD className="text-foreground-soft">
-                  {/* The target turns "3.7 avg" into "3.7 avg · 2 of 3
+                <TD className="whitespace-nowrap text-foreground-soft">
+                  {/* One line: "Not yet scored · 0 of 4" wrapped in every row,
+                      doubling the table's height for a short label.
+                      The target turns "3.7 avg" into "3.7 avg · 2 of 3
                       reviewers" while a row is short, because speed routing
                       ranks an average over two reads against one over three. */}
                   {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}

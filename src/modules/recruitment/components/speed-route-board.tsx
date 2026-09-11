@@ -13,6 +13,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
+import { ROW_WIDTH } from "@/platform/ui/form";
 import type { SpeedRouteBoard as Board, SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
 import type { BatchResult } from "@/modules/recruitment/services/routing";
 import { SpeedRouteModal } from "./speed-route-modal";
@@ -51,7 +52,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
   return (
     <TR>
       <TD className="font-medium text-foreground">{r.name}</TD>
-      <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
+      <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
       <TD className="text-foreground-soft">{r.departmentChoices.join(", ") || "(none)"}</TD>
       <TD><Badge>{applicationStageLabel[r.stage]}</Badge></TD>
       <TD>
@@ -59,7 +60,9 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
           <div className="flex flex-wrap items-center gap-2">
             {kind !== "bottom" && (
               <>
-                <div className="w-32">
+                {/* The control width, not w-32: at 8rem the placeholder read
+                    "Department." and a "(ranked)" option was cut off. */}
+                <div className={ROW_WIDTH.control}>
                   <Select
                     value={h.deptFor(r)}
                     onChange={(e) => h.setDept(r.applicationId, e.target.value)}
@@ -80,7 +83,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
                 <Button type="button" size="sm" variant="outline" disabled={h.busy || h.deptFor(r) === ""} onClick={() => h.onRoute(r.applicationId, h.deptFor(r))}>Route</Button>
               </>
             )}
-            <Button type="button" size="sm" variant="danger" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
+            <Button type="button" size="sm" variant="outline" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -155,12 +158,12 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
           {rows.map((r) => (
             <TR key={r.applicationId}>
               <TD className="font-medium text-foreground">{r.name}</TD>
-              <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
+              <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
               <TD className="text-foreground-soft">{r.returnedFromDepartmentCode ?? "-"}</TD>
               <TD className="text-foreground-soft">{r.returnedReason || "(none given)"}</TD>
               <TD>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="w-32">
+                  <div className={ROW_WIDTH.control}>
                     <Select
                       value={h.deptFor(r)}
                       onChange={(e) => h.setDept(r.applicationId, e.target.value)}
@@ -186,7 +189,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
                   >
                     Route
                   </Button>
-                  <Button type="button" size="sm" variant="danger" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
                 </div>
               </TD>
             </TR>

@@ -139,7 +139,13 @@ for (const r of ROUTES) {
     await loginAs(page, r.allowed);
     const resp = await page.goto(r.path);
     expect(resp?.status(), `${r.path} HTTP status`).toBeLessThan(400);
-    await expect(page).toHaveURL((url) => url.pathname === (r.finalPath ?? r.path));
+    // A finalPath route redirects, and a page redirect under a loading.tsx
+    // streams and runs in the browser after goto resolves (/admin picks the
+    // viewer's first tab, so it cannot be a config redirect). On a loaded CI
+    // runner that took longer than the default 5s, so give it room.
+    await expect(page).toHaveURL((url) => url.pathname === (r.finalPath ?? r.path), {
+      timeout: r.finalPath ? 15_000 : undefined,
+    });
 
     // Positive first: wait for the page body to actually paint something. This
     // is also what makes the negative assertion below meaningful -- checking for
@@ -164,14 +170,18 @@ for (const r of ROUTES) {
       // spots: /no-access (permission denied), /get-started (onboarding gate),
       // or / (hub fallback). The important invariant is that the user is NOT
       // left on the protected route.
-      await page.waitForURL((url) => url.pathname !== r.path, { timeout: 10_000 });
-      const deflected = new URL(page.url()).pathname;
-      expect(
-        deflected === "/no-access" ||
-          deflected === "/" ||
-          deflected.startsWith("/get-started"),
-        `expected denial from ${r.path}, but landed on ${deflected}`,
-      ).toBe(true);
+      //
+      // Waits for a DENIAL landing, not merely for the URL to leave r.path. A
+      // path that redirects before render (/clinic -> /clinic/avs, a config
+      // redirect) leaves r.path at once, and the layout's denial of the
+      // destination then streams in client-side a moment later; "left r.path"
+      // read the URL in between and saw /clinic/avs.
+      await expect
+        .poll(() => new URL(page.url()).pathname, {
+          timeout: 15_000,
+          message: `expected denial from ${r.path} (to /no-access, /get-started or /)`,
+        })
+        .toMatch(/^\/(?:no-access|get-started.*)?$/);
     });
   }
 }

@@ -304,7 +304,11 @@ export const MODULES: ModuleManifest[] = [
       // The form is at /incidents/new, not the module root: the root is where
       // every up-link in the module lands, and landing in a blank concern
       // report is not where a reviewer stepping back from a case wants to be.
-      { label: "Report a concern", href: "/incidents/new" },
+      //
+      // Folded under My reports: filing is an action, not a place, and My reports
+      // carries the "Report a concern" button. It stays in the Incidents
+      // dropdown and Cmd+K, which is where a reviewer reaches it from the queue.
+      { label: "Report a concern", href: "/incidents/new", underTab: "/incidents/mine" },
       { label: "My reports", href: "/incidents/mine" },
       { label: "Review queue", href: "/incidents/review", permission: "incidents.manage" },
       { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },
@@ -410,8 +414,9 @@ export const MODULES: ModuleManifest[] = [
       { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
       // Same gate as the page (see the comment at the top of identities/page.tsx
       // for why issuing an address reuses manage_scopes rather than minting a
-      // fourth permission).
-      { label: "Sending identities", href: "/outreach/identities", permission: "outreach.manage_scopes" },
+      // fourth permission). Folded under Audience scopes, which links to it: the
+      // two are the same person's sender configuration, behind the same gate.
+      { label: "Sending identities", href: "/outreach/identities", permission: "outreach.manage_scopes", underTab: "/outreach/scopes" },
     ],
   },
   {
@@ -491,7 +496,10 @@ export const MODULES: ModuleManifest[] = [
     status: "active",
     nav: [
       { label: "My requests", href: "/support" },
-      { label: "Submit a request", href: "/support/new" },
+      // Folded under My requests, which carries a "Submit a request" button: an
+      // action rather than a place (and with Intercom on, a card whose one
+      // button repeats the chat launcher already on every page).
+      { label: "Submit a request", href: "/support/new", underTab: "/support" },
       {
         label: "All requests",
         href: "/support/all",

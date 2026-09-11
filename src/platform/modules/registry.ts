@@ -348,7 +348,6 @@ export const MODULES: ModuleManifest[] = [
       "admin.manage_email_templates",
       "admin.manage_settings",
       "admin.manage_departments",
-      "admin.manage_subcommittees",
       "admin.manage_roster",
     ],
     status: "active",
@@ -361,8 +360,7 @@ export const MODULES: ModuleManifest[] = [
       { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
       { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
       { label: "Departments", href: "/admin/departments", permission: "admin.manage_departments" },
-      { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
-      { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
+      // Subcommittees and Onboarding contract moved to Recruitment (see there).
       { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       // admin.manage_email_templates granted these two pages and no route to
@@ -456,6 +454,15 @@ export const MODULES: ModuleManifest[] = [
       // otherwise a score-only reviewer (admitted via additionalAccessPermissions
       // above) sees a tab that bounces to /no-access.
       { label: "History", href: "/recruitment/history", permission: "recruitment.access" },
+      // Recruitment setup that used to sit in Admin: the subcommittees applicants
+      // rank, and the master contract every new cycle's contract starts from.
+      // Moved from /admin/subcommittees and /admin/contract, which redirect here.
+      // Gated on manage_cycles, like the rest of cycle setup: under Admin they
+      // needed admin.manage_subcommittees / admin.manage_settings, which no role
+      // granted, so only full admins could reach them. The latter also governs
+      // every app setting, which is not a recruitment lead's to hold.
+      { label: "Subcommittees", href: "/recruitment/subcommittees", permission: "recruitment.manage_cycles" },
+      { label: "Onboarding contract", href: "/recruitment/contract", permission: "recruitment.manage_cycles" },
     ],
   },
   {

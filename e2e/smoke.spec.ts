@@ -30,7 +30,8 @@ const ROUTES: RouteCase[] = [
   { path: "/admin/roles", allowed: "admin", denied: "volunteer" },
   { path: "/admin/terms", allowed: "admin", denied: "volunteer" },
   { path: "/admin/departments", allowed: "admin", denied: "volunteer" },
-  { path: "/admin/subcommittees", allowed: "admin", denied: "volunteer" },
+  // Moved to Recruitment; the old URL redirects (rows for the new ones below).
+  { path: "/admin/subcommittees", allowed: "admin", denied: "volunteer", finalPath: "/recruitment/subcommittees" },
   { path: "/admin/audit", allowed: "admin", denied: "volunteer" },
   { path: "/admin/settings", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email", allowed: "admin", denied: "volunteer" },
@@ -73,6 +74,10 @@ const ROUTES: RouteCase[] = [
   // Recruitment: requireModuleAccess("recruitment") = recruitment.access.
   // Neither the Volunteer nor Director system role carries recruitment.access.
   { path: "/recruitment", allowed: "admin", denied: "volunteer" },
+  // Recruitment setup moved in from Admin. The layout admits a bare session;
+  // each page gates on recruitment.manage_cycles, which denies the volunteer.
+  { path: "/recruitment/subcommittees", allowed: "admin", denied: "volunteer" },
+  { path: "/recruitment/contract", allowed: "admin", denied: "volunteer" },
   // The event create form, moved off the list page onto its own route.
   // `director` rather than `volunteer` is the denial with teeth here: the
   // recruitment layout gates on a bare session, and resolveAttendanceAuthority

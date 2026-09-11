@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 /**
- * /admin/settings renders one Save per setting, and the registry defines roughly
- * 65 of them -- 35 explicit `define(...)` calls plus one per notification
- * channel. Every one carried `variant="primary"`, so the page stacked ~65
- * identical brand-filled calls to action and a brand fill stopped meaning
- * anything.
+ * /admin/settings once rendered one Save per setting, about 65 of them, and
+ * every one carried `variant="primary"`: the page stacked ~65 identical
+ * brand-filled calls to action and a brand fill stopped meaning anything. It now
+ * saves a category at a time, so there are a handful of Saves rather than 65,
+ * but they are still a repeated, non-leading control.
  *
  * FilterBar's doc comment already wrote the rule down for its own Filter button:
  * a repeated, non-leading control is not a page's primary action.
@@ -30,9 +30,11 @@ describe("the /admin/settings action emphasis", () => {
 
   it("keeps Reset quieter than Save, now that Save is quiet too", () => {
     // Two outline siblings inside one card read as a pair of equals, and
-    // resetting is the rarer and more destructive of the two.
-    expect(readFileSync(PAGE, "utf8")).toContain(
-      '<Button type="submit" variant="ghost" size="sm">Reset to default</Button>',
-    );
+    // resetting is the rarer and more destructive of the two. The Reset button
+    // carries its own formAction on the category's form, so match the button
+    // that holds the label rather than one exact spelling of its props.
+    const reset = readFileSync(PAGE, "utf8").match(/<Button\b[^>]*>\s*Reset to default\s*<\/Button>/);
+    expect(reset).not.toBeNull();
+    expect(reset![0]).toContain('variant="ghost"');
   });
 });
